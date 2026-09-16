@@ -130,3 +130,37 @@ for (const role of ['Front Desk','Housekeeping','Unknown']) {
     const f=fixture(route,{profile:{active:true,role},permission:true});assert.equal((await f.handlers[method](f.request)).status,403);assert.equal(f.calls.includes('assets'),false);
   });
 }
+
+const documentationSource=readFileSync(new URL('../src/app/api/assets/documentation/route.ts',import.meta.url),'utf8');
+const documentationAst=ts.createSourceFile('documentation-route.ts',documentationSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+const extractorNames=new Set(['cleanPhrase','firstCapture','extractEquipmentSuggestions']);
+const extractorFunctions=documentationAst.statements
+  .filter(node=>ts.isFunctionDeclaration(node)&&extractorNames.has(node.name?.text))
+  .map(node=>node.getText(documentationAst)).join('\n');
+assert.equal(documentationAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&extractorNames.has(node.name?.text)).length,3);
+const extractorExports={};
+vm.runInNewContext(ts.transpileModule(extractorFunctions+'\nexports.extract=extractEquipmentSuggestions;',{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText,{exports:extractorExports});
+const extractEquipmentSuggestions=extractorExports.extract;
+
+test('equipment PDF extractor reads explicitly labelled fields',()=>{
+  const result=extractEquipmentSuggestions('PAGE 1 Equipment Type: Pool Conditioner Manufacturer: Maritime Geothermal Ltd. Model Number: PC-55-P-15-T-KDERS-13 Serial No: 12345-AB Generation: 2 Installation Year: 2024 Voltage: 208V');
+  assert.equal(result.asset_type,'Pool Conditioner');
+  assert.equal(result.manufacturer,'Maritime Geothermal Ltd');
+  assert.equal(result.model_number,'PC-55-P-15-T-KDERS-13');
+  assert.equal(result.serial_number,'12345-AB');
+  assert.equal(result.generation,'2');
+  assert.equal(result.install_year,2024);
+});
+
+test('equipment PDF extractor supports S/N and manufactured-by labels',()=>{
+  const result=extractEquipmentSuggestions('Manufactured by Friedrich Air Conditioning Model: VEA12K34-RTL-B S/N: ABC12345');
+  assert.equal(result.manufacturer,'Friedrich Air Conditioning');
+  assert.equal(result.model_number,'VEA12K34-RTL-B');
+  assert.equal(result.serial_number,'ABC12345');
+});
+
+test('equipment PDF extractor does not guess identifiers from unlabeled manual numbers',()=>{
+  assert.equal(extractEquipmentSuggestions('Service manual revision 70398301R2 published 2025. Input 208 volts. Page count 44.'),null);
+});
