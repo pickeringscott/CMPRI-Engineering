@@ -20,6 +20,7 @@ const REASON_MESSAGES: Record<string, string> = {
   "membership-error": "CMPRI could not read your property membership.",
   "membership-missing": "Your account is not assigned to this property.",
   "membership-inactive": "Your property membership is inactive.",
+  "permission-error": "CMPRI could not read your role permissions.",
   "exception": "CMPRI encountered an unexpected error while verifying access.",
 };
 
