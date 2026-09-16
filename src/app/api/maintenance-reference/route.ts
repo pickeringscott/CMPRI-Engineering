@@ -11,6 +11,28 @@ type KnowledgePayload = Record<string, unknown> & {
   source?: Record<string, unknown>;
 };
 
+function normalizedModelPattern(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[%*]/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function normalizedModel(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function modelMatchesPattern(modelValue: unknown, patternValue: unknown) {
+  const model = normalizedModel(modelValue);
+  const pattern = normalizedModelPattern(patternValue);
+  if (!model || !pattern) return false;
+  return model.includes(pattern) || pattern.includes(model);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
@@ -86,7 +108,7 @@ export async function GET(request: NextRequest) {
 
       if (!docsError) {
         const manufacturer = String(selectedAsset.manufacturer || "").toLowerCase().trim();
-        const model = String(selectedAsset.model_number || "").toLowerCase().trim();
+        const model = String(selectedAsset.model_number || "").trim();
         const assetText = [
           selectedAsset.name,
           selectedAsset.asset_type,
@@ -99,10 +121,21 @@ export async function GET(request: NextRequest) {
           .map((doc) => {
             const docManufacturer = String(doc.manufacturer || "").toLowerCase().trim();
             const docEquipment = String(doc.equipment || "").toLowerCase();
-            const docModel = String(doc.model_pattern || "").toLowerCase().replace(/%/g, "").trim();
+            const docModelPattern = String(doc.model_pattern || "").trim();
+            const modelSpecific = normalizedModelPattern(docModelPattern).length > 0;
+            const confirmedModelMatch = modelMatchesPattern(model, docModelPattern);
+
+            // Never let a manufacturer/equipment-name match activate a
+            // model-specific manual when the asset model is unknown or does
+            // not match. This prevents cross-model procedures/specifications
+            // from leaking into otherwise similar equipment.
+            if (modelSpecific && !confirmedModelMatch) {
+              return { doc, score: -1 };
+            }
+
             let score = 0;
             if (manufacturer && docManufacturer === manufacturer) score += 80;
-            if (model && docModel && (model.includes(docModel) || docModel.includes(model))) score += 100;
+            if (confirmedModelMatch) score += 140;
             if (docEquipment && assetText.includes(docEquipment)) score += 40;
             const words = docEquipment.split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
             score += words.filter((word) => assetText.includes(word)).length * 5;
@@ -118,13 +151,19 @@ export async function GET(request: NextRequest) {
             (await readCache(best.document_key));
         }
 
-        if (!manualKnowledge) {
+        // Last-resort cache matching is deliberately strict. A bare
+        // manufacturer match is not enough to activate structured technical
+        // knowledge because many manufacturers have multiple unrelated model
+        // families. Exact documentation_key remains authoritative; otherwise
+        // a recorded asset model must appear in the cache identity text.
+        if (!manualKnowledge && model) {
           const { data: cacheRows, error: cacheError } = await dataClient
             .from("troubleshooting_cache")
             .select("cache_key, payload")
             .eq("hotel_id", HOTEL_ID);
 
           if (!cacheError) {
+            const normalizedAssetModel = normalizedModel(model);
             const fallback = (cacheRows ?? [])
               .map((row) => {
                 const payload = (row.payload || {}) as KnowledgePayload;
@@ -136,16 +175,14 @@ export async function GET(request: NextRequest) {
                   source.title,
                   cacheKey,
                 ].filter(Boolean).join(" ").toLowerCase();
+                const normalizedPayloadText = payloadText.replace(/[^a-z0-9]+/g, "");
                 let score = 0;
                 const documentationKey = String(selectedAsset.documentation_key || "").toLowerCase();
                 if (documentationKey && cacheKey === documentationKey) score += 200;
-                if (manufacturer && payloadText.includes(manufacturer)) score += 80;
-                if (model && payloadText.includes(model)) score += 100;
-                const assetWords = assetText.split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
-                score += assetWords.filter((word) => payloadText.includes(word)).length * 6;
+                if (normalizedAssetModel && normalizedPayloadText.includes(normalizedAssetModel)) score += 140;
                 return { payload, score };
               })
-              .filter((item) => item.score > 0)
+              .filter((item) => item.score >= 140)
               .sort((a, b) => b.score - a.score)[0];
             manualKnowledge = fallback?.payload ?? null;
           }
