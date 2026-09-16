@@ -257,3 +257,42 @@ Before go-live, verify:
 - no manual content is marked verified solely because it was uploaded,
 - Front Desk and Maintenance Technician see different troubleshooting depth,
 - troubleshooting remains usable if documentation lookup fails.
+
+## 13. Live implementation gaps found during audit
+The current Next.js work-order page already contains useful issue-first routing, a conservative "already done" filter, diagnostic-code extraction, verified Friedrich VPAK code data, and verified-document gating. The following refinements are still required before this guide is considered fully implemented:
+
+### Actions Taken must participate in filtering
+The current troubleshooting filter must use all relevant technician context, not just the Notes field.
+
+Combine:
+- Technician Notes
+- Actions Taken / Root Cause
+- structured diagnostic actions when available
+
+A check documented in any of those places should be eligible for suppression from the next-step list.
+
+### Diagnostic-code cards must be structured
+Do not render a verified manufacturer code as only:
+- Problem
+- Solution / Action
+
+Where the source provides enough information, render:
+- Reported code
+- Meaning / trigger condition
+- Unit response / fallback behavior
+- Diagnostic checks
+- Expected reading / result
+- Corrective action
+- Source page / PDF
+
+If the manual does not provide one of those fields, leave it absent rather than inventing it.
+
+### General guidance must stay visible during manual lookup
+Selecting or changing an asset must immediately keep issue-based guidance visible.
+Manual loading may add/replace higher-confidence guidance after it resolves, but may not blank the panel.
+
+### Explicitly ruled-out diagnostic codes
+If technician context clearly states a code is not present or has been ruled out, that code must not appear in the "potentially relevant" list simply because its keywords resemble the complaint.
+
+### History-aware context
+Recent completed work on the same asset may be shown separately as "Relevant history" but must not be mixed into manufacturer instructions or presented as a confirmed current diagnosis.
