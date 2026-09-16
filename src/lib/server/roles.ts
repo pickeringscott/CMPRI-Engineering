@@ -145,34 +145,32 @@ export function canChangeAccount(
 /**
  * Titles currently available in User Management.
  *
- * Removed/hidden from assignment for the pre-live cleanup:
- * Engineer, Regional Engineer, VP Facilities, Regional Director Operations,
- * District Manager, Assistant GM, Lead Housekeeping, Executive Housekeeper.
- * Their aliases remain above so historical records still resolve safely.
+ * Current pre-live list:
+ * Chief Engineer, Regional Maintenance, General Manager, Maintenance Technician,
+ * Front Desk, Assistant Manager, Sales Manager, Lead Housekeeper.
+ *
+ * Retired/hidden titles remain in aliases above so historical records continue
+ * to resolve safely without making those titles assignable to new users.
  */
 export const ASSIGNABLE_ROLE_LABELS = [
   "Chief Engineer",
-  "Engineering Manager",
   "Regional Maintenance",
   "General Manager",
-  "Senior Management",
   "Maintenance Technician",
   "Front Desk",
   "Assistant Manager",
   "Sales Manager",
-  "Housekeeping",
   "Lead Housekeeper",
 ] as const;
 
 const ENGINEER_TITLES = [
   "Chief Engineer",
-  "Engineering Manager",
   "Regional Maintenance",
 ];
 
 const MANAGER_TITLES = ["General Manager"];
 
-const SENIOR_TITLES = ["Senior Management"];
+const SENIOR_TITLES: string[] = [];
 
 const TECHNICIAN_TITLES = ["Maintenance Technician"];
 
@@ -182,10 +180,7 @@ const FRONT_DESK_TITLES = [
   "Sales Manager",
 ];
 
-const HOUSEKEEPING_TITLES = [
-  "Housekeeping",
-  "Lead Housekeeper",
-];
+const HOUSEKEEPING_TITLES = ["Lead Housekeeper"];
 
 const ALL_MANAGEABLE_TITLES = [
   ...ENGINEER_TITLES,
