@@ -8,11 +8,23 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const root=fileURLToPath(new URL('../src/',import.meta.url));
+const AUTH_TABLES=new Set(['profiles','hotel_members','role_permissions']);
 function fixture(config={}) {
   const state={active:true,role:'Chief Engineer',...config}, calls=[];
   const db={auth:{getUser:async()=>({data:{user:state.noUser?null:{id:'same-user'}},error:state.authError?{message:'Unavailable'}:null})},from(table){
     calls.push(table);
-    const q={select(){return q;},eq(){return q;},maybeSingle:async()=>table==='hotel_members'?({data:state.noMembership?null:{active:state.membershipActive??true},error:state.membershipError?{message:'Unavailable'}:null}):({data:state.missingProfile?null:{id:'same-user',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null})};
+    const q={
+      select(){return q;},eq(){return q;},
+      maybeSingle:async()=>table==='hotel_members'
+        ? ({data:state.noMembership?null:{user_id:'same-user',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:'admin',active:state.membershipActive??true},error:state.membershipError?{message:'Unavailable'}:null})
+        : table==='role_permissions'
+          ? ({data:null,error:null})
+          : ({data:state.missingProfile?null:{id:'same-user',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null}),
+      then(resolve){
+        if(table==='role_permissions') return Promise.resolve({data:[],error:state.permissionError?{message:'Unavailable'}:null}).then(resolve);
+        return Promise.resolve({data:[],error:null}).then(resolve);
+      },
+    };
     return q;
   }};
   const cache=new Map();
@@ -62,10 +74,10 @@ for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test
 });
 for(const [route,method] of routes.filter(([route,method])=>method==='PATCH'||route.includes('/email/')))for(const role of ['Front Desk','Housekeeping','unknown-admin'])test(`${route} denies integration writes by ${role}`,async()=>{
   const f=fixture({role}),r=await f.load(route)[method](f.request);
-  assert.equal(r.status,route.includes('/email/')?401:403);assert.ok(f.calls.every(v=>v==='profiles'||v==='hotel_members'));
+  assert.equal(r.status,route.includes('/email/')?401:403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} denies housekeeping read access (dashboard required)`,async()=>{
-  const f=fixture({role:'Housekeeping'});const r=await f.load(route).GET(f.request);assert.equal(r.status,403);assert.ok(f.calls.every(v=>v==='profiles'||v==='hotel_members'));
+  const f=fixture({role:'Housekeeping'});const r=await f.load(route).GET(f.request);assert.equal(r.status,403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
 });
 
 for(const config of [{noMembership:true},{membershipActive:false},{membershipError:true}])test(`active profile cannot use CMPRI without active property membership: ${JSON.stringify(config)}`,async()=>{
