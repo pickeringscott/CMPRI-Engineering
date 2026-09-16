@@ -7,8 +7,75 @@ const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
+type Suggestions = {
+  asset_type?: string;
+  manufacturer?: string;
+  model_number?: string;
+  serial_number?: string;
+  generation?: string;
+  install_year?: number;
+};
+
 function safePart(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 140) || "document.pdf";
+}
+
+function cleanPhrase(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^[\s:;,#=-]+|[\s:;,=-]+$/g, "")
+    .trim();
+}
+
+function firstCapture(text: string, patterns: RegExp[]) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = cleanPhrase(String(match?.[1] || ""));
+    if (value) return value;
+  }
+  return "";
+}
+
+/**
+ * Extract only explicitly labelled equipment identifiers from readable PDF
+ * text. This is deliberately conservative: it does not guess a model,
+ * manufacturer or serial number from arbitrary numbers in a manual.
+ */
+function extractEquipmentSuggestions(text: string): Suggestions | null {
+  const flattened = text.replace(/\bPAGE\s+\d+\b/gi, " ").replace(/\s+/g, " ").trim();
+  if (!flattened) return null;
+
+  const model = firstCapture(flattened, [
+    /\bmodel(?:\s+(?:number|no\.?))?\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,60})/i,
+    /\bmodel\s+id\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,60})/i,
+  ]);
+  const serial = firstCapture(flattened, [
+    /\bserial(?:\s+(?:number|no\.?))?\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,80})/i,
+    /\bs\/n\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,80})/i,
+  ]);
+  const manufacturer = firstCapture(flattened, [
+    /\bmanufacturer(?:\s+name)?\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|s\/n|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
+    /\bmanufactured\s+by\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|s\/n|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
+  ]);
+  const generation = firstCapture(flattened, [
+    /\bgeneration\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{0,30})/i,
+    /\bgen(?:eration)?\.?\s*[:#=-]?\s*(\d+[A-Za-z]?)/i,
+  ]);
+  const assetType = firstCapture(flattened, [
+    /\b(?:equipment|product|unit)\s+type\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|manufacturer|generation|gen|install(?:ed|ation)|voltage|power)\b|[.;]|$)/i,
+  ]);
+  const installYearText = firstCapture(flattened, [
+    /\b(?:installation\s+year|year\s+installed|installed\s+in)\s*[:#=-]?\s*((?:19|20)\d{2})\b/i,
+  ]);
+
+  const result: Suggestions = {};
+  if (assetType) result.asset_type = assetType;
+  if (manufacturer) result.manufacturer = manufacturer;
+  if (model) result.model_number = model;
+  if (serial) result.serial_number = serial;
+  if (generation) result.generation = generation;
+  if (installYearText) result.install_year = Number(installYearText);
+  return Object.keys(result).length ? result : null;
 }
 
 async function extractPdfText(bytes: Uint8Array) {
@@ -152,6 +219,7 @@ export async function POST(request: NextRequest) {
   }
 
   const text = await extractPdfText(bytes);
+  const suggestions = text ? extractEquipmentSuggestions(text) : null;
   const { data: signed } = await auth.admin.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60);
   return NextResponse.json({
     document: {
@@ -162,10 +230,12 @@ export async function POST(request: NextRequest) {
       url: signed?.signedUrl || null,
     },
     uploaded,
-    suggestions: null,
+    suggestions,
     processing_status: text ? "processed" : "failed",
     processing_message: text
-      ? "PDF text read locally. Review the document and enter equipment details manually."
+      ? suggestions
+        ? "PDF text read locally and labelled equipment information was extracted for review."
+        : "PDF text read locally, but no labelled equipment identifiers were found. Review the document and enter any missing equipment details manually."
       : "PDF stored, but readable text could not be extracted. Review the PDF and enter equipment details manually.",
   });
 }
