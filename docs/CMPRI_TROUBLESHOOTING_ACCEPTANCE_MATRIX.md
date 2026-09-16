@@ -35,6 +35,16 @@ This matrix turns the refined troubleshooting guide into concrete go-live tests.
 | T28 | Diagnostic relevance | Cooling complaint with no reported code | Relevant manual codes may be shown as reference and clearly labeled as possibilities | Suggested code is labeled as the actual displayed fault |
 | T29 | Ticket notes update | Technician submits a new diagnostic note | Troubleshooting updates so completed checks no longer repeat | User must reload the whole app manually |
 | T30 | Concise presentation | Typical ticket with manual + general guidance | Next useful checks visible quickly; source available without dominating page | Repetitive lockout/safety boilerplate overwhelms troubleshooting |
+| T31 | Preserve general checks | Verified manual cache has `general_checks` | Applicable verified general checks remain available to technician | Normalizer silently drops the entire field |
+| T32 | Preserve manual tests | GE/UniMac/Navien cache has `manual_tests` | Applicable verified test procedure and sourced expected result can be displayed | Only symptom rules/codes survive normalization |
+| T33 | Mislabeled document | File title/index says UniMac dryer; actual content says Pocket Hardmount Washer-Extractor | Document fails verified-content identity check and is quarantined from dryer troubleshooting | Filename/index metadata overrides document content |
+| T34 | Model-specific source with unknown model | GE asset has manufacturer but no recorded AZ95 model | Generic safe guidance may show; AZ95-specific tests remain unverified until model confirmed | AZ95 resistance/service-mode values are presented as if model is known |
+| T35 | Dryer long-dry-time route | Confirmed UTF75-family dryer; complaint is long dry times | Check heat, retained water/load, exhaust, premature heat shutoff, voltage where applicable, make-up air; prioritize lint/exhaust restrictions before airflow-switch adjustment | Airflow switch is adjusted before lint/exhaust/make-up-air restrictions are checked |
+| T36 | Historical repair context | UTF75 dryer history shows prior lint/exhaust repair | Display separately as Relevant History | Historical lint buildup is declared the current root cause without current inspection |
+| T37 | Scotsman source family | Confirmed C0330 family ice maker | Use C0330/Prodigy-family OEM source; capture status/AutoAlert indication before interpreting fault | Generic ice-machine code or unrelated Scotsman family is applied |
+| T38 | Scotsman reduced production | Confirmed C0330 family; reduced ice production | Check scale, water distribution/orifices, sensors, condenser/airflow where applicable, water supply, harvest behavior, status indicators | Refrigeration fault is assumed before water/scale/airflow checks |
+| T39 | Dryer filename/content mismatch | `BoH Dryer UTF75RUF6A2W01.pdf` contains washer-extractor content | Engineering-only mismatch warning; document not trusted for dryer | File remains verified because filename/model index appears correct |
+| T40 | Structured-source identity | Cache manufacturer/equipment/source title conflict with associated document | Cache is not used as verified troubleshooting until reconciled | Cache metadata silently overrides document identity |
 
 ## Go-live blocking failures
 The following failures block troubleshooting go-live:
@@ -46,3 +56,6 @@ The following failures block troubleshooting go-live:
 - Physical TV damage routed to generic repair instead of replace/salvage.
 - Front Desk being shown invasive technician-only procedures.
 - Diagnostic measurements/specifications being invented rather than sourced.
+- Verified `general_checks` or `manual_tests` being discarded by normalization.
+- Filename/index metadata being trusted when actual document content conflicts.
+- Model-specific procedures activating on equipment whose model is not confirmed.
