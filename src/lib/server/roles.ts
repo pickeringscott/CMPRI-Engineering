@@ -1,29 +1,17 @@
 /**
- * CMPRI uses four flat capability levels with selectable display titles:
+ * CMPRI capability policy.
  *
- *   - Engineer level: full technical access + user management + ticket review.
- *     Selectable titles: Engineer, Chief Engineer, Engineering Manager,
- *     Regional Maintenance, Regional Engineer, General Manager, Senior Management,
- *     VP Facilities, Regional Director Operations, District Manager.
- *
- *   - Technician level: technical access to work orders, equipment, rooms, and
- *     integrations — but cannot manage users or review/approve tickets.
- *     Selectable titles: Maintenance Technician.
- *
- *   - Front Desk level: submit-only, can view profiles.
- *     Selectable titles: Front Desk, Assistant GM, Assistant Manager, Sales Manager.
- *
- *   - Housekeeping level: submit-only, can view profiles.
- *     Selectable titles: Housekeeping, Lead Housekeeper, Executive Housekeeper.
- *
- * system_admin is retained as an internal bootstrap role.
- *
- * Within each level, all titles share the same capabilities — the title is a display
- * label, not a hierarchy. Any engineer can manage technician, front desk, and
- * housekeeping accounts. Technicians can edit work orders but not manage users.
+ * - Engineer: technical control. Chief/Regional titles normalize here.
+ * - Manager: management review/approval and subordinate account control, but no technical editing.
+ * - Technician: technical work-order/equipment access, but no user management.
+ * - Front Desk / Housekeeping: submit-only roles.
+ * - Senior Management: read-only oversight.
+ * - system_admin: bootstrap/full-control role.
  */
 export type CmpriRole =
   | "engineer"
+  | "manager"
+  | "senior_management"
   | "technician"
   | "front_desk"
   | "housekeeping"
@@ -51,23 +39,29 @@ const aliases: Readonly<Record<string, CmpriRole>> = {
   engineeringmanager: "engineer",
   regionalmaintenance: "engineer",
   regionalengineer: "engineer",
-  generalmanager: "engineer",
-  gm: "engineer",
-  seniormanagement: "engineer",
-  uppermanagement: "engineer",
-  vpfacilities: "engineer",
-  regionaldirectoroperations: "engineer",
-  districtmanager: "engineer",
+
+  generalmanager: "manager",
+  gm: "manager",
+
+  seniormanagement: "senior_management",
+  uppermanagement: "senior_management",
+  vpfacilities: "senior_management",
+  regionaldirectoroperations: "senior_management",
+  districtmanager: "senior_management",
+
   technician: "technician",
   maintenancetechnician: "technician",
+
   frontdesk: "front_desk",
   assistantgm: "front_desk",
   assistantgeneralmanager: "front_desk",
   assistantmanager: "front_desk",
   salesmanager: "front_desk",
+
   housekeeping: "housekeeping",
   leadhousekeeper: "housekeeping",
   executivehousekeeper: "housekeeping",
+
   systemadmin: "system_admin",
   systemadministrator: "system_admin",
   administrator: "system_admin",
@@ -95,8 +89,10 @@ const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   front_desk: ["submit", "view_profiles"],
   housekeeping: ["submit", "view_profiles"],
   technician: TECHNICAL,
-  engineer: [...TECHNICAL, "review_tickets", "reopen", "manage_users"],
-  system_admin: [...TECHNICAL, "review_tickets", "reopen", "manage_users"],
+  engineer: [...TECHNICAL, "review_tickets", "reopen", "manage_users", "view_profiles"],
+  manager: ["submit", "view_dashboard", "review_tickets", "manage_users", "view_profiles"],
+  senior_management: ["view_dashboard", "view_profiles"],
+  system_admin: [...TECHNICAL, "review_tickets", "reopen", "manage_users", "view_profiles"],
 };
 
 export function roleAllows(role: unknown, capability: Capability): boolean {
@@ -106,26 +102,31 @@ export function roleAllows(role: unknown, capability: Capability): boolean {
 export const isFrontDesk = (role: unknown) => roleKey(role) === "front_desk";
 export const isSubmitOnlyRole = (role: unknown) =>
   ["front_desk", "housekeeping"].includes(roleKey(role));
-export const isReadOnlyRole = () => false;
+export const isReadOnlyRole = (role: unknown) => roleKey(role) === "senior_management";
 
-const MANAGEABLE_TARGETS: readonly CmpriRole[] = [
-  "engineer",
-  "technician",
-  "front_desk",
-  "housekeeping",
-];
-
+/**
+ * Equal roles cannot manage one another. Engineers and General Managers may
+ * manage subordinate operational roles; system_admin is the only role that may
+ * manage engineers/managers/senior-management accounts.
+ */
 export function canManageTargetRole(callerRole: unknown, targetRole: unknown): boolean {
   const caller = roleKey(callerRole);
   const target = roleKey(targetRole);
-  if (target === "system_admin") return false;
+  if (target === "unknown" || target === "system_admin") return false;
   if (caller === "system_admin") return true;
-  return caller === "engineer" && MANAGEABLE_TARGETS.includes(target);
+  if (caller === "engineer") return ["technician", "front_desk", "housekeeping"].includes(target);
+  if (caller === "manager") return ["technician", "front_desk", "housekeeping"].includes(target);
+  return false;
 }
 
-/** Draft supervision: engineers can act on any other engineer's, technician's, or submitter's drafts. */
 export function canSuperviseDraftRole(callerRole: unknown, targetRole: unknown): boolean {
-  return canManageTargetRole(callerRole, targetRole);
+  const caller = roleKey(callerRole);
+  const target = roleKey(targetRole);
+  if (caller === "system_admin") return target !== "system_admin" && target !== "unknown";
+  if (caller === "engineer" || caller === "manager") {
+    return ["technician", "front_desk", "housekeeping"].includes(target);
+  }
+  return false;
 }
 
 export function canChangeAccount(
@@ -165,16 +166,18 @@ const ENGINEER_TITLES = [
   "Engineering Manager",
   "Regional Maintenance",
   "Regional Engineer",
-  "General Manager",
+];
+
+const MANAGER_TITLES = ["General Manager"];
+
+const SENIOR_TITLES = [
   "Senior Management",
   "VP Facilities",
   "Regional Director Operations",
   "District Manager",
 ];
 
-const TECHNICIAN_TITLES = [
-  "Maintenance Technician",
-];
+const TECHNICIAN_TITLES = ["Maintenance Technician"];
 
 const FRONT_DESK_TITLES = [
   "Front Desk",
@@ -189,17 +192,41 @@ const HOUSEKEEPING_TITLES = [
   "Executive Housekeeper",
 ];
 
-const ALL_MANAGEABLE_TITLES = [...ENGINEER_TITLES, ...TECHNICIAN_TITLES, ...FRONT_DESK_TITLES, ...HOUSEKEEPING_TITLES];
+const ALL_MANAGEABLE_TITLES = [
+  ...ENGINEER_TITLES,
+  ...MANAGER_TITLES,
+  ...SENIOR_TITLES,
+  ...TECHNICIAN_TITLES,
+  ...FRONT_DESK_TITLES,
+  ...HOUSEKEEPING_TITLES,
+];
 
 export function assignableRoleLabels(callerRole: unknown): string[] {
   const caller = roleKey(callerRole);
-  if (caller !== "engineer" && caller !== "system_admin") return [];
-  return ALL_MANAGEABLE_TITLES;
+  if (caller === "system_admin") return ALL_MANAGEABLE_TITLES;
+  if (caller === "engineer" || caller === "manager") {
+    return [...TECHNICIAN_TITLES, ...FRONT_DESK_TITLES, ...HOUSEKEEPING_TITLES];
+  }
+  return [];
 }
 
 export function roleDisplayTitle(role: string | null | undefined): string {
   if (!role) return "Unknown";
   return ALL_MANAGEABLE_TITLES.includes(role) ? role : role;
+}
+
+export function membershipRole(role: unknown): "admin" | "manager" | "technician" | "viewer" {
+  switch (roleKey(role)) {
+    case "system_admin":
+    case "engineer":
+      return "admin";
+    case "manager":
+      return "manager";
+    case "technician":
+      return "technician";
+    default:
+      return "viewer";
+  }
 }
 
 export function landingPath(role: unknown): "/work-orders" | "/engineering" | null {
