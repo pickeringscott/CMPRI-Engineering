@@ -2,7 +2,7 @@ name: CMPRI Verify
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2-deep-audit]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -32,3 +32,5 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      - name: Production HTTP smoke
+        run: npm run test:http-smoke
