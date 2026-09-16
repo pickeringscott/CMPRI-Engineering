@@ -166,6 +166,19 @@ export default function ManageEquipmentPage() {
     return doc.storage_path || doc.name;
   }
 
+  function applySuggestions(suggestions: Suggestions) {
+    if (verified) return;
+    setDraft((current) => ({
+      ...current,
+      asset_type: suggestions.asset_type || current.asset_type,
+      manufacturer: suggestions.manufacturer || current.manufacturer,
+      model_number: suggestions.model_number || current.model_number,
+      serial_number: suggestions.serial_number || current.serial_number,
+      generation: suggestions.generation || current.generation,
+      install_year: suggestions.install_year || current.install_year,
+    }));
+  }
+
   async function processDocumentation(options?: { storagePath?: string; file?: File }) {
     if (!selectedId) return;
     const file = options?.file;
@@ -197,9 +210,12 @@ export default function ManageEquipmentPage() {
     displayDocuments(await loadDocuments(selectedId));
     setDocFile(null);
     if (payload.suggestions) {
-      setExtracted(payload.suggestions as Suggestions);
-      setExtractedDraft(payload.suggestions as Suggestions);
-      setDialogMessage("Processed. Review the extracted information before loading it into the equipment record.");
+      const suggestions = payload.suggestions as Suggestions;
+      setExtracted(suggestions);
+      setExtractedDraft(suggestions);
+      applySuggestions(suggestions);
+      setDialogMessage("Processed. Extracted information was loaded into the equipment fields automatically. Review or correct it, then Save Equipment.");
+      setMessage("PDF information loaded into the equipment fields. Review the values and Save Equipment when ready.");
     } else {
       setExtracted(null);
       setExtractedDraft({});
@@ -209,17 +225,9 @@ export default function ManageEquipmentPage() {
 
   function loadExtractedIntoEquipment() {
     if (!extracted || verified) return;
-    setDraft((current) => ({
-      ...current,
-      asset_type: extractedDraft.asset_type || current.asset_type,
-      manufacturer: extractedDraft.manufacturer || current.manufacturer,
-      model_number: extractedDraft.model_number || current.model_number,
-      serial_number: extractedDraft.serial_number || current.serial_number,
-      generation: extractedDraft.generation || current.generation,
-      install_year: extractedDraft.install_year || current.install_year,
-    }));
+    applySuggestions(extractedDraft);
     setShowDocumentationDialog(false);
-    setMessage("Documentation information loaded into the equipment record. Review it, make any final corrections, then Save Equipment.");
+    setMessage("Reviewed documentation information loaded into the equipment record. Make any final corrections, then Save Equipment.");
   }
 
   async function verify() {
@@ -263,9 +271,9 @@ export default function ManageEquipmentPage() {
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
           <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
-              <div><h2 className="font-bold">All Equipment</h2><p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p></div>
-              <button type="button" disabled={!selectedId} onClick={() => { setShowDocumentationDialog(true); setDialogMessage(""); }} className="rounded-lg border border-cyan-500/50 bg-cyan-950/35 px-3 py-2 text-xs font-bold text-cyan-100 disabled:opacity-40">Add Documentation</button>
+            <div className="border-b border-slate-800 px-4 py-3">
+              <h2 className="font-bold">All Equipment</h2>
+              <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
             </div>
             <div className="max-h-[74vh] overflow-y-auto">
               {assets.map((asset) => (
@@ -287,7 +295,7 @@ export default function ManageEquipmentPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}
-                  {!verified && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100">Choose PDF / Upload Documentation</button>}
+                  {!verified && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-md border border-cyan-500/50 bg-cyan-950/30 px-3 py-1.5 text-xs font-bold text-cyan-100">Choose PDF</button>}
                   {!verified && <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
                 </div>
               </div>
@@ -346,12 +354,12 @@ export default function ManageEquipmentPage() {
 
             {extracted && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/15 p-4">
               <h3 className="font-bold text-amber-100">Extracted equipment information</h3>
-              <p className="mt-1 text-xs text-amber-200/70">Review or correct these values here. Loading them does not save or lock the equipment record.</p>
+              <p className="mt-1 text-xs text-amber-200/70">These values were loaded into the equipment fields automatically. Make corrections here if needed; saving and final verification remain separate steps.</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {extractedFields.map(([key, label]) => <label key={key} className="grid gap-1 text-xs font-semibold text-slate-300">{label}<input value={String(extractedDraft[key] ?? "")} onChange={(e) => setExtractedDraft((current) => ({ ...current, [key]: e.target.value || null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white" /></label>)}
                 <label className="grid gap-1 text-xs font-semibold text-slate-300">Install year<input type="number" value={extractedDraft.install_year ?? ""} onChange={(e) => setExtractedDraft((current) => ({ ...current, install_year: e.target.value ? Number(e.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white" /></label>
               </div>
-              <div className="mt-4 flex justify-end"><button type="button" onClick={loadExtractedIntoEquipment} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">Load into Equipment Record</button></div>
+              <div className="mt-4 flex justify-end"><button type="button" onClick={loadExtractedIntoEquipment} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">Apply Reviewed Values</button></div>
             </div>}
 
             <div className="mt-5 border-t border-slate-800 pt-4">
