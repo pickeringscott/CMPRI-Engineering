@@ -13,7 +13,7 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("Engineer");
+  const [role, setRole] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
   const [password, setPassword] = useState("");
   const [setPasswordMode, setSetPasswordMode] = useState(false);
