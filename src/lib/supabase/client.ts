@@ -2,6 +2,9 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createSessionStoragePolicy, SESSION_KEY } from "@/lib/auth/session-storage";
 
+const CMPRI_SUPABASE_URL = "https://uavotsoanubpowvyqaii.supabase.co";
+const CMPRI_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_zk846u55k95wEKSqv5rVJA_ZIDwvRwx";
+
 let client: SupabaseClient | undefined;
 let policy: ReturnType<typeof createSessionStoragePolicy> | undefined;
 
@@ -24,9 +27,8 @@ export function clearDeviceSessionStorage() {
 }
 
 export function createClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) throw new Error("Supabase browser configuration is missing.");
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || CMPRI_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || CMPRI_SUPABASE_PUBLISHABLE_KEY;
   client ??= createSupabaseClient(url, key, {
     auth: {
       storageKey: SESSION_KEY,
