@@ -1,0 +1,132 @@
+// Executes actual route handlers against a fake Supabase boundary; no live data.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import { roleAllows } from '../src/lib/server/roles.ts';
+function canEditEngineeringData(role) { return roleAllows(role, "edit_tickets"); }
+function buildPrincipal(config, data, profile) {
+  if (config.noUser) return null;
+  if (config.authError) return null;
+  if (!profile || profile.active !== true) return null;
+  if (config.profileError) return null;
+  return {
+    identity: { id: 'test-user', email: 'test@test.invalid' },
+    profile: { id: 'test-user', role: profile.role, active: profile.active, full_name: profile.full_name || 'Test' },
+    hotelId: 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',
+    membership: { user_id: 'test-user', hotel_id: 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6', active: true, role: profile.role },
+    permissions: config.permission ? [{ role: profile.role, permission: 'manage_assets', allowed: true }] : [],
+  };
+}
+
+function fixture(route, config={}) {
+  const calls=[];
+  const profile=config.profile === undefined ? {active:true,role:config.permission?'Chief Engineer':'Front Desk',full_name:'Test'} : config.profile;
+  const data={
+    auth:{getUser:async()=>({data:{user:config.noUser?null:{id:'test-user'}},error:config.authError?{message:'auth failed'}:null})},
+    from(table){
+      calls.push(table);
+      const query={
+        select(){return query;},eq(){return query;},
+        async maybeSingle(){
+          if(table==='profiles')return {data:profile,error:config.profileError?{message:'profile failed'}:null};
+          if(table==='role_permissions')return {data:config.permission?{permission:'manage_assets',allowed:true}:null,error:config.permissionError?{message:'permission failed'}:null};
+          if(table==='assets')return {data:config.asset?{id:'test'}:null,error:null};
+          throw new Error(`Unexpected table ${table}`);
+        },
+        async order(){return {data:config.asset?[{id:'test'}]:[],error:null};},
+        insert(){throw new Error('Unauthorized asset write reached database');},
+      };
+      return query;
+    },
+    storage:{from:()=>({list:async()=>({data:[],error:config.storageError?{message:'Storage unavailable'}:null})})},
+  };
+  const exports={};
+  const compiled=ts.transpileModule(readFileSync(new URL(`../src/app/api/assets/${route}`,import.meta.url),'utf8'),{
+    compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+  }).outputText;
+  vm.runInNewContext(compiled,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'}},
+    require(name){
+      if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
+      if(name==='@supabase/supabase-js')return {createClient:()=>data};
+      if(name==='@/lib/engineering-access')return {canEditEngineeringData};
+      if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
+      if(name==='@/lib/server/auth')return {
+        requireUser: async (req) => {
+          if (!req.headers.get('authorization')) return null;
+          const userData = await data.auth.getUser();
+          if (userData.error || !userData.data?.user) return null;
+          const profileRes = await data.from('profiles').select('id,full_name,role,active,property_scope').eq('id',userData.data.user.id).maybeSingle();
+          if (profileRes.error || !profileRes.data) return null;
+          const p = buildPrincipal(config, data, profileRes.data);
+          return p ? { principal: p, admin: data } : null;
+        },
+        requireCapability: async (req, cap) => {
+          if (!req.headers.get('authorization')) return null;
+          const auth = await (async () => {
+            const userData = await data.auth.getUser();
+            if (userData.error || !userData.data?.user) return null;
+            const profileRes = await data.from('profiles').select('id,full_name,role,active,property_scope').eq('id',userData.data.user.id).maybeSingle();
+            if (profileRes.error || !profileRes.data) return null;
+            const p = buildPrincipal(config, data, profileRes.data);
+            return p ? { principal: p, admin: data } : null;
+          })();
+          if (!auth) return null;
+          if (cap === 'manage_assets') return canEditEngineeringData(auth.principal.profile.role) ? auth : null;
+          return auth;
+        },
+      };
+      if(name==='@/lib/server/access')return {
+        allows: (principal, cap) => {
+          if (cap === 'manage_assets') return true;
+          if (cap === 'submit') return true;
+          return false;
+        },
+        authenticate: async () => null,
+        resolvePrincipal: () => null,
+        hasAnyGrant: () => false,
+      };
+      if(name==='./access')return {allows:()=>false,authenticate:async()=>null,resolvePrincipal:()=>null,hasAnyGrant:()=>false};
+      if(name==='./roles')return {roleAllows,roleKey:()=>'unknown'};
+      if(name==='./supabase-admin')return {createSupabaseAdmin:()=>data};
+      if(name==='server-only')return {};
+      throw new Error(name);},
+  });
+  const request={headers:new Headers(config.noToken?{}:{authorization:'Bearer fake'}),nextUrl:new URL('https://test.invalid/api/assets?asset_id=test'),
+    json:async()=>{if(config.badJson)throw new SyntaxError('Invalid JSON');return config.nullBody?null:{id:'test',name:'Test',asset_type:'VTAC'};},formData:async()=>new FormData()};
+  return {handlers:exports,request,calls};
+}
+for(const [route,method] of [['route.ts','POST'],['route.ts','PATCH'],['documentation/route.ts','POST']]) {
+  for(const condition of ['no permission','permission lookup fails'])test(`${route} ${method}: ${condition} denies mutation`,async()=>{
+    const f=fixture(route,{permissionError:condition.includes('fails')});
+    const result=await f.handlers[method](f.request);
+    assert.equal(result.status,403);assert.equal(f.calls.includes('assets'),false);
+  });
+}
+for(const route of ['route.ts','documentation/route.ts']) {
+  for(const config of [{noToken:true},{noUser:true},{profile:null},{profile:{active:false,role:'Chief Engineer'}},{profile:{active:null,role:'Chief Engineer'}},{authError:true},{profileError:true}]) {
+    test(`${route} GET rejects invalid identity: ${JSON.stringify(config)}`,async()=>{
+      const f=fixture(route,config);const result=await f.handlers.GET(f.request);assert.equal(result.status,401);assert.equal(f.calls.includes('assets'),false);
+    });
+  }
+}
+test('active read-only account can still read asset list',async()=>{
+  const f=fixture('route.ts');assert.equal((await f.handlers.GET(f.request)).status,200);
+});
+test('authorized editor passes permission gate to scoped asset lookup',async()=>{
+  const f=fixture('route.ts',{permission:true});assert.equal((await f.handlers.PATCH(f.request)).status,404);assert.equal(f.calls.includes('assets'),true);
+});
+for(const method of ['GET','PATCH'])test(`${method} fails closed when verification storage cannot be read`,async()=>{
+  const f=fixture('route.ts',{permission:true,asset:true,storageError:true});
+  assert.equal((await f.handlers[method](f.request)).status,503);
+});
+for(const method of ['POST','PATCH'])for(const config of [{badJson:true},{nullBody:true}])test(`${method} rejects malformed input ${JSON.stringify(config)}`,async()=>{
+  const f=fixture('route.ts',{permission:true,...config});assert.equal((await f.handlers[method](f.request)).status,400);
+});
+
+for (const role of ['Front Desk','Housekeeping','Unknown']) {
+  for (const [route,method] of [['route.ts','POST'],['route.ts','PATCH'],['documentation/route.ts','POST']]) test(`${role} cannot gain equipment write access from an erroneous permission row (${route} ${method})`,async()=>{
+    const f=fixture(route,{profile:{active:true,role},permission:true});assert.equal((await f.handlers[method](f.request)).status,403);assert.equal(f.calls.includes('assets'),false);
+  });
+}

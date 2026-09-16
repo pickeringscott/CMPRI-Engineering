@@ -1,0 +1,210 @@
+import { NextRequest, NextResponse } from "next/server";
+import { HOTEL_ID } from "@/lib/constants";
+import { requireCapability } from "@/lib/server/auth";
+import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole } from "@/lib/server/roles";
+
+function callerCanChangeAccount(callerRole: unknown, callerId: string, target: { id: string; role: unknown }): boolean {
+  if (!callerId || !target.id || callerId === target.id) return false;
+  return canManageTargetRole(callerRole, target.role);
+}
+
+function callerCanAssignRole(callerRole: unknown, role: unknown): boolean {
+  return canManageTargetRole(callerRole, role);
+}
+
+async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await request.json();
+    return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const access = await requireCapability(request, "manage_users");
+  if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
+  const { principal, admin } = access;
+
+  const { data: profiles, error: profileError } = await admin
+    .from("profiles")
+    .select("id, email, full_name, role, active")
+    .order("full_name", { ascending: true });
+  if (profileError) return NextResponse.json({ error: "Unable to read CMPRI user profiles." }, { status: 503 });
+
+  const callerRole = principal.profile.role;
+  const callerId = principal.identity?.id ?? principal.profile.id;
+  const users = (profiles || []).map((user: { id: string; role: unknown }) => ({
+    ...user,
+    can_manage: callerCanChangeAccount(callerRole, callerId, { id: user.id, role: user.role }),
+  }));
+
+  const managedRoles = new Set<string>();
+  for (const user of users) {
+    if (user.can_manage && typeof user.role === "string" && user.role) managedRoles.add(user.role);
+  }
+  for (const label of ASSIGNABLE_ROLE_LABELS) {
+    if (callerCanAssignRole(callerRole, label)) managedRoles.add(label);
+  }
+  return NextResponse.json({ users, assignable_roles: Array.from(managedRoles) });
+}
+
+export async function POST(request: NextRequest) {
+  const access = await requireCapability(request, "manage_users");
+  if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
+  const { principal, admin } = access;
+  const body = await readBody(request);
+  if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
+
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
+  const role = typeof body.role === "string" ? body.role.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!role || !callerCanAssignRole(principal.profile.role, role)) {
+    return NextResponse.json({ error: "You may only assign Engineer, Technician, Front Desk, or Housekeeping roles." }, { status: 403 });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !fullName || fullName.length > 200) {
+    return NextResponse.json({ error: "A valid name and email are required." }, { status: 400 });
+  }
+  if (password && password.length < 10) {
+    return NextResponse.json({ error: "A temporary password must be at least 10 characters." }, { status: 400 });
+  }
+
+  let id: string | undefined;
+  if (password) {
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName },
+    });
+    if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
+    id = created.user?.id;
+  } else {
+    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, { data: { full_name: fullName } });
+    if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
+    id = invited.user?.id;
+  }
+  if (!id) return NextResponse.json({ error: "The account could not be created." }, { status: 502 });
+
+  const { error: profileError } = await admin.from("profiles").upsert({
+    id,
+    email,
+    full_name: fullName,
+    role,
+    property_scope: "assigned_property",
+    active: true,
+    hotel_id: HOTEL_ID,
+  });
+  if (profileError) {
+    return NextResponse.json({ error: `The login was created, but its CMPRI profile could not be set up: ${profileError.message}` }, { status: 500 });
+  }
+
+  return NextResponse.json({ user: { id, email, full_name: fullName, role, active: true, invited: !password } });
+}
+
+export async function PATCH(request: NextRequest) {
+  const access = await requireCapability(request, "manage_users");
+  if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
+  const { principal, admin } = access;
+  const body = await readBody(request);
+  if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  if (!id) return NextResponse.json({ error: "User id is required." }, { status: 400 });
+
+  const { data: target, error: targetError } = await admin
+    .from("profiles")
+    .select("id, email, full_name, role, active")
+    .eq("id", id)
+    .maybeSingle();
+  if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
+  if (!target) return NextResponse.json({ error: "Account not found." }, { status: 404 });
+
+  const callerRole = principal.profile.role;
+  const callerId = principal.identity?.id ?? principal.profile.id;
+  if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
+    return NextResponse.json({ error: "You can only manage other engineers, technicians, front desk, and housekeeping accounts. System admin and your own account are protected." }, { status: 403 });
+  }
+
+  let proposedRole: string = typeof target.role === "string" ? target.role : "";
+  if (body.role !== undefined) {
+    const raw = typeof body.role === "string" ? body.role.trim() : "";
+    const isKnownLabel = raw && (ASSIGNABLE_ROLE_LABELS as readonly string[]).includes(raw);
+    if (!isKnownLabel || !callerCanAssignRole(callerRole, raw)) {
+      return NextResponse.json({ error: "You may only assign Engineer, Technician, Front Desk, or Housekeeping roles." }, { status: 403 });
+    }
+    proposedRole = raw;
+  }
+
+  if (body.full_name !== undefined && (typeof body.full_name !== "string" || !body.full_name.trim() || body.full_name.trim().length > 200)) {
+    return NextResponse.json({ error: "A valid full name is required." }, { status: 400 });
+  }
+  if (body.active !== undefined && typeof body.active !== "boolean") {
+    return NextResponse.json({ error: "Active must be true or false." }, { status: 400 });
+  }
+
+  const update: Record<string, unknown> = {};
+  if (typeof body.full_name === "string") update.full_name = body.full_name.trim();
+  if (body.role !== undefined) update.role = proposedRole;
+  if (typeof body.active === "boolean") update.active = body.active;
+  if (!Object.keys(update).length) return NextResponse.json({ error: "No account changes were supplied." }, { status: 400 });
+
+  const { data, error } = await admin.from("profiles")
+    .update(update)
+    .eq("id", id)
+    .eq("role", target.role)
+    .select("id, email, full_name, role, active")
+    .single();
+  if (error) {
+    return NextResponse.json({ error: "This account changed while you were editing it. Reload the user list and try again." }, { status: 409 });
+  }
+
+  return NextResponse.json({
+    user: {
+      ...data,
+      can_manage: callerCanChangeAccount(callerRole, callerId, { id: data.id, role: data.role }),
+    },
+  });
+}
+
+export async function DELETE(request: NextRequest) {
+  const access = await requireCapability(request, "manage_users");
+  if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
+  const { principal, admin } = access;
+
+  const url = new URL(request.url);
+  const id = url.searchParams.get("id")?.trim() ?? "";
+  const confirmName = url.searchParams.get("confirm_name")?.trim() ?? "";
+  if (!id) return NextResponse.json({ error: "User id is required." }, { status: 400 });
+
+  const { data: target, error: targetError } = await admin
+    .from("profiles")
+    .select("id, email, full_name, role")
+    .eq("id", id)
+    .maybeSingle();
+  if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
+  if (!target) return NextResponse.json({ error: "Account not found." }, { status: 404 });
+
+  const callerRole = principal.profile.role;
+  const callerId = principal.identity?.id ?? principal.profile.id;
+  if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
+    return NextResponse.json({ error: "You can only permanently delete other engineers, technicians, front desk, and housekeeping accounts." }, { status: 403 });
+  }
+
+  const expected = (target.full_name || "").trim();
+  if (!expected || confirmName !== expected) {
+    return NextResponse.json({ error: "Type the account's full name exactly to confirm the permanent deletion." }, { status: 400 });
+  }
+
+  const { error: purgeError } = await admin.rpc("purge_cmpri_user", { target_id: id });
+  if (purgeError) {
+    return NextResponse.json({ error: `Unable to remove this user's data: ${purgeError.message}` }, { status: 500 });
+  }
+
+  const { error: authError } = await admin.auth.admin.deleteUser(id);
+  if (authError && authError.status !== 404) {
+    return NextResponse.json({ error: `The user's data was removed but their login could not be deleted: ${authError.message}` }, { status: 500 });
+  }
+
+  return NextResponse.json({ deleted: id });
+}

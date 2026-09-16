@@ -1,0 +1,116 @@
+import { NextRequest, NextResponse } from "next/server";
+import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
+import { requireCapability } from "@/lib/server/auth";
+
+function hotelDate() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: HOTEL_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(new Date()).reduce<Record<string, string>>((acc, part) => { acc[part.type] = part.value; return acc; }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function validDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function normalizedDate(value: unknown, label: string): string {
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value !== "string") throw new Error(`${label} is invalid.`);
+  const text = value.trim();
+  const us = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+  if (us) {
+    const year = us[3].length === 2 ? `20${us[3]}` : us[3];
+    const iso = `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+    if (!validDate(iso)) throw new Error(`${label} '${text}' is invalid.`);
+    return iso;
+  }
+  if (validDate(text.slice(0, 10))) return text.slice(0, 10);
+  throw new Error(`${label} '${text}' is invalid.`);
+}
+
+function roomNumber(value: unknown, label: string) {
+  if (typeof value !== "string") throw new Error(`${label} is invalid.`);
+  const room = value.match(/\b\d{2,4}\b/)?.[0] || "";
+  if (!room) throw new Error(`${label} must contain a room number.`);
+  return room;
+}
+
+function shortText(value: unknown, label: string, max: number) {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string" || value.trim().length > max) throw new Error(`${label} is invalid.`);
+  return value.trim();
+}
+
+export async function GET(request: NextRequest) {
+  const auth = await requireCapability(request, "view_dashboard");
+  if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
+  const date = request.nextUrl.searchParams.get("date") || hotelDate();
+  if (!validDate(date)) return NextResponse.json({ error: "Room-operations date is invalid." }, { status: 400 });
+  const { data, error } = await auth.admin.from("cmpri_room_operations")
+    .select("room, checkout_date, checkout_time, room_status, arrival_date, arrival_time, move_from, move_to, guest_name, room_type, guest_code, guest_arrival_date, stay_nights, reserved, imported_at")
+    .eq("hotel_id", HOTEL_ID).eq("report_date", date).order("room");
+  if (error) return NextResponse.json({ error: "Shared room-operations data is not configured." }, { status: 503 });
+  return NextResponse.json({ date, rows: data || [] }, { headers: { "Cache-Control": "no-store" } });
+}
+
+export async function POST(request: NextRequest) {
+  const auth = await requireCapability(request, "edit_tickets");
+  if (!auth) return NextResponse.json({ error: "Engineering ticket-edit permission is required to import room operations." }, { status: 403 });
+  let body: Record<string, unknown>;
+  try {
+    const parsed: unknown = await request.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+    body = parsed as Record<string, unknown>;
+  } catch { return NextResponse.json({ error: "A valid JSON import is required." }, { status: 400 }); }
+  const source = shortText(body.source, "Import source", 20) || "paste";
+  if (!["paste", "file", "photo"].includes(source)) return NextResponse.json({ error: "Import source is invalid." }, { status: 400 });
+  const reportDate = typeof body.report_date === "string" && body.report_date ? body.report_date : hotelDate();
+  if (!validDate(reportDate)) return NextResponse.json({ error: "Report date is invalid." }, { status: 400 });
+  if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 500) return NextResponse.json({ error: "Import between 1 and 500 room rows." }, { status: 400 });
+
+  const { data: locations, error: locationError } = await auth.admin.from("locations")
+    .select("room_number, name").eq("hotel_id", HOTEL_ID).eq("active", true).limit(2000);
+  if (locationError || !locations || locations.length >= 2000) return NextResponse.json({ error: "CMPRI room list could not be verified. Nothing was imported." }, { status: 503 });
+  const knownRooms = new Set(locations.map((location) => String(location.room_number || location.name?.match(/\b\d{2,4}\b/)?.[0] || "")).filter(Boolean));
+  const seen = new Set<string>();
+  const rows: Record<string, unknown>[] = [];
+  try {
+    body.rows.forEach((value, index) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Row ${index + 1} is invalid.`);
+      const row = value as Record<string, unknown>;
+      const room = roomNumber(row.room, `Row ${index + 1} room`);
+      if (!knownRooms.has(room)) throw new Error(`Row ${index + 1}: Room ${room} is not an active CMPRI room.`);
+      if (seen.has(room)) throw new Error(`Room ${room} appears more than once in this import.`);
+      seen.add(room);
+      rows.push({
+        room,
+        checkout_date: normalizedDate(row.checkoutDate ?? row.checkout_date, `Row ${index + 1} checkout date`),
+        checkout_time: shortText(row.checkoutTime ?? row.checkout_time, `Row ${index + 1} checkout time`, 80),
+        room_status: shortText(row.roomStatus ?? row.room_status, `Row ${index + 1} room status`, 200),
+        arrival_date: normalizedDate(row.arrivalDate ?? row.arrival_date, `Row ${index + 1} arrival date`),
+        arrival_time: shortText(row.arrivalTime ?? row.arrival_time, `Row ${index + 1} arrival time`, 80),
+        move_from: row.moveFrom || row.move_from ? roomNumber(row.moveFrom ?? row.move_from, `Row ${index + 1} move-from room`) : "",
+        move_to: row.moveTo || row.move_to ? roomNumber(row.moveTo ?? row.move_to, `Row ${index + 1} move-to room`) : "",
+        guest_name: shortText(row.guestName ?? row.guest_name, `Row ${index + 1} guest name`, 200),
+        room_type: shortText(row.roomType ?? row.room_type, `Row ${index + 1} room type`, 80),
+        guest_code: shortText(row.guestCode ?? row.guest_code, `Row ${index + 1} guest code`, 80),
+        guest_arrival_date: normalizedDate(row.guestArrivalDate ?? row.guest_arrival_date, `Row ${index + 1} guest arrival date`),
+        stay_nights: Math.max(0, Math.min(3650, Math.round(Number(row.stayNights ?? row.stay_nights ?? 0) || 0))),
+        reserved: row.reserved === true || ["true", "yes", "y", "1", "reserved", "blk"].includes(String(row.reserved || "").trim().toLowerCase()),
+      });
+    });
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Room-operations validation failed." }, { status: 400 }); }
+
+  const actorName = auth.principal.profile.full_name || auth.principal.identity.email || "CMPRI Engineering";
+  const { data: importId, error } = await auth.admin.rpc("cmpri_replace_room_operations", {
+    p_hotel_id: HOTEL_ID,
+    p_report_date: reportDate,
+    p_actor_id: auth.principal.identity.id,
+    p_actor_name: actorName,
+    p_source_type: source,
+    p_rows: rows,
+  });
+  if (error) return NextResponse.json({ error: `Room operations were not saved: ${error.message}` }, { status: 409 });
+  return NextResponse.json({ ok: true, import_id: importId, date: reportDate, count: rows.length });
+}

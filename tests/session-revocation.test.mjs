@@ -1,0 +1,76 @@
+// Actual modules and route handlers; external auth, database and network are fake.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import vm from 'node:vm';
+import ts from 'typescript';
+
+const root=fileURLToPath(new URL('../src/',import.meta.url));
+function fixture(config={}) {
+  const state={active:true,role:'Chief Engineer',...config}, calls=[];
+  const db={auth:{getUser:async()=>({data:{user:state.noUser?null:{id:'same-user'}},error:state.authError?{message:'Unavailable'}:null})},from(table){
+    calls.push(table);
+    const q={select(){return q;},eq(){return q;},maybeSingle:async()=>table==='hotel_members'?({data:state.noMembership?null:{active:state.membershipActive??true},error:state.membershipError?{message:'Unavailable'}:null}):({data:state.missingProfile?null:{id:'same-user',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null})};
+    return q;
+  }};
+  const cache=new Map();
+  function load(filename) {
+    if(cache.has(filename))return cache.get(filename);
+    const exports={};cache.set(filename,exports);
+    const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+    vm.runInNewContext(source,{exports,URL,Headers,AbortSignal,console,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_CORPORATE_PM_API_KEY:'fake'}},
+      fetch:async()=>{calls.push('network');return {ok:true,status:200,text:async()=>'{"ok":true}'};},
+      require(name){
+        if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
+        if(name==='@supabase/supabase-js')return {createClient:()=>db};
+        if(name==='openai')return {default:class {constructor(){throw new Error('Unexpected AI provider access');}}};
+        if(name==='server-only')return {};
+        if(name.startsWith('@/')||name.startsWith('.')) {
+          let file=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(filename),name);
+          if(!existsSync(file))file=file.replace(/\.ts$/,'')+'.ts';
+          return load(file);
+        }
+        throw new Error(`Unexpected external module ${name}`);
+      },
+    });return exports;
+  }
+  return {state,calls,load:relative=>load(path.join(root,relative.startsWith('api/')?'app/'+relative:relative)),request:{url:'https://test.invalid/api/test',headers:new Headers({authorization:'Bearer same-token'}),json:async()=>({action:'refresh-engineering-dashboard',id:'test',status:'Received'})}};
+}
+const invalid=[{active:false},{active:null},{missingProfile:true},{authError:true},{profileError:true},{noUser:true}];
+for(const config of invalid)test(`shared authentication rejects ${JSON.stringify(config)}`,async()=>{
+  const f=fixture(config);assert.equal(await f.load('lib/server/request-auth.ts').authenticatedUser(f.request),null);
+  assert.equal(f.calls.includes('network'),false);
+});
+test('same bearer token is rechecked and denied immediately after profile deactivation',async()=>{
+  const f=fixture(),auth=f.load('lib/server/request-auth.ts');
+  assert.ok(await auth.authenticatedUser(f.request));
+  f.state.active=false;
+  assert.equal(await auth.authenticatedUser(f.request),null);
+  assert.equal(f.calls.filter(v=>v==='profiles').length,2);
+});
+const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/maintenance-ai/route.ts','POST'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
+for(const [route,method] of routes)for(const config of [{active:false},{profileError:true}])test(`${route} ${method} blocks revoked/unverifiable session ${JSON.stringify(config)}`,async()=>{
+  const f=fixture(config);const r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
+  assert.equal(r.status,401);assert.ok(f.calls.every(v=>v==='profiles'),'No downstream data, network or provider access');
+});
+for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
+  const f=fixture(),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,true);
+  f.state.active=false;f.calls.length=0;
+  assert.equal((await handlers.GET(f.request)).status,401);assert.equal(f.calls.includes('network'),false);
+});
+for(const [route,method] of routes.filter(([route,method])=>method==='PATCH'||route.includes('/email/')))for(const role of ['Front Desk','Housekeeping','unknown-admin'])test(`${route} denies integration writes by ${role}`,async()=>{
+  const f=fixture({role}),r=await f.load(route)[method](f.request);
+  assert.equal(r.status,route.includes('/email/')?401:403);assert.ok(f.calls.every(v=>v==='profiles'||v==='hotel_members'));
+});
+for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} denies housekeeping read access (dashboard required)`,async()=>{
+  const f=fixture({role:'Housekeeping'});const r=await f.load(route).GET(f.request);assert.equal(r.status,403);assert.ok(f.calls.every(v=>v==='profiles'||v==='hotel_members'));
+});
+
+for(const config of [{noMembership:true},{membershipActive:false},{membershipError:true}])test(`active profile cannot use CMPRI without active property membership: ${JSON.stringify(config)}`,async()=>{
+ const f=fixture(config);assert.equal(await f.load('lib/server/request-auth.ts').authenticatedUser(f.request),null);assert.equal(f.calls.includes('network'),false);
+});
+test('the same token is rejected after property membership revocation',async()=>{
+ const f=fixture(),auth=f.load('lib/server/request-auth.ts');assert.ok(await auth.authenticatedUser(f.request));f.state.membershipActive=false;assert.equal(await auth.authenticatedUser(f.request),null);
+});

@@ -1,0 +1,468 @@
+{
+  "source": "Read-only Supabase OpenAPI inspection, 2026-09-15. Column shapes only; does not include all constraints, triggers, grants or RLS. No database records or credentials.",
+  "definitions": {
+    "work_orders": {
+      "required": [
+        "id",
+        "hotel_id",
+        "display_id",
+        "room",
+        "asset_name",
+        "category",
+        "issue",
+        "priority",
+        "technician_name",
+        "action_root_cause",
+        "parts",
+        "cost",
+        "hours",
+        "status",
+        "notes",
+        "logged_on",
+        "created_at",
+        "updated_at",
+        "creator_name",
+        "creator_initials",
+        "creator_source"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "hotel_id": {
+          "description": "Note:\nThis is a Foreign Key to `hotels.id`.<fk table='hotels' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "display_id": {
+          "format": "text",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "text",
+          "type": "string"
+        },
+        "location_id": {
+          "description": "Note:\nThis is a Foreign Key to `locations.id`.<fk table='locations' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "asset_id": {
+          "description": "Note:\nThis is a Foreign Key to `assets.id`.<fk table='assets' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "room": {
+          "format": "text",
+          "type": "string"
+        },
+        "asset_name": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "category": {
+          "default": "General",
+          "format": "text",
+          "type": "string"
+        },
+        "issue": {
+          "format": "text",
+          "type": "string"
+        },
+        "priority": {
+          "default": "Medium",
+          "format": "text",
+          "type": "string"
+        },
+        "technician_id": {
+          "description": "Note:\nThis is a Foreign Key to `technicians.id`.<fk table='technicians' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "technician_name": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "action_root_cause": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "parts": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "cost": {
+          "default": 0,
+          "format": "numeric",
+          "type": "number"
+        },
+        "hours": {
+          "default": 0,
+          "format": "numeric",
+          "type": "number"
+        },
+        "status": {
+          "default": "Open",
+          "enum": [
+            "Open",
+            "In Progress",
+            "Completed",
+            "Done"
+          ],
+          "format": "public.work_order_status",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "logged_on": {
+          "default": "CURRENT_DATE",
+          "format": "date",
+          "type": "string"
+        },
+        "due_by": {
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "completed_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "action_updated_at": {
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "created_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "creator_name": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "creator_initials": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "creator_source": {
+          "default": "signed_in_user",
+          "format": "text",
+          "type": "string"
+        },
+        "creator_account_user_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "profiles": {
+      "required": [
+        "id",
+        "role",
+        "property_scope",
+        "active",
+        "created_at",
+        "updated_at",
+        "preferred_language"
+      ],
+      "properties": {
+        "id": {
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "email": {
+          "format": "text",
+          "type": "string"
+        },
+        "full_name": {
+          "format": "text",
+          "type": "string"
+        },
+        "role": {
+          "default": "front_desk",
+          "format": "text",
+          "type": "string"
+        },
+        "property_scope": {
+          "default": "assigned_property",
+          "format": "text",
+          "type": "string"
+        },
+        "active": {
+          "default": true,
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "created_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "preferred_language": {
+          "default": "en",
+          "format": "text",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "hotels": {
+      "required": [
+        "id",
+        "code",
+        "name",
+        "timezone",
+        "default_checkout_time",
+        "default_checkin_time",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "code": {
+          "format": "text",
+          "type": "string"
+        },
+        "name": {
+          "format": "text",
+          "type": "string"
+        },
+        "timezone": {
+          "default": "America/Chicago",
+          "format": "text",
+          "type": "string"
+        },
+        "default_checkout_time": {
+          "default": "11:00:00",
+          "format": "time without time zone",
+          "type": "string"
+        },
+        "default_checkin_time": {
+          "default": "15:00:00",
+          "format": "time without time zone",
+          "type": "string"
+        },
+        "created_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "pool_daily_logs": {
+      "description": "Daily Illinois swimming facility operational records. Retain for at least three years and make available for inspection.",
+      "required": [
+        "id",
+        "hotel_id",
+        "pool_facility_id",
+        "log_date",
+        "completed_by_initials",
+        "remarks",
+        "requires_attention",
+        "closure_condition",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "hotel_id": {
+          "description": "Note:\nThis is a Foreign Key to `hotels.id`.<fk table='hotels' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "pool_facility_id": {
+          "description": "Note:\nThis is a Foreign Key to `pool_facilities.id`.<fk table='pool_facilities' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "log_date": {
+          "format": "date",
+          "type": "string"
+        },
+        "ph_shallow_am": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "ph_shallow_pm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "ph_deep_am": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "ph_deep_pm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "main_drain_visible": {
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "sanitizer_shallow_am": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "sanitizer_shallow_pm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "sanitizer_deep_am": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "sanitizer_deep_pm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "flow_rate_gpm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "filter_backwashed": {
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "temperature_f": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "combined_chlorine_ppm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "cyanuric_acid_ppm": {
+          "format": "numeric",
+          "type": "number"
+        },
+        "completed_by_initials": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "remarks": {
+          "default": "",
+          "format": "text",
+          "type": "string"
+        },
+        "requires_attention": {
+          "default": false,
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "closure_condition": {
+          "default": false,
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "linked_work_order_id": {
+          "description": "Note:\nThis is a Foreign Key to `work_orders.id`.<fk table='work_orders' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "created_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "hotel_members": {
+      "required": [
+        "hotel_id",
+        "user_id",
+        "role",
+        "active",
+        "created_at"
+      ],
+      "properties": {
+        "hotel_id": {
+          "description": "Note:\nThis is a Primary Key.<pk/>\nThis is a Foreign Key to `hotels.id`.<fk table='hotels' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "role": {
+          "default": "viewer",
+          "enum": [
+            "admin",
+            "manager",
+            "technician",
+            "viewer"
+          ],
+          "format": "public.hotel_role",
+          "type": "string"
+        },
+        "active": {
+          "default": true,
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "created_at": {
+          "default": "now()",
+          "format": "timestamp with time zone",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  }
+}

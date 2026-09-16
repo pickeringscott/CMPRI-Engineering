@@ -1,0 +1,117 @@
+export const CMPRI_POOL = {
+  inspectionVolumeGallons: 17_909,
+  dosingBasisGallons: 20_000,
+  requiredFlowGpm: 48,
+  observedFlowGpm20260623: 80,
+  sanitizer: "Bromine",
+  testKit: "Taylor K-2005 Complete DPD Pool Test Kit",
+} as const;
+
+export const poolReadings = [
+  ["ph_am", "AM pH"],
+  ["sanitizer_am", "AM bromine (ppm)"],
+  ["ph_pm", "PM pH"],
+  ["sanitizer_pm", "PM bromine (ppm)"],
+  ["flow_rate_gpm", "Flow rate (gpm)"],
+  ["temperature_f", "Water temperature (°F)"],
+  ["combined_chlorine_ppm", "Combined chlorine (ppm), if recorded"],
+  ["cyanuric_acid_ppm", "Cyanuric acid (ppm), if recorded"],
+] as const;
+
+export const poolLocationReadings = [
+  ["ph_shallow_am", "AM shallow pH"],
+  ["sanitizer_shallow_am", "AM shallow bromine (ppm)"],
+  ["ph_deep_am", "AM deep pH"],
+  ["sanitizer_deep_am", "AM deep bromine (ppm)"],
+  ["ph_shallow_pm", "PM shallow pH"],
+  ["sanitizer_shallow_pm", "PM shallow bromine (ppm)"],
+  ["ph_deep_pm", "PM deep pH"],
+  ["sanitizer_deep_pm", "PM deep bromine (ppm)"],
+] as const;
+
+/**
+ * CMPRI takes ONE physical sample per period at a chosen location (shallow or
+ * deep). The single reading is reported at that location column, while the
+ * other location column stays empty. Historical rows that pre-date this rule
+ * remain readable from their stored location columns.
+ */
+export function poolLocationValue(log: Record<string, unknown>, key: string): unknown {
+  const match = key.match(/^(ph|sanitizer)_(shallow|deep)_(am|pm)$/);
+  if (!match) return log[key] ?? null;
+  const [, reading, location, period] = match;
+  const stored = log[key];
+  if (stored != null && stored !== "") return stored;
+  const sampleLocation = log[`sample_location_${period}`];
+  if (sampleLocation === location) {
+    const generic = log[`${reading}_${period}`];
+    return generic ?? null;
+  }
+  return null;
+}
+
+export function validLogDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function numericReading(value: unknown, key: string) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`Enter a valid number for ${key.replaceAll("_", " ")}.`);
+  if (key.startsWith("ph_") && value > 14) throw new Error("pH must be between 0 and 14.");
+  if (!key.startsWith("ph_") && value > 1_000_000) throw new Error(`Enter a valid number for ${key.replaceAll("_", " ")}.`);
+  return value;
+}
+
+export function poolLogInput(body: Record<string, unknown>) {
+  if (!validLogDate(body.log_date) || typeof body.pool_facility_id !== "string" || !/^[a-f0-9-]{36}$/i.test(body.pool_facility_id)) {
+    throw new Error("Select a valid date and pool.");
+  }
+  const row: Record<string, unknown> = {
+    log_date: body.log_date,
+    pool_facility_id: body.pool_facility_id,
+  };
+
+  for (const [key] of poolReadings) row[key] = numericReading(body[key], key);
+
+  for (const period of ["am", "pm"] as const) {
+    const ph = row[`ph_${period}`];
+    const bromine = row[`sanitizer_${period}`];
+    if ((ph == null) !== (bromine == null)) {
+      throw new Error(`${period.toUpperCase()} completion requires both pH and bromine from the same physical sample.`);
+    }
+    const location = body[`sample_location_${period}`];
+    if (ph == null) {
+      row[`sample_location_${period}`] = null;
+    } else {
+      if (location !== "shallow" && location !== "deep") {
+        throw new Error(`Select shallow or deep for the ${period.toUpperCase()} sample.`);
+      }
+      row[`sample_location_${period}`] = location;
+    }
+  }
+
+  for (const key of ["main_drain_visible", "filter_backwashed"]) {
+    if (body[key] !== true && body[key] !== false && body[key] != null) {
+      throw new Error("Select Yes, No, or Not recorded for each check.");
+    }
+    row[key] = body[key] ?? null;
+  }
+  for (const key of ["requires_attention", "closure_condition"]) {
+    if (typeof body[key] !== "boolean") throw new Error("Record attention and closure status.");
+    row[key] = body[key];
+  }
+  if (typeof body.remarks !== "string" || body.remarks.length > 20_000) throw new Error("Remarks must be text, up to 20,000 characters.");
+  row.remarks = body.remarks.trim();
+
+  const hasSample = row.ph_am != null || row.ph_pm != null;
+  const hasOtherReading = ["flow_rate_gpm", "temperature_f", "combined_chlorine_ppm", "cyanuric_acid_ppm"].some((key) => row[key] != null);
+  if (!hasSample && !hasOtherReading && !row.remarks && row.closure_condition !== true) {
+    throw new Error("Enter an AM/PM sample, another reading, closure condition, or remarks before saving.");
+  }
+  return row;
+}
+
+export function sampleComplete(log: Record<string, unknown>, period: "am" | "pm") {
+  return log[`ph_${period}`] != null && log[`sanitizer_${period}`] != null;
+}

@@ -1,8 +1,0 @@
-0000000000000000000000000000000000000000 0e18749f744eeea8c2f0c86ac18c73edfa75176c Scott Pickering <your-email@example.com> 1789171785 -0500	commit (initial): Recover CMPRI Next.js source from Vercel deployment
-0e18749f744eeea8c2f0c86ac18c73edfa75176c 0f75b6f23b9fedb39ca3c4388eb58a4b6010edf0 Scott Pickering <YOUR-ACTUAL-EMAIL> 1789172100 -0500	commit (amend): Recover CMPRI Next.js source from Vercel deployment
-0f75b6f23b9fedb39ca3c4388eb58a4b6010edf0 c3915f10dfa4f15994331c6b4c7703e926eb3b05 Scott Pickering <maint.cmpri@hawkeyehotels.com> 1789172218 -0500	commit (amend): Recover CMPRI Next.js source from Vercel deployment
-c3915f10dfa4f15994331c6b4c7703e926eb3b05 6b2068acce5317bd19c700afbd603b52d8c35f0e Scott Pickering <maint.cmpri@hawkeyehotels.com> 1789173732 -0500	commit: Verify GitHub to Vercel deployment
-6b2068acce5317bd19c700afbd603b52d8c35f0e 7c4a006b4962fa39cf402e236eddc7cacfb73410 Scott Pickering <maint.cmpri@hawkeyehotels.com> 1789173761 -0500	commit: Verify GitHub to Vercel deployment
-7c4a006b4962fa39cf402e236eddc7cacfb73410 02eec85810685985e3a764a1deaa178f619ad795 Scott Pickering <pickering.scott@gmail.com> 1789174138 -0500	commit: Use verified GitHub identity for Vercel
-02eec85810685985e3a764a1deaa178f619ad795 05bd1157f3f40c5660ad35b08957c3ab19f947bc Scott Pickering <pickering.scott@gmail.com> 1789286097 -0500	commit: Add CMPRI engineering dashboard and work order system
-05bd1157f3f40c5660ad35b08957c3ab19f947bc 4a913223d08eee4ba41c411d07491d0ef7c40647 Scott Pickering <pickering.scott@gmail.com> 1789356475 -0500	commit: Integrate CMPRI dashboards, work orders, management, auth, and troubleshooting updates

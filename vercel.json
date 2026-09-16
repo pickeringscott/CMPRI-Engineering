@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/integrations/email/scan",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/integrations/room-ranker/sync",
+      "schedule": "15 * * * *"
+    }
+  ]
+}
