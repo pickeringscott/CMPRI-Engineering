@@ -5,7 +5,7 @@ import "./globals.css";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "CMPRI - Engineering",
+  title: "CMPRI",
   description: "Residence Inn Champaign engineering work-order system",
 };
 
