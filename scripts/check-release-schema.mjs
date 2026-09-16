@@ -6,7 +6,7 @@ const required = {
   work_orders: [
     'id', 'hotel_id', 'status', 'submitted_by_name', 'submitted_by_user_id',
     'creator_account_user_id', 'revision', 'reporter_notes', 'source_draft_id',
-    'source_draft_created_by', 'source_draft_creator_name',
+    'source_draft_created_by', 'source_draft_creator_name', 'last_assigned_technician_name',
   ],
   cmpri_work_order_drafts: [
     'id', 'hotel_id', 'created_by', 'location_id', 'issue', 'notes',
