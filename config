@@ -1,0 +1,18 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	logallrefupdates = true
+	symlinks = false
+	ignorecase = true
+[user]
+	name = Scott Pickering
+	email = pickering.scott@gmail.com
+	emailgit = config
+	emailgit = config
+[remote "origin"]
+	url = https://github.com/pickeringscott/cmpri-engineering-supabase.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
