@@ -5,6 +5,9 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
 import { createSupabaseAdmin } from "./supabase-admin";
 
+const CMPRI_SUPABASE_URL = "https://uavotsoanubpowvyqaii.supabase.co";
+const CMPRI_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_zk846u55k95wEKSqv5rVJA_ZIDwvRwx";
+
 const authOptions = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 };
@@ -26,8 +29,8 @@ export type AuthAttempt =
   | { ok: false; reason: "env-missing" | "no-bearer" | "verify-failed" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
 
 async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || CMPRI_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || CMPRI_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return { ok: false, reason: "env-missing" };
   const bearer = extractBearer(request.headers.get("authorization"));
   if (!bearer) return { ok: false, reason: "no-bearer" };
