@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
-import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole } from "@/lib/server/roles";
+import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole } from "@/lib/server/roles";
 
 function callerCanChangeAccount(callerRole: unknown, callerId: string, target: { id: string; role: unknown }): boolean {
   if (!callerId || !target.id || callerId === target.id) return false;
@@ -40,9 +40,6 @@ export async function GET(request: NextRequest) {
   }));
 
   const managedRoles = new Set<string>();
-  for (const user of users) {
-    if (user.can_manage && typeof user.role === "string" && user.role) managedRoles.add(user.role);
-  }
   for (const label of ASSIGNABLE_ROLE_LABELS) {
     if (callerCanAssignRole(callerRole, label)) managedRoles.add(label);
   }
@@ -61,7 +58,7 @@ export async function POST(request: NextRequest) {
   const role = typeof body.role === "string" ? body.role.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
   if (!role || !callerCanAssignRole(principal.profile.role, role)) {
-    return NextResponse.json({ error: "You may only assign Engineer, Technician, Front Desk, or Housekeeping roles." }, { status: 403 });
+    return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !fullName || fullName.length > 200) {
     return NextResponse.json({ error: "A valid name and email are required." }, { status: 400 });
@@ -94,10 +91,20 @@ export async function POST(request: NextRequest) {
     role,
     property_scope: "assigned_property",
     active: true,
-    hotel_id: HOTEL_ID,
   });
   if (profileError) {
     return NextResponse.json({ error: `The login was created, but its CMPRI profile could not be set up: ${profileError.message}` }, { status: 500 });
+  }
+
+  const { error: membershipError } = await admin.from("hotel_members").upsert({
+    hotel_id: HOTEL_ID,
+    user_id: id,
+    role: membershipRole(role),
+    active: true,
+  }, { onConflict: "hotel_id,user_id" });
+  if (membershipError) {
+    await admin.from("profiles").update({ active: false }).eq("id", id);
+    return NextResponse.json({ error: `The login was created, but property access could not be assigned: ${membershipError.message}` }, { status: 500 });
   }
 
   return NextResponse.json({ user: { id, email, full_name: fullName, role, active: true, invited: !password } });
@@ -123,7 +130,7 @@ export async function PATCH(request: NextRequest) {
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
   if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
-    return NextResponse.json({ error: "You can only manage other engineers, technicians, front desk, and housekeeping accounts. System admin and your own account are protected." }, { status: 403 });
+    return NextResponse.json({ error: "You cannot manage your own, an equal, or a superior CMPRI account." }, { status: 403 });
   }
 
   let proposedRole: string = typeof target.role === "string" ? target.role : "";
@@ -131,7 +138,7 @@ export async function PATCH(request: NextRequest) {
     const raw = typeof body.role === "string" ? body.role.trim() : "";
     const isKnownLabel = raw && (ASSIGNABLE_ROLE_LABELS as readonly string[]).includes(raw);
     if (!isKnownLabel || !callerCanAssignRole(callerRole, raw)) {
-      return NextResponse.json({ error: "You may only assign Engineer, Technician, Front Desk, or Housekeeping roles." }, { status: 403 });
+      return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
     }
     proposedRole = raw;
   }
@@ -159,6 +166,19 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "This account changed while you were editing it. Reload the user list and try again." }, { status: 409 });
   }
 
+  const membershipUpdate: Record<string, unknown> = {};
+  if (body.role !== undefined) membershipUpdate.role = membershipRole(proposedRole);
+  if (typeof body.active === "boolean") membershipUpdate.active = body.active;
+  if (Object.keys(membershipUpdate).length) {
+    const { error: membershipError } = await admin.from("hotel_members")
+      .update(membershipUpdate)
+      .eq("hotel_id", HOTEL_ID)
+      .eq("user_id", id);
+    if (membershipError) {
+      return NextResponse.json({ error: "The profile changed, but property membership could not be synchronized." }, { status: 500 });
+    }
+  }
+
   return NextResponse.json({
     user: {
       ...data,
@@ -167,6 +187,10 @@ export async function PATCH(request: NextRequest) {
   });
 }
 
+/**
+ * Account removal is intentionally a soft deactivation. CMPRI preserves identity,
+ * ticket attribution, notes, assignments, AI provenance, and audit history.
+ */
 export async function DELETE(request: NextRequest) {
   const access = await requireCapability(request, "manage_users");
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
@@ -179,7 +203,7 @@ export async function DELETE(request: NextRequest) {
 
   const { data: target, error: targetError } = await admin
     .from("profiles")
-    .select("id, email, full_name, role")
+    .select("id, email, full_name, role, active")
     .eq("id", id)
     .maybeSingle();
   if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
@@ -188,23 +212,22 @@ export async function DELETE(request: NextRequest) {
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
   if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
-    return NextResponse.json({ error: "You can only permanently delete other engineers, technicians, front desk, and housekeeping accounts." }, { status: 403 });
+    return NextResponse.json({ error: "You cannot deactivate your own, an equal, or a superior CMPRI account." }, { status: 403 });
   }
 
   const expected = (target.full_name || "").trim();
   if (!expected || confirmName !== expected) {
-    return NextResponse.json({ error: "Type the account's full name exactly to confirm the permanent deletion." }, { status: 400 });
+    return NextResponse.json({ error: "Type the account's full name exactly to confirm deactivation." }, { status: 400 });
   }
 
-  const { error: purgeError } = await admin.rpc("purge_cmpri_user", { target_id: id });
-  if (purgeError) {
-    return NextResponse.json({ error: `Unable to remove this user's data: ${purgeError.message}` }, { status: 500 });
-  }
+  const { error: profileError } = await admin.from("profiles").update({ active: false }).eq("id", id);
+  if (profileError) return NextResponse.json({ error: "Unable to deactivate this CMPRI profile." }, { status: 500 });
 
-  const { error: authError } = await admin.auth.admin.deleteUser(id);
-  if (authError && authError.status !== 404) {
-    return NextResponse.json({ error: `The user's data was removed but their login could not be deleted: ${authError.message}` }, { status: 500 });
-  }
+  const { error: membershipError } = await admin.from("hotel_members")
+    .update({ active: false })
+    .eq("hotel_id", HOTEL_ID)
+    .eq("user_id", id);
+  if (membershipError) return NextResponse.json({ error: "The profile was deactivated, but property access could not be revoked." }, { status: 500 });
 
-  return NextResponse.json({ deleted: id });
+  return NextResponse.json({ deactivated: id, preserved_history: true });
 }
