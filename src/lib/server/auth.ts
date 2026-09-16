@@ -2,18 +2,16 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
 import { createSupabaseAdmin } from "./supabase-admin";
-
-const CMPRI_SUPABASE_URL = "https://uavotsoanubpowvyqaii.supabase.co";
-const CMPRI_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_zk846u55k95wEKSqv5rVJA_ZIDwvRwx";
 
 const authOptions = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 };
 
-function createBearerClient(url: string, key: string, token: string): SupabaseClient {
-  return createClient(url, key, {
+function createBearerClient(token: string): SupabaseClient {
+  return createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     ...authOptions,
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
@@ -26,17 +24,14 @@ function extractBearer(header: string | null): string | null {
 
 export type AuthAttempt =
   | { ok: true; principal: import("./access").Principal; admin: SupabaseClient }
-  | { ok: false; reason: "env-missing" | "no-bearer" | "verify-failed" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
+  | { ok: false; reason: "no-bearer" | "verify-failed" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
 
 async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || CMPRI_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || CMPRI_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) return { ok: false, reason: "env-missing" };
   const bearer = extractBearer(request.headers.get("authorization"));
   if (!bearer) return { ok: false, reason: "no-bearer" };
 
-  const verifier = createClient(url, key, authOptions);
-  const sessionClient = createBearerClient(url, key, bearer);
+  const verifier = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, authOptions);
+  const sessionClient = createBearerClient(bearer);
   const admin = createSupabaseAdmin();
   const lookup = admin ?? sessionClient;
 
