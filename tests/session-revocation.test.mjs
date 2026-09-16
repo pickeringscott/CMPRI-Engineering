@@ -14,15 +14,16 @@ function fixture(config={}) {
   const db={auth:{getUser:async()=>({data:{user:state.noUser?null:{id:'same-user'}},error:state.authError?{message:'Unavailable'}:null})},from(table){
     calls.push(table);
     const q={
-      select(){return q;},eq(){return q;},
-      maybeSingle:async()=>table==='hotel_members'
-        ? ({data:state.noMembership?null:{user_id:'same-user',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:'admin',active:state.membershipActive??true},error:state.membershipError?{message:'Unavailable'}:null})
-        : table==='role_permissions'
-          ? ({data:null,error:null})
-          : ({data:state.missingProfile?null:{id:'same-user',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null}),
-      then(resolve){
-        if(table==='role_permissions') return Promise.resolve({data:[],error:state.permissionError?{message:'Unavailable'}:null}).then(resolve);
-        return Promise.resolve({data:[],error:null}).then(resolve);
+      select(){
+        if(table==='role_permissions') return Promise.resolve({data:[],error:state.permissionError?{message:'Unavailable'}:null});
+        return q;
+      },
+      eq(){return q;},
+      async maybeSingle(){
+        if(table==='hotel_members') {
+          return {data:state.noMembership?null:{user_id:'same-user',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:'admin',active:state.membershipActive??true},error:state.membershipError?{message:'Unavailable'}:null};
+        }
+        return {data:state.missingProfile?null:{id:'same-user',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null};
       },
     };
     return q;
