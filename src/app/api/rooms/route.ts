@@ -36,7 +36,8 @@ export async function GET(request: NextRequest) {
   if (!allows(principal, "view_dashboard") && !allows(principal, "manage_rooms")) {
     return NextResponse.json({ error: "Engineering dashboard access is required." }, { status: 403 });
   }
-  const [locationResult, orderResult] = await Promise.all([
+
+  const [locationResult, orderResult, pmPlanResult, pmCompletionResult] = await Promise.all([
     admin.from("locations")
       .select("id, area, name, room_number, location_type, active")
       .eq("hotel_id", HOTEL_ID)
@@ -48,13 +49,27 @@ export async function GET(request: NextRequest) {
       .eq("hotel_id", HOTEL_ID)
       .order("created_at", { ascending: false })
       .limit(1000),
+    admin.from("pm_plans")
+      .select("id, location_id, asset_id, title, description, checklist, frequency_value, frequency_unit, last_completed_on, next_due_on, active")
+      .eq("hotel_id", HOTEL_ID)
+      .eq("active", true)
+      .order("next_due_on", { ascending: true, nullsFirst: false }),
+    admin.from("pm_completions")
+      .select("id, pm_plan_id, completed_on, completed_by_name, notes, created_at")
+      .eq("hotel_id", HOTEL_ID)
+      .order("completed_on", { ascending: false })
+      .limit(2000),
   ]);
-  if (locationResult.error || orderResult.error) {
-    return NextResponse.json({ error: "Rooms and their work orders could not be loaded." }, { status: 503 });
+
+  if (locationResult.error || orderResult.error || pmPlanResult.error || pmCompletionResult.error) {
+    return NextResponse.json({ error: "Rooms, work orders, or PM records could not be loaded." }, { status: 503 });
   }
+
   return NextResponse.json({
     locations: locationResult.data || [],
     work_orders: orderResult.data || [],
+    pm_plans: pmPlanResult.data || [],
+    pm_completions: pmCompletionResult.data || [],
     can_edit: allows(principal, "manage_rooms"),
   }, { headers: { "Cache-Control": "no-store" } });
 }
