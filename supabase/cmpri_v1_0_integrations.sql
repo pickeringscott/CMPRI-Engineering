@@ -53,8 +53,6 @@ create table if not exists public.cmpri_purchase_shipments (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index if not exists cmpri_purchase_shipments_tracking_unique
-  on public.cmpri_purchase_shipments(purchase_id, tracking_number);
 
 create table if not exists public.cmpri_enseo_tickets (
   id uuid primary key default gen_random_uuid(),
@@ -136,7 +134,7 @@ alter table public.cmpri_gss_reports enable row level security;
 alter table public.cmpri_email_events add column if not exists body_text text;
 -- Existing events remain retryable: historical drafts could save an event before failing its operational writes.
 alter table public.cmpri_email_events add column if not exists processed_at timestamptz;
--- PostgREST ON CONFLICT requires a non-partial unique index; the older partial index is retained harmlessly.
+-- PostgREST ON CONFLICT requires a non-partial unique index. Keep one canonical index only.
 create unique index if not exists cmpri_purchase_shipments_upsert_unique
   on public.cmpri_purchase_shipments(purchase_id, tracking_number);
 alter table public.cmpri_purchases add column if not exists line_items jsonb not null default '[]'::jsonb;
