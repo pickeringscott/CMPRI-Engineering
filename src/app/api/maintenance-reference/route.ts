@@ -33,6 +33,70 @@ function modelMatchesPattern(modelValue: unknown, patternValue: unknown) {
   return model.includes(pattern) || pattern.includes(model);
 }
 
+function stringList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function pageList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map(Number).filter((page) => Number.isInteger(page) && page > 0);
+}
+
+function manualTestMatches(titleValue: unknown, testValue: unknown) {
+  const text = `${String(titleValue || "")} ${String(testValue || "")}`.toLowerCase();
+  const matches = new Set<string>();
+  const add = (...values: string[]) => values.forEach((value) => matches.add(value));
+
+  if (/power cycle|reboot|restart/.test(text)) add("power cycle", "reboot", "restart", "no signal", "black screen", "frozen", "not working");
+  if (/no visible display|no power|display|console/.test(text)) add("no power", "display", "screen blank", "dead", "won't start", "will not start");
+  if (/door|lock|unlock|credential/.test(text)) add("door", "lock", "unlock", "key not working", "credential denied", "won't unlock", "will not unlock");
+  if (/battery|low-battery|dead-battery/.test(text)) add("battery", "low battery", "dead battery", "no response", "red light");
+  if (/clock|date\/time|date and time|time reset/.test(text)) add("clock", "wrong time", "date time", "time reset", "credential denied", "key not working");
+  if (/motor rotation|drive fault|motor wiring|drive wiring/.test(text)) add("motor", "not spinning", "won't turn", "will not turn", "drive fault", "not rotating");
+  if (/spray|rinse|solenoid|inlet valve/.test(text)) add("rinse", "spray", "water", "fill", "valve", "solenoid");
+  if (/backwash|filter pressure|clean-filter pressure/.test(text)) add("backwash", "filter", "high pressure", "low flow", "pressure rises", "poor flow");
+  if (/airflow|cfm|dehumid/.test(text)) add("airflow", "humid", "humidity", "muggy", "dehumidification", "pool room");
+  if (/water flow|gpm|pressure drop|exchanger|scal/.test(text)) add("water flow", "low flow", "pressure", "pool not heating", "water not heating", "scale", "scaling");
+  if (/temperature|temp sensor|thermostat/.test(text)) add("temperature", "temp", "thermostat", "not cooling", "not heating");
+
+  return [...matches];
+}
+
+function enrichManualKnowledge(payload: KnowledgePayload | null) {
+  if (!payload) return null;
+
+  const rawRules = Array.isArray(payload.symptom_rules) ? [...payload.symptom_rules] : [];
+  const generalChecks = stringList(payload.general_checks);
+  if (generalChecks.length) {
+    rawRules.push({ match: [], steps: generalChecks, guidance_type: "general_checks" });
+  }
+
+  if (Array.isArray(payload.manual_tests)) {
+    for (const entry of payload.manual_tests) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const item = entry as Record<string, unknown>;
+      const testText = String(item.test || item.steps || item.action || "").trim();
+      if (!testText) continue;
+      const title = String(item.title || "").trim();
+      const matches = manualTestMatches(title, testText);
+      // Manual tests are intentionally not emitted as empty-match rules. A
+      // technical test belongs on the ticket only when its subject matches
+      // the reported symptom; otherwise it remains available in the source
+      // document instead of becoming always-on troubleshooting noise.
+      if (!matches.length) continue;
+      rawRules.push({
+        match: matches,
+        steps: [title ? `${title}: ${testText}` : testText],
+        source_pages: pageList(item.source_pages ?? item.pages),
+        guidance_type: "manual_test",
+      });
+    }
+  }
+
+  return { ...payload, symptom_rules: rawRules };
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
@@ -229,6 +293,8 @@ export async function GET(request: NextRequest) {
         }
       }
     }
+
+    manualKnowledge = enrichManualKnowledge(manualKnowledge);
   }
 
   return NextResponse.json({
