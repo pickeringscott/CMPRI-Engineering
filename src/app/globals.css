@@ -19,29 +19,93 @@
   }
 }
 
+html {
+  color-scheme: dark;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* CMPRI V43 interaction standard: every button gives immediate tactile feedback. */
+/* CMPRI interaction standard: controls should feel immediate without shifting layout. */
+button,
+[role="button"],
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
 button,
 [role="button"] {
   transition: opacity 120ms ease, transform 90ms ease, filter 120ms ease, background-color 120ms ease, border-color 120ms ease;
 }
+
 button:not(:disabled):hover,
 [role="button"]:not([aria-disabled="true"]):hover {
   filter: brightness(1.08);
 }
+
 button:not(:disabled):active,
 [role="button"]:not([aria-disabled="true"]):active {
   transform: translateY(1px) scale(0.985);
   filter: brightness(0.88);
   opacity: 0.9;
 }
+
 button:disabled,
 [role="button"][aria-disabled="true"] {
   cursor: not-allowed;
   filter: saturate(0.45);
+}
+
+/* Keyboard-first CMPRI standard. */
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+  opacity: 1;
+}
+
+select,
+input[type="search"],
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  min-height: 2.75rem;
+}
+
+/* Keep dense work screens readable while preserving a compact ticket list. */
+.cmpri-scroll-pane {
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.cmpri-scroll-pane::-webkit-scrollbar {
+  width: 10px;
+}
+
+.cmpri-scroll-pane::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.cmpri-scroll-pane::-webkit-scrollbar-thumb {
+  background: #475569;
+  border: 2px solid #0f172a;
+  border-radius: 999px;
 }
