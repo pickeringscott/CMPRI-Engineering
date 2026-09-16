@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
-import { requireCapability } from "@/lib/server/auth";
+import { requireCapability, requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 
@@ -74,11 +74,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireCapability(request, "edit_tickets");
-  if (!auth) return NextResponse.json({ error: "Work-order editing permission is required." }, { status: 403 });
+  const auth = await requireUser(request);
+  if (!auth) return NextResponse.json({ error: "Work-order editing or review permission is required." }, { status: 403 });
   const canEdit = allows(auth.principal, "edit_tickets");
   const canReview = allows(auth.principal, "review_tickets");
-  if (!canEdit && !canReview) return NextResponse.json({ error: "Work-order editing permission is required." }, { status: 403 });
+  if (!canEdit && !canReview) return NextResponse.json({ error: "Work-order editing or review permission is required." }, { status: 403 });
 
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
