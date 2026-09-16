@@ -2,7 +2,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
-import { allows, type AccessProfile, type Capability, type Membership } from "./access";
+import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
 import { createSupabaseAdmin } from "./supabase-admin";
 
 const authOptions = {
@@ -23,7 +23,7 @@ function extractBearer(header: string | null): string | null {
 
 export type AuthAttempt =
   | { ok: true; principal: import("./access").Principal; admin: SupabaseClient }
-  | { ok: false; reason: "env-missing" | "no-bearer" | "verify-failed" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "exception"; detail?: string };
+  | { ok: false; reason: "env-missing" | "no-bearer" | "verify-failed" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
 
 async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -66,12 +66,17 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
     const membership = memberRow as Membership;
     if (membership.active !== true) return { ok: false, reason: "membership-inactive" };
 
+    const { data: permissionRows, error: permissionError } = await lookup
+      .from("role_permissions")
+      .select("role, permission, allowed");
+    if (permissionError) return { ok: false, reason: "permission-error", detail: permissionError.message };
+
     const principal = {
       identity: { id: userId, email },
       profile,
       hotelId: HOTEL_ID,
       membership,
-      permissions: [],
+      permissions: (permissionRows ?? []) as Permission[],
     };
     return { ok: true, principal, admin: admin ?? sessionClient };
   } catch (error) {
