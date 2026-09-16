@@ -7,6 +7,9 @@
  * - Front Desk / Housekeeping: submit-only roles.
  * - Senior Management: read-only oversight.
  * - system_admin: bootstrap/full-control role.
+ *
+ * Historical/retired titles remain in aliases so existing records continue to
+ * resolve correctly, but only current titles are exposed for new assignments.
  */
 export type CmpriRole =
   | "engineer"
@@ -139,49 +142,42 @@ export function canChangeAccount(
     && canManageTargetRole(caller.role, proposedRole);
 }
 
+/**
+ * Titles currently available in User Management.
+ *
+ * Removed/hidden from assignment for the pre-live cleanup:
+ * Engineer, Regional Engineer, VP Facilities, Regional Director Operations,
+ * District Manager, Assistant GM, Lead Housekeeping, Executive Housekeeper.
+ * Their aliases remain above so historical records still resolve safely.
+ */
 export const ASSIGNABLE_ROLE_LABELS = [
-  "Engineer",
   "Chief Engineer",
   "Engineering Manager",
   "Regional Maintenance",
-  "Regional Engineer",
   "General Manager",
   "Senior Management",
-  "VP Facilities",
-  "Regional Director Operations",
-  "District Manager",
   "Maintenance Technician",
   "Front Desk",
-  "Assistant GM",
   "Assistant Manager",
   "Sales Manager",
   "Housekeeping",
   "Lead Housekeeper",
-  "Executive Housekeeper",
 ] as const;
 
 const ENGINEER_TITLES = [
-  "Engineer",
   "Chief Engineer",
   "Engineering Manager",
   "Regional Maintenance",
-  "Regional Engineer",
 ];
 
 const MANAGER_TITLES = ["General Manager"];
 
-const SENIOR_TITLES = [
-  "Senior Management",
-  "VP Facilities",
-  "Regional Director Operations",
-  "District Manager",
-];
+const SENIOR_TITLES = ["Senior Management"];
 
 const TECHNICIAN_TITLES = ["Maintenance Technician"];
 
 const FRONT_DESK_TITLES = [
   "Front Desk",
-  "Assistant GM",
   "Assistant Manager",
   "Sales Manager",
 ];
@@ -189,7 +185,6 @@ const FRONT_DESK_TITLES = [
 const HOUSEKEEPING_TITLES = [
   "Housekeeping",
   "Lead Housekeeper",
-  "Executive Housekeeper",
 ];
 
 const ALL_MANAGEABLE_TITLES = [
@@ -212,7 +207,7 @@ export function assignableRoleLabels(callerRole: unknown): string[] {
 
 export function roleDisplayTitle(role: string | null | undefined): string {
   if (!role) return "Unknown";
-  return ALL_MANAGEABLE_TITLES.includes(role) ? role : role;
+  return role;
 }
 
 export function membershipRole(role: unknown): "admin" | "manager" | "technician" | "viewer" {
