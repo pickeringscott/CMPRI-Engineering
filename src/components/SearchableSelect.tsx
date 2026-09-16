@@ -75,13 +75,9 @@ export default function SearchableSelect({
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
   const selected = useMemo(() => options.find((option) => option.value === value), [options, value]);
-
   const browsingCurrentValue = !!selected && normalize(query) === normalize(selected.label);
 
   const ranked = useMemo(() => {
-    // When the field first opens with its saved value visible, browse the full
-    // option set instead of filtering down to only the current value. This is
-    // what makes the two best choices + See more pattern work consistently.
     const q = browsingCurrentValue ? "" : query.trim();
     return options
       .map((option, originalIndex) => ({ option, originalIndex, score: scoreOption(option, q) }))
@@ -107,16 +103,13 @@ export default function SearchableSelect({
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [onDismiss, selected?.label]);
 
-
   function positionMenu() {
     const wrapper = wrapperRef.current;
     if (!wrapper || typeof window === "undefined") return;
-
     const rect = wrapper.getBoundingClientRect();
     const padding = 8;
     const spaceBelow = window.innerHeight - rect.bottom;
     const available = Math.max(40, Math.min(320, spaceBelow - 12));
-
     setMenuStyle({
       position: "fixed",
       left: Math.max(padding, Math.min(rect.left, window.innerWidth - padding - rect.width)),
@@ -153,8 +146,6 @@ export default function SearchableSelect({
     setOpen(true);
     setExpanded(false);
     setHighlightedIndex(0);
-    // Keep the current selection visible when entering edit/browse mode.
-    // Typing replaces/refines it; simply opening and clicking away is a no-op.
     setQuery(selected?.label || "");
     requestAnimationFrame(() => {
       inputRef.current?.focus();
@@ -247,7 +238,7 @@ export default function SearchableSelect({
               event.preventDefault(); setOpen(false); setExpanded(false); setQuery(selected?.label || ""); onDismiss?.(); return;
             }
           }}
-          className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 pr-8 text-[15px] text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+          className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 pr-10 text-[15px] text-white outline-none placeholder:text-slate-500 focus:border-sky-400 disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500"
         />
         <button
           type="button"
@@ -256,14 +247,14 @@ export default function SearchableSelect({
           aria-label={open ? "Hide choices" : "Show choices"}
           onMouseDown={(event) => event.preventDefault()}
           onClick={toggleOpen}
-          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-slate-300 hover:text-white"
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-slate-300 hover:bg-slate-800/60 hover:text-white disabled:text-slate-600"
         >
           <span aria-hidden="true" className="text-[14px] leading-none">{open ? "▲" : "▼"}</span>
         </button>
       </div>
 
       {open && !disabled && (
-        <div id={listId} role="listbox" style={menuStyle} className="overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 py-0.5 shadow-2xl">
+        <div id={listId} role="listbox" style={menuStyle} className="cmpri-scroll-pane overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 py-0.5 shadow-2xl">
           {visibleOptions.length ? (
             <>
               {visibleOptions.map((option, optionIndex) => {
@@ -274,7 +265,7 @@ export default function SearchableSelect({
                 return (
                   <div key={`${option.value}-${optionIndex}`}>
                     {showGroup && (
-                      <div className="border-t border-slate-800 bg-slate-950/70 px-2 py-1 text-[13px] font-bold leading-4 text-slate-300 first:border-t-0">
+                      <div className="border-t border-slate-800 bg-slate-950/80 px-3 py-1.5 text-[13px] font-bold leading-4 text-slate-300 first:border-t-0">
                         {option.group}
                       </div>
                     )}
@@ -288,7 +279,7 @@ export default function SearchableSelect({
                       onMouseEnter={() => setHighlightedIndex(optionIndex)}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => commit(option)}
-                      className={`block w-full px-2.5 py-1 text-left text-[13px] leading-[1.15] ${
+                      className={`block w-full px-3 py-1.5 text-left text-[13px] leading-[1.2] ${
                         highlighted
                           ? "bg-sky-500/35 text-sky-50"
                           : selectedOption
@@ -302,29 +293,10 @@ export default function SearchableSelect({
                 );
               })}
               {canSeeMore && (
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => { setExpanded(true); setQuery(selected?.label || ""); }}
-                  className="block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
-                >
-                  See more…
-                </button>
+                <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { setExpanded(true); setQuery(selected?.label || ""); }} className="block w-full border-t border-slate-700 px-3 py-1.5 text-left text-[13px] font-semibold leading-5 text-sky-300 hover:bg-sky-500/15 hover:text-sky-200">See more…</button>
               )}
               {footerActionLabel && onFooterAction && (
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setOpen(false);
-                    setExpanded(false);
-                    setQuery(selected?.label || "");
-                    onFooterAction();
-                  }}
-                  className="block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"
-                >
-                  {footerActionLabel}
-                </button>
+                <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { setOpen(false); setExpanded(false); setQuery(selected?.label || ""); onFooterAction(); }} className="block w-full border-t border-slate-700 px-3 py-1.5 text-left text-[13px] font-semibold leading-5 text-amber-300 hover:bg-amber-400/10 hover:text-amber-200">{footerActionLabel}</button>
               )}
             </>
           ) : (
