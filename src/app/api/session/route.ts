@@ -11,7 +11,6 @@ const NO_STORE_HEADERS = {
 };
 
 const REASON_MESSAGES: Record<string, string> = {
-  "env-missing": "CMPRI is not connected to its database. Please contact the administrator.",
   "no-bearer": "Your session was not sent to CMPRI. Please sign in again.",
   "verify-failed": "CMPRI could not verify your sign-in session. Please sign in again.",
   "profile-error": "CMPRI could not read your account profile.",
