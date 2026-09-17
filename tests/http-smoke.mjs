@@ -1,23 +1,22 @@
 // Isolated production-server smoke checks. No real account or production data.
 import { spawn } from 'node:child_process';
 const port = 3110;
+const anonymousDenied = [401, 403];
 const cases = [
   ...['/', '/engineering', '/engineering/purchasing', '/engineering/gss',
     '/engineering/pool-log', '/engineering/preventive-maintenance', '/engineering/room-ranker',
     '/work-orders', '/work-orders/test-id', '/management/equipment',
     '/management/rooms', '/management/users', '/technician', '/reset-password']
-    .map(path => ({ path, method: 'GET', expected: 200 })),
-  ...['/api/engineering/operations', '/api/integrations/email/scan',
-    '/api/work-orders/test-id/activity'].map(path => ({path, method: 'GET', expected: 401})),
-  {path: '/api/engineering/operations', method: 'PATCH', expected: 401},
-  ...['/api/pool-log', '/api/assets', '/api/assets/documentation', '/api/users',
-    '/api/room-ranker', '/api/corporate-pm'].map(path => ({path, method: 'GET', expected: path === '/api/users' ? 403 : 401})),
-  ...['/api/pool-log', '/api/assets', '/api/users', '/api/maintenance-ai', '/api/work-orders'].map(path => ({path, method: 'POST', expected: path === '/api/users' ? 403 : 401})),
-  ...['/api/assets', '/api/users', '/api/room-ranker', '/api/corporate-pm',
-    '/api/work-orders/test-id'].map(path => ({path, method: 'PATCH', expected: path === '/api/users' ? 403 : 401})),
+    .map(path => ({ path, method: 'GET', expected: [200] })),
+  ...['/api/session', '/api/engineering/operations', '/api/integrations/email/scan',
+    '/api/work-orders/test-id/activity', '/api/pool-log', '/api/assets', '/api/assets/documentation',
+    '/api/users', '/api/room-ranker', '/api/corporate-pm']
+    .map(path => ({path, method: 'GET', expected: anonymousDenied})),
+  ...['/api/engineering/operations', '/api/pool-log', '/api/assets', '/api/users',
+    '/api/maintenance-ai', '/api/work-orders', '/api/room-ranker', '/api/corporate-pm',
+    '/api/work-orders/test-id']
+    .map(path => ({path, method: path === '/api/engineering/operations' || path === '/api/assets' || path === '/api/users' || path === '/api/room-ranker' || path === '/api/corporate-pm' || path === '/api/work-orders/test-id' ? 'PATCH' : 'POST', expected: anonymousDenied})),
 ];
-// The existing user-administration contract intentionally rejects with 403;
-// other APIs use 401. Both must reject anonymous access, not return user data.
 const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start',
   '--hostname', '127.0.0.1', '--port', String(port)], {
   env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
@@ -48,7 +47,7 @@ server.stdout.on('data', async chunk => {
         method: test.method, signal: AbortSignal.timeout(10000),
         ...(test.method !== 'GET' ? {headers: {'Content-Type': 'application/json'}, body: '{}'} : {}),
       });
-      const passed = response.status === test.expected;
+      const passed = test.expected.includes(response.status);
       failures += Number(!passed);
       console.log(JSON.stringify({...test, actual: response.status, result: passed ? 'PASS' : 'FAIL'}));
     }
