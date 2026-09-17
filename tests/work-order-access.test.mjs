@@ -64,12 +64,13 @@ function fixture(config={}){
   const exports={};
   vm.runInNewContext(code,{
     exports,
-    process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'}},
+    process:{env:{SUPABASE_SERVICE_ROLE_KEY:'fake'}},
     require(name){
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
       if(name==='@supabase/supabase-js')return {createClient:()=>db};
       if(name==='server-only')return {};
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
+      if(name==='@/lib/supabase/config')return {SUPABASE_URL:'https://test.invalid',SUPABASE_PUBLISHABLE_KEY:'fake'};
       if(name==='@/lib/server/access')return {allows};
       if(name==='@/lib/server/auth')return authModule;
       if(name==='@/lib/work-order-categories')return {normalizeWorkOrderCategory:(value)=>typeof value==='string'&&value.trim()?value.trim():null};
