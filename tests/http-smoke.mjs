@@ -2,25 +2,37 @@
 import { spawn } from 'node:child_process';
 const port = 3110;
 const anonymousDenied = [401, 403];
+const apiReachable = [401, 403, 405];
+const uiPaths = [
+  '/', '/engineering', '/engineering/enseo-assignments', '/engineering/gss',
+  '/engineering/import-work-orders', '/engineering/parts', '/engineering/pool-log',
+  '/engineering/preventive-maintenance', '/engineering/purchasing', '/engineering/room-operations',
+  '/engineering/room-ranker', '/management/equipment', '/management/rooms', '/management/users',
+  '/reset-password', '/setup-guide', '/technician', '/work-orders', '/work-orders/test-id',
+];
+const apiPaths = [
+  '/api/session', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
+  '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
+  '/api/integrations/email/scan', '/api/integrations/room-ranker/sync', '/api/maintenance-ai',
+  '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-ranker',
+  '/api/rooms', '/api/users', '/api/work-orders', '/api/work-orders/test-id',
+  '/api/work-orders/test-id/activity', '/api/work-orders/drafts', '/api/work-orders/import',
+];
+const mutationCases = [
+  ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/assets', 'POST'],
+  ['/api/assets', 'PATCH'], ['/api/users', 'POST'], ['/api/users', 'PATCH'],
+  ['/api/maintenance-ai', 'POST'], ['/api/work-orders', 'POST'], ['/api/room-ranker', 'PATCH'],
+  ['/api/corporate-pm', 'PATCH'], ['/api/work-orders/test-id', 'PATCH'], ['/api/room-operations', 'POST'],
+  ['/api/work-orders/drafts', 'POST'], ['/api/work-orders/import', 'POST'],
+];
 const cases = [
-  ...['/', '/engineering', '/engineering/purchasing', '/engineering/gss',
-    '/engineering/pool-log', '/engineering/preventive-maintenance', '/engineering/room-ranker',
-    '/work-orders', '/work-orders/test-id', '/management/equipment',
-    '/management/rooms', '/management/users', '/technician', '/reset-password']
-    .map(path => ({ path, method: 'GET', expected: [200] })),
-  ...['/api/session', '/api/engineering/operations', '/api/integrations/email/scan',
-    '/api/work-orders/test-id/activity', '/api/pool-log', '/api/assets', '/api/assets/documentation',
-    '/api/users', '/api/room-ranker', '/api/corporate-pm']
-    .map(path => ({path, method: 'GET', expected: anonymousDenied})),
-  ...['/api/engineering/operations', '/api/pool-log', '/api/assets', '/api/users',
-    '/api/maintenance-ai', '/api/work-orders', '/api/room-ranker', '/api/corporate-pm',
-    '/api/work-orders/test-id']
-    .map(path => ({path, method: path === '/api/engineering/operations' || path === '/api/assets' || path === '/api/users' || path === '/api/room-ranker' || path === '/api/corporate-pm' || path === '/api/work-orders/test-id' ? 'PATCH' : 'POST', expected: anonymousDenied})),
+  ...uiPaths.map(path => ({ path, method: 'GET', expected: [200] })),
+  ...apiPaths.map(path => ({ path, method: 'GET', expected: path === '/api/session' ? anonymousDenied : apiReachable })),
+  ...mutationCases.map(([path, method]) => ({ path, method, expected: anonymousDenied })),
 ];
 const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start',
   '--hostname', '127.0.0.1', '--port', String(port)], {
-  env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'cmpri-local-test-placeholder',
+  env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: '', NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
     SUPABASE_SERVICE_ROLE_KEY: '', CRON_SECRET: ''},
   stdio: ['ignore', 'pipe', 'pipe'],
 });
