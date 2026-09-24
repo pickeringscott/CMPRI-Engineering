@@ -14,6 +14,7 @@ const REASON_MESSAGES: Record<string, string> = {
   "env-missing": "CMPRI is not connected to its database. Please contact the administrator.",
   "no-bearer": "Your session was not sent to CMPRI. Please sign in again.",
   "verify-failed": "CMPRI could not verify your sign-in session. Please sign in again.",
+  "email-mismatch": "This Google email does not exactly match an approved CMPRI user record.",
   "profile-error": "CMPRI could not read your account profile.",
   "profile-missing": "Your CMPRI profile is missing. Please contact the administrator.",
   "profile-inactive": "Your CMPRI account is inactive. Please contact the administrator.",

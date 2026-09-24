@@ -1,6 +1,6 @@
 -- Test against the real schema/RLS before deployment. No existing rows are deleted.
--- Existing duplicates cause this migration to fail for review rather than being
--- silently discarded. This prevents concurrent EXACT normalized duplicates only;
+-- Existing active duplicates cause this migration to fail for review rather than
+-- being silently discarded. Completed historical work is intentionally excluded;
 -- similar wording and unknown-versus-known asset matches still need an atomic
 -- database submission workflow before full duplicate prevention can be certified.
 begin;
@@ -13,5 +13,5 @@ on public.work_orders (
 )
 -- Compare enum values directly. Casting the observed enum to text here is
 -- not immutable and PostgreSQL would reject an index predicate using that cast.
-where status in ('Open', 'In Progress', 'Completed', 'Pending Verification');
+where status in ('Open', 'In Progress');
 commit;

@@ -5,4 +5,4 @@ ON public.work_orders (
   (coalesce(asset_id::text, '')),
   (md5(btrim(regexp_replace(lower(coalesce(issue, '')), '[^[:alnum:]]+', ' ', 'g'))))
 )
-WHERE status IN ('Open', 'In Progress', 'Completed', 'Pending Verification');
+WHERE status IN ('Open', 'In Progress');

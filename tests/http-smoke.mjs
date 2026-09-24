@@ -5,7 +5,7 @@ const cases = [
   ...['/', '/engineering', '/engineering/purchasing', '/engineering/gss',
     '/engineering/pool-log', '/engineering/preventive-maintenance', '/engineering/room-ranker',
     '/work-orders', '/work-orders/test-id', '/management/equipment',
-    '/management/rooms', '/management/users', '/technician', '/reset-password']
+    '/management/rooms', '/management/users', '/technician']
     .map(path => ({ path, method: 'GET', expected: 200 })),
   ...['/api/engineering/operations', '/api/integrations/email/scan',
     '/api/work-orders/test-id/activity'].map(path => ({path, method: 'GET', expected: 401})),

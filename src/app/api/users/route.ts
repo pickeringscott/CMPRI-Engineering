@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
-import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole } from "@/lib/server/roles";
+import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole, roleKey } from "@/lib/server/roles";
 
 function callerCanChangeAccount(callerRole: unknown, callerId: string, target: { id: string; role: unknown }): boolean {
   if (!callerId || !target.id || callerId === target.id) return false;
@@ -19,6 +19,11 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
   } catch {
     return null;
   }
+}
+
+function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | undefined) {
+  const authAdmin = admin && typeof admin === "object" ? (admin as { auth?: { admin?: unknown } }).auth?.admin : undefined;
+  return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -56,8 +61,9 @@ export async function POST(request: NextRequest) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
   const role = typeof body.role === "string" ? body.role.trim() : "";
+  const profileRole = roleKey(role);
   const password = typeof body.password === "string" ? body.password : "";
-  if (!role || !callerCanAssignRole(principal.profile.role, role)) {
+  if (!role || profileRole === "unknown" || !callerCanAssignRole(principal.profile.role, role)) {
     return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !fullName || fullName.length > 200) {
@@ -67,9 +73,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "A temporary password must be at least 10 characters." }, { status: 400 });
   }
 
+  const adminAuth = ensureServiceRoleAdmin(admin);
+  if (!adminAuth) {
+    return NextResponse.json({ error: "This deployment is missing Supabase service-role credentials. Set SUPABASE_SERVICE_ROLE_KEY before creating users." }, { status: 500 });
+  }
+
   let id: string | undefined;
   if (password) {
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
+    const { data: created, error: createError } = await (adminAuth as any).createUser({
       email,
       password,
       email_confirm: true,
@@ -78,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
     id = created.user?.id;
   } else {
-    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, { data: { full_name: fullName } });
+    const { data: invited, error: inviteError } = await (adminAuth as any).inviteUserByEmail(email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }
@@ -88,7 +99,7 @@ export async function POST(request: NextRequest) {
     id,
     email,
     full_name: fullName,
-    role,
+    role: profileRole,
     property_scope: "assigned_property",
     active: true,
   });
@@ -107,7 +118,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `The login was created, but property access could not be assigned: ${membershipError.message}` }, { status: 500 });
   }
 
-  return NextResponse.json({ user: { id, email, full_name: fullName, role, active: true, invited: !password } });
+  return NextResponse.json({ user: { id, email, full_name: fullName, role: profileRole, active: true, invited: !password } });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -140,7 +151,7 @@ export async function PATCH(request: NextRequest) {
     if (!isKnownLabel || !callerCanAssignRole(callerRole, raw)) {
       return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
     }
-    proposedRole = raw;
+    proposedRole = roleKey(raw);
   }
 
   if (body.full_name !== undefined && (typeof body.full_name !== "string" || !body.full_name.trim() || body.full_name.trim().length > 200)) {
