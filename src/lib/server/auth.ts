@@ -24,7 +24,7 @@ function extractBearer(header: string | null): string | null {
 
 export type AuthAttempt =
   | { ok: true; principal: import("./access").Principal; admin: SupabaseClient }
-  | { ok: false; reason: "no-bearer" | "verify-failed" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
+  | { ok: false; reason: "no-bearer" | "verify-failed" | "email-mismatch" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
 
 async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
   const bearer = extractBearer(request.headers.get("authorization"));
@@ -45,12 +45,15 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
 
     const { data: profileRow, error: profileError } = await lookup
       .from("profiles")
-      .select("id, full_name, role, active, property_scope")
+      .select("id, email, full_name, role, active, property_scope")
       .eq("id", userId)
       .maybeSingle();
     if (profileError) return { ok: false, reason: "profile-error", detail: profileError.message };
     if (!profileRow) return { ok: false, reason: "profile-missing" };
     const profile = profileRow as AccessProfile;
+    if (!email || !profile.email || email.trim().toLowerCase() !== profile.email.trim().toLowerCase()) {
+      return { ok: false, reason: "email-mismatch" };
+    }
     if (profile.active !== true) return { ok: false, reason: "profile-inactive" };
 
     const { data: memberRow, error: memberError } = await lookup
