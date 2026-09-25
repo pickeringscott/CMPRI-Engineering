@@ -51,12 +51,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
   const includeMentions = request.nextUrl.searchParams.get("include") === "mentions";
-  const { data: workOrder, error: workOrderError } = await auth.admin
+  const workOrderQuery = auth.admin
     .from("work_orders")
     .select("*")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
+  const mentionQuery = includeMentions
+    ? auth.admin
+        .from("work_orders")
+        .select("id, display_id, room, issue, status, created_at")
+        .eq("hotel_id", HOTEL_ID)
+        .neq("id", id)
+        .order("created_at", { ascending: false })
+        .limit(300)
+    : null;
+  const [{ data: workOrder, error: workOrderError }, mentionResult] = await Promise.all([
+    workOrderQuery,
+    mentionQuery || Promise.resolve({ data: null, error: null }),
+  ]);
   if (workOrderError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
   if (roleKey(auth.principal.profile.role) === "technician" && workOrder.technician_name !== auth.principal.profile.full_name) {
@@ -65,15 +78,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   let mentionTickets: Array<Record<string, unknown>> = [];
   if (includeMentions) {
-    const { data, error } = await auth.admin
-      .from("work_orders")
-      .select("id, display_id, room, issue, status, created_at")
-      .eq("hotel_id", HOTEL_ID)
-      .neq("id", id)
-      .order("created_at", { ascending: false })
-      .limit(300);
-    if (error) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
-    mentionTickets = (data ?? []) as Array<Record<string, unknown>>;
+    if (mentionResult.error) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
+    mentionTickets = (mentionResult.data ?? []) as Array<Record<string, unknown>>;
   }
 
   return NextResponse.json({ workOrder, mentionTickets }, { headers: { "Cache-Control": "no-store" } });

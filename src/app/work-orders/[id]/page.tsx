@@ -1096,7 +1096,13 @@ export default function WorkOrderTicketPage() {
         return;
       }
       try {
-        const session = await loadCmpriSession();
+        const raw = window.sessionStorage.getItem(`cmpri:work-order-preview:${id}`);
+        if (raw) seedTicketPreview(JSON.parse(raw) as WorkOrder);
+      } catch {}
+      const sessionPromise = loadCmpriSession();
+      const ticketPromise = loadTicket();
+      try {
+        const session = await sessionPromise;
         setCmpriSession(session);
         const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets");
         if (!canViewTicket) {
@@ -1108,11 +1114,7 @@ export default function WorkOrderTicketPage() {
         window.location.replace("/");
         return;
       }
-      try {
-        const raw = window.sessionStorage.getItem(`cmpri:work-order-preview:${id}`);
-        if (raw) seedTicketPreview(JSON.parse(raw) as WorkOrder);
-      } catch {}
-      await loadTicket();
+      await ticketPromise;
       void loadExternalActivity();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
