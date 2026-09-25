@@ -107,17 +107,13 @@ export default function SignInPage() {
         </div>
         {message ? <p role="status" aria-live="polite" className="mt-5 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{message}</p> : null}
         <div className="mt-6 space-y-4">
-          <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Google account access</p>
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="min-h-12 w-full rounded-lg bg-white font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60">
             {busy ? "Opening Google…" : "Continue with Google"}
           </button>
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
-            Remember me on this device
+            Remember me
           </label>
-          <p className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
-            Your Google email must match an active CMPRI user record.
-          </p>
           <div className="border-t border-slate-800 pt-4">
             <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Password access</p>
             <form onSubmit={signInWithPassword} className="mt-3 space-y-3">
