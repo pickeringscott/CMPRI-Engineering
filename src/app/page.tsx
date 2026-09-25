@@ -34,6 +34,7 @@ export default function SignInPage() {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [initializing, setInitializing] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,10 +48,16 @@ export default function SignInPage() {
         const session = await getValidSession();
         if (session) {
           const landing = await authorizedLanding(session.access_token, controller.signal);
-          if (!controller.signal.aborted) router.replace(landing);
+          if (!controller.signal.aborted) {
+            setRedirecting(true);
+            router.replace(landing);
+          }
         }
       } catch (error) {
-        if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : "Unable to restore this device session.");
+        if (!controller.signal.aborted) {
+          setRedirecting(false);
+          setMessage(error instanceof Error ? error.message : "Unable to restore this device session.");
+        }
       } finally {
         if (!controller.signal.aborted) setInitializing(false);
       }
@@ -89,14 +96,16 @@ export default function SignInPage() {
       const session = await getValidSession();
       if (!session) throw new Error("The password sign-in did not create a session.");
       const landing = await authorizedLanding(session.access_token);
+      setRedirecting(true);
       router.replace(landing);
     } catch (error) {
+      setRedirecting(false);
       setMessage(error instanceof Error ? error.message : "Password sign-in could not be completed.");
       setBusy(false);
     }
   }
 
-  const disabled = initializing || busy;
+  const disabled = initializing || busy || redirecting;
   return (
     <main className="grid min-h-[100dvh] w-full place-items-center bg-slate-950 px-4 text-white">
       <section aria-busy={disabled} className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 shadow-lg shadow-slate-950/25">
@@ -104,7 +113,7 @@ export default function SignInPage() {
           <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
           <h1 className="mt-1 text-[1.7rem] font-bold leading-tight">{APP_TITLE}</h1>
         </div>
-        {message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
+        {redirecting ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-amber-400/30 bg-amber-950/20 p-2.5 text-sm text-amber-100">Loading your dashboard…</p> : message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
         <div className="mt-3 space-y-3">
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition hover:bg-[#f7f8f8] disabled:opacity-60">
             <svg aria-hidden="true" className="h-5 w-5 shrink-0" viewBox="0 0 48 48">

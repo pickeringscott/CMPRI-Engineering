@@ -811,7 +811,7 @@ export default function EngineeringDashboardPage() {
 
       {showWorkOrderList && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 sm:p-6">
-          <section role="dialog" aria-modal="true" aria-labelledby="work-order-list-title" className="flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="work-order-list-title" className="cmpri-dashboard-overlay-panel flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 px-4 py-4 sm:px-5">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Engineering Dashboard</p>
@@ -877,7 +877,7 @@ export default function EngineeringDashboardPage() {
 
       {activeWorkOrderId && workOrderModalToken && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-2 sm:p-5">
-          <div role="dialog" aria-modal="true" aria-label="Work order detail" className="h-full w-full overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-label="Work order detail" className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
             <iframe
               title="Work order detail"
               src={`/work-orders/${encodeURIComponent(activeWorkOrderId)}?embedded=1&modalToken=${encodeURIComponent(workOrderModalToken)}`}
@@ -889,7 +889,7 @@ export default function EngineeringDashboardPage() {
 
       {showRoomOpsImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+          <div className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to the AI refresh provider.</p></div><button type="button" onClick={() => setShowRoomOpsImport(false)} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800">Close</button></div>
             <div className="space-y-4 p-5">
               <textarea value={roomOpsInput} onChange={(event) => setRoomOpsInput(event.target.value)} rows={8} placeholder={"Room\tCheckout Date\tCheckout Time\tRoom Status\tCheck-in Date\tCheck-in Time\tMove From\tMove To\tGuest Name\tRoom Type\tGuest Code\tARV\tLOS\tReserved\n316\t9/15/2026\t11:00 AM\tVacant Dirty\t9/15/2026\t4:00 PM\t316\t412\tGuest Name\tKING\tCODE\t9/12/2026\t3\tYes"} className="w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-white outline-none focus:border-amber-400" />

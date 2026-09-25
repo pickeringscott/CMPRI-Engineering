@@ -101,6 +101,7 @@ export default function RoomOperationsPage() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [activeSummary, setActiveSummary] = useState<keyof Summary | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -145,6 +146,28 @@ export default function RoomOperationsPage() {
   }, [date, session]);
 
   const summary = useMemo(() => summaryFor(rows), [rows]);
+  const summaryCards: Array<[keyof Summary, string, number]> = [
+    ["departures", "Departures", summary.departures],
+    ["arrivals", "Incoming", summary.arrivals],
+    ["reserved", "Reserved", summary.reserved],
+    ["moves", "Moves", summary.moves],
+    ["vacantReady", "Vacant Ready", summary.vacantReady],
+    ["vacantDirty", "Vacant Dirty", summary.vacantDirty],
+    ["outOfOrder", "Out of Order", summary.outOfOrder],
+  ];
+  const summaryRows = useMemo(() => {
+    if (!activeSummary) return [];
+    return rows.filter((row) => {
+      const status = String(row.room_status || "").trim().toLowerCase();
+      if (activeSummary === "departures") return !!row.checkout_date;
+      if (activeSummary === "arrivals") return !!row.arrival_date;
+      if (activeSummary === "reserved") return row.reserved === true;
+      if (activeSummary === "moves") return !!row.move_from || !!row.move_to;
+      if (activeSummary === "vacantReady") return status.includes("vacant ready") || status === "vr";
+      if (activeSummary === "vacantDirty") return status.includes("vacant dirty") || status === "vd";
+      return status === "ooo" || status.includes("out of order") || status.includes("out-of-order");
+    });
+  }, [activeSummary, rows]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return rows;
@@ -183,19 +206,11 @@ export default function RoomOperationsPage() {
         </header>
 
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-          {[
-            ["Departures", summary.departures],
-            ["Incoming", summary.arrivals],
-            ["Reserved", summary.reserved],
-            ["Moves", summary.moves],
-            ["Vacant Ready", summary.vacantReady],
-            ["Vacant Dirty", summary.vacantDirty],
-            ["Out of Order", summary.outOfOrder],
-          ].map(([label, value]) => (
-            <div key={String(label)} className="rounded-xl border border-slate-800 bg-slate-900/65 p-3">
+          {summaryCards.map(([key, label, value]) => (
+            <button key={key} type="button" onClick={() => setActiveSummary(key)} className="rounded-xl border border-slate-800 bg-slate-900/65 p-3 text-left hover:border-slate-600">
               <div className="text-2xl font-black text-white">{value}</div>
               <div className="text-xs font-semibold text-slate-400">{label}</div>
-            </div>
+            </button>
           ))}
         </section>
 
@@ -244,6 +259,37 @@ export default function RoomOperationsPage() {
             ))}
           </div>
         </section>
+
+        {activeSummary && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 sm:p-6">
+            <section role="dialog" aria-modal="true" aria-labelledby="room-summary-title" className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl sm:p-5">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Daily Room Operations</p>
+                  <h2 id="room-summary-title" className="mt-1 text-2xl font-bold">{summaryCards.find(([key]) => key === activeSummary)?.[1]} ({summaryRows.length})</h2>
+                </div>
+                <button type="button" onClick={() => setActiveSummary(null)} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Close</button>
+              </div>
+              <div className="mt-4 space-y-2">
+                {summaryRows.length ? summaryRows.map((row) => (
+                  <article key={row.room} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-black text-white">Room {row.room}</span>
+                      {row.room_status ? <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
+                      {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-bold text-fuchsia-200">Reserved</span> : null}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-300">
+                      {row.guest_name ? <span><strong className="text-slate-400">Guest:</strong> {row.guest_name}</span> : null}
+                      {row.checkout_date ? <span><strong className="text-slate-400">Checkout:</strong> {displayDate(row.checkout_date)} {row.checkout_time || ""}</span> : null}
+                      {row.arrival_date ? <span><strong className="text-slate-400">Incoming:</strong> {displayDate(row.arrival_date)} {row.arrival_time || ""}</span> : null}
+                      {row.move_from || row.move_to ? <span><strong className="text-slate-400">Move:</strong> {row.move_from || "—"} → {row.move_to || row.room}</span> : null}
+                    </div>
+                  </article>
+                )) : <p className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">No rooms match this KPI.</p>}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </main>
   );

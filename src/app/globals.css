@@ -25,6 +25,12 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+.cmpri-dashboard-overlay-panel {
+  width: clamp(18rem, 66.6667vw, 42.6667rem);
+  height: 66.6667vh;
+  max-height: calc(100vh - 4rem);
+}
+
 /* CMPRI V43 interaction standard: every button gives immediate tactile feedback. */
 button,
 [role="button"] {
