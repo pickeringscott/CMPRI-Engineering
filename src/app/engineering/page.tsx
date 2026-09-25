@@ -7,6 +7,7 @@ import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { DASHBOARD_AI_ACTION, type DashboardAISummary } from "@/lib/ai/dashboard-analysis";
 import { BUILD_VERSION } from "@/lib/constants";
+import { filterKpiWorkOrders, isKpiOverdue, isOpenKpiStatus, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import CopyButton from "@/components/CopyButton";
 
 const REFRESH_MS = 30_000;
@@ -48,12 +49,11 @@ type RoomOperation = {
 };
 
 function normalizeStatus(value?: string | null) {
-  return (value || "Open").trim();
+  return normalizeKpiStatus(value);
 }
 
 function isOpenStatus(value?: string | null) {
-  const status = normalizeStatus(value).toLowerCase();
-  return !["pending verification", "completed", "will not do", "duplicate", "closed", "cancelled", "canceled"].includes(status);
+  return isOpenKpiStatus(value);
 }
 
 function parseDate(value?: string | null) {
@@ -63,12 +63,7 @@ function parseDate(value?: string | null) {
 }
 
 function isOverdue(value?: string | null) {
-  const date = parseDate(value);
-  if (!date) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-  return date < today;
+  return isKpiOverdue(value);
 }
 
 function formatDue(value?: string | null) {
@@ -619,12 +614,27 @@ export default function EngineeringDashboardPage() {
     };
   }, [newOrderQueue.length]);
 
+  function closeTopOverlay() {
+    if (activeWorkOrderId) {
+      setActiveWorkOrderId("");
+      setWorkOrderModalToken("");
+      return;
+    }
+    if (showRoomOpsImport) {
+      setShowRoomOpsImport(false);
+      return;
+    }
+    if (showWorkOrderList) {
+      setShowWorkOrderList(false);
+    }
+  }
+
   useEffect(() => {
-    if (!showWorkOrderList && !activeWorkOrderId) return;
+    if (!showWorkOrderList && !showRoomOpsImport && !activeWorkOrderId) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [activeWorkOrderId, showWorkOrderList]);
+  }, [activeWorkOrderId, showRoomOpsImport, showWorkOrderList]);
 
   useEffect(() => {
     function handleWorkOrderMessage(event: MessageEvent) {
@@ -643,10 +653,10 @@ export default function EngineeringDashboardPage() {
   }, [workOrderModalToken]);
 
   const pendingVerification = orders.filter((order) => normalizeStatus(order.status).toLowerCase() === "pending verification");
-  const openOrders = orders.filter((order) => isOpenStatus(order.status));
-  const inProgress = openOrders.filter((order) => normalizeStatus(order.status).toLowerCase() === "in progress");
-  const urgentHigh = openOrders.filter((order) => ["urgent", "high"].includes(String(order.priority || "").toLowerCase()));
-  const overdue = openOrders.filter((order) => isOverdue(order.due_by));
+  const openOrders = filterKpiWorkOrders(orders, "open");
+  const inProgress = filterKpiWorkOrders(orders, "progress");
+  const urgentHigh = filterKpiWorkOrders(orders, "priority");
+  const overdue = filterKpiWorkOrders(orders, "overdue");
   const completed = orders.filter((order) => normalizeStatus(order.status).toLowerCase() === "completed");
   const closed = orders.filter((order) => ["closed", "duplicate", "will not do"].includes(normalizeStatus(order.status).toLowerCase()));
   const moveCount = roomOperations.filter((operation) => operation.moveFrom || operation.moveTo).length;
@@ -711,22 +721,22 @@ export default function EngineeringDashboardPage() {
           <div className="flex flex-wrap gap-2">
             <a href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</a>
             <a href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</a>
-            {hasCapability(cmpriSession, "operate_integrations") && <a href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</a>}
+            <a href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</a>
             <a href="/engineering/gss" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">GSS Reports</a>
             <a href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</a>
             <a href="/engineering/room-operations" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Daily Room Ops</a>
-            {hasCapability(cmpriSession, "edit_tickets") && <button type="button" onClick={() => setShowRoomOpsImport(true)} className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Import Room Ops</button>}
-            {hasCapability(cmpriSession, "manage_assets") && <a href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</a>}
-            {hasCapability(cmpriSession, "manage_assets") && <a href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</a>}
-            {hasCapability(cmpriSession, "manage_assets") && <a href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</a>}
-            {hasCapability(cmpriSession, "edit_tickets") && <a href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</a>}
-            {hasCapability(cmpriSession, "manage_rooms") && <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>}
-            {hasCapability(cmpriSession, "manage_users") && <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>}
+            <button type="button" onClick={() => setShowRoomOpsImport(true)} className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Import Room Ops</button>
+            <a href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</a>
+            <a href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</a>
+            <a href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</a>
+            <a href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</a>
+            <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>
+            <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>
             <a href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</a>
             {!personalAiConnected && <a href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect AI</a>}
             <button type="button" onClick={requestAIRefresh} disabled={aiRefreshing} className="rounded-lg border border-purple-400/50 bg-purple-950/30 px-4 py-2 text-sm font-bold text-purple-100 hover:bg-purple-900/40 disabled:opacity-50">{aiRefreshing ? "Refreshing AI…" : "Refresh AI"}</button>
             <button type="button" onClick={() => setShowWorkOrderList(true)} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
-            {hasCapability(cmpriSession, "submit") && <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>}
+            <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </header>
@@ -817,7 +827,7 @@ export default function EngineeringDashboardPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Engineering Dashboard</p>
                 <h2 id="work-order-list-title" className="mt-1 text-2xl font-bold">Work Order List</h2>
               </div>
-              <button type="button" onClick={() => setShowWorkOrderList(false)} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Close</button>
+              <button type="button" onClick={closeTopOverlay} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Close</button>
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 sm:p-5">
@@ -890,7 +900,7 @@ export default function EngineeringDashboardPage() {
       {showRoomOpsImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
           <div className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to the AI refresh provider.</p></div><button type="button" onClick={() => setShowRoomOpsImport(false)} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800">Close</button></div>
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to the AI refresh provider.</p></div><button type="button" onClick={closeTopOverlay} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800">Close</button></div>
             <div className="space-y-4 p-5">
               <textarea value={roomOpsInput} onChange={(event) => setRoomOpsInput(event.target.value)} rows={8} placeholder={"Room\tCheckout Date\tCheckout Time\tRoom Status\tCheck-in Date\tCheck-in Time\tMove From\tMove To\tGuest Name\tRoom Type\tGuest Code\tARV\tLOS\tReserved\n316\t9/15/2026\t11:00 AM\tVacant Dirty\t9/15/2026\t4:00 PM\t316\t412\tGuest Name\tKING\tCODE\t9/12/2026\t3\tYes"} className="w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-white outline-none focus:border-amber-400" />
               <div className="flex flex-wrap gap-2">
