@@ -723,11 +723,6 @@ export default function WorkOrdersPage() {
   ] = useState(false);
 
   const [
-    manualAsset,
-    setManualAsset,
-  ] = useState(false);
-
-  const [
     manualCategory,
     setManualCategory,
   ] = useState(false);
@@ -792,7 +787,6 @@ export default function WorkOrdersPage() {
     }
   });
   const [staffFirstName, setStaffFirstName] = useState("");
-  const [assetSuggestionConfirmed, setAssetSuggestionConfirmed] = useState(false);
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
   const [activeDraftId, setActiveDraftId] = useState("");
@@ -945,9 +939,6 @@ export default function WorkOrdersPage() {
   const normalizedCurrentRole = currentRole.toLowerCase().replace(/[_-]+/g, " ").trim();
   const isFrontDeskUser = normalizedCurrentRole === "front desk" || normalizedCurrentRole === "frontdesk";
   const isSubmitOnlyUser = ["front desk", "frontdesk", "housekeeping"].includes(normalizedCurrentRole);
-  const ambiguousAssetSuggestion = isSubmitOnlyUser && !!assetId && !manualAsset && availableAssets.filter((asset) => asset.id !== assetId).length > 0;
-
-
   function applySmartSuggestions(
     newIssue: string,
     newNotes: string,
@@ -1005,26 +996,11 @@ export default function WorkOrdersPage() {
       isSubmitOnlyUser ? workingAssets.filter((asset) => asset.location_id === workingLocation.id) : workingAssets,
     );
     if (isSubmitOnlyUser) {
-      setAssetId(suggestion.assetId || "");
       setCategory(suggestion.category || "General");
       setPriority(suggestion.priority || "Medium");
       return;
     }
     let matchedAsset = workingAssets.find(item => item.id === assetId);
-    const bestGuessAssetId = suggestion.assetId || "";
-
-    if (
-      bestGuessAssetId &&
-      (!manualAsset || locationOverride)
-    ) {
-setAssetId(bestGuessAssetId);
-
-      matchedAsset =
-        workingAssets.find(
-          (item) =>
-            item.id === bestGuessAssetId
-        );
-    }
 
     const smartCategory =
       matchedAsset
@@ -1086,7 +1062,6 @@ setAssetId(bestGuessAssetId);
     setCategory("General");
     setPriority("Medium");
 
-    setManualAsset(false);
     setManualCategory(false);
     setManualPriority(false);
 
@@ -1101,8 +1076,6 @@ setAssetId(bestGuessAssetId);
   function handleAssetChange(
     newAssetId: string
   ) {
-    setManualAsset(true);
-    setAssetSuggestionConfirmed(true);
     setAssetId(newAssetId);
 
     const asset =
@@ -1140,7 +1113,6 @@ setAssetId(bestGuessAssetId);
     if (detectedLocation && detectedLocation.id !== locationId) {
       setLocationId(detectedLocation.id);
       setManualLocation(false);
-      setManualAsset(false);
       setManualCategory(false);
       setManualPriority(false);
     }
@@ -1219,10 +1191,8 @@ setAssetId(bestGuessAssetId);
     setPriority(draft.priority || "Medium");
     setNotes(draft.notes || "");
     setManualLocation(Boolean(draft.location_id));
-    setManualAsset(Boolean(draft.asset_id));
     setManualCategory(false);
     setManualPriority(false);
-    setAssetSuggestionConfirmed(false);
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
   }
 
@@ -1317,7 +1287,6 @@ setAssetId(bestGuessAssetId);
     setNotes("");
 
     setManualLocation(false);
-    setManualAsset(false);
     setManualCategory(false);
     setManualPriority(false);
 
@@ -1837,18 +1806,8 @@ setAssetId(bestGuessAssetId);
                   placeholder={!locationId ? tx("Select location first", "Selecciona la ubicación primero") : tx("Asset / Equipment", "Equipo / Activo")}
                   options={createAssetOptions}
                   topSuggestions={3}
+                  showSuggestionsOnOpen={false}
                 />
-                {assetId && !manualAsset && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <p className="text-xs font-semibold text-emerald-400"> {tx("System best guess", "Mejor estimación del sistema")} </p>
-                    {ambiguousAssetSuggestion && !assetSuggestionConfirmed && (
-                      <button type="button" onClick={() => setAssetSuggestionConfirmed(true)} className="rounded-md border border-sky-400/40 bg-sky-950/40 px-2 py-1 text-[11px] font-bold text-sky-200 hover:bg-sky-900/50"> {tx("Confirm", "Confirmar")} </button>
-                    )}
-                    {ambiguousAssetSuggestion && assetSuggestionConfirmed && (
-                      <span className="text-[11px] font-semibold text-sky-300"> {tx("Confirmed", "Confirmado")} </span>
-                    )}
-                  </div>
-                )}
               </label>
 
               <label className="block">

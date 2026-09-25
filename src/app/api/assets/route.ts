@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
+import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ assets: data || [] }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  if (!allows(auth.principal, "manage_assets")) {
+  if (!canReadEquipment(auth.principal.profile.role)) {
     return NextResponse.json({ error: "Equipment management permission is required." }, { status: 403 });
   }
   const includeDocumentation = request.nextUrl.searchParams.get("include_documentation") !== "false";
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
     : assets.map((asset) => ({ state: { verified: false, documentCount: 0, error: null }, asset: { ...asset, documentation_verified: false, documentation_count: 0 } }));
   return NextResponse.json({
     assets: results.map((result) => result.asset),
-    can_manage: allows(auth.principal, "manage_assets"),
+    can_manage: canEditEquipment(auth.principal.profile.role),
     documentation_state_available: !results.some((result) => result.state.error),
   }, { headers: { "Cache-Control": "no-store" } });
 }
@@ -100,6 +101,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireCapability(request, "manage_assets");
   if (!auth) return NextResponse.json({ error: "Equipment editing permission is required." }, { status: 403 });
+  if (!canEditEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Only engineers can edit equipment." }, { status: 403 });
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
   try {
@@ -142,6 +144,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const auth = await requireCapability(request, "manage_assets");
   if (!auth) return NextResponse.json({ error: "Equipment editing permission is required." }, { status: 403 });
+  if (!canEditEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Only engineers can edit equipment." }, { status: 403 });
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
   const id = typeof body.id === "string" ? body.id.trim() : "";

@@ -57,6 +57,8 @@ export default function ManageEquipmentPage() {
   const [extracted, setExtracted] = useState<Suggestions | null>(null);
   const [extractedDraft, setExtractedDraft] = useState<Suggestions>({});
   const [dialogMessage, setDialogMessage] = useState("");
+  const [canManage, setCanManage] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const selected = assets.find((asset) => asset.id === selectedId);
   const verified = Boolean(selected?.documentation_verified || draft.documentation_verified);
@@ -77,8 +79,9 @@ export default function ManageEquipmentPage() {
       return;
     }
     const list = (payload.assets || []) as Asset[];
+    setCanManage(payload.can_manage === true);
     setAssets(list);
-    const nextId = preferId || selectedId || list[0]?.id || "";
+    const nextId = preferId || selectedId || "";
     const item = list.find((asset) => asset.id === nextId) || blankAsset;
     selectAsset(item);
     setLoading(false);
@@ -120,6 +123,7 @@ export default function ManageEquipmentPage() {
   function selectAsset(item: Asset) {
     setSelectedId(item.id);
     setDraft({ ...item });
+    setEditing(false);
     setDocuments([]);
     setExtracted(null);
     setExtractedDraft({});
@@ -137,11 +141,11 @@ export default function ManageEquipmentPage() {
   }, [selectedId]);
 
   function setField<K extends keyof Asset>(key: K, value: Asset[K]) {
-    if (!verified) setDraft((current) => ({ ...current, [key]: value }));
+    if (!verified && canManage) setDraft((current) => ({ ...current, [key]: value }));
   }
 
   async function save() {
-    if (!selectedId || verified || saving) return;
+    if (!selectedId || verified || !canManage || saving) return;
     setSaving(true);
     setMessage("Saving equipment…");
     const access = await token();
@@ -232,14 +236,14 @@ export default function ManageEquipmentPage() {
   }
 
   function loadExtractedIntoEquipment() {
-    if (!extracted || verified) return;
+    if (!extracted || verified || !canManage) return;
     applySuggestions(extractedDraft);
     setShowDocumentationDialog(false);
     setMessage("Reviewed documentation information loaded into the equipment record. Make any final corrections, then Save Equipment.");
   }
 
   async function verify() {
-    if (!selectedId || verifying) return;
+    if (!selectedId || !canManage || verifying) return;
     setVerifying(true);
     setMessage("Confirming equipment against documentation…");
     const access = await token();
@@ -315,22 +319,23 @@ export default function ManageEquipmentPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}
-                  {!verified && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-md border border-cyan-500/50 bg-cyan-950/30 px-3 py-1.5 text-xs font-bold text-cyan-100">Choose PDF</button>}
-                  {!verified && <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
+                  {canManage && !verified && !editing && <button type="button" onClick={() => setEditing(true)} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Edit Equipment</button>}
+                  {canManage && !verified && editing && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-md border border-cyan-500/50 bg-cyan-950/30 px-3 py-1.5 text-xs font-bold text-cyan-100">Choose PDF</button>}
+                  {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
                 </div>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
-                  <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={verified} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
+                  <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
                 ))}
-                <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={verified} type="number" min="1900" max="2200" value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
+                <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max="2200" value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
 
               <div className="mt-6 border-t border-slate-800 pt-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div><h3 className="text-xl font-bold">Documentation</h3><p className="mt-1 text-sm text-slate-400">Stored once for this equipment and available for review or retry.</p></div>
-                  {!verified && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-bold text-slate-200">Add PDF</button>}
+                  {canManage && editing && !verified && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-bold text-slate-200">Add PDF</button>}
                 </div>
                 <div className="mt-3 space-y-2">
                   {documents.length ? documents.map((doc) => {
@@ -347,7 +352,7 @@ export default function ManageEquipmentPage() {
                 </div>
               </div>
 
-              {!verified && <div className="mt-8 border-t border-slate-700 pt-6">
+              {canManage && editing && !verified && <div className="mt-8 border-t border-slate-700 pt-6">
                 <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
                 <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
               </div>}
@@ -356,7 +361,7 @@ export default function ManageEquipmentPage() {
         </div>
       </div>
 
-      {showDocumentationDialog && selected && (
+      {showDocumentationDialog && selected && canManage && editing && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4">
           <div role="dialog" aria-modal="true" className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">

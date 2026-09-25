@@ -21,6 +21,7 @@ type Props = {
   onDismiss?: () => void;
   footerActionLabel?: string;
   onFooterAction?: () => void;
+  showSuggestionsOnOpen?: boolean;
 };
 
 function normalize(value: string) {
@@ -63,6 +64,7 @@ export default function SearchableSelect({
   onDismiss,
   footerActionLabel,
   onFooterAction,
+  showSuggestionsOnOpen = true,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const listId = useId();
@@ -175,12 +177,13 @@ export default function SearchableSelect({
   }
 
   const browseOptions = useMemo(() => {
+    if (!showSuggestionsOnOpen && !query.trim() && !expanded) return [];
     if ((query.trim() && !browsingCurrentValue) || expanded) return ranked;
     return ranked.slice(0, Math.max(topSuggestions, 1));
-  }, [browsingCurrentValue, expanded, query, ranked, topSuggestions]);
+  }, [browsingCurrentValue, expanded, query, ranked, showSuggestionsOnOpen, topSuggestions]);
 
   const visibleOptions = (query.trim() && !browsingCurrentValue) || expanded ? ranked : browseOptions;
-  const canSeeMore = (!query.trim() || browsingCurrentValue) && !expanded && ranked.length > visibleOptions.length;
+  const canSeeMore = showSuggestionsOnOpen && (!query.trim() || browsingCurrentValue) && !expanded && ranked.length > visibleOptions.length;
 
   useEffect(() => {
     if (open && expanded && selectedRowRef.current) {

@@ -6,6 +6,13 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { roleAllows } from '../src/lib/server/roles.ts';
 function canEditEngineeringData(role) { return roleAllows(role, "edit_tickets"); }
+function fixtureRoleKey(value) {
+  const key=String(value||'').toLowerCase().replace(/[\s_-]+/g,'');
+  if(key==='systemadmin')return 'system_admin';
+  if(key==='technician'||key==='maintenancetechnician')return 'technician';
+  if(key==='frontdesk')return 'front_desk';
+  return 'engineer';
+}
 function buildPrincipal(config, data, profile) {
   if (config.noUser) return null;
   if (config.authError) return null;
@@ -88,6 +95,11 @@ function fixture(route, config={}) {
         resolvePrincipal: () => null,
         hasAnyGrant: () => false,
       };
+      if(name==='@/lib/server/roles')return {
+        roleKey:fixtureRoleKey,
+        canReadEquipment:(role)=>['engineer','technician','system_admin'].includes(fixtureRoleKey(role)),
+        canEditEquipment:(role)=>['engineer','system_admin'].includes(fixtureRoleKey(role)),
+      };
       if(name==='./access')return {allows:()=>false,authenticate:async()=>null,resolvePrincipal:()=>null,hasAnyGrant:()=>false};
       if(name==='./roles')return {roleAllows,roleKey:()=>'unknown'};
       if(name==='./supabase-admin')return {createSupabaseAdmin:()=>data};
@@ -113,10 +125,18 @@ for(const route of ['route.ts','documentation/route.ts']) {
   }
 }
 test('active read-only account can still read asset list',async()=>{
-  const f=fixture('route.ts');assert.equal((await f.handlers.GET(f.request)).status,200);
+  const f=fixture('route.ts',{profile:{active:true,role:'Maintenance Technician',full_name:'Tech'}});assert.equal((await f.handlers.GET(f.request)).status,200);
+});
+test('technician cannot mutate equipment',async()=>{
+  const f=fixture('route.ts',{permission:true,profile:{active:true,role:'Maintenance Technician',full_name:'Tech'}});
+  assert.equal((await f.handlers.PATCH(f.request)).status,403);
+});
+test('front desk cannot read equipment management',async()=>{
+  const f=fixture('route.ts',{profile:{active:true,role:'Front Desk',full_name:'Front Desk'}});
+  assert.equal((await f.handlers.GET(f.request)).status,403);
 });
 test('GET reads assets beyond the Supabase page limit',async()=>{
-  const f=fixture('route.ts',{assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
+  const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
   const result=await f.handlers.GET(f.request);
   assert.equal(result.status,200);
   assert.equal(result.body.assets.length,1001);

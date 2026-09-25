@@ -103,6 +103,14 @@ export function roleAllows(role: unknown, capability: Capability): boolean {
   return CAPABILITIES[roleKey(role)].includes(capability);
 }
 
+export function canReadEquipment(role: unknown): boolean {
+  return ["engineer", "technician", "system_admin"].includes(roleKey(role));
+}
+
+export function canEditEquipment(role: unknown): boolean {
+  return ["engineer", "system_admin"].includes(roleKey(role));
+}
+
 export const isFrontDesk = (role: unknown) => roleKey(role) === "front_desk";
 export const isSubmitOnlyRole = (role: unknown) =>
   ["front_desk", "housekeeping"].includes(roleKey(role));
