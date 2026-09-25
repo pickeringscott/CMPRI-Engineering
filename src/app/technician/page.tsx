@@ -71,7 +71,7 @@ export default function TechnicianDashboard() {
           ) : (
             <div className="divide-y divide-slate-800">
               {orders.map((order) => (
-                <article key={order.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_140px_150px] md:items-center">
+                <Link key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="grid gap-3 px-5 py-4 hover:bg-slate-800/50 md:grid-cols-[1fr_140px_150px] md:items-center">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-400">{order.display_id}</p>
                     <h3 className="mt-1 text-lg font-semibold">{order.issue || "Work order"}</h3>
@@ -82,7 +82,7 @@ export default function TechnicianDashboard() {
                     <p className="mt-1 text-slate-400">{order.category || "General"} · {order.priority || "Medium"}</p>
                   </div>
                   <p className="text-sm text-slate-400">{order.due_by ? `Due ${new Date(order.due_by).toLocaleDateString()}` : "No due date"}</p>
-                </article>
+                </Link>
               ))}
             </div>
           )}

@@ -10,6 +10,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
+import { roleKey } from "@/lib/server/roles";
 
 
 type Asset = {
@@ -1578,7 +1579,9 @@ export default function WorkOrderTicketPage() {
   const canEditTicket = Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
+  const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
   const statusValues = (() => {
+    if (isTechnician) return ["Open", "In Progress", "Completed"];
     if (canReviewTicket && !canEditTicket) {
       return status === "Pending Verification" ? ["Pending Verification", "Open", "Will Not Do"] : [status];
     }
