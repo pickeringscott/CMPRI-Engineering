@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
+import { redirect } from "next/navigation";
 
 type AssignedWorkOrder = {
   id: string;
@@ -17,6 +18,8 @@ type AssignedWorkOrder = {
 };
 
 export default function TechnicianDashboard() {
+  redirect("/engineering");
+
   const [orders, setOrders] = useState<AssignedWorkOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
