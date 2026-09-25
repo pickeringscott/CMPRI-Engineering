@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createClient,
@@ -33,6 +33,8 @@ export default function SignInPage() {
   const [message, setMessage] = useState("");
   const [initializing, setInitializing] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,6 +70,26 @@ export default function SignInPage() {
     }
   }
 
+  async function signInWithPassword(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const { error } = await createClient().auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) throw error;
+      const session = await getValidSession();
+      if (!session) throw new Error("The password sign-in did not create a session.");
+      const landing = await authorizedLanding(session.access_token);
+      router.replace(landing);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Password sign-in could not be completed.");
+      setBusy(false);
+    }
+  }
+
   const disabled = initializing || busy;
   return (
     <main className="grid min-h-[100dvh] w-full place-items-center bg-slate-950 px-5 text-white">
@@ -86,6 +108,36 @@ export default function SignInPage() {
           <p className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
             Your Google email must match an active CMPRI user record.
           </p>
+          <div className="border-t border-slate-800 pt-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Password access</p>
+            <form onSubmit={signInWithPassword} className="mt-3 space-y-3">
+              <input
+                required
+                disabled={disabled}
+                type="email"
+                autoComplete="username"
+                aria-label="Email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="Email"
+                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white"
+              />
+              <input
+                required
+                disabled={disabled}
+                type="password"
+                autoComplete="current-password"
+                aria-label="Password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Password"
+                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white"
+              />
+              <button type="submit" disabled={disabled} className="min-h-11 w-full rounded-lg border border-amber-400 px-4 font-bold text-amber-300 transition hover:bg-amber-400/10 disabled:opacity-60">
+                {busy ? "Signing in…" : "Sign in with Password"}
+              </button>
+            </form>
+          </div>
         </div>
       </section>
     </main>
