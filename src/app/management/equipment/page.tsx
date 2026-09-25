@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
+import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 
 type Asset = {
   id: string;
@@ -68,7 +69,7 @@ export default function ManageEquipmentPage() {
   async function loadAssets(preferId?: string) {
     setLoading(true);
     const access = await token();
-    const response = await fetch("/api/assets", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+    const response = await fetch("/api/assets?include_documentation=false", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) {
       setMessage(payload.error || "Could not load equipment.");
@@ -83,17 +84,23 @@ export default function ManageEquipmentPage() {
     setLoading(false);
   }
 
-  async function loadDocuments(assetId: string): Promise<Doc[]> {
-    if (!assetId) return [];
+  async function loadDocuments(assetId: string): Promise<{ documents: Doc[]; verified: boolean }> {
+    if (!assetId) return { documents: [], verified: false };
     const access = await token();
     const response = await fetch(`/api/assets/documentation?asset_id=${encodeURIComponent(assetId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load documentation.");
-    return (payload.documents || []) as Doc[];
+    return { documents: (payload.documents || []) as Doc[], verified: payload.verified === true };
   }
 
-  function displayDocuments(docs: Doc[]) {
+  function displayDocuments(docs: Doc[], verifiedState = false) {
     setDocuments(docs);
+    setAssets((current) => current.map((asset) => asset.id === selectedId
+      ? { ...asset, documentation_verified: verifiedState, documentation_count: docs.length }
+      : asset));
+    setDraft((current) => current.id === selectedId
+      ? { ...current, documentation_verified: verifiedState, documentation_count: docs.length }
+      : current);
     setDocStatuses((current) => {
       const next = { ...current };
       for (const doc of docs) if (!next[doc.storage_path || doc.name]) next[doc.storage_path || doc.name] = { state: "ready" };
@@ -122,7 +129,7 @@ export default function ManageEquipmentPage() {
 
   useEffect(() => {
     let current = true;
-    void loadDocuments(selectedId).then((docs) => { if (current) displayDocuments(docs); }).catch(() => {
+    void loadDocuments(selectedId).then((result) => { if (current) displayDocuments(result.documents, result.verified); }).catch(() => {
       if (current) setMessage("Could not load documentation. Please retry.");
     });
     return () => { current = false; };
@@ -207,7 +214,8 @@ export default function ManageEquipmentPage() {
       ? { state: "processed", message: payload.processing_message || "Processed" }
       : { state: "failed", message: payload.processing_message || "Equipment information was not loaded." };
     if (returnedPath) setDocStatuses((current) => ({ ...current, [returnedPath]: state }));
-    displayDocuments(await loadDocuments(selectedId));
+    const documentResult = await loadDocuments(selectedId);
+    displayDocuments(documentResult.documents, documentResult.verified);
     setDocFile(null);
     if (payload.suggestions) {
       const suggestions = payload.suggestions as Suggestions;
@@ -254,6 +262,12 @@ export default function ManageEquipmentPage() {
     ["serial_number", "Serial number"],
     ["generation", "Generation"],
   ] as const;
+  const assetOptions: SearchableSelectOption[] = assets.map((asset) => ({
+    value: asset.id,
+    label: asset.name || asset.asset_type || "Unnamed equipment",
+    group: asset.asset_type || "Equipment",
+    keywords: [asset.asset_type, asset.manufacturer, asset.model_number, asset.serial_number, asset.asset_tag].filter(Boolean) as string[],
+  }));
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -275,14 +289,20 @@ export default function ManageEquipmentPage() {
               <h2 className="font-bold">All Equipment</h2>
               <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
             </div>
-            <div className="max-h-[74vh] overflow-y-auto">
-              {assets.map((asset) => (
-                <button key={asset.id} onClick={() => selectAsset(asset)} className={`block w-full border-b border-slate-800 px-4 py-3 text-left ${selectedId === asset.id ? "bg-cyan-950/45" : "hover:bg-slate-800/70"}`}>
-                  <div className="font-semibold text-white">{asset.name}</div>
-                  <div className="mt-1 text-xs text-slate-400">{asset.asset_type || "Unknown type"}{asset.manufacturer ? ` · ${asset.manufacturer}` : ""}</div>
-                  {asset.documentation_verified && <div className="mt-1 text-[11px] font-semibold text-emerald-300">Verified from documentation</div>}
-                </button>
-              ))}
+            <div className="p-4">
+              <SearchableSelect
+                value={selectedId}
+                options={assetOptions}
+                onChange={(value) => {
+                  const item = assets.find((asset) => asset.id === value);
+                  if (item) selectAsset(item);
+                }}
+                placeholder={loading ? "Loading equipment…" : "Search all equipment…"}
+                topSuggestions={3}
+                noMatchesText="No equipment matches this search."
+                disabled={loading || !assets.length}
+              />
+              <p className="mt-2 text-xs text-slate-500">Search by equipment name, type, manufacturer, model, serial number, or asset tag.</p>
             </div>
           </section>
 

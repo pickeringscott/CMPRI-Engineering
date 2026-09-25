@@ -22,20 +22,21 @@ function buildPrincipal(config, data, profile) {
 
 function fixture(route, config={}) {
   const calls=[];
+  const assetRows=config.assetRows || (config.asset ? [{id:'test'}] : []);
   const profile=config.profile === undefined ? {active:true,role:config.permission?'Chief Engineer':'Front Desk',full_name:'Test'} : config.profile;
   const data={
     auth:{getUser:async()=>({data:{user:config.noUser?null:{id:'test-user'}},error:config.authError?{message:'auth failed'}:null})},
     from(table){
       calls.push(table);
       const query={
-        select(){return query;},eq(){return query;},
+        select(){return query;},eq(){return query;},range(start,end){query.rangeStart=start;query.rangeEnd=end;return query;},
         async maybeSingle(){
           if(table==='profiles')return {data:profile,error:config.profileError?{message:'profile failed'}:null};
           if(table==='role_permissions')return {data:config.permission?{permission:'manage_assets',allowed:true}:null,error:config.permissionError?{message:'permission failed'}:null};
           if(table==='assets')return {data:config.asset?{id:'test'}:null,error:null};
           throw new Error(`Unexpected table ${table}`);
         },
-        async order(){return {data:config.asset?[{id:'test'}]:[],error:null};},
+        async order(){return {data:assetRows.slice(query.rangeStart ?? 0, (query.rangeEnd ?? assetRows.length - 1) + 1),error:null};},
         insert(){throw new Error('Unauthorized asset write reached database');},
       };
       return query;
@@ -114,12 +115,25 @@ for(const route of ['route.ts','documentation/route.ts']) {
 test('active read-only account can still read asset list',async()=>{
   const f=fixture('route.ts');assert.equal((await f.handlers.GET(f.request)).status,200);
 });
+test('GET reads assets beyond the Supabase page limit',async()=>{
+  const f=fixture('route.ts',{assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
+  const result=await f.handlers.GET(f.request);
+  assert.equal(result.status,200);
+  assert.equal(result.body.assets.length,1001);
+});
 test('authorized editor passes permission gate to scoped asset lookup',async()=>{
   const f=fixture('route.ts',{permission:true});assert.equal((await f.handlers.PATCH(f.request)).status,404);assert.equal(f.calls.includes('assets'),true);
 });
-for(const method of ['GET','PATCH'])test(`${method} fails closed when verification storage cannot be read`,async()=>{
+test('GET still returns asset records when verification storage cannot be read',async()=>{
   const f=fixture('route.ts',{permission:true,asset:true,storageError:true});
-  assert.equal((await f.handlers[method](f.request)).status,503);
+  const result=await f.handlers.GET(f.request);
+  assert.equal(result.status,200);
+  assert.equal(result.body.documentation_state_available,false);
+  assert.equal(result.body.assets.length,1);
+});
+test('PATCH fails closed when verification storage cannot be read',async()=>{
+  const f=fixture('route.ts',{permission:true,asset:true,storageError:true});
+  assert.equal((await f.handlers.PATCH(f.request)).status,503);
 });
 for(const method of ['POST','PATCH'])for(const config of [{badJson:true},{nullBody:true}])test(`${method} rejects malformed input ${JSON.stringify(config)}`,async()=>{
   const f=fixture('route.ts',{permission:true,...config});assert.equal((await f.handlers[method](f.request)).status,400);

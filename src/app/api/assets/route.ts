@@ -7,6 +7,7 @@ import { requireCapability, requireUser } from "@/lib/server/auth";
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
 const EN_DASH = " – ";
+const ASSET_PAGE_SIZE = 1000;
 
 async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {
   try {
@@ -20,7 +21,10 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
 async function documentationState(data: SupabaseClient, assetId: string) {
   const prefix = `${HOTEL_ID}/${assetId}`;
   const { data: files, error } = await data.storage.from(BUCKET).list(prefix, { limit: 100 });
-  if (error) return { verified: false, documentCount: 0, error: "Equipment documentation verification is unavailable." };
+  if (error) {
+    if (/not found|bucket/i.test(error.message || "")) return { verified: false, documentCount: 0, error: null };
+    return { verified: false, documentCount: 0, error: "Equipment documentation verification is unavailable." };
+  }
   const names = (files || []).map((file) => String(file.name || ""));
   return {
     verified: names.includes(VERIFY_MARKER),
@@ -68,21 +72,28 @@ export async function GET(request: NextRequest) {
   if (!allows(auth.principal, "manage_assets")) {
     return NextResponse.json({ error: "Equipment management permission is required." }, { status: 403 });
   }
-  const { data, error } = await auth.admin.from("assets")
-    .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_number, serial_number, generation, install_year, documentation_key")
-    .eq("hotel_id", HOTEL_ID)
-    .order("name", { ascending: true });
-  if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });
-  const results = await Promise.all((data || []).map(async (asset) => {
-    const state = await documentationState(auth.admin, asset.id);
-    return { state, asset: { ...asset, documentation_verified: state.verified, documentation_count: state.documentCount } };
-  }));
-  if (results.some((result) => result.state.error)) {
-    return NextResponse.json({ error: "Equipment documentation state could not be verified." }, { status: 503 });
+  const includeDocumentation = request.nextUrl.searchParams.get("include_documentation") !== "false";
+  const assets: Array<Record<string, unknown> & { id: string }> = [];
+  for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
+    const { data, error } = await auth.admin.from("assets")
+      .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_number, serial_number, generation, install_year, documentation_key")
+      .eq("hotel_id", HOTEL_ID)
+      .range(offset, offset + ASSET_PAGE_SIZE - 1)
+      .order("name", { ascending: true });
+    if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });
+    assets.push(...((data || []) as Array<Record<string, unknown> & { id: string }>));
+    if ((data || []).length < ASSET_PAGE_SIZE) break;
   }
+  const results = includeDocumentation
+    ? await Promise.all(assets.map(async (asset) => {
+        const state = await documentationState(auth.admin, asset.id);
+        return { state, asset: { ...asset, documentation_verified: state.verified, documentation_count: state.documentCount } };
+      }))
+    : assets.map((asset) => ({ state: { verified: false, documentCount: 0, error: null }, asset: { ...asset, documentation_verified: false, documentation_count: 0 } }));
   return NextResponse.json({
     assets: results.map((result) => result.asset),
     can_manage: allows(auth.principal, "manage_assets"),
+    documentation_state_available: !results.some((result) => result.state.error),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
