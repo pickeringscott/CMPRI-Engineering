@@ -673,14 +673,10 @@ export default function EngineeringDashboardPage() {
   };
 
   const cards = [
-    ["pending", "Pending Verification", pendingVerification.length],
-    ["open", "Open Work Orders", openOrders.length],
+    ["open", "Open", openOrders.length],
     ["progress", "In Progress", inProgress.length],
-    ["completed", "Completed / Awaiting Review", completed.length],
     ["priority", "Urgent / High", urgentHigh.length],
     ["overdue", "Overdue", overdue.length],
-    ["closed", "Closed", closed.length],
-    ["all", "All Work Orders", orders.length],
   ] as const;
   const listFilters = [
     ["open", "Open", openOrders.length],
@@ -735,7 +731,7 @@ export default function EngineeringDashboardPage() {
             <a href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</a>
             {!personalAiConnected && <a href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect AI</a>}
             <button type="button" onClick={requestAIRefresh} disabled={aiRefreshing} className="rounded-lg border border-purple-400/50 bg-purple-950/30 px-4 py-2 text-sm font-bold text-purple-100 hover:bg-purple-900/40 disabled:opacity-50">{aiRefreshing ? "Refreshing AI…" : "Refresh AI"}</button>
-            <button type="button" onClick={() => setShowWorkOrderList(true)} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
+            <button type="button" onClick={() => { setFilter("all"); setShowWorkOrderList(true); }} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
             <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
@@ -804,13 +800,12 @@ export default function EngineeringDashboardPage() {
           </div>
         </section>}
 
-        <section className="mt-5 grid gap-2 sm:grid-cols-4 xl:grid-cols-8">
+        <section className="mt-5 grid gap-2 sm:grid-cols-4">
           {cards.map(([key, label, value]) => {
             const active = filter === key;
-            const pending = key === "pending";
             return (
-              <button key={key} type="button" onClick={() => { setFilter(key); setShowWorkOrderList(true); }} className={`rounded-xl border px-3 py-3 text-left transition ${pending ? active ? "border-purple-300 bg-purple-950/45 ring-1 ring-purple-400/40" : "border-purple-500/35 bg-purple-950/20 hover:border-purple-400/60" : active ? "border-amber-400 bg-slate-900 ring-1 ring-amber-400/30" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
-                <p className={pending ? "text-purple-200" : active ? "text-amber-300" : "text-slate-400"}>{label}</p>
+              <button key={key} type="button" onClick={() => { setFilter(key); setShowWorkOrderList(true); }} className={`rounded-xl border px-3 py-3 text-left transition ${active ? "border-amber-400 bg-slate-900 ring-1 ring-amber-400/30" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
+                <p className={active ? "text-amber-300" : "text-slate-400"}>{label}</p>
                 <p className="mt-1 text-2xl font-bold leading-none">{loading ? "—" : value}</p>
               </button>
             );
