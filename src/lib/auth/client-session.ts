@@ -10,7 +10,7 @@ export type CmpriClientSession = {
     role: string;
   };
   hotelId: string;
-  landing: "/work-orders" | "/engineering";
+  landing: "/work-orders" | "/technician" | "/engineering";
   capabilities: string[];
 };
 

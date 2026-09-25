@@ -41,6 +41,24 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const mode = request.nextUrl.searchParams.get("mode")?.trim() || "dashboard";
 
+  if (mode === "technician") {
+    if (!roleAllows(auth.principal.profile.role, "edit_tickets")) {
+      return NextResponse.json({ error: "Technician dashboard access is required." }, { status: 403 });
+    }
+    const technicianName = auth.principal.profile.full_name?.trim();
+    if (!technicianName) return NextResponse.json({ work_orders: [] });
+    const { data, error } = await auth.admin
+      .from("work_orders")
+      .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
+      .eq("hotel_id", HOTEL_ID)
+      .eq("technician_name", technicianName)
+      .neq("status", "Closed")
+      .order("due_by", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false });
+    if (error) return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
+    return NextResponse.json({ work_orders: data || [] }, { headers: { "Cache-Control": "no-store" } });
+  }
+
   if (mode === "duplicate-candidates") {
     if (!allows(auth.principal, "view_dashboard")) return NextResponse.json({ error: "Dashboard access is required to inspect existing work orders." }, { status: 403 });
     const { data, error } = await auth.admin
