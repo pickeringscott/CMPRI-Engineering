@@ -225,5 +225,5 @@ export function membershipRole(role: unknown): "admin" | "manager" | "technician
 export function landingPath(role: unknown): "/work-orders" | "/engineering" | null {
   const key = roleKey(role);
   if (key === "unknown") return null;
-  return ["front_desk", "housekeeping"].includes(key) ? "/work-orders" : "/engineering";
+  return ["front_desk", "housekeeping", "technician"].includes(key) ? "/work-orders" : "/engineering";
 }
