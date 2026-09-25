@@ -675,7 +675,7 @@ export default function EngineeringDashboardPage() {
             {hasCapability(cmpriSession, "manage_rooms") && <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>}
             {hasCapability(cmpriSession, "manage_users") && <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>}
             <button type="button" onClick={requestAIRefresh} disabled={aiRefreshing} className="rounded-lg border border-purple-400/50 bg-purple-950/30 px-4 py-2 text-sm font-bold text-purple-100 hover:bg-purple-900/40 disabled:opacity-50">{aiRefreshing ? "Refreshing AI…" : "Refresh AI"}</button>
-            {hasCapability(cmpriSession, "submit") && <button type="button" onClick={openCreateWorkOrder} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">+ Create Work Order</button>}
+            {hasCapability(cmpriSession, "submit") && <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>}
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </header>

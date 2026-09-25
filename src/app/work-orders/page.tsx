@@ -798,6 +798,7 @@ export default function WorkOrdersPage() {
   const [activeDraftId, setActiveDraftId] = useState("");
   const [activeDraftRevision, setActiveDraftRevision] = useState<number | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
 
 
@@ -1225,7 +1226,7 @@ setAssetId(bestGuessAssetId);
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
   }
 
-  async function saveDraft() {
+  async function saveDraft(automatic = false) {
     if (!locationId || !issue.trim()) {
       setMessage("Select a room/location and enter the issue before saving a draft.");
       return;
@@ -1256,7 +1257,7 @@ setAssetId(bestGuessAssetId);
       const saved = payload.draft as WorkOrderDraft;
       setActiveDraftId(saved.id);
       setActiveDraftRevision(saved.revision);
-      setMessage("Draft saved.");
+      setMessage(automatic ? "Draft autosaved after 30 minutes of inactivity." : "Draft saved.");
       await loadDrafts();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Draft could not be saved.");
@@ -1324,16 +1325,46 @@ setAssetId(bestGuessAssetId);
     setMainWorkOrderCreated(false);
   }
 
-  function cancelCreateForm() {
+  function finishCancelCreateForm() {
     resetWorkOrderForm();
     setBatchCreateSuggestions([]);
     setShowBatchCreateDialog(false);
     setShowRelatedWorkOrderDialog(false);
     setCreateState("idle");
     setMessage("");
+    setShowCancelConfirm(false);
     if (!isSubmitOnlyUser && cmpriSession?.landing === "/engineering") {
       router.push("/engineering");
     }
+  }
+
+  function requestCancelCreateForm() {
+    if (createHasUnsavedChanges || activeDraftId) {
+      setShowCancelConfirm(true);
+      return;
+    }
+    finishCancelCreateForm();
+  }
+
+  async function confirmCancelCreateForm() {
+    if (activeDraftId) {
+      setDraftBusy(true);
+      try {
+        const response = await fetch(`/api/work-orders/drafts?id=${encodeURIComponent(activeDraftId)}`, {
+          method: "DELETE",
+          headers: await apiHeaders(),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "The draft could not be discarded.");
+        await loadDrafts();
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "The draft could not be discarded.");
+        return;
+      } finally {
+        setDraftBusy(false);
+      }
+    }
+    finishCancelCreateForm();
   }
 
   function resolveRelatedAsset(
@@ -1651,6 +1682,13 @@ setAssetId(bestGuessAssetId);
   const createHasUnsavedChanges = Boolean(
     issue.trim() || locationId || notes.trim() || assetId || staffFirstName.trim()
   );
+  useEffect(() => {
+    if (!createHasUnsavedChanges || !locationId || !issue.trim() || loading || draftBusy) return;
+    const timeout = window.setTimeout(() => { void saveDraft(true); }, 30 * 60 * 1000);
+    return () => window.clearTimeout(timeout);
+    // saveDraft is intentionally omitted: the form values above reset this timer on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, loading, draftBusy]);
   const isSpanish = formLanguage === "es";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
   const categoryLabelEs: Record<string, string> = {
@@ -1730,7 +1768,7 @@ setAssetId(bestGuessAssetId);
                     <button type="button" onClick={() => chooseFormLanguage("en")} className={`rounded-md px-2.5 py-1.5 text-xs font-bold ${!isSpanish ? "bg-slate-700 text-white" : "text-slate-400"}`}>English</button>
                     <button type="button" onClick={() => chooseFormLanguage("es")} className={`rounded-md px-2.5 py-1.5 text-xs font-bold ${isSpanish ? "bg-slate-700 text-white" : "text-slate-400"}`}>Español</button>
                   </div>
-                  <button type="button" onClick={cancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60"> {tx("Cancel", "Cancelar")} </button>
+                  <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60"> {tx("Cancel", "Cancelar")} </button>
                   <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-4 py-2 text-sm font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
                   <button
                     type="submit"
@@ -1860,6 +1898,19 @@ setAssetId(bestGuessAssetId);
           <p className="mt-5 rounded-lg bg-slate-900 p-4 text-sm">
             {message}
           </p>
+        )}
+
+        {showCancelConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4">
+            <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+              <h2 id="create-cancel-title" className="text-xl font-bold">{tx("Cancel work-order creation?", "¿Cancelar la creación de la orden?")}</h2>
+              <p className="mt-2 text-sm text-slate-400">{tx("Your unsaved work will be discarded. Any saved draft for this work will also be deleted.", "Se descartará el trabajo no guardado. También se eliminará cualquier borrador guardado de este trabajo.")}</p>
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button type="button" disabled={draftBusy} onClick={() => setShowCancelConfirm(false)} className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Keep Editing", "Seguir editando")}</button>
+                <button type="button" disabled={draftBusy} onClick={() => void confirmCancelCreateForm()} className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">{draftBusy ? tx("Discarding...", "Descartando...") : tx("Confirm Cancel", "Confirmar cancelación")}</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {showBatchCreateDialog && selectedLocation && (
