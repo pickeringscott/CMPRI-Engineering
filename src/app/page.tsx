@@ -109,7 +109,7 @@ export default function SignInPage() {
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="min-h-12 w-full rounded-lg bg-white font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60">
             {busy ? "Opening Google…" : "Continue with Google"}
           </button>
-          <label className="ml-3 flex items-center gap-2 text-sm text-slate-300">
+          <label className="ml-1.5 flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
             Remember me
           </label>
