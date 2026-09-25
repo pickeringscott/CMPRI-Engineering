@@ -106,8 +106,14 @@ export default function SignInPage() {
         </div>
         {message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
         <div className="mt-3 space-y-3">
-          <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="min-h-11 w-full rounded-lg bg-white font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60">
-            {busy ? "Opening Google…" : "Continue with Google"}
+          <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition hover:bg-[#f7f8f8] disabled:opacity-60">
+            <svg aria-hidden="true" className="h-5 w-5 shrink-0" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.39 30.47 0 24 0 14.61 0 6.51 5.38 2.54 13.22l7.98 6.2C12.43 13.13 17.74 9.5 24 9.5Z" />
+              <path fill="#4285F4" d="M46.98 24.55c0-1.64-.15-3.22-.42-4.75H24v9.02h12.86c-.55 2.9-2.2 5.36-4.68 7.01l7.56 5.87c4.41-4.07 7.24-10.07 7.24-17.15Z" />
+              <path fill="#FBBC05" d="M10.52 28.58A14.5 14.5 0 0 1 9.75 24c0-1.59.27-3.14.77-4.58l-7.98-6.2A24 24 0 0 0 0 24c0 3.87.93 7.53 2.54 10.78l7.98-6.2Z" />
+              <path fill="#34A853" d="M24 48c6.48 0 11.92-2.14 15.88-5.83l-7.56-5.87c-2.1 1.4-4.79 2.23-8.32 2.23-6.26 0-11.57-3.63-13.48-8.72l-7.98 6.2C6.51 42.62 14.61 48 24 48Z" />
+            </svg>
+            <span>{busy ? "Opening Google…" : "Continue with Google"}</span>
           </button>
           <label className="ml-1.5 flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />

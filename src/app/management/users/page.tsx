@@ -6,7 +6,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import SearchableSelect from "@/components/SearchableSelect";
 
-type UserRow = { id: string; full_name: string | null; role: string | null; active: boolean | null; can_manage: boolean };
+type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; active: boolean | null; can_manage: boolean };
 
 export default function UserManagementPage() {
   const router = useRouter();
@@ -159,6 +159,7 @@ export default function UserManagementPage() {
             <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px_150px] md:items-center">
               <div className="min-w-0">
                 <p className="break-words font-semibold">{user.full_name || "Unnamed user"}</p>
+                <p className="mt-1 break-all text-sm text-slate-300">{user.email || "No email on file"}</p>
                 <p className="mt-1 text-xs text-slate-500">{user.active === true ? "Active" : "Inactive"}</p>
               </div>
               {user.can_manage ? (
