@@ -819,11 +819,17 @@ export default function WorkOrdersPage() {
     }
   }, [apiHeaders]);
 
-
-  function chooseFormLanguage(language: "en" | "es") {
-    setFormLanguage(language);
-    try { window.localStorage.setItem("cmpri:work-order-language", language); } catch {}
+  async function loadProfilePreference() {
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) return;
+      const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json().catch(() => ({}));
+      if (payload.preferences?.language === "es" || payload.preferences?.language === "en") setFormLanguage(payload.preferences.language);
+    } catch {}
   }
+
 
   useEffect(() => {
     if (!showRelatedWorkOrderDialog && !showBatchCreateDialog) return;
@@ -906,6 +912,7 @@ export default function WorkOrdersPage() {
           loadAssets(),
           loadWorkOrders(session.capabilities.includes("view_dashboard")),
           loadDrafts(),
+          loadProfilePreference(),
         ]);
       } catch {
         if (current) window.location.replace("/");
@@ -1733,10 +1740,7 @@ export default function WorkOrdersPage() {
                   </h2>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-0.5" aria-label="Work-order form language">
-                    <button type="button" onClick={() => chooseFormLanguage("en")} className={`rounded-md px-2.5 py-1.5 text-xs font-bold ${!isSpanish ? "bg-slate-700 text-white" : "text-slate-400"}`}>English</button>
-                    <button type="button" onClick={() => chooseFormLanguage("es")} className={`rounded-md px-2.5 py-1.5 text-xs font-bold ${isSpanish ? "bg-slate-700 text-white" : "text-slate-400"}`}>Español</button>
-                  </div>
+                  <a href="/profile" className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Profile", "Perfil")}</a>
                   <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60"> {tx("Cancel", "Cancelar")} </button>
                   <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-4 py-2 text-sm font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
                   <button

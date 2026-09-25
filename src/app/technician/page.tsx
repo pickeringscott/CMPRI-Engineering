@@ -54,9 +54,12 @@ export default function TechnicianDashboard() {
             <h1 className="mt-2 text-3xl font-bold">Technician Dashboard</h1>
             <p className="mt-2 text-sm text-slate-400">Your assigned active work, status, and due dates.</p>
           </div>
-          <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 disabled:opacity-50">
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
+          <div className="flex items-center gap-2">
+            <Link href="/profile" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800">Manage Profile</Link>
+            <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 disabled:opacity-50">
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {message && <p role="status" className="mt-6 rounded-lg border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-100">{message}</p>}
