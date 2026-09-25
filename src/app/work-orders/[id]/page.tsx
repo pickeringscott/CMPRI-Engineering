@@ -1255,7 +1255,7 @@ export default function WorkOrderTicketPage() {
       );
       return;
     }
-    router.push("/engineering");
+    router.push(cmpriSession?.landing || "/engineering");
   }
 
   async function addAssetFromTicket() {
@@ -1431,7 +1431,7 @@ export default function WorkOrderTicketPage() {
         );
         return;
       }
-      router.push("/engineering");
+      router.push(cmpriSession?.landing || "/engineering");
     }, 1250);
   }
 
@@ -1454,7 +1454,7 @@ export default function WorkOrderTicketPage() {
   if (!order) {
     return (
       <main className="min-h-screen bg-slate-950 p-6 text-white">
-        <Link href="/engineering" className="text-amber-400">
+        <Link href={cmpriSession?.landing || "/engineering"} className="text-amber-400">
           ← Engineering Dashboard
         </Link>
         <div className="mt-6 rounded-xl border border-red-400/30 bg-red-950/20 p-4">
@@ -1678,7 +1678,7 @@ export default function WorkOrderTicketPage() {
           <div>
             {!embedded && (
               <Link
-                href="/engineering"
+                href={cmpriSession?.landing || "/engineering"}
                 className="text-sm font-semibold text-amber-400 hover:text-amber-300"
               >
                 ← Engineering Dashboard
