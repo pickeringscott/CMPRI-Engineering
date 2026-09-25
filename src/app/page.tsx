@@ -9,7 +9,7 @@ import {
   signOutDevice,
   getValidSession,
 } from "@/lib/supabase/client";
-import { APP_TITLE, HOTEL_NAME } from "@/lib/constants";
+import { APP_TITLE } from "@/lib/constants";
 
 async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering"> {
   const response = await fetch("/api/session", {
@@ -103,7 +103,6 @@ export default function SignInPage() {
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Hawkeye Hotels</p>
           <h1 className="mt-2 text-2xl font-bold">{APP_TITLE}</h1>
-          <p className="mt-1 text-sm text-slate-400">{HOTEL_NAME}</p>
         </div>
         {message ? <p role="status" aria-live="polite" className="mt-5 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{message}</p> : null}
         <div className="mt-6 space-y-4">
