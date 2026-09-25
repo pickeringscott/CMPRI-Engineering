@@ -14,7 +14,7 @@ function fixture(config={}) {
     const k=r.trim().toLowerCase().replace(/[\s_-]+/g,'');
     const m={
       engineer:'engineer',chiefengineer:'engineer',engineering:'engineer',engineeringmanager:'engineer',regionalmaintenance:'engineer',regionalengineer:'engineer',
-      generalmanager:'manager',gm:'manager',
+      manager:'manager',generalmanager:'manager',gm:'manager',
       seniormanagement:'senior_management',uppermanagement:'senior_management',vpfacilities:'senior_management',regionaldirectoroperations:'senior_management',districtmanager:'senior_management',
       technician:'technician',maintenancetechnician:'technician',
       frontdesk:'front_desk',assistantgm:'front_desk',assistantgeneralmanager:'front_desk',assistantmanager:'front_desk',salesmanager:'front_desk',
@@ -191,6 +191,13 @@ test('engineer can invite front desk with validated role and property membership
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,200);
   assert.equal(r.body.user.role,'front_desk');
+  assert.deepEqual(f.writes,['invite','upsert','upsert']);
+});
+test('system_admin can create a manager profile when role label is Manager',async()=>{
+  const f=fixture({caller:{id:'caller',role:'system_admin',active:true}, body:{email:'manager@example.invalid',full_name:'Test Manager',role:'Manager'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,200);
+  assert.equal(r.body.user.role,'manager');
   assert.deepEqual(f.writes,['invite','upsert','upsert']);
 });
 test('POST fails clearly when no server admin is configured for user creation',async()=>{

@@ -98,24 +98,24 @@ export default function SignInPage() {
 
   const disabled = initializing || busy;
   return (
-    <main className="grid min-h-[100dvh] w-full place-items-center bg-slate-950 px-5 text-white">
-      <section aria-busy={disabled} className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+    <main className="grid min-h-[100dvh] w-full place-items-center bg-slate-950 px-4 text-white">
+      <section aria-busy={disabled} className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 shadow-lg shadow-slate-950/25">
         <div className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Hawkeye Hotels</p>
-          <h1 className="mt-2 text-2xl font-bold">{APP_TITLE}</h1>
+          <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
+          <h1 className="mt-1 text-[1.7rem] font-bold leading-tight">{APP_TITLE}</h1>
         </div>
-        {message ? <p role="status" aria-live="polite" className="mt-5 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{message}</p> : null}
-        <div className="mt-6 space-y-4">
-          <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="min-h-12 w-full rounded-lg bg-white font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60">
+        {message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
+        <div className="mt-3 space-y-3">
+          <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="min-h-11 w-full rounded-lg bg-white font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60">
             {busy ? "Opening Google…" : "Continue with Google"}
           </button>
           <label className="ml-1.5 flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
             Remember me
           </label>
-          <div className="border-t border-slate-800 pt-4">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Password access</p>
-            <form onSubmit={signInWithPassword} className="mt-3 space-y-3">
+          <div className="border-t border-slate-800 pt-3">
+            <p className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-400">Password access</p>
+            <form onSubmit={signInWithPassword} className="mt-2 space-y-2.5">
               <input
                 required
                 disabled={disabled}

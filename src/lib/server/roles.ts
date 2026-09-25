@@ -43,6 +43,7 @@ const aliases: Readonly<Record<string, CmpriRole>> = {
   regionalmaintenance: "engineer",
   regionalengineer: "engineer",
 
+  manager: "manager",
   generalmanager: "manager",
   gm: "manager",
 
