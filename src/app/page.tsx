@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createClient,
+  remembersDevice,
+  setRememberOnDevice,
   signOutDevice,
   getValidSession,
 } from "@/lib/supabase/client";
@@ -35,11 +37,13 @@ export default function SignInPage() {
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
       try {
+        setRememberMe(remembersDevice());
         const session = await getValidSession();
         if (session) {
           const landing = await authorizedLanding(session.access_token, controller.signal);
@@ -58,6 +62,7 @@ export default function SignInPage() {
     setBusy(true);
     setMessage("");
     try {
+      setRememberOnDevice(rememberMe);
       const redirectTo = `${window.location.origin}/`;
       const { error } = await createClient().auth.signInWithOAuth({
         provider: "google",
@@ -75,6 +80,7 @@ export default function SignInPage() {
     setBusy(true);
     setMessage("");
     try {
+      setRememberOnDevice(rememberMe);
       const { error } = await createClient().auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -105,6 +111,10 @@ export default function SignInPage() {
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="min-h-12 w-full rounded-lg bg-white font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60">
             {busy ? "Opening Google…" : "Continue with Google"}
           </button>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
+            Remember me on this device
+          </label>
           <p className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
             Your Google email must match an active CMPRI user record.
           </p>
