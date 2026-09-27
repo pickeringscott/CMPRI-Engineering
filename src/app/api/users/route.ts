@@ -3,6 +3,19 @@ import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
 import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole, roleKey } from "@/lib/server/roles";
 
+type AuthAdminApi = {
+  createUser: (params: {
+    email: string;
+    password: string;
+    email_confirm: boolean;
+    user_metadata: { full_name: string };
+  }) => Promise<{ data: { user: { id?: string } | null }; error: { message: string } | null }>;
+  inviteUserByEmail: (
+    email: string,
+    options: { data: { full_name: string } },
+  ) => Promise<{ data: { user: { id?: string } | null }; error: { message: string } | null }>;
+};
+
 function callerCanChangeAccount(callerRole: unknown, callerId: string, target: { id: string; role: unknown }): boolean {
   if (!callerId || !target.id || callerId === target.id) return false;
   return canManageTargetRole(callerRole, target.role);
@@ -21,9 +34,9 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
   }
 }
 
-function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | undefined) {
+function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | undefined): AuthAdminApi | null {
   const authAdmin = admin && typeof admin === "object" ? (admin as { auth?: { admin?: unknown } }).auth?.admin : undefined;
-  return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
+  return authAdmin && typeof authAdmin === "object" ? (authAdmin as AuthAdminApi) : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -80,7 +93,7 @@ export async function POST(request: NextRequest) {
 
   let id: string | undefined;
   if (password) {
-    const { data: created, error: createError } = await (adminAuth as any).createUser({
+    const { data: created, error: createError } = await adminAuth.createUser({
       email,
       password,
       email_confirm: true,
@@ -89,7 +102,7 @@ export async function POST(request: NextRequest) {
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
     id = created.user?.id;
   } else {
-    const { data: invited, error: inviteError } = await (adminAuth as any).inviteUserByEmail(email, { data: { full_name: fullName } });
+    const { data: invited, error: inviteError } = await adminAuth.inviteUserByEmail(email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null };
@@ -20,13 +20,13 @@ export default function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
 
-  async function headers() {
+  const headers = useCallback(async () => {
     const session = await getValidSession();
     if (!session?.access_token) throw new Error("Sign in again to manage your profile.");
     return { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" };
-  }
+  }, []);
 
-  async function load() {
+  const load = useCallback(async () => {
     const response = await fetch("/api/profile", { headers: await headers(), cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Profile could not be loaded.");
@@ -34,9 +34,13 @@ export default function ProfilePage() {
     setData(result);
     setName(result.profile.full_name || "");
     setPreferences(result.preferences);
-  }
+  }, [headers]);
 
-  useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")); }, []);
+  useEffect(() => {
+    queueMicrotask(() => {
+      void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded."));
+    });
+  }, [load]);
 
   async function save() {
     if (!preferences || !name.trim()) return;

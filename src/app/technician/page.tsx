@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 
 type AssignedWorkOrder = {
@@ -21,7 +21,7 @@ export default function TechnicianDashboard() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
-  async function loadAssignedWork() {
+  const loadAssignedWork = useCallback(async () => {
     setLoading(true);
     setMessage("");
     try {
@@ -39,11 +39,13 @@ export default function TechnicianDashboard() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void loadAssignedWork();
-  }, []);
+    queueMicrotask(() => {
+      void loadAssignedWork();
+    });
+  }, [loadAssignedWork]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
