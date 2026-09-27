@@ -21,31 +21,47 @@ export default function TechnicianDashboard() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
+  const fetchAssignedWork = useCallback(async () => {
+    const session = await getValidSession();
+    if (!session?.access_token) throw new Error("Sign in again to load your technician dashboard.");
+    const response = await fetch("/api/work-orders?mode=technician", {      headers: { Authorization: ["Bearer", session.access_token].join(" ") },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Assigned work could not be loaded.");
+    return (payload.work_orders || []) as AssignedWorkOrder[];
+  }, []);
+
   const loadAssignedWork = useCallback(async () => {
     setLoading(true);
     setMessage("");
     try {
-      const session = await getValidSession();
-      if (!session) throw new Error("Sign in again to load your technician dashboard.");
-      const response = await fetch("/api/work-orders?mode=technician", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Assigned work could not be loaded.");
-      setOrders((payload.work_orders || []) as AssignedWorkOrder[]);
+      setOrders(await fetchAssignedWork());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Assigned work could not be loaded.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchAssignedWork]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void loadAssignedWork();
-    });
-  }, [loadAssignedWork]);
+    let mounted = true;
+    (async () => {
+      try {
+        const assigned = await fetchAssignedWork();
+        if (!mounted) return;
+        setOrders(assigned);
+      } catch (error) {
+        if (!mounted) return;
+        setMessage(error instanceof Error ? error.message : "Assigned work could not be loaded.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [fetchAssignedWork]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">

@@ -30,16 +30,25 @@ export default function ProfilePage() {
     const response = await fetch("/api/profile", { headers: await headers(), cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Profile could not be loaded.");
-    const result = payload as Payload;
-    setData(result);
-    setName(result.profile.full_name || "");
-    setPreferences(result.preferences);
+    return payload as Payload;
   }, [headers]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded."));
-    });
+    let mounted = true;
+    void load()
+      .then((result) => {
+        if (!mounted) return;
+        setData(result);
+        setName(result.profile.full_name || "");
+        setPreferences(result.preferences);
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setMessage(error instanceof Error ? error.message : "Profile could not be loaded.");
+      });
+    return () => {
+      mounted = false;
+    };
   }, [load]);
 
   async function save() {
