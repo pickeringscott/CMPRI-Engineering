@@ -73,8 +73,8 @@ export default function SetupGuidePage() {
             <p className="text-xs text-slate-500">The current value in .env is a placeholder: REPLACE_WITH_REAL_SERVICE_ROLE_KEY</p>
           </Step>
 
-          <Step number={2} title="Fix Supabase Auth Site URL and Redirect URLs (fixes password reset)">
-            <p>If the Supabase Auth Site URL still points to localhost or a dev address, password reset emails will send users to the wrong place.</p>
+          <Step number={2} title="Configure Google Sign-In in Supabase">
+            <p>CMPRI uses one Google OAuth client through Supabase Auth. CMPRI does not maintain application passwords or send password-reset emails.</p>
             <ol className="list-inside list-decimal space-y-2">
               <li>In Bolt, click the <strong>database icon</strong> at top center.</li>
               <li>Click <strong>Authentication</strong> in the left sidebar.</li>
@@ -92,84 +92,13 @@ export default function SetupGuidePage() {
             <p className="text-xs text-slate-500">Add the cmpri-engineering.com entry now so it is ready when the domain goes live.</p>
           </Step>
 
-          <Step number={3} title="Configure Custom SMTP for MAINT.CMPRI@hawkeyehotels.com">
-            <p>Custom SMTP requires a Resend account and DNS verification. These credentials are not in the project and must not be invented.</p>
-
-            <p className="font-semibold text-amber-300">Part A: Verify hawkeyehotels.com in Resend</p>
+          <Step number={3} title="Create approved CMPRI user records">
+            <p>Google authentication proves identity. CMPRI user records control application access and roles.</p>
             <ol className="list-inside list-decimal space-y-2">
-              <li>Go to <a href="https://resend.com" className="text-amber-300 underline">resend.com</a> and log in or create an account.</li>
-              <li>Click <strong>Domains</strong> in the sidebar, then <strong>Add Domain</strong>.</li>
-              <li>Enter this exact domain:</li>
-            </ol>
-            <CopyField text="hawkeyehotels.com" label="Copy domain" />
-            <ol start={4} className="list-inside list-decimal space-y-2">
-              <li>Resend will display DNS records (typically MX, SPF, and DKIM TXT records).</li>
-              <li>Add each record at your domain registrar (wherever hawkeyehotels.com DNS is managed).</li>
-              <li>Wait until all records show as verified in Resend (usually within minutes to a few hours).</li>
-            </ol>
-
-            <p className="font-semibold text-amber-300">Part B: Create a Resend SMTP API key</p>
-            <ol className="list-inside list-decimal space-y-2">
-              <li>In Resend, click <strong>API Keys</strong> in the sidebar.</li>
-              <li>Click <strong>Create API Key</strong>.</li>
-              <li>Name it:</li>
-            </ol>
-            <CopyField text="Supabase SMTP" label="Copy name" />
-            <ol start={4} className="list-inside list-decimal space-y-2">
-              <li>Choose <strong>Full access</strong> or <strong>Sending access</strong>.</li>
-              <li>Click <strong>Create</strong>.</li>
-              <li>Copy the API key immediately (you will not see it again).</li>
-            </ol>
-
-            <p className="font-semibold text-amber-300">Part C: Configure SMTP in Supabase</p>
-            <ol className="list-inside list-decimal space-y-2">
-              <li>Open your Supabase project dashboard.</li>
-              <li>Go to <strong>Authentication</strong> then <strong>Email Templates</strong> or <strong>SMTP Settings</strong>.</li>
-              <li>Turn on <strong>Enable custom SMTP</strong>.</li>
-              <li>Fill in these exact values:</li>
-            </ol>
-            <div className="space-y-2">
-              <div>
-                <p className="text-xs font-semibold text-slate-400">SMTP Host:</p>
-                <CopyField text="smtp.resend.com" label="Copy" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">Port:</p>
-                <CopyField text="465" label="Copy" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">Username:</p>
-                <CopyField text="resend" label="Copy" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">Password:</p>
-                <p className="text-xs text-slate-500">Paste the Resend SMTP API key you copied in Part B.</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">Sender email:</p>
-                <CopyField text="MAINT.CMPRI@hawkeyehotels.com" label="Copy" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">Sender name (if asked):</p>
-                <CopyField text="CMPRI Engineering" label="Copy" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">Minimum interval (if asked):</p>
-                <CopyField text="0" label="Copy" />
-              </div>
-            </div>
-            <ol start={5} className="list-inside list-decimal space-y-2">
-              <li>Click <strong>Save</strong>.</li>
-            </ol>
-
-            <p className="font-semibold text-amber-300">Part D: Test password reset email</p>
-            <ol className="list-inside list-decimal space-y-2">
-              <li>Open the published CMPRI site in a browser.</li>
-              <li>Click <strong>Forgot Password?</strong> on the sign-in page.</li>
-              <li>Enter a real email address and submit.</li>
-              <li>Check the inbox for an email from MAINT.CMPRI@hawkeyehotels.com.</li>
-              <li>Click the reset link and confirm it opens the published site (not localhost).</li>
-              <li>Set a new password and sign in with it.</li>
+              <li>Create each user with the exact Google email address.</li>
+              <li>Assign the CMPRI role and active property membership.</li>
+              <li>Use the same Google sign-in flow for the System Administrator and all other users.</li>
+              <li>Users recover their accounts through Google account recovery.</li>
             </ol>
           </Step>
 
@@ -245,12 +174,11 @@ export default function SetupGuidePage() {
             <p>After all steps above are complete, verify each item on the published site:</p>
             <ul className="space-y-2">
               {[
-                "Sign in works with email and password",
+                "Google sign-in works",
                 "Sign out works",
-                "Forgot Password sends a reset email from MAINT.CMPRI@hawkeyehotels.com",
-                "Reset link opens the published site (not localhost:3000)",
-                "New password can be saved on the reset page",
-                "User can sign in with the new password",
+                "Unapproved Google email is denied",
+                "Approved Google email receives its CMPRI role",
+                "System Administrator uses the same Google sign-in flow",
                 "Auth redirects stay on the correct domain",
                 "Room Ranker loads in read-only mode",
                 "Corporate PM loads in read-only mode",

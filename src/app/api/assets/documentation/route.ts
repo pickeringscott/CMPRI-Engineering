@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability, requireUser } from "@/lib/server/auth";
+import { canEditEquipment } from "@/lib/server/roles";
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -159,6 +160,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireCapability(request, "manage_assets");
   if (!auth) return NextResponse.json({ error: "Equipment editing permission is required." }, { status: 403 });
+  if (!canEditEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Only engineers can edit equipment documentation." }, { status: 403 });
   let form: FormData;
   try { form = await request.formData(); }
   catch { return NextResponse.json({ error: "A valid multipart form is required." }, { status: 400 }); }

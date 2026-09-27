@@ -10,6 +10,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
+import { roleKey } from "@/lib/server/roles";
 
 
 type Asset = {
@@ -1095,7 +1096,13 @@ export default function WorkOrderTicketPage() {
         return;
       }
       try {
-        const session = await loadCmpriSession();
+        const raw = window.sessionStorage.getItem(`cmpri:work-order-preview:${id}`);
+        if (raw) seedTicketPreview(JSON.parse(raw) as WorkOrder);
+      } catch {}
+      const sessionPromise = loadCmpriSession();
+      const ticketPromise = loadTicket();
+      try {
+        const session = await sessionPromise;
         setCmpriSession(session);
         const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets");
         if (!canViewTicket) {
@@ -1107,11 +1114,7 @@ export default function WorkOrderTicketPage() {
         window.location.replace("/");
         return;
       }
-      try {
-        const raw = window.sessionStorage.getItem(`cmpri:work-order-preview:${id}`);
-        if (raw) seedTicketPreview(JSON.parse(raw) as WorkOrder);
-      } catch {}
-      await loadTicket();
+      await ticketPromise;
       void loadExternalActivity();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1254,7 +1257,7 @@ export default function WorkOrderTicketPage() {
       );
       return;
     }
-    router.push("/engineering");
+    router.push(cmpriSession?.landing || "/engineering");
   }
 
   async function addAssetFromTicket() {
@@ -1430,7 +1433,7 @@ export default function WorkOrderTicketPage() {
         );
         return;
       }
-      router.push("/engineering");
+      router.push(cmpriSession?.landing || "/engineering");
     }, 1250);
   }
 
@@ -1453,7 +1456,7 @@ export default function WorkOrderTicketPage() {
   if (!order) {
     return (
       <main className="min-h-screen bg-slate-950 p-6 text-white">
-        <Link href="/engineering" className="text-amber-400">
+        <Link href={cmpriSession?.landing || "/engineering"} className="text-amber-400">
           ← Engineering Dashboard
         </Link>
         <div className="mt-6 rounded-xl border border-red-400/30 bg-red-950/20 p-4">
@@ -1578,7 +1581,9 @@ export default function WorkOrderTicketPage() {
   const canEditTicket = Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
+  const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
   const statusValues = (() => {
+    if (isTechnician) return ["Open", "In Progress", "Completed"];
     if (canReviewTicket && !canEditTicket) {
       return status === "Pending Verification" ? ["Pending Verification", "Open", "Will Not Do"] : [status];
     }
@@ -1675,7 +1680,7 @@ export default function WorkOrderTicketPage() {
           <div>
             {!embedded && (
               <Link
-                href="/engineering"
+                href={cmpriSession?.landing || "/engineering"}
                 className="text-sm font-semibold text-amber-400 hover:text-amber-300"
               >
                 ← Engineering Dashboard

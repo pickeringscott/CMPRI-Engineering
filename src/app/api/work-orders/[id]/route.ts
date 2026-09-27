@@ -6,6 +6,7 @@ import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
+import { roleKey } from "@/lib/server/roles";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
 const TECHNICAL_FIELDS = [
@@ -42,31 +43,42 @@ function validateDueDate(value: unknown) {
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireCapability(request, "view_dashboard");
-  if (!auth) return NextResponse.json({ error: "Engineering dashboard access is required." }, { status: 403 });
+  const auth = await requireUser(request);
+  if (!auth || (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "edit_tickets"))) {
+    return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
+  }
 
   const { id } = await params;
   const includeMentions = request.nextUrl.searchParams.get("include") === "mentions";
-  const { data: workOrder, error: workOrderError } = await auth.admin
+  const workOrderQuery = auth.admin
     .from("work_orders")
     .select("*")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
+  const mentionQuery = includeMentions
+    ? auth.admin
+        .from("work_orders")
+        .select("id, display_id, room, issue, status, created_at")
+        .eq("hotel_id", HOTEL_ID)
+        .neq("id", id)
+        .order("created_at", { ascending: false })
+        .limit(300)
+    : null;
+  const [{ data: workOrder, error: workOrderError }, mentionResult] = await Promise.all([
+    workOrderQuery,
+    mentionQuery || Promise.resolve({ data: null, error: null }),
+  ]);
   if (workOrderError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+  if (roleKey(auth.principal.profile.role) === "technician" && workOrder.technician_name !== auth.principal.profile.full_name) {
+    return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
+  }
 
   let mentionTickets: Array<Record<string, unknown>> = [];
   if (includeMentions) {
-    const { data, error } = await auth.admin
-      .from("work_orders")
-      .select("id, display_id, room, issue, status, created_at")
-      .eq("hotel_id", HOTEL_ID)
-      .neq("id", id)
-      .order("created_at", { ascending: false })
-      .limit(300);
-    if (error) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
-    mentionTickets = (data ?? []) as Array<Record<string, unknown>>;
+    if (mentionResult.error) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
+    mentionTickets = (mentionResult.data ?? []) as Array<Record<string, unknown>>;
   }
 
   return NextResponse.json({ workOrder, mentionTickets }, { headers: { "Cache-Control": "no-store" } });
@@ -92,6 +104,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .maybeSingle();
   if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+  const technicianEdit = roleKey(auth.principal.profile.role) === "technician";
+  if (technicianEdit && existing.technician_name !== auth.principal.profile.full_name) {
+    return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
+  }
 
   if (typeof body.expected_revision !== "number" || !Number.isSafeInteger(body.expected_revision) || body.expected_revision < 1) {
     return NextResponse.json({ error: "Reload this ticket before saving so its current version can be checked." }, { status: 428 });
@@ -100,7 +116,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Someone changed this ticket since you opened it. Your edits were not saved. Reload before combining the changes." }, { status: 409 });
   }
 
-  const allowedFields: readonly string[] = canEdit ? TECHNICAL_FIELDS : REVIEW_FIELDS;
+  const allowedFields: readonly string[] = technicianEdit
+    ? ["asset_id", "category", "status", "notes"]
+    : canEdit ? TECHNICAL_FIELDS : REVIEW_FIELDS;
   const allowedFieldSet = new Set(allowedFields);
   const update: Record<string, unknown> = {};
   for (const key of allowedFields) {
@@ -112,6 +130,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   if (update.status !== undefined && (typeof update.status !== "string" || !ALL_STATUSES.includes(update.status as typeof ALL_STATUSES[number]))) {
     return NextResponse.json({ error: "Invalid work-order status." }, { status: 400 });
+  }
+  if (technicianEdit && update.status !== undefined && !["Open", "In Progress", "Completed"].includes(String(update.status))) {
+    return NextResponse.json({ error: "Technicians may set work only to Open, In Progress, or Completed." }, { status: 403 });
   }
 
   if (!canEdit) {

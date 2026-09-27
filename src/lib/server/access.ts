@@ -4,6 +4,7 @@ export type { Capability } from "./roles";
 export type AccessIdentity = { id: string; email: string | null };
 export type AccessProfile = {
   id: string;
+  email: string | null;
   role: string;
   active: boolean;
   full_name: string | null;
@@ -76,6 +77,11 @@ const GRANTS: Partial<Record<Capability, readonly string[]>> = {
 export function allows(principal: Principal, capability: Capability): boolean {
   if (principal.profile.active !== true || principal.membership.active !== true) return false;
   if (!roleAllows(principal.profile.role, capability)) return false;
+
+  // The bootstrap system administrator is intentionally full-control and must not be
+  // locked out by stale or missing permission rows in legacy databases.
+  if (roleKey(principal.profile.role) === "system_admin") return true;
+
   const required = GRANTS[capability];
   if (!required) return true;
   return principal.permissions.length === 0 ? true : hasAnyGrant(principal, required);

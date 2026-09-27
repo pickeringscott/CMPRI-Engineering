@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getValidSession } from "@/lib/supabase/client";
+import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { DASHBOARD_AI_ACTION, type DashboardAISummary } from "@/lib/ai/dashboard-analysis";
 import { BUILD_VERSION } from "@/lib/constants";
+import { filterKpiWorkOrders, isKpiOverdue, isOpenKpiStatus, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import CopyButton from "@/components/CopyButton";
 
 const REFRESH_MS = 30_000;
@@ -48,12 +49,11 @@ type RoomOperation = {
 };
 
 function normalizeStatus(value?: string | null) {
-  return (value || "Open").trim();
+  return normalizeKpiStatus(value);
 }
 
 function isOpenStatus(value?: string | null) {
-  const status = normalizeStatus(value).toLowerCase();
-  return !["pending verification", "completed", "will not do", "duplicate", "closed", "cancelled", "canceled"].includes(status);
+  return isOpenKpiStatus(value);
 }
 
 function parseDate(value?: string | null) {
@@ -63,12 +63,7 @@ function parseDate(value?: string | null) {
 }
 
 function isOverdue(value?: string | null) {
-  const date = parseDate(value);
-  if (!date) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-  return date < today;
+  return isKpiOverdue(value);
 }
 
 function formatDue(value?: string | null) {
@@ -272,9 +267,13 @@ export default function EngineeringDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState<DashboardFilter>("open");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [showWorkOrderList, setShowWorkOrderList] = useState(false);
+  const [listSearchQuery, setListSearchQuery] = useState("");
+  const [activeWorkOrderId, setActiveWorkOrderId] = useState("");
+  const [workOrderModalToken, setWorkOrderModalToken] = useState("");
   const [aiRefreshMessage, setAiRefreshMessage] = useState("");
   const [aiRefreshing, setAiRefreshing] = useState(false);
+  const [personalAiConnected, setPersonalAiConnected] = useState(false);
   const aiInFlightRef = useRef(false);
   const [aiSummaries, setAiSummaries] = useState<DashboardAISummary[]>([]);
   const [roomOperations, setRoomOperations] = useState<RoomOperation[]>([]);
@@ -398,7 +397,8 @@ export default function EngineeringDashboardPage() {
     if (preview) {
       try { window.sessionStorage.setItem(`cmpri:work-order-preview:${workOrderId}`, JSON.stringify(preview)); } catch {}
     }
-    router.push(`/work-orders/${encodeURIComponent(workOrderId)}`);
+    setWorkOrderModalToken(crypto.randomUUID());
+    setActiveWorkOrderId(workOrderId);
   }
 
   async function requestAIRefresh() {
@@ -591,6 +591,20 @@ export default function EngineeringDashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (!cmpriSession) return;
+    void (async () => {
+      try {
+        const session = await getValidSession();
+        if (!session?.access_token) return;
+        const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => ({}));
+        setPersonalAiConnected(payload.personal_ai?.connected === true);
+      } catch {}
+    })();
+  }, [cmpriSession]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     if (!previousTitleRef.current) previousTitleRef.current = document.title;
     const baseTitle = previousTitleRef.current;
@@ -600,11 +614,49 @@ export default function EngineeringDashboardPage() {
     };
   }, [newOrderQueue.length]);
 
+  function closeTopOverlay() {
+    if (activeWorkOrderId) {
+      setActiveWorkOrderId("");
+      setWorkOrderModalToken("");
+      return;
+    }
+    if (showRoomOpsImport) {
+      setShowRoomOpsImport(false);
+      return;
+    }
+    if (showWorkOrderList) {
+      setShowWorkOrderList(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!showWorkOrderList && !showRoomOpsImport && !activeWorkOrderId) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [activeWorkOrderId, showRoomOpsImport, showWorkOrderList]);
+
+  useEffect(() => {
+    function handleWorkOrderMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || !event.data || event.data.modalToken !== workOrderModalToken) return;
+      if (event.data.type === "cmpri-open-related-work-order" && typeof event.data.targetWorkOrderId === "string") {
+        openWorkOrder(event.data.targetWorkOrderId);
+        return;
+      }
+      if (event.data.type === "cmpri-work-order-cancelled" || event.data.type === "cmpri-work-order-saved") {
+        setActiveWorkOrderId("");
+        setWorkOrderModalToken("");
+      }
+    }
+    window.addEventListener("message", handleWorkOrderMessage);
+    return () => window.removeEventListener("message", handleWorkOrderMessage);
+  }, [workOrderModalToken]);
+
   const pendingVerification = orders.filter((order) => normalizeStatus(order.status).toLowerCase() === "pending verification");
-  const openOrders = orders.filter((order) => isOpenStatus(order.status));
-  const inProgress = openOrders.filter((order) => normalizeStatus(order.status).toLowerCase() === "in progress");
-  const urgentHigh = openOrders.filter((order) => ["urgent", "high"].includes(String(order.priority || "").toLowerCase()));
-  const overdue = openOrders.filter((order) => isOverdue(order.due_by));
+  const openOrders = filterKpiWorkOrders(orders, "open");
+  const inProgress = filterKpiWorkOrders(orders, "progress");
+  const urgentHigh = filterKpiWorkOrders(orders, "priority");
+  const overdue = filterKpiWorkOrders(orders, "overdue");
   const completed = orders.filter((order) => normalizeStatus(order.status).toLowerCase() === "completed");
   const closed = orders.filter((order) => ["closed", "duplicate", "will not do"].includes(normalizeStatus(order.status).toLowerCase()));
   const moveCount = roomOperations.filter((operation) => operation.moveFrom || operation.moveTo).length;
@@ -621,21 +673,27 @@ export default function EngineeringDashboardPage() {
   };
 
   const cards = [
-    ["pending", "Pending Verification", pendingVerification.length],
-    ["open", "Open Work Orders", openOrders.length],
+    ["open", "Open", openOrders.length],
     ["progress", "In Progress", inProgress.length],
-    ["completed", "Completed / Awaiting Review", completed.length],
     ["priority", "Urgent / High", urgentHigh.length],
     ["overdue", "Overdue", overdue.length],
-    ["closed", "Closed", closed.length],
-    ["all", "All Work Orders", orders.length],
+  ] as const;
+  const listFilters = [
+    ["open", "Open", openOrders.length],
+    ["progress", "In Progress", inProgress.length],
+    ["priority", "Urgent / High", urgentHigh.length],
+    ["overdue", "Overdue", overdue.length],
   ] as const;
 
-  const normalizedSearch = searchQuery.trim().toLowerCase();
-  const filteredOrders = normalizedSearch
-    ? orders.filter((order) => Object.values(order).some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch)))
+  const normalizedListSearch = listSearchQuery.trim().toLowerCase();
+  const filteredListOrders = normalizedListSearch
+    ? orders.filter((order) => Object.values(order).some((value) => String(value ?? "").toLowerCase().includes(normalizedListSearch)))
     : groups[filter];
 
+  async function signOut() {
+    await signOutDevice();
+    router.replace("/");
+  }
 
 
   return (
@@ -659,19 +717,23 @@ export default function EngineeringDashboardPage() {
           <div className="flex flex-wrap gap-2">
             <a href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</a>
             <a href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</a>
-            {hasCapability(cmpriSession, "operate_integrations") && <a href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</a>}
+            <a href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</a>
             <a href="/engineering/gss" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">GSS Reports</a>
             <a href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</a>
             <a href="/engineering/room-operations" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Daily Room Ops</a>
-            {hasCapability(cmpriSession, "edit_tickets") && <button type="button" onClick={() => setShowRoomOpsImport(true)} className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Import Room Ops</button>}
-            {hasCapability(cmpriSession, "manage_assets") && <a href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</a>}
-            {hasCapability(cmpriSession, "manage_assets") && <a href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</a>}
-            {hasCapability(cmpriSession, "manage_assets") && <a href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</a>}
-            {hasCapability(cmpriSession, "edit_tickets") && <a href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</a>}
-            {hasCapability(cmpriSession, "manage_rooms") && <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>}
-            {hasCapability(cmpriSession, "manage_users") && <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>}
+            <button type="button" onClick={() => setShowRoomOpsImport(true)} className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Import Room Ops</button>
+            <a href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</a>
+            <a href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</a>
+            <a href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</a>
+            <a href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</a>
+            <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>
+            <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>
+            <a href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</a>
+            {!personalAiConnected && <a href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect AI</a>}
             <button type="button" onClick={requestAIRefresh} disabled={aiRefreshing} className="rounded-lg border border-purple-400/50 bg-purple-950/30 px-4 py-2 text-sm font-bold text-purple-100 hover:bg-purple-900/40 disabled:opacity-50">{aiRefreshing ? "Refreshing AI…" : "Refresh AI"}</button>
-            {hasCapability(cmpriSession, "submit") && <button type="button" onClick={openCreateWorkOrder} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">+ Create Work Order</button>}
+            <button type="button" onClick={() => { setFilter("all"); setShowWorkOrderList(true); }} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
+            <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>
+            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </header>
 
@@ -738,84 +800,102 @@ export default function EngineeringDashboardPage() {
           </div>
         </section>}
 
-        <section className="mt-5 grid gap-2 sm:grid-cols-4 xl:grid-cols-8">
+        <section className="mt-5 grid gap-2 sm:grid-cols-4">
           {cards.map(([key, label, value]) => {
             const active = filter === key;
-            const pending = key === "pending";
             return (
-              <button key={key} type="button" onClick={() => setFilter(key)} className={`rounded-xl border px-3 py-3 text-left transition ${pending ? active ? "border-purple-300 bg-purple-950/45 ring-1 ring-purple-400/40" : "border-purple-500/35 bg-purple-950/20 hover:border-purple-400/60" : active ? "border-amber-400 bg-slate-900 ring-1 ring-amber-400/30" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
-                <p className={pending ? "text-purple-200" : active ? "text-amber-300" : "text-slate-400"}>{label}</p>
+              <button key={key} type="button" onClick={() => { setFilter(key); setShowWorkOrderList(true); }} className={`rounded-xl border px-3 py-3 text-left transition ${active ? "border-amber-400 bg-slate-900 ring-1 ring-amber-400/30" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
+                <p className={active ? "text-amber-300" : "text-slate-400"}>{label}</p>
                 <p className="mt-1 text-2xl font-bold leading-none">{loading ? "—" : value}</p>
               </button>
             );
           })}
         </section>
 
-        <div className="mt-6 space-y-3">
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
-            <span className="font-semibold uppercase tracking-wide text-slate-500">Quick View</span>
-            <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Unassigned <b className="text-white">{openOrders.filter((order) => !String(order.technician_name || "").trim()).length}</b></span>
-            <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Due date set <b className="text-white">{openOrders.filter((order) => !!order.due_by).length}</b></span>
-            <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">HVAC <b className="text-white">{openOrders.filter((order) => String(order.category || "").toLowerCase() === "hvac").length}</b></span>
-          </div>
-          <div className="space-y-3">
-            <div className="relative">
-              <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search…" className="min-h-12 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 pr-11 text-base text-white outline-none placeholder:text-slate-400 focus:border-amber-400" />
-              {searchQuery && <button type="button" onClick={() => setSearchQuery("")} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
+      </div>
+
+      {showWorkOrderList && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 sm:p-6">
+          <section role="dialog" aria-modal="true" aria-labelledby="work-order-list-title" className="cmpri-dashboard-overlay-panel flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 px-4 py-4 sm:px-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Engineering Dashboard</p>
+                <h2 id="work-order-list-title" className="mt-1 text-2xl font-bold">Work Order List</h2>
+              </div>
+              <button type="button" onClick={closeTopOverlay} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Close</button>
             </div>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900">
-              <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
-                <h2 className="text-2xl font-bold">{normalizedSearch ? "Search Results" : cards.find(([key]) => key === filter)?.[1]}</h2>
-                <span className="text-sm text-slate-400">{loading ? "Loading…" : `${filteredOrders.length} shown`}</span>
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 sm:p-5">
+              <div className="relative">
+                <input type="search" value={listSearchQuery} onChange={(event) => setListSearchQuery(event.target.value)} placeholder="Search work orders…" className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 pr-11 text-base text-white outline-none placeholder:text-slate-400 focus:border-amber-400" />
+                {listSearchQuery && <button type="button" onClick={() => setListSearchQuery("")} aria-label="Clear work-order search" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
               </div>
-              <div className="max-h-[62vh] divide-y divide-slate-800 overflow-y-auto">
-                {!loading && filteredOrders.length === 0 && <p className="p-5 text-sm text-slate-400">{normalizedSearch ? "No work orders match your search." : "No work orders match this dashboard filter."}</p>}
-                {filteredOrders.slice(0, 75).map((order) => (
-                  <button type="button" key={order.id} onClick={() => openWorkOrder(order.id)} className="block w-full px-5 py-4 text-left hover:bg-slate-800/60">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-2xl font-bold leading-none text-white">{order.room || "No location"}</span>
-                          {order.category && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{order.category}</span>}
-                        </div>
-                        <p className="mt-1 text-sm font-medium text-slate-200">{order.issue || "No issue description"}</p>
-                        {(() => {
-                          const roomNo = roomNumberFromLabel(order.room);
-                          const op = roomOperations.find((item) => item.room === roomNo);
-                          return <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                            {op && (op.checkoutDate || op.checkoutTime) && <span className={`rounded-full border px-2 py-0.5 font-semibold ${roomOpsDateClass(op.checkoutDate)}`}>Checkout {op.checkoutTime || op.checkoutDate || "scheduled"}</span>}
-                            {op?.roomStatus && <span className={`rounded-full border px-2 py-0.5 font-semibold ${roomStatusClass(op.roomStatus)}`}>{op.roomStatus}</span>}
-                            {op?.reserved && <span className="rounded-full border border-indigo-400/45 bg-indigo-950/35 px-2 py-0.5 font-semibold text-indigo-200">Reserved</span>}
-                            {op?.guestName && <span className="rounded-full border border-slate-600 bg-slate-950 px-2 py-0.5 font-semibold text-slate-300">Guest: {op.guestName}</span>}
-                            {op && (op.roomType || op.guestCode) && <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 font-semibold text-slate-400">{[op.roomType, op.guestCode].filter(Boolean).join(" · ")}</span>}
-                            {(op?.arrivalDate || op?.arrivalTime) && <span className={`rounded-full border px-2 py-0.5 font-semibold ${roomOpsDateClass(op.arrivalDate)}`}>Incoming {op.arrivalTime || op.arrivalDate}</span>}
-                            {(op?.moveFrom || op?.moveTo) && <span className="rounded-full border border-sky-400/45 bg-sky-950/35 px-2 py-0.5 font-semibold text-sky-200">Move {op.moveFrom || roomNo} → {op.moveTo || "TBD"}</span>}
-                            {order.priority && <span className={`rounded-full border px-2 py-0.5 font-semibold ${priorityClass(order.priority)}`}>{order.priority}</span>}
-                          </div>;
-                        })()}
-                        {order.asset_name && <p className="mt-1 text-xs text-slate-500">{order.asset_name}</p>}
-                      </div>
-                      <div className="shrink-0 text-left text-xs text-slate-400 lg:text-right">
-                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass(order.status)}`}>{normalizeStatus(order.status)}</span>
-                        <div className="mt-1">{order.technician_name || "Unassigned"}</div>
-                        <div className={`mt-1 inline-flex rounded-full border px-2 py-0.5 ${isOverdue(order.due_by) ? "border-red-400/50 bg-red-950/40 font-semibold text-red-200" : "border-transparent"}`}>{formatDue(order.due_by)}</div>
-                      </div>
-                    </div>
+
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
+                <span className="font-semibold uppercase tracking-wide text-slate-500">Quick View</span>
+                <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Unassigned <b className="text-white">{openOrders.filter((order) => !String(order.technician_name || "").trim()).length}</b></span>
+                <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Due date set <b className="text-white">{openOrders.filter((order) => !!order.due_by).length}</b></span>
+                <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">HVAC <b className="text-white">{openOrders.filter((order) => String(order.category || "").toLowerCase() === "hvac").length}</b></span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {listFilters.map(([key, label, value]) => (
+                  <button key={key} type="button" onClick={() => setFilter(key)} className={`rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${filter === key ? "border-amber-400 bg-slate-900 text-amber-300" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600"}`}>
+                    <span>{label}</span>
+                    <span className="ml-2 text-lg text-white">{loading ? "—" : value}</span>
                   </button>
                 ))}
               </div>
-            </section>
-          </div>
 
-
+              <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 sm:px-5">
+                  <h3 className="text-xl font-bold">{normalizedListSearch ? "Search Results" : cards.find(([key]) => key === filter)?.[1] || "Work Orders"}</h3>
+                  <span className="text-sm text-slate-400">{loading ? "Loading…" : `${filteredListOrders.length} shown`}</span>
+                </div>
+                <div className="min-h-0 flex-1 divide-y divide-slate-800 overflow-y-auto">
+                  {!loading && filteredListOrders.length === 0 && <p className="p-5 text-sm text-slate-400">{normalizedListSearch ? "No work orders match your search." : "No work orders match this filter."}</p>}
+                  {filteredListOrders.slice(0, 75).map((order) => (
+                    <button type="button" key={order.id} onClick={() => openWorkOrder(order.id)} className="block w-full px-4 py-4 text-left hover:bg-slate-800/60 sm:px-5">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-2xl font-bold leading-none text-white">{order.room || "No location"}</span>
+                            {order.category && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{order.category}</span>}
+                          </div>
+                          <p className="mt-1 text-sm font-medium text-slate-200">{order.issue || "No issue description"}</p>
+                          {order.asset_name && <p className="mt-1 text-xs text-slate-500">{order.asset_name}</p>}
+                        </div>
+                        <div className="shrink-0 text-left text-xs text-slate-400 lg:text-right">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass(order.status)}`}>{normalizeStatus(order.status)}</span>
+                          <div className="mt-1">{order.technician_name || "Unassigned"}</div>
+                          <div className={`mt-1 inline-flex rounded-full border px-2 py-0.5 ${isOverdue(order.due_by) ? "border-red-400/50 bg-red-950/40 font-semibold text-red-200" : "border-transparent"}`}>{formatDue(order.due_by)}</div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </section>
         </div>
-      </div>
+      )}
+
+      {activeWorkOrderId && workOrderModalToken && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-2 sm:p-5">
+          <div role="dialog" aria-modal="true" aria-label="Work order detail" className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+            <iframe
+              title="Work order detail"
+              src={`/work-orders/${encodeURIComponent(activeWorkOrderId)}?embedded=1&modalToken=${encodeURIComponent(workOrderModalToken)}`}
+              className="h-full w-full border-0"
+            />
+          </div>
+        </div>
+      )}
 
       {showRoomOpsImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to the AI refresh provider.</p></div><button type="button" onClick={() => setShowRoomOpsImport(false)} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800">Close</button></div>
+          <div className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to the AI refresh provider.</p></div><button type="button" onClick={closeTopOverlay} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800">Close</button></div>
             <div className="space-y-4 p-5">
               <textarea value={roomOpsInput} onChange={(event) => setRoomOpsInput(event.target.value)} rows={8} placeholder={"Room\tCheckout Date\tCheckout Time\tRoom Status\tCheck-in Date\tCheck-in Time\tMove From\tMove To\tGuest Name\tRoom Type\tGuest Code\tARV\tLOS\tReserved\n316\t9/15/2026\t11:00 AM\tVacant Dirty\t9/15/2026\t4:00 PM\t316\t412\tGuest Name\tKING\tCODE\t9/12/2026\t3\tYes"} className="w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-white outline-none focus:border-amber-400" />
               <div className="flex flex-wrap gap-2">

@@ -43,6 +43,7 @@ const aliases: Readonly<Record<string, CmpriRole>> = {
   regionalmaintenance: "engineer",
   regionalengineer: "engineer",
 
+  manager: "manager",
   generalmanager: "manager",
   gm: "manager",
 
@@ -100,6 +101,14 @@ const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
 
 export function roleAllows(role: unknown, capability: Capability): boolean {
   return CAPABILITIES[roleKey(role)].includes(capability);
+}
+
+export function canReadEquipment(role: unknown): boolean {
+  return ["engineer", "technician", "system_admin"].includes(roleKey(role));
+}
+
+export function canEditEquipment(role: unknown): boolean {
+  return ["engineer", "system_admin"].includes(roleKey(role));
 }
 
 export const isFrontDesk = (role: unknown) => roleKey(role) === "front_desk";
@@ -222,8 +231,9 @@ export function membershipRole(role: unknown): "admin" | "manager" | "technician
   }
 }
 
-export function landingPath(role: unknown): "/work-orders" | "/engineering" | null {
+export function landingPath(role: unknown): "/work-orders" | "/technician" | "/engineering" | null {
   const key = roleKey(role);
   if (key === "unknown") return null;
+  if (key === "technician") return "/technician";
   return ["front_desk", "housekeeping"].includes(key) ? "/work-orders" : "/engineering";
 }

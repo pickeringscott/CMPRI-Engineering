@@ -14,7 +14,7 @@ function fixture(config={}) {
     const k=r.trim().toLowerCase().replace(/[\s_-]+/g,'');
     const m={
       engineer:'engineer',chiefengineer:'engineer',engineering:'engineer',engineeringmanager:'engineer',regionalmaintenance:'engineer',regionalengineer:'engineer',
-      generalmanager:'manager',gm:'manager',
+      manager:'manager',generalmanager:'manager',gm:'manager',
       seniormanagement:'senior_management',uppermanagement:'senior_management',vpfacilities:'senior_management',regionaldirectoroperations:'senior_management',districtmanager:'senior_management',
       technician:'technician',maintenancetechnician:'technician',
       frontdesk:'front_desk',assistantgm:'front_desk',assistantgeneralmanager:'front_desk',assistantmanager:'front_desk',salesmanager:'front_desk',
@@ -47,10 +47,13 @@ function fixture(config={}) {
     },
   };
 
-  const client={auth:{getUser:async()=>({data:{user:{id:'caller'}},error:config.authError?{message:'failed'}:null}),admin:{
-    inviteUserByEmail:async()=>{writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
-    createUser:async()=>{writes.push('createUser');return {data:{user:{id:'created'}},error:null};},
-  }},from(table){
+  const client={auth:{getUser:async()=>({data:{user:{id:'caller'}},error:config.authError?{message:'failed'}:null}),
+    signUp:async()=>({data:{user:{id:'created-via-signup'}},error:null}),
+    admin:{
+      inviteUserByEmail:async()=>{writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
+      createUser:async()=>{writes.push('createUser');return {data:{user:{id:'created'}},error:null};},
+    }
+  },from(table){
     const filters={};let update;
     const q={select(){return q;},eq(k,v){filters[k]=v;return q;},
       maybeSingle:async()=> table==='role_permissions'
@@ -72,6 +75,7 @@ function fixture(config={}) {
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:()=>client};
+        if(name==='@/lib/supabase/config')return {SUPABASE_URL:'https://test.invalid',SUPABASE_PUBLISHABLE_KEY:'fake'};
         if(name==='@/lib/user-policy')return compile('../src/lib/user-policy.ts');
         if(name==='server-only')return {};
         if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
@@ -83,7 +87,7 @@ function fixture(config={}) {
             if(u.error||!u.data?.user)return null;
             const p=await client.from('profiles').select().eq('id',u.data.user.id).maybeSingle();
             if(p.error||!p.data||p.data.active!==true)return null;
-            return {principal:{identity:u.data.user,profile:p.data,membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:client};
+            return {principal:{identity:u.data.user,profile:p.data,membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:config.noAdmin?null:client};
           },
           requireCapability:async()=>{
             const u=await client.auth.getUser();
@@ -92,7 +96,7 @@ function fixture(config={}) {
             if(p.error||!p.data||p.data.active!==true)return null;
             const perm=await client.from('role_permissions').select().eq('role',p.data.role).maybeSingle();
             if(perm.error||!perm.data)return null;
-            return {principal:{identity:u.data.user,profile:p.data,membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:client};
+            return {principal:{identity:u.data.user,profile:p.data,membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:config.noAdmin?null:client};
           },
         };
         throw new Error(name);
@@ -186,8 +190,22 @@ test('engineer can invite front desk with validated role and property membership
   const f=fixture({body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,200);
-  assert.equal(r.body.user.role,'Front Desk');
+  assert.equal(r.body.user.role,'front_desk');
   assert.deepEqual(f.writes,['invite','upsert','upsert']);
+});
+test('system_admin can create a manager profile when role label is Manager',async()=>{
+  const f=fixture({caller:{id:'caller',role:'system_admin',active:true}, body:{email:'manager@example.invalid',full_name:'Test Manager',role:'Manager'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,200);
+  assert.equal(r.body.user.role,'manager');
+  assert.deepEqual(f.writes,['invite','upsert','upsert']);
+});
+test('POST fails clearly when no server admin is configured for user creation',async()=>{
+  const f=fixture({noAdmin:true, body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk',password:'temporary123'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,500);
+  assert.match(String(r.body.error), /SUPABASE_SERVICE_ROLE_KEY/i);
+  assert.deepEqual(f.writes,[]);
 });
 test('engineer can deactivate a housekeeping user',async()=>{
   const f=fixture({caller:{id:'caller',role:'Engineer',active:true},target:{id:'target',role:'Housekeeping',active:true}});
@@ -206,4 +224,35 @@ test('invalid invitation email is rejected before sending',async()=>{
 test('observed system_admin manages a subordinate with manage_users permission',async()=>{
   const f=fixture({caller:{id:'caller',role:'system_admin',active:true}});
   assert.equal((await f.handlers.PATCH(f.request)).status,200);
+});
+test('system_admin access policy bypasses empty permission rows for bootstrap management',()=>{
+  const rolesCode = readFileSync(new URL('../src/lib/server/roles.ts', import.meta.url), 'utf8');
+  const rolesExports = {};
+  vm.runInNewContext(ts.transpileModule(rolesCode,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
+    exports: rolesExports,
+    require: () => ({}),
+    process: { env: {} },
+  });
+
+  const accessCode = readFileSync(new URL('../src/lib/server/access.ts', import.meta.url), 'utf8');
+  const accessExports = {};
+  vm.runInNewContext(ts.transpileModule(accessCode,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
+    exports: accessExports,
+    require(name) {
+      if (name === './roles') return rolesExports;
+      throw new Error(`Missing mock for ${name}`);
+    },
+    process: { env: {} },
+  });
+
+  const principal = {
+    identity: { id: 'admin', email: 'pickering.scott@gmail.com' },
+    profile: { id: 'admin', email: 'pickering.scott@gmail.com', role: 'system_admin', active: true, full_name: 'Scott Pickering' },
+    hotelId: 'hotel-1',
+    membership: { user_id: 'admin', hotel_id: 'hotel-1', role: 'admin', active: true },
+    permissions: [],
+  };
+
+  assert.equal(accessExports.allows(principal, 'manage_users'), true);
+  assert.equal(accessExports.allows(principal, 'view_dashboard'), true);
 });

@@ -8,7 +8,7 @@ const uiPaths = [
   '/engineering/import-work-orders', '/engineering/parts', '/engineering/pool-log',
   '/engineering/preventive-maintenance', '/engineering/purchasing', '/engineering/room-operations',
   '/engineering/room-ranker', '/management/equipment', '/management/rooms', '/management/users',
-  '/reset-password', '/setup-guide', '/technician', '/work-orders', '/work-orders/test-id',
+  '/setup-guide', '/technician', '/work-orders', '/work-orders/test-id',
 ];
 const apiPaths = [
   '/api/session', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
@@ -32,7 +32,8 @@ const cases = [
 ];
 const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start',
   '--hostname', '127.0.0.1', '--port', String(port)], {
-  env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: '', NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
+  env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'cmpri-local-test-placeholder',
     SUPABASE_SERVICE_ROLE_KEY: '', CRON_SECRET: ''},
   stdio: ['ignore', 'pipe', 'pipe'],
 });

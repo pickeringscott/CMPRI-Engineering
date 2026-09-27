@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import SearchableSelect from "@/components/SearchableSelect";
 
-type UserRow = { id: string; full_name: string | null; role: string | null; active: boolean | null; can_manage: boolean };
+type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; active: boolean | null; can_manage: boolean };
 
 export default function UserManagementPage() {
+  const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -24,7 +26,8 @@ export default function UserManagementPage() {
 
   const authHeaders = useCallback(async () => {
     const session = await getValidSession();
-    return { Authorization: `Bearer ${session?.access_token || ""}`, "Content-Type": "application/json" };
+    if (!session) throw new Error("No active session.");
+    return { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" };
   }, []);
 
   const loadUsers = useCallback(async () => {
@@ -36,17 +39,28 @@ export default function UserManagementPage() {
 
   useEffect(() => {
     let current = true;
-    void loadUsers()
-      .then((result) => {
+    void (async () => {
+      try {
+        const session = await getValidSession();
+        if (!session) {
+          if (current) router.replace("/");
+          return;
+        }
+
+        const result = await loadUsers();
         if (!current) return;
         setUsers(result.users);
         setRoles(result.roles);
         setRole(result.roles[0] || "");
-      })
-      .catch(() => { if (current) setMessage("Unable to load users. Please retry."); })
-      .finally(() => { if (current) setLoading(false); });
+      } catch {
+        if (!current) return;
+        router.replace("/");
+      } finally {
+        if (current) setLoading(false);
+      }
+    })();
     return () => { current = false; };
-  }, [loadUsers]);
+  }, [loadUsers, router]);
 
   async function addUser(event: FormEvent) {
     event.preventDefault();
@@ -145,6 +159,7 @@ export default function UserManagementPage() {
             <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px_150px] md:items-center">
               <div className="min-w-0">
                 <p className="break-words font-semibold">{user.full_name || "Unnamed user"}</p>
+                <p className="mt-1 break-all text-sm text-slate-300">{user.email || "No email on file"}</p>
                 <p className="mt-1 text-xs text-slate-500">{user.active === true ? "Active" : "Inactive"}</p>
               </div>
               {user.can_manage ? (
