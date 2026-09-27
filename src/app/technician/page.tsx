@@ -21,19 +21,23 @@ export default function TechnicianDashboard() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
+  async function fetchAssignedWork() {
+    const session = await getValidSession();
+    if (!session) throw new Error("Sign in again to load your technician dashboard.");
+    const response = await fetch("/api/work-orders?mode=technician", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Assigned work could not be loaded.");
+    return (payload.work_orders || []) as AssignedWorkOrder[];
+  }
+
   async function loadAssignedWork() {
     setLoading(true);
     setMessage("");
     try {
-      const session = await getValidSession();
-      if (!session) throw new Error("Sign in again to load your technician dashboard.");
-      const response = await fetch("/api/work-orders?mode=technician", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Assigned work could not be loaded.");
-      setOrders((payload.work_orders || []) as AssignedWorkOrder[]);
+      setOrders(await fetchAssignedWork());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Assigned work could not be loaded.");
     } finally {
@@ -42,7 +46,22 @@ export default function TechnicianDashboard() {
   }
 
   useEffect(() => {
-    void loadAssignedWork();
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const nextOrders = await fetchAssignedWork();
+        if (!cancelled) setOrders(nextOrders);
+      } catch (error) {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : "Assigned work could not be loaded.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

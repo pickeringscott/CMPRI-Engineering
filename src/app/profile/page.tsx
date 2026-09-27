@@ -26,17 +26,28 @@ export default function ProfilePage() {
     return { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" };
   }
 
-  async function load() {
-    const response = await fetch("/api/profile", { headers: await headers(), cache: "no-store" });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Profile could not be loaded.");
-    const result = payload as Payload;
-    setData(result);
-    setName(result.profile.full_name || "");
-    setPreferences(result.preferences);
-  }
+  useEffect(() => {
+    let cancelled = false;
 
-  useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")); }, []);
+    void (async () => {
+      try {
+        const response = await fetch("/api/profile", { headers: await headers(), cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Profile could not be loaded.");
+        if (cancelled) return;
+        const result = payload as Payload;
+        setData(result);
+        setName(result.profile.full_name || "");
+        setPreferences(result.preferences);
+      } catch (error) {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : "Profile could not be loaded.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function save() {
     if (!preferences || !name.trim()) return;

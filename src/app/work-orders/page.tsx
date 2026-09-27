@@ -1007,7 +1007,7 @@ export default function WorkOrdersPage() {
       setPriority(suggestion.priority || "Medium");
       return;
     }
-    let matchedAsset = workingAssets.find(item => item.id === assetId);
+    const matchedAsset = workingAssets.find(item => item.id === assetId);
 
     const smartCategory =
       matchedAsset

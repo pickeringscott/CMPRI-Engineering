@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
@@ -21,9 +22,10 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
   }
 }
 
-function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | undefined) {
-  const authAdmin = admin && typeof admin === "object" ? (admin as { auth?: { admin?: unknown } }).auth?.admin : undefined;
-  return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
+type SupabaseAuthAdmin = SupabaseClient["auth"]["admin"];
+
+function ensureServiceRoleAdmin(admin: { auth?: { admin?: SupabaseAuthAdmin } } | null | undefined): SupabaseAuthAdmin | null {
+  return admin?.auth?.admin ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest) {
 
   let id: string | undefined;
   if (password) {
-    const { data: created, error: createError } = await (adminAuth as any).createUser({
+    const { data: created, error: createError } = await adminAuth.createUser({
       email,
       password,
       email_confirm: true,
@@ -89,7 +91,7 @@ export async function POST(request: NextRequest) {
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
     id = created.user?.id;
   } else {
-    const { data: invited, error: inviteError } = await (adminAuth as any).inviteUserByEmail(email, { data: { full_name: fullName } });
+    const { data: invited, error: inviteError } = await adminAuth.inviteUserByEmail(email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }
