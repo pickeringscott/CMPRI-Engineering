@@ -1011,7 +1011,7 @@ export default function WorkOrdersPage() {
     }
     const matchedAsset = workingAssets.find((item) => item.id === (suggestedAssetId || assetId));
 
-    if ((!manualAsset || locationOverride) && assetId !== suggestedAssetId) {
+    if ((locationOverride || !assetId) && assetId !== suggestedAssetId) {
       setAssetId(suggestedAssetId);
     }
 
