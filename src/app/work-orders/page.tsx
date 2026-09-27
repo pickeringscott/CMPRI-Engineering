@@ -1002,12 +1002,18 @@ export default function WorkOrdersPage() {
       combinedText,
       isSubmitOnlyUser ? workingAssets.filter((asset) => asset.location_id === workingLocation.id) : workingAssets,
     );
+    const suggestedAssetId = suggestion.assetId || "";
     if (isSubmitOnlyUser) {
+      setAssetId(suggestedAssetId);
       setCategory(suggestion.category || "General");
       setPriority(suggestion.priority || "Medium");
       return;
     }
-    const matchedAsset = workingAssets.find(item => item.id === assetId);
+    const matchedAsset = workingAssets.find((item) => item.id === (suggestedAssetId || assetId));
+
+    if ((!manualAsset || locationOverride) && assetId !== suggestedAssetId) {
+      setAssetId(suggestedAssetId);
+    }
 
     const smartCategory =
       matchedAsset
@@ -1036,23 +1042,6 @@ export default function WorkOrdersPage() {
       );
     }
 
-    const recognized: string[] = [
-      workingLocation.name,
-    ];
-
-    if (matchedAsset) {
-      recognized.push(
-        matchedAsset.name
-      );
-    }
-
-    if (smartCategory) {
-      recognized.push(
-        smartCategory
-      );
-    }
-
-    
   }
 
 
