@@ -75,6 +75,18 @@ function fixture(config={}){
       if(name==='@/lib/server/auth')return authModule;
       if(name==='@/lib/work-order-categories')return {normalizeWorkOrderCategory:(value)=>typeof value==='string'&&value.trim()?value.trim():null};
       if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>{}};
+      if(name==='@/lib/server/roles')return {roleKey:(value)=>{
+        if(typeof value!=='string')return 'unknown';
+        const key=value.trim().toLowerCase().replace(/[\s_-]+/g,'');
+        if(['engineer','engineers','engineering','chiefengineer','engineeringmanager','regionalmaintenance','regionalengineer'].includes(key))return 'engineer';
+        if(['manager','generalmanager','gm'].includes(key))return 'manager';
+        if(['seniormanagement','uppermanagement','vpfacilities','regionaldirectoroperations','districtmanager'].includes(key))return 'senior_management';
+        if(['technician','maintenancetechnician'].includes(key))return 'technician';
+        if(['frontdesk','assistantgm','assistantgeneralmanager','assistantmanager','salesmanager'].includes(key))return 'front_desk';
+        if(['housekeeping','leadhousekeeper','executivehousekeeper'].includes(key))return 'housekeeping';
+        if(['systemadmin','systemadministrator','administrator','admin'].includes(key))return 'system_admin';
+        return 'unknown';
+      }};
       throw new Error(name);
     },
   });

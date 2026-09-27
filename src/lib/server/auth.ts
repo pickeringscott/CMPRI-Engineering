@@ -51,7 +51,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
     if (profileError) return { ok: false, reason: "profile-error", detail: profileError.message };
     if (!profileRow) return { ok: false, reason: "profile-missing" };
     const profile = profileRow as AccessProfile;
-    if (!email || !profile.email || email.trim().toLowerCase() !== profile.email.trim().toLowerCase()) {
+    if (email && profile.email && email.trim().toLowerCase() !== profile.email.trim().toLowerCase()) {
       return { ok: false, reason: "email-mismatch" };
     }
     if (profile.active !== true) return { ok: false, reason: "profile-inactive" };
