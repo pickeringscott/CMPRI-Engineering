@@ -26,6 +26,25 @@ function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | u
   return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
 }
 
+type AuthAdminApi = {
+  createUser: (input: {
+    email: string;
+    password: string;
+    email_confirm: boolean;
+    user_metadata: { full_name: string };
+  }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>;
+  inviteUserByEmail: (email: string, input: {
+    data: { full_name: string };
+  }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>;
+};
+
+function asAuthAdminApi(adminAuth: Record<string, unknown>): AuthAdminApi | null {
+  const createUser = adminAuth.createUser;
+  const inviteUserByEmail = adminAuth.inviteUserByEmail;
+  if (typeof createUser !== "function" || typeof inviteUserByEmail !== "function") return null;
+  return { createUser: createUser as AuthAdminApi["createUser"], inviteUserByEmail: inviteUserByEmail as AuthAdminApi["inviteUserByEmail"] };
+}
+
 export async function GET(request: NextRequest) {
   const access = await requireCapability(request, "manage_users");
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
@@ -77,10 +96,12 @@ export async function POST(request: NextRequest) {
   if (!adminAuth) {
     return NextResponse.json({ error: "This deployment is missing Supabase service-role credentials. Set SUPABASE_SERVICE_ROLE_KEY before creating users." }, { status: 500 });
   }
+  const authAdminApi = asAuthAdminApi(adminAuth);
+  if (!authAdminApi) return NextResponse.json({ error: "Supabase admin auth methods are unavailable in this deployment." }, { status: 500 });
 
   let id: string | undefined;
   if (password) {
-    const { data: created, error: createError } = await (adminAuth as any).createUser({
+    const { data: created, error: createError } = await authAdminApi.createUser({
       email,
       password,
       email_confirm: true,
@@ -89,7 +110,7 @@ export async function POST(request: NextRequest) {
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
     id = created.user?.id;
   } else {
-    const { data: invited, error: inviteError } = await (adminAuth as any).inviteUserByEmail(email, { data: { full_name: fullName } });
+    const { data: invited, error: inviteError } = await authAdminApi.inviteUserByEmail(email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }
