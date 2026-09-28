@@ -35,15 +35,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const form = await request.formData().catch(() => null);
   const file = form?.get("photo");
   if (!(file instanceof File)) return NextResponse.json({ error: "Choose an image to upload." }, { status: 400 });
-  if (!file.type.startsWith("image/")) return NextResponse.json({ error: "Only image files can be attached." }, { status: 400 });
+  const imageExtensionPattern = /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i;
+  // Some mobile camera captures (older Android WebViews, some iOS share-sheet flows) omit the
+  // File.type MIME string even though the file is a genuine photo; fall back to the extension.
+  const looksLikeImage = file.type.startsWith("image/") || (!file.type && imageExtensionPattern.test(file.name || ""));
+  if (!looksLikeImage) return NextResponse.json({ error: "Only image files can be attached." }, { status: 400 });
   if (file.size < 1 || file.size > MAX_IMAGE_BYTES) return NextResponse.json({ error: "Images must be smaller than 10 MB." }, { status: 400 });
 
   const extension = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const contentType = file.type || (extension === "jpg" ? "image/jpeg" : `image/${extension}`);
   const storagePath = `${attachmentPrefix(id)}/${crypto.randomUUID()}.${extension}`;
   const { error: uploadError } = await context.auth.admin.storage
     .from(DOCUMENTATION_BUCKET)
-    .upload(storagePath, file, { contentType: file.type, upsert: false });
-  if (uploadError) return NextResponse.json({ error: "The work-order image could not be stored." }, { status: 503 });
+    .upload(storagePath, file, { contentType, upsert: false });
+  if (uploadError) {
+    console.error("Work-order photo upload failed:", uploadError.message);
+    return NextResponse.json({ error: "The work-order image could not be stored." }, { status: 503 });
+  }
 
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

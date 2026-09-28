@@ -108,6 +108,8 @@ type RelatedIssueSuggestion = {
   assetTerms: string[];
   category: string;
   priority: string;
+  locationId?: string | null;
+  locationName?: string;
 };
 
 type NotesAnalysis = {
@@ -535,9 +537,12 @@ function analyzeTechnicianNotes(
 
 function createSuggestionFromIssueClause(
   clause: string,
-  index: number
+  index: number,
+  locations: Location[] = [],
+  fallbackLocation?: Location | null
 ): RelatedIssueSuggestion {
-  const strippedPrefix = cleanIssueLocationPrefix(clause.trim().replace(/^[-,:.\s]+/, ""), [] as Location[]).issue;
+  const { location: detectedLocation, issue: strippedPrefix } = cleanIssueLocationPrefix(clause.trim().replace(/^[-,:.\s]+/, ""), locations);
+  const resolvedLocation = detectedLocation || fallbackLocation || null;
   const cleaned = capitalizeIssuePreservingWhitespace(strippedPrefix);
   const category = categoryFromIssue(cleaned) || "General";
   const lower = cleaned.toLowerCase();
@@ -576,6 +581,8 @@ function createSuggestionFromIssueClause(
     assetTerms,
     category,
     priority: priorityForCategory(category),
+    locationId: resolvedLocation?.id ?? null,
+    locationName: resolvedLocation?.name ?? "",
   };
 }
 
@@ -624,14 +631,14 @@ export function splitMaintenanceIssueClauses(value: string) {
   return output;
 }
 
-export function detectMultipleCreateIssues(issue: string): RelatedIssueSuggestion[] {
+export function detectMultipleCreateIssues(issue: string, locations: Location[] = [], fallbackLocation?: Location | null): RelatedIssueSuggestion[] {
   const source = issue.trim();
   if (!source) return [];
 
   const pieces = splitMaintenanceIssueClauses(source);
   if (pieces.length < 2) return [];
 
-  const suggestions = pieces.map(createSuggestionFromIssueClause);
+  const suggestions = pieces.map((piece, index) => createSuggestionFromIssueClause(piece, index, locations, fallbackLocation));
   const meaningful = suggestions.filter((item) => item.category !== "General").length;
 
   // Multiple independent maintenance signatures are required, but punctuation
@@ -1484,6 +1491,14 @@ export default function WorkOrdersPage() {
     );
   }
 
+  function resolveSuggestionLocation(suggestion: RelatedIssueSuggestion): Location | null {
+    if (suggestion.locationId) {
+      const matched = locations.find((item) => item.id === suggestion.locationId);
+      if (matched) return matched;
+    }
+    return locations.find((item) => item.id === locationId) ?? null;
+  }
+
   function returnSingleBatchSuggestionToForm(suggestion: RelatedIssueSuggestion | null) {
     const location = locations.find((item) => item.id === locationId);
     if (!location) {
@@ -1613,7 +1628,7 @@ export default function WorkOrdersPage() {
       setMessage("Enter your first name before submitting.");
       return;
     }
-    const location = locations.find((item) => item.id === locationId);
+    const location = resolveSuggestionLocation(suggestion);
     if (!location) {
       setMessage("Select a room/location before creating this work order.");
       return;
@@ -1686,9 +1701,10 @@ export default function WorkOrdersPage() {
     setCreatingBatchWorkOrders(true);
     setMessage("");
     const rows = batchCreateSuggestions.map((suggestion) => {
-      const relatedAsset = resolveRelatedAsset(suggestion, location);
+      const rowLocation = resolveSuggestionLocation(suggestion) ?? location;
+      const relatedAsset = resolveRelatedAsset(suggestion, rowLocation);
       return {
-        location_id: location.id,
+        location_id: rowLocation.id,
         asset_id: relatedAsset?.id ?? null,
         asset_name: relatedAsset?.name ?? suggestion.assetName,
         category: suggestion.category,
@@ -1699,11 +1715,11 @@ export default function WorkOrdersPage() {
     });
 
     const firstDuplicate = rows.find((row) => {
-      const duplicate = possibleDuplicateFor(String(row.issue || ""), location, typeof row.asset_id === "string" ? row.asset_id : null);
+      const duplicate = possibleDuplicateFor(String(row.issue || ""), locations.find((item) => item.id === row.location_id) ?? location, typeof row.asset_id === "string" ? row.asset_id : null);
       return Boolean(duplicate);
     });
     if (firstDuplicate) {
-      const duplicate = possibleDuplicateFor(String(firstDuplicate.issue || ""), location, typeof firstDuplicate.asset_id === "string" ? firstDuplicate.asset_id : null);
+      const duplicate = possibleDuplicateFor(String(firstDuplicate.issue || ""), locations.find((item) => item.id === firstDuplicate.location_id) ?? location, typeof firstDuplicate.asset_id === "string" ? firstDuplicate.asset_id : null);
       setMessage(`Possible duplicate detected: ${duplicate?.display_id || "existing work order"} — ${duplicate?.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
       setCreatingBatchWorkOrders(false);
       return;
@@ -1820,7 +1836,7 @@ export default function WorkOrdersPage() {
       return;
     }
 
-    const multipleCreateIssues = detectMultipleCreateIssues(normalizedIssue);
+    const multipleCreateIssues = detectMultipleCreateIssues(normalizedIssue, locations, location);
     if (multipleCreateIssues.length >= 2) {
       setBatchCreateSuggestions(multipleCreateIssues);
       setShowBatchCreateDialog(true);
@@ -1944,7 +1960,7 @@ export default function WorkOrdersPage() {
     { value: "", label: tx("No specific asset / equipment", "Sin equipo específico") },
   ];
 
-  const detectedCreateIssues = issue.trim() ? detectMultipleCreateIssues(issue) : [];
+  const detectedCreateIssues = issue.trim() ? detectMultipleCreateIssues(issue, locations, selectedLocation) : [];
 
   const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true ? troubleshootingKnowledge : null;
   const trustedManualUrl = trustedTroubleshootingKnowledge?.source?.file_url || trustedTroubleshootingKnowledge?.source?.pdf_url;
@@ -2034,7 +2050,7 @@ export default function WorkOrdersPage() {
 
             {isFrontDeskUser && <label className="block">
               <span className="mb-1 block text-sm font-medium"> {tx("Your first name", "Tu nombre")} <span className="text-red-300">*</span></span>
-              <input required maxLength={80} autoComplete="off" value={staffFirstName} onChange={event => setStaffFirstName(event.target.value)} placeholder={tx("First name", "Nombre")} disabled={loading || creatingBatchWorkOrders || creatingRelatedWorkOrders} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-white outline-none focus:border-amber-400" />
+              <input required maxLength={80} type="text" inputMode="text" name="staff-first-name" autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck={false} data-lpignore="true" data-1p-ignore="true" data-form-type="other" value={staffFirstName} onChange={event => setStaffFirstName(event.target.value)} placeholder={tx("First name", "Nombre")} disabled={loading || creatingBatchWorkOrders || creatingRelatedWorkOrders} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-white outline-none focus:border-amber-400" />
               <span className="mt-1 block text-xs text-slate-400"> {tx("Required for each report submitted through the shared front-desk account.", "Obligatorio para cada reporte enviado desde la cuenta compartida de recepción")} </span>
             </label>}
 
@@ -2192,58 +2208,72 @@ export default function WorkOrdersPage() {
             setShowBatchCreateDialog(false);
             setBatchCreateSuggestions([]);
           }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl">
               <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} work orders detected</h2>
-              <p className="mt-2 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
+              <p className="mt-1 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
 
-              <div className="mt-5 max-h-[58vh] space-y-3 overflow-y-auto pr-1">
+              <div className="mt-2 max-h-[58vh] space-y-1.5 overflow-y-auto pr-1">
                 {batchCreateSuggestions.map((suggestion, index) => {
-                  const relatedAsset = resolveRelatedAsset(suggestion, selectedLocation);
-                  const duplicate = possibleDuplicateFor(suggestion.issue, selectedLocation);
+                  const rowLocation = resolveSuggestionLocation(suggestion) ?? selectedLocation;
+                  const relatedAsset = resolveRelatedAsset(suggestion, rowLocation);
+                  const duplicate = possibleDuplicateFor(suggestion.issue, rowLocation);
                   return (
-                    <div key={suggestion.key} className="rounded-xl border border-slate-700 bg-slate-950 p-4">
-                      <div className="flex items-start justify-between gap-3">
+                    <div key={suggestion.key} className="rounded-xl border border-slate-700 bg-slate-950 p-2">
+                      <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work Order {index + 1} · {selectedLocation.name}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work Order {index + 1}</p>
+                          <div className="mt-1">
+                            <SearchableSelect
+                              value={rowLocation.id}
+                              onChange={(value) => {
+                                const nextLocation = locations.find((item) => item.id === value) || null;
+                                setBatchCreateSuggestions((current) => current.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, locationId: nextLocation?.id ?? null, locationName: nextLocation?.name ?? "" } : item
+                                ));
+                              }}
+                              options={locationOptions}
+                              placeholder={tx("Room / Location", "Habitación / Ubicación")}
+                            />
+                          </div>
                           <input
                             value={suggestion.issue}
                             onChange={(event) => {
                               const nextIssue = event.target.value;
                               setBatchCreateSuggestions((current) => current.map((item, itemIndex) =>
-                                itemIndex === index ? createSuggestionFromIssueClause(nextIssue, itemIndex) : item
+                                itemIndex === index ? createSuggestionFromIssueClause(nextIssue, itemIndex, locations, resolveSuggestionLocation(item)) : item
                               ));
                             }}
-                            className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm outline-none focus:border-amber-400"
+                            className="mt-1 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm outline-none focus:border-amber-400"
                           />
                         </div>
                         <button
                           type="button"
                           onClick={() => handleBatchSuggestionRemoval(index)}
-                          className="rounded-lg border border-red-500/50 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-950/40"
+                          className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-semibold text-red-300 hover:bg-red-950/40"
                         >
                           Remove
                         </button>
                       </div>
-                      <div className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-3">
+                      <div className="mt-1.5 grid gap-1.5 text-xs text-slate-300 sm:grid-cols-3">
                         <span><span className="text-slate-500">Asset:</span> {relatedAsset?.name ?? suggestion.assetName}</span>
                         <span><span className="text-slate-500">Category:</span> {suggestion.category}</span>
                         <span><span className="text-slate-500">Priority:</span> {suggestion.priority}</span>
                       </div>
                       {duplicate && (
-                        <p className="mt-3 rounded-lg border border-orange-500/40 bg-orange-950/30 px-3 py-2 text-xs font-semibold text-orange-200">Possible duplicate: {duplicate.display_id || "existing work order"} — {duplicate.issue || "similar active issue"}</p>
+                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">Possible duplicate: {duplicate.display_id || "existing work order"} — {duplicate.issue || "similar active issue"}</p>
                       )}
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Submit This</button>
-                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-2 text-xs font-bold text-red-200 hover:bg-red-950/40">Remove</button>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-1 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Submit This</button>
+                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-bold text-red-200 hover:bg-red-950/40">Remove</button>
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Back to Form</button>
-                <button type="button" disabled={creatingBatchWorkOrders || batchCreateSuggestions.length < 2} onClick={() => void createBatchWorkOrders()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
+              <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Back to Form</button>
+                <button type="button" disabled={creatingBatchWorkOrders || batchCreateSuggestions.length < 2} onClick={() => void createBatchWorkOrders()} className="rounded-lg bg-amber-400 px-4 py-1.5 text-sm font-bold text-slate-950 disabled:opacity-60">
                   {creatingBatchWorkOrders ? "Submitting..." : `Submit All (${batchCreateSuggestions.length})`}
                 </button>
               </div>
@@ -2263,7 +2293,7 @@ export default function WorkOrdersPage() {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="related-work-orders-title"
-                className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+                className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl"
               >
                 <h2
                   id="related-work-orders-title"
@@ -2272,11 +2302,11 @@ export default function WorkOrdersPage() {
                   Are you sure you want to create these work orders?
                 </h2>
 
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-slate-400">
                   Review the separate issues found in the technician notes. Category, priority, and troubleshooting will still be saved, but they are intentionally hidden from this confirmation.
                 </p>
 
-                <div className="mt-5 max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+                <div className="mt-2 max-h-[55vh] space-y-1.5 overflow-y-auto pr-1">
                   {relatedIssueSuggestions.map(
                     (suggestion) => {
                       const relatedAsset =
@@ -2290,9 +2320,9 @@ export default function WorkOrdersPage() {
                           key={
                             suggestion.key
                           }
-                          className="rounded-xl border border-slate-700 bg-slate-950 p-4"
+                          className="rounded-xl border border-slate-700 bg-slate-950 p-2"
                         >
-                          <div className="grid gap-3 sm:grid-cols-[110px_1fr]">
+                          <div className="grid gap-1.5 sm:grid-cols-[110px_1fr]">
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                               Room
                             </p>
@@ -2328,7 +2358,7 @@ export default function WorkOrdersPage() {
                   )}
                 </div>
 
-                <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                   <button
                     type="button"
                     onClick={
@@ -2337,7 +2367,7 @@ export default function WorkOrdersPage() {
                     disabled={
                       creatingRelatedWorkOrders
                     }
-                    className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -2350,7 +2380,7 @@ export default function WorkOrdersPage() {
                     disabled={
                       creatingRelatedWorkOrders
                     }
-                    className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60"
+                    className="rounded-lg bg-amber-400 px-4 py-1.5 text-sm font-bold text-slate-950 disabled:opacity-60"
                   >
                     {creatingRelatedWorkOrders
                       ? "Creating..."
