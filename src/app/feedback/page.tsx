@@ -136,7 +136,27 @@ export default function FeedbackPage() {
     }
   }
 
-  function closeFeedback(event: MouseEvent<HTMLAnchorElement>) {
+  async function deleteFeedback(item: FeedbackItem) {
+    if (updatingId) return;
+    if (!window.confirm("Delete this feedback submission? This cannot be undone.")) return;
+    setUpdatingId(item.id);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/feedback?id=${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+        headers: await authHeaders(),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Feedback could not be deleted.");
+      setFeedback((current) => current.filter((entry) => entry.id !== item.id));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Feedback could not be deleted.");
+    } finally {
+      setUpdatingId("");
+    }
+  }
+
+  function closeFeedback(event: MouseEvent<HTMLButtonElement>) {
     const params = new URLSearchParams(window.location.search);
     if (params.get("embedded") === "1" && window.parent !== window) {
       event.preventDefault();
@@ -152,8 +172,6 @@ export default function FeedbackPage() {
     router.push(session?.landing || "/");
   }
 
-  const cancelHref = session?.landing || "/";
-
   return (
     <main className="h-full min-h-full w-full overflow-y-auto bg-slate-950 px-4 py-5 text-white sm:px-6 sm:py-6">
       <div className="mx-auto w-full max-w-none space-y-6">
@@ -162,7 +180,7 @@ export default function FeedbackPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-400">CMPRI</p>
             <h1 className="mt-1 text-2xl font-bold">Feedback</h1>
           </div>
-          <a href={cancelHref} data-cmpri-modal-ignore="true" onClick={closeFeedback} className="cmpri-embedded-modal-dashboard rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Cancel</a>
+          <button type="button" data-cmpri-modal-ignore="true" onClick={closeFeedback} className="cmpri-embedded-modal-dashboard rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Cancel</button>
         </header>
 
         {message && <p role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
@@ -215,12 +233,15 @@ export default function FeedbackPage() {
                         {item.resolved_at && <div><dt className="inline font-semibold text-slate-300">Resolved: </dt><dd className="inline">{formattedDate(item.resolved_at)}</dd></div>}
                       </dl>
                     </div>
-                    <label className="grid content-start gap-1 text-xs font-semibold text-slate-400">
-                      Status
-                      <select value={item.status} disabled={updatingId === item.id} onChange={(event) => void updateStatus(item, event.target.value as FeedbackStatus)} className="min-h-10 min-w-36 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-white disabled:opacity-50">
-                        {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-                      </select>
-                    </label>
+                    <div className="grid content-start gap-2">
+                      <label className="grid gap-1 text-xs font-semibold text-slate-400">
+                        Status
+                        <select value={item.status} disabled={updatingId === item.id} onChange={(event) => void updateStatus(item, event.target.value as FeedbackStatus)} className="min-h-10 min-w-36 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-white disabled:opacity-50">
+                          {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                        </select>
+                      </label>
+                      <button type="button" disabled={updatingId === item.id} onClick={() => void deleteFeedback(item)} className="min-h-8 rounded-lg border border-red-500/50 bg-red-950/20 px-3 text-xs font-bold text-red-200 hover:bg-red-900/30 disabled:opacity-50">Delete</button>
+                    </div>
                   </article>
                 ))}
               </div>

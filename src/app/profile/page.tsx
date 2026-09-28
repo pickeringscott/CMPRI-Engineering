@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { roleDisplayName } from "@/lib/account-display";
+import { signOutDevice } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
-import { frontDeskSessionId, readFrontDeskEmployeeName, saveFrontDeskEmployeeName, validEmployeeFullName } from "@/lib/auth/front-desk-session";
+import ModalNavigationButton from "@/components/ModalNavigationButton";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null };
 type Preferences = {
@@ -15,7 +15,7 @@ type Preferences = {
   notification_mode: "in_app" | "email" | "both";
   notifications: { new_work_orders: boolean; status_changes: boolean; mentions: boolean };
 };
-type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; manage_profile_first_login_complete?: boolean; can_manage_users: boolean; personal_ai: { connected: boolean; status: string; message: string }; warning?: string };
+type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; can_manage_users: boolean; personal_ai: { connected: boolean; status: string; message: string }; warning?: string };
 
 function applyPreferences(preferences: Preferences) {
   window.localStorage.setItem("cmpri:work-order-language", preferences.language);
@@ -28,12 +28,9 @@ function applyPreferences(preferences: Preferences) {
 }
 
 export default function ProfilePage() {
-  const router = useRouter();
+  const embedded = useEmbeddedModal();
   const [data, setData] = useState<Payload | null>(null);
   const [name, setName] = useState("");
-  const [frontDeskEmployeeName, setFrontDeskEmployeeName] = useState("");
-  const [frontDeskSessionKey, setFrontDeskSessionKey] = useState("");
-  const [frontDeskSessionConfirmed, setFrontDeskSessionConfirmed] = useState(false);
   const [preferences, setPreferences] = useState<Preferences | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -41,14 +38,62 @@ export default function ProfilePage() {
   const [aiBusy, setAiBusy] = useState(false);
   const isSpanish = preferences?.language === "es";
   const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
-  const isFrontDesk = roleDisplayName(data?.profile.role || "") === "Front Desk";
-  const firstLoginConfirmation = isFrontDesk
-    ? !frontDeskSessionConfirmed
-    : data?.manage_profile_first_login_complete === false;
-  const profileDashboardHref = ["Front Desk", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""))
+  const isSubmitOnlyProfile = ["Front Desk", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
+  const profileDashboardHref = isSubmitOnlyProfile
     ? "/work-orders"
     : "/engineering";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
+
+  function renderPreferenceToggles() {
+    if (!preferences) return null;
+    const options = (
+      label: string,
+      selected: string,
+      choices: Array<{ value: string; text: string }>,
+      onSelect: (value: string) => void,
+    ) => (
+      <div role="group" aria-label={label} className="inline-flex rounded-full border border-slate-700 p-0.5">
+        {choices.map((choice) => (
+          <button
+            key={choice.value}
+            type="button"
+            aria-pressed={selected === choice.value}
+            disabled={data?.profile_settings_available === false}
+            onClick={() => onSelect(choice.value)}
+            className={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${selected === choice.value ? "bg-amber-400 text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}
+          >
+            {choice.text}
+          </button>
+        ))}
+      </div>
+    );
+
+    return (
+      <>
+        {options(tx("Language", "Idioma"), preferences.language, [
+          { value: "en", text: "English" },
+          { value: "es", text: "Español" },
+        ], (language) => setPreferences({ ...preferences, language: language as Preferences["language"] }))}
+        {options(tx("Appearance", "Apariencia"), preferences.appearance, [
+          { value: "dark", text: tx("Dark", "Oscuro") },
+          { value: "light", text: tx("Light", "Claro") },
+        ], (appearance) => setPreferences({ ...preferences, appearance: appearance as Preferences["appearance"] }))}
+      </>
+    );
+  }
+
+  async function signOut() {
+    try {
+      await signOutDevice();
+      if (embedded && window.parent !== window) {
+        window.parent.postMessage({ type: "cmpri-modal-sign-out" }, window.location.origin);
+      } else {
+        window.location.replace("/");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not sign out.");
+    }
+  }
 
   async function headers() {
     const session = await getValidSession();
@@ -66,14 +111,6 @@ export default function ProfilePage() {
     const result = payload as Payload;
     setData(result);
     setName(result.profile.full_name || "");
-    if (roleDisplayName(result.profile.role || "") === "Front Desk") {
-      const authSession = await getValidSession();
-      const sessionId = frontDeskSessionId(authSession?.access_token);
-      setFrontDeskSessionKey(sessionId);
-      const sessionName = readFrontDeskEmployeeName(window.sessionStorage, result.profile.id, sessionId);
-      setFrontDeskEmployeeName(sessionName);
-      setFrontDeskSessionConfirmed(validEmployeeFullName(sessionName));
-    }
     setPreferences(result.preferences);
     if (result.profile_settings_available !== false) applyPreferences(result.preferences);
     setMessage(result.warning || (result.profile_settings_available === false
@@ -81,65 +118,27 @@ export default function ProfilePage() {
       : ""));
   }
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => {
     void Promise.resolve().then(load).catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save() {
-    if (!preferences) return;
-    if (isFrontDesk && !validEmployeeFullName(frontDeskEmployeeName)) {
-      setMessage("Enter your full name, including first and last name, for this session.");
-      return;
-    }
-    if (isFrontDesk && !frontDeskSessionKey) {
-      setMessage("The verified Front Desk session could not be identified. Sign in again before confirming this profile.");
-      return;
-    }
-    if (!isFrontDesk && !name.trim()) return;
+    if (!preferences || !name.trim()) return;
     setBusy(true);
     setMessage("");
     try {
       const response = await fetch("/api/profile", {
         method: "PATCH",
         headers: await headers(),
-        body: JSON.stringify({
-          ...(isFrontDesk ? {} : { full_name: name }),
-          preferences,
-          ...(firstLoginConfirmation ? { complete_manage_profile: true } : {}),
-        }),
+        body: JSON.stringify({ full_name: name, preferences }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Profile could not be saved.");
-      if (isFrontDesk && !saveFrontDeskEmployeeName(window.sessionStorage, data!.profile.id, frontDeskSessionKey, frontDeskEmployeeName)) {
-        throw new Error("Profile settings were saved, but the employee name could not be retained for this session. Keep this page open and retry.");
-      }
-      if (isFrontDesk) {
-        const nameUpdate = {
-          type: "cmpri-frontdesk-session-name-updated",
-          userId: data!.profile.id,
-          sessionId: frontDeskSessionKey,
-          name: frontDeskEmployeeName.trim().replace(/\s+/g, " "),
-        };
-        window.parent.postMessage(nameUpdate, window.location.origin);
-        if (window.top !== window.parent) window.top?.postMessage(nameUpdate, window.location.origin);
-      }
       if (payload.profile_settings_available !== false) applyPreferences(payload.preferences);
-      setMessage(payload.warning || (isFrontDesk && firstLoginConfirmation
-        ? "Your name and language are confirmed for this Front Desk session."
-        : firstLoginConfirmation
-          ? "Profile confirmed. You can manage it here again any time."
-          : tx("Profile and preferences saved.", "Perfil y preferencias guardados.")));
+      setMessage(payload.warning || tx("Profile and preferences saved.", "Perfil y preferencias guardados."));
       setPreferences(payload.preferences);
-      setData((current) => current ? { ...current, profile: payload.profile, preferences: payload.preferences, profile_settings_available: payload.profile_settings_available !== false, manage_profile_first_login_complete: payload.manage_profile_first_login_complete !== false, warning: payload.warning } : current);
-      if (isFrontDesk) setFrontDeskSessionConfirmed(true);
-      if (firstLoginConfirmation) {
-        const requested = new URLSearchParams(window.location.search).get("returnTo");
-        const fallback = profileDashboardHref;
-        const returnTo = requested === "/work-orders" || requested === "/technician" || requested === "/engineering" ? requested : fallback;
-        router.replace(returnTo);
-      }
+      setData((current) => current ? { ...current, profile: payload.profile, preferences: payload.preferences, profile_settings_available: payload.profile_settings_available !== false, warning: payload.warning } : current);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Profile could not be saved.");
     } finally {
@@ -171,7 +170,8 @@ export default function ProfilePage() {
   if (!data || !preferences) return (
     <main className="min-h-screen bg-slate-950 p-6 text-white">
       <div className="mx-auto max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
-        <h1 className="text-xl font-bold">{message ? "Manage Profile" : "Loading profile…"}</h1>
+        {embedded && <ModalDashboardLink href={profileDashboardHref} className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}
+        {!embedded && <h1 className="text-xl font-bold">{message ? "Manage Profile" : "Loading profile…"}</h1>}
         {message && <p className="mt-2 text-sm text-slate-300">{message}</p>}
         {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? "Retrying…" : "Retry"}</button>}
       </div>
@@ -181,22 +181,42 @@ export default function ProfilePage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        <div className="flex items-center justify-between gap-4 border-b border-slate-800 pb-5">
+        {!embedded && <div className="flex items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">{tx("CMPRI Account", "Cuenta CMPRI")}</p>
             <h1 className="mt-1 text-3xl font-bold">{tx("Manage Profile", "Administrar perfil")}</h1>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          {isSubmitOnlyProfile ? (
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
+              {renderPreferenceToggles()}
+            </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" disabled={aiBusy || data.profile_settings_available === false} onClick={() => void setPersonalAiConnection(data.personal_ai.connected ? "disconnect" : "connect")} className={`rounded-lg border px-4 py-2 text-sm font-bold disabled:opacity-50 ${data.personal_ai.connected ? "border-red-500/50 text-red-200 hover:bg-red-950/30" : "border-sky-500/50 bg-sky-950/30 text-sky-100 hover:bg-sky-900/40"}`}>
+                {aiBusy ? tx("Updating…", "Actualizando…") : data.personal_ai.connected ? "Disconnect AI" : "Connect AI"}
+              </button>
+              <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
+            </div>
+          )}
+        </div>}
+        {embedded && (isSubmitOnlyProfile ? (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
+            <div className="flex flex-wrap items-center justify-end gap-2">{renderPreferenceToggles()}</div>
+          </div>
+        ) : (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <button type="button" disabled={aiBusy || data.profile_settings_available === false} onClick={() => void setPersonalAiConnection(data.personal_ai.connected ? "disconnect" : "connect")} className={`rounded-lg border px-4 py-2 text-sm font-bold disabled:opacity-50 ${data.personal_ai.connected ? "border-red-500/50 text-red-200 hover:bg-red-950/30" : "border-sky-500/50 bg-sky-950/30 text-sky-100 hover:bg-sky-900/40"}`}>
               {aiBusy ? tx("Updating…", "Actualizando…") : data.personal_ai.connected ? "Disconnect AI" : "Connect AI"}
             </button>
-            <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
+            <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
           </div>
-        </div>
+        ))}
 
         {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        {!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Personal Preferences", "Preferencias personales")}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">English</option><option value="es">Español</option></select></label>
@@ -214,21 +234,26 @@ export default function ProfilePage() {
               </label>
             ))}
           </fieldset>}
-        </section>
+        </section>}
 
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Profile", "Perfil")}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm text-slate-300">{isFrontDesk ? "Current employee full name" : tx("Display name", "Nombre para mostrar")}<input required={isFrontDesk} maxLength={isFrontDesk ? 80 : 200} autoComplete={isFrontDesk ? "name" : "name"} value={isFrontDesk ? frontDeskEmployeeName : name} onChange={(event) => isFrontDesk ? setFrontDeskEmployeeName(event.target.value) : setName(event.target.value)} disabled={busy} placeholder={isFrontDesk ? "First and last name" : undefined} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white" />{isFrontDesk && <span className="text-xs text-slate-400">This name is stored only for the current verified Front Desk session and is saved with each ticket.</span>}</label>
-            <label className="grid gap-1 text-sm text-slate-300">{tx("Sign-in email", "Correo de inicio de sesión")}<input value={data.profile.email || ""} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
+            <label className="grid gap-1 text-sm text-slate-300">{tx("Display name", "Nombre para mostrar")}<input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white" /></label>
+            {!isSubmitOnlyProfile && <label className="grid gap-1 text-sm text-slate-300">{tx("Sign-in email", "Correo de inicio de sesión")}<input value={data.profile.email || ""} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>}
             <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={isHousekeeping ? "Housekeeping" : roleDisplayName(data.profile.role || "Unknown")} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
           </div>
         </section>
 
         <div className="mt-5 flex flex-wrap justify-end gap-3">
-          <Link href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">Report a Problem / Suggestion</Link>
-          {data.can_manage_users && <Link href="/management/users" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("User Management", "Administración de usuarios")}</Link>}
-          <button type="button" disabled={busy} onClick={() => void save()} className="rounded-lg bg-blue-700 px-5 py-2 font-bold text-white hover:bg-blue-600 disabled:opacity-50">{busy ? tx("Saving…", "Guardando…") : firstLoginConfirmation ? (isFrontDesk ? "Confirm Front Desk Session" : "Confirm Profile") : tx("Save Profile", "Guardar perfil")}</button>
+          <ModalNavigationButton href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">Report a Problem / Suggestion</ModalNavigationButton>
+          {data.can_manage_users && <ModalNavigationButton href="/management/users" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("User Management", "Administración de usuarios")}</ModalNavigationButton>}
+          {isSubmitOnlyProfile && <button type="button" onClick={() => void signOut()} aria-label={tx("Sign Out", "Cerrar sesión")} title={tx("Sign Out", "Cerrar sesión")} className="grid size-8 place-items-center rounded-lg border border-red-400/50 bg-red-950/30 text-red-100 hover:bg-red-900/40">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 17l5-5-5-5M15 12H3m9-7h5a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+            </svg>
+          </button>}
+          <button type="button" disabled={busy} onClick={() => void save()} className="rounded-lg bg-blue-700 px-5 py-2 font-bold text-white hover:bg-blue-600 disabled:opacity-50">{busy ? tx("Saving…", "Guardando…") : tx("Save Profile", "Guardar perfil")}</button>
         </div>
       </div>
     </main>

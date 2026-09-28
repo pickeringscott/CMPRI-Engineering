@@ -75,17 +75,6 @@ try {
       /profiles_role_check/,
     );
   });
-  await check('first-login profile confirmation defaults existing profiles complete and supports new incomplete individuals', async () => {
-    const migration = readFileSync(new URL('../supabase/migrations/20260927120000_cmpri_first_login_profile.sql', import.meta.url), 'utf8');
-    await db.exec(migration);
-    await db.exec(migration);
-    assert.equal((await db.query('select manage_profile_first_login_complete from public.profiles where id=$1',[actor])).rows[0].manage_profile_first_login_complete,true);
-    const newUser = '00000000-0000-0000-0000-000000000007';
-    await db.exec(`insert into auth.users(id) values (${quote(newUser)});
-      insert into public.profiles(id,role,active,full_name,manage_profile_first_login_complete)
-      values (${quote(newUser)},'engineer',true,'New Engineer',false);`);
-    assert.equal((await db.query('select manage_profile_first_login_complete from public.profiles where id=$1',[newUser])).rows[0].manage_profile_first_login_complete,false);
-  });
   await check('user feedback table migration is isolated, constrained, and idempotent', async () => {
     const migration = readFileSync(new URL('../supabase/migrations/20260927100000_cmpri_user_feedback.sql', import.meta.url), 'utf8');
     await db.exec(migration);
@@ -126,67 +115,6 @@ try {
     assert.equal(reviewerUpdate.rows.length, 1);
     await db.exec('reset role');
   });
-  await check('Front Desk tickets retain employee name, shared account id, and named creation-history actor', async () => {
-    await db.exec(`insert into public.hotels(id,code,name) values (${quote(hotel)},'TEST','Test Hotel') on conflict(id) do nothing`);
-    await db.exec(readFileSync(new URL('../supabase/cmpri_v1_0_work_order_history.sql', import.meta.url), 'utf8'));
-    await db.exec(readFileSync(new URL('../supabase/migrations/20260927130000_cmpri_front_desk_full_name_attribution.sql', import.meta.url), 'utf8'));
-    const noteTaker = '00000000-0000-0000-0000-000000000006';
-    await db.exec(`insert into public.hotel_members(hotel_id,user_id,role,active) values (${quote(hotel)},${quote(noteTaker)},'admin',true);`);
-    await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false);`);
-    const ticket = (await db.query(`insert into public.work_orders(
-      hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,
-      creator_account_user_id,submitted_by_user_id,status,revision
-    ) values ($1,$2,'frontdesk-session-attribution','Room 409','No AC','Taylor Example','spoofed',$3,$3,$3,'Open',1)
-    returning id,creator_name,submitted_by_name,created_by,creator_account_user_id,submitted_by_user_id,status`, [hotel,room,actor])).rows[0];
-    assert.equal(ticket.creator_name, 'Taylor Example');
-    assert.equal(ticket.submitted_by_name, 'Taylor Example');
-    assert.equal(ticket.created_by, actor);
-    assert.equal(ticket.creator_account_user_id, actor);
-    assert.equal(ticket.submitted_by_user_id, actor);
-    assert.equal(ticket.status, 'Pending Verification');
-    const audit = (await db.query('select actor_user_id,actor_name from public.cmpri_work_order_history where work_order_id=$1', [ticket.id])).rows[0];
-    assert.equal(audit.actor_user_id, actor);
-    assert.equal(audit.actor_name, 'Taylor Example');
-    await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false);`);
-    const nextTicket = (await db.query(`insert into public.work_orders(
-      hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,
-      creator_account_user_id,submitted_by_user_id,status,revision
-    ) values ($1,$2,'frontdesk-session-name-change','Room 410','TV not working','Morgan Employee','spoofed',$3,$3,$3,'Open',1)
-    returning id,creator_name,submitted_by_name,created_by`, [hotel,room,actor])).rows[0];
-    assert.equal(nextTicket.creator_name, 'Morgan Employee');
-    assert.equal(nextTicket.submitted_by_name, 'Morgan Employee');
-    assert.equal(nextTicket.created_by, actor);
-    const originalTicket = (await db.query('select creator_name,submitted_by_name from public.work_orders where id=$1',[ticket.id])).rows[0];
-    assert.equal(originalTicket.creator_name, 'Taylor Example');
-    assert.equal(originalTicket.submitted_by_name, 'Taylor Example');
-    const cjkTicket = (await db.query(`insert into public.work_orders(
-      hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,
-      creator_account_user_id,submitted_by_user_id,status,revision
-    ) values ($1,$2,'frontdesk-cjk-name','Room 411','Light bulb out','李雷','spoofed',$3,$3,$3,'Open',1)
-    returning creator_name,submitted_by_name`, [hotel,room,actor])).rows[0];
-    assert.equal(cjkTicket.creator_name, '李雷');
-    assert.equal(cjkTicket.submitted_by_name, '李雷');
-    const accentedTicket = (await db.query(`insert into public.work_orders(
-      hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,
-      creator_account_user_id,submitted_by_user_id,status,revision
-    ) values ($1,$2,'frontdesk-accented-name','Room 412','No AC','María García','spoofed',$3,$3,$3,'Open',1)
-    returning creator_name,submitted_by_name`, [hotel,room,actor])).rows[0];
-    assert.equal(accentedTicket.creator_name, 'María García');
-    assert.equal(accentedTicket.submitted_by_name, 'María García');
-    const spacedCjkTicket = (await db.query(`insert into public.work_orders(
-      hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,
-      creator_account_user_id,submitted_by_user_id,status,revision
-    ) values ($1,$2,'frontdesk-spaced-cjk-name','Room 413','TV not working','李 雷','spoofed',$3,$3,$3,'Open',1)
-    returning creator_name,submitted_by_name`, [hotel,room,actor])).rows[0];
-    assert.equal(spacedCjkTicket.creator_name, '李 雷');
-    assert.equal(spacedCjkTicket.submitted_by_name, '李 雷');
-    await db.exec(`select set_config('cmpri.test_uid',${quote(noteTaker)},false);`);
-    await db.query("update public.work_orders set notes='Inspector follow-up' where id=$1", [ticket.id]);
-    const noteAudit = (await db.query('select actor_user_id,actor_name,changed_fields from public.cmpri_work_order_history where work_order_id=$1 and actor_user_id=$2 order by recorded_at desc limit 1', [ticket.id,noteTaker])).rows[0];
-    assert.equal(noteAudit.actor_user_id, noteTaker);
-    assert.equal(noteAudit.actor_name, 'Chief Engineer');
-    assert.equal(noteAudit.changed_fields.notes, 'Inspector follow-up');
-  });
   await check('test-account purge removes restrictive references before Auth deletion', async () => {
     const target = '00000000-0000-0000-0000-000000000010';
     await db.exec(`create table public.cmpri_work_order_drafts (id uuid primary key, hotel_id uuid not null, created_by uuid not null references auth.users(id) on delete restrict);
@@ -199,10 +127,10 @@ try {
       values ('c81ad01a-7a9f-4880-ac1c-5e849f30bad6',${quote(target)},'Disposable Test User','Front Desk','Bug','Disposable feedback','/profile','CMPRI 2.0');
       select set_config('cmpri.test_uid', ${quote(target)}, false), set_config('cmpri.test_role', 'authenticated', false);`);
     const targetWorkOrder = (await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,status,revision)
-      values ($1,$2,'purge-target','Room 101','Disposable account ticket','Taylor Example','Disposable Test User',$3,'Open',1) returning id`, [hotel,room,target])).rows[0];
+      values ($1,$2,'purge-target','Room 101','Disposable account ticket','Taylor','Disposable Test User',$3,'Open',1) returning id`, [hotel,room,target])).rows[0];
     await db.exec(`select set_config('cmpri.test_uid', ${quote(actor)}, false), set_config('cmpri.test_role', 'authenticated', false);`);
     const survivorWorkOrder = (await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,status,revision)
-      values ($1,$2,'purge-survivor','Room 409','Unrelated employee ticket','Scott Pickering','Shared Front Desk',$3,'Open',1) returning id`, [hotel,room,actor])).rows[0];
+      values ($1,$2,'purge-survivor','Room 409','Unrelated employee ticket','Scott','Shared Front Desk',$3,'Open',1) returning id`, [hotel,room,actor])).rows[0];
     await db.exec(`update public.work_orders set creator_account_user_id = ${quote(target)} where display_id = 'purge-survivor';
       insert into public.work_order_creator_audit(id, hotel_id, work_order_id, previous_creator_name, previous_creator_initials, corrected_creator_name, corrected_creator_initials, correction_reason, corrected_by)
       values ('00000000-0000-0000-0000-000000000040', ${quote(hotel)}, ${quote(survivorWorkOrder.id)}, 'Before', 'B', 'After', 'A', 'Test correction', ${quote(target)});`);
@@ -228,14 +156,14 @@ try {
     const { rows } = await db.query("select status,revision from public.work_orders where display_id='legacy'");
     assert.equal(rows[0].status,'Done'); assert.equal(Number(rows[0].revision),1);
   });
-  const insert = (issue, name='Scott Pickering') => db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,status,revision)
+  const insert = (issue, name='Scott') => db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,submitted_by_name,creator_name,created_by,status,revision)
     values ($1,$2,'test','Room 409',$3,$4,'Spoof',$1,'Closed',999) returning *`,[hotel,room,issue,name]);
   let saved;
-  await check('database enforces full-name attribution and initial revision', async () => {
+  await check('database enforces first-name attribution and initial revision', async () => {
     saved=(await insert('Sink leaking')).rows[0];
-    assert.equal(saved.created_by,actor);assert.equal(saved.creator_name,'Scott Pickering');assert.equal(saved.status,'Pending Verification');assert.equal(Number(saved.revision),1);
+    assert.equal(saved.created_by,actor);assert.equal(saved.creator_name,'Scott');assert.equal(saved.status,'Pending Verification');assert.equal(Number(saved.revision),1);
   });
-  await check('missing full name is rejected by PostgreSQL', async () => { await assert.rejects(()=>insert('Door sticks',''),/full name/); });
+  await check('missing first name is rejected by PostgreSQL', async () => { await assert.rejects(()=>insert('Door sticks',''),/first name/); });
   await check('punctuation/case duplicate is blocked by unique index', async () => { await assert.rejects(()=>insert('  SINK leaking!!! '),/duplicate key/); });
   await check('stale same-status save cannot overwrite the newer notes', async () => {
     const first=await db.query('update public.work_orders set notes=$1 where id=$2 and revision=1 returning revision',['First save',saved.id]);

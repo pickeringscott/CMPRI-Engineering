@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
 
 type ModalEntry = {
   id: string;
@@ -12,10 +12,26 @@ type ModalEntry = {
 
 function modalHref(href: string) {
   const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(href);
-  const isCreateWorkOrder = new URL(href, window.location.origin).pathname === "/work-orders";
-  const isUserManagement = new URL(href, window.location.origin).pathname === "/management/users";
-  const isFeedback = new URL(href, window.location.origin).pathname === "/feedback";
-  if (!isWorkOrderDetail && !isCreateWorkOrder && !isUserManagement && !isFeedback) return { href, modalToken: undefined };
+  const modalRoutes = new Set([
+    "/work-orders",
+    "/management/equipment",
+    "/management/rooms",
+    "/management/users",
+    "/profile",
+    "/engineering/room-ranker",
+    "/engineering/preventive-maintenance",
+    "/engineering/purchasing",
+    "/engineering/gss",
+    "/engineering/pool-log",
+    "/engineering/room-operations",
+    "/engineering/enseo-assignments",
+    "/engineering/parts",
+    "/engineering/import-work-orders",
+    "/feedback",
+  ]);
+  if (!isWorkOrderDetail && !modalRoutes.has(new URL(href, window.location.origin).pathname)) {
+    return { href, modalToken: undefined };
+  }
   const modalToken = crypto.randomUUID();
   const url = new URL(href, window.location.origin);
   url.searchParams.set("embedded", "1");
@@ -43,7 +59,9 @@ function isExcludedNavigation(target: Element | null): boolean {
   if (!target) return true;
   if (target.closest("[data-cmpri-modal-ignore='true']")) return true;
   if (target.closest("button[data-cmpri-modal-close='true']")) return true;
-  if (target.closest("button[type='button']") && !target.closest("[data-cmpri-modal-trigger='true']")) {
+  if (target.closest("button[type='button']")
+    && !target.closest("[data-cmpri-modal-trigger='true']")
+    && !target.closest("[data-cmpri-modal-dashboard='true']")) {
     return true;
   }
   return false;
@@ -60,6 +78,7 @@ function deriveTitle(target: Element): string {
 
 export default function GlobalModalHost() {
   const [stack, setStack] = useState<ModalEntry[]>([]);
+  const modalRootRef = useRef<HTMLDivElement>(null);
   const frameRefs = useRef(new Map<string, HTMLIFrameElement>());
   const embeddedCleanupRefs = useRef(new Map<string, () => void>());
   const previousStackRef = useRef<ModalEntry[]>([]);
@@ -73,11 +92,11 @@ export default function GlobalModalHost() {
     } catch {}
   }, []);
 
-  function closeModal(entryId: string) {
+  const closeModal = useCallback((entryId: string) => {
     setStack((current) => current.at(-1)?.id === entryId ? current.slice(0, -1) : current);
-  }
+  }, []);
 
-  function requestModalClose(entryId: string) {
+  const requestModalClose = useCallback((entryId: string) => {
     const frameDocument = frameRefs.current.get(entryId)?.contentDocument;
     if (!frameDocument) {
       closeModal(entryId);
@@ -85,7 +104,7 @@ export default function GlobalModalHost() {
     }
     const cancelRequest = new Event("cmpri-modal-cancel-request", { cancelable: true });
     if (frameDocument.dispatchEvent(cancelRequest)) closeModal(entryId);
-  }
+  }, [closeModal]);
 
   function handleEmbeddedLoad(event: SyntheticEvent<HTMLIFrameElement>, entry: ModalEntry) {
     embeddedCleanupRefs.current.get(entry.id)?.();
@@ -94,7 +113,15 @@ export default function GlobalModalHost() {
     const document = frame.contentDocument;
     if (!document) return;
     const cleanups: Array<() => void> = [];
-    const closeToDashboard = () => requestModalClose(entry.id);
+    const openNestedModal = (href: string, title: string) => {
+      const modal = modalHref(href);
+      setStack((current) => [...current, {
+        id: crypto.randomUUID(),
+        ...modal,
+        title,
+        returnFocus: frameRefs.current.get(entry.id) || null,
+      }]);
+    };
     const closeOnEscape = (keyEvent: KeyboardEvent) => {
       if (keyEvent.key === "Escape") {
         if (keyEvent.defaultPrevented) return;
@@ -124,42 +151,53 @@ export default function GlobalModalHost() {
         first.focus();
       }
     };
+    const openNestedScreen = (navigationEvent: MouseEvent) => {
+      if (navigationEvent.defaultPrevented || navigationEvent.button !== 0
+        || navigationEvent.metaKey || navigationEvent.ctrlKey || navigationEvent.shiftKey || navigationEvent.altKey) return;
+      const target = (navigationEvent.target as Element | null)
+        ?.closest("a[href], button[data-cmpri-modal-trigger='true'], button[data-cmpri-modal-dashboard='true']");
+      if (!target || target.closest("[data-cmpri-modal-ignore='true']")) return;
+      const isDashboardAction = !!target.closest("[data-cmpri-modal-dashboard='true']");
+      const href = target.localName === "a"
+        ? (target as HTMLAnchorElement).href
+        : isDashboardAction
+          ? (target as HTMLButtonElement).dataset.cmpriModalDashboardHref || "/engineering"
+          : (target as HTMLButtonElement).dataset.cmpriModalHref || "";
+      if (target.localName === "a"
+        && ((target as HTMLAnchorElement).target === "_blank" || target.hasAttribute("download"))) return;
+      if (!isSameOriginInternal(href)) return;
+      navigationEvent.preventDefault();
+      navigationEvent.stopPropagation();
+      if (isDashboardAction || new URL(href, window.location.origin).pathname === "/engineering") {
+        if (window.parent !== window) {
+          frame.contentWindow?.parent.postMessage({
+            type: "cmpri-modal-dashboard",
+            modalToken: entry.modalToken || "",
+          }, window.location.origin);
+        } else {
+          setStack([]);
+        }
+        return;
+      }
+      openNestedModal(href, deriveTitle(target));
+    };
+    document.addEventListener("click", openNestedScreen, true);
+    cleanups.push(() => document.removeEventListener("click", openNestedScreen, true));
     document.addEventListener("keydown", closeOnEscape);
     cleanups.push(() => document.removeEventListener("keydown", closeOnEscape));
     frame.focus();
-
-    const path = new URL(frame.src, window.location.origin).pathname;
-    const isCreateWorkOrder = path === "/work-orders";
-    if (!isCreateWorkOrder && !document.querySelector(".cmpri-embedded-modal-dashboard, a[href='/engineering']")) {
-      const dashboard = document.createElement("a");
-      dashboard.href = "/engineering";
-      dashboard.textContent = "← Dashboard";
-      dashboard.className = "cmpri-embedded-modal-dashboard";
-      dashboard.style.cssText = "display:inline-block;margin:4px 8px;padding:8px 12px;border:1px solid #475569;border-radius:8px;color:#e2e8f0;text-decoration:none;font-weight:600";
-      document.body.insertBefore(dashboard, document.body.firstChild);
-    }
-    const dashboardClick = (clickEvent: MouseEvent) => {
-      const target = clickEvent.target instanceof Element ? clickEvent.target.closest("a[href]") : null;
-      if (!(target instanceof HTMLAnchorElement)) return;
-      let targetUrl: URL;
-      try { targetUrl = new URL(target.href, window.location.origin); }
-      catch { return; }
-      if (targetUrl.origin !== window.location.origin || targetUrl.pathname !== "/engineering") return;
-      clickEvent.preventDefault();
-      closeToDashboard();
-    };
-    document.addEventListener("click", dashboardClick, true);
-    cleanups.push(() => document.removeEventListener("click", dashboardClick, true));
 
     const history = frame.contentWindow?.history;
     if (history) {
       const originalPushState = history.pushState;
       const originalReplaceState = history.replaceState;
       const intercept = (original: typeof history.pushState) => (state: unknown, unused: string, url?: string | URL | null) => {
-        const nextPath = url ? new URL(String(url), window.location.origin).pathname : "";
-        if (nextPath === "/engineering") {
-          closeToDashboard();
-          return;
+        if (url) {
+          const nextUrl = new URL(String(url), frame.contentWindow?.location.href || window.location.href);
+          if (isSameOriginInternal(nextUrl.href) && nextUrl.pathname !== frame.contentWindow?.location.pathname) {
+            openNestedModal(nextUrl.href, nextUrl.pathname);
+            return;
+          }
         }
         return original.call(history, state, unused, url);
       };
@@ -201,6 +239,15 @@ export default function GlobalModalHost() {
     const openFromEvent = (event: Event) => {
       const detail = (event as CustomEvent<{ href?: string; title?: string }>).detail;
       if (!detail?.href || !isSameOriginInternal(detail.href)) return;
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          type: "cmpri-open-modal",
+          href: detail.href,
+          title: detail.title?.trim() || "Open screen",
+          modalToken: new URLSearchParams(window.location.search).get("modalToken") || "",
+        }, window.location.origin);
+        return;
+      }
       const modal = modalHref(detail.href);
       setStack((current) => [
         ...current,
@@ -214,8 +261,11 @@ export default function GlobalModalHost() {
     };
 
     const handleClick = (event: MouseEvent) => {
+      if (window.parent !== window) return;
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const target = event.target instanceof Element ? event.target.closest("a[href], button[data-cmpri-modal-trigger='true']") : null;
+      const target = event.target instanceof Element
+        ? event.target.closest("a[href], button[data-cmpri-modal-trigger='true'], button[data-cmpri-modal-dashboard='true']")
+        : null;
       if (!target || isExcludedNavigation(target)) return;
 
       const anchor = target instanceof HTMLAnchorElement ? target : null;
@@ -223,6 +273,14 @@ export default function GlobalModalHost() {
         const href = anchor.getAttribute("href") || "";
         if (!isSameOriginInternal(href) || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
         if (anchor.closest("[data-cmpri-modal-ignore='true']")) return;
+        const returnToDashboard = target.closest("[data-cmpri-modal-dashboard='true']")
+          || new URL(href, window.location.origin).pathname === "/engineering";
+        if (returnToDashboard) {
+          if (stack.length === 0) return;
+          event.preventDefault();
+          setStack([]);
+          return;
+        }
         event.preventDefault();
         setStack((current) => [...current, {
           id: crypto.randomUUID(),
@@ -234,9 +292,16 @@ export default function GlobalModalHost() {
       }
 
       const button = target as HTMLButtonElement;
-      const href = button.dataset.cmpriModalHref;
+      const isDashboardAction = !!button.closest("[data-cmpri-modal-dashboard='true']");
+      const href = isDashboardAction
+        ? button.dataset.cmpriModalDashboardHref || "/engineering"
+        : button.dataset.cmpriModalHref;
       if (!href || !isSameOriginInternal(href)) return;
       event.preventDefault();
+      if (isDashboardAction) {
+        if (stack.length > 0) setStack([]);
+        return;
+      }
       setStack((current) => [...current, {
         id: crypto.randomUUID(),
         ...modalHref(href),
@@ -261,14 +326,34 @@ export default function GlobalModalHost() {
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || !event.data || stack.length === 0) return;
       const top = stack[stack.length - 1];
+      if (event.source !== frameRefs.current.get(top.id)?.contentWindow) return;
+      if (event.data.type === "cmpri-open-modal" && typeof event.data.href === "string") {
+        if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
+        if (!isSameOriginInternal(event.data.href)) return;
+        const modal = modalHref(event.data.href);
+        setStack((current) => [...current, {
+          id: crypto.randomUUID(),
+          ...modal,
+          title: typeof event.data.title === "string" && event.data.title.trim()
+            ? event.data.title.trim()
+            : "Open screen",
+          returnFocus: frameRefs.current.get(top.id) || null,
+        }]);
+        return;
+      }
       if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
       if (event.data.type === "cmpri-open-related-work-order" && typeof event.data.targetWorkOrderId === "string") {
         const related = modalHref(`/work-orders/${encodeURIComponent(event.data.targetWorkOrderId)}`);
-        setStack((current) => current.map((entry, index) => index === current.length - 1 ? { ...entry, ...related } : entry));
+        setStack((current) => [...current, {
+          id: crypto.randomUUID(),
+          ...related,
+          title: "Related work order",
+          returnFocus: frameRefs.current.get(top.id) || null,
+        }]);
         return;
       }
       if (event.data.type === "cmpri-modal-dashboard") {
-        requestModalClose(top.id);
+        setStack([]);
         return;
       }
       if (event.data.type === "cmpri-modal-sign-out") {
@@ -288,7 +373,7 @@ export default function GlobalModalHost() {
       document.removeEventListener("keydown", handleKeydown);
       window.removeEventListener("message", handleMessage);
     };
-  }, [stack]);
+  }, [requestModalClose, stack]);
 
   useEffect(() => () => {
     embeddedCleanupRefs.current.forEach((cleanup) => cleanup());
@@ -314,25 +399,36 @@ export default function GlobalModalHost() {
     };
   }, [stack.length]);
 
+  useEffect(() => {
+    const modalRoot = modalRootRef.current;
+    const parent = modalRoot?.parentElement;
+    if (!modalRoot || !parent || stack.length === 0) return;
+    const background = Array.from(parent.children)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== modalRoot)
+      .map((element) => ({ element, inert: element.inert }));
+    background.forEach(({ element }) => { element.inert = true; });
+    return () => background.forEach(({ element, inert }) => { element.inert = inert; });
+  }, [stack.length]);
+
   if (stack.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[120]">
+    <div ref={modalRootRef} className="pointer-events-none fixed inset-0 z-[120]">
       {stack.map((entry, index) => {
         const isTop = index === stack.length - 1;
         return (
           <div
             key={entry.id}
-            className="cmpri-modal-backdrop pointer-events-auto absolute inset-0 flex items-center justify-center overscroll-contain bg-black/75 p-[15px] backdrop-blur-md"
-            style={{ zIndex: 120 + index }}
+            className="cmpri-modal-backdrop pointer-events-auto absolute inset-0 flex items-center justify-center overscroll-contain bg-black/75 p-1 backdrop-blur-md"
+            style={{ zIndex: 120 + index, pointerEvents: isTop ? "auto" : "none" }}
+            inert={!isTop}
           >
             <div
               role="dialog"
               aria-modal={isTop}
               aria-label={entry.title}
               aria-hidden={!isTop}
-              className="relative flex min-h-0 min-w-0 max-h-[calc(100dvh-30px)] max-w-[calc(100vw-30px)] flex-col overflow-hidden overscroll-contain rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl"
-              style={{ width: "min(calc(100vw - 30px), 72rem)", height: "min(calc(100dvh - 30px), 56rem)", boxSizing: "border-box" }}
+              className="cmpri-modal-shell cmpri-dashboard-overlay-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl"
             >
               <iframe
                 ref={(frame) => {

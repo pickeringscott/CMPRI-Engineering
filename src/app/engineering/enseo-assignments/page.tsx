@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 import { authorizationHeaders, loadCmpriSession } from "@/lib/auth/client-session";
 
 type Asset = { id: string; name: string; asset_type?: string | null; asset_tag?: string | null; location_id?: string | null; manufacturer?: string | null; model_number?: string | null; serial_number?: string | null };
@@ -18,6 +19,7 @@ function newMove(): MoveDraft {
 }
 
 export default function EnseoAssignmentsPage() {
+  const embedded = useEmbeddedModal();
   const router = useRouter();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,15 +112,16 @@ export default function EnseoAssignmentsPage() {
     }
   }
 
-  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100"><p>Loading Enseo assignments…</p></main>;
+  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100">{embedded && <ModalDashboardLink className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}<p>Loading Enseo assignments…</p></main>;
 
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-slate-100 sm:p-6">
       <div className="mx-auto w-full">
-        <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        {!embedded && <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div><p className="text-xs font-bold uppercase tracking-[.22em] text-sky-400">CMPRI v1.0</p><p className="mt-2 max-w-3xl text-sm text-slate-400">Track each physical television and set-top box by exact room sub-location. Put every device involved in a swap or move in the same batch; the database commits the whole batch together or none of it.</p></div>
           <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>
-        </header>
+        </header>}
+        {embedded && <div className="mb-4"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></div>}
 
         {message && <p className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
         {data?.configured === false && <p className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">The Enseo assignment migration has not been applied yet. No live assignment changes are possible until the database schema is prepared.</p>}

@@ -123,6 +123,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, existing)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
+  const technicianProfileName = auth.principal.profile.full_name?.trim() || "";
+  const unassignedWorkOrder = !String(existing.technician_name || "").trim();
+  const canClaimUnassigned = technicianEdit &&
+    unassignedWorkOrder &&
+    !!technicianProfileName &&
+    ["Open", "In Progress"].includes(String(existing.status));
 
   if (typeof body.expected_revision !== "number" || !Number.isSafeInteger(body.expected_revision) || body.expected_revision < 1) {
     return NextResponse.json({ error: "Reload this ticket before saving so its current version can be checked." }, { status: 428 });
@@ -132,7 +138,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const allowedFields: readonly string[] = technicianEdit
-    ? ["asset_id", "category", "status", "notes"]
+    ? unassignedWorkOrder
+      ? canClaimUnassigned ? ["technician_name"] : []
+      : ["asset_id", "category", "status", "notes"]
     : canEdit ? TECHNICAL_FIELDS : REVIEW_FIELDS;
   const allowedFieldSet = new Set(allowedFields);
   const update: Record<string, unknown> = {};
@@ -141,6 +149,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   const attemptedProtected = TECHNICAL_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(body, field) && !allowedFieldSet.has(field));
   if (attemptedProtected) return NextResponse.json({ error: "Your role cannot change technical work-order fields." }, { status: 403 });
+  if (
+    technicianEdit &&
+    Object.prototype.hasOwnProperty.call(body, "technician_name") &&
+    (!canClaimUnassigned || body.technician_name !== technicianProfileName)
+  ) {
+    return NextResponse.json({ error: "You can only assign an unassigned work order to yourself." }, { status: 403 });
+  }
   if (!Object.keys(update).length) return NextResponse.json({ error: "No editable changes were supplied." }, { status: 400 });
 
   if (update.status !== undefined && (typeof update.status !== "string" || !ALL_STATUSES.includes(update.status as typeof ALL_STATUSES[number]))) {

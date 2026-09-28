@@ -886,6 +886,7 @@ export default function EngineeringDashboardPage() {
   }
 
   const isHousekeepingDashboard = roleDisplayName(cmpriSession.user.role) === "Lead Housekeeper";
+  const isFullWidthDashboard = ["Front Desk", "Lead Housekeeper"].includes(roleDisplayName(cmpriSession.user.role));
 
   async function signOut() {
     await signOutDevice();
@@ -894,8 +895,8 @@ export default function EngineeringDashboardPage() {
 
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto w-full px-3 py-4 sm:px-4 lg:px-6">
+    <main className="min-h-screen w-full min-w-0 bg-slate-950 text-white">
+      <div className={`mx-auto w-full max-w-none min-w-0 px-3 py-4 sm:px-4 lg:px-6 ${isFullWidthDashboard ? "" : "lg:w-[66vw]"}`}>
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-start gap-4">
             <CmpriMark />
@@ -912,22 +913,22 @@ export default function EngineeringDashboardPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</a>
-            <a href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</a>
-            <a href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</a>
-            <a href="/engineering/gss" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">GSS Reports</a>
-            <a href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</a>
-            <a href="/engineering/room-operations" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Daily Room Ops</a>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/gss" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">GSS Reports</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-operations" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Daily Room Ops</button>
             <button type="button" onClick={() => setShowRoomOpsImport(true)} className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Import Room Ops</button>
-            <a href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</a>
-            <a href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</a>
-            <a href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</a>
-            <a href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</a>
-            <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>
-            <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</button>
             {hasCapability(cmpriSession, "review_feedback") && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("cmpri-open-modal", { detail: { href: `/feedback?route=${encodeURIComponent(window.location.pathname)}`, title: "Feedback" } }))} className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/30">Feedback{newFeedbackCount > 0 ? ` (${newFeedbackCount})` : ""}</button>}
-            <a href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</a>
-            {!personalAiConnected && <a href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect OpenAI</a>}
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</button>
+            {!personalAiConnected && <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect OpenAI</button>}
             <button type="button" onClick={() => { setFilter("all"); setShowWorkOrderList(true); }} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
             <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
@@ -1055,8 +1056,11 @@ export default function EngineeringDashboardPage() {
       {showRoomOpsImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-1">
           <div ref={setDashboardDialogElement} role="dialog" aria-modal="true" aria-label="Import Daily Room Operations" className="cmpri-modal-shell cmpri-dashboard-overlay-panel overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to an AI provider.</p></div><button type="button" onClick={closeTopOverlay} className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</button></div>
             <div className="space-y-4 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to an AI provider.</p></div>
+                <button type="button" onClick={closeTopOverlay} className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</button>
+              </div>
               <label className="block max-w-xs text-xs font-semibold text-slate-300">
                 Report date
                 <input type="date" required value={roomOpsReportDate} onChange={(event) => { setRoomOpsReportDate(event.target.value); setRoomOpsPreview(null); }} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />

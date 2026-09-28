@@ -5,10 +5,12 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; active: boolean | null; can_manage: boolean };
 
 export default function UserManagementPage() {
+  const embedded = useEmbeddedModal();
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [message, setMessage] = useState("");
@@ -128,14 +130,18 @@ export default function UserManagementPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full px-4 py-8 sm:px-6">
-        <div className="mt-4 flex items-end justify-between gap-4">
+        {!embedded && <div className="mt-4 flex items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Management</p>
             <h1 className="mt-2 text-3xl font-bold">User Management</h1>
             <p className="mt-2 text-sm text-slate-400">Invite users, assign roles, deactivate access, or permanently delete test accounts.</p>
           </div>
           <div className="flex items-center gap-3"><span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{users.filter((u) => u.active === true).length} active</span><ModalDashboardLink className="text-sm font-semibold text-amber-400">← Dashboard</ModalDashboardLink></div>
-        </div>
+        </div>}
+        {embedded && <div className="mb-4 flex items-center justify-end gap-3">
+          <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{users.filter((u) => u.active === true).length} active</span>
+          <ModalDashboardLink className="text-sm font-semibold text-amber-400">← Dashboard</ModalDashboardLink>
+        </div>}
         {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
         {roles.length > 0 && (
           <form onSubmit={addUser} className="mt-6 grid gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:grid-cols-2">

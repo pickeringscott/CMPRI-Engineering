@@ -117,3 +117,21 @@ export async function PATCH(request: NextRequest) {
   if (!data) return NextResponse.json({ error: "Feedback not found." }, { status: 404 });
   return NextResponse.json({ feedback: data });
 }
+
+export async function DELETE(request: NextRequest) {
+  const auth = await requireCapability(request, "review_feedback");
+  if (!auth) return NextResponse.json({ error: "Feedback review access is required." }, { status: 403 });
+
+  const id = request.nextUrl.searchParams.get("id")?.trim();
+  if (!id) return NextResponse.json({ error: "Feedback id is required." }, { status: 400 });
+
+  const { data, error } = await auth.admin.from("user_feedback")
+    .delete()
+    .eq("hotel_id", HOTEL_ID)
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: "Feedback could not be deleted." }, { status: 503 });
+  if (!data) return NextResponse.json({ error: "Feedback not found." }, { status: 404 });
+  return NextResponse.json({ ok: true, id: data.id });
+}

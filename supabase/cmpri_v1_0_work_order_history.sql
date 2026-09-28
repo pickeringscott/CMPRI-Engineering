@@ -78,12 +78,11 @@ returns trigger language plpgsql security definer set search_path = '' as $$
 declare
   actor uuid := coalesce(auth.uid(), new.submitted_by_user_id, new.creator_account_user_id, new.created_by);
   actor_label text := '';
-  actor_role text := '';
   changed jsonb := '{}'::jsonb;
   event_name text := 'updated';
 begin
   if actor is not null then
-    select coalesce(nullif(btrim(p.full_name),''), ''), coalesce(p.role, '') into actor_label, actor_role
+    select coalesce(nullif(btrim(p.full_name),''), '') into actor_label
     from public.profiles p where p.id = actor;
   end if;
   if actor_label = '' then
@@ -91,9 +90,6 @@ begin
   end if;
 
   if TG_OP = 'INSERT' then
-    if regexp_replace(lower(actor_role), '[^a-z0-9]', '', 'g') in ('frontdesk', 'assistantgm', 'assistantgeneralmanager') then
-      actor_label := coalesce(nullif(btrim(new.submitted_by_name), ''), actor_label);
-    end if;
     event_name := 'created';
     changed := to_jsonb(new);
   else

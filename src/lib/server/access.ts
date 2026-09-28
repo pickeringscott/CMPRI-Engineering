@@ -8,7 +8,6 @@ export type AccessProfile = {
   role: string;
   active: boolean;
   full_name: string | null;
-  manage_profile_first_login_complete?: boolean;
   property_scope?: string | null;
 };
 export type Membership = {

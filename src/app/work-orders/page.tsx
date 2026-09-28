@@ -8,10 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
+import ModalNavigationButton from "@/components/ModalNavigationButton";
 import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
-import { frontDeskSessionId, readFrontDeskEmployeeName, saveFrontDeskEmployeeName } from "@/lib/auth/front-desk-session";
 import AccountSummary from "@/components/AccountSummary";
 import { dashboardTitleForRole } from "@/lib/account-display";
 
@@ -805,7 +805,6 @@ export default function WorkOrdersPage() {
     }
   });
   const [staffFirstName, setStaffFirstName] = useState("");
-  const [frontDeskSessionKey, setFrontDeskSessionKey] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
   const [activeDraftId, setActiveDraftId] = useState("");
@@ -932,21 +931,6 @@ export default function WorkOrdersPage() {
           window.location.replace(session.landing);
           return;
         }
-        const authSession = await getValidSession();
-        const roleKey = session.user.role.toLowerCase().replace(/[\s_-]+/g, "");
-        if (roleKey === "frontdesk") {
-          const sessionKey = frontDeskSessionId(authSession?.access_token);
-          const employeeName = readFrontDeskEmployeeName(window.sessionStorage, session.user.id, sessionKey);
-          if (!validFirstName(employeeName)) {
-            window.location.replace(`/profile?returnTo=${encodeURIComponent(session.landing)}`);
-            return;
-          }
-          setFrontDeskSessionKey(sessionKey);
-          setStaffFirstName(employeeName);
-        } else if (session.user.manage_profile_first_login_complete === false) {
-          window.location.replace(`/profile?returnTo=${encodeURIComponent(session.landing)}`);
-          return;
-        }
         setCmpriSession(session);
         setCurrentRole(session.user.role || "");
         await Promise.all([
@@ -986,22 +970,6 @@ export default function WorkOrdersPage() {
   ].includes(currentRoleKey);
   const isFrontDeskUser = currentRoleKey === "frontdesk";
   const isSubmitOnlyUser = ["front desk", "frontdesk", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
-
-  useEffect(() => {
-    if (!isFrontDeskUser || !cmpriSession || !frontDeskSessionKey) return;
-    const handleSessionNameUpdate = (event: MessageEvent) => {
-      const update = event.data;
-      if (event.origin !== window.location.origin
-        || update?.type !== "cmpri-frontdesk-session-name-updated"
-        || update.userId !== cmpriSession.user.id
-        || update.sessionId !== frontDeskSessionKey
-        || !validFirstName(update.name)) return;
-      setStaffFirstName(String(update.name).trim().replace(/\s+/g, " "));
-    };
-    window.addEventListener("message", handleSessionNameUpdate);
-    return () => window.removeEventListener("message", handleSessionNameUpdate);
-  }, [cmpriSession, frontDeskSessionKey, isFrontDeskUser]);
-
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
   const selectedCreateAssetId = selectedCreateAsset?.id;
   const selectedCreateDocumentationKey = selectedCreateAsset?.documentation_key;
@@ -1298,7 +1266,7 @@ export default function WorkOrdersPage() {
   function restoreDraft(draft: WorkOrderDraft) {
     setActiveDraftId(draft.id);
     setActiveDraftRevision(draft.revision);
-    if (!isFrontDeskUser) setStaffFirstName(draft.staff_first_name || "");
+    setStaffFirstName(draft.staff_first_name || "");
     setLocationId(draft.location_id || "");
     setAssetId(draft.asset_id || "");
     setManualAsset(Boolean(draft.asset_id));
@@ -1394,7 +1362,7 @@ export default function WorkOrdersPage() {
   function resetWorkOrderForm() {
     setActiveDraftId("");
     setActiveDraftRevision(null);
-    if (!isFrontDeskUser) setStaffFirstName("");
+    setStaffFirstName("");
     setLocationId("");
     setAssetId("");
     setCategory("General");
@@ -1570,7 +1538,7 @@ export default function WorkOrdersPage() {
 
   async function createRelatedWorkOrders() {
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
-      setMessage("Enter your full name before submitting.");
+      setMessage("Enter your first name before submitting.");
       return;
     }
     const location = locations.find((item) => item.id === locationId);
@@ -1642,7 +1610,7 @@ export default function WorkOrdersPage() {
 
   async function createSingleBatchWorkOrder(suggestion: RelatedIssueSuggestion) {
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
-      setMessage("Enter your full name before submitting.");
+      setMessage("Enter your first name before submitting.");
       return;
     }
     const location = locations.find((item) => item.id === locationId);
@@ -1709,7 +1677,7 @@ export default function WorkOrdersPage() {
 
   async function createBatchWorkOrders() {
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
-      setMessage("Enter your full name before submitting.");
+      setMessage("Enter your first name before submitting.");
       return;
     }
     const location = locations.find((item) => item.id === locationId);
@@ -1819,7 +1787,7 @@ export default function WorkOrdersPage() {
   async function createWorkOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
-      setMessage("Enter your full name before submitting.");
+      setMessage("Enter your first name before submitting.");
       return;
     }
 
@@ -1979,6 +1947,7 @@ export default function WorkOrdersPage() {
   const detectedCreateIssues = issue.trim() ? detectMultipleCreateIssues(issue) : [];
 
   const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true ? troubleshootingKnowledge : null;
+  const trustedManualUrl = trustedTroubleshootingKnowledge?.source?.file_url || trustedTroubleshootingKnowledge?.source?.pdf_url;
   const troubleshootingEvidence = `${issue} ${notes}`.toLowerCase();
   const matchingTroubleshootingSteps = trustedTroubleshootingKnowledge?.symptom_rules
     ?.filter((rule) => !rule.match?.length || rule.match.some((phrase) => troubleshootingEvidence.includes(phrase.toLowerCase())))
@@ -1991,7 +1960,7 @@ export default function WorkOrdersPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-[15px] py-[15px] text-white">
-      <div className="mx-auto w-full max-w-none lg:w-[66%]">
+      <div className={`mx-auto w-full max-w-none ${isSubmitOnlyUser ? "" : "lg:w-[66vw]"}`}>
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2033,15 +2002,11 @@ export default function WorkOrdersPage() {
               {cmpriSession && !embedded && (
                 <div className="mr-auto min-w-0">
                   {!isSubmitOnlyUser && <h1 className="text-sm font-bold text-slate-100">{dashboardTitleForRole(cmpriSession.user.role)}</h1>}
-                  <AccountSummary
-                    user={cmpriSession.user}
-                    displayName={isFrontDeskUser ? staffFirstName || "Employee name required" : undefined}
-                    hideEmail={isSubmitOnlyUser}
-                  />
+                  <AccountSummary user={cmpriSession.user} />
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-end gap-1">
-                <a href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Profile", "Perfil")}</a>
+                <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Profile", "Perfil")}</ModalNavigationButton>
                 <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-8 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V3m0 0 4 4m-4-4-4 4" />
@@ -2049,14 +2014,14 @@ export default function WorkOrdersPage() {
                   </svg>
                 </label>
                 <input id="work-order-photo-file" type="file" accept="image/*" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
-                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${photo ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
+                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photo ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h3l1.4-2h7.2l1.4 2h3A1.5 1.5 0 0 1 21.5 9v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
                     <circle cx="12" cy="13" r="3.5" />
                   </svg>
                 </label>
                 <input id="work-order-photo-camera" type="file" accept="image/*" capture="environment" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
-                <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>
+                {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
                 <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
@@ -2068,13 +2033,9 @@ export default function WorkOrdersPage() {
             {(photo || photoUploadError) && <div className="flex min-w-0 items-center gap-2 text-[11px]">{photo && <span className="max-w-[60%] truncate text-slate-400" title={photo.name}>Attached: {photo.name}</span>}{photoUploadError && <span role="alert" className="text-amber-300">{photoUploadError}</span>}</div>}
 
             {isFrontDeskUser && <label className="block">
-              <span className="mb-1 block text-sm font-medium"> {tx("Current employee full name", "Nombre completo del empleado actual")} <span className="text-red-300">*</span></span>
-              <input required maxLength={80} autoComplete="name" value={staffFirstName} onChange={event => {
-                const value = event.target.value;
-                setStaffFirstName(value);
-                if (cmpriSession && frontDeskSessionKey) saveFrontDeskEmployeeName(window.sessionStorage, cmpriSession.user.id, frontDeskSessionKey, value);
-              }} placeholder={tx("First and last name", "Nombre y apellido")} disabled={loading || creatingBatchWorkOrders || creatingRelatedWorkOrders} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-white outline-none focus:border-amber-400" />
-              <span className="mt-1 block text-xs text-slate-400"> {tx("Used for this signed-in Front Desk session and saved with each report. You can change it when the employee changes.", "Se usa durante esta sesión de recepción y se guarda en cada reporte. Puede cambiarlo cuando cambie el empleado.")} </span>
+              <span className="mb-1 block text-sm font-medium"> {tx("Your first name", "Tu nombre")} <span className="text-red-300">*</span></span>
+              <input required maxLength={80} autoComplete="off" value={staffFirstName} onChange={event => setStaffFirstName(event.target.value)} placeholder={tx("First name", "Nombre")} disabled={loading || creatingBatchWorkOrders || creatingRelatedWorkOrders} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-white outline-none focus:border-amber-400" />
+              <span className="mt-1 block text-xs text-slate-400"> {tx("Required for each report submitted through the shared front-desk account.", "Obligatorio para cada reporte enviado desde la cuenta compartida de recepción")} </span>
             </label>}
 
             <label className="block">
@@ -2175,8 +2136,8 @@ export default function WorkOrdersPage() {
                   <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
                     <p className="text-sm font-semibold text-slate-200">{trustedTroubleshootingKnowledge.source.title}</p>
                     <p className="mt-1 text-xs text-emerald-400">Verified equipment documentation</p>
-                    {(trustedTroubleshootingKnowledge.source.file_url || trustedTroubleshootingKnowledge.source.pdf_url) && (
-                      <a href={trustedTroubleshootingKnowledge.source.file_url || trustedTroubleshootingKnowledge.source.pdf_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-sky-300 hover:underline">Open Manual</a>
+                    {trustedManualUrl && (
+                      <button type="button" onClick={() => window.open(trustedManualUrl, "_blank", "noopener,noreferrer")} className="mt-2 inline-block text-xs font-semibold text-sky-300 hover:underline">Open Manual</button>
                     )}
                   </div>
                 )}

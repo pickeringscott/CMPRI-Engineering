@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode, MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 
 export default function ModalDashboardLink({
   href = "/engineering",
@@ -11,15 +11,17 @@ export default function ModalDashboardLink({
   className?: string;
   children?: ReactNode;
 }) {
-  function closeModal(event: MouseEvent<HTMLAnchorElement>) {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("embedded") !== "1" || window.parent === window) return;
-    event.preventDefault();
-    window.parent.postMessage(
-      { type: "cmpri-modal-dashboard", modalToken: params.get("modalToken") || "" },
-      window.location.origin,
-    );
+  function returnToDashboard(event: MouseEvent<HTMLButtonElement>) {
+    if (event.defaultPrevented) return;
+    if (window.parent !== window) {
+      window.parent.postMessage({
+        type: "cmpri-modal-dashboard",
+        modalToken: new URLSearchParams(window.location.search).get("modalToken") || "",
+      }, window.location.origin);
+      return;
+    }
+    window.location.assign(href);
   }
 
-  return <a href={href} onClick={closeModal} className={className}>{children}</a>;
+  return <button type="button" data-cmpri-modal-dashboard="true" data-cmpri-modal-dashboard-href={href} onClick={returnToDashboard} className={className}>{children}</button>;
 }

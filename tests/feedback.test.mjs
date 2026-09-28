@@ -15,6 +15,7 @@ const APP_VERSION = 'CMPRI 2.0';
 function fixture({ role = 'Front Desk', denied = [], rows = [], adminUnavailable = false } = {}) {
   const inserted = [];
   const updates = [];
+  const deleted = [];
   const profile = { full_name: 'Feedback Reporter', role };
   const principal = { identity: { id: 'reporter-id' }, profile };
   const db = {
@@ -26,9 +27,17 @@ function fixture({ role = 'Front Desk', denied = [], rows = [], adminUnavailable
       query.limit = (value) => { query.limitValue = value; return query; };
       query.insert = (value) => { query.operation = 'insert'; query.data = value; inserted.push(value); return query; };
       query.update = (value) => { query.operation = 'update'; query.data = value; updates.push(value); return query; };
+      query.delete = () => { query.operation = 'delete'; return query; };
       query.single = async () => ({ data: { id: 'feedback-new', created_at: '2026-09-27T12:00:00.000Z', status: query.data?.status || 'New' }, error: null });
       query.maybeSingle = async () => {
         if (query.operation === 'update') return { data: { ...rows[0], ...query.data }, error: null };
+        if (query.operation === 'delete') {
+          const index = rows.findIndex((row) => query.filters.every(([field, value]) => row[field] === value));
+          if (index === -1) return { data: null, error: null };
+          const [removed] = rows.splice(index, 1);
+          deleted.push(removed.id);
+          return { data: { id: removed.id }, error: null };
+        }
         const found = rows.find((row) => query.filters.every(([field, value]) => row[field] === value));
         return { data: found || null, error: null };
       };
@@ -56,7 +65,7 @@ function fixture({ role = 'Front Desk', denied = [], rows = [], adminUnavailable
     json: async () => body,
     nextUrl: new URL(`https://feedback.test${path}`),
   });
-  return { handlers: exports, inserted, updates, request, db, rows };
+  return { handlers: exports, inserted, updates, deleted, request, db, rows };
 }
 
 test('feedback permissions do not grant work-order editing or queue access to submit-only roles', () => {
@@ -118,6 +127,30 @@ test('submit-only users cannot list or change feedback status', async () => {
   assert.equal(f.updates.length, 0);
 });
 
+test('submit-only users cannot delete feedback', async () => {
+  const f = fixture({ role: 'Front Desk', denied: ['review_feedback'] });
+  const result = await f.handlers.DELETE(f.request({}, '/api/feedback?id=feedback-id'));
+  assert.equal(result.status, 403);
+  assert.equal(f.deleted.length, 0);
+});
+
+test('reviewers can delete a feedback submission by id', async () => {
+  const rows = [{ id: 'target', hotel_id: HOTEL_ID, created_at: '2026-09-27T10:00:00Z', status: 'New' }];
+  const f = fixture({ role: 'Chief Engineer', rows });
+  const result = await f.handlers.DELETE(f.request({}, '/api/feedback?id=target'));
+  assert.equal(result.status, 200);
+  assert.deepEqual(f.deleted, ['target']);
+  assert.equal(f.rows.length, 0);
+});
+
+test('deleting a missing or blank feedback id is rejected', async () => {
+  const f = fixture({ role: 'Chief Engineer', rows: [] });
+  assert.equal((await f.handlers.DELETE(f.request({}, '/api/feedback?id='))).status, 400);
+  assert.equal((await f.handlers.DELETE(f.request({}, '/api/feedback'))).status, 400);
+  const missing = await f.handlers.DELETE(f.request({}, '/api/feedback?id=nonexistent'));
+  assert.equal(missing.status, 404);
+});
+
 test('review queue is newest first and status changes record reviewed/resolved times', async () => {
   const rows = [
     { id: 'old', hotel_id: HOTEL_ID, created_at: '2026-09-26T10:00:00Z', status: 'New' },
@@ -159,6 +192,16 @@ test('migration enables own-row/reviewer RLS, status constraints, and newest-fir
   assert.match(sql, /'New', 'Reviewed', 'Planned', 'Resolved'/);
   assert.match(sql, /created_at DESC/);
   assert.doesNotMatch(sql, /work_orders/);
+});
+
+test('hardening migration restricts reviewer updates to status/review columns and scopes delete to reviewers', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20260927140000_cmpri_user_feedback_hardening.sql', import.meta.url), 'utf8');
+  assert.match(sql, /REVOKE UPDATE ON public\.user_feedback FROM authenticated/);
+  assert.match(sql, /GRANT UPDATE \(status, reviewed_at, resolved_at\) ON public\.user_feedback TO authenticated/);
+  assert.match(sql, /GRANT DELETE ON public\.user_feedback TO authenticated/);
+  assert.match(sql, /CREATE POLICY user_feedback_delete_reviewers/);
+  assert.match(sql, /FOR DELETE TO authenticated/);
+  assert.match(sql, /'engineer', 'chiefengineer'/);
 });
 
 test('feedback entry is in Profile and reviewer-only count is on Engineering, not submit-only dashboards', () => {

@@ -77,17 +77,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Technician dashboard access is required." }, { status: 403 });
     }
     const technicianName = auth.principal.profile.full_name?.trim();
-    if (!technicianName) return NextResponse.json({ work_orders: [] });
-    const { data, error } = await auth.admin
+    const unassignedQuery = auth.admin
       .from("work_orders")
       .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
       .eq("hotel_id", HOTEL_ID)
-      .eq("technician_name", technicianName)
+      .or("technician_name.is.null,technician_name.eq.")
       .neq("status", "Closed")
       .order("due_by", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
-    if (error) return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
-    return NextResponse.json({ work_orders: data || [] }, { headers: { "Cache-Control": "no-store" } });
+    const assignedQuery = technicianName
+      ? auth.admin
+        .from("work_orders")
+        .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("technician_name", technicianName)
+        .neq("status", "Closed")
+        .order("due_by", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false })
+      : null;
+    const [unassigned, assigned] = await Promise.all([
+      unassignedQuery,
+      assignedQuery ?? Promise.resolve({ data: [], error: null }),
+    ]);
+    if (unassigned.error || assigned.error) {
+      return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
+    }
+    const workOrders = Array.from(new Map(
+      [...(assigned.data || []), ...(unassigned.data || [])].map((order) => [order.id, order]),
+    ).values()).sort((a, b) => {
+      const dueA = a.due_by ? Date.parse(a.due_by) : Number.POSITIVE_INFINITY;
+      const dueB = b.due_by ? Date.parse(b.due_by) : Number.POSITIVE_INFINITY;
+      return dueA - dueB || Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
+    });
+    return NextResponse.json({ work_orders: workOrders }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (mode === "duplicate-candidates") {
@@ -163,19 +185,16 @@ export async function POST(request: NextRequest) {
 
     const draftFrontDesk = isFrontDesk(draftCreator.role);
     const draftSubmitOnly = isSubmitOnlyRole(draftCreator.role);
-    const draftCreatorEmployeeName = typeof draft.staff_first_name === "string" ? draft.staff_first_name.trim() : "";
-    const currentEmployeeName = ownDraft && isFrontDesk(auth.profile.role) && typeof body.staff_first_name === "string"
-      ? body.staff_first_name.trim()
-      : draftCreatorEmployeeName;
-    if (draftFrontDesk && !validFirstName(currentEmployeeName)) {
-      return NextResponse.json({ error: "This Front Desk submission requires the current employee's full name." }, { status: 400 });
+    const firstName = typeof draft.staff_first_name === "string" ? draft.staff_first_name.trim() : "";
+    if (draftFrontDesk && !validFirstName(firstName)) {
+      return NextResponse.json({ error: "This front-desk draft is missing the required first name." }, { status: 400 });
     }
     submitOnly = draftSubmitOnly;
     attribution = {
       created_by: draftCreator.id,
       creator_account_user_id: draftCreator.id,
-      creator_name: draftFrontDesk ? currentEmployeeName : draftCreator.full_name?.trim() || "Unknown User",
-      submitted_by_name: draftFrontDesk ? currentEmployeeName : null,
+      creator_name: draftFrontDesk ? firstName : draftCreator.full_name?.trim() || "Unknown User",
+      submitted_by_name: draftFrontDesk ? firstName : null,
       creator_source: ownDraft
         ? draftSubmitOnly
           ? "department_pending_verification"
@@ -184,7 +203,7 @@ export async function POST(request: NextRequest) {
       status: draftSubmitOnly ? "Pending Verification" : "Open",
       source_draft_id: draft.id,
       source_draft_created_by: draftCreator.id,
-      source_draft_creator_name: draftFrontDesk ? draftCreatorEmployeeName : draftCreator.full_name?.trim() || "Unknown User",
+      source_draft_creator_name: draftFrontDesk ? firstName : draftCreator.full_name?.trim() || "Unknown User",
       submitted_by_user_id: auth.user.id,
     };
     sourceDraft = draft as Record<string, unknown>;

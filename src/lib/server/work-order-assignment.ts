@@ -8,5 +8,5 @@ export function canAccessWorkOrderByAssignment(
   if (roleKey(role) !== "technician") return true;
   const technicianName = typeof profileName === "string" ? profileName.trim() : "";
   const assignedName = typeof workOrder.technician_name === "string" ? workOrder.technician_name.trim() : "";
-  return Boolean(technicianName && assignedName && technicianName === assignedName);
+  return !assignedName || Boolean(technicianName && assignedName === technicianName);
 }

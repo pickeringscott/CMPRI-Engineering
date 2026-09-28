@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   createClient,
@@ -9,10 +9,11 @@ import {
   signOutDevice,
   getValidSession,
 } from "@/lib/supabase/client";
-import { APP_TITLE, CANONICAL_APP_URL } from "@/lib/constants";
-import { frontDeskSessionId, readFrontDeskEmployeeName } from "@/lib/auth/front-desk-session";
+import { APP_TITLE } from "@/lib/constants";
 
-async function authorizedLanding(token: string, signal?: AbortSignal, sessionId = ""): Promise<string> {
+const OAUTH_PENDING_KEY = "cmpri:auth:oauth-pending";
+
+async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering"> {
   const response = await fetch("/api/session", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -24,26 +25,38 @@ async function authorizedLanding(token: string, signal?: AbortSignal, sessionId 
     throw new Error(result?.error || "This account is not authorized for CMPRI.");
   }
   if (!response.ok) throw new Error("Unable to verify CMPRI access. Please try again.");
-  const result = await response.json() as {
-    landing?: unknown;
-    user?: { id?: unknown; role?: unknown; manage_profile_first_login_complete?: unknown };
-  };
+  const result = await response.json() as { landing?: unknown };
   if (result.landing !== "/work-orders" && result.landing !== "/technician" && result.landing !== "/engineering") {
     throw new Error("CMPRI returned an invalid account destination.");
-  }
-  const role = typeof result.user?.role === "string" ? result.user.role.trim().toLowerCase().replace(/[\s_-]+/g, "") : "";
-  const userId = typeof result.user?.id === "string" ? result.user.id : "";
-  const needsFrontDeskConfirmation = role === "frontdesk"
-    && !readFrontDeskEmployeeName(window.sessionStorage, userId, sessionId);
-  const needsIndividualConfirmation = role !== "frontdesk" && result.user?.manage_profile_first_login_complete === false;
-  if (needsFrontDeskConfirmation || needsIndividualConfirmation) {
-    return `/profile?returnTo=${encodeURIComponent(result.landing)}`;
   }
   return result.landing;
 }
 
+function oauthCallbackParams() {
+  const query = new URLSearchParams(window.location.search);
+  const fragment = new URLSearchParams(window.location.hash.slice(1));
+  return new URLSearchParams([...query, ...fragment]);
+}
+
+function hasOAuthCallback() {
+  const params = oauthCallbackParams();
+  return window.sessionStorage.getItem(OAUTH_PENDING_KEY) === "true"
+    || ["code", "access_token", "error", "error_description", "error_code"]
+      .some((key) => params.has(key));
+}
+
+function subscribeToLocation(callback: () => void) {
+  window.addEventListener("popstate", callback);
+  window.addEventListener("hashchange", callback);
+  return () => {
+    window.removeEventListener("popstate", callback);
+    window.removeEventListener("hashchange", callback);
+  };
+}
+
 export default function SignInPage() {
   const router = useRouter();
+  const processingOAuthCallback = useSyncExternalStore(subscribeToLocation, hasOAuthCallback, () => false);
   const [message, setMessage] = useState("");
   const [initializing, setInitializing] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
@@ -55,19 +68,30 @@ export default function SignInPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const callbackParams = oauthCallbackParams();
+    const isOAuthCallback = hasOAuthCallback();
     void (async () => {
       try {
         setRememberMe(remembersDevice());
         const session = await getValidSession();
         if (session) {
-          const landing = await authorizedLanding(session.access_token, controller.signal, frontDeskSessionId(session.access_token));
+          const landing = await authorizedLanding(session.access_token, controller.signal);
           if (!controller.signal.aborted) {
+            window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
             setRedirecting(true);
             router.replace(landing);
           }
+        } else if (isOAuthCallback) {
+          window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
+          setMessage(
+            callbackParams.get("error_description")
+              || callbackParams.get("error")
+              || "Google sign-in did not complete. Please try again.",
+          );
         }
       } catch (error) {
         if (!controller.signal.aborted) {
+          if (isOAuthCallback) window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
           setRedirecting(false);
           setMessage(error instanceof Error ? error.message : "Unable to restore this device session.");
         }
@@ -80,11 +104,11 @@ export default function SignInPage() {
 
   async function signInWithGoogle() {
     setBusy(true);
-    setRedirecting(true);
-    setMessage("Redirecting to Google…");
+    setMessage("");
     try {
       setRememberOnDevice(rememberMe);
-      const redirectTo = `${CANONICAL_APP_URL}/`;
+      window.sessionStorage.setItem(OAUTH_PENDING_KEY, "true");
+      const redirectTo = `${window.location.origin}/`;
       const { data, error } = await createClient().auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
@@ -94,8 +118,9 @@ export default function SignInPage() {
         window.location.assign(data.url);
         return;
       }
-      setMessage("Google sign-in is ready. Redirecting…");
+      throw new Error("Google sign-in did not return a redirect URL.");
     } catch (error) {
+      window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
       setRedirecting(false);
       setMessage(error instanceof Error ? error.message : "Google sign-in could not be started.");
       setBusy(false);
@@ -115,7 +140,7 @@ export default function SignInPage() {
       if (error) throw error;
       const session = await getValidSession();
       if (!session) throw new Error("The password sign-in did not create a session.");
-      const landing = await authorizedLanding(session.access_token, undefined, frontDeskSessionId(session.access_token));
+      const landing = await authorizedLanding(session.access_token);
       setRedirecting(true);
       router.replace(landing);
     } catch (error) {
@@ -126,13 +151,13 @@ export default function SignInPage() {
   }
 
   const disabled = initializing || busy || redirecting;
-  if (initializing || redirecting) {
+  if (redirecting || (initializing && processingOAuthCallback)) {
     return (
-      <main className="grid min-h-[100dvh] w-full items-start justify-items-center bg-slate-950 px-4 pt-4 text-white sm:pt-6">
-        <div className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 text-center shadow-lg shadow-slate-950/25">
-          <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
-          <p className="mt-2 text-sm text-slate-300">Loading your dashboard…</p>
-        </div>
+      <main className="flex min-h-[100dvh] w-full items-start justify-center bg-slate-950 px-4 pt-4 text-center text-amber-400">
+        <p role="status" aria-live="polite" className="text-[16pt] font-semibold">
+          Loading Dashboard...<br />
+          Have a wonderful day!
+        </p>
       </main>
     );
   }
@@ -143,7 +168,7 @@ export default function SignInPage() {
           <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
           <h1 className="mt-1 text-[1.7rem] font-bold leading-tight">{APP_TITLE}</h1>
         </div>
-        {redirecting ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-amber-400/30 bg-amber-950/20 p-2.5 text-sm text-amber-100">Loading your dashboard…</p> : message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
+        {message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
         <div className="mt-3 space-y-3">
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition hover:bg-[#f7f8f8] disabled:opacity-60">
             <svg aria-hidden="true" className="h-5 w-5 shrink-0" viewBox="0 0 48 48">

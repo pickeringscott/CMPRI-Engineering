@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import { authorizationHeaders, hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
+import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type Vendor = { id: string; company_name: string; services?: string[]; main_phone?: string; email?: string; website?: string; emergency_phone?: string; preferred?: boolean; approved?: boolean; notes?: string; active?: boolean };
 type Contact = { id: string; vendor_id: string; name: string; role_title?: string; phone?: string; mobile_phone?: string; email?: string; emergency_contact?: boolean; active?: boolean };
@@ -24,6 +26,7 @@ function num(value: string) { return value.trim() === "" ? null : Number(value);
 function money(value?: number | null) { return value === null || value === undefined ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value); }
 
 export default function PartsVendorsPage() {
+  const embedded = useEmbeddedModal();
   const router = useRouter();
   const [data, setData] = useState<Payload>(emptyPayload);
   const [loading, setLoading] = useState(true);
@@ -128,13 +131,14 @@ export default function PartsVendorsPage() {
     proposal: "Record Proposal",
   };
 
-  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100">Loading parts and vendors…</main>;
+  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100">{embedded && <ModalDashboardLink className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}<p>Loading parts and vendors…</p></main>;
 
   return <main className="min-h-screen bg-slate-950 p-4 text-slate-100 sm:p-6"><div className="mx-auto w-full">
-    <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+    {!embedded && <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
       <div><p className="text-xs font-bold uppercase tracking-[.22em] text-amber-400">CMPRI Engineering</p><h1 className="mt-1 text-3xl font-bold">Parts, Order Ideas & Vendors</h1><p className="mt-2 max-w-3xl text-sm text-slate-400">Inventory, compatible parts, order ideas, vendor contacts and repair/replace proposals.</p></div>
-      <a href="/engineering" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</a>
-    </header>
+      <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>
+    </header>}
+    {embedded && <div className="mb-4"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></div>}
 
     <div className="mt-4 flex flex-wrap gap-2">
       {(["vendor","contact","inventory","idea","proposal"] as const).map((key) => <button key={key} type="button" onClick={() => setActiveForm(key)} className="rounded-full border border-amber-500/35 bg-amber-950/20 px-3 py-1.5 text-xs font-bold text-amber-100 hover:bg-amber-950/40">{actionTitle[key]}</button>)}

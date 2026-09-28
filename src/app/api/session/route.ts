@@ -50,7 +50,6 @@ export async function GET(request: NextRequest) {
       name: attempt.principal.profile.full_name,
       email: attempt.principal.identity.email,
       role: attempt.principal.profile.role,
-      manage_profile_first_login_complete: attempt.principal.profile.manage_profile_first_login_complete !== false,
     },
     hotelId: attempt.principal.hotelId,
     landing,

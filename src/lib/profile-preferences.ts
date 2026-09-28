@@ -34,3 +34,12 @@ export function normalizeProfilePreferences(value: unknown): ProfilePreferences 
     },
   };
 }
+
+export function disableProfileNotifications(value: unknown): ProfilePreferences {
+  const preferences = normalizeProfilePreferences(value);
+  return {
+    ...preferences,
+    notification_mode: "in_app",
+    notifications: { new_work_orders: false, status_changes: false, mentions: false },
+  };
+}

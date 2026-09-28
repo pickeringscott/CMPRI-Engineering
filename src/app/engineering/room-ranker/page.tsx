@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
+import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type RoomRankerRow = {
   rowNumber: number;
@@ -18,6 +20,7 @@ type RoomRankerRow = {
 const blank: RoomRankerRow = { rowNumber: 0, room: "", inspectedBy: "", check1: "", check2: "", check3: "", rank: "", notes: "" };
 
 export default function RoomRankerPage() {
+  const embedded = useEmbeddedModal();
   const [rooms, setRooms] = useState<RoomRankerRow[]>([]);
   const [selected, setSelected] = useState<RoomRankerRow>(blank);
   const [query, setQuery] = useState("");
@@ -89,10 +92,14 @@ export default function RoomRankerPage() {
 
   return <main className="min-h-screen bg-slate-950 text-white">
     <div className="mx-auto w-full px-3 py-4 sm:px-4">
-      <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+      {!embedded && <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div><p className="text-xs font-bold uppercase tracking-[.22em] text-amber-400">Live Google Sheet</p><h1 className="mt-1 text-3xl font-bold">Room Ranker</h1><p className="mt-2 text-sm text-slate-400">Edit inspected-by, room checks, rank, and notes. Room numbers and summary formulas are protected.</p></div>
-        <div className="flex gap-2"><a href="/engineering" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</a><button onClick={() => loadRooms()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Refresh</button></div>
-      </header>
+        <div className="flex gap-2"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</ModalDashboardLink><button onClick={() => loadRooms()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Refresh</button></div>
+      </header>}
+      {embedded && <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</ModalDashboardLink>
+        <button onClick={() => loadRooms()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Refresh</button>
+      </div>}
       {error && <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-red-200">{error}</div>}
       {safeMode && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-amber-200"><strong>Safe mode is on.</strong> You can view live Room Ranker data and make edits here, but nothing is sent back to corporate. Turn safe mode off in the environment to go live.</div>}
       {message && <div className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-emerald-200">{message}</div>}

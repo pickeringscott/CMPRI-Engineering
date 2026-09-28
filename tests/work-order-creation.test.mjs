@@ -36,18 +36,18 @@ function fixture(body,config={},options={}) {
   }
   return {writes,clients,handler:load(path.join(root,'app/api/work-orders/route.ts')).POST,request:{headers:new Headers({authorization:'Bearer caller-token'}),json:async()=>{if(config.badJson)throw new SyntaxError('bad');return body;}}};
 }
-for(const name of [undefined,'','   ',123,'1234','Scott123','Scott','S P'])test(`front desk requires full name ${JSON.stringify(name)}`,async()=>{
+for(const name of [undefined,'','   ',123,'1234','Scott123'])test(`front desk requires first name ${JSON.stringify(name)}`,async()=>{
   const f=fixture({orders:[order],staff_first_name:name});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.writes.length,0);
 });
-for(const name of ['Scott Pickering','María García',"Anne-Marie O'Neil",'李 雷','李雷'])test(`full name ${name} is stored with the shared account identity`,async()=>{
+for(const name of ['Scott','María','Anne-Marie','李'])test(`first name ${name} is stored with the shared account identity`,async()=>{
   const f=fixture({orders:[{...order,created_by:'spoof',creator_name:'Spoof',status:'Closed'}],staff_first_name:name});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].creator_name,name);assert.equal(f.writes[0].submitted_by_name,name);
   assert.equal(f.writes[0].created_by,'shared-id');assert.equal(f.writes[0].creator_account_user_id,'shared-id');assert.equal(f.writes[0].status,'Pending Verification');
   assert.equal(f.clients[0].key,'public-test');assert.equal(f.clients[0].options.global.headers.Authorization,'Bearer caller-token');
 });
-test('batch submissions attribute every ticket to the same full name and account',async()=>{
-  const f=fixture({orders:[order,{...order,issue:'Door sticks'}],staff_first_name:' Scott Pickering '});
-  assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes.length,2);assert.ok(f.writes.every(row=>row.creator_name==='Scott Pickering'&&row.submitted_by_name==='Scott Pickering'&&row.created_by==='shared-id'&&row.creator_account_user_id==='shared-id'));
+test('batch submissions attribute every ticket to the same first name and account',async()=>{
+  const f=fixture({orders:[order,{...order,issue:'Door sticks'}],staff_first_name:' Scott '});
+  assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes.length,2);assert.ok(f.writes.every(row=>row.creator_name==='Scott'&&row.created_by==='shared-id'));
 });
 test('engineer identity comes from the signed-in profile, not submitted names',async()=>{
   const f=fixture({orders:[order],staff_first_name:'Spoof'},{profile:{role:'Engineer',full_name:'Scott Pickering'}});
@@ -57,21 +57,13 @@ for(const config of [{unauthorized:true},{noLocation:true},{lookupError:true}])t
   const f=fixture({orders:[{...order,asset_id:'asset'}],staff_first_name:'Scott'},config);assert.ok((await f.handler(f.request)).status>=400);assert.equal(f.writes.length,0);
 });
 for(const orders of [[],[null],[{...order,issue:' '}],[order,{...order,location_id:''}]])test(`invalid batch is rejected without partial insert ${JSON.stringify(orders)}`,async()=>{
-  const f=fixture({orders,staff_first_name:'Scott Pickering'});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.writes.length,0);
+  const f=fixture({orders,staff_first_name:'Scott'});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.writes.length,0);
 });
-test('full-name field is required and all three creation paths use the common submission function',()=>{
+test('first-name field is required and all three creation paths use the common submission function',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
-  assert.match(source,/Current employee full name/);assert.match(source,/<input required maxLength=\{80\}/);
-  assert.match(source,/saveFrontDeskEmployeeName\(window\.sessionStorage/);
+  assert.match(source,/Your first name/);assert.match(source,/<input required maxLength=\{80\}/);
   assert.equal((source.match(/await submitWorkOrders\(/g)||[]).length,4);
   assert.equal(/\.insert\(/.test(source),false);
-});
-test('Front Desk draft submission uses the current session name but preserves draft creator attribution',()=>{
-  const source=readFileSync(path.join(root,'app/api/work-orders/route.ts'),'utf8');
-  assert.match(source,/ownDraft && isFrontDesk\(auth\.profile\.role\) && typeof body\.staff_first_name === "string"/);
-  assert.match(source,/creator_name: draftFrontDesk \? currentEmployeeName/);
-  assert.match(source,/source_draft_creator_name: draftFrontDesk \? draftCreatorEmployeeName/);
-  assert.match(source,/submitted_by_user_id: auth\.user\.id/);
 });
 test('issue-driven suggestions share inference with submit-only overrides',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
@@ -93,23 +85,23 @@ test('troubleshooting guide is bottom-placed and restricted to maintenance roles
   assert.ok(notesPosition>=0&&guidePosition>notesPosition&&formEnd>guidePosition);
 });
 test('duplicate tickets inside one batch are rejected without partial insertion',async()=>{
-  const f=fixture({orders:[order,{...order,issue:'The sink is leaking'}],staff_first_name:'Scott Pickering'});
+  const f=fixture({orders:[order,{...order,issue:'The sink is leaking'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,409);assert.equal(f.writes.length,0);
 });
 test('a saved matching ticket blocks any new ticket in the batch',async()=>{
-  const f=fixture({orders:[{...order,issue:'Door sticks'},order],staff_first_name:'Scott Pickering'},{existing:[{...order,id:'existing-id',status:'Open'}]});
+  const f=fixture({orders:[{...order,issue:'Door sticks'},order],staff_first_name:'Scott'},{existing:[{...order,id:'existing-id',status:'Open'}]});
   const result=await f.handler(f.request);assert.equal(result.status,409);assert.equal(result.body.existing_work_order_id,'existing-id');assert.equal(f.writes.length,0);
 });
 for(const config of [{duplicateError:true},{existing:Array.from({length:1000},()=>({...order,issue:'Different task'}))}])test(`incomplete duplicate lookup fails closed: ${config.duplicateError?'error':'result limit reached'}`,async()=>{
-  const f=fixture({orders:[order],staff_first_name:'Scott Pickering'},config);assert.equal((await f.handler(f.request)).status,503);assert.equal(f.writes.length,0);
+  const f=fixture({orders:[order],staff_first_name:'Scott'},config);assert.equal((await f.handler(f.request)).status,503);assert.equal(f.writes.length,0);
 });
 
 test('front desk supplied equipment, category and priority cannot override server guesses',async()=>{
-  const f=fixture({orders:[{...order,asset_id:'spoof',asset_name:'Fake TV',category:'Safety',priority:'Urgent'}],staff_first_name:'Scott Pickering'});
+  const f=fixture({orders:[{...order,asset_id:'spoof',asset_name:'Fake TV',category:'Safety',priority:'Urgent'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].asset_id,'asset');assert.equal(f.writes[0].asset_name,'Verified sink');assert.equal(f.writes[0].category,'Plumbing');assert.equal(f.writes[0].priority,'Medium');
 });
 test('front desk HVAC defaults to High based on location equipment and issue',async()=>{
-  const f=fixture({orders:[{...order,issue:'not cooling',priority:'Low'}],staff_first_name:'Scott Pickering'},{assets:[{id:'vtac',location_id:'location-409',name:'VTAC – Room 409',asset_type:'VTAC',active:true}]});
+  const f=fixture({orders:[{...order,issue:'not cooling',priority:'Low'}],staff_first_name:'Scott'},{assets:[{id:'vtac',location_id:'location-409',name:'VTAC – Room 409',asset_type:'VTAC',active:true}]});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].asset_id,'vtac');assert.equal(f.writes[0].priority,'High');
 });
 test('Lead Housekeeper HVAC reports use the same location-bound inference',async()=>{
@@ -119,7 +111,7 @@ test('Lead Housekeeper HVAC reports use the same location-bound inference',async
   assert.equal(f.writes[0].category,'HVAC');assert.equal(f.writes[0].priority,'High');
 });
 test('guest departure comment stays in reporter notes beside the maintenance issue',async()=>{
-  const f=fixture({orders:[{...order,issue:'TV is broken\nGuest is going to leave at 5 PM'}],staff_first_name:'Scott Pickering'});
+  const f=fixture({orders:[{...order,issue:'TV is broken\nGuest is going to leave at 5 PM'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.writes[0].issue,'TV is broken');
   assert.equal(f.writes[0].reporter_notes,'Guest is going to leave at 5 PM');
@@ -130,11 +122,11 @@ test('guest departure comment alone cannot create another work order',async()=>{
   assert.equal(f.writes.length,0);
 });
 test('front desk cannot assign unlocated, retired or other-room equipment',async()=>{
-  const f=fixture({orders:[{...order,issue:'not cooling',asset_id:'other'}],staff_first_name:'Scott Pickering'},{assets:[{id:'other',location_id:'other-room',name:'VTAC',asset_type:'VTAC'},{id:'retired',location_id:'location-409',name:'VTAC',asset_type:'VTAC',active:false},{id:'unlocated',location_id:null,name:'VTAC',asset_type:'VTAC'}]});
+  const f=fixture({orders:[{...order,issue:'not cooling',asset_id:'other'}],staff_first_name:'Scott'},{assets:[{id:'other',location_id:'other-room',name:'VTAC',asset_type:'VTAC'},{id:'retired',location_id:'location-409',name:'VTAC',asset_type:'VTAC',active:false},{id:'unlocated',location_id:null,name:'VTAC',asset_type:'VTAC'}]});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].asset_id,null);assert.equal(f.writes[0].category,'HVAC');assert.equal(f.writes[0].priority,'High');
 });
 for(const config of [{assetLookupError:true}])test('incomplete equipment lookup prevents partial or guessed writes',async()=>{
-  const f=fixture({orders:[order],staff_first_name:'Scott Pickering'},config);assert.equal((await f.handler(f.request)).status,503);assert.equal(f.writes.length,0);
+  const f=fixture({orders:[order],staff_first_name:'Scott'},config);assert.equal((await f.handler(f.request)).status,503);assert.equal(f.writes.length,0);
 });
 test('engineering assignment still rejects equipment from another room',async()=>{
   const f=fixture({orders:[{...order,asset_id:'asset'}]},{profile:{role:'Engineer'},wrongAsset:true});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.writes.length,0);
@@ -145,7 +137,7 @@ test('the observed system_admin role can create a work order',async()=>{
 });
 
 test('creation falls back to the built-in Supabase config when public env vars are unavailable',async()=>{
-  const f=fixture({orders:[order],staff_first_name:'Scott Pickering'}, {}, { env: {} });
+  const f=fixture({orders:[order],staff_first_name:'Scott'}, {}, { env: {} });
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.clients[0].url,'https://config.invalid');
   assert.equal(f.clients[0].key,'config-public');
@@ -153,14 +145,14 @@ test('creation falls back to the built-in Supabase config when public env vars a
 
 test('submit-only work orders page past the 1000-asset threshold without failing closed',async()=>{
   const assets = Array.from({length:1250},(_,index)=>({id:`asset-${index}`,location_id:'location-409',name:`Asset ${index}`,asset_type:'HVAC',active:true}));
-  const f=fixture({orders:[{...order,issue:'not cooling',priority:'Low'}],staff_first_name:'Scott Pickering'},{assets});
+  const f=fixture({orders:[{...order,issue:'not cooling',priority:'Low'}],staff_first_name:'Scott'},{assets});
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.writes[0].category,'HVAC');
   assert.equal(f.writes[0].priority,'High');
 });
 
 test('assetless work orders still infer the category and priority from the issue',async()=>{
-  const f=fixture({orders:[{...order,asset_id:null,asset_name:'',category:'General',priority:'Medium',issue:'not cooling'}],staff_first_name:'Scott Pickering'});
+  const f=fixture({orders:[{...order,asset_id:null,asset_name:'',category:'General',priority:'Medium',issue:'not cooling'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.writes[0].category,'HVAC');
   assert.equal(f.writes[0].priority,'High');

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
-import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
+import { authorizationHeaders, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect from "@/components/SearchableSelect";
 import CopyButton from "@/components/CopyButton";
@@ -1156,6 +1156,52 @@ export default function WorkOrderTicketPage() {
     requestAnimationFrame(() => document.getElementById("technician-note-editor")?.focus());
   }
 
+  async function claimUnassignedWorkOrder() {
+    if (!order) return;
+    const assignedName = cmpriSession?.user.name?.trim();
+    if (!assignedName) {
+      setMessage("Your profile needs a name before you can take an unassigned work order.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      const headers = await authorizationHeaders();
+      headers["Content-Type"] = "application/json";
+      const response = await fetch(`/api/work-orders/${encodeURIComponent(order.id)}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          expected_revision: order.revision,
+          technician_name: assignedName,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.workOrder) {
+        throw new Error(payload.error || "This work order could not be assigned to you.");
+      }
+      const claimed = payload.workOrder as WorkOrder;
+      setOrder(claimed);
+      setTechnicianName(assignedName);
+      setInitialFingerprint(JSON.stringify({
+        issue, assetId, category, priority, technicianName: assignedName, status, notes,
+        actionRootCause, parts, cost, hours, dueBy,
+      }));
+      setSaveState("idle");
+      setMessage("This work order is now assigned to you.");
+      if (embedded && window.parent !== window) {
+        window.parent.postMessage(
+          { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken },
+          window.location.origin,
+        );
+      }
+    } catch (error) {
+      setMessage(`Assignment error: ${error instanceof Error ? error.message : "This work order could not be assigned to you."}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveTicket() {
     if (!order) return;
 
@@ -1414,6 +1460,12 @@ export default function WorkOrderTicketPage() {
   const canEditTicket = Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
+  const isTechnician = ["technician", "maintenancetechnician"].includes(
+    (cmpriSession?.user.role || "").toLowerCase().replace(/[\s_-]+/g, ""),
+  );
+  const canClaimWorkOrder = isTechnician &&
+    !String(order.technician_name || "").trim() &&
+    ["Open", "In Progress"].includes(String(order.status || "Open"));
   const statusValues = (() => {
     if (canReviewTicket && !canEditTicket) {
       return status === "Pending Verification" ? ["Pending Verification", "Open", "Will Not Do"] : [status];
@@ -1660,6 +1712,7 @@ export default function WorkOrderTicketPage() {
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician</div>
                   {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{technicianName || "Unassigned"}</p>}
+                  {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-2 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
