@@ -39,7 +39,7 @@ export default function DashboardAssistant() {
   useEffect(() => {
     let current = true;
     if (!isDashboard) {
-      setAuthenticated(false);
+      void Promise.resolve().then(() => { if (current) setAuthenticated(false); });
       return () => { current = false; };
     }
     void (async () => {
@@ -64,8 +64,8 @@ export default function DashboardAssistant() {
   useEffect(() => {
     if (!authenticated) return;
     let current = true;
-    setDiagnostic({ ok: false, state: "checking", message: "Checking AI connection…" });
     void (async () => {
+      if (current) setDiagnostic({ ok: false, state: "checking", message: "Checking AI connection…" });
       try {
         const session = await getValidSession();
         if (!session?.access_token) throw new Error("Sign in again to check CMPRI AI.");

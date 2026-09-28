@@ -23,6 +23,7 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
 }
 
 function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | undefined) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const authAdmin = admin && typeof admin === "object" ? (admin as { auth?: { admin?: unknown } }).auth?.admin : undefined;
   return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
 }
@@ -153,7 +154,10 @@ export async function POST(request: NextRequest) {
 
   let id: string | undefined;
   if (password) {
-    const { data: created, error: createError } = await (adminAuth as any).createUser({
+    const createUser = adminAuth.createUser as
+      | ((attrs: { email: string; password: string; email_confirm: boolean; user_metadata: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
+      | undefined;
+    const { data: created, error: createError } = await createUser!({
       email,
       password,
       email_confirm: true,
@@ -162,7 +166,10 @@ export async function POST(request: NextRequest) {
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
     id = created.user?.id;
   } else {
-    const { data: invited, error: inviteError } = await (adminAuth as any).inviteUserByEmail(email, { data: { full_name: fullName } });
+    const inviteUserByEmail = adminAuth.inviteUserByEmail as
+      | ((email: string, options?: { data?: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
+      | undefined;
+    const { data: invited, error: inviteError } = await inviteUserByEmail!(email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }
@@ -282,13 +289,19 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * Account removal is intentionally a soft deactivation. CMPRI preserves identity,
- * ticket attribution, notes, assignments, AI provenance, and audit history.
+ * Account removal permanently purges CMPRI data (tickets, notes, assignments, AI
+ * provenance, audit history) via the purge_cmpri_user database function, then
+ * removes the Supabase Auth login. This requires service-role credentials.
  */
 export async function DELETE(request: NextRequest) {
   const access = await requireCapability(request, "manage_users");
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
   const { principal, admin } = access;
+
+  const adminAuth = ensureServiceRoleAdmin(admin);
+  if (!adminAuth) {
+    return NextResponse.json({ error: "This deployment is missing Supabase service-role credentials. Set SUPABASE_SERVICE_ROLE_KEY before permanently removing an account." }, { status: 503 });
+  }
 
   const url = new URL(request.url);
   const id = url.searchParams.get("id")?.trim() ?? "";
@@ -317,22 +330,27 @@ export async function DELETE(request: NextRequest) {
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
   if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
-    return NextResponse.json({ error: "You cannot deactivate your own, an equal, or a superior CMPRI account." }, { status: 403 });
+    return NextResponse.json({ error: "You cannot permanently remove your own, an equal, or a superior CMPRI account." }, { status: 403 });
   }
 
   const expected = (target.full_name || "").trim();
   if (!expected || confirmName !== expected) {
-    return NextResponse.json({ error: "Type the account's full name exactly to confirm deactivation." }, { status: 400 });
+    return NextResponse.json({ error: "Type the account's full name exactly to confirm permanent removal." }, { status: 400 });
   }
 
-  const { error: profileError } = await admin.from("profiles").update({ active: false }).eq("id", id);
-  if (profileError) return NextResponse.json({ error: "Unable to deactivate this CMPRI profile." }, { status: 500 });
+  const { error: purgeError } = await admin.rpc("purge_cmpri_user", { target_id: id });
+  if (purgeError) {
+    return NextResponse.json({ error: `CMPRI data could not be fully purged: ${purgeError.message}. The Auth login was not deleted.` }, { status: 503 });
+  }
 
-  const { error: membershipError } = await admin.from("hotel_members")
-    .update({ active: false })
-    .eq("hotel_id", HOTEL_ID)
-    .eq("user_id", id);
-  if (membershipError) return NextResponse.json({ error: "The profile was deactivated, but property access could not be revoked." }, { status: 500 });
+  const deleteUser = adminAuth.deleteUser as ((userId: string) => Promise<{ error: { message?: string } | null }>) | undefined;
+  const { error: authDeleteError } = deleteUser
+    ? await deleteUser.call(adminAuth, id)
+    : { error: { message: "Auth admin client is unavailable." } };
+  if (authDeleteError) {
+    return NextResponse.json({ error: `CMPRI data was purged, but the Auth login remains: ${authDeleteError.message || "unknown error"}. Remove it manually in Supabase Auth.` }, { status: 500 });
+  }
 
-  return NextResponse.json({ deactivated: id, preserved_history: true });
+  return NextResponse.json({ deleted: id, preserved_history: false });
 }
+
