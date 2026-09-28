@@ -155,7 +155,7 @@ export default function PoolLogPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
-      <div className="mx-auto max-w-4xl space-y-4">
+      <div className="mx-auto w-full space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">CMPRI — Daily Pool Log</h1>

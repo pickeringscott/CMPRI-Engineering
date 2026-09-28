@@ -88,7 +88,7 @@ export default function RoomRankerPage() {
   );
 
   return <main className="min-h-screen bg-slate-950 text-white">
-    <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
+    <div className="mx-auto w-full px-3 py-4 sm:px-4">
       <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div><p className="text-xs font-bold uppercase tracking-[.22em] text-amber-400">Live Google Sheet</p><h1 className="mt-1 text-3xl font-bold">Room Ranker</h1><p className="mt-2 text-sm text-slate-400">Edit inspected-by, room checks, rank, and notes. Room numbers and summary formulas are protected.</p></div>
         <div className="flex gap-2"><a href="/engineering" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</a><button onClick={() => loadRooms()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Refresh</button></div>

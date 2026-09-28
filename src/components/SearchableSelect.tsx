@@ -74,7 +74,6 @@ export default function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
   const selected = useMemo(() => options.find((option) => option.value === value), [options, value]);
 
@@ -109,38 +108,6 @@ export default function SearchableSelect({
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [onDismiss, selected?.label]);
 
-
-  function positionMenu() {
-    const wrapper = wrapperRef.current;
-    if (!wrapper || typeof window === "undefined") return;
-
-    const rect = wrapper.getBoundingClientRect();
-    const padding = 8;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const available = Math.max(40, Math.min(320, spaceBelow - 12));
-
-    setMenuStyle({
-      position: "fixed",
-      left: Math.max(padding, Math.min(rect.left, window.innerWidth - padding - rect.width)),
-      width: Math.max(160, Math.min(rect.width, window.innerWidth - padding * 2)),
-      maxHeight: available,
-      zIndex: 2147483000,
-      top: rect.bottom + 4,
-      bottom: "auto",
-    });
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    positionMenu();
-    const reposition = () => positionMenu();
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-    };
-  }, [open]);
 
   function commit(option?: SearchableSelectOption) {
     if (!option) return;
@@ -266,7 +233,7 @@ export default function SearchableSelect({
       </div>
 
       {open && !disabled && (
-        <div id={listId} role="listbox" style={menuStyle} className="overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 py-0.5 shadow-2xl">
+        <div id={listId} role="listbox" className="absolute left-0 right-0 top-[calc(100%+4px)] z-[2147483000] max-h-80 overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 py-0.5 shadow-2xl">
           {visibleOptions.length ? (
             <>
               {visibleOptions.map((option, optionIndex) => {

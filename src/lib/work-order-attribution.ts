@@ -1,8 +1,11 @@
 import { isFrontDesk, isSubmitOnlyRole } from "@/lib/server/roles";
+import { validEmployeeFullName } from "@/lib/auth/front-desk-session";
 
-export function validFirstName(value: unknown): value is string {
-  return typeof value === "string" && /^[\p{L}\p{M}][\p{L}\p{M} '\u2019-]{0,79}$/u.test(value.trim());
+export function validEmployeeName(value: unknown): value is string {
+  return validEmployeeFullName(value);
 }
+
+export const validFirstName = validEmployeeName;
 
 export function workOrderAttribution(
   user: { id: string; email?: string },
@@ -13,8 +16,8 @@ export function workOrderAttribution(
   const frontDesk = isFrontDesk(profile.role);
   const submitOnly = isSubmitOnlyRole(profile.role);
   const name = typeof staffName === "string" ? staffName.trim() : "";
-  if (frontDesk && !validFirstName(staffName)) {
-    throw new Error("Enter your first name before submitting (up to 80 characters).");
+  if (frontDesk && !validEmployeeName(staffName)) {
+    throw new Error("Enter your full name before submitting (up to 80 characters).");
   }
   return {
     created_by: user.id,

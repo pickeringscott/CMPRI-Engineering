@@ -11,6 +11,14 @@ type KnowledgePayload = Record<string, unknown> & {
   source?: Record<string, unknown>;
 };
 
+type AssetReference = {
+  id: string;
+  location_id: string | null;
+  active: boolean | null;
+  documentation_key: string | null;
+  [key: string]: unknown;
+};
+
 function normalizedModelPattern(value: unknown) {
   return String(value || "")
     .toLowerCase()
@@ -33,6 +41,10 @@ function modelMatchesPattern(modelValue: unknown, patternValue: unknown) {
   return model.includes(pattern) || pattern.includes(model);
 }
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function stringList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item || "").trim()).filter(Boolean);
@@ -41,6 +53,13 @@ function stringList(value: unknown) {
 function pageList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.map(Number).filter((page) => Number.isInteger(page) && page > 0);
+}
+
+function documentationFileMatches(file: { name?: string; metadata?: Record<string, unknown> | null }, sourceFileName: string) {
+  const expected = sourceFileName.trim().toLowerCase();
+  if (!expected) return false;
+  return String(file.name || "").toLowerCase() === expected ||
+    String(file.metadata?.original_name || "").trim().toLowerCase() === expected;
 }
 
 function manualTestMatches(titleValue: unknown, testValue: unknown) {
@@ -64,60 +83,189 @@ function manualTestMatches(titleValue: unknown, testValue: unknown) {
 }
 
 function enrichManualKnowledge(payload: KnowledgePayload | null) {
-  if (!payload) return null;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const asObject = (value: unknown) => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const sourcePayload = asObject(payload);
+  const source = asObject(sourcePayload.source ?? sourcePayload.document);
+  const rawCodes = sourcePayload.error_codes ?? sourcePayload.errorCodes ?? sourcePayload.diagnostic_codes ?? [];
+  const rawRules = sourcePayload.symptom_rules ?? sourcePayload.symptomRules ?? sourcePayload.troubleshooting ?? sourcePayload.guidance ?? [];
+  const error_codes = Array.isArray(rawCodes)
+    ? rawCodes
+        .map((entry: unknown) => {
+          const item = asObject(entry);
+          return {
+            code: String(item.code ?? item.id ?? "").trim(),
+            problem: String(item.problem ?? item.description ?? item.meaning ?? "").trim(),
+            action: String(item.action ?? item.solution ?? item.corrective_action ?? "").trim(),
+            source_pages: pageList(item.source_pages ?? item.pages),
+          };
+        })
+        .filter((item) => item.code && (item.problem || item.action))
+    : [];
 
-  const rawRules = Array.isArray(payload.symptom_rules) ? [...payload.symptom_rules] : [];
-  const generalChecks = stringList(payload.general_checks);
-  if (generalChecks.length) {
-    rawRules.push({ match: [], steps: generalChecks, guidance_type: "general_checks" });
-  }
+  const symptom_rules = Array.isArray(rawRules)
+    ? rawRules
+        .map((entry: unknown) => {
+          if (typeof entry === "string") return { match: [], steps: [entry] };
+          const item = asObject(entry);
+          const matchRaw = item.match ?? item.matches ?? item.symptoms ?? item.keywords ?? [];
+          const stepsRaw = item.steps ?? item.actions ?? item.suggestions ?? item.troubleshooting ?? [];
+          return {
+            match: Array.isArray(matchRaw) ? matchRaw.map(String) : [String(matchRaw || "")].filter(Boolean),
+            steps: Array.isArray(stepsRaw) ? stepsRaw.map(String) : [String(stepsRaw || "")].filter(Boolean),
+            source_pages: pageList(item.source_pages ?? item.pages),
+          };
+        })
+        .filter((item) => item.steps.length > 0)
+    : [];
 
-  if (Array.isArray(payload.manual_tests)) {
-    for (const entry of payload.manual_tests) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-      const item = entry as Record<string, unknown>;
-      const testText = String(item.test || item.steps || item.action || "").trim();
-      if (!testText) continue;
-      const title = String(item.title || "").trim();
-      const matches = manualTestMatches(title, testText);
-      // Manual tests are intentionally not emitted as empty-match rules. A
-      // technical test belongs on the ticket only when its subject matches
-      // the reported symptom; otherwise it remains available in the source
-      // document instead of becoming always-on troubleshooting noise.
-      if (!matches.length) continue;
-      rawRules.push({
-        match: matches,
-        steps: [title ? `${title}: ${testText}` : testText],
+  const generalChecksRaw = sourcePayload.general_checks ?? sourcePayload.generalChecks ?? sourcePayload.general_checks_list ?? [];
+  const general_checks = stringList(generalChecksRaw);
+  const rawManualTests = Array.isArray(sourcePayload.manual_tests)
+    ? sourcePayload.manual_tests as unknown[]
+    : Array.isArray(sourcePayload.manualTests)
+      ? sourcePayload.manualTests as unknown[]
+      : [];
+
+  const manual_tests = rawManualTests
+    .map((entry: unknown) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+      const item = asObject(entry);
+      const title = String(item.title ?? item.name ?? "").trim();
+      const testText = [item.test, item.action, item.step, item.steps]
+        .flatMap((value) => Array.isArray(value) ? value : [value])
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const steps = Array.isArray(item.steps)
+        ? item.steps.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : testText ? [testText] : [];
+      const matchSource = item.match ?? item.matches ?? item.symptoms ?? item.keywords ?? [];
+      const match = Array.isArray(matchSource)
+        ? matchSource.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : matchSource
+          ? [String(matchSource).trim()].filter(Boolean)
+          : [];
+      if (!title && !testText && !steps.length && !match.length) return null;
+      return {
+        title: title || undefined,
+        test: testText || undefined,
+        action: String(item.action ?? "").trim() || undefined,
+        steps,
+        match,
         source_pages: pageList(item.source_pages ?? item.pages),
-        guidance_type: "manual_test",
-      });
-    }
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => !!entry);
+
+  const combinedSymptomRules = [...symptom_rules];
+
+  if (general_checks.length) {
+    combinedSymptomRules.push({
+      match: [],
+      steps: general_checks,
+      source_pages: pageList(sourcePayload.source_pages ?? sourcePayload.pages),
+    });
   }
 
-  return { ...payload, symptom_rules: rawRules };
+  for (const entry of rawManualTests) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const item = asObject(entry);
+    const title = String(item.title ?? item.name ?? "").trim();
+    const testText = String(item.test ?? item.action ?? item.step ?? (Array.isArray(item.steps) ? item.steps.join(" ") : item.steps ?? "")).trim();
+    const match = manualTestMatches(title, testText);
+    if (!match.length) continue;
+    const steps = Array.isArray(item.steps)
+      ? item.steps.map((value) => String(value ?? "").trim()).filter(Boolean)
+      : testText
+        ? [testText]
+        : [];
+    if (!steps.length) continue;
+    combinedSymptomRules.push({
+      match,
+      steps,
+      source_pages: pageList(item.source_pages ?? item.pages),
+    });
+  }
+
+  return {
+    manufacturer: String(sourcePayload.manufacturer ?? ""),
+    equipment: String(sourcePayload.equipment ?? sourcePayload.asset ?? ""),
+    source: {
+      type: String(source.type ?? sourcePayload.document_type ?? ""),
+      title: String(source.title ?? sourcePayload.title ?? sourcePayload.document_title ?? ""),
+      verified: (source.verified ?? sourcePayload.verified) === true,
+      source_file_name: String(source.source_file_name ?? sourcePayload.source_file_name ?? ""),
+      file_url: String(source.file_url ?? sourcePayload.file_url ?? ""),
+      pdf_url: String(source.pdf_url ?? sourcePayload.pdf_url ?? ""),
+    },
+    error_codes,
+    symptom_rules: combinedSymptomRules,
+    general_checks,
+    manual_tests,
+  };
 }
 
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
   const dataClient = auth.admin;
+  const assetFields = "id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_number, serial_number, generation, install_year, documentation_key";
+  const assetId = request.nextUrl.searchParams.get("assetId")?.trim() || "";
 
-  const [{ data: memberships, error: membershipError }, { data: assets, error: assetsError }] = await Promise.all([
+  const [{ data: memberships, error: membershipError }, assetResult] = await Promise.all([
     dataClient
       .from("hotel_members")
       .select("user_id")
       .eq("hotel_id", HOTEL_ID)
       .eq("active", true),
-    dataClient
-      .from("assets")
-      .select("id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_number, serial_number, generation, install_year, documentation_key")
-      .eq("hotel_id", HOTEL_ID)
-      .order("name", { ascending: true }),
+    (async () => {
+      if (assetId) {
+        const result = await dataClient
+          .from("assets")
+          .select(assetFields)
+          .eq("hotel_id", HOTEL_ID)
+          .eq("id", assetId)
+          .maybeSingle();
+        if (result.error) return { data: null, error: result.error };
+        return { data: result.data ? [result.data] : [], error: null };
+      }
+      const allAssets: Record<string, unknown>[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const result = await dataClient
+          .from("assets")
+          .select(assetFields)
+          .eq("hotel_id", HOTEL_ID)
+          .order("name", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (result.error) return result;
+        allAssets.push(...((result.data || []) as Record<string, unknown>[]));
+        if ((result.data || []).length < pageSize) {
+          return { data: allAssets, error: null };
+        }
+      }
+    })(),
   ]);
 
-  if (membershipError || assetsError) {
+  if (membershipError || assetResult.error) {
     return NextResponse.json({ error: "Maintenance reference data could not be loaded." }, { status: 503 });
   }
+  const rawAssets = (assetResult.data || []) as AssetReference[];
+  const locationIds = Array.from(new Set(rawAssets.map((asset) => String(asset.location_id || "")).filter(Boolean)));
+  const locationNames = new Map<string, string>();
+  if (locationIds.length) {
+    const { data: locations } = await dataClient.from("locations")
+      .select("id, name")
+      .eq("hotel_id", HOTEL_ID)
+      .in("id", locationIds);
+    for (const location of locations || []) locationNames.set(String(location.id), String(location.name || ""));
+  }
+  const assets: Array<AssetReference & { location_name: string }> = rawAssets.map((asset) => ({
+    ...asset,
+    location_name: locationNames.get(String(asset.location_id || "")) || "",
+  }));
 
   const memberIds = (memberships || []).map((item) => String(item.user_id || "")).filter(Boolean);
   let profiles: Array<{ id: string; full_name: string | null; role: string | null; active: boolean | null }> = [];
@@ -140,7 +288,7 @@ export async function GET(request: NextRequest) {
   const usableAssets = (assets ?? []).filter((asset) => asset.active !== false);
 
   let manualKnowledge: KnowledgePayload | null = null;
-  const assetId = request.nextUrl.searchParams.get("assetId")?.trim() || "";
+  let documentationStatus = assetId ? "unresolved" : "no_asset";
   const selectedAsset = assetId ? usableAssets.find((asset) => String(asset.id) === assetId) : undefined;
 
   if (assetId && !selectedAsset) {
@@ -150,144 +298,57 @@ export async function GET(request: NextRequest) {
   if (selectedAsset) {
     async function readCache(cacheKey?: string | null) {
       const key = String(cacheKey || "").trim();
-      if (!key) return null;
+      if (!key) return { payload: null, failed: false };
       const { data, error } = await dataClient
         .from("troubleshooting_cache")
         .select("payload")
         .eq("hotel_id", HOTEL_ID)
         .eq("cache_key", key)
         .maybeSingle();
-      if (error) return null;
-      return (data?.payload || null) as KnowledgePayload | null;
+      if (error) return { payload: null, failed: true };
+      return { payload: (data?.payload || null) as KnowledgePayload | null, failed: false };
     }
 
-    manualKnowledge = await readCache(selectedAsset.documentation_key);
+    const documentationKey = typeof selectedAsset.documentation_key === "string" ? selectedAsset.documentation_key.trim() : "";
+    const cacheResult = await readCache(documentationKey);
+    manualKnowledge = cacheResult.payload;
+    documentationStatus = !documentationKey
+      ? "unassigned"
+      : cacheResult.failed
+        ? "lookup_unavailable"
+        : manualKnowledge
+          ? "unverified"
+          : "not_found";
 
-    if (!manualKnowledge) {
-      const { data: docs, error: docsError } = await dataClient
-        .from("maintenance_documents")
-        .select("document_key, title, document_type, manufacturer, equipment, model_pattern, troubleshooting_cache_key")
-        .eq("hotel_id", HOTEL_ID)
-        .eq("active", true);
-
-      if (!docsError) {
-        const manufacturer = String(selectedAsset.manufacturer || "").toLowerCase().trim();
-        const model = String(selectedAsset.model_number || "").trim();
-        const assetText = [
-          selectedAsset.name,
-          selectedAsset.asset_type,
-          selectedAsset.manufacturer,
-          selectedAsset.model_number,
-          selectedAsset.asset_tag,
-        ].filter(Boolean).join(" ").toLowerCase();
-
-        const ranked = (docs ?? [])
-          .map((doc) => {
-            const docManufacturer = String(doc.manufacturer || "").toLowerCase().trim();
-            const docEquipment = String(doc.equipment || "").toLowerCase();
-            const docModelPattern = String(doc.model_pattern || "").trim();
-            const modelSpecific = normalizedModelPattern(docModelPattern).length > 0;
-            const confirmedModelMatch = modelMatchesPattern(model, docModelPattern);
-
-            // Never let a manufacturer/equipment-name match activate a
-            // model-specific manual when the asset model is unknown or does
-            // not match. This prevents cross-model procedures/specifications
-            // from leaking into otherwise similar equipment.
-            if (modelSpecific && !confirmedModelMatch) {
-              return { doc, score: -1 };
-            }
-
-            let score = 0;
-            if (manufacturer && docManufacturer === manufacturer) score += 80;
-            if (confirmedModelMatch) score += 140;
-            if (docEquipment && assetText.includes(docEquipment)) score += 40;
-            const words = docEquipment.split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
-            score += words.filter((word) => assetText.includes(word)).length * 5;
-            return { doc, score };
-          })
-          .filter((item) => item.score > 0)
-          .sort((a, b) => b.score - a.score);
-
-        const best = ranked[0]?.doc;
-        if (best) {
-          manualKnowledge =
-            (await readCache(best.troubleshooting_cache_key)) ||
-            (await readCache(best.document_key));
-        }
-
-        // Last-resort cache matching is deliberately strict. A bare
-        // manufacturer match is not enough to activate structured technical
-        // knowledge because many manufacturers have multiple unrelated model
-        // families. Exact documentation_key remains authoritative; otherwise
-        // a recorded asset model must appear in the cache identity text.
-        if (!manualKnowledge && model) {
-          const { data: cacheRows, error: cacheError } = await dataClient
-            .from("troubleshooting_cache")
-            .select("cache_key, payload")
-            .eq("hotel_id", HOTEL_ID);
-
-          if (!cacheError) {
-            const normalizedAssetModel = normalizedModel(model);
-            const fallback = (cacheRows ?? [])
-              .map((row) => {
-                const payload = (row.payload || {}) as KnowledgePayload;
-                const source = payload.source && typeof payload.source === "object" ? payload.source : {};
-                const cacheKey = String(row.cache_key || "").toLowerCase();
-                const payloadText = [
-                  payload.manufacturer,
-                  payload.equipment,
-                  source.title,
-                  cacheKey,
-                ].filter(Boolean).join(" ").toLowerCase();
-                const normalizedPayloadText = payloadText.replace(/[^a-z0-9]+/g, "");
-                let score = 0;
-                const documentationKey = String(selectedAsset.documentation_key || "").toLowerCase();
-                if (documentationKey && cacheKey === documentationKey) score += 200;
-                if (normalizedAssetModel && normalizedPayloadText.includes(normalizedAssetModel)) score += 140;
-                return { payload, score };
-              })
-              .filter((item) => item.score >= 140)
-              .sort((a, b) => b.score - a.score)[0];
-            manualKnowledge = fallback?.payload ?? null;
-          }
-        }
-      }
-    }
-
-    // Uploaded PDFs are trusted as source material only after the explicit
-    // equipment-verification marker exists. Merely uploading a PDF never turns
-    // unreviewed content into "verified" manufacturer guidance.
+    // A storage upload is attached only when the keyed knowledge record names
+    // that exact PDF. The asset-level verification marker alone cannot identify
+    // which of several uploaded files is the source for this guide.
     const prefix = `${HOTEL_ID}/${assetId}`;
-    const { data: storedDocs, error: storageError } = await dataClient.storage
-      .from(DOCUMENTATION_BUCKET)
-      .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
-
-    if (!storageError) {
+    const source = objectRecord(manualKnowledge?.source);
+    const sourceFileName = String(source.source_file_name || "").trim();
+    if (manualKnowledge && sourceFileName) {
+      const { data: storedDocs, error: storageError } = await dataClient.storage
+        .from(DOCUMENTATION_BUCKET)
+        .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
       const files = storedDocs || [];
-      const verified = files.some((file) => String(file.name || "") === VERIFY_MARKER);
-      const firstPdf = files.find((file) =>
-        file.name &&
-        !String(file.name).startsWith("_cmpri-") &&
-        String(file.name).toLowerCase().endsWith(".pdf"),
+      const verified = !storageError && files.some((file) => String(file.name || "") === VERIFY_MARKER);
+      const sourcePdf = !storageError && files.find((file) =>
+        String(file.name || "").toLowerCase().endsWith(".pdf") && documentationFileMatches(file, sourceFileName),
       );
-      if (firstPdf) {
-        const storagePath = `${prefix}/${firstPdf.name}`;
+      if (sourcePdf && verified) {
+        const storagePath = `${prefix}/${sourcePdf.name}`;
         const { data: signed } = await dataClient.storage
           .from(DOCUMENTATION_BUCKET)
           .createSignedUrl(storagePath, 60 * 60);
         if (signed?.signedUrl) {
-          const source = manualKnowledge?.source && typeof manualKnowledge.source === "object"
-            ? manualKnowledge.source
-            : {};
+          const sourceRecord = objectRecord(manualKnowledge.source);
           manualKnowledge = {
-            ...(manualKnowledge || { manufacturer: "", equipment: "", error_codes: [], symptom_rules: [] }),
+            ...manualKnowledge,
             source: {
-              ...source,
-              type: source.type || "Equipment Documentation",
-              title: source.title || firstPdf.name.replace(/^\d+-/, ""),
-              source_file_name: source.source_file_name || firstPdf.name,
+              ...sourceRecord,
+              type: sourceRecord.type || "Equipment Documentation",
+              title: sourceRecord.title || sourceFileName,
               file_url: signed.signedUrl,
-              verified,
             },
           };
         }
@@ -295,12 +356,18 @@ export async function GET(request: NextRequest) {
     }
 
     manualKnowledge = enrichManualKnowledge(manualKnowledge);
+    if (manualKnowledge) {
+      documentationStatus = objectRecord(manualKnowledge.source).verified === true ? "verified" : "unverified";
+    }
   }
 
   return NextResponse.json({
     technicians,
     assets: usableAssets,
     manualKnowledge,
+    asset_id: selectedAsset?.id || null,
+    documentation_key: selectedAsset?.documentation_key || null,
+    documentation_status: documentationStatus,
     can_edit_equipment: allows(auth.principal, "manage_assets"),
   }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Authorization" } });
 }

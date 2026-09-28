@@ -1,10 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { isIntegrationsSafeMode, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
-
-function roomRankerApiUrl() {
-  return process.env.CMPRI_ROOM_RANKER_API_URL || "https://cmpri.invalid/room-ranker";
-}
+import { isIntegrationsSafeMode, requireIntegrationConfig, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
 
 export type RoomRankerRow = {
   rowNumber: number;
@@ -18,8 +14,14 @@ export async function callRoomRanker(payload: Record<string, unknown>): Promise<
   if (action !== "read" && isIntegrationsSafeMode()) {
     return safeModeBlocked("Room Ranker", action || "write") as unknown as Record<string, unknown>;
   }
-  const apiKey = process.env.CMPRI_ROOM_RANKER_API_KEY || "test-key";
-  const response = await fetch(roomRankerApiUrl(), {
+  const { url, apiKey } = requireIntegrationConfig(
+    "Room Ranker",
+    process.env.CMPRI_ROOM_RANKER_API_URL,
+    process.env.CMPRI_ROOM_RANKER_API_KEY,
+    "CMPRI_ROOM_RANKER_API_URL",
+    "CMPRI_ROOM_RANKER_API_KEY",
+  );
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...payload, apiKey }),

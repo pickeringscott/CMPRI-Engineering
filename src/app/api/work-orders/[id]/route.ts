@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { roleKey } from "@/lib/server/roles";
+import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
 const TECHNICAL_FIELDS = [
@@ -15,8 +17,8 @@ const TECHNICAL_FIELDS = [
 const REVIEW_FIELDS = ["status", "notes"] as const;
 
 function callerDatabase(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
   const authorization = request.headers.get("authorization") || "";
   if (!url || !key || !authorization) return null;
   return createClient(url, key, {
@@ -51,38 +53,50 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
   const includeMentions = request.nextUrl.searchParams.get("include") === "mentions";
-  const workOrderQuery = auth.admin
+  const { data: workOrder, error: workOrderError } = await auth.admin
     .from("work_orders")
     .select("*")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
-  const mentionQuery = includeMentions
-    ? auth.admin
-        .from("work_orders")
-        .select("id, display_id, room, issue, status, created_at")
-        .eq("hotel_id", HOTEL_ID)
-        .neq("id", id)
-        .order("created_at", { ascending: false })
-        .limit(300)
-    : null;
-  const [{ data: workOrder, error: workOrderError }, mentionResult] = await Promise.all([
-    workOrderQuery,
-    mentionQuery || Promise.resolve({ data: null, error: null }),
-  ]);
   if (workOrderError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  if (roleKey(auth.principal.profile.role) === "technician" && workOrder.technician_name !== auth.principal.profile.full_name) {
+  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
+  }
+
+  let creatorRole: string | null = null;
+  if (workOrder.created_by) {
+    if (String(workOrder.created_by) === String(auth.principal.identity.id)) {
+      creatorRole = auth.principal.profile.role || null;
+    } else {
+      const { data: creator } = await auth.admin
+        .from("profiles")
+        .select("role")
+        .eq("id", workOrder.created_by)
+        .maybeSingle();
+      creatorRole = creator?.role || null;
+    }
   }
 
   let mentionTickets: Array<Record<string, unknown>> = [];
   if (includeMentions) {
-    if (mentionResult.error) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
-    mentionTickets = (mentionResult.data ?? []) as Array<Record<string, unknown>>;
+    let mentionQuery = auth.admin
+      .from("work_orders")
+      .select("id, display_id, room, issue, status, created_at")
+      .eq("hotel_id", HOTEL_ID)
+      .neq("id", id)
+      .order("created_at", { ascending: false })
+      .limit(300);
+    if (roleKey(auth.principal.profile.role) === "technician") {
+      mentionQuery = mentionQuery.eq("technician_name", auth.principal.profile.full_name?.trim() || "");
+    }
+    const { data: mentionRows, error: mentionError } = await mentionQuery;
+    if (mentionError) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
+    mentionTickets = (mentionRows ?? []) as Array<Record<string, unknown>>;
   }
 
-  return NextResponse.json({ workOrder, mentionTickets }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ workOrder: { ...workOrder, creator_role: creatorRole }, mentionTickets }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -106,7 +120,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
   const technicianEdit = roleKey(auth.principal.profile.role) === "technician";
-  if (technicianEdit && existing.technician_name !== auth.principal.profile.full_name) {
+  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, existing)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
 
@@ -248,4 +262,36 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!data) return NextResponse.json({ error: "This ticket changed while you were saving. Your edits were not saved. Reload before combining the changes." }, { status: 409 });
   await processRoomRankerSyncForWorkOrder(auth.admin, id).catch(() => undefined);
   return NextResponse.json({ workOrder: data });
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUser(request);
+  if (!auth) return NextResponse.json({ error: "Work-order deletion requires sign-in." }, { status: 401 });
+  const canDelete = allows(auth.principal, "edit_tickets") || allows(auth.principal, "close_tickets") || allows(auth.principal, "manage_users");
+  if (!canDelete) return NextResponse.json({ error: "Engineering access is required to delete work orders." }, { status: 403 });
+
+  const { id } = await params;
+  const db = callerDatabase(request);
+  if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
+
+  const { data: existing, error: lookupError } = await db.from("work_orders")
+    .select("id, room, display_id, status")
+    .eq("hotel_id", HOTEL_ID)
+    .eq("id", id)
+    .maybeSingle();
+  if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
+  if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+
+  if (existing.status === "Closed" && !allows(auth.principal, "close_tickets")) {
+    return NextResponse.json({ error: "Closing permission is required to delete closed work orders." }, { status: 403 });
+  }
+
+  const { error: deleteError } = await db.from("work_orders")
+    .delete()
+    .eq("hotel_id", HOTEL_ID)
+    .eq("id", id);
+
+  if (deleteError) return NextResponse.json({ error: "Work order could not be deleted." }, { status: 500 });
+
+  return NextResponse.json({ deleted: id, display_id: existing.display_id || null, room: existing.room || null, ok: true });
 }

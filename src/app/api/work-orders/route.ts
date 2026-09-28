@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { authenticatedUser } from "@/lib/server/request-auth";
@@ -9,16 +11,45 @@ import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { validFirstName, workOrderAttribution } from "@/lib/work-order-attribution";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
-import { inferWorkOrder, separateIssueFromReporterNotes } from "@/lib/work-order-suggestions";
+import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
 const ACTIVE_DUPLICATE_LIMIT = 1000;
 
+async function fetchAllAssetsForLocations(
+  db: SupabaseClient,
+  locationIds: string[],
+): Promise<SuggestionAsset[]> {
+  if (!locationIds.length) return [];
+
+  const rows: SuggestionAsset[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await db
+      .from("assets")
+      .select("id, location_id, name, asset_type, manufacturer, model_number, generation, asset_tag, documentation_key, active")
+      .eq("hotel_id", HOTEL_ID)
+      .in("location_id", locationIds)
+      .range(offset, offset + 999);
+
+    if (error) {
+      throw new Error(error.message || "Equipment could not be read.");
+    }
+
+    if (!data || !data.length) break;
+    rows.push(...(data as SuggestionAsset[]));
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+
+  return rows;
+}
+
 function callerDatabase(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
   const authorization = request.headers.get("authorization") || "";
   if (!url || !key || !authorization) return null;
   return createClient(url, key, {
@@ -132,16 +163,19 @@ export async function POST(request: NextRequest) {
 
     const draftFrontDesk = isFrontDesk(draftCreator.role);
     const draftSubmitOnly = isSubmitOnlyRole(draftCreator.role);
-    const firstName = typeof draft.staff_first_name === "string" ? draft.staff_first_name.trim() : "";
-    if (draftFrontDesk && !validFirstName(firstName)) {
-      return NextResponse.json({ error: "This front-desk draft is missing the required first name." }, { status: 400 });
+    const draftCreatorEmployeeName = typeof draft.staff_first_name === "string" ? draft.staff_first_name.trim() : "";
+    const currentEmployeeName = ownDraft && isFrontDesk(auth.profile.role) && typeof body.staff_first_name === "string"
+      ? body.staff_first_name.trim()
+      : draftCreatorEmployeeName;
+    if (draftFrontDesk && !validFirstName(currentEmployeeName)) {
+      return NextResponse.json({ error: "This Front Desk submission requires the current employee's full name." }, { status: 400 });
     }
     submitOnly = draftSubmitOnly;
     attribution = {
       created_by: draftCreator.id,
       creator_account_user_id: draftCreator.id,
-      creator_name: draftFrontDesk ? firstName : draftCreator.full_name?.trim() || "Unknown User",
-      submitted_by_name: draftFrontDesk ? firstName : null,
+      creator_name: draftFrontDesk ? currentEmployeeName : draftCreator.full_name?.trim() || "Unknown User",
+      submitted_by_name: draftFrontDesk ? currentEmployeeName : null,
       creator_source: ownDraft
         ? draftSubmitOnly
           ? "department_pending_verification"
@@ -150,7 +184,7 @@ export async function POST(request: NextRequest) {
       status: draftSubmitOnly ? "Pending Verification" : "Open",
       source_draft_id: draft.id,
       source_draft_created_by: draftCreator.id,
-      source_draft_creator_name: draftFrontDesk ? firstName : draftCreator.full_name?.trim() || "Unknown User",
+      source_draft_creator_name: draftFrontDesk ? draftCreatorEmployeeName : draftCreator.full_name?.trim() || "Unknown User",
       submitted_by_user_id: auth.user.id,
     };
     sourceDraft = draft as Record<string, unknown>;
@@ -184,7 +218,8 @@ export async function POST(request: NextRequest) {
       }
       if (!row.location_id || !row.issue) throw new Error("Room/location and issue are required.");
       const { issue: cleanIssue, reporterNotes } = separateIssueFromReporterNotes(String(row.issue));
-      if (cleanIssue) row.issue = cleanIssue;
+      if (!cleanIssue) throw new Error("A maintenance issue is required. Add comments to an existing work order's notes.");
+      row.issue = cleanIssue;
       if (reporterNotes) {
         const existingNotes = typeof row.notes === "string" && row.notes.trim() ? `${row.notes.trim()}\n` : "";
         row.reporter_notes = `${existingNotes}${reporterNotes}`;
@@ -227,21 +262,26 @@ export async function POST(request: NextRequest) {
   }
 
   if (submitOnly) {
-    const { data: availableAssets, error: assetError } = await db.from("assets")
-      .select("id, location_id, name, asset_type, manufacturer, model_number, generation, asset_tag, documentation_key, active")
-      .eq("hotel_id", HOTEL_ID)
-      .in("location_id", uniqueLocationIds)
-      .limit(1000);
-    if (assetError || !availableAssets || availableAssets.length >= 1000) {
+    try {
+      const availableAssets = await fetchAllAssetsForLocations(db, uniqueLocationIds);
+      for (const row of rows) {
+        const candidates = availableAssets.filter((asset) => asset.location_id === row.location_id && asset.active !== false);
+        const guess = inferWorkOrder(`${row.issue} ${row.notes || ""}`.trim(), candidates);
+        row.asset_id = guess.assetId;
+        row.asset_name = candidates.find((asset) => asset.id === guess.assetId)?.name || "";
+        row.category = guess.category || "General";
+        row.priority = guess.priority || "Medium";
+      }
+    } catch {
       return NextResponse.json({ error: "Equipment guesses could not be checked completely. No tickets were created." }, { status: 503 });
     }
-    for (const row of rows) {
-      const candidates = availableAssets.filter((asset) => asset.location_id === row.location_id && asset.active !== false);
-      const guess = inferWorkOrder(`${row.issue} ${row.notes || ""}`.trim(), candidates);
-      row.asset_id = guess.assetId;
-      row.asset_name = candidates.find((asset) => asset.id === guess.assetId)?.name || "";
-      row.category = guess.category || "General";
-      row.priority = guess.priority || "Medium";
+  }
+
+  for (const row of rows) {
+    if (!row.asset_id && (!row.category || String(row.category).trim() === "General")) {
+      const suggestion = inferWorkOrder(`${String(row.issue || "")} ${String(row.notes || "")}`.trim(), []);
+      if (suggestion.category) row.category = suggestion.category;
+      if (suggestion.priority) row.priority = suggestion.priority;
     }
   }
 

@@ -324,7 +324,6 @@ Behavior:
 - Header room-move indicator: **Moves: X**.
 - Room detail shows Room Ranker grade/flags.
 - PM status visible in context when opened from relevant room/KPI.
-- Manual **Refresh AI** button on Engineering Dashboard.
 - Keep layout compact/mobile-friendly; Scott explicitly rejected unnecessarily wide layouts.
 
 A previous preferred dashboard used a dense/dark engineering-control-room style with clear cards and ticket list. Preserve the compact information density rather than expanding whitespace.
@@ -333,24 +332,12 @@ A previous preferred dashboard used a dense/dark engineering-control-room style 
 
 # 12. AI BOUNDARY
 
-Normal application runtime:
-- **Refresh AI on the Engineering Dashboard is the only intended provider-triggered AI action.**
-- No paid/provider AI on typing.
-- No provider AI merely because a page loads.
-- No provider AI just because a field/dropdown changes.
+The dashboard AI refresh/provider integration has been retired.
+- No paid/provider AI calls in normal application runtime.
 - Local deterministic inference/fuzzy matching is allowed.
-- PDF/manual parsing should not silently call a provider.
-
-When AI-derived content is stored/imported, persist provenance:
-- authenticated user
-- opaque/local device ID or source device
-- timestamp
-- source/action
-- model/provider metadata where relevant
-
-Phone/AI imports should be marked AI-imported with provenance/audit metadata.
-
-Old administrative scripts that call an AI provider must not become accidental runtime behavior.
+- PDF/manual parsing must not call a provider.
+- Preserve historical AI provenance records; do not delete audit data as part of feature removal.
+- Old administrative scripts that call an AI provider must not become accidental runtime behavior.
 
 ---
 
@@ -671,7 +658,7 @@ Use these newer rules when historical files disagree:
 2. **Duplicate is not a normal status.** Prevent duplicates instead.
 3. **Pool latest rule:** one AM sample + one PM sample; each includes pH+bromine; same physical result is intentionally recorded in both Shallow and Deep paper-form cells per Scott’s inspector direction.
 4. **New asset naming applies only to new assets.** Do not rename legacy records.
-5. **Normal runtime AI is manual Refresh AI only.** No automatic paid/provider calls on typing/load.
+5. **Dashboard AI refresh is retired.** No manual or automatic paid/provider calls in normal runtime.
 6. **Room Ranker and corporate PM sheets remain source of truth.** Do not replace them with local copies.
 7. **No patches.** Clean rewrites/integration only.
 

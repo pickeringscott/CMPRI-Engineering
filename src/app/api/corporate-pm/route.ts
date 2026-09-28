@@ -2,21 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { corporatePmUpdate, jsonObject, matchesWritablePmCell } from "@/lib/integrations/spreadsheet-input";
-import { isIntegrationsSafeMode, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
-
-function corporatePmApiUrl() {
-  return process.env.CMPRI_CORPORATE_PM_API_URL || "https://cmpri.invalid/corporate-pm";
-}
-
-
-function apiKey() {
-  return process.env.CMPRI_CORPORATE_PM_API_KEY || "test-key";
-}
+import { integrationErrorStatus, isIntegrationsSafeMode, requireIntegrationConfig, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
 
 async function readCorporatePm(action: "read" | "roompm", params: Record<string, string> = {}) {
-  const url = new URL(corporatePmApiUrl());
+  const { url: apiUrl, apiKey } = requireIntegrationConfig(
+    "Corporate PM",
+    process.env.CMPRI_CORPORATE_PM_API_URL,
+    process.env.CMPRI_CORPORATE_PM_API_KEY,
+    "CMPRI_CORPORATE_PM_API_URL",
+    "CMPRI_CORPORATE_PM_API_KEY",
+  );
+  const url = new URL(apiUrl);
   url.searchParams.set("action", action);
-  url.searchParams.set("key", apiKey());
+  url.searchParams.set("key", apiKey);
   for (const [key, value] of Object.entries(params)) if (value) url.searchParams.set(key, value);
 
   const response = await fetch(url, { cache: "no-store", redirect: "follow" });
@@ -32,10 +30,17 @@ async function writeCorporatePm(payload: Record<string, unknown>) {
   if (isIntegrationsSafeMode()) {
     return safeModeBlocked("Corporate PM", String(payload.action || "write"));
   }
-  const response = await fetch(corporatePmApiUrl(), {
+  const { url, apiKey } = requireIntegrationConfig(
+    "Corporate PM",
+    process.env.CMPRI_CORPORATE_PM_API_URL,
+    process.env.CMPRI_CORPORATE_PM_API_KEY,
+    "CMPRI_CORPORATE_PM_API_URL",
+    "CMPRI_CORPORATE_PM_API_KEY",
+  );
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, key: apiKey() }),
+    body: JSON.stringify({ ...payload, key: apiKey }),
     cache: "no-store",
     redirect: "follow",
   });
@@ -62,7 +67,7 @@ export async function GET(request: NextRequest) {
     const result = await readCorporatePm("read", sheet ? { sheet } : {});
     return NextResponse.json({ ...result, can_edit: allows(auth.principal, "operate_integrations"), safeMode: isIntegrationsSafeMode() }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: integrationErrorStatus(error) });
   }
 }
 
@@ -81,6 +86,6 @@ export async function PATCH(request: NextRequest) {
     const result = await writeCorporatePm(payload);
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: integrationErrorStatus(error) });
   }
 }

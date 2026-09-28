@@ -154,7 +154,7 @@ export default function RoomsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
+      <div className="mx-auto w-full px-3 py-4 sm:px-4">
         <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">CMPRI Engineering</p>

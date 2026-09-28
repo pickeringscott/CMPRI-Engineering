@@ -275,7 +275,7 @@ export default function ManageEquipmentPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
+      <div className="mx-auto w-full px-3 py-4 sm:px-4">
         <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">CMPRI Engineering</p>
@@ -362,8 +362,8 @@ export default function ManageEquipmentPage() {
       </div>
 
       {showDocumentationDialog && selected && canManage && editing && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4">
-          <div role="dialog" aria-modal="true" className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-1">
+          <div role="dialog" aria-modal="true" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div><h2 className="text-xl font-bold">Add Documentation</h2><p className="mt-1 text-sm text-slate-400">{selected.name}</p></div>
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>

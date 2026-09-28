@@ -9,9 +9,10 @@ import {
   signOutDevice,
   getValidSession,
 } from "@/lib/supabase/client";
-import { APP_TITLE } from "@/lib/constants";
+import { APP_TITLE, CANONICAL_APP_URL } from "@/lib/constants";
+import { frontDeskSessionId, readFrontDeskEmployeeName } from "@/lib/auth/front-desk-session";
 
-async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering"> {
+async function authorizedLanding(token: string, signal?: AbortSignal, sessionId = ""): Promise<string> {
   const response = await fetch("/api/session", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -23,9 +24,20 @@ async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"
     throw new Error(result?.error || "This account is not authorized for CMPRI.");
   }
   if (!response.ok) throw new Error("Unable to verify CMPRI access. Please try again.");
-  const result = await response.json() as { landing?: unknown };
+  const result = await response.json() as {
+    landing?: unknown;
+    user?: { id?: unknown; role?: unknown; manage_profile_first_login_complete?: unknown };
+  };
   if (result.landing !== "/work-orders" && result.landing !== "/technician" && result.landing !== "/engineering") {
     throw new Error("CMPRI returned an invalid account destination.");
+  }
+  const role = typeof result.user?.role === "string" ? result.user.role.trim().toLowerCase().replace(/[\s_-]+/g, "") : "";
+  const userId = typeof result.user?.id === "string" ? result.user.id : "";
+  const needsFrontDeskConfirmation = role === "frontdesk"
+    && !readFrontDeskEmployeeName(window.sessionStorage, userId, sessionId);
+  const needsIndividualConfirmation = role !== "frontdesk" && result.user?.manage_profile_first_login_complete === false;
+  if (needsFrontDeskConfirmation || needsIndividualConfirmation) {
+    return `/profile?returnTo=${encodeURIComponent(result.landing)}`;
   }
   return result.landing;
 }
@@ -39,6 +51,7 @@ export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
+  const [showPasswordAccess, setShowPasswordAccess] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -47,7 +60,7 @@ export default function SignInPage() {
         setRememberMe(remembersDevice());
         const session = await getValidSession();
         if (session) {
-          const landing = await authorizedLanding(session.access_token, controller.signal);
+          const landing = await authorizedLanding(session.access_token, controller.signal, frontDeskSessionId(session.access_token));
           if (!controller.signal.aborted) {
             setRedirecting(true);
             router.replace(landing);
@@ -67,16 +80,23 @@ export default function SignInPage() {
 
   async function signInWithGoogle() {
     setBusy(true);
-    setMessage("");
+    setRedirecting(true);
+    setMessage("Redirecting to Google…");
     try {
       setRememberOnDevice(rememberMe);
-      const redirectTo = `${window.location.origin}/`;
-      const { error } = await createClient().auth.signInWithOAuth({
+      const redirectTo = `${CANONICAL_APP_URL}/`;
+      const { data, error } = await createClient().auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
       });
       if (error) throw error;
+      if (data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+      setMessage("Google sign-in is ready. Redirecting…");
     } catch (error) {
+      setRedirecting(false);
       setMessage(error instanceof Error ? error.message : "Google sign-in could not be started.");
       setBusy(false);
     }
@@ -95,7 +115,7 @@ export default function SignInPage() {
       if (error) throw error;
       const session = await getValidSession();
       if (!session) throw new Error("The password sign-in did not create a session.");
-      const landing = await authorizedLanding(session.access_token);
+      const landing = await authorizedLanding(session.access_token, undefined, frontDeskSessionId(session.access_token));
       setRedirecting(true);
       router.replace(landing);
     } catch (error) {
@@ -106,8 +126,18 @@ export default function SignInPage() {
   }
 
   const disabled = initializing || busy || redirecting;
+  if (initializing || redirecting) {
+    return (
+      <main className="grid min-h-[100dvh] w-full items-start justify-items-center bg-slate-950 px-4 pt-4 text-white sm:pt-6">
+        <div className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 text-center shadow-lg shadow-slate-950/25">
+          <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
+          <p className="mt-2 text-sm text-slate-300">Loading your dashboard…</p>
+        </div>
+      </main>
+    );
+  }
   return (
-    <main className="grid min-h-[100dvh] w-full place-items-center bg-slate-950 px-4 text-white">
+    <main className="grid min-h-[100dvh] w-full items-start justify-items-center bg-slate-950 px-4 pt-4 text-white sm:pt-6">
       <section aria-busy={disabled} className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 shadow-lg shadow-slate-950/25">
         <div className="text-center">
           <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
@@ -124,13 +154,26 @@ export default function SignInPage() {
             </svg>
             <span>{busy ? "Opening Google…" : "Continue with Google"}</span>
           </button>
-          <label className="ml-1.5 flex items-center gap-2 text-sm text-slate-300">
-            <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
-            Remember me
-          </label>
-          <div className="border-t border-slate-800 pt-3">
-            <p className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-400">Password access</p>
-            <form onSubmit={signInWithPassword} className="mt-2 space-y-2.5">
+          <div className="flex items-center justify-between gap-3 px-1.5">
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
+              Remember me
+            </label>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-expanded={showPasswordAccess}
+              aria-controls="password-access"
+              onClick={() => setShowPasswordAccess((open) => !open)}
+              className="min-h-9 px-2 text-sm font-semibold text-sky-300 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-200 disabled:opacity-50"
+            >
+              More…
+            </button>
+          </div>
+          {showPasswordAccess && (
+            <div id="password-access" className="border-t border-slate-800 pt-3">
+              <p className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-400">Password access</p>
+              <form onSubmit={signInWithPassword} className="mt-2 space-y-2.5">
               <input
                 required
                 disabled={disabled}
@@ -156,8 +199,9 @@ export default function SignInPage() {
               <button type="submit" disabled={disabled} className="min-h-11 w-full rounded-lg border border-amber-400 px-4 font-bold text-amber-300 transition hover:bg-amber-400/10 disabled:opacity-60">
                 {busy ? "Signing in…" : "Sign in with Password"}
               </button>
-            </form>
-          </div>
+              </form>
+            </div>
+          )}
         </div>
       </section>
     </main>

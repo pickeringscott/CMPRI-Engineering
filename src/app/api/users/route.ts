@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
 import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole, roleKey } from "@/lib/server/roles";
@@ -26,22 +27,94 @@ function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | u
   return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
 }
 
+async function rollbackCreatedAccount(id: string, authAdmin: Record<string, unknown>, admin: SupabaseClient) {
+  const failures: string[] = [];
+  const cleanupSteps = [
+    {
+      label: "property membership",
+      run: () => admin.from("hotel_members").delete().eq("hotel_id", HOTEL_ID).eq("user_id", id),
+    },
+    {
+      label: "CMPRI profile",
+      run: () => admin.from("profiles").delete().eq("id", id),
+    },
+  ];
+
+  for (const step of cleanupSteps) {
+    try {
+      const { error } = await step.run();
+      if (error) failures.push(step.label);
+    } catch {
+      failures.push(step.label);
+    }
+  }
+
+  const deleteUser = authAdmin.deleteUser as ((userId: string) => Promise<{ error: { message?: string } | null }>) | undefined;
+  if (!deleteUser) {
+    failures.push("Auth login");
+  } else {
+    try {
+      const { error } = await deleteUser.call(authAdmin, id);
+      if (error) failures.push("Auth login");
+    } catch {
+      failures.push("Auth login");
+    }
+  }
+
+  return failures;
+}
+
+async function setupFailureResponse(
+  id: string,
+  authAdmin: Record<string, unknown>,
+  admin: SupabaseClient,
+  failedStep: string,
+  cause: string,
+) {
+  const cleanupFailures = await rollbackCreatedAccount(id, authAdmin, admin);
+  const error = cleanupFailures.length
+    ? `The login was created, but ${failedStep} failed: ${cause}. Automatic cleanup could not remove the ${cleanupFailures.join(", ")}; remove this account manually.`
+    : `${failedStep} failed: ${cause}. The newly created login and CMPRI records were rolled back.`;
+  return NextResponse.json({ error }, { status: 500 });
+}
+
 export async function GET(request: NextRequest) {
   const access = await requireCapability(request, "manage_users");
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
   const { principal, admin } = access;
 
-  const { data: profiles, error: profileError } = await admin
-    .from("profiles")
-    .select("id, email, full_name, role, active")
-    .order("full_name", { ascending: true });
+  const { data: propertyMemberships, error: membershipError } = await admin
+    .from("hotel_members")
+    .select("user_id, hotel_id, active")
+    .eq("hotel_id", HOTEL_ID);
+  if (membershipError) return NextResponse.json({ error: "Unable to read property memberships." }, { status: 503 });
+
+  const memberIds = Array.from(new Set((propertyMemberships || []).map((membership) => String(membership.user_id || "")).filter(Boolean)));
+  if (!memberIds.length) return NextResponse.json({ users: [], assignable_roles: [] });
+
+  const [{ data: profiles, error: profileError }, { data: allMemberships, error: allMembershipsError }] = await Promise.all([
+    admin.from("profiles")
+      .select("id, email, full_name, role, active")
+      .in("id", memberIds)
+      .order("full_name", { ascending: true }),
+    admin.from("hotel_members")
+      .select("user_id, hotel_id")
+      .in("user_id", memberIds),
+  ]);
   if (profileError) return NextResponse.json({ error: "Unable to read CMPRI user profiles." }, { status: 503 });
+  if (allMembershipsError) return NextResponse.json({ error: "Unable to verify property account scope." }, { status: 503 });
 
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
-  const users = (profiles || []).map((user: { id: string; role: unknown }) => ({
+  const membershipsByUserId = new Map((propertyMemberships || []).map((membership) => [String(membership.user_id), membership]));
+  const userIdsWithOtherPropertyMemberships = new Set((allMemberships || [])
+    .filter((membership) => membership.hotel_id !== HOTEL_ID)
+    .map((membership) => String(membership.user_id)));
+  const users = (profiles || []).map((user: { id: string; role: unknown; active: boolean | null }) => ({
     ...user,
-    can_manage: callerCanChangeAccount(callerRole, callerId, { id: user.id, role: user.role }),
+    active: user.active === true && membershipsByUserId.get(user.id)?.active === true,
+    can_manage: !userIdsWithOtherPropertyMemberships.has(user.id)
+      && callerCanChangeAccount(callerRole, callerId, { id: user.id, role: user.role }),
   }));
 
   const managedRoles = new Set<string>();
@@ -104,7 +177,7 @@ export async function POST(request: NextRequest) {
     active: true,
   });
   if (profileError) {
-    return NextResponse.json({ error: `The login was created, but its CMPRI profile could not be set up: ${profileError.message}` }, { status: 500 });
+    return setupFailureResponse(id, adminAuth, admin, "CMPRI profile setup", profileError.message);
   }
 
   const { error: membershipError } = await admin.from("hotel_members").upsert({
@@ -114,8 +187,7 @@ export async function POST(request: NextRequest) {
     active: true,
   }, { onConflict: "hotel_id,user_id" });
   if (membershipError) {
-    await admin.from("profiles").update({ active: false }).eq("id", id);
-    return NextResponse.json({ error: `The login was created, but property access could not be assigned: ${membershipError.message}` }, { status: 500 });
+    return setupFailureResponse(id, adminAuth, admin, "Property access setup", membershipError.message);
   }
 
   return NextResponse.json({ user: { id, email, full_name: fullName, role: profileRole, active: true, invited: !password } });
@@ -137,6 +209,17 @@ export async function PATCH(request: NextRequest) {
     .maybeSingle();
   if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
   if (!target) return NextResponse.json({ error: "Account not found." }, { status: 404 });
+
+  const { data: targetMemberships, error: membershipScopeError } = await admin.from("hotel_members")
+    .select("user_id, hotel_id")
+    .eq("user_id", id);
+  if (membershipScopeError) return NextResponse.json({ error: "Unable to verify this account's property scope." }, { status: 503 });
+  if (!(targetMemberships || []).some((membership) => membership.hotel_id === HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is not a member of this property." }, { status: 404 });
+  }
+  if ((targetMemberships || []).some((membership) => membership.hotel_id !== HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is shared with another property and must be managed centrally." }, { status: 409 });
+  }
 
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
@@ -219,6 +302,17 @@ export async function DELETE(request: NextRequest) {
     .maybeSingle();
   if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
   if (!target) return NextResponse.json({ error: "Account not found." }, { status: 404 });
+
+  const { data: targetMemberships, error: membershipScopeError } = await admin.from("hotel_members")
+    .select("user_id, hotel_id")
+    .eq("user_id", id);
+  if (membershipScopeError) return NextResponse.json({ error: "Unable to verify this account's property scope." }, { status: 503 });
+  if (!(targetMemberships || []).some((membership) => membership.hotel_id === HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is not a member of this property." }, { status: 404 });
+  }
+  if ((targetMemberships || []).some((membership) => membership.hotel_id !== HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is shared with another property and must be managed centrally." }, { status: 409 });
+  }
 
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;

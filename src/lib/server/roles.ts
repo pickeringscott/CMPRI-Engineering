@@ -31,6 +31,8 @@ export type Capability =
   | "manage_assets"
   | "manage_rooms"
   | "manage_users"
+  | "submit_feedback"
+  | "review_feedback"
   | "view_profiles"
   | "operate_integrations";
 
@@ -90,16 +92,21 @@ const TECHNICAL: readonly Capability[] = [
 
 const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   unknown: [],
-  front_desk: ["submit", "view_profiles"],
-  housekeeping: ["submit", "view_profiles"],
-  technician: TECHNICAL,
-  engineer: [...TECHNICAL, "review_tickets", "reopen", "manage_users", "view_profiles"],
-  manager: ["submit", "view_dashboard", "review_tickets", "manage_users", "view_profiles"],
-  senior_management: ["view_dashboard", "view_profiles"],
-  system_admin: [...TECHNICAL, "review_tickets", "reopen", "manage_users", "view_profiles"],
+  front_desk: ["submit", "submit_feedback", "view_profiles"],
+  housekeeping: ["submit", "submit_feedback", "view_profiles"],
+  technician: [...TECHNICAL, "submit_feedback"],
+  engineer: [...TECHNICAL, "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
+  manager: ["submit", "submit_feedback", "view_dashboard", "review_tickets", "manage_users", "view_profiles"],
+  senior_management: ["submit_feedback", "view_dashboard", "view_profiles"],
+  system_admin: [...TECHNICAL, "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
 };
 
 export function roleAllows(role: unknown, capability: Capability): boolean {
+  if (capability === "review_feedback") {
+    if (typeof role !== "string") return false;
+    const normalized = role.trim().toLowerCase().replace(/[^a-z]/g, "");
+    return ["engineer", "chiefengineer", "systemadmin", "systemadministrator", "administrator", "admin"].includes(normalized);
+  }
   return CAPABILITIES[roleKey(role)].includes(capability);
 }
 

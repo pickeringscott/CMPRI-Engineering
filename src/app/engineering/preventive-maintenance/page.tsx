@@ -96,7 +96,7 @@ export default function PreventiveMaintenancePage() {
     .filter(({ row }) => row.some((value) => String(value || "").trim() !== ""));
 
   return <main className="min-h-screen bg-slate-950 text-white">
-    <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
+    <div className="mx-auto w-full px-3 py-4 sm:px-4">
       <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Live Corporate Google Sheet</p>

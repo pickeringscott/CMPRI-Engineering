@@ -184,7 +184,7 @@ export default function RoomOperationsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-5 text-slate-100 sm:px-6">
-      <div className="mx-auto max-w-7xl space-y-4">
+      <div className="mx-auto w-full space-y-4">
         <header className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -261,8 +261,8 @@ export default function RoomOperationsPage() {
         </section>
 
         {activeSummary && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 sm:p-6">
-            <section role="dialog" aria-modal="true" aria-labelledby="room-summary-title" className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl sm:p-5">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-1">
+            <section role="dialog" aria-modal="true" aria-labelledby="room-summary-title" className="cmpri-modal-shell cmpri-dashboard-overlay-panel overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl sm:p-5">
               <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Daily Room Operations</p>

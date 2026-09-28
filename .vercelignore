@@ -1,0 +1,8 @@
+_update-backups/
+.env*
+.vercel/
+node_modules/
+.next/
+coverage/
+out/
+*.tsbuildinfo

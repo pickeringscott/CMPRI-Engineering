@@ -16,6 +16,12 @@ function normalizedIssueText(value: string) {
   return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+export function assetTermsForPlumbingIssue(issue: string) {
+  const text = normalizedIssueText(issue);
+  return ["toilet", "sink", "faucet", "shower", "drain", "pipe", "plumbing"]
+    .filter((term) => new RegExp(`\\b${term}\\b`).test(text));
+}
+
 export function priorityForCategory(category: string) {
   switch (normalizeWorkOrderCategory(category) || category) {
     case "Safety":
@@ -35,7 +41,7 @@ export function categoryFromIssue(issue: string) {
 
   if (/\b(saflok|door lock|lockset|key card|keycard|rfid lock|door won't lock|door will not lock|door won't unlock|door will not unlock|cerradura|tarjeta llave|tarjeta de acceso|puerta no cierra|puerta no abre)\b/.test(text)) return "Doors/Locks";
   if (/\b(fire|alarm|smoke|sprinkler|life safety|carbon monoxide|co detector|incendio|alarma|humo|rociador|monoxido de carbono)\b/.test(text)) return "Safety";
-  if (/\b(vtac|hvac|heat|heating|cooling|not cooling|not heating|air conditioner|thermostat|compressor|friedrich|carrier|rtu|aire acondicionado|no enfria|no calienta|calefaccion|termostato|cuarto caliente|habitacion caliente|frio|calor)\b/.test(text)) return "HVAC";
+  if (/\b(vtac|hvac|ac|heat|heating|cooling|not cooling|not heating|air conditioner|thermostat|compressor|friedrich|carrier|rtu|aire acondicionado|no enfria|no calienta|calefaccion|termostato|cuarto caliente|habitacion caliente|frio|calor)\b/.test(text)) return "HVAC";
   if (/\b(pool|spa|bromine|chlorine|filter pressure|pool filter|pool pump|piscina|bromo|cloro|filtro de piscina|bomba de piscina)\b/.test(text)) return "Pool/Spa";
   if (/\b(leak|leaking|drain|toilet|sink|faucet|shower|plumbing|water leak|fuga|gotea|goteando|desague|inodoro|lavabo|fregadero|grifo|ducha|plomeria)\b/.test(text)) return "Plumbing";
   if (/\b(light|lighting|outlet|breaker|electrical|power outlet|switch|luz|luces|bombilla|foco|enchufe|tomacorriente|interruptor|electrico|electricidad)\b/.test(text)) return "Electrical";
@@ -54,12 +60,22 @@ function findAssetByTerms(assets: SuggestionAsset[], terms: string[]) {
   });
 }
 
+function findAirConditioningAsset(assets: SuggestionAsset[]) {
+  const terms = ["vtac", "ptac", "air conditioner", "air conditioning", "friedrich", "carrier", "hvac"];
+  for (const term of terms) {
+    const asset = assets.find((item) => `${item.name} ${item.asset_type}`.toLowerCase().includes(term));
+    if (asset) return asset;
+  }
+  return undefined;
+}
+
 export function smartSuggestionForIssue(issue: string, availableAssets: SuggestionAsset[]): SmartSuggestion {
   const text = normalizedIssueText(issue).trim();
   if (!text) return { assetId: null, category: null, priority: null, reason: "" };
 
   let asset: SuggestionAsset | undefined;
   if (/\b(friedrich|vert[- ]?i[- ]?pak|vpak|vtac)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["friedrich", "vert-i-pak"]);
+  else if (/\b(?:no|not working|broken|not cooling|stopped|down)\s+(?:the\s+)?(?:ac|air conditioner|air conditioning)\b|\b(?:ac|air conditioner|air conditioning)\s+(?:is\s+)?(?:not working|broken|not cooling|is out|out)\b/.test(text)) asset = findAirConditioningAsset(availableAssets);
   else if (/\b(shower valve|temptrol)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["symmons", "temptrol"]);
   else if (/\b(saflok|door lock|key card|keycard|rfid lock)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["saflok", "dormakaba"]);
   else if (/\b(verdant|room thermostat|energy management thermostat)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["verdant"]);
@@ -123,33 +139,65 @@ export function separateIssueFromReporterNotes(rawIssue: string): {
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
 
   const notePatterns = [
-    /^(?:please|pls|por favor|hi|hey|hello|greetings|fwiw|btw|just so you know|heads up|n\.b\.|note:)\b/i,
-    /^(?:i think|i believe|i guess|maybe|perhaps|posiblemente|creo que|pienso que)\b/i,
-    /^(?:this is|this has been|this keeps|this started|esto es|esto ha estado|esto sigue)\b/i,
-    /^(?:it's been|it has been|it's been doing|ha estado)\b/i,
-    /^(?:the guest|guests|el huesped|los huespedes)\b/i,
-    /^(?:not sure|i'm not sure|no estoy seguro)\b/i,
-    /^(?:also|additionally|furthermore|ademas|tambien)\b/i,
-    /^(?:fyi|for your information|para su informacion)\b/i,
+    /^(?:please|pls|por favor|hi|hey|hello|greetings|fwiw|btw|just so you know|heads up|n\.b\.|note:|comment:|additional (?:info|details)|for context|background:?)\b/i,
+    /^(?:i think|i believe|i guess|maybe|perhaps|posiblemente|creo que|pienso que|not sure|i'm not sure|no estoy seguro)\b/i,
+    /^(?:also|additionally|furthermore|ademas|tambien|fyi|for your information|para su informacion)\b/i,
     /^(?:urgent|asap|priority|importante|urgente)\b/i,
-    /^(?:called yesterday|called last week|reported before|ya llame|ya reporte)\b/i,
-    /\b(?:just a heads up|just wanted to let you know|wanted to report)\b/i,
+    /^(?:previously|earlier|again|already|still waiting|follow(?:ing)? up|called (?:yesterday|last week|earlier)|reported before|ya llame|ya reporte)\b/i,
+    /^(?:the\s+)?guest(?:s)?\s+(?:is\s+)?(?:going\s+to\s+leave|will\s+leave|is\s+leaving|to return|will return|return(?:s)?|is expected|are expected|expecting|is upset|is waiting|is concerned|doesn't want|does not want|asked|requested|mentioned|said)\b/i,
+    /^(?:the\s+)?(?:customer|caller|staff|employee)\s+(?:is\s+)?(?:waiting|upset|concerned|called|asked|requested|mentioned|said|would like|wants?|needs?)\b/i,
+    /^(?:i|we)\s+(?:was told|were told|heard|called|spoke with|already called|already reported|will follow up|need to follow up|would like to note)\b/i,
+    /^(?:room|guest room)\s+(?:is\s+)?occupied\b/i,
+    /^(?:after|before|during)\s+(?:checkout|check-out|check in|check-in|the guest(?:'s)? stay|the event)\b/i,
+    /^(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i,
+    /\b(?:just a heads up|just wanted to let you know|wanted to report|for your information)\b/i,
   ];
 
   const symptomLines: string[] = [];
   const noteLines: string[] = [];
+  const inlineNotePatterns = [
+    /\bguest(?:s)?\s+(?:is\s+)?(?:leaving|left|will leave|going to leave|is upset|is waiting|is concerned|doesn't want|does not want|asked|requested|mentioned|said)\b.*$/i,
+    /\b(?:customer|caller|staff|employee)\s+(?:is\s+)?(?:waiting|upset|concerned|asked|requested|mentioned|said|would like|wants?|needs?)\b.*$/i,
+    /\bguest(?:s)?\s+(?:to return|will return|return(?:s)?|is expected|are expected|expecting)\b.*$/i,
+    /\b(?:room|guest room)\s+(?:is\s+)?occupied\b.*$/i,
+    /\b(?:guest|room)\s+(?:will\s+)?return\s+by\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b.*$/i,
+    /\b(?:previously|earlier|already reported|already called|called (?:yesterday|last week)|follow(?:ing)? up|still waiting|after checkout|before checkout|during checkout)\b.*$/i,
+    /\b(?:just so you know|heads up|for context|additional (?:info|details)|fyi|please|pls|btw|note:|comment:)\b.*$/i,
+  ];
 
-  for (const line of lines) {
+  const reportedIssuePrefix = /^(?:(?:the\s+)?(?:guest|customer|caller|staff member|employee)\s+(?:reports?|reported|says?|said|mentions?|mentioned|noticed|observed)\s+(?:that\s+)?|(?:i|we)\s+(?:am reporting|reported|noticed|observed)\s+(?:that\s+)?)/i;
+
+  for (const sourceLine of lines) {
+    let line = sourceLine;
+    const reportedIssue = line.replace(reportedIssuePrefix, "").trim();
+    if (reportedIssue !== line) {
+      if (notePatterns.some((pattern) => pattern.test(reportedIssue))) {
+        noteLines.push(line);
+        continue;
+      }
+      line = reportedIssue;
+    }
+
     const isNote = notePatterns.some((pattern) => pattern.test(line));
     if (isNote) {
       noteLines.push(line);
     } else {
-      symptomLines.push(line);
+      const inlineMatch = inlineNotePatterns
+        .map((pattern) => pattern.exec(line))
+        .filter((match): match is RegExpExecArray => Boolean(match))
+        .sort((a, b) => a.index - b.index)[0];
+      if (inlineMatch && inlineMatch.index > 0) {
+        const symptom = line.slice(0, inlineMatch.index).replace(/[;,:-]+\s*$/, "").trim();
+        if (symptom) symptomLines.push(symptom);
+        noteLines.push(line.slice(inlineMatch.index).trim());
+      } else {
+        symptomLines.push(line);
+      }
     }
   }
 
   if (symptomLines.length === 0 && noteLines.length > 0) {
-    return { issue: noteLines[0], reporterNotes: noteLines.slice(1).join("\n") };
+    return { issue: "", reporterNotes: noteLines.join("\n") };
   }
 
   const issue = symptomLines.join(" ").replace(/\s{2,}/g, " ").trim();

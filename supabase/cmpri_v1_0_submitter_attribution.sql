@@ -17,6 +17,7 @@ declare
   caller public.profiles%rowtype;
   caller_membership public.hotel_members%rowtype;
   staff_name text;
+  unsupported_name_chars text;
   normalized_role text;
 begin
   -- Trusted server workflows must set their own explicit provenance columns.
@@ -50,8 +51,13 @@ begin
 
   if normalized_role = 'frontdesk' then
     staff_name := btrim(coalesce(new.submitted_by_name, ''));
-    if length(staff_name) < 1 or length(staff_name) > 80 or staff_name !~ '^[[:alpha:]][[:alpha:] ''’-]*$' then
-      raise exception 'Enter your first name before submitting';
+    unsupported_name_chars := regexp_replace(staff_name, '[A-Za-z[:space:]''’-]', '', 'g');
+    if length(staff_name) < 2 or length(staff_name) > 80
+      or unsupported_name_chars ~ '[[:ascii:]]'
+      or staff_name ~ '[0-9]'
+      or (staff_name !~ '[[:space:]]' and (staff_name ~ '[A-Za-z]' or octet_length(staff_name) <= char_length(staff_name)))
+      or staff_name ~ '(^|[[:space:]])[A-Za-z]([[:space:]]|$)' then
+      raise exception 'Enter your full name before submitting';
     end if;
     new.submitted_by_name := staff_name;
     new.creator_name := staff_name;

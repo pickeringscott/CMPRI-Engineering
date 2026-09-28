@@ -15,6 +15,11 @@ alter type public.work_order_status add value if not exists 'Closed';
 alter type public.work_order_status add value if not exists 'Will Not Do';
 commit;
 
+-- Existing profiles do not re-enter first-login confirmation; newly created
+-- individual profiles are explicitly marked incomplete by the account API.
+alter table public.profiles
+  add column if not exists manage_profile_first_login_complete boolean not null default true;
+
 
 -- SECTION: integrations
 begin;
@@ -169,9 +174,11 @@ commit;
 
 -- SECTION: submitter_attribution
 -- Apply to an isolated test database first. Core schema/RLS is not supplied here.
--- Preserve shared-account identity and the required individual first name.
+-- Preserve shared-account identity and the full employee name for Front Desk.
 begin;
 alter table public.work_orders add column if not exists submitted_by_name text;
+alter table public.work_orders add column if not exists submitted_by_user_id uuid references auth.users(id) on delete set null;
+alter table public.work_orders add column if not exists creator_account_user_id uuid references auth.users(id) on delete set null;
 
 create or replace function public.cmpri_check_work_order_submitter()
 returns trigger language plpgsql security definer set search_path = '' as $$
@@ -179,6 +186,7 @@ declare
   caller_id uuid := auth.uid();
   caller public.profiles%rowtype;
   staff_name text;
+  unsupported_name_chars text;
 begin
   -- Scheduled service imports retain their separate provenance workflow.
   if caller_id is null then
@@ -191,10 +199,16 @@ begin
   end if;
   new.created_by := caller_id;
   new.creator_account_user_id := caller_id;
+  new.submitted_by_user_id := caller_id;
   if regexp_replace(lower(coalesce(caller.role, '')), '[[:space:]_-]', '', 'g') = 'frontdesk' then
-    staff_name := btrim(coalesce(new.submitted_by_name, ''));
-    if length(staff_name) < 1 or length(staff_name) > 80 or staff_name !~ '^[[:alpha:]][[:alpha:] ''’-]*$' then
-      raise exception 'Enter your first name before submitting';
+    staff_name := regexp_replace(btrim(coalesce(new.submitted_by_name, '')), '[[:space:]]+', ' ', 'g');
+    unsupported_name_chars := regexp_replace(staff_name, '[A-Za-z[:space:]''’-]', '', 'g');
+    if length(staff_name) < 2 or length(staff_name) > 80
+      or unsupported_name_chars ~ '[[:ascii:]]'
+      or staff_name ~ '[0-9]'
+      or (staff_name !~ '[[:space:]]' and (staff_name ~ '[A-Za-z]' or octet_length(staff_name) <= char_length(staff_name)))
+      or staff_name ~ '(^|[[:space:]])[A-Za-z]([[:space:]]|$)' then
+      raise exception 'Enter your full name before submitting';
     end if;
     new.submitted_by_name := staff_name;
     new.creator_name := staff_name;

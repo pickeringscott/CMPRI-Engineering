@@ -4,6 +4,16 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
+const roleExports={};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/roles.ts',import.meta.url),'utf8'),{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText,{exports:roleExports});
+const assignmentExports={};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/work-order-assignment.ts',import.meta.url),'utf8'),{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText,{exports:assignmentExports,require(name){if(name==='./roles')return roleExports;throw new Error(name);}});
+const { canAccessWorkOrderByAssignment }=assignmentExports;
+
 const code=ts.transpileModule(readFileSync(new URL('../src/app/api/work-orders/[id]/route.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText;
@@ -70,8 +80,11 @@ function fixture(config={}){
       if(name==='@supabase/supabase-js')return {createClient:()=>db};
       if(name==='server-only')return {};
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
+      if(name==='@/lib/supabase/config')return {SUPABASE_URL:'https://test.invalid',SUPABASE_PUBLISHABLE_KEY:'fake'};
       if(name==='@/lib/server/access')return {allows};
       if(name==='@/lib/server/auth')return authModule;
+      if(name==='@/lib/server/roles')return {roleKey:value=>typeof value==='string'?value.trim().toLowerCase().replace(/[\s_-]+/g,''):'unknown'};
+      if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment};
       if(name==='@/lib/work-order-categories')return {normalizeWorkOrderCategory:(value)=>typeof value==='string'&&value.trim()?value.trim():null};
       if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>{}};
       throw new Error(name);
@@ -174,4 +187,26 @@ test('general manager cannot change technical fields during review',async()=>{
 test('general manager review is limited to pending requests',async()=>{
   const f=fixture({profile:{active:true,role:'General Manager'},existingStatus:'Open',body:{status:'Will Not Do',expected_revision:1}});
   assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
+});
+
+test('technician assignment access requires the exact nonblank assigned profile name',()=>{
+  const assigned={technician_name:'Morgan Lee'};
+  assert.equal(canAccessWorkOrderByAssignment('Maintenance Technician','Morgan Lee',assigned),true);
+  assert.equal(canAccessWorkOrderByAssignment('technician',' Morgan Lee ',assigned),true);
+  assert.equal(canAccessWorkOrderByAssignment('technician','Morgan Li',assigned),false);
+  assert.equal(canAccessWorkOrderByAssignment('technician','Morgan Lee',{technician_name:null}),false);
+  assert.equal(canAccessWorkOrderByAssignment('technician','',{technician_name:'Morgan Lee'}),false);
+  assert.equal(canAccessWorkOrderByAssignment('Chief Engineer','Other Engineer',assigned),true);
+});
+
+test('detail, activity, and attachment routes all share the technician assignment guard',()=>{
+  const routePaths=[
+    '../src/app/api/work-orders/[id]/route.ts',
+    '../src/app/api/work-orders/[id]/activity/route.ts',
+    '../src/app/api/work-orders/[id]/attachments/route.ts',
+  ];
+  for(const routePath of routePaths){
+    const source=readFileSync(new URL(routePath,import.meta.url),'utf8');
+    assert.match(source,/canAccessWorkOrderByAssignment\(/,`${routePath} must enforce technician assignment`);
+  }
 });

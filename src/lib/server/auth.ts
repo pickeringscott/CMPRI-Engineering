@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
+import { roleKey } from "./roles";
 import { createSupabaseAdmin } from "./supabase-admin";
 
 const authOptions = {
@@ -45,7 +46,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
 
     const { data: profileRow, error: profileError } = await lookup
       .from("profiles")
-      .select("id, email, full_name, role, active, property_scope")
+      .select("id, email, full_name, role, active, property_scope, manage_profile_first_login_complete")
       .eq("id", userId)
       .maybeSingle();
     if (profileError) return { ok: false, reason: "profile-error", detail: profileError.message };
@@ -67,17 +68,21 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
     const membership = memberRow as Membership;
     if (membership.active !== true) return { ok: false, reason: "membership-inactive" };
 
-    const { data: permissionRows, error: permissionError } = await lookup
-      .from("role_permissions")
-      .select("role, permission, allowed");
-    if (permissionError) return { ok: false, reason: "permission-error", detail: permissionError.message };
+    let permissionRows: Permission[] = [];
+    if (roleKey(profile.role) !== "system_admin") {
+      const { data, error: permissionError } = await lookup
+        .from("role_permissions")
+        .select("role, permission, allowed");
+      if (permissionError) return { ok: false, reason: "permission-error", detail: permissionError.message };
+      permissionRows = (data ?? []) as Permission[];
+    }
 
     const principal = {
       identity: { id: userId, email },
       profile,
       hotelId: HOTEL_ID,
       membership,
-      permissions: (permissionRows ?? []) as Permission[],
+      permissions: permissionRows,
     };
     return { ok: true, principal, admin: admin ?? sessionClient };
   } catch (error) {
