@@ -11,7 +11,7 @@ function fixture(route,body,config={}) {
   function load(filename) {
     const exports={};
     vm.runInNewContext(ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
-      exports,URL,AbortSignal,process:{env:{CMPRI_INTEGRATIONS_SAFE_MODE:'false',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_ROOM_RANKER_API_URL:'https://test.invalid/api',CMPRI_CORPORATE_PM_API_KEY:'fake',CMPRI_CORPORATE_PM_API_URL:'https://test.invalid/api'}},
+      exports,URL,AbortSignal,process:{env:{CMPRI_INTEGRATIONS_SAFE_MODE:'false',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_ROOM_RANKER_API_URL:'https://test.invalid/api',CMPRI_CORPORATE_PM_API_KEY:'fake',CMPRI_CORPORATE_PM_API_URL:'https://test.invalid/api',...(config.env||{})}},
       fetch:async(url,init={})=>{calls.push({url:String(url),...init});return {ok:true,status:200,text:async()=>JSON.stringify(config.upstream || {ok:true,sheet:'JAN',values:[['Header'],['Task','FALSE']],formulas:[[''],['','']]})};},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
@@ -34,6 +34,13 @@ for(const route of ['room-ranker','corporate-pm'])for(const body of [null,[],{},
 });
 for(const route of ['room-ranker','corporate-pm'])test(`${route} rejects broken JSON`,async()=>{
   const f=fixture(route,null,{badJson:true});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);
+});
+for(const [route,env,body,setting] of [
+  ['room-ranker',{CMPRI_ROOM_RANKER_API_URL:undefined,CMPRI_ROOM_RANKER_API_KEY:undefined}, {rowNumber:2,expectedRoom:'409',rank:'A'}, 'CMPRI_ROOM_RANKER_API_URL'],
+  ['corporate-pm',{CMPRI_CORPORATE_PM_API_URL:undefined,CMPRI_CORPORATE_PM_API_KEY:undefined}, {action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true}, 'CMPRI_CORPORATE_PM_API_URL'],
+])test(`${route} reports missing deployment settings without contacting a placeholder`,async()=>{
+  const f=fixture(route,body,{env});const response=await f.handler(f.request);
+  assert.equal(response.status,503);assert.match(response.body.error,new RegExp(setting));assert.equal(f.calls.length,0);
 });
 for(const patch of [{rowNumber:0},{rowNumber:2.5},{rowNumber:'2'},{expectedRoom:''},{rank:'Z'},{notes:{text:'x'}},{notes:'=IMPORTXML("https://example.invalid","x")'}])test(`ranker validates target/text ${JSON.stringify(patch)}`,async()=>{
   const f=fixture('room-ranker',{...ranker,...patch});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);

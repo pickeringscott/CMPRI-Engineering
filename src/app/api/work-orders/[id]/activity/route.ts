@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
+import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser(request);
@@ -13,12 +14,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // to this exact CMPRI property. Child tables must never be queried cross-property.
   const { data: workOrder, error: workOrderError } = await auth.admin
     .from("work_orders")
-    .select("id")
+    .select("id, technician_name")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
   if (workOrderError) return NextResponse.json({ error: "Work-order activity could not be verified." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
+    return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
+  }
 
   const [purchases, enseo, warranties, followups, history] = await Promise.all([
     auth.admin.from("cmpri_purchases").select("*, cmpri_purchase_shipments(*)").eq("hotel_id", HOTEL_ID).eq("work_order_id", id).order("updated_at", { ascending: false }),

@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
+import { roleKey } from "./roles";
 import { createSupabaseAdmin } from "./supabase-admin";
 
 const authOptions = {
@@ -22,6 +23,10 @@ function extractBearer(header: string | null): string | null {
   return match ? match[1] : null;
 }
 
+function isInvalidApiKey(message: string) {
+  return /invalid api key/i.test(message);
+}
+
 export type AuthAttempt =
   | { ok: true; principal: import("./access").Principal; admin: SupabaseClient }
   | { ok: false; reason: "no-bearer" | "verify-failed" | "email-mismatch" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
@@ -33,7 +38,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
   const verifier = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, authOptions);
   const sessionClient = createBearerClient(bearer);
   const admin = createSupabaseAdmin();
-  const lookup = admin ?? sessionClient;
+  let lookup = admin ?? sessionClient;
 
   try {
     const { data: userData, error: verifyError } = await verifier.auth.getUser(bearer);
@@ -43,11 +48,20 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
     const userId = userData.user.id;
     const email = userData.user.email ?? null;
 
-    const { data: profileRow, error: profileError } = await lookup
+    let { data: profileRow, error: profileError } = await lookup
       .from("profiles")
       .select("id, email, full_name, role, active, property_scope")
       .eq("id", userId)
       .maybeSingle();
+    if (admin && profileError && isInvalidApiKey(profileError.message)) {
+      console.error("Supabase admin key was rejected; retrying profile access with the authenticated user client.");
+      lookup = sessionClient;
+      ({ data: profileRow, error: profileError } = await lookup
+        .from("profiles")
+        .select("id, email, full_name, role, active, property_scope")
+        .eq("id", userId)
+        .maybeSingle());
+    }
     if (profileError) return { ok: false, reason: "profile-error", detail: profileError.message };
     if (!profileRow) return { ok: false, reason: "profile-missing" };
     const profile = profileRow as AccessProfile;
@@ -67,19 +81,23 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
     const membership = memberRow as Membership;
     if (membership.active !== true) return { ok: false, reason: "membership-inactive" };
 
-    const { data: permissionRows, error: permissionError } = await lookup
-      .from("role_permissions")
-      .select("role, permission, allowed");
-    if (permissionError) return { ok: false, reason: "permission-error", detail: permissionError.message };
+    let permissionRows: Permission[] = [];
+    if (roleKey(profile.role) !== "system_admin") {
+      const { data, error: permissionError } = await lookup
+        .from("role_permissions")
+        .select("role, permission, allowed");
+      if (permissionError) return { ok: false, reason: "permission-error", detail: permissionError.message };
+      permissionRows = (data ?? []) as Permission[];
+    }
 
     const principal = {
       identity: { id: userId, email },
       profile,
       hotelId: HOTEL_ID,
       membership,
-      permissions: (permissionRows ?? []) as Permission[],
+      permissions: permissionRows,
     };
-    return { ok: true, principal, admin: admin ?? sessionClient };
+    return { ok: true, principal, admin: lookup };
   } catch (error) {
     return { ok: false, reason: "exception", detail: error instanceof Error ? error.message : String(error) };
   }

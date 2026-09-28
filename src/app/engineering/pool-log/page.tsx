@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import Link from "next/link";
 import { getValidSession } from "@/lib/supabase/client";
 import { CMPRI_POOL, poolLocationReadings, poolLocationValue, poolReadings, sampleComplete } from "@/lib/pool-log";
 import SearchableSelect from "@/components/SearchableSelect";
+import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type Facility = {
   id: string;
@@ -55,6 +56,7 @@ function formFromLog(log: Log | null): Record<string, unknown> {
 }
 
 export default function PoolLogPage() {
+  const embedded = useEmbeddedModal();
   const [date, setDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()));
   const [facilityChoice, setFacilityChoice] = useState("");
   const [facilities, setFacilities] = useState<Facility[]>([]);
@@ -155,17 +157,21 @@ export default function PoolLogPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
-      <div className="mx-auto max-w-4xl space-y-4">
-        <header className="flex flex-wrap items-center justify-between gap-3">
+      <div className="mx-auto w-full space-y-4">
+        {!embedded && <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">CMPRI — Daily Pool Log</h1>
             <p className="text-sm text-slate-300">Indoor bromine pool · {CMPRI_POOL.testKit}</p>
           </div>
           <div className="flex gap-2 print:hidden">
-            <Link className="rounded-lg border border-slate-600 px-3 py-2" href="/engineering">Dashboard</Link>
+            <ModalDashboardLink className="rounded-lg border border-slate-600 px-3 py-2">Dashboard</ModalDashboardLink>
             <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
           </div>
-        </header>
+        </header>}
+        {embedded && <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+          <ModalDashboardLink className="rounded-lg border border-slate-600 px-3 py-2">← Dashboard</ModalDashboardLink>
+          <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
+        </div>}
 
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm print:border-black print:bg-white">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

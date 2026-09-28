@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -184,11 +184,11 @@ export default function RoomOperationsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-5 text-slate-100 sm:px-6">
-      <div className="mx-auto max-w-7xl space-y-4">
+      <div className="mx-auto w-full space-y-4">
         <header className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <Link href="/engineering" className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</Link>
+              <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
               <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-2.5 py-0.5 text-xs font-bold text-sky-200">Moves: {summary.moves}</span>
             </div>
@@ -200,7 +200,7 @@ export default function RoomOperationsPage() {
               <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
             </label>
             {hasCapability(session, "edit_tickets") ? (
-              <Link href="/engineering#room-operations-import" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Import on Dashboard</Link>
+              <ModalDashboardLink href="/engineering#room-operations-import" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Import on Dashboard</ModalDashboardLink>
             ) : null}
           </div>
         </header>
@@ -261,8 +261,8 @@ export default function RoomOperationsPage() {
         </section>
 
         {activeSummary && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 sm:p-6">
-            <section role="dialog" aria-modal="true" aria-labelledby="room-summary-title" className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl sm:p-5">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-1">
+            <section role="dialog" aria-modal="true" aria-labelledby="room-summary-title" className="cmpri-modal-shell cmpri-dashboard-overlay-panel overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl sm:p-5">
               <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Daily Room Operations</p>

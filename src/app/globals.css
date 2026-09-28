@@ -19,16 +19,139 @@
   }
 }
 
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+html[data-theme="light"] body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+html[data-theme="light"] .bg-slate-950,
+html[data-theme="light"] [class*="bg-slate-950/"] {
+  background-color: #ffffff;
+}
+
+html[data-theme="light"] .bg-slate-900,
+html[data-theme="light"] [class*="bg-slate-900/"] {
+  background-color: #f1f5f9;
+}
+
+html[data-theme="light"] .bg-slate-800,
+html[data-theme="light"] [class*="bg-slate-800/"] {
+  background-color: #e2e8f0;
+}
+
+html[data-theme="light"] .text-white {
+  color: #0f172a;
+}
+
+html[data-theme="light"] .text-slate-100,
+html[data-theme="light"] .text-slate-200 {
+  color: #1e293b;
+}
+
+html[data-theme="light"] .text-slate-300,
+html[data-theme="light"] .text-slate-400 {
+  color: #475569;
+}
+
+html[data-theme="light"] .text-slate-500,
+html[data-theme="light"] .text-slate-600 {
+  color: #64748b;
+}
+
+html[data-theme="light"] [class*="border-slate-"] {
+  border-color: #cbd5e1;
+}
+
+html[data-theme="light"] [class*="placeholder:text-slate-"]::placeholder {
+  color: #64748b;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
 
+@keyframes cmpri-modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes cmpri-modal-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.cmpri-modal-backdrop,
+div.fixed.inset-0:has([role="dialog"]) {
+  animation: cmpri-modal-backdrop-in 180ms ease-out both;
+}
+
+.cmpri-modal-shell,
+div.fixed.inset-0 [role="dialog"] > div {
+  animation: cmpri-modal-panel-in 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmpri-modal-backdrop,
+  div.fixed.inset-0:has([role="dialog"]),
+  .cmpri-modal-shell,
+  div.fixed.inset-0 [role="dialog"] > div {
+    animation: none;
+  }
+}
+
 .cmpri-dashboard-overlay-panel {
-  width: clamp(18rem, 66.6667vw, 42.6667rem);
-  height: 66.6667vh;
-  max-height: calc(100vh - 4rem);
+  width: min(66vw, 72rem);
+  min-height: 0;
+  height: min(calc(100dvh - 16px), 56rem);
+  max-height: calc(100dvh - 16px);
+}
+
+.cmpri-dashboard-assistant {
+  width: min(66vw, 72rem);
+  max-width: calc(100vw - 16px);
+}
+
+.cmpri-modal-shell {
+  box-sizing: border-box;
+  width: min(66vw, 42rem) !important;
+  height: auto !important;
+  max-width: calc(100vw - 8px) !important;
+  max-height: calc(100dvh - 16px) !important;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cmpri-modal-shell.cmpri-dashboard-overlay-panel {
+  width: min(66vw, 72rem) !important;
+  height: min(calc(100dvh - 16px), 56rem) !important;
+}
+
+@media (max-width: 640px) {
+  .cmpri-dashboard-assistant {
+    width: calc(100vw - 16px);
+  }
+
+  .cmpri-modal-shell {
+    width: calc(100vw - 16px) !important;
+  }
+
+  .cmpri-modal-shell.cmpri-dashboard-overlay-panel {
+    width: calc(100vw - 16px) !important;
+  }
 }
 
 /* CMPRI V43 interaction standard: every button gives immediate tactile feedback. */

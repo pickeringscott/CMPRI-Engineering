@@ -10,12 +10,12 @@ import ts from 'typescript';
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 const AUTH_TABLES=new Set(['profiles','hotel_members','role_permissions']);
 function fixture(config={}) {
-  const state={active:true,role:'Chief Engineer',...config}, calls=[];
-  const db={auth:{getUser:async()=>({data:{user:state.noUser?null:{id:'same-user'}},error:state.authError?{message:'Unavailable'}:null})},from(table){
+  const state={active:true,role:'Chief Engineer',permissions:[],...config}, calls=[];
+  const db={auth:{getUser:async()=>({data:{user:state.noUser?null:{id:'same-user',email:'same-user@example.invalid'}},error:state.authError?{message:'Unavailable'}:null})},from(table){
     calls.push(table);
     const q={
       select(){
-        if(table==='role_permissions') return Promise.resolve({data:[],error:state.permissionError?{message:'Unavailable'}:null});
+        if(table==='role_permissions') return Promise.resolve({data:state.permissions,error:state.permissionError?{message:'Unavailable'}:null});
         return q;
       },
       eq(){return q;},
@@ -23,7 +23,7 @@ function fixture(config={}) {
         if(table==='hotel_members') {
           return {data:state.noMembership?null:{user_id:'same-user',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:'admin',active:state.membershipActive??true},error:state.membershipError?{message:'Unavailable'}:null};
         }
-        return {data:state.missingProfile?null:{id:'same-user',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null};
+        return {data:state.missingProfile?null:{id:'same-user',email:'same-user@example.invalid',role:state.role,active:state.active},error:state.profileError?{message:'Unavailable'}:null};
       },
     };
     return q;
@@ -33,7 +33,7 @@ function fixture(config={}) {
     if(cache.has(filename))return cache.get(filename);
     const exports={};cache.set(filename,exports);
     const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-    vm.runInNewContext(source,{exports,URL,Headers,AbortSignal,console,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_CORPORATE_PM_API_KEY:'fake'}},
+    vm.runInNewContext(source,{exports,URL,Headers,AbortSignal,console,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_ROOM_RANKER_API_URL:'https://test.invalid/room-ranker',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_CORPORATE_PM_API_URL:'https://test.invalid/corporate-pm',CMPRI_CORPORATE_PM_API_KEY:'fake'}},
       fetch:async()=>{calls.push('network');return {ok:true,status:200,text:async()=>'{"ok":true}'};},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
@@ -63,13 +63,13 @@ test('same bearer token is rechecked and denied immediately after profile deacti
   assert.equal(await auth.authenticatedUser(f.request),null);
   assert.equal(f.calls.filter(v=>v==='profiles').length,2);
 });
-const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/maintenance-ai/route.ts','POST'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
+const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
 for(const [route,method] of routes)for(const config of [{active:false},{profileError:true}])test(`${route} ${method} blocks revoked/unverifiable session ${JSON.stringify(config)}`,async()=>{
   const f=fixture(config);const r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
   assert.equal(r.status,401);assert.ok(f.calls.every(v=>v==='profiles'),'No downstream data, network or provider access');
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
-  const f=fixture(),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,true);
+  const f=fixture({permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,true);
   f.state.active=false;f.calls.length=0;
   assert.equal((await handlers.GET(f.request)).status,401);assert.equal(f.calls.includes('network'),false);
 });

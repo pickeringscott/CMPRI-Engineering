@@ -1,8 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
+import { signOutDevice } from "@/lib/supabase/client";
+import type { CmpriClientSession } from "@/lib/auth/client-session";
+import AccountSummary from "@/components/AccountSummary";
+import { dashboardTitleForRole } from "@/lib/account-display";
+import { newlyAvailableTechnicianWork } from "@/lib/dashboard/technician-work-notifications";
+
+const REFRESH_MS = 30_000;
+const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
 
 type AssignedWorkOrder = {
   id: string;
@@ -12,81 +21,220 @@ type AssignedWorkOrder = {
   category: string | null;
   issue: string | null;
   priority: string | null;
+  technician_name: string | null;
   status: string | null;
   due_by: string | null;
 };
 
+function readSoundPreference() {
+  try {
+    return window.localStorage.getItem(SOUND_PREF_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
 export default function TechnicianDashboard() {
+  const router = useRouter();
   const [orders, setOrders] = useState<AssignedWorkOrder[]>([]);
+  const [newWorkQueue, setNewWorkQueue] = useState<AssignedWorkOrder[]>([]);
+  const [account, setAccount] = useState<CmpriClientSession["user"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const loadingRef = useRef(false);
+  const knownOrdersRef = useRef<Map<string, string> | null>(null);
+  const soundEnabledRef = useRef(true);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
-  async function loadAssignedWork() {
-    setLoading(true);
+  const playAlertTone = useCallback(() => {
+    if (!soundEnabledRef.current) return;
+    try {
+      if (!audioContextRef.current) audioContextRef.current = new AudioContext();
+      const context = audioContextRef.current;
+      if (context.state === "suspended") void context.resume();
+      const now = context.currentTime;
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
+      gain.gain.linearRampToValueAtTime(0, now + 0.55);
+      gain.connect(context.destination);
+      [880, 1320].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, now + index * 0.22);
+        oscillator.connect(gain);
+        oscillator.start(now + index * 0.22);
+        oscillator.stop(now + index * 0.22 + 0.2);
+      });
+    } catch {}
+  }, []);
+
+  async function signOut() {
+    await signOutDevice();
+    router.replace("/");
+  }
+
+  const loadAssignedWork = useCallback(async (silent = false) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    if (!silent) setLoading(true);
     setMessage("");
     try {
       const session = await getValidSession();
       if (!session) throw new Error("Sign in again to load your technician dashboard.");
+      const accountResponse = await fetch("/api/session", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: "no-store",
+      });
+      const accountPayload = await accountResponse.json().catch(() => ({}));
+      if (!accountResponse.ok || !accountPayload.user) throw new Error(accountPayload.error || "Your account could not be loaded.");
+      const currentAccount = accountPayload.user as CmpriClientSession["user"];
+      setAccount(currentAccount);
       const response = await fetch("/api/work-orders?mode=technician", {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Assigned work could not be loaded.");
-      setOrders((payload.work_orders || []) as AssignedWorkOrder[]);
+      const fetched = (payload.work_orders || []) as AssignedWorkOrder[];
+      const arrivals = newlyAvailableTechnicianWork(knownOrdersRef.current, fetched, currentAccount.name);
+      if (arrivals.length) {
+        setNewWorkQueue((existing) => Array.from(new Map(
+          [...existing, ...arrivals].map((order) => [order.id, order]),
+        ).values()));
+        playAlertTone();
+      }
+      knownOrdersRef.current = new Map(fetched.map((order) => [order.id, order.technician_name?.trim() || ""]));
+      setOrders(fetched);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Assigned work could not be loaded.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      loadingRef.current = false;
     }
-  }
+  }, [playAlertTone]);
 
   useEffect(() => {
+    soundEnabledRef.current = readSoundPreference();
+    setSoundEnabled(soundEnabledRef.current);
     void loadAssignedWork();
-  }, []);
+    const interval = window.setInterval(() => { void loadAssignedWork(true); }, REFRESH_MS);
+    return () => {
+      window.clearInterval(interval);
+      void audioContextRef.current?.close();
+    };
+  }, [loadAssignedWork]);
+
+  function toggleSound() {
+    const next = !soundEnabledRef.current;
+    soundEnabledRef.current = next;
+    setSoundEnabled(next);
+    try {
+      window.localStorage.setItem(SOUND_PREF_KEY, next ? "on" : "off");
+    } catch {}
+    if (next) playAlertTone();
+  }
+
+  function dismissNewWork() {
+    setNewWorkQueue([]);
+  }
+
+  const assignedOrders = orders.filter((order) => !!order.technician_name?.trim());
+  const unassignedOrders = orders.filter((order) => !order.technician_name?.trim());
+
+  function renderWorkOrder(order: AssignedWorkOrder) {
+    return (
+      <Link key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="grid gap-3 px-5 py-4 hover:bg-slate-800/50 md:grid-cols-[1fr_140px_150px] md:items-center">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-400">{order.display_id}</p>
+          <h3 className="mt-1 text-lg font-semibold">{order.issue || "Work order"}</h3>
+          <p className="mt-1 text-sm text-slate-400">{order.room || "No location"}{order.asset_name ? ` · ${order.asset_name}` : ""}</p>
+        </div>
+        <div className="text-sm">
+          <p className="font-semibold">{order.status || "Open"}</p>
+          <p className="mt-1 text-slate-400">{order.category || "General"} · {order.priority || "Medium"}</p>
+        </div>
+        <p className="text-sm text-slate-400">{order.due_by ? `Due ${new Date(order.due_by).toLocaleDateString()}` : "No due date"}</p>
+      </Link>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <div className="mx-auto w-full px-4 py-8 sm:px-6">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Technician Workspace</p>
-            <h1 className="mt-2 text-3xl font-bold">Technician Dashboard</h1>
-            <p className="mt-2 text-sm text-slate-400">Your assigned active work, status, and due dates.</p>
+            <h1 className="mt-2 text-3xl font-bold">{dashboardTitleForRole(account?.role || "Maintenance Technician")}</h1>
+            <p className="mt-2 text-sm text-slate-400">Your assigned work and unassigned work available for coverage.</p>
+            {account && <div className="mt-3"><AccountSummary user={account} /></div>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Link href="/profile" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800">Manage Profile</Link>
             <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 disabled:opacity-50">
               {loading ? "Refreshing…" : "Refresh"}
             </button>
+            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </div>
 
         {message && <p role="status" className="mt-6 rounded-lg border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-100">{message}</p>}
 
+        {newWorkQueue.length > 0 && (
+          <section role="alert" aria-live="assertive" className="mt-6 rounded-xl border border-emerald-400/50 bg-emerald-950/25 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-bold text-emerald-100">
+                {newWorkQueue.length} new work item{newWorkQueue.length === 1 ? "" : "s"} available
+              </p>
+              <div className="flex gap-2">
+                <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className="rounded-lg border border-emerald-400/50 px-3 py-1.5 text-xs font-semibold text-emerald-100">
+                  Sound {soundEnabled ? "on" : "off"}
+                </button>
+                <button type="button" onClick={dismissNewWork} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200">
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <ul className="mt-3 divide-y divide-emerald-500/20 overflow-hidden rounded-lg border border-emerald-500/25 bg-slate-950/60">
+              {newWorkQueue.slice(0, 6).map((order) => (
+                <li key={order.id}>
+                  <Link href={`/work-orders/${encodeURIComponent(order.id)}`} onClick={() => setNewWorkQueue((existing) => existing.filter((item) => item.id !== order.id))} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-emerald-950/40">
+                    <span className="min-w-0 text-sm text-white">{order.room || "No location"} · {order.issue || "Work order"}</span>
+                    <span className="rounded-full border border-emerald-400/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                      {order.technician_name?.trim() ? "Assigned to you" : "Unassigned coverage"}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
             <h2 className="text-xl font-bold">Assigned Work</h2>
-            <span className="text-sm text-slate-400">{orders.length} active</span>
+            <span className="text-sm text-slate-400">{assignedOrders.length} active</span>
           </div>
-          {loading ? <p className="p-5 text-slate-400">Loading assigned work…</p> : orders.length === 0 ? (
+          {loading ? <p className="p-5 text-slate-400">Loading assigned work…</p> : assignedOrders.length === 0 ? (
             <p className="p-5 text-slate-400">No active work is assigned to you.</p>
           ) : (
             <div className="divide-y divide-slate-800">
-              {orders.map((order) => (
-                <Link key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="grid gap-3 px-5 py-4 hover:bg-slate-800/50 md:grid-cols-[1fr_140px_150px] md:items-center">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-400">{order.display_id}</p>
-                    <h3 className="mt-1 text-lg font-semibold">{order.issue || "Work order"}</h3>
-                    <p className="mt-1 text-sm text-slate-400">{order.room || "No location"}{order.asset_name ? ` · ${order.asset_name}` : ""}</p>
-                  </div>
-                  <div className="text-sm">
-                    <p className="font-semibold">{order.status || "Open"}</p>
-                    <p className="mt-1 text-slate-400">{order.category || "General"} · {order.priority || "Medium"}</p>
-                  </div>
-                  <p className="text-sm text-slate-400">{order.due_by ? `Due ${new Date(order.due_by).toLocaleDateString()}` : "No due date"}</p>
-                </Link>
-              ))}
+              {assignedOrders.map(renderWorkOrder)}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+            <h2 className="text-xl font-bold">Unassigned Coverage</h2>
+            <span className="text-sm text-slate-400">{unassignedOrders.length} available</span>
+          </div>
+          {loading ? <p className="p-5 text-slate-400">Loading unassigned work…</p> : unassignedOrders.length === 0 ? (
+            <p className="p-5 text-slate-400">No unassigned work is available.</p>
+          ) : (
+            <div className="divide-y divide-slate-800">
+              {unassignedOrders.map(renderWorkOrder)}
             </div>
           )}
         </section>

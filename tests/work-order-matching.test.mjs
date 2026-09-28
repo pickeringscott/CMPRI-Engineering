@@ -12,7 +12,7 @@ const requireStub = (mod) => {
   return {};
 };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-suggestions.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:suggestionExports,require:requireStub});
-const {priorityForCategory,categoryFromIssue,inferWorkOrder}=suggestionExports;
+const {priorityForCategory,categoryFromIssue,inferWorkOrder,assetTermsForPlumbingIssue,separateIssueFromReporterNotes}=suggestionExports;
 const source=readFileSync(new URL('../src/app/work-orders/page.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('page.tsx',source,99,true,ts.ScriptKind.TSX);
 const helpers=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&n.name?.text!=='WorkOrdersPage').map(n=>n.getText(ast));
@@ -32,6 +32,49 @@ function fixture(overrides={}){
 }
 test('cooling issue selects the current room VTAC with High priority',()=>{
   const f=fixture();f.match('not cooling','');assert.equal(f.writes.assetId,'vtac-409');assert.equal(f.writes.category,'HVAC');assert.equal(f.writes.priority,'High');
+});
+test('room number and AC shorthand select the matching room equipment',()=>{
+  const location={id:'321',name:'Room 321',room_number:'321',area:'Guest Rooms',location_type:'Guest Room'};
+  const asset={id:'vtac-321',location_id:'321',asset_type:'VTAC',name:'VTAC - Room 321',manufacturer:'Friedrich',active:true};
+  const f=fixture({locations:[...locations,location],assets:[...assets,asset],manualLocation:false});
+  f.match('321, no AC','');assert.equal(f.writes.locationId,'321');assert.equal(f.writes.assetId,'vtac-321');assert.equal(f.writes.category,'HVAC');
+});
+test('AC symptom selects the air conditioner ahead of another HVAC asset',()=>{
+  const candidates=[
+    {id:'a-thermostat',location_id:'409',asset_type:'Thermostat',name:'Room Thermostat - Room 409',active:true},
+    {id:'z-vtac',location_id:'409',asset_type:'VTAC',name:'VTAC - Room 409',active:true},
+  ];
+  const suggestion=inferWorkOrder('No AC',candidates);
+  assert.equal(suggestion.assetId,'z-vtac');
+  assert.equal(suggestion.category,'HVAC');
+});
+test('named lobby with AC shorthand uses lobby equipment',()=>{
+  const location={id:'lobby',name:'Lobby / General',room_number:null,area:'Lobby',location_type:'Public Area'};
+  const asset={id:'lobby-hvac',location_id:'lobby',asset_type:'HVAC',name:'Lobby HVAC',active:true};
+  const f=fixture({locations:[...locations,location],assets:[...assets,asset],manualLocation:false});
+  f.match('Lobby no AC','');assert.equal(f.writes.locationId,'lobby');assert.equal(f.writes.assetId,'lobby-hvac');assert.equal(f.writes.category,'HVAC');
+});
+test('TV and light reports infer their work-order categories and assigned assets',()=>{
+  const television={id:'tv-321',location_id:'409',asset_type:'Television',name:'TV - Room 409',active:true};
+  const light={id:'light-321',location_id:'409',asset_type:'Light Fixture',name:'Light Bulb - Room 409',active:true};
+  const tvGuess=inferWorkOrder('broken TV',[television]);
+  const lightGuess=inferWorkOrder('light bulb out',[light]);
+  assert.equal(tvGuess.assetId,'tv-321');assert.equal(tvGuess.category,'TV / AV');
+  assert.equal(lightGuess.assetId,'light-321');assert.equal(lightGuess.category,'Electrical');
+});
+test('guest-reported fridge noise remains an Appliances work order',()=>{
+  const split=separateIssueFromReporterNotes('Guest reports that the fridge makes loud noises');
+  const fridge={id:'fridge-321',location_id:'409',asset_type:'Refrigerator',name:'Fridge - Room 409',active:true};
+  const suggestion=inferWorkOrder(split.issue,[fridge]);
+  assert.equal(split.issue,'the fridge makes loud noises');
+  assert.equal(split.reporterNotes,'');
+  assert.equal(suggestion.assetId,'fridge-321');
+  assert.equal(suggestion.category,'Appliances');
+});
+test('guest departure commentary is separated from the maintenance issue',()=>{
+  const result=separateIssueFromReporterNotes('No AC in room 321\nGuest is going to leave at 5 PM');
+  assert.equal(result.issue,'No AC in room 321');
+  assert.equal(result.reporterNotes,'Guest is going to leave at 5 PM');
 });
 test('explicit room change ignores stale prior selection flags',()=>{
   const f=fixture({assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});
@@ -58,4 +101,11 @@ test('front desk replaces stale guesses with the same canonical result used on s
 });
 test('front desk does not display unassigned inventory as room equipment',()=>{
   const f=fixture({isFrontDeskUser:true,isSubmitOnlyUser:true,assets:[{id:'stock-vtac',location_id:null,asset_type:'VTAC',name:'VTAC inventory',active:true}]});f.match('not cooling','');assert.equal(f.writes.assetId,'');assert.equal(f.writes.category,'HVAC');
+});
+test('plumbing split preview does not match a sink report to a shower-only asset',()=>{
+  const terms=Array.from(assetTermsForPlumbingIssue('Bathroom sink leaking'));
+  const matches=asset=>terms.some(term=>`${asset.name} ${asset.asset_type}`.toLowerCase().includes(term));
+  assert.deepEqual(terms,['sink']);
+  assert.equal(matches({name:'Shower curtain - Room 101',asset_type:'Shower Curtain'}),false);
+  assert.equal(matches({name:'Sink - Room 101',asset_type:'Plumbing Fixture'}),true);
 });

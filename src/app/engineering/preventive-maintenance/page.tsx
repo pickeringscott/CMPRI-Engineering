@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect from "@/components/SearchableSelect";
+import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type SheetResult = {
   ok: boolean;
@@ -20,6 +22,7 @@ type SheetResult = {
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
 
 export default function PreventiveMaintenancePage() {
+  const embedded = useEmbeddedModal();
   const currentMonth = MONTHS[new Date().getMonth()];
   const [sheet, setSheet] = useState(currentMonth);
   const [data, setData] = useState<SheetResult | null>(null);
@@ -96,15 +99,15 @@ export default function PreventiveMaintenancePage() {
     .filter(({ row }) => row.some((value) => String(value || "").trim() !== ""));
 
   return <main className="min-h-screen bg-slate-950 text-white">
-    <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
-      <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
+    <div className="mx-auto w-full px-3 py-4 sm:px-4">
+      {!embedded && <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Live Corporate Google Sheet</p>
           <h1 className="mt-1 text-3xl font-bold">Preventive Maintenance</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-400">Review the corporate PM checklist and record completion. Formula cells are read-only.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a href="/engineering" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</a>
+          <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</ModalDashboardLink>
           <div className="min-w-44">
             <SearchableSelect
               value={sheet}
@@ -117,7 +120,23 @@ export default function PreventiveMaintenancePage() {
           </div>
           <button disabled={!!savingCell} onClick={() => load(sheet)} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Refresh Live PM</button>
         </div>
-      </header>
+      </header>}
+      {embedded && <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold">Dashboard</ModalDashboardLink>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-44">
+            <SearchableSelect
+              value={sheet}
+              disabled={!!savingCell}
+              placeholder="PM month"
+              topSuggestions={4}
+              options={MONTHS.map((month) => ({ value: month, label: month }))}
+              onChange={(next) => { setSheet(next); void load(next); }}
+            />
+          </div>
+          <button disabled={!!savingCell} onClick={() => load(sheet)} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Refresh Live PM</button>
+        </div>
+      </div>}
 
       {error && <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-red-200">{error}</div>}
       {data?.safeMode && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-amber-200"><strong>Safe mode is on.</strong> You can view the live corporate PM tracker and click checkboxes here, but nothing is sent back to the corporate spreadsheet. Turn safe mode off in the environment to go live.</div>}

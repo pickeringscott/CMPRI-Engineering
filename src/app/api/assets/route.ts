@@ -61,13 +61,19 @@ export async function GET(request: NextRequest) {
     if (!allows(auth.principal, "submit")) {
       return NextResponse.json({ error: "Work-order submission permission is required." }, { status: 403 });
     }
-    const { data, error } = await auth.admin.from("assets")
-      .select("id, location_id, asset_type, name, active, status")
-      .eq("hotel_id", HOTEL_ID)
-      .eq("active", true)
-      .order("name", { ascending: true });
-    if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });
-    return NextResponse.json({ assets: data || [] }, { headers: { "Cache-Control": "no-store" } });
+    const assets: Array<Record<string, unknown>> = [];
+    for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
+      const { data, error } = await auth.admin.from("assets")
+        .select("id, location_id, asset_type, name, active, status")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("active", true)
+        .order("name", { ascending: true })
+        .range(offset, offset + ASSET_PAGE_SIZE - 1);
+      if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });
+      assets.push(...((data || []) as Array<Record<string, unknown>>));
+      if ((data || []).length < ASSET_PAGE_SIZE) break;
+    }
+    return NextResponse.json({ assets }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (!canReadEquipment(auth.principal.profile.role)) {

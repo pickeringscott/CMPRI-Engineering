@@ -5,17 +5,23 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import ModalNavigationButton from "@/components/ModalNavigationButton";
 import { useRouter } from "next/navigation";
-import { getValidSession } from "@/lib/supabase/client";
+import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
+import AccountSummary from "@/components/AccountSummary";
+import { dashboardTitleForRole } from "@/lib/account-display";
 
 import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
-import { priorityForCategory, categoryFromIssue, inferWorkOrder } from "@/lib/work-order-suggestions";
+import { priorityForCategory, categoryFromIssue, inferWorkOrder, assetTermsForPlumbingIssue } from "@/lib/work-order-suggestions";
 import { categoryOptions } from "@/lib/work-order-categories";
 import { validFirstName } from "@/lib/work-order-attribution";
+import { likelyDuplicate } from "@/lib/work-order-duplicates";
+import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 
 type Location = {
   id: string;
@@ -59,6 +65,15 @@ type Asset = {
   install_year: number | null;
   documentation_key: string | null;
 };
+
+const GENERAL_TROUBLESHOOTING_CHECKS = [
+  "Confirm the reported problem and reproduce it if safe to do so.",
+  "Inspect the affected equipment or area for obvious damage or abnormal condition.",
+  "Record error messages, noises, odors, leaks, temperatures, pressures, or other useful symptoms.",
+  "Determine whether the problem is isolated or affects other areas.",
+  "Check verified equipment documentation before replacing parts or changing settings.",
+  "Document findings and any tests already performed.",
+];
 
 type WorkOrder = {
   id: string;
@@ -263,20 +278,7 @@ function assetsForLocation(
     return [];
   }
 
-  return assets.filter((asset) => {
-    if (asset.location_id === location.id) {
-      return true;
-    }
-
-    if (
-      location.location_type === "Guest Room" &&
-      asset.location_id === null
-    ) {
-      return true;
-    }
-
-    return false;
-  });
+  return assets.filter((asset) => asset.location_id === location.id);
 }
 
 function findLocationFromText(
@@ -535,7 +537,8 @@ function createSuggestionFromIssueClause(
   clause: string,
   index: number
 ): RelatedIssueSuggestion {
-  const cleaned = capitalizeIssuePreservingWhitespace(clause.trim().replace(/^[-,:.\s]+/, ""));
+  const strippedPrefix = cleanIssueLocationPrefix(clause.trim().replace(/^[-,:.\s]+/, ""), [] as Location[]).issue;
+  const cleaned = capitalizeIssuePreservingWhitespace(strippedPrefix);
   const category = categoryFromIssue(cleaned) || "General";
   const lower = cleaned.toLowerCase();
 
@@ -550,7 +553,7 @@ function createSuggestionFromIssueClause(
     assetTerms = ["vtac", "ptac", "hvac", "friedrich", "zoneline", "air conditioner"];
   } else if (/\b(toilet|sink|faucet|shower|drain|pipe|leak|plumbing)\b/.test(lower)) {
     assetName = "Plumbing Fixture";
-    assetTerms = ["toilet", "sink", "faucet", "shower", "drain", "plumbing"];
+    assetTerms = assetTermsForPlumbingIssue(cleaned);
   } else if (/\b(light|bulb|lamp|outlet|switch|electrical)\b/.test(lower)) {
     assetName = "Electrical / Lighting";
     assetTerms = ["light", "lighting", "fixture", "outlet", "switch"];
@@ -576,25 +579,23 @@ function createSuggestionFromIssueClause(
   };
 }
 
-function splitMaintenanceIssueClauses(value: string) {
+export function splitMaintenanceIssueClauses(value: string) {
+  const hasExplicitSeparator = /(?:\n+|;|\s*\|\s*|,\s+|\s+\band\s+)/i.test(value);
   const explicit = value
     .split(/(?:\n+|;|\s*\|\s*|,\s+|\s+\band\b\s+)/i)
     .map((item) => item.trim())
     .filter((item) => item.length >= 3);
 
-  const starter = /\b(?:not\s+cooling|not\s+heating|no\s+cooling|no\s+heat|too\s+humid|humidity|bathroom\s+sink|kitchen\s+sink|sink|toilet|faucet|shower|drain|leak(?:ing)?|bedroom\s+tv|living\s+room\s+tv|tv|television|light(?:ing)?|outlet|door\s+lock|keycard|refrigerator|fridge|pool\s+pump|pool\s+filter)\b/gi;
+  const starter = /\b(?:not\s+cooling|not\s+heating|no\s+cooling|no\s+heat|too\s+humid|humidity|(?:bathroom\s+)?sink\s+leak(?:ing)?|bathroom\s+sink|kitchen\s+sink|sink|toilet|faucet|shower|drain|leak(?:ing)?|bedroom\s+tv|living\s+room\s+tv|tv|television|light(?:ing)?|outlet|door\s+lock|keycard|refrigerator|fridge|pool\s+pump|pool\s+filter)\b/gi;
 
   const output: string[] = [];
   for (const piece of explicit) {
     const starts: number[] = [];
-    let lastCategory = "";
     starter.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = starter.exec(piece))) {
-      const matchedCategory = categoryFromIssue(match[0]) || match[0].toLowerCase();
-      if (!starts.length || matchedCategory !== lastCategory) {
+      if (!starts.length || (!hasExplicitSeparator && match.index > starts[starts.length - 1])) {
         starts.push(match.index);
-        lastCategory = matchedCategory;
       }
     }
 
@@ -623,7 +624,7 @@ function splitMaintenanceIssueClauses(value: string) {
   return output;
 }
 
-function detectMultipleCreateIssues(issue: string): RelatedIssueSuggestion[] {
+export function detectMultipleCreateIssues(issue: string): RelatedIssueSuggestion[] {
   const source = issue.trim();
   if (!source) return [];
 
@@ -717,9 +718,17 @@ export default function WorkOrdersPage() {
     setNotes,
   ] = useState("");
 
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState("");
+
   const [
     manualLocation,
     setManualLocation,
+  ] = useState(false);
+
+  const [
+    manualAsset,
+    setManualAsset,
   ] = useState(false);
 
   const [
@@ -773,10 +782,19 @@ export default function WorkOrdersPage() {
   const [showBatchCreateDialog, setShowBatchCreateDialog] = useState(false);
   const [creatingBatchWorkOrders, setCreatingBatchWorkOrders] = useState(false);
 
-  const embedded = false;
-  const modalToken = "";
+  const [embedded] = useState(() => typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("embedded") === "1"
+    && window.parent !== window);
+  const [modalToken] = useState(() => typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("modalToken") || ""
+    : "");
   const [createState, setCreateState] = useState<"idle" | "creating" | "created">("idle");
   const [currentRole, setCurrentRole] = useState("");
+  const [troubleshootingResult, setTroubleshootingResult] = useState<{
+    assetKey: string;
+    knowledge: ManualKnowledge | null;
+    error: string;
+  } | null>(null);
   const [formLanguage, setFormLanguage] = useState<"en" | "es">(() => {
     if (typeof window === "undefined") return "en";
     try {
@@ -804,6 +822,14 @@ export default function WorkOrdersPage() {
       Authorization: `Bearer ${session.access_token}`,
     };
   }, []);
+
+  async function signOut() {
+    await signOutDevice();
+    if (embedded && modalToken && window.parent !== window) {
+      window.parent.postMessage({ type: "cmpri-modal-sign-out", modalToken }, window.location.origin);
+    }
+    router.replace("/");
+  }
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -934,18 +960,55 @@ export default function WorkOrdersPage() {
     );
 
   const locationAssets = assetsForLocation(selectedLocation, assets);
-  const issueAssetCategory = /\b(humid|humidity|dehumid|not cooling|no cooling|not cold|warm room|hot room|a\/?c|air condition|hvac)\b/i.test(issue)
-    ? "HVAC"
-    : /\b(tv|television|enseo|set[- ]?top box|stb)\b/i.test(issue)
-      ? "TV / AV"
-      : categoryFromIssue(issue);
-  const availableAssets = issue.trim() && issueAssetCategory
-    ? locationAssets.filter((asset) => asset.id === assetId || categoryForAsset(asset) === issueAssetCategory)
-    : locationAssets;
+  const availableAssets = locationAssets;
 
   const normalizedCurrentRole = currentRole.toLowerCase().replace(/[_-]+/g, " ").trim();
-  const isFrontDeskUser = normalizedCurrentRole === "front desk" || normalizedCurrentRole === "frontdesk";
-  const isSubmitOnlyUser = ["front desk", "frontdesk", "housekeeping"].includes(normalizedCurrentRole);
+  const currentRoleKey = normalizedCurrentRole.replace(/\s+/g, "");
+  const canViewTroubleshootingGuide = [
+    "engineer", "engineers", "engineering", "chiefengineer", "engineeringmanager", "regionalmaintenance", "regionalengineer",
+    "technician", "maintenancetechnician",
+  ].includes(currentRoleKey);
+  const isFrontDeskUser = currentRoleKey === "frontdesk";
+  const isSubmitOnlyUser = ["front desk", "frontdesk", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
+  const selectedCreateAsset = assets.find((item) => item.id === assetId);
+  const selectedCreateAssetId = selectedCreateAsset?.id;
+  const selectedCreateDocumentationKey = selectedCreateAsset?.documentation_key;
+  const troubleshootingAssetKey = selectedCreateAssetId
+    ? `${selectedCreateAssetId}:${selectedCreateDocumentationKey || ""}`
+    : "";
+  const currentTroubleshootingResult = troubleshootingResult?.assetKey === troubleshootingAssetKey
+    ? troubleshootingResult
+    : null;
+  const troubleshootingKnowledge = currentTroubleshootingResult?.knowledge || null;
+  const troubleshootingLoading = Boolean(canViewTroubleshootingGuide && selectedCreateAsset && !currentTroubleshootingResult);
+  const troubleshootingError = currentTroubleshootingResult?.error || "";
+
+  useEffect(() => {
+    let current = true;
+    if (!canViewTroubleshootingGuide || !selectedCreateAssetId) {
+      return () => { current = false; };
+    }
+
+    const assetKey = `${selectedCreateAssetId}:${selectedCreateDocumentationKey || ""}`;
+    void (async () => {
+      try {
+        const session = await getValidSession();
+        if (!session?.access_token) throw new Error("Sign in again to load troubleshooting guidance.");
+        const response = await fetch(`/api/maintenance-reference?assetId=${encodeURIComponent(selectedCreateAssetId)}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Troubleshooting guidance could not be loaded.");
+        if (current) setTroubleshootingResult({ assetKey, knowledge: normalizeManualKnowledge(payload.manualKnowledge), error: "" });
+      } catch (error) {
+        if (current) setTroubleshootingResult({ assetKey, knowledge: null, error: error instanceof Error ? error.message : "Troubleshooting guidance could not be loaded." });
+      }
+    })();
+
+    return () => { current = false; };
+  }, [canViewTroubleshootingGuide, selectedCreateAssetId, selectedCreateDocumentationKey]);
+
   function applySmartSuggestions(
     newIssue: string,
     newNotes: string,
@@ -1000,14 +1063,12 @@ export default function WorkOrdersPage() {
 
     const suggestion = inferWorkOrder(
       combinedText,
-      isSubmitOnlyUser ? workingAssets.filter((asset) => asset.location_id === workingLocation.id) : workingAssets,
+      workingAssets,
     );
-    if (isSubmitOnlyUser) {
-      setCategory(suggestion.category || "General");
-      setPriority(suggestion.priority || "Medium");
-      return;
-    }
-    let matchedAsset = workingAssets.find(item => item.id === assetId);
+    const shouldAutoSelectAsset = !manualAsset || Boolean(locationOverride) || isSubmitOnlyUser;
+    if (shouldAutoSelectAsset) setAssetId(suggestion.assetId || "");
+    const effectiveAssetId = shouldAutoSelectAsset ? suggestion.assetId : assetId;
+    const matchedAsset = workingAssets.find(item => item.id === effectiveAssetId);
 
     const smartCategory =
       matchedAsset
@@ -1018,7 +1079,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualCategory || locationOverride)
+      (!manualCategory || locationOverride || isSubmitOnlyUser)
     ) {
       setCategory(
         smartCategory
@@ -1027,7 +1088,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualPriority || locationOverride)
+      (!manualPriority || locationOverride || isSubmitOnlyUser)
     ) {
       setPriority(
         priorityForCategory(
@@ -1066,6 +1127,7 @@ export default function WorkOrdersPage() {
     );
 
     setAssetId("");
+    setManualAsset(false);
     setCategory("General");
     setPriority("Medium");
 
@@ -1083,7 +1145,19 @@ export default function WorkOrdersPage() {
   function handleAssetChange(
     newAssetId: string
   ) {
+    setManualAsset(true);
     setAssetId(newAssetId);
+
+    if (!newAssetId) {
+      const assetlessSuggestion = inferWorkOrder(`${issue} ${notes}`.trim(), assetsForLocation(selectedLocation, assets));
+      if (!manualCategory) {
+        setCategory(assetlessSuggestion.category || "General");
+      }
+      if (!manualPriority) {
+        setPriority(assetlessSuggestion.priority || "Medium");
+      }
+      return;
+    }
 
     const asset =
       assets.find(
@@ -1119,7 +1193,9 @@ export default function WorkOrdersPage() {
 
     if (detectedLocation && detectedLocation.id !== locationId) {
       setLocationId(detectedLocation.id);
+      setAssetId("");
       setManualLocation(false);
+      setManualAsset(false);
       setManualCategory(false);
       setManualPriority(false);
     }
@@ -1193,6 +1269,7 @@ export default function WorkOrdersPage() {
     setStaffFirstName(draft.staff_first_name || "");
     setLocationId(draft.location_id || "");
     setAssetId(draft.asset_id || "");
+    setManualAsset(Boolean(draft.asset_id));
     setCategory(draft.category || "General");
     setIssue(draft.issue || "");
     setPriority(draft.priority || "Medium");
@@ -1292,13 +1369,25 @@ export default function WorkOrdersPage() {
     setIssue("");
     setPriority("Medium");
     setNotes("");
+    setPhoto(null);
+    setPhotoUploadError("");
 
     setManualLocation(false);
+    setManualAsset(false);
     setManualCategory(false);
     setManualPriority(false);
 
     
     setMainWorkOrderCreated(false);
+  }
+
+  function notifyCreateModal(type: "cmpri-work-order-cancelled" | "cmpri-work-order-created", displayId?: string) {
+    if (!embedded || window.parent === window || !modalToken) return false;
+    window.parent.postMessage(
+      { type, modalKind: "create", ...(displayId ? { displayId } : {}), modalToken },
+      window.location.origin,
+    );
+    return true;
   }
 
   function finishCancelCreateForm() {
@@ -1309,6 +1398,7 @@ export default function WorkOrdersPage() {
     setCreateState("idle");
     setMessage("");
     setShowCancelConfirm(false);
+    if (notifyCreateModal("cmpri-work-order-cancelled")) return;
     if (!isSubmitOnlyUser && cmpriSession?.landing === "/engineering") {
       router.push("/engineering");
     }
@@ -1321,6 +1411,32 @@ export default function WorkOrdersPage() {
     }
     finishCancelCreateForm();
   }
+
+  const requestCancelCreateFormRef = useRef(requestCancelCreateForm);
+  useEffect(() => {
+    requestCancelCreateFormRef.current = requestCancelCreateForm;
+  });
+
+  useEffect(() => {
+    if (!embedded) return;
+    const handleModalCancelRequest = (event: Event) => {
+      event.preventDefault();
+      requestCancelCreateFormRef.current();
+    };
+    document.addEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
+    return () => document.removeEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
+  }, [embedded]);
+
+  useEffect(() => {
+    const updateLanguage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "cmpri-profile-preferences-updated") return;
+      if (event.data.preferences?.language === "en" || event.data.preferences?.language === "es") {
+        setFormLanguage(event.data.preferences.language);
+      }
+    };
+    window.addEventListener("message", updateLanguage);
+    return () => window.removeEventListener("message", updateLanguage);
+  }, []);
 
   async function confirmCancelCreateForm() {
     if (activeDraftId) {
@@ -1368,15 +1484,55 @@ export default function WorkOrdersPage() {
     );
   }
 
+  function returnSingleBatchSuggestionToForm(suggestion: RelatedIssueSuggestion | null) {
+    const location = locations.find((item) => item.id === locationId);
+    if (!location) {
+      setShowBatchCreateDialog(false);
+      setBatchCreateSuggestions([]);
+      return;
+    }
+
+    if (!suggestion) {
+      setShowBatchCreateDialog(false);
+      setBatchCreateSuggestions([]);
+      return;
+    }
+
+    const relatedAsset = resolveRelatedAsset(suggestion, location);
+    setIssue(suggestion.issue);
+    setCategory(suggestion.category);
+    setPriority(suggestion.priority);
+    setAssetId(relatedAsset?.id ?? "");
+    setManualAsset(Boolean(relatedAsset));
+    setShowBatchCreateDialog(false);
+    setBatchCreateSuggestions([]);
+    setMessage("One proposed work order remains. Review the form and submit it when ready.");
+  }
+
+  function handleBatchSuggestionRemoval(index: number) {
+    const remaining = batchCreateSuggestions.filter((_, itemIndex) => itemIndex !== index);
+    if (remaining.length === 0) {
+      setBatchCreateSuggestions([]);
+      setShowBatchCreateDialog(false);
+      setCreateState("idle");
+      return;
+    }
+
+    if (remaining.length === 1) {
+      returnSingleBatchSuggestionToForm(remaining[0]);
+      return;
+    }
+
+    setBatchCreateSuggestions(remaining);
+  }
+
 
   function cancelRelatedWorkOrders() {
     setShowRelatedWorkOrderDialog(false);
 
     if (mainWorkOrderCreated) {
       resetWorkOrderForm();
-      if (embedded && window.parent !== window) {
-        window.parent.postMessage({ type: "cmpri-work-order-created", modalKind: "create", modalToken }, window.location.origin);
-      }
+      notifyCreateModal("cmpri-work-order-created");
     }
   }
 
@@ -1427,23 +1583,96 @@ export default function WorkOrdersPage() {
 
     if (mainWorkOrderCreated) {
       resetWorkOrderForm();
-      if (embedded && window.parent !== window) {
-        window.parent.postMessage({ type: "cmpri-work-order-created", modalKind: "create", modalToken }, window.location.origin);
-      }
+      notifyCreateModal("cmpri-work-order-created");
     }
   }
 
 
-  function possibleDuplicateFor(issueText: string, location: Location) {
-    const normalizedWords = issueText.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3);
+  function possibleDuplicateFor(issueText: string, location: Location, assetIdOverride?: string | null) {
+    const candidate = {
+      location_id: location.id,
+      asset_id: assetIdOverride || undefined,
+      issue: issueText,
+      status: "Open",
+    };
+
     return workOrders.find((existing) => {
       const existingStatus = String(existing.status || "Open").toLowerCase();
       if (["closed", "duplicate", "will not do", "cancelled", "canceled"].includes(existingStatus)) return false;
-      if (String(existing.location_id || "") !== String(location.id)) return false;
-      const existingText = String(existing.issue || "").toLowerCase();
-      const matches = normalizedWords.filter((word) => existingText.includes(word)).length;
-      return normalizedWords.length > 0 && matches >= Math.max(1, Math.ceil(normalizedWords.length * 0.6));
+      return likelyDuplicate(candidate, {
+        location_id: existing.location_id || undefined,
+        asset_id: existing.asset_id || undefined,
+        issue: existing.issue || "",
+        status: existing.status || "Open",
+      });
     });
+  }
+
+  async function createSingleBatchWorkOrder(suggestion: RelatedIssueSuggestion) {
+    if (isFrontDeskUser && !validFirstName(staffFirstName)) {
+      setMessage("Enter your first name before submitting.");
+      return;
+    }
+    const location = locations.find((item) => item.id === locationId);
+    if (!location) {
+      setMessage("Select a room/location before creating this work order.");
+      return;
+    }
+
+    const relatedAsset = resolveRelatedAsset(suggestion, location);
+    const duplicate = possibleDuplicateFor(suggestion.issue, location, relatedAsset?.id ?? null);
+    if (duplicate) {
+      setMessage(`Possible duplicate detected: ${duplicate.display_id || "existing work order"} — ${duplicate.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
+      return;
+    }
+
+    const rows = [{
+      location_id: location.id,
+      asset_id: relatedAsset?.id ?? null,
+      asset_name: relatedAsset?.name ?? suggestion.assetName,
+      category: suggestion.category,
+      issue: suggestion.issue,
+      priority: suggestion.priority,
+      notes: notes ? `Submitted individually from a split report. Original note: ${notes}` : "Submitted individually from a split report.",
+    }];
+
+    const result = await submitWorkOrders(rows);
+    if (result.error) {
+      setMessage(result.error.message);
+      return;
+    }
+
+    const remaining = batchCreateSuggestions.filter((item) => item.key !== suggestion.key);
+    if (remaining.length === 0) {
+      await clearSubmittedDraft();
+      await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_dashboard")));
+      setShowBatchCreateDialog(false);
+      setBatchCreateSuggestions([]);
+      setCreateState("created");
+      setMessage(isSubmitOnlyUser
+        ? "Request submitted for Engineering verification."
+        : "Work order created.");
+      window.setTimeout(() => {
+        resetWorkOrderForm();
+        setBatchCreateSuggestions([]);
+        setCreateState("idle");
+        notifyCreateModal("cmpri-work-order-created", result.workOrders[0]?.display_id);
+      }, 900);
+      return;
+    }
+
+    if (remaining.length === 1) {
+      returnSingleBatchSuggestionToForm(remaining[0]);
+      setMessage(isSubmitOnlyUser
+        ? "Request submitted for Engineering verification. One remaining issue has been returned to the form for review."
+        : "Work order created. One remaining issue has been returned to the form for review.");
+      return;
+    }
+
+    setBatchCreateSuggestions(remaining);
+    setMessage(isSubmitOnlyUser
+      ? "Request submitted for Engineering verification."
+      : "Work order created.");
   }
 
   async function createBatchWorkOrders() {
@@ -1469,6 +1698,17 @@ export default function WorkOrdersPage() {
       };
     });
 
+    const firstDuplicate = rows.find((row) => {
+      const duplicate = possibleDuplicateFor(String(row.issue || ""), location, typeof row.asset_id === "string" ? row.asset_id : null);
+      return Boolean(duplicate);
+    });
+    if (firstDuplicate) {
+      const duplicate = possibleDuplicateFor(String(firstDuplicate.issue || ""), location, typeof firstDuplicate.asset_id === "string" ? firstDuplicate.asset_id : null);
+      setMessage(`Possible duplicate detected: ${duplicate?.display_id || "existing work order"} — ${duplicate?.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
+      setCreatingBatchWorkOrders(false);
+      return;
+    }
+
     const result = await submitWorkOrders(rows);
     if (result.error) {
       setMessage(result.error.message);
@@ -1489,9 +1729,7 @@ export default function WorkOrdersPage() {
       resetWorkOrderForm();
       setBatchCreateSuggestions([]);
       setCreateState("idle");
-      if (embedded && window.parent !== window) {
-        window.parent.postMessage({ type: "cmpri-work-order-created", modalKind: "create", modalToken }, window.location.origin);
-      }
+      notifyCreateModal("cmpri-work-order-created");
     }, 900);
   }
 
@@ -1517,9 +1755,26 @@ export default function WorkOrdersPage() {
           workOrders: [] as Array<{ id: string; display_id: string; status: string }>,
         };
       }
+      const workOrders = Array.isArray(result.work_orders) ? result.work_orders as Array<{ id: string; display_id: string; status: string }> : [];
+      if (photo && workOrders.length) {
+        for (const workOrder of workOrders) {
+          const form = new FormData();
+          form.append("photo", photo);
+          const uploadResponse = await fetch(`/api/work-orders/${encodeURIComponent(workOrder.id)}/attachments`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: form,
+          });
+          if (!uploadResponse.ok) {
+            const uploadPayload = await uploadResponse.json().catch(() => ({}));
+            setPhotoUploadError(uploadPayload.error || "The work order was created, but its photo could not be uploaded.");
+            break;
+          }
+        }
+      }
       return {
         error: null,
-        workOrders: Array.isArray(result.work_orders) ? result.work_orders as Array<{ id: string; display_id: string; status: string }> : [],
+        workOrders,
       };
     } catch {
       return {
@@ -1556,6 +1811,14 @@ export default function WorkOrdersPage() {
       return;
     }
     if (normalizedIssue !== issue) setIssue(normalizedIssue);
+
+    const duplicate = possibleDuplicateFor(normalizedIssue, location, assetId || null);
+    if (duplicate) {
+      setMessage(`Possible duplicate detected: ${duplicate.display_id || "existing work order"} — ${duplicate.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
+      setLoading(false);
+      setCreateState("idle");
+      return;
+    }
 
     const multipleCreateIssues = detectMultipleCreateIssues(normalizedIssue);
     if (multipleCreateIssues.length >= 2) {
@@ -1605,13 +1868,7 @@ export default function WorkOrdersPage() {
     setCreateState("created");
 
     window.setTimeout(() => {
-      if (embedded && window.parent !== window) {
-        window.parent.postMessage(
-          { type: "cmpri-work-order-created", modalKind: "create", displayId, modalToken },
-          window.location.origin,
-        );
-        return;
-      }
+      if (notifyCreateModal("cmpri-work-order-created", displayId)) return;
       resetWorkOrderForm();
       setCreateState("idle");
     }, 1000);
@@ -1689,14 +1946,23 @@ export default function WorkOrdersPage() {
 
   const detectedCreateIssues = issue.trim() ? detectMultipleCreateIssues(issue) : [];
 
-  const selectedCreateLocation = locations.find((item) => item.id === locationId);
+  const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true ? troubleshootingKnowledge : null;
+  const trustedManualUrl = trustedTroubleshootingKnowledge?.source?.file_url || trustedTroubleshootingKnowledge?.source?.pdf_url;
+  const troubleshootingEvidence = `${issue} ${notes}`.toLowerCase();
+  const matchingTroubleshootingSteps = trustedTroubleshootingKnowledge?.symptom_rules
+    ?.filter((rule) => !rule.match?.length || rule.match.some((phrase) => troubleshootingEvidence.includes(phrase.toLowerCase())))
+    .flatMap((rule) => rule.steps) ?? [];
+  const troubleshootingSteps = Array.from(new Set([
+    ...matchingTroubleshootingSteps,
+    ...GENERAL_TROUBLESHOOTING_CHECKS,
+  ]));
 
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-4 text-white sm:px-6">
-      <div className="mx-auto w-full max-w-4xl">
+    <main className="min-h-screen bg-slate-950 px-[15px] py-[15px] text-white">
+      <div className={`mx-auto w-full max-w-none ${isSubmitOnlyUser ? "" : "lg:w-[66vw]"}`}>
         {drafts.length > 0 && (
-          <section className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-white">Saved Drafts</h2>
@@ -1730,46 +1996,50 @@ export default function WorkOrdersPage() {
         <div>
           <form
             onSubmit={createWorkOrder}
-            className="mx-auto w-full space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:p-6"
+            className="mx-auto w-full space-y-1 rounded-xl border border-slate-800 bg-slate-900 p-2"
           >
-            <div className="sticky top-0 z-30 -mx-4 rounded-t-xl border-b border-slate-800 bg-slate-950 px-4 pb-3 pt-2 sm:-mx-6 sm:px-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-2xl font-bold sm:text-3xl">
-                    {selectedCreateLocation?.name || tx("Create Work Order", "Crear orden de trabajo")}
-                  </h2>
+            <div className="flex flex-wrap items-center justify-between gap-1 pb-1">
+              {cmpriSession && !embedded && (
+                <div className="mr-auto min-w-0">
+                  {!isSubmitOnlyUser && <h1 className="text-sm font-bold text-slate-100">{dashboardTitleForRole(cmpriSession.user.role)}</h1>}
+                  <AccountSummary user={cmpriSession.user} />
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <a href="/profile" className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Profile", "Perfil")}</a>
-                  <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60"> {tx("Cancel", "Cancelar")} </button>
-                  <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-4 py-2 text-sm font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
-                  <button
-                    type="submit"
-                    disabled={loading || loadingLocations || loadingAssets || createState === "created"}
-                    className={`rounded-lg border px-4 py-2 text-sm font-bold transition-colors disabled:opacity-80 ${
-                      createState === "created"
-                        ? "border-emerald-500 bg-emerald-600 text-white"
-                        : createState === "creating"
-                          ? "border-red-900 bg-red-950/70 text-red-200"
-                          : createHasUnsavedChanges
-                            ? "border-red-500 bg-red-600 text-white hover:bg-red-500"
-                            : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"
-                    }`}
-                  >
-                    {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
-                  </button>
-                </div>
+              )}
+              <div className="flex flex-wrap items-center justify-end gap-1">
+                <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Profile", "Perfil")}</ModalNavigationButton>
+                <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-8 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V3m0 0 4 4m-4-4-4 4" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
+                  </svg>
+                </label>
+                <input id="work-order-photo-file" type="file" accept="image/*" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
+                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photo ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h3l1.4-2h7.2l1.4 2h3A1.5 1.5 0 0 1 21.5 9v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                  </svg>
+                </label>
+                <input id="work-order-photo-camera" type="file" accept="image/*" capture="environment" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
+                {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
+                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
+                <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
+                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
+                  {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
+                </button>
               </div>
             </div>
 
+            {(photo || photoUploadError) && <div className="flex min-w-0 items-center gap-2 text-[11px]">{photo && <span className="max-w-[60%] truncate text-slate-400" title={photo.name}>Attached: {photo.name}</span>}{photoUploadError && <span role="alert" className="text-amber-300">{photoUploadError}</span>}</div>}
+
             {isFrontDeskUser && <label className="block">
-              <span className="mb-2 block text-sm font-medium"> {tx("Your first name", "Tu nombre")} <span className="text-red-300">*</span></span>
-              <input required maxLength={80} autoComplete="off" value={staffFirstName} onChange={event => setStaffFirstName(event.target.value)} placeholder={tx("First name", "Nombre")} disabled={loading || creatingBatchWorkOrders || creatingRelatedWorkOrders} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-white outline-none focus:border-amber-400" />
-              <span className="mt-1 block text-xs text-slate-400"> {tx("Required for each report submitted through the shared front-desk account.", "Obligatorio para cada reporte enviado desde la cuenta compartida de recepción.")} </span>
+              <span className="mb-1 block text-sm font-medium"> {tx("Your first name", "Tu nombre")} <span className="text-red-300">*</span></span>
+              <input required maxLength={80} autoComplete="off" value={staffFirstName} onChange={event => setStaffFirstName(event.target.value)} placeholder={tx("First name", "Nombre")} disabled={loading || creatingBatchWorkOrders || creatingRelatedWorkOrders} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-white outline-none focus:border-amber-400" />
+              <span className="mt-1 block text-xs text-slate-400"> {tx("Required for each report submitted through the shared front-desk account.", "Obligatorio para cada reporte enviado desde la cuenta compartida de recepción")} </span>
             </label>}
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium"> {tx("Room / Location", "Habitación / Ubicación")} </span>
+              <span className="mb-1 block text-sm font-medium"> {tx("Room / Location", "Habitación / Ubicación")} </span>
               <SearchableSelect
                 required
                 value={locationId}
@@ -1782,15 +2052,15 @@ export default function WorkOrdersPage() {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium"> {tx("Issue", "Problema")} </span>
+              <span className="mb-1 block text-sm font-medium"> {tx("Issue", "Problema")} </span>
               <textarea
                 required
                 value={issue}
                 disabled={loadingLocations || loadingAssets}
                 onChange={(event) => handleIssueChange(event.target.value)}
-                rows={3}
+                rows={2}
                 placeholder={tx("Example: 316 not cooling", "Ejemplo: 316 no enfría")}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-4 outline-none focus:border-amber-400"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm outline-none focus:border-amber-400"
               />
               {detectedCreateIssues.length >= 2 && (
                 <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-950/25 px-3 py-2">
@@ -1800,9 +2070,9 @@ export default function WorkOrdersPage() {
               )}
             </label>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-3">
               <label className="block md:col-span-1">
-                <span className="mb-2 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
+                <span className="mb-1 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
                 <SearchableSelect
                   value={assetId}
                   onChange={handleAssetChange}
@@ -1815,7 +2085,7 @@ export default function WorkOrdersPage() {
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium"> {tx("Category", "Categoría")} </span>
+                <span className="mb-1 block text-sm font-medium"> {tx("Category", "Categoría")} </span>
                 <SearchableSelect
                   value={category}
                   disabled={isSubmitOnlyUser}
@@ -1828,7 +2098,7 @@ export default function WorkOrdersPage() {
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium"> {tx("Priority", "Prioridad")} </span>
+                <span className="mb-1 block text-sm font-medium"> {tx("Priority", "Prioridad")} </span>
                 <SearchableSelect
                   value={priority}
                   disabled={isSubmitOnlyUser}
@@ -1842,17 +2112,50 @@ export default function WorkOrdersPage() {
             </div>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium"> {tx("Notes / Actions Taken", "Notas / Acciones realizadas")} </span>
+              <span className="mb-1 block text-sm font-medium"> {tx("Notes / Actions Taken", "Notas / Acciones realizadas")} </span>
               <textarea
                 value={notes}
                 disabled={loadingLocations || loadingAssets}
                 onChange={(event) => handleNotesChange(event.target.value)}
-                rows={5}
+                rows={3}
                 placeholder={tx("Optional: findings, diagnostic codes, readings, tests, or work already performed", "Opcional: hallazgos, códigos de diagnóstico, lecturas, pruebas o trabajo ya realizado")}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-4 outline-none focus:border-amber-400"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm outline-none focus:border-amber-400"
               />
             </label>
 
+            {canViewTroubleshootingGuide && (
+              <section aria-label="Troubleshooting Guide" className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold text-amber-300">Suggested Troubleshooting</h2>
+                    <p className="mt-1 text-xs text-slate-400">General checks and verified equipment guidance matched to the reported issue.</p>
+                  </div>
+                  {troubleshootingLoading && <span className="text-xs text-slate-400">Loading equipment guidance...</span>}
+                </div>
+                {selectedCreateAsset && trustedTroubleshootingKnowledge?.source?.title && (
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                    <p className="text-sm font-semibold text-slate-200">{trustedTroubleshootingKnowledge.source.title}</p>
+                    <p className="mt-1 text-xs text-emerald-400">Verified equipment documentation</p>
+                    {trustedManualUrl && (
+                      <button type="button" onClick={() => window.open(trustedManualUrl, "_blank", "noopener,noreferrer")} className="mt-2 inline-block text-xs font-semibold text-sky-300 hover:underline">Open Manual</button>
+                    )}
+                  </div>
+                )}
+                {selectedCreateAsset && troubleshootingKnowledge?.source?.title && !trustedTroubleshootingKnowledge && (
+                  <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.</p>
+                )}
+                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">Select equipment to include verified model-specific guidance.</p>}
+                {troubleshootingError && <p role="status" className="mt-3 text-xs text-amber-200">{troubleshootingError}</p>}
+                <ol className="mt-3 space-y-2 text-sm text-slate-300">
+                  {troubleshootingSteps.map((step, index) => (
+                    <li key={`${step}-${index}`} className="flex gap-2">
+                      <span className="font-semibold text-amber-400">{index + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
 
           </form>
         </div>
@@ -1864,12 +2167,17 @@ export default function WorkOrdersPage() {
         )}
 
         {showCancelConfirm && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4">
-            <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-1" onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.defaultPrevented) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setShowCancelConfirm(false);
+          }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
               <h2 id="create-cancel-title" className="text-xl font-bold">{tx("Cancel work-order creation?", "¿Cancelar la creación de la orden?")}</h2>
               <p className="mt-2 text-sm text-slate-400">{tx("Your unsaved work will be discarded. Any saved draft for this work will also be deleted.", "Se descartará el trabajo no guardado. También se eliminará cualquier borrador guardado de este trabajo.")}</p>
               <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button type="button" disabled={draftBusy} onClick={() => setShowCancelConfirm(false)} className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Keep Editing", "Seguir editando")}</button>
+                <button type="button" autoFocus disabled={draftBusy} onClick={() => setShowCancelConfirm(false)} className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Keep Editing", "Seguir editando")}</button>
                 <button type="button" disabled={draftBusy} onClick={() => void confirmCancelCreateForm()} className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">{draftBusy ? tx("Discarding...", "Descartando...") : tx("Confirm Cancel", "Confirmar cancelación")}</button>
               </div>
             </div>
@@ -1877,8 +2185,14 @@ export default function WorkOrdersPage() {
         )}
 
         {showBatchCreateDialog && selectedLocation && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="w-full max-w-3xl rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-1" onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.defaultPrevented) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setShowBatchCreateDialog(false);
+            setBatchCreateSuggestions([]);
+          }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
               <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} work orders detected</h2>
               <p className="mt-2 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
 
@@ -1904,7 +2218,7 @@ export default function WorkOrdersPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => setBatchCreateSuggestions((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                          onClick={() => handleBatchSuggestionRemoval(index)}
                           className="rounded-lg border border-red-500/50 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-950/40"
                         >
                           Remove
@@ -1918,15 +2232,19 @@ export default function WorkOrdersPage() {
                       {duplicate && (
                         <p className="mt-3 rounded-lg border border-orange-500/40 bg-orange-950/30 px-3 py-2 text-xs font-semibold text-orange-200">Possible duplicate: {duplicate.display_id || "existing work order"} — {duplicate.issue || "similar active issue"}</p>
                       )}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Submit This</button>
+                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-2 text-xs font-bold text-red-200 hover:bg-red-950/40">Remove</button>
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
               <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button type="button" disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Back to Form</button>
+                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Back to Form</button>
                 <button type="button" disabled={creatingBatchWorkOrders || batchCreateSuggestions.length < 2} onClick={() => void createBatchWorkOrders()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
-                  {creatingBatchWorkOrders ? "Submitting..." : `Create ${batchCreateSuggestions.length} Work Orders`}
+                  {creatingBatchWorkOrders ? "Submitting..." : `Submit All (${batchCreateSuggestions.length})`}
                 </button>
               </div>
             </div>
@@ -1935,12 +2253,17 @@ export default function WorkOrdersPage() {
 
         {showRelatedWorkOrderDialog &&
           selectedLocation && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-1" onKeyDown={(event) => {
+              if (event.key !== "Escape" || event.defaultPrevented) return;
+              event.preventDefault();
+              event.stopPropagation();
+              cancelRelatedWorkOrders();
+            }}>
               <div
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="related-work-orders-title"
-                className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+                className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
               >
                 <h2
                   id="related-work-orders-title"

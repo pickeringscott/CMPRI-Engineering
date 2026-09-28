@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   }
   const capabilities: Capability[] = [
     "submit", "view_dashboard", "edit_tickets", "review_tickets", "close_tickets",
-    "reopen", "manage_assets", "manage_rooms", "manage_users", "view_profiles", "operate_integrations",
+    "reopen", "manage_assets", "manage_rooms", "manage_users", "submit_feedback", "review_feedback", "view_profiles", "operate_integrations",
   ];
   const landing = landingPath(attempt.principal.profile.role);
   if (!landing) {

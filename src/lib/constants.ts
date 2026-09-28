@@ -4,4 +4,5 @@ export const HOTEL_NAME = "Residence Inn Champaign";
 export const HOTEL_TIME_ZONE = "America/Chicago";
 export const APP_TITLE = "CMPRI";
 export const BUILD_VERSION = "2.0";
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+export const CANONICAL_APP_URL = "https://cmpri-engineering.com";
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || CANONICAL_APP_URL;

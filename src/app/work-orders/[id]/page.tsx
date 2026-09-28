@@ -4,18 +4,19 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
-import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
+import { authorizationHeaders, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect from "@/components/SearchableSelect";
 import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
-import { roleKey } from "@/lib/server/roles";
+import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge, type ManualSymptomRule } from "@/lib/manual-knowledge";
 
 
 type Asset = {
   id: string;
   location_id: string | null;
+  location_name?: string;
   asset_type: string;
   name: string;
   asset_tag: string | null;
@@ -28,6 +29,7 @@ type Asset = {
   install_year: number | null;
   documentation_key: string | null;
 };
+type WorkOrderImage = { id: string; name: string; url: string };
 
 type WorkOrder = {
   revision: number;
@@ -94,116 +96,6 @@ type TechnicianProfile = {
   role: string | null;
   active: boolean | null;
 };
-
-type ManualErrorCode = {
-  code: string;
-  problem: string;
-  action: string;
-  source_pages?: number[];
-};
-
-type ManualSymptomRule = {
-  match: string[];
-  steps: string[];
-  source_pages?: number[];
-};
-
-type ManualKnowledge = {
-  manufacturer?: string;
-  equipment?: string;
-  source?: {
-    type?: string;
-    title?: string;
-    verified?: boolean;
-    source_file_name?: string;
-    file_url?: string;
-    pdf_url?: string;
-  };
-  error_codes?: ManualErrorCode[];
-  symptom_rules?: ManualSymptomRule[];
-};
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function pageNumbers(value: unknown): number[] {
-  return Array.isArray(value) ? value.map(Number).filter((page) => Number.isInteger(page) && page > 0) : [];
-}
-
-function normalizeManualKnowledge(input: unknown): ManualKnowledge | null {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
-  const payload = objectRecord(input);
-  const source = objectRecord(payload.source || payload.document);
-  const rawCodes = payload.error_codes || payload.errorCodes || payload.diagnostic_codes || [];
-  const rawRules = payload.symptom_rules || payload.symptomRules || payload.troubleshooting || payload.guidance || [];
-  const error_codes: ManualErrorCode[] = Array.isArray(rawCodes)
-    ? rawCodes.map((entry: unknown) => { const item = objectRecord(entry); return ({
-        code: String(item?.code ?? item?.id ?? "").trim(),
-        problem: String(item?.problem ?? item?.description ?? item?.meaning ?? "").trim(),
-        action: String(item?.action ?? item?.solution ?? item?.corrective_action ?? "").trim(),
-        source_pages: pageNumbers(item.source_pages ?? item.pages),
-      }); }).filter((item: ManualErrorCode) => item.code && (item.problem || item.action))
-    : [];
-  const symptom_rules: ManualSymptomRule[] = Array.isArray(rawRules)
-    ? rawRules.map((entry: unknown) => {
-        if (typeof entry === "string") return { match: [], steps: [entry] };
-        const item = objectRecord(entry);
-        const matchRaw = item?.match ?? item?.matches ?? item?.symptoms ?? item?.keywords ?? [];
-        const stepsRaw = item?.steps ?? item?.actions ?? item?.suggestions ?? item?.troubleshooting ?? [];
-        return {
-          match: Array.isArray(matchRaw) ? matchRaw.map(String) : [String(matchRaw || "")].filter(Boolean),
-          steps: Array.isArray(stepsRaw) ? stepsRaw.map(String) : [String(stepsRaw || "")].filter(Boolean),
-          source_pages: pageNumbers(item.source_pages ?? item.pages),
-        };
-      }).filter((item: ManualSymptomRule) => item.steps.length > 0)
-    : [];
-  return {
-    manufacturer: String(payload.manufacturer || ""),
-    equipment: String(payload.equipment || payload.asset || ""),
-    source: {
-      type: String(source.type || payload.document_type || ""),
-      title: String(source.title || payload.title || payload.document_title || ""),
-      verified: (source.verified ?? payload.verified) === true,
-      source_file_name: String(source.source_file_name || payload.source_file_name || ""),
-      file_url: String(source.file_url || payload.file_url || ""),
-      pdf_url: String(source.pdf_url || payload.pdf_url || ""),
-    },
-    error_codes,
-    symptom_rules,
-  };
-}
-
-const FRIEDRICH_VPAK_VERIFIED_ERROR_CODES: ManualErrorCode[] = [
-  { code: "1", problem: "Front Panel Button Stuck For More Than 20 Seconds", action: 'Continue to monitor for an "OPEN" (unstuck) switch. Do not process switch input.' },
-  { code: "2", problem: "Input Voltage Out of Specification (187 - 253)", action: "Unit stops and opens all relays until voltage is back within specification, then resumes operation." },
-  { code: "3", problem: "Indoor Temperature Sensor is Open or Shorted", action: "The unit defaults to 75°F in cooling or 68°F in heating and continues to operate if the setting is below 75°F in cool mode or above 68°F in heat mode." },
-  { code: "4", problem: "Indoor Coil Temperature Sensor is Open or Shorted", action: "The control board defaults to 40°F, overrides the sensor, and the unit continues to operate." },
-  { code: "5", problem: "Outdoor Coil Temperature Sensor is Open or Shorted", action: "The unit defaults to 20°F and overrides the sensor. It continues to operate, using electric heat when available for heating; otherwise it uses the heat pump when outdoor temperature allows." },
-  { code: "6", problem: "Outdoor Coil Temperature Greater Than 175°F", action: "The unit shuts down for 5 minutes, then resumes operation for 3 minutes. If the test fails 3 times, operation locks out. See the manual troubleshooting chart. Reset by turning power off and back on." },
-  { code: "7", problem: "Indoor Coil Temperature Less Than 30°F for 2 Consecutive Minutes", action: "The compressor turns off and high fan speed runs. When coil temperature reaches 45°F, the unit resumes operation after the compressor lockout time." },
-  { code: "8", problem: "Unit Cycles More Than 9 Times Per Hour", action: "The unit continues to operate and is monitored." },
-  { code: "9", problem: "Unit Cycles Less Than 3 Times Per Hour", action: "The unit continues to operate and is monitored." },
-  { code: "10", problem: "Not Applicable", action: "The on-file Friedrich Vert-I-Pak service manual lists Code 10 as Not Applicable. Retain an explicitly reported code in the ticket and verify the exact unit/control revision before applying a repair procedure." },
-  { code: "11", problem: "Wall Thermostat Problem or Connection Issue", action: "The unit will not operate. Check the wall thermostat, thermostat wiring, and low-voltage interface connections." },
-  { code: "12", problem: "Not Applicable", action: "The on-file Friedrich Vert-I-Pak service manual lists Code 12 as Not Applicable. Retain an explicitly reported code in the ticket and verify the exact unit/control revision before applying a repair procedure." },
-  { code: "13", problem: "High Pressure Limit Switch is Open — VPAK 24K Unit Only", action: "If cooling or heat pump operation is active, shut down the compressor and run high fan until the switch closes, then resume operation. A third occurrence within 1 hour locks the unit out. Reset by turning power off and back on." },
-  { code: "15", problem: "Heat Pump Error", action: "If indoor coil temperature is less than ambient temperature for 3 minutes, the unit uses electric heat to satisfy the heating demand. Possible causes include a bad reversing valve or excessive heat load." },
-  { code: "16", problem: "Temperature Beyond Operating Limits", action: "Occurs if indoor ambient temperature falls below 0°F or rises above 130°F. The code remains active until temperature returns to the operating range, then the unit resumes normal operation." },
-  { code: "17", problem: "Equipment Doesn't Meet Minimum Configuration", action: "The compressor must be enabled and the unit must have at least 2 fan speeds." },
-];
-
-function isFriedrichVpakReference(asset?: Asset, knowledge?: ManualKnowledge | null) {
-  const text = [
-    asset?.manufacturer,
-    asset?.name,
-    asset?.model_number,
-    knowledge?.manufacturer,
-    knowledge?.equipment,
-    knowledge?.source?.title,
-  ].filter(Boolean).join(" ").toLowerCase();
-  return text.includes("friedrich") && (text.includes("vert-i-pak") || text.includes("vert i pak") || text.includes("vertipak") || text.includes("vpak"));
-}
 
 function categoryForAsset(asset: Asset) {
   return classifyAsset(asset);
@@ -560,10 +452,6 @@ function symptomRouteTroubleshooting(
     `${asset?.name || ""} ${asset?.asset_type || ""}`.trim();
 
   const matches = SYMPTOM_ROUTES.filter((route) => {
-    const categoryMatch =
-      !route.categories?.length ||
-      route.categories.includes(category);
-
     const assetMatch =
       !route.assetPattern ||
       route.assetPattern.test(assetText);
@@ -577,7 +465,7 @@ function symptomRouteTroubleshooting(
      */
     // The reported symptom is the primary routing signal. Category and asset
     // help with context, but they must not suppress clear issue-based guidance.
-    return issueMatch && categoryMatch && assetMatch;
+    return issueMatch && assetMatch;
   });
 
   const unique = Array.from(
@@ -648,39 +536,9 @@ function normalizeDiagnosticCode(
 ) {
   const value = String(code || "")
     .trim()
-    .toUpperCase();
-
-  if (!value) {
-    return null;
-  }
-
-  /*
-   * GE Zoneline service documentation commonly refers to faults as
-   * F1, F2, etc., while the fault-code table itself lists 1, 2, etc.
-   * Normalize both formats to the numeric code so either technician
-   * wording can match the manual knowledge entry.
-   */
-  const prefixed = value.match(
-    /^[FE]\s*[-:#]?\s*(\d{1,3})$/
-  );
-
-  if (prefixed?.[1]) {
-    return String(
-      Number(prefixed[1])
-    );
-  }
-
-  const numeric = value.match(
-    /^(\d{1,3})$/
-  );
-
-  if (numeric?.[1]) {
-    return String(
-      Number(numeric[1])
-    );
-  }
-
-  return value;
+    .toUpperCase()
+    .replace(/\s+/g, "");
+  return value || null;
 }
 
 function extractReportedErrorCode(
@@ -691,17 +549,17 @@ function extractReportedErrorCode(
 
   const matches = [
     text.match(
-      /\b(?:code|error|fault)\s*[:#-]?\s*[fe]?\s*(\d{1,3})\b/i
+      /\b(?:code|error|fault)\s*[:#-]?\s*((?:[a-z]{1,4}[- ]?)?\d{1,4}[a-z0-9-]{0,6})\b/i
     ),
     text.match(
-      /\b[fe]\s*[-:#]?\s*(\d{1,3})\b/i
+      /\b(?!(?:room|rm)\s*#?\s*\d)([a-z]{1,4}[- ]?\d{1,4}[a-z0-9-]{0,6})\b/i
     ),
   ];
 
   for (const match of matches) {
     if (match?.[1]) {
       return normalizeDiagnosticCode(
-        match[1]
+        match[1].replace(/\s+/g, "")
       );
     }
   }
@@ -780,8 +638,10 @@ export default function WorkOrderTicketPage() {
   const [order, setOrder] = useState<WorkOrder | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; knowledge: ManualKnowledge | null } | null>(null);
+  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
   const [manualPagePreview, setManualPagePreview] = useState<number | null>(null);
+  const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
+  const [imagePreview, setImagePreview] = useState<WorkOrderImage | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [embedded, setEmbedded] = useState(true);
@@ -825,6 +685,7 @@ export default function WorkOrderTicketPage() {
   const selectedAsset = assets.find((asset) => asset.id === assetId);
   const manualCurrent = manualResult?.assetId === assetId && manualResult?.documentationKey === selectedAsset?.documentation_key;
   const manualKnowledge = manualCurrent ? manualResult?.knowledge : null;
+  const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
 
   useEffect(() => {
@@ -850,6 +711,23 @@ export default function WorkOrderTicketPage() {
       return referenceAssets;
     } catch {
       return [] as Asset[];
+    }
+  }
+
+  async function loadWorkOrderImages() {
+    if (!id) return;
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) return;
+      const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/attachments`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      setWorkOrderImages(Array.isArray(payload.images) ? payload.images as WorkOrderImage[] : []);
+    } catch {
+      setWorkOrderImages([]);
     }
   }
 
@@ -935,10 +813,10 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  async function loadTicket() {
+  async function loadTicket(showLoading = true) {
     if (!id) return;
 
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setMessage("");
 
     try {
@@ -1002,53 +880,7 @@ export default function WorkOrderTicketPage() {
       // Render the ticket immediately. Reference data can finish loading in the
       // background; the user should not wait on assets/technicians just to read a work order.
       setLoading(false);
-
-      void (async () => {
-        const referenceAssets = await loadMaintenanceReference();
-        if (row.asset_id || !referenceAssets?.length) return;
-
-        const wanted = String(row.asset_name || "").trim().toLowerCase();
-        const roomNumber = String(row.room || "").match(/\b\d{2,4}\b/)?.[0] || "";
-        const exactName = wanted
-          ? referenceAssets.find((asset) => asset.name.trim().toLowerCase() === wanted)
-          : undefined;
-        const roomName = wanted
-          ? referenceAssets.find((asset) => {
-              const haystack = `${asset.name} ${asset.asset_tag || ""}`.toLowerCase();
-              return !!roomNumber && haystack.includes(roomNumber) && haystack.includes(wanted.replace(/^\d+\s*[·-]\s*/, ""));
-            })
-          : undefined;
-
-        const sameLocation = referenceAssets.filter(
-          (asset) => !!row.location_id && asset.location_id === row.location_id
-        );
-        const issueText = cleanTicketReportedIssue(row.issue || "", row.room || "").toLowerCase();
-        const hvacComplaint = /\b(not cooling|no cooling|not cold|not getting cold|won't cool|will not cool|warm room|hot room|heating|heat|hvac|a\/?c|air condition)/i.test(issueText);
-        const hvacAsset = hvacComplaint
-          ? sameLocation.find((asset) => categoryForAsset(asset) === "HVAC")
-          : undefined;
-        const singleLocationAsset = sameLocation.length === 1 ? sameLocation[0] : undefined;
-        const matched = exactName || roomName || hvacAsset || singleLocationAsset;
-
-        if (matched) {
-          setAssetId(matched.id);
-          setSystemGuessAssetId(matched.id);
-          setInitialFingerprint(JSON.stringify({
-            issue: cleanTicketReportedIssue(row.issue || "", row.room || ""),
-            assetId: matched.id,
-            category: row.category || "General",
-            priority: row.priority || "Medium",
-            technicianName: row.technician_name || "",
-            status: row.status || "Open",
-            notes: row.notes || "",
-            actionRootCause: row.action_root_cause || "",
-            parts: row.parts || "",
-            cost: row.cost == null ? "" : String(row.cost),
-            hours: row.hours == null ? "" : String(row.hours),
-            dueBy: normalizedDueBy,
-          }));
-        }
-      })();
+      void loadMaintenanceReference();
     } catch (error) {
       setOrder(null);
       setMessage(`Work order error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1059,6 +891,7 @@ export default function WorkOrderTicketPage() {
   async function loadManualForAsset(asset?: Asset, isCurrent: () => boolean = () => true) {
     if (!asset) return;
     let knowledge: ManualKnowledge | null = null;
+    let documentationStatus = "lookup_unavailable";
     try {
       const session = await getValidSession();
       const token = session?.access_token;
@@ -1070,10 +903,11 @@ export default function WorkOrderTicketPage() {
       if (!response.ok) return;
       const payload = await response.json();
       knowledge = normalizeManualKnowledge(payload?.manualKnowledge);
+      documentationStatus = String(payload?.documentation_status || (knowledge?.source?.verified ? "verified" : "not_found"));
     } catch {
       knowledge = null;
     } finally {
-      if (isCurrent()) setManualResult({ assetId: asset.id, documentationKey: asset.documentation_key, knowledge });
+      if (isCurrent()) setManualResult({ assetId: asset.id, documentationKey: asset.documentation_key, knowledge, status: documentationStatus });
     }
   }
 
@@ -1096,13 +930,7 @@ export default function WorkOrderTicketPage() {
         return;
       }
       try {
-        const raw = window.sessionStorage.getItem(`cmpri:work-order-preview:${id}`);
-        if (raw) seedTicketPreview(JSON.parse(raw) as WorkOrder);
-      } catch {}
-      const sessionPromise = loadCmpriSession();
-      const ticketPromise = loadTicket();
-      try {
-        const session = await sessionPromise;
+        const session = await loadCmpriSession();
         setCmpriSession(session);
         const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets");
         if (!canViewTicket) {
@@ -1114,7 +942,16 @@ export default function WorkOrderTicketPage() {
         window.location.replace("/");
         return;
       }
-      await ticketPromise;
+      let hadPreview = false;
+      try {
+        const raw = window.sessionStorage.getItem(`cmpri:work-order-preview:${id}`);
+        if (raw) {
+          seedTicketPreview(JSON.parse(raw) as WorkOrder);
+          hadPreview = true;
+        }
+      } catch {}
+      await loadTicket(!hadPreview);
+      void loadWorkOrderImages();
       void loadExternalActivity();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1132,6 +969,7 @@ export default function WorkOrderTicketPage() {
 
   function handleAssetChange(newAssetId: string) {
     setAssetId(newAssetId);
+    setManualPagePreview(null);
     
     const asset = assets.find((item) => item.id === newAssetId);
     if (asset) {
@@ -1141,13 +979,14 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  const combinedDiagnosticText = `${issue} ${notes}`.trim();
+  const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""} ${notes} ${actionRootCause}`.trim();
+  const completedWorkNotes = `${notes} ${actionRootCause}`.trim();
 
   const generalTroubleshooting = generalTroubleshootingFor(
     selectedAsset,
     category,
     issue,
-    notes,
+    completedWorkNotes,
     []
   );
 
@@ -1163,23 +1002,13 @@ export default function WorkOrderTicketPage() {
 
   const manualSteps = Array.from(
     new Set(matchingSymptomRules.flatMap((rule) => rule.steps))
-  ).filter((step) => !troubleshootingStepAlreadyDone(step, notes, []));
+  ).filter((step) => !troubleshootingStepAlreadyDone(step, completedWorkNotes, []));
 
   const reportedCode = extractReportedErrorCode(combinedDiagnosticText);
   const manualErrorCodes = (() => {
     const byCode = new Map<string, ManualErrorCode>();
     if (trustedManualKnowledge) {
       for (const item of manualKnowledge?.error_codes ?? []) {
-        const code = normalizeDiagnosticCode(item.code);
-        if (code) byCode.set(code, item);
-      }
-    }
-    // Port the verified Friedrich Vert-I-Pak Error Code | Problem | Action
-    // table from the legacy CMPRI Google Sheet implementation. The old system
-    // intentionally used the verified manufacturer table because PDF table
-    // extraction can reorder columns.
-    if (isFriedrichVpakReference(selectedAsset, manualKnowledge)) {
-      for (const item of FRIEDRICH_VPAK_VERIFIED_ERROR_CODES) {
         const code = normalizeDiagnosticCode(item.code);
         if (code) byCode.set(code, item);
       }
@@ -1220,11 +1049,7 @@ export default function WorkOrderTicketPage() {
     .slice(0, 6)
     .map(({ item }) => item);
 
-  // Manual-specific steps lead the list, but supplement them with relevant
-  // issue-based checks instead of collapsing the pane to a single result.
-  const displayedSteps = selectedAsset
-    ? Array.from(new Set([...manualSteps, ...generalTroubleshooting])).slice(0, 10)
-    : generalTroubleshooting;
+  const displayedSteps = generalTroubleshooting.slice(0, 10);
 
   const currentFingerprint = JSON.stringify({
     issue,
@@ -1257,7 +1082,7 @@ export default function WorkOrderTicketPage() {
       );
       return;
     }
-    router.push(cmpriSession?.landing || "/engineering");
+    router.push("/engineering");
   }
 
   async function addAssetFromTicket() {
@@ -1329,6 +1154,52 @@ export default function WorkOrderTicketPage() {
     setNotes((existing) => existing.split("\n").filter((line) => line.trim() !== encoded).join("\n"));
     setStagedNoteIds((lines) => lines.filter((line) => line !== encoded));
     requestAnimationFrame(() => document.getElementById("technician-note-editor")?.focus());
+  }
+
+  async function claimUnassignedWorkOrder() {
+    if (!order) return;
+    const assignedName = cmpriSession?.user.name?.trim();
+    if (!assignedName) {
+      setMessage("Your profile needs a name before you can take an unassigned work order.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      const headers = await authorizationHeaders();
+      headers["Content-Type"] = "application/json";
+      const response = await fetch(`/api/work-orders/${encodeURIComponent(order.id)}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          expected_revision: order.revision,
+          technician_name: assignedName,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.workOrder) {
+        throw new Error(payload.error || "This work order could not be assigned to you.");
+      }
+      const claimed = payload.workOrder as WorkOrder;
+      setOrder(claimed);
+      setTechnicianName(assignedName);
+      setInitialFingerprint(JSON.stringify({
+        issue, assetId, category, priority, technicianName: assignedName, status, notes,
+        actionRootCause, parts, cost, hours, dueBy,
+      }));
+      setSaveState("idle");
+      setMessage("This work order is now assigned to you.");
+      if (embedded && window.parent !== window) {
+        window.parent.postMessage(
+          { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken },
+          window.location.origin,
+        );
+      }
+    } catch (error) {
+      setMessage(`Assignment error: ${error instanceof Error ? error.message : "This work order could not be assigned to you."}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveTicket() {
@@ -1433,7 +1304,7 @@ export default function WorkOrderTicketPage() {
         );
         return;
       }
-      router.push(cmpriSession?.landing || "/engineering");
+      router.push("/engineering");
     }, 1250);
   }
 
@@ -1444,6 +1315,16 @@ export default function WorkOrderTicketPage() {
     }
     closeEmbeddedTicket();
   }
+
+  useEffect(() => {
+    if (!embedded) return;
+    const handleModalCancelRequest = (event: Event) => {
+      event.preventDefault();
+      cancelTicket();
+    };
+    document.addEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
+    return () => document.removeEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
+  }, [embedded, hasUnsavedChanges]);
 
   if (loading) {
     return (
@@ -1456,7 +1337,7 @@ export default function WorkOrderTicketPage() {
   if (!order) {
     return (
       <main className="min-h-screen bg-slate-950 p-6 text-white">
-        <Link href={cmpriSession?.landing || "/engineering"} className="text-amber-400">
+        <Link href="/engineering" className="text-amber-400">
           ← Engineering Dashboard
         </Link>
         <div className="mt-6 rounded-xl border border-red-400/30 bg-red-950/20 p-4">
@@ -1554,16 +1435,14 @@ export default function WorkOrderTicketPage() {
               : "Other Locations";
       return {
         value: asset.id,
-        label:
-          asset.id === systemGuessAssetId
-            ? `${asset.name} — System best guess`
-            : asset.name,
+        label: asset.location_name ? `${asset.name} — ${asset.location_name}` : asset.name,
         group,
         keywords: [
           asset.asset_type,
           asset.manufacturer || "",
           asset.model_number || "",
           asset.asset_tag || "",
+          asset.location_name || "",
           order?.room || "",
         ],
       };
@@ -1581,9 +1460,13 @@ export default function WorkOrderTicketPage() {
   const canEditTicket = Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
-  const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
+  const isTechnician = ["technician", "maintenancetechnician"].includes(
+    (cmpriSession?.user.role || "").toLowerCase().replace(/[\s_-]+/g, ""),
+  );
+  const canClaimWorkOrder = isTechnician &&
+    !String(order.technician_name || "").trim() &&
+    ["Open", "In Progress"].includes(String(order.status || "Open"));
   const statusValues = (() => {
-    if (isTechnician) return ["Open", "In Progress", "Completed"];
     if (canReviewTicket && !canEditTicket) {
       return status === "Pending Verification" ? ["Pending Verification", "Open", "Will Not Do"] : [status];
     }
@@ -1680,7 +1563,7 @@ export default function WorkOrderTicketPage() {
           <div>
             {!embedded && (
               <Link
-                href={cmpriSession?.landing || "/engineering"}
+                href="/engineering"
                 className="text-sm font-semibold text-amber-400 hover:text-amber-300"
               >
                 ← Engineering Dashboard
@@ -1816,7 +1699,7 @@ export default function WorkOrderTicketPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment</div>
-                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} placeholder="Asset / Equipment" options={assetOptions} topSuggestions={3} footerActionLabel="+ Add New Asset" onFooterAction={() => setShowAddAsset(true)} /></div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
+                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} placeholder="Asset / Equipment" options={assetOptions} topSuggestions={3} footerActionLabel="+ Add New Asset" onFooterAction={() => setShowAddAsset(true)} />{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</div>
@@ -1829,6 +1712,7 @@ export default function WorkOrderTicketPage() {
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician</div>
                   {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{technicianName || "Unassigned"}</p>}
+                  {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-2 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
@@ -1839,6 +1723,21 @@ export default function WorkOrderTicketPage() {
                   {editingIssue && canEditTicket ? <input type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-2 min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400" /> : <p className="mt-2 text-base text-slate-200">{dueBy || "No due date"}</p>}
                 </div>
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+              <h2 className="text-lg font-bold tracking-tight text-slate-100">Photo</h2>
+              {workOrderImages.length ? (
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {workOrderImages.map((image) => (
+                    <button key={image.id} type="button" onClick={() => setImagePreview(image)} className="overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
+                      <img src={image.url} alt="Work-order attachment" className="h-auto w-[25%] min-w-24 max-w-48 object-contain" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 flex min-h-24 items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950 text-sm text-slate-500">No photo attached</div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
@@ -1899,15 +1798,25 @@ export default function WorkOrderTicketPage() {
                     {manualLoading
                       ? "Loading equipment documentation..."
                       : manualSteps.length
-                        ? "Symptom-matched manual guidance"
-                        : "Equipment-specific troubleshooting"}
+                        ? "Verified manufacturer guidance"
+                        : "Issue-based guide"}
                   </span>
                 )}
               </div>
 
               {!selectedAsset && (
                 <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-300">
-                  Showing issue-based troubleshooting. Select equipment to add model-specific manual guidance.
+                  General issue-based guidance only. No asset is selected, so no equipment manual or error-code table is used.
+                </div>
+              )}
+
+              {selectedAsset && !manualLoading && !trustedManualKnowledge && (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3 text-sm text-amber-100">
+                  {manualStatus === "lookup_unavailable"
+                    ? "The assigned troubleshooting guide could not be checked. General issue-based guidance remains available; no other asset's guide was substituted."
+                    : selectedAsset.documentation_key
+                      ? `No verified guide could be resolved for documentation key ${selectedAsset.documentation_key}. General issue-based guidance is shown without borrowing another manual.`
+                      : "No verified guide is assigned to this asset. General issue-based guidance is shown without guessing a manual."}
                 </div>
               )}
 
@@ -1916,6 +1825,12 @@ export default function WorkOrderTicketPage() {
                   <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                     <p className="text-sm font-semibold">{manualKnowledge.source.title}</p>
                     <p className={`mt-1 text-xs ${manualKnowledge?.source?.verified ? "text-emerald-400" : "text-slate-500"}`}>{manualKnowledge?.source?.verified ? "Verified equipment documentation" : manualKnowledge ? "Equipment reference uploaded — verification pending" : "Generic troubleshooting only — no equipment documentation linked"}</p>
+                    {(manualKnowledge.manufacturer || manualKnowledge.equipment) && (
+                      <p className="mt-1 text-xs text-slate-400">{[manualKnowledge.manufacturer, manualKnowledge.equipment].filter(Boolean).join(" · ")}</p>
+                    )}
+                    {selectedAsset?.documentation_key && (
+                      <p className="mt-1 break-all text-[11px] text-slate-500">Documentation key: {selectedAsset.documentation_key}</p>
+                    )}
                     {manualKnowledge?.source?.source_file_name && (
                       <p className="mt-1 truncate text-[11px] text-slate-500" title={manualKnowledge.source.source_file_name}>{manualKnowledge.source.source_file_name}</p>
                     )}
@@ -1938,7 +1853,7 @@ export default function WorkOrderTicketPage() {
 
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-4 text-sm text-slate-400">
-                    Code {reportedCode} was entered, but no matching code entry is available in the selected equipment documentation.
+                    Reported code {reportedCode} has no exact matching entry in verified documentation for the selected asset.
                   </p>
                 )}
 
@@ -1978,16 +1893,16 @@ export default function WorkOrderTicketPage() {
                   </div>
                 )}
 
-                {displayedSteps.length > 0 && (
+                {manualSteps.length > 0 && (
                   <div className="mt-5">
-                    <h3 className="text-sm font-semibold text-amber-300">Troubleshooting Checks</h3>
+                    <h3 className="text-sm font-semibold text-sky-300">Verified manufacturer troubleshooting</h3>
                     <ol className="mt-3 space-y-3 text-sm text-slate-300">
-                      {displayedSteps.map((step, index) => {
+                      {manualSteps.map((step, index) => {
                         const sourceRule = matchingSymptomRules.find((rule) => rule.steps.includes(step));
                         return (
-                          <li key={`${step}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+                          <li key={`${step}-${index}`} className="rounded-lg border border-sky-900/70 bg-slate-950/60 p-2.5">
                             <div className="flex gap-2.5">
-                              <span className="font-semibold text-amber-400">{index + 1}.</span>
+                              <span className="font-semibold text-sky-300">{index + 1}.</span>
                               <span className="flex-1">{step}</span>
                               <CopyButton text={step} label="Copy" className="shrink-0" />
                             </div>
@@ -1998,6 +1913,25 @@ export default function WorkOrderTicketPage() {
                                 ))}
                               </div>
                             )}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                )}
+
+                {displayedSteps.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-semibold text-amber-300">General issue-based checks</h3>
+                    <ol className="mt-3 space-y-3 text-sm text-slate-300">
+                      {displayedSteps.map((step, index) => {
+                        return (
+                          <li key={`${step}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+                            <div className="flex gap-2.5">
+                              <span className="font-semibold text-amber-400">{index + 1}.</span>
+                              <span className="flex-1">{step}</span>
+                              <CopyButton text={step} label="Copy" className="shrink-0" />
+                            </div>
                           </li>
                         );
                       })}
@@ -2172,13 +2106,19 @@ export default function WorkOrderTicketPage() {
       </div>
 
       {showCancelConfirm && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4">
-          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-1" onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setShowCancelConfirm(false);
+        }}>
+          <div role="dialog" aria-modal="true" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
             <h2 className="text-xl font-bold">Are you sure you want to cancel?</h2>
             <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be discarded.</p>
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
+                autoFocus
                 onClick={() => setShowCancelConfirm(false)}
                 className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800"
               >
@@ -2197,14 +2137,19 @@ export default function WorkOrderTicketPage() {
       )}
 
       {showAddAsset && order && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="Add New Asset">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-1" role="dialog" aria-modal="true" aria-label="Add New Asset" onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setShowAddAsset(false);
+        }}>
+          <div className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div><h2 className="text-2xl font-bold text-white">Add New Equipment</h2><p className="mt-1 text-sm text-slate-400">Create the physical asset first, then link it to this work order.</p></div>
               <button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">Cancel</button>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <input value={newAssetType} onChange={(e)=>setNewAssetType(e.target.value)} placeholder="Equipment type, e.g. TV or VTAC" className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
+              <input autoFocus value={newAssetType} onChange={(e)=>setNewAssetType(e.target.value)} placeholder="Equipment type, e.g. TV or VTAC" className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
               <div className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">
                 <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">New asset name</span>
                 <span className="mt-0.5 block font-semibold text-slate-100">{newAssetType.trim() ? `${newAssetType.trim()} – ${order.room || "Location"}` : `Equipment type – ${order.room || "Location"}`}</span>
@@ -2228,6 +2173,21 @@ export default function WorkOrderTicketPage() {
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300">Cancel</button><button type="button" onClick={() => void addAssetFromTicket()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Add & Select Asset</button></div>
+          </div>
+        </div>
+      )}
+
+      {imagePreview && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/85 p-1" role="dialog" aria-modal="true" aria-label="Full-size work-order photo" onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setImagePreview(null);
+        }}>
+          <button type="button" aria-label="Close photo" onClick={() => setImagePreview(null)} className="absolute inset-0 cursor-default" />
+          <div className="cmpri-modal-shell relative z-10 rounded-xl border border-slate-600 bg-slate-950 p-2 shadow-2xl">
+            <img src={imagePreview.url} alt="Full-size work-order attachment" className="max-h-[92vh] max-w-[92vw] object-contain" />
+            <button type="button" onClick={() => setImagePreview(null)} className="absolute right-3 top-3 rounded-lg border border-slate-600 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-white">Close</button>
           </div>
         </div>
       )}
