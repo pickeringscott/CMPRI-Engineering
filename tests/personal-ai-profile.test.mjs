@@ -44,6 +44,7 @@ test("personal MCP links authenticate the user without an OAuth exchange and pre
   assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
   assert.match(route, /cmpri_link_/);
   assert.match(route, /POST as mcpPost/);
+  assert.match(route, /responseHeaders\.delete\("WWW-Authenticate"\)/);
   assert.match(identity, /cmpri_personal_mcp_links/);
   assert.match(identity, /token\.scope === CMPRI_MCP_WRITE_SCOPE/);
   assert.match(profileRoute, /hashOAuthToken\(token\)/);

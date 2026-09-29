@@ -38,12 +38,12 @@ export async function POST(request: NextRequest, context: RouteContext<"/api/mcp
     body: JSON.stringify(payload),
   });
   const response = await mcpPost(mcpRequest);
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.delete("WWW-Authenticate");
+  responseHeaders.set("Referrer-Policy", "no-referrer");
   return new Response(response.body, {
     status: response.status,
-    headers: {
-      ...Object.fromEntries(response.headers.entries()),
-      "Referrer-Policy": "no-referrer",
-    },
+    headers: responseHeaders,
   });
 }
 
