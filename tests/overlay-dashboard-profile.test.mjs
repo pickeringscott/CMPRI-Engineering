@@ -95,28 +95,29 @@ test('profile preferences normalize and persist supported values', () => {
   });
 });
 
-test('submit-only profiles omit the AI control and put Dashboard before language and appearance toggles', () => {
+test('profile preferences use the same layout and submit-only users can manage their ChatGPT connection', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /const isSubmitOnlyProfile = \["Front Desk", "Lead Housekeeper"\]/);
-  assert.match(source, /isSubmitOnlyProfile \? \([\s\S]*?Dashboard[\s\S]*?renderPreferenceToggles\(\)/);
-  assert.match(source, /!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl/);
-  assert.match(source, /role="group" aria-label=\{label\} className="inline-flex rounded-full border border-slate-700 p-0\.5"/);
+  assert.match(source, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">\s*<h2 className="text-xl font-bold">\{tx\("Personal Preferences"/);
+  assert.match(source, /<label className="grid gap-1 text-sm text-slate-300">\{tx\("Language"/);
+  assert.match(source, /<label className="grid gap-1 text-sm text-slate-300">\{tx\("Appearance"/);
+  assert.match(source, /<section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection/);
   assert.match(source, /!isSubmitOnlyProfile && <label[\s\S]*?Sign-in email/);
-  assert.doesNotMatch(source, /<h2[^>]*>OpenAI Connection<\/h2>/);
-  assert.equal((source.match(/setPersonalAiConnection\(data\.personal_ai\.connected \? "disconnect" : "connect"\)/g) || []).length, 2);
+  assert.match(source, /href="\/profile\/ai-connection"/);
+  assert.doesNotMatch(source, /setPersonalAiConnection|Disconnect AI|Connect AI/);
 });
 
-test('Front Desk and Housekeeping get profile sign-out while other profile preferences remain unchanged', () => {
+test('Front Desk and Housekeeping get profile sign-out and ChatGPT connection status', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /isSubmitOnlyProfile && <button type="button" onClick=\{\(\) => void signOut\(\)\} aria-label=/);
   assert.match(source, /className="grid size-8 place-items-center rounded-lg border border-red-400/);
-  assert.match(source, /!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl/);
+  assert.match(source, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">/);
   assert.match(source, /!isHousekeeping && <div/);
   assert.match(source, /!isHousekeeping && <fieldset/);
   assert.match(source, /isHousekeeping \? "Housekeeping" : roleDisplayName\(data\.profile\.role \|\| "Unknown"\)/);
   const profileApi = readFileSync(new URL('../src/app/api/profile/route.ts', import.meta.url), 'utf8');
-  assert.match(profileApi, /isSubmitOnlyRole\(auth\.principal\.profile\.role\)/);
-  assert.match(profileApi, /Personal AI is unavailable for this role/);
+  assert.match(profileApi, /preferencesForRole\(auth\.principal\.profile\.role/);
+  assert.match(profileApi, /chatgptConnectionForUser\(auth\.admin, auth\.principal\.identity\.id\)/);
   assert.match(profileApi, /preferencesForRole\(auth\.principal\.profile\.role/);
 });
 
@@ -130,17 +131,16 @@ test('submit-only profile dashboard link returns Front Desk and Housekeeping dir
   assert.match(modalLink, /type: "cmpri-modal-dashboard"/);
 });
 
-test('authorized Housekeeping render replaces the Engineering fallback and preserves shared assistant width', () => {
+test('authorized Housekeeping render replaces the Engineering fallback and shared dashboard no longer embeds an assistant', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  const assistant = readFileSync(new URL('../src/components/DashboardAssistant.tsx', import.meta.url), 'utf8');
+  const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   assert.match(dashboard, /if \(!cmpriSession\)\s*\{\s*return/);
   assert.match(dashboard, /isHousekeepingDashboard \? "CMPRI Housekeeping" : "CMPRI Engineering"/);
   assert.match(dashboard, /const isFullWidthDashboard = \["Front Desk", "Lead Housekeeper"\]\.includes\(roleDisplayName\(cmpriSession\.user\.role\)\)/);
   assert.match(dashboard, /max-w-none min-w-0 px-3 py-4 sm:px-4 lg:px-6 \$\{isFullWidthDashboard \? "" : "lg:w-\[66vw\]"\}/);
-  assert.match(assistant, /cmpri-dashboard-assistant/);
-  assert.match(styles, /\.cmpri-dashboard-assistant\s*\{\s*width: min\(66vw, 72rem\)/);
-  assert.match(styles, /\.cmpri-dashboard-assistant\s*\{\s*width: calc\(100vw - 16px\)/);
+  assert.doesNotMatch(layout, /DashboardAssistant/);
+  assert.doesNotMatch(styles, /cmpri-dashboard-assistant/);
 });
 
 test('work-order dashboards use 66% desktop width except Front Desk and Housekeeping', () => {

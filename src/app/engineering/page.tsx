@@ -9,6 +9,16 @@ import AccountSummary from "@/components/AccountSummary";
 import { dashboardTitleForRole, roleDisplayName } from "@/lib/account-display";
 import { BUILD_VERSION } from "@/lib/constants";
 import { filterKpiWorkOrders, isKpiOverdue, isOpenKpiStatus, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
+import {
+  fetchWorkOrderNotifications,
+  mergeWorkOrderNotifications,
+  readWorkOrderNotificationCursor,
+  saveWorkOrderNotificationCursor,
+  unseenWorkOrderNotifications,
+  type WorkOrderNotification,
+} from "@/lib/dashboard/work-order-notifications";
+import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
+import { roleKey } from "@/lib/server/roles";
 
 const REFRESH_MS = 30_000;
 const NEW_ORDER_LAST_SEEN_PREFIX = "cmpri:new-order-last-seen:v1:";
@@ -329,7 +339,7 @@ export default function EngineeringDashboardPage() {
   function setDashboardDialogElement(element: HTMLElement | null) {
     dashboardDialogRef.current = element;
   }
-  const [personalAiConnected, setPersonalAiConnected] = useState(false);
+  const [chatgptConnected, setChatgptConnected] = useState(false);
   const [newFeedbackCount, setNewFeedbackCount] = useState(0);
   const [roomOperations, setRoomOperations] = useState<RoomOperation[]>([]);
   const [roomOpsInput, setRoomOpsInput] = useState("");
@@ -338,7 +348,14 @@ export default function EngineeringDashboardPage() {
   const [roomOpsPreview, setRoomOpsPreview] = useState<RoomOperationPreview | null>(null);
   const [roomOpsImportBusy, setRoomOpsImportBusy] = useState(false);
   const [newOrderQueue, setNewOrderQueue] = useState<WorkOrder[]>([]);
+  const [workOrderNotifications, setWorkOrderNotifications] = useState<WorkOrderNotification[]>([]);
+  const [notificationError, setNotificationError] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
+  const notificationCursorRef = useRef<string | null>(null);
+  const notificationPollInFlightRef = useRef(false);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
   const lastSeenMsRef = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -377,7 +394,7 @@ export default function EngineeringDashboardPage() {
   }
 
   function playAlertTone() {
-    if (!soundEnabled) return;
+    if (!soundEnabledRef.current) return;
     try {
       const AudioCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtor) return;
@@ -446,10 +463,19 @@ export default function EngineeringDashboardPage() {
   function toggleSound() {
     setSoundEnabled((current) => {
       const next = !current;
+      soundEnabledRef.current = next;
       writeSoundPreference(next);
       if (next) playAlertTone();
       return next;
     });
+  }
+
+  function dismissWorkOrderNotifications() {
+    setWorkOrderNotifications([]);
+    pendingNotificationIdsRef.current.clear();
+    if (cmpriSession?.user.id && notificationCursorRef.current) {
+      saveWorkOrderNotificationCursor(cmpriSession.user.id, notificationCursorRef.current);
+    }
   }
 
   function openWorkOrder(workOrderId: string) {
@@ -665,7 +691,9 @@ export default function EngineeringDashboardPage() {
         }
         setCmpriSession(session);
         lastSeenMsRef.current = readLastSeenTimestamp(session.user.id);
-        setSoundEnabled(readSoundPreference());
+        const soundPreference = readSoundPreference();
+        soundEnabledRef.current = soundPreference;
+        setSoundEnabled(soundPreference);
       } catch {
         window.location.replace("/");
         return;
@@ -682,6 +710,47 @@ export default function EngineeringDashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (!cmpriSession || roleKey(cmpriSession.user.role) !== "engineer") return;
+    const userId = cmpriSession.user.id;
+    notificationCursorRef.current = readWorkOrderNotificationCursor(userId);
+    let current = true;
+    const pollNotifications = async () => {
+      if (notificationPollInFlightRef.current) return;
+      notificationPollInFlightRef.current = true;
+      try {
+        const session = await getValidSession();
+        if (!session?.access_token) throw new Error("Sign in again to load work-order notifications.");
+        const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId);
+        const result = await fetchWorkOrderNotifications(session.access_token, cursor);
+        if (!current) return;
+        notificationCursorRef.current = result.checked_at;
+        const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, result.notifications);
+        if (unseen.length) {
+          unseen.forEach((notification) => pendingNotificationIdsRef.current.add(notification.id));
+          setWorkOrderNotifications((existing) => mergeWorkOrderNotifications(existing, unseen));
+          playAlertTone();
+        }
+        if (!result.notifications.length && pendingNotificationIdsRef.current.size === 0) {
+          saveWorkOrderNotificationCursor(userId, result.checked_at);
+        }
+        setNotificationError("");
+      } catch (error) {
+        if (current) setNotificationError(error instanceof Error ? error.message : "Work-order notifications could not be loaded.");
+      } finally {
+        notificationPollInFlightRef.current = false;
+      }
+    };
+    void pollNotifications();
+    const interval = window.setInterval(() => { void pollNotifications(); }, REFRESH_MS);
+    return () => {
+      current = false;
+      window.clearInterval(interval);
+    };
+    // The effect intentionally polls for the active engineer and uses refs for cursor/sound state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmpriSession]);
+
+  useEffect(() => {
     if (!cmpriSession) return;
     void (async () => {
       try {
@@ -690,7 +759,7 @@ export default function EngineeringDashboardPage() {
         const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
         if (!response.ok) return;
         const payload = await response.json().catch(() => ({}));
-        setPersonalAiConnected(payload.personal_ai?.connected === true);
+        setChatgptConnected(payload.chatgpt_connection?.connected === true);
       } catch {}
     })();
   }, [cmpriSession]);
@@ -928,7 +997,7 @@ export default function EngineeringDashboardPage() {
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</button>
             {hasCapability(cmpriSession, "review_feedback") && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("cmpri-open-modal", { detail: { href: `/feedback?route=${encodeURIComponent(window.location.pathname)}`, title: "Feedback" } }))} className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/30">Feedback{newFeedbackCount > 0 ? ` (${newFeedbackCount})` : ""}</button>}
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</button>
-            {!personalAiConnected && <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect OpenAI</button>}
+            {!chatgptConnected && <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect ChatGPT</button>}
             <button type="button" onClick={() => { setFilter("all"); setShowWorkOrderList(true); }} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
             <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
@@ -981,6 +1050,8 @@ export default function EngineeringDashboardPage() {
           </section>
         )}
 
+        {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
+        <WorkOrderNotificationBanner notifications={workOrderNotifications} onDismiss={dismissWorkOrderNotifications} />
         {message && <div className="mt-5 rounded-xl border border-red-400/30 bg-red-950/20 p-4 text-sm text-red-200">{message}</div>}
 
       </div>

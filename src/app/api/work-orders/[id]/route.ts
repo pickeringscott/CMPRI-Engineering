@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows } from "@/lib/server/access";
-import { requireCapability, requireUser } from "@/lib/server/auth";
+import { requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { roleKey } from "@/lib/server/roles";
@@ -16,7 +16,10 @@ const TECHNICAL_FIELDS = [
 ] as const;
 const REVIEW_FIELDS = ["status", "notes"] as const;
 
-function callerDatabase(request: NextRequest) {
+function callerDatabase(request: NextRequest, admin: NonNullable<Awaited<ReturnType<typeof requireUser>>>["admin"]) {
+  if (/^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "")) {
+    return admin;
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
   const authorization = request.headers.get("authorization") || "";
@@ -109,7 +112,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
   const { id } = await params;
-  const db = callerDatabase(request);
+  const db = callerDatabase(request, auth.admin);
   if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
   const { data: existing, error: lookupError } = await db.from("work_orders")
@@ -286,7 +289,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!canDelete) return NextResponse.json({ error: "Engineering access is required to delete work orders." }, { status: 403 });
 
   const { id } = await params;
-  const db = callerDatabase(request);
+  const db = callerDatabase(request, auth.admin);
   if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
   const { data: existing, error: lookupError } = await db.from("work_orders")

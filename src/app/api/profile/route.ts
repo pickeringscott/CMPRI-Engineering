@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/server/auth";
 import { allows } from "@/lib/server/access";
 import { DEFAULT_PROFILE_PREFERENCES, disableProfileNotifications, normalizeProfilePreferences } from "@/lib/profile-preferences";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
+import { connectionFromActiveTokens } from "@/lib/server/cmpri-mcp";
 
 async function readBody(request: NextRequest) {
   try {
@@ -19,35 +20,58 @@ function preferencesForRole(role: unknown, value: unknown) {
     : normalizeProfilePreferences(value);
 }
 
+async function chatgptConnectionForUser(admin: NonNullable<Awaited<ReturnType<typeof requireUser>>>["admin"], userId: string) {
+  const { data, error } = await admin.from("cmpri_mcp_oauth_tokens")
+    .select("scope")
+    .eq("user_id", userId)
+    .eq("token_type", "access_token")
+    .is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString());
+  return connectionFromActiveTokens((data || []).map((token) => token.scope), error);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data, error } = await auth.admin.from("profiles")
-    .select("id, email, full_name, role, preferences, personal_ai_connected")
+    .select("id, email, full_name, role, preferences")
     .eq("id", auth.principal.identity.id)
     .maybeSingle();
   if (error) {
-    const { data: basicProfile, error: basicError } = await auth.admin.from("profiles")
-      .select("id, email, full_name, role")
+    const { data: legacyProfile, error: legacyError } = await auth.admin.from("profiles")
+      .select("id, email, full_name, role, preferences")
       .eq("id", auth.principal.identity.id)
       .maybeSingle();
-    if (basicError) return NextResponse.json({ error: "Profile could not be loaded." }, { status: 503 });
-    if (!basicProfile) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
+    if (legacyError) return NextResponse.json({ error: "Profile could not be loaded." }, { status: 503 });
+    if (!legacyProfile) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
+    let chatgptConnection;
+    try {
+      chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+    } catch {
+      return NextResponse.json({ error: "ChatGPT connection status could not be loaded. Apply the CMPRI MCP authorization migration." }, { status: 503 });
+    }
     return NextResponse.json({
-      profile: { id: basicProfile.id, email: basicProfile.email, full_name: basicProfile.full_name, role: basicProfile.role },
-      preferences: preferencesForRole(auth.principal.profile.role, DEFAULT_PROFILE_PREFERENCES),
-      profile_settings_available: false,
+      profile: { id: legacyProfile.id, email: legacyProfile.email, full_name: legacyProfile.full_name, role: legacyProfile.role },
+      preferences: preferencesForRole(auth.principal.profile.role, legacyProfile.preferences || DEFAULT_PROFILE_PREFERENCES),
+      profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
-      personal_ai: { connected: false, status: "disconnected", message: "Personal settings storage is unavailable. Apply the CMPRI profile-preferences migration to enable saved preferences and connection state." },
+      chatgpt_connection: chatgptConnection,
+      warning: "Profile preferences are available, but ChatGPT connections require the CMPRI MCP authorization migration.",
     });
   }
   if (!data) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
+  let chatgptConnection;
+  try {
+    chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+  } catch {
+    return NextResponse.json({ error: "ChatGPT connection status could not be loaded. Apply the CMPRI MCP authorization migration." }, { status: 503 });
+  }
   return NextResponse.json({
     profile: { id: data.id, email: data.email, full_name: data.full_name, role: data.role },
     preferences: preferencesForRole(auth.principal.profile.role, data.preferences || DEFAULT_PROFILE_PREFERENCES),
     profile_settings_available: true,
     can_manage_users: allows(auth.principal, "manage_users"),
-    personal_ai: { connected: data.personal_ai_connected === true, status: data.personal_ai_connected === true ? "connected" : "disconnected", message: "Personal AI uses controlled CMPRI actions and inherits this user's current permissions." },
+    chatgpt_connection: chatgptConnection,
   });
 }
 
@@ -56,16 +80,7 @@ export async function PATCH(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
-  const isSubmitOnly = isSubmitOnlyRole(auth.principal.profile.role);
-
   const update: Record<string, unknown> = {};
-  if (body.personal_ai_action !== undefined) {
-    if (isSubmitOnly) return NextResponse.json({ error: "Personal AI is unavailable for this role." }, { status: 403 });
-    if (body.personal_ai_action !== "connect" && body.personal_ai_action !== "disconnect") {
-      return NextResponse.json({ error: "Invalid personal AI connection action." }, { status: 400 });
-    }
-    update.personal_ai_connected = body.personal_ai_action === "connect";
-  }
   if (body.full_name !== undefined) {
     if (typeof body.full_name !== "string" || !body.full_name.trim() || body.full_name.trim().length > 200) {
       return NextResponse.json({ error: "A valid display name is required." }, { status: 400 });
@@ -78,31 +93,43 @@ export async function PATCH(request: NextRequest) {
   const { data, error } = await auth.admin.from("profiles")
     .update(update)
     .eq("id", auth.principal.identity.id)
-    .select("id, email, full_name, role, preferences, personal_ai_connected")
+    .select("id, email, full_name, role, preferences")
     .single();
   if (error) {
-    if (typeof update.full_name !== "string" || "personal_ai_action" in body) {
-      return NextResponse.json({ error: "Personal settings storage is unavailable. Apply the CMPRI profile-preferences migration before changing preferences or connection state." }, { status: 503 });
-    }
-    const { data: basicProfile, error: basicError } = await auth.admin.from("profiles")
-      .update({ full_name: update.full_name })
+    const legacyUpdate: Record<string, unknown> = {};
+    if (typeof update.full_name === "string") legacyUpdate.full_name = update.full_name;
+    if (update.preferences !== undefined) legacyUpdate.preferences = update.preferences;
+    const { data: legacyProfile, error: legacyError } = await auth.admin.from("profiles")
+      .update(legacyUpdate)
       .eq("id", auth.principal.identity.id)
-      .select("id, email, full_name, role")
+      .select("id, email, full_name, role, preferences")
       .single();
-    if (basicError || !basicProfile) return NextResponse.json({ error: "Profile could not be saved." }, { status: 400 });
+    if (legacyError || !legacyProfile) return NextResponse.json({ error: "Profile could not be saved." }, { status: 400 });
+    let chatgptConnection;
+    try {
+      chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+    } catch {
+      return NextResponse.json({ error: "Profile was saved, but ChatGPT connection status could not be loaded." }, { status: 503 });
+    }
     return NextResponse.json({
-      profile: { id: basicProfile.id, email: basicProfile.email, full_name: basicProfile.full_name, role: basicProfile.role },
-      preferences: preferencesForRole(auth.principal.profile.role, DEFAULT_PROFILE_PREFERENCES),
-      profile_settings_available: false,
+      profile: { id: legacyProfile.id, email: legacyProfile.email, full_name: legacyProfile.full_name, role: legacyProfile.role },
+      preferences: preferencesForRole(auth.principal.profile.role, legacyProfile.preferences || DEFAULT_PROFILE_PREFERENCES),
+      profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
-      personal_ai: { connected: false, status: "disconnected", message: "Personal settings storage is unavailable. Apply the CMPRI profile-preferences migration to enable saved preferences and connection state." },
-      warning: "Display name was saved, but personal preferences could not be saved.",
+      chatgpt_connection: chatgptConnection,
+      warning: "Profile changes were saved, but ChatGPT connections require the CMPRI MCP authorization migration.",
     });
+  }
+  let chatgptConnection;
+  try {
+    chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+  } catch {
+    return NextResponse.json({ error: "Profile was saved, but ChatGPT connection status could not be loaded." }, { status: 503 });
   }
   return NextResponse.json({
     profile: { id: data.id, email: data.email, full_name: data.full_name, role: data.role },
     preferences: preferencesForRole(auth.principal.profile.role, data.preferences || DEFAULT_PROFILE_PREFERENCES),
     profile_settings_available: true,
-    personal_ai: { connected: data.personal_ai_connected === true, status: data.personal_ai_connected === true ? "connected" : "disconnected" },
+    chatgpt_connection: chatgptConnection,
   });
 }

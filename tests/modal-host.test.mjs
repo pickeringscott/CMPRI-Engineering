@@ -94,12 +94,14 @@ test('embedded pages keep their existing actions without an injected navigation 
   assert.match(source, /openNestedModal\(href, deriveTitle\(target\)\)/);
 });
 
-test('global route modals reuse the established dashboard overlay sizing rule', () => {
+test('global route modals scale down from their dashboard and retain usable mobile width', () => {
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   assert.match(source, /className="cmpri-modal-shell cmpri-dashboard-overlay-panel/);
-  assert.match(styles, /\.cmpri-dashboard-overlay-panel\s*\{\s*width: min\(66vw, 72rem\)/);
-  assert.match(styles, /\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: min\(66vw, 72rem\) !important/);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: calc\(100vw - 16px\) !important/);
+  assert.match(source, /const scale = 0\.9 \*\* \(index \+ 1\)/);
+  assert.match(source, /"--cmpri-modal-width": `min\(\$\{66 \* scale\}vw, \$\{72 \* scale\}rem\)`/);
+  assert.match(styles, /\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(59\.4vw, 64\.8rem\)\)/);
+  assert.match(styles, /\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(59\.4vw, 64\.8rem\)\) !important/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-mobile-width, calc\(100vw - 16px\)\) !important/);
 });
 
 test('sign out from an embedded modal clears modal state and redirects the host', () => {
@@ -172,8 +174,9 @@ test('dashboard action pages render without duplicate outer headers when embedde
   const equipment = readFileSync(new URL('../src/app/management/equipment/page.tsx', import.meta.url), 'utf8');
   assert.match(equipment, /\{!embedded && <header/);
   const profile = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
-  assert.match(profile, /isSubmitOnlyProfile \? \([\s\S]*?Dashboard[\s\S]*?renderPreferenceToggles\(\)/);
-  assert.match(profile, /:\s*\(\s*<div className="mb-5[\s\S]*?Connect AI[\s\S]*?← Dashboard/);
+  assert.match(profile, /<ModalDashboardLink href=\{profileDashboardHref\}/);
+  assert.match(profile, /<section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection/);
+  assert.match(profile, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">/);
 });
 
 test('Engineering Dashboard screen-launch controls are real buttons that target modal routes', () => {

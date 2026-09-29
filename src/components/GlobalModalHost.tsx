@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
 
 type ModalEntry = {
   id: string;
@@ -8,6 +8,13 @@ type ModalEntry = {
   title: string;
   modalToken?: string;
   returnFocus?: HTMLElement | null;
+};
+
+type ModalPanelStyle = CSSProperties & {
+  "--cmpri-modal-width": string;
+  "--cmpri-modal-height": string;
+  "--cmpri-modal-mobile-width": string;
+  "--cmpri-modal-mobile-height": string;
 };
 
 function modalHref(href: string) {
@@ -18,6 +25,7 @@ function modalHref(href: string) {
     "/management/rooms",
     "/management/users",
     "/profile",
+    "/profile/ai-connection",
     "/engineering/room-ranker",
     "/engineering/preventive-maintenance",
     "/engineering/purchasing",
@@ -84,6 +92,8 @@ export default function GlobalModalHost() {
   const previousStackRef = useRef<ModalEntry[]>([]);
 
   useEffect(() => {
+    document.documentElement.dataset.cmpriEmbedded =
+      new URLSearchParams(window.location.search).get("embedded") === "1" ? "true" : "false";
     try {
       const language = window.localStorage.getItem("cmpri:work-order-language");
       const appearance = window.localStorage.getItem("cmpri:appearance");
@@ -342,6 +352,16 @@ export default function GlobalModalHost() {
         return;
       }
       if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
+      if (event.data.type === "cmpri-profile-ai-updated") {
+        const profileModal = stack.at(-2);
+        if (profileModal) frameRefs.current.get(profileModal.id)?.contentWindow?.postMessage({ type: "cmpri-profile-ai-updated" }, window.location.origin);
+        setStack((current) => current.slice(0, -1));
+        return;
+      }
+      if (event.data.type === "cmpri-modal-close") {
+        setStack((current) => current.slice(0, -1));
+        return;
+      }
       if (event.data.type === "cmpri-open-related-work-order" && typeof event.data.targetWorkOrderId === "string") {
         const related = modalHref(`/work-orders/${encodeURIComponent(event.data.targetWorkOrderId)}`);
         setStack((current) => [...current, {
@@ -416,6 +436,13 @@ export default function GlobalModalHost() {
     <div ref={modalRootRef} className="pointer-events-none fixed inset-0 z-[120]">
       {stack.map((entry, index) => {
         const isTop = index === stack.length - 1;
+        const scale = 0.9 ** (index + 1);
+        const panelStyle: ModalPanelStyle = {
+          "--cmpri-modal-width": `min(${66 * scale}vw, ${72 * scale}rem)`,
+          "--cmpri-modal-height": `min(calc(${100 * scale}dvh - ${16 * scale}px), ${56 * scale}rem)`,
+          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${16 * scale}px)`,
+          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${16 * scale}px)`,
+        };
         return (
           <div
             key={entry.id}
@@ -429,6 +456,7 @@ export default function GlobalModalHost() {
               aria-label={entry.title}
               aria-hidden={!isTop}
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl"
+              style={panelStyle}
             >
               <iframe
                 ref={(frame) => {

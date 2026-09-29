@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import DashboardAssistant from "@/components/DashboardAssistant";
 import GlobalModalHost from "@/components/GlobalModalHost";
 import "./globals.css";
 
@@ -24,7 +23,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         {children}
-        <DashboardAssistant />
         <GlobalModalHost />
       </body>
     </html>

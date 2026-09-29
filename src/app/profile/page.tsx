@@ -15,7 +15,8 @@ type Preferences = {
   notification_mode: "in_app" | "email" | "both";
   notifications: { new_work_orders: boolean; status_changes: boolean; mentions: boolean };
 };
-type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; can_manage_users: boolean; personal_ai: { connected: boolean; status: string; message: string }; warning?: string };
+type ChatGptConnection = { connected: boolean; status: "active" | "disconnected"; access: "read_write" | "read_only" | "disconnected"; provider: string; endpoint: string; message: string } | null;
+type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; can_manage_users: boolean; chatgpt_connection: ChatGptConnection; warning?: string };
 
 function applyPreferences(preferences: Preferences) {
   window.localStorage.setItem("cmpri:work-order-language", preferences.language);
@@ -35,7 +36,6 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [aiBusy, setAiBusy] = useState(false);
   const isSpanish = preferences?.language === "es";
   const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
   const isSubmitOnlyProfile = ["Front Desk", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
@@ -43,44 +43,6 @@ export default function ProfilePage() {
     ? "/work-orders"
     : "/engineering";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
-
-  function renderPreferenceToggles() {
-    if (!preferences) return null;
-    const options = (
-      label: string,
-      selected: string,
-      choices: Array<{ value: string; text: string }>,
-      onSelect: (value: string) => void,
-    ) => (
-      <div role="group" aria-label={label} className="inline-flex rounded-full border border-slate-700 p-0.5">
-        {choices.map((choice) => (
-          <button
-            key={choice.value}
-            type="button"
-            aria-pressed={selected === choice.value}
-            disabled={data?.profile_settings_available === false}
-            onClick={() => onSelect(choice.value)}
-            className={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${selected === choice.value ? "bg-amber-400 text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}
-          >
-            {choice.text}
-          </button>
-        ))}
-      </div>
-    );
-
-    return (
-      <>
-        {options(tx("Language", "Idioma"), preferences.language, [
-          { value: "en", text: "English" },
-          { value: "es", text: "Español" },
-        ], (language) => setPreferences({ ...preferences, language: language as Preferences["language"] }))}
-        {options(tx("Appearance", "Apariencia"), preferences.appearance, [
-          { value: "dark", text: tx("Dark", "Oscuro") },
-          { value: "light", text: tx("Light", "Claro") },
-        ], (appearance) => setPreferences({ ...preferences, appearance: appearance as Preferences["appearance"] }))}
-      </>
-    );
-  }
 
   async function signOut() {
     try {
@@ -123,6 +85,16 @@ export default function ProfilePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const handleAiConnectionUpdate = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "cmpri-profile-ai-updated") return;
+      void load().catch((error) => setMessage(error instanceof Error ? error.message : "AI connection status could not be refreshed."));
+    };
+    window.addEventListener("message", handleAiConnectionUpdate);
+    return () => window.removeEventListener("message", handleAiConnectionUpdate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function save() {
     if (!preferences || !name.trim()) return;
     setBusy(true);
@@ -146,27 +118,6 @@ export default function ProfilePage() {
     }
   }
 
-  async function setPersonalAiConnection(action: "connect" | "disconnect") {
-    if (data?.profile_settings_available === false) return;
-    setAiBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: await headers(),
-        body: JSON.stringify({ personal_ai_action: action }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Personal AI connection could not be updated.");
-      setData((current) => current ? { ...current, personal_ai: payload.personal_ai } : current);
-      setMessage(action === "connect" ? tx("OpenAI connection enabled for this user.", "Conexión de OpenAI habilitada para este usuario.") : tx("OpenAI connection disabled for this user.", "Conexión de OpenAI deshabilitada para este usuario."));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Personal AI connection could not be updated.");
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
   if (!data || !preferences) return (
     <main className="min-h-screen bg-slate-950 p-6 text-white">
       <div className="mx-auto max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
@@ -186,37 +137,24 @@ export default function ProfilePage() {
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">{tx("CMPRI Account", "Cuenta CMPRI")}</p>
             <h1 className="mt-1 text-3xl font-bold">{tx("Manage Profile", "Administrar perfil")}</h1>
           </div>
-          {isSubmitOnlyProfile ? (
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
-              {renderPreferenceToggles()}
-            </div>
-          ) : (
-            <div className="flex shrink-0 items-center gap-2">
-              <button type="button" disabled={aiBusy || data.profile_settings_available === false} onClick={() => void setPersonalAiConnection(data.personal_ai.connected ? "disconnect" : "connect")} className={`rounded-lg border px-4 py-2 text-sm font-bold disabled:opacity-50 ${data.personal_ai.connected ? "border-red-500/50 text-red-200 hover:bg-red-950/30" : "border-sky-500/50 bg-sky-950/30 text-sky-100 hover:bg-sky-900/40"}`}>
-                {aiBusy ? tx("Updating…", "Actualizando…") : data.personal_ai.connected ? "Disconnect AI" : "Connect AI"}
-              </button>
-              <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
-            </div>
-          )}
+          <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
         </div>}
-        {embedded && (isSubmitOnlyProfile ? (
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
-            <div className="flex flex-wrap items-center justify-end gap-2">{renderPreferenceToggles()}</div>
-          </div>
-        ) : (
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <button type="button" disabled={aiBusy || data.profile_settings_available === false} onClick={() => void setPersonalAiConnection(data.personal_ai.connected ? "disconnect" : "connect")} className={`rounded-lg border px-4 py-2 text-sm font-bold disabled:opacity-50 ${data.personal_ai.connected ? "border-red-500/50 text-red-200 hover:bg-red-950/30" : "border-sky-500/50 bg-sky-950/30 text-sky-100 hover:bg-sky-900/40"}`}>
-              {aiBusy ? tx("Updating…", "Actualizando…") : data.personal_ai.connected ? "Disconnect AI" : "Connect AI"}
-            </button>
-            <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
-          </div>
-        ))}
+        {embedded && <div className="mb-5"><ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink></div>}
 
         {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
 
-        {!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">{tx("ChatGPT Connection", "Conexión de ChatGPT")}</h2>
+              <p className="mt-1 text-sm text-slate-300">Status: <span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.connected ? data.chatgpt_connection.access === "read_write" ? "Connected · Read and write" : "Connected · Read only" : "Not connected"}</span></p>
+              <p className="mt-1 text-sm text-slate-400">{tx("When connecting from ChatGPT, sign in to CMPRI with the pre-approved Google account for your CMPRI profile. CMPRI checks your role and permissions on every tool call.", "Al conectarte desde ChatGPT, inicia sesión en CMPRI con la cuenta de Google aprobada previamente para tu perfil de CMPRI. CMPRI verifica tu rol y permisos en cada solicitud.")}</p>
+            </div>
+            <ModalNavigationButton href="/profile/ai-connection" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("Connect ChatGPT", "Conectar ChatGPT")}</ModalNavigationButton>
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Personal Preferences", "Preferencias personales")}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">English</option><option value="es">Español</option></select></label>
@@ -234,7 +172,7 @@ export default function ProfilePage() {
               </label>
             ))}
           </fieldset>}
-        </section>}
+        </section>
 
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Profile", "Perfil")}</h2>

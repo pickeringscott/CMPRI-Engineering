@@ -47,7 +47,10 @@ async function fetchAllAssetsForLocations(
   return rows;
 }
 
-function callerDatabase(request: NextRequest) {
+function callerDatabase(request: NextRequest, admin: SupabaseClient | null) {
+  if (/^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "")) {
+    return admin;
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
   const authorization = request.headers.get("authorization") || "";
@@ -266,7 +269,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid work-order details." }, { status: 400 });
   }
 
-  const db = sourceDraft ? admin : callerDatabase(request);
+  const db = sourceDraft ? admin : callerDatabase(request, admin);
   if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
   const uniqueLocationIds = Array.from(new Set(rows.map((row) => String(row.location_id))));
   const { data: locations, error: locationError } = await db.from("locations")

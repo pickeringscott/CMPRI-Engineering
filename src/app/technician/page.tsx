@@ -6,9 +6,16 @@ import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { signOutDevice } from "@/lib/supabase/client";
 import type { CmpriClientSession } from "@/lib/auth/client-session";
-import AccountSummary from "@/components/AccountSummary";
-import { dashboardTitleForRole } from "@/lib/account-display";
 import { newlyAvailableTechnicianWork } from "@/lib/dashboard/technician-work-notifications";
+import {
+  fetchWorkOrderNotifications,
+  mergeWorkOrderNotifications,
+  readWorkOrderNotificationCursor,
+  saveWorkOrderNotificationCursor,
+  unseenWorkOrderNotifications,
+  type WorkOrderNotification,
+} from "@/lib/dashboard/work-order-notifications";
+import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
 
 const REFRESH_MS = 30_000;
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
@@ -41,11 +48,16 @@ export default function TechnicianDashboard() {
   const [account, setAccount] = useState<CmpriClientSession["user"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [notificationError, setNotificationError] = useState("");
+  const [notifications, setNotifications] = useState<WorkOrderNotification[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const loadingRef = useRef(false);
   const knownOrdersRef = useRef<Map<string, string> | null>(null);
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const notificationCursorRef = useRef<string | null>(null);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
 
   const playAlertTone = useCallback(() => {
     if (!soundEnabledRef.current) return;
@@ -75,6 +87,26 @@ export default function TechnicianDashboard() {
     router.replace("/");
   }
 
+  const refreshNotifications = useCallback(async (accessToken: string, userId: string) => {
+    try {
+      const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId);
+      const result = await fetchWorkOrderNotifications(accessToken, cursor);
+      notificationCursorRef.current = result.checked_at;
+      const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, result.notifications);
+      if (unseen.length) {
+        unseen.forEach((notification) => pendingNotificationIdsRef.current.add(notification.id));
+        setNotifications((existing) => mergeWorkOrderNotifications(existing, unseen));
+        playAlertTone();
+      }
+      if (!result.notifications.length && pendingNotificationIdsRef.current.size === 0) {
+        saveWorkOrderNotificationCursor(userId, result.checked_at);
+      }
+      setNotificationError("");
+    } catch (error) {
+      setNotificationError(error instanceof Error ? error.message : "Work-order notifications could not be loaded.");
+    }
+  }, [playAlertTone]);
+
   const loadAssignedWork = useCallback(async (silent = false) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -91,6 +123,7 @@ export default function TechnicianDashboard() {
       if (!accountResponse.ok || !accountPayload.user) throw new Error(accountPayload.error || "Your account could not be loaded.");
       const currentAccount = accountPayload.user as CmpriClientSession["user"];
       setAccount(currentAccount);
+      void refreshNotifications(session.access_token, currentAccount.id);
       const response = await fetch("/api/work-orders?mode=technician", {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
@@ -98,7 +131,7 @@ export default function TechnicianDashboard() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Assigned work could not be loaded.");
       const fetched = (payload.work_orders || []) as AssignedWorkOrder[];
-      const arrivals = newlyAvailableTechnicianWork(knownOrdersRef.current, fetched, currentAccount.name);
+      const arrivals = newlyAvailableTechnicianWork(knownOrdersRef.current, fetched);
       if (arrivals.length) {
         setNewWorkQueue((existing) => Array.from(new Map(
           [...existing, ...arrivals].map((order) => [order.id, order]),
@@ -113,7 +146,7 @@ export default function TechnicianDashboard() {
       if (!silent) setLoading(false);
       loadingRef.current = false;
     }
-  }, [playAlertTone]);
+  }, [playAlertTone, refreshNotifications]);
 
   useEffect(() => {
     soundEnabledRef.current = readSoundPreference();
@@ -140,49 +173,72 @@ export default function TechnicianDashboard() {
     setNewWorkQueue([]);
   }
 
+  function dismissNotifications() {
+    setNotifications([]);
+    pendingNotificationIdsRef.current.clear();
+    if (account?.id && notificationCursorRef.current) {
+      saveWorkOrderNotificationCursor(account.id, notificationCursorRef.current);
+    }
+  }
+
   const assignedOrders = orders.filter((order) => !!order.technician_name?.trim());
   const unassignedOrders = orders.filter((order) => !order.technician_name?.trim());
 
   function renderWorkOrder(order: AssignedWorkOrder) {
+    const roomTitle = order.room || "No location";
+    const issueText = order.issue || "Work order";
+    const statusText = order.status || "Open";
+    const categoryText = order.category || "General";
+    const priorityText = order.priority || "Medium";
+    const dueLabel = order.due_by ? new Date(order.due_by).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No due date";
+
     return (
-      <Link key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="grid gap-3 px-5 py-4 hover:bg-slate-800/50 md:grid-cols-[1fr_140px_150px] md:items-center">
+      <Link key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="grid gap-2 px-4 py-3 hover:bg-slate-800/50 md:grid-cols-[minmax(0,1fr)_minmax(22rem,auto)] md:items-center">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-400">{order.display_id}</p>
-          <h3 className="mt-1 text-lg font-semibold">{order.issue || "Work order"}</h3>
-          <p className="mt-1 text-sm text-slate-400">{order.room || "No location"}{order.asset_name ? ` · ${order.asset_name}` : ""}</p>
+          <h3 className="text-base font-semibold text-white">{roomTitle}</h3>
+          <p className="mt-1 text-sm text-slate-300">{issueText}</p>
         </div>
-        <div className="text-sm">
-          <p className="font-semibold">{order.status || "Open"}</p>
-          <p className="mt-1 text-slate-400">{order.category || "General"} · {order.priority || "Medium"}</p>
+        <div className="grid gap-1 text-xs text-slate-300 md:text-right">
+          <p className="flex flex-wrap gap-x-3 gap-y-1 md:justify-end">
+            <span className="font-medium text-slate-100">Status → {statusText}</span>
+            <span>Category → {categoryText}</span>
+            <span>Severity/Priority → {priorityText}</span>
+          </p>
+          <p className="text-right text-slate-400">Due Date → {dueLabel}</p>
         </div>
-        <p className="text-sm text-slate-400">{order.due_by ? `Due ${new Date(order.due_by).toLocaleDateString()}` : "No due date"}</p>
       </Link>
     );
   }
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto w-full px-4 py-8 sm:px-6">
-        <div className="flex items-center justify-between gap-4">
+      <div className="mx-auto w-full px-3 py-4 sm:px-4 lg:w-[66vw]">
+        <div className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Technician Workspace</p>
-            <h1 className="mt-2 text-3xl font-bold">{dashboardTitleForRole(account?.role || "Maintenance Technician")}</h1>
-            <p className="mt-2 text-sm text-slate-400">Your assigned work and unassigned work available for coverage.</p>
-            {account && <div className="mt-3"><AccountSummary user={account} /></div>}
+            <h1 className="text-[20px] font-bold text-amber-400">{account?.name?.trim() || account?.role || "Maintenance Technician"}</h1>
+            <p className="mt-1 text-sm text-slate-300">Maintenance Technician</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
+              <span>Assigned Work</span>
+              <span className="text-slate-500">•</span>
+              <span>Unassigned Work Available for Coverage</span>
+            </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Link href="/profile" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800">Manage Profile</Link>
             <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 disabled:opacity-50">
               {loading ? "Refreshing…" : "Refresh"}
             </button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </div>
 
-        {message && <p role="status" className="mt-6 rounded-lg border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-100">{message}</p>}
+        {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
+        <WorkOrderNotificationBanner notifications={notifications} onDismiss={dismissNotifications} />
+        {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
 
         {newWorkQueue.length > 0 && (
-          <section role="alert" aria-live="assertive" className="mt-6 rounded-xl border border-emerald-400/50 bg-emerald-950/25 p-4">
+          <section role="alert" aria-live="assertive" className="mt-4 rounded-lg border border-emerald-400/50 bg-emerald-950/25 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-bold text-emerald-100">
                 {newWorkQueue.length} new work item{newWorkQueue.length === 1 ? "" : "s"} available
@@ -211,8 +267,8 @@ export default function TechnicianDashboard() {
           </section>
         )}
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
             <h2 className="text-xl font-bold">Assigned Work</h2>
             <span className="text-sm text-slate-400">{assignedOrders.length} active</span>
           </div>
@@ -225,8 +281,8 @@ export default function TechnicianDashboard() {
           )}
         </section>
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
             <h2 className="text-xl font-bold">Unassigned Coverage</h2>
             <span className="text-sm text-slate-400">{unassignedOrders.length} available</span>
           </div>
@@ -239,7 +295,6 @@ export default function TechnicianDashboard() {
           )}
         </section>
 
-        <Link href="/work-orders" className="mt-6 inline-block text-sm font-bold text-amber-400">Create a Work Order</Link>
       </div>
     </main>
   );

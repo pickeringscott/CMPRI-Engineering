@@ -78,42 +78,37 @@ test("database-denied grants fail closed for assistant mutations", () => {
   assert.equal(access.createWorkOrders, true);
 });
 
-test("assistant diagnostics expose provider state without returning the API key", () => {
-  const route = readFileSync(new URL("../src/app/api/assistant/route.ts", import.meta.url), "utf8");
-  const client = readFileSync(new URL("../src/components/DashboardAssistant.tsx", import.meta.url), "utf8");
-  assert.match(route, /export async function GET\(request: NextRequest\)/);
-  assert.match(route, /state: "key_missing"/);
-  assert.match(route, /Vercel lists OPENAI_API_KEY for this project, but this deployed function received no usable value/);
-  assert.match(route, /client\.models\.list\(\)/);
-  assert.doesNotMatch(route, /JSON\.stringify\(\{[^}]*OPENAI_API_KEY/s);
-  assert.match(client, /data-ai-state=\{diagnostic\.state\}/);
-  assert.match(client, /diagnostic\?\.ok !== true/);
-});
-
-test("CMPRI AI callable tools are reachable from the shared app layout", () => {
+test("the old API-key-backed dashboard assistant is removed", () => {
   const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
-  const client = readFileSync(new URL("../src/components/DashboardAssistant.tsx", import.meta.url), "utf8");
-  assert.match(layout, /import DashboardAssistant from "@\/components\/DashboardAssistant"/);
-  assert.match(layout, /<DashboardAssistant \/>/);
-  assert.match(client, /if \(!authenticated \|\| !isDashboard\) return null/);
-  assert.match(client, /<section aria-label="CMPRI AI assistant"/);
-  assert.doesNotMatch(client, /fixed bottom-4 right-4/);
-  assert.doesNotMatch(client, /Open CMPRI AI assistant/);
+  const route = readFileSync(new URL("../src/app/api/assistant/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(layout, /DashboardAssistant/);
+  assert.match(route, /status: 410/);
+  assert.doesNotMatch(route, /personal_ai_api_key_encrypted|OPENAI_API_KEY/);
+  assert.throws(() => readFileSync(new URL("../src/components/DashboardAssistant.tsx", import.meta.url), "utf8"));
 });
 
-test("Daily Room Ops AI prepares only for edit-ticket roles and waits for UI confirmation", () => {
-  const route = readFileSync(new URL("../src/app/api/assistant/route.ts", import.meta.url), "utf8");
-  const client = readFileSync(new URL("../src/components/DashboardAssistant.tsx", import.meta.url), "utf8");
+test("CMPRI MCP tools are exposed through the remote OAuth-protected endpoint", () => {
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  const endpoint = readFileSync(new URL("../src/app/api/mcp/route.ts", import.meta.url), "utf8");
+  const resource = readFileSync(new URL("../src/app/.well-known/oauth-protected-resource/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(layout, /DashboardAssistant/);
+  assert.match(endpoint, /tools\/list/);
+  assert.match(endpoint, /tools\/call/);
+  assert.match(endpoint, /mcpIdentity\(request\.headers\.get\("authorization"\)\)/);
+  assert.match(resource, /authorization_servers/);
+});
+
+test("MCP writes are explicitly scoped and delegated through existing CMPRI endpoints", () => {
+  const route = readFileSync(new URL("../src/app/api/mcp/route.ts", import.meta.url), "utf8");
+  const writes = readFileSync(new URL("../src/lib/server/cmpri-mcp-writes.ts", import.meta.url), "utf8");
   const importer = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
-  assert.match(route, /if \(access\.importRoomOperations\) allowedNames\.add\("prepare_room_operations_import"\)/);
-  assert.match(route, /This only prepares the preview; it never imports or replaces the saved daily snapshot/);
-  const toolStart = route.indexOf("prepare_room_operations_import:");
-  const toolEnd = route.indexOf("\n};", toolStart);
-  assert.ok(toolStart >= 0 && toolEnd > toolStart);
-  assert.doesNotMatch(route.slice(toolStart, toolEnd), /guest_arrival_date/, "guest-specific arrival dates must not be sent to the model");
-  assert.match(client, /Confirm import/);
-  assert.match(client, /source: "ai"/);
-  assert.match(route, /This will replace the entire saved daily room-operations snapshot/);
+  assert.match(route, /perform_cmpri_write/);
+  assert.match(writes, /identity\.canWrite/);
+  assert.match(writes, /work_orders\.create/);
+  assert.match(writes, /work_orders\.update/);
+  assert.match(writes, /users\.delete/);
+  assert.match(writes, /availableMcpWriteActions\(identity\)/);
+  assert.doesNotMatch(writes, /\.from\(["'](work_orders|profiles|assets)["']\)\.(insert|update|delete)/);
   assert.match(importer, /requireCapability\(request, "edit_tickets"\)/);
 });
 

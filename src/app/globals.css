@@ -3,6 +3,14 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --cmpri-text-body: 0.875rem;
+  --cmpri-text-title: 1.5rem;
+  --cmpri-text-section: 1.125rem;
+  --cmpri-text-subsection: 1rem;
+  --cmpri-text-label: 0.8125rem;
+  --cmpri-control-height: 2.5rem;
+  --cmpri-panel-radius: 0.75rem;
+  --cmpri-panel-padding: 0.875rem;
 }
 
 @theme inline {
@@ -82,6 +90,66 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  font-size: var(--cmpri-text-body);
+  line-height: 1.45;
+}
+
+h1,
+h2,
+h3 {
+  margin-block: 0;
+  font-weight: 700;
+}
+
+h1 {
+  font-size: var(--cmpri-text-title) !important;
+  line-height: 1.2 !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
+}
+
+h2 {
+  font-size: var(--cmpri-text-section) !important;
+  line-height: 1.3 !important;
+  font-weight: 700 !important;
+  letter-spacing: normal !important;
+}
+
+h3 {
+  font-size: var(--cmpri-text-subsection) !important;
+  line-height: 1.35 !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+}
+
+label {
+  font-size: var(--cmpri-text-label) !important;
+  line-height: 1.25rem !important;
+  font-weight: 600 !important;
+}
+
+input,
+select,
+textarea,
+button,
+[role="button"] {
+  font-family: inherit;
+  font-size: var(--cmpri-text-body) !important;
+}
+
+input,
+select {
+  min-height: var(--cmpri-control-height) !important;
+}
+
+textarea {
+  line-height: 1.4;
+}
+
+section[class*="rounded"][class*="border"] {
+  box-sizing: border-box;
+  border-radius: var(--cmpri-panel-radius);
+  padding: var(--cmpri-panel-padding);
 }
 
 @keyframes cmpri-modal-backdrop-in {
@@ -114,43 +182,46 @@ div.fixed.inset-0 [role="dialog"] > div {
 }
 
 .cmpri-dashboard-overlay-panel {
-  width: min(66vw, 72rem);
+  width: var(--cmpri-modal-width, min(59.4vw, 64.8rem));
   min-height: 0;
-  height: min(calc(100dvh - 16px), 56rem);
+  height: var(--cmpri-modal-height, min(calc(90dvh - 14.4px), 50.4rem));
   max-height: calc(100dvh - 16px);
-}
-
-.cmpri-dashboard-assistant {
-  width: min(66vw, 72rem);
-  max-width: calc(100vw - 16px);
 }
 
 .cmpri-modal-shell {
   box-sizing: border-box;
-  width: min(66vw, 42rem) !important;
+  width: min(59.4vw, 37.8rem) !important;
   height: auto !important;
-  max-width: calc(100vw - 8px) !important;
+  max-width: calc(100vw - 16px) !important;
   max-height: calc(100dvh - 16px) !important;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border-radius: var(--cmpri-panel-radius);
+  padding: 1rem !important;
+}
+
+html[data-cmpri-embedded="true"] .cmpri-modal-shell:not(.cmpri-dashboard-overlay-panel) {
+  width: min(90vw, 42rem) !important;
 }
 
 .cmpri-modal-shell.cmpri-dashboard-overlay-panel {
-  width: min(66vw, 72rem) !important;
-  height: min(calc(100dvh - 16px), 56rem) !important;
+  width: var(--cmpri-modal-width, min(59.4vw, 64.8rem)) !important;
+  height: var(--cmpri-modal-height, min(calc(90dvh - 14.4px), 50.4rem)) !important;
+  padding: 0 !important;
 }
 
 @media (max-width: 640px) {
-  .cmpri-dashboard-assistant {
-    width: calc(100vw - 16px);
-  }
-
   .cmpri-modal-shell {
     width: calc(100vw - 16px) !important;
   }
 
+  html[data-cmpri-embedded="true"] .cmpri-modal-shell:not(.cmpri-dashboard-overlay-panel) {
+    width: calc(90vw - 14.4px) !important;
+  }
+
   .cmpri-modal-shell.cmpri-dashboard-overlay-panel {
-    width: calc(100vw - 16px) !important;
+    width: var(--cmpri-modal-mobile-width, calc(100vw - 16px)) !important;
+    height: var(--cmpri-modal-mobile-height, calc(90dvh - 14.4px)) !important;
   }
 }
 

@@ -6,6 +6,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
 import { roleKey } from "./roles";
 import { createSupabaseAdmin } from "./supabase-admin";
+import { isMutatingMethod, mcpIdentity } from "./cmpri-mcp-auth";
 
 const authOptions = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -28,7 +29,7 @@ function isInvalidApiKey(message: string) {
 }
 
 export type AuthAttempt =
-  | { ok: true; principal: import("./access").Principal; admin: SupabaseClient }
+  | { ok: true; principal: import("./access").Principal; admin: SupabaseClient; mcp: boolean }
   | { ok: false; reason: "no-bearer" | "verify-failed" | "email-mismatch" | "profile-missing" | "profile-inactive" | "membership-missing" | "membership-inactive" | "membership-error" | "profile-error" | "permission-error" | "exception"; detail?: string };
 
 async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
@@ -41,8 +42,23 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
   let lookup = admin ?? sessionClient;
 
   try {
+    if (bearer.startsWith("cmpri_mcp_")) {
+      const mcp = await mcpIdentity(request.headers.get("authorization"));
+      if (!mcp) return { ok: false, reason: "verify-failed" };
+      if (isMutatingMethod(request.method) && !mcp.canWrite) {
+        return { ok: false, reason: "verify-failed", detail: "This ChatGPT connection is read-only." };
+      }
+      return { ok: true, principal: mcp.principal, admin: mcp.admin, mcp: true };
+    }
     const { data: userData, error: verifyError } = await verifier.auth.getUser(bearer);
     if (verifyError || !userData.user) {
+      const mcp = await mcpIdentity(request.headers.get("authorization"));
+      if (mcp) {
+        if (isMutatingMethod(request.method) && !mcp.canWrite) {
+          return { ok: false, reason: "verify-failed", detail: "This ChatGPT connection is read-only." };
+        }
+        return { ok: true, principal: mcp.principal, admin: mcp.admin, mcp: true };
+      }
       return { ok: false, reason: "verify-failed", detail: verifyError?.message };
     }
     const userId = userData.user.id;
@@ -97,7 +113,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
       membership,
       permissions: permissionRows,
     };
-    return { ok: true, principal, admin: lookup };
+    return { ok: true, principal, admin: lookup, mcp: false };
   } catch (error) {
     return { ok: false, reason: "exception", detail: error instanceof Error ? error.message : String(error) };
   }

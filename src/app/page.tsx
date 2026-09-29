@@ -8,10 +8,9 @@ import {
   setRememberOnDevice,
   signOutDevice,
   getValidSession,
+  OAUTH_PENDING_KEY,
 } from "@/lib/supabase/client";
 import { APP_TITLE } from "@/lib/constants";
-
-const OAUTH_PENDING_KEY = "cmpri:auth:oauth-pending";
 
 async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering"> {
   const response = await fetch("/api/session", {
@@ -39,10 +38,7 @@ function oauthCallbackParams() {
 }
 
 function hasOAuthCallback() {
-  const params = oauthCallbackParams();
-  return window.sessionStorage.getItem(OAUTH_PENDING_KEY) === "true"
-    || ["code", "access_token", "error", "error_description", "error_code"]
-      .some((key) => params.has(key));
+  return window.sessionStorage.getItem(OAUTH_PENDING_KEY) === "true";
 }
 
 function subscribeToLocation(callback: () => void) {

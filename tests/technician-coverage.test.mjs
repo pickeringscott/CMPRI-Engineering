@@ -127,7 +127,7 @@ test('technician dashboard polls for new work and displays in-app sound alerts',
   assert.match(source, /Assigned to you/);
 });
 
-test('technician alert detects new unassigned work and later assignment to that technician', () => {
+test('technician arrival alert only queues newly available unassigned work', () => {
   const existing = [{ id: 'unassigned', technician_name: null }];
   assert.deepEqual(newlyAvailableTechnicianWork(null, existing), []);
   const snapshot = new Map(existing.map((order) => [order.id, order.technician_name || '']));
@@ -136,10 +136,7 @@ test('technician alert detects new unassigned work and later assignment to that 
       { id: 'unassigned', technician_name: 'Morgan Lee' },
       { id: 'new-unassigned', technician_name: '' },
       { id: 'assigned-to-other', technician_name: 'Taylor Smith' },
-    ], 'Morgan Lee'),
-    [
-      { id: 'unassigned', technician_name: 'Morgan Lee' },
-      { id: 'new-unassigned', technician_name: '' },
-    ],
+    ]),
+    [{ id: 'new-unassigned', technician_name: '' }],
   );
 });
