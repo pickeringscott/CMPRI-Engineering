@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
+import { fetchAllPages } from "@/lib/server/paginated-query";
 
 type MoveInput = {
   asset_id?: unknown;
@@ -54,9 +55,9 @@ async function getData(request: NextRequest) {
       .select("id, asset_id, device_type, location_id, room_number, sub_location, endpoint_code, paired_asset_id, active, revision, updated_at")
       .eq("hotel_id", HOTEL_ID).eq("active", true)
       .order("room_number", { ascending: true }).order("sub_location", { ascending: true }),
-    auth.admin.from("assets")
+    fetchAllPages((from, to) => auth.admin.from("assets")
       .select("id, name, asset_type, asset_tag, location_id, active, status, manufacturer, model_number, serial_number")
-      .eq("hotel_id", HOTEL_ID).eq("active", true).order("name", { ascending: true }),
+      .eq("hotel_id", HOTEL_ID).eq("active", true).order("name", { ascending: true }).range(from, to)),
     auth.admin.from("locations")
       .select("id, name, room_number, location_type, area, active")
       .eq("hotel_id", HOTEL_ID).eq("active", true).order("room_number", { ascending: true }).order("name", { ascending: true }),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
+import { fetchAllPages } from "@/lib/server/paginated-query";
 
 function text(value: unknown, label: string, max = 500, required = false): string {
   if (value === undefined || value === null) {
@@ -82,7 +83,9 @@ export async function GET(request: NextRequest) {
     admin.from("cmpri_asset_inventory_compatibility").select("*").eq("hotel_id", HOTEL_ID),
     admin.from("cmpri_order_ideas").select("*").eq("hotel_id", HOTEL_ID).order("created_at", { ascending: false }).limit(250),
     admin.from("cmpri_work_order_items").select("*").eq("hotel_id", HOTEL_ID).order("recorded_at", { ascending: false }).limit(500),
-    admin.from("assets").select("id, name, asset_type, location_id, active").eq("hotel_id", HOTEL_ID).eq("active", true).order("name"),
+    fetchAllPages((from, to) => admin.from("assets")
+      .select("id, name, asset_type, location_id, active")
+      .eq("hotel_id", HOTEL_ID).eq("active", true).order("name").range(from, to)),
     admin.from("locations").select("id, name, room_number, area, active").eq("hotel_id", HOTEL_ID).eq("active", true).order("name"),
   ]);
   const failed = [vendors, contacts, proposals, inventory, compatibility, ideas, workOrderItems, assets, locations]

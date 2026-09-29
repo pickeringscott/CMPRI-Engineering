@@ -43,7 +43,8 @@ function fixture(route, config={}) {
           if(table==='assets')return {data:config.asset?{id:'test'}:null,error:null};
           throw new Error(`Unexpected table ${table}`);
         },
-        async order(){return {data:assetRows.slice(query.rangeStart ?? 0, (query.rangeEnd ?? assetRows.length - 1) + 1),error:null};},
+        order(){return query;},
+        then(resolve,reject){return Promise.resolve({data:assetRows.slice(query.rangeStart ?? 0, (query.rangeEnd ?? assetRows.length - 1) + 1),error:null}).then(resolve,reject);},
         insert(){throw new Error('Unauthorized asset write reached database');},
       };
       return query;
@@ -137,6 +138,13 @@ test('front desk cannot read equipment management',async()=>{
 });
 test('GET reads assets beyond the Supabase page limit',async()=>{
   const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
+  const result=await f.handlers.GET(f.request);
+  assert.equal(result.status,200);
+  assert.equal(result.body.assets.length,1001);
+});
+test('work-order creation asset mode reads beyond the Supabase page limit',async()=>{
+  const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
+  f.request.nextUrl.searchParams.set('mode','create');
   const result=await f.handlers.GET(f.request);
   assert.equal(result.status,200);
   assert.equal(result.body.assets.length,1001);
