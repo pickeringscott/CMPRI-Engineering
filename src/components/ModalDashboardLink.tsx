@@ -5,12 +5,16 @@ import type { MouseEvent, ReactNode } from "react";
 export default function ModalDashboardLink({
   href = "/engineering",
   className,
-  children = "← Dashboard",
+  children = "Dashboard",
 }: {
   href?: string;
   className?: string;
   children?: ReactNode;
 }) {
+  const label = typeof children === "string"
+    ? children.replace(/^\s*←\s*/, "")
+    : children;
+
   function returnToDashboard(event: MouseEvent<HTMLButtonElement>) {
     if (event.defaultPrevented) return;
     if (window.parent !== window) {
@@ -23,5 +27,5 @@ export default function ModalDashboardLink({
     window.location.assign(href);
   }
 
-  return <button type="button" data-cmpri-modal-dashboard="true" data-cmpri-modal-dashboard-href={href} onClick={returnToDashboard} className={className}>{children}</button>;
+  return <button type="button" data-cmpri-modal-dashboard="true" data-cmpri-modal-dashboard-href={href} onClick={returnToDashboard} className={className}>{label}</button>;
 }

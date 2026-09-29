@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
+import RoomOperationsImport from "./RoomOperationsImport";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -98,10 +99,12 @@ export default function RoomOperationsPage() {
   const [session, setSession] = useState<CmpriClientSession | null>(null);
   const [date, setDate] = useState(hotelDate);
   const [rows, setRows] = useState<RoomOperation[]>([]);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [activeSummary, setActiveSummary] = useState<keyof Summary | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -143,7 +146,12 @@ export default function RoomOperationsPage() {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [date, session]);
+  }, [date, refreshVersion, session]);
+
+  function handleImportCommitted(importedDate: string) {
+    setDate(importedDate);
+    setRefreshVersion((version) => version + 1);
+  }
 
   const summary = useMemo(() => summaryFor(rows), [rows]);
   const summaryCards: Array<[keyof Summary, string, number]> = [
@@ -188,7 +196,7 @@ export default function RoomOperationsPage() {
         <header className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
+              <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
               <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-2.5 py-0.5 text-xs font-bold text-sky-200">Moves: {summary.moves}</span>
             </div>
@@ -200,10 +208,14 @@ export default function RoomOperationsPage() {
               <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
             </label>
             {hasCapability(session, "edit_tickets") ? (
-              <ModalDashboardLink href="/engineering#room-operations-import" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Import on Dashboard</ModalDashboardLink>
+              <button type="button" onClick={() => setImportOpen((open) => !open)} className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">{importOpen ? "Hide Import Form" : "Import Room Ops"}</button>
             ) : null}
           </div>
         </header>
+
+        {importOpen && hasCapability(session, "edit_tickets") ? (
+          <RoomOperationsImport date={date} onDateChange={setDate} onCommitted={handleImportCommitted} />
+        ) : null}
 
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {summaryCards.map(([key, label, value]) => (

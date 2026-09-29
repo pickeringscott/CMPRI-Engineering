@@ -2097,6 +2097,7 @@ export default function WorkOrdersPage() {
                   options={createAssetOptions}
                   topSuggestions={3}
                   showSuggestionsOnOpen={false}
+                  expandOnOpen
                 />
               </label>
 

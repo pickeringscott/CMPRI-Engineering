@@ -11,6 +11,7 @@
   --cmpri-control-height: 2.5rem;
   --cmpri-panel-radius: 0.75rem;
   --cmpri-panel-padding: 0.875rem;
+  --cmpri-modal-spacing: 0.5rem;
 }
 
 @theme inline {
@@ -94,6 +95,29 @@ body {
   line-height: 1.45;
 }
 
+.cmpri-searchable-select-listbox {
+  scrollbar-color: #64748b #0f172a;
+  scrollbar-width: auto;
+}
+
+.cmpri-searchable-select-listbox::-webkit-scrollbar {
+  width: 12px;
+}
+
+.cmpri-searchable-select-listbox::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.cmpri-searchable-select-listbox::-webkit-scrollbar-thumb {
+  border: 2px solid #0f172a;
+  border-radius: 9999px;
+  background: #64748b;
+}
+
+.cmpri-searchable-select-listbox::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 h1,
 h2,
 h3 {
@@ -150,6 +174,59 @@ section[class*="rounded"][class*="border"] {
   box-sizing: border-box;
   border-radius: var(--cmpri-panel-radius);
   padding: var(--cmpri-panel-padding);
+}
+
+html[data-cmpri-embedded="true"] main,
+.cmpri-modal-shell {
+  padding: var(--cmpri-modal-spacing) !important;
+}
+
+html[data-cmpri-embedded="true"] section[class*="rounded"][class*="border"],
+.cmpri-modal-shell section[class*="rounded"][class*="border"] {
+  padding: var(--cmpri-modal-spacing) !important;
+}
+
+html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-3"],
+html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-4"],
+html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-5"],
+html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-6"],
+.cmpri-modal-shell :is(div, section, form, article)[class~="p-3"],
+.cmpri-modal-shell :is(div, section, form, article)[class~="p-4"],
+.cmpri-modal-shell :is(div, section, form, article)[class~="p-5"],
+.cmpri-modal-shell :is(div, section, form, article)[class~="p-6"] {
+  padding: var(--cmpri-modal-spacing) !important;
+}
+
+html[data-cmpri-embedded="true"] [class~="mt-4"],
+html[data-cmpri-embedded="true"] [class~="mt-5"],
+html[data-cmpri-embedded="true"] [class~="mt-6"],
+.cmpri-modal-shell [class~="mt-4"],
+.cmpri-modal-shell [class~="mt-5"],
+.cmpri-modal-shell [class~="mt-6"] {
+  margin-top: var(--cmpri-modal-spacing) !important;
+}
+
+html[data-cmpri-embedded="true"] [class~="mb-4"],
+html[data-cmpri-embedded="true"] [class~="mb-5"],
+.cmpri-modal-shell [class~="mb-4"],
+.cmpri-modal-shell [class~="mb-5"] {
+  margin-bottom: var(--cmpri-modal-spacing) !important;
+}
+
+html[data-cmpri-embedded="true"] [class~="gap-3"],
+html[data-cmpri-embedded="true"] [class~="gap-4"],
+html[data-cmpri-embedded="true"] [class~="gap-5"],
+.cmpri-modal-shell [class~="gap-3"],
+.cmpri-modal-shell [class~="gap-4"],
+.cmpri-modal-shell [class~="gap-5"] {
+  gap: var(--cmpri-modal-spacing) !important;
+}
+
+html[data-cmpri-embedded="true"] [class~="space-y-4"] > :not([hidden]) ~ :not([hidden]),
+html[data-cmpri-embedded="true"] [class~="space-y-5"] > :not([hidden]) ~ :not([hidden]),
+.cmpri-modal-shell [class~="space-y-4"] > :not([hidden]) ~ :not([hidden]),
+.cmpri-modal-shell [class~="space-y-5"] > :not([hidden]) ~ :not([hidden]) {
+  margin-top: var(--cmpri-modal-spacing) !important;
 }
 
 @keyframes cmpri-modal-backdrop-in {

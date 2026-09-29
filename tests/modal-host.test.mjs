@@ -104,6 +104,15 @@ test('global route modals scale down from their dashboard and retain usable mobi
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-mobile-width, calc\(100vw - 16px\)\) !important/);
 });
 
+test('embedded and standalone modals share a compact spacing rhythm', () => {
+  const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  assert.match(styles, /--cmpri-modal-spacing:\s*0\.5rem/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main,\s*\.cmpri-modal-shell\s*\{\s*padding:\s*var\(--cmpri-modal-spacing\) !important/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] section\[class\*="rounded"\]\[class\*="border"\],\s*\.cmpri-modal-shell section\[class\*="rounded"\]\[class\*="border"\]/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main :is\(div, section, form, article\)\[class~="p-6"\]/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] \[class~="gap-5"\],[\s\S]*?\.cmpri-modal-shell \[class~="gap-5"\][\s\S]*?margin-top:\s*var\(--cmpri-modal-spacing\) !important/);
+});
+
 test('sign out from an embedded modal clears modal state and redirects the host', () => {
   assert.match(source, /event\.data\.type === "cmpri-modal-sign-out"/);
   assert.match(source, /event\.data\.type === "cmpri-modal-sign-out"\) \{\s*setStack\(\[\]\);\s*window\.location\.replace\("\/"\);/);
@@ -224,12 +233,16 @@ test('shared modal navigation controls render buttons instead of links', () => {
   }
 });
 
-test('room operations import retains its title and description in the modal body', () => {
+test('room operations import form and commit workflow live in the Daily Room Operations modal', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  const titleIndex = dashboard.indexOf('<h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2>');
-  const bodyIndex = dashboard.lastIndexOf('<div className="space-y-4 p-3">', titleIndex);
-  const descriptionIndex = dashboard.indexOf('Paste spreadsheet rows, import CSV/TSV/TXT', titleIndex);
-  assert.ok(titleIndex >= 0 && bodyIndex >= 0 && descriptionIndex >= 0);
-  assert.ok(titleIndex > bodyIndex);
-  assert.ok(descriptionIndex > bodyIndex);
+  const page = readFileSync(new URL('../src/app/engineering/room-operations/page.tsx', import.meta.url), 'utf8');
+  const importer = readFileSync(new URL('../src/app/engineering/room-operations/RoomOperationsImport.tsx', import.meta.url), 'utf8');
+  assert.match(page, /importOpen && hasCapability\(session, "edit_tickets"\)/);
+  assert.match(page, /<RoomOperationsImport date=\{date\} onDateChange=\{setDate\} onCommitted=\{handleImportCommitted\}/);
+  assert.doesNotMatch(dashboard, /Import Room Ops|showRoomOpsImport|Import Daily Room Operations/);
+  assert.match(importer, /Paste spreadsheet rows, import CSV\/TSV\/TXT/);
+  assert.match(importer, /Import Photo \/ Screenshot/);
+  assert.match(importer, /Validated preview/);
+  assert.match(importer, /async function commitImport/);
+  assert.match(importer, /snapshotMatches/);
 });

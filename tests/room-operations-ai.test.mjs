@@ -5,18 +5,18 @@ import vm from "node:vm";
 import ts from "typescript";
 import { MAX_AI_ROOM_OPERATION_ROWS, validateAiRoomOperationsImport } from "../src/lib/ai/room-operations-import.ts";
 
-const engineeringSource = readFileSync(new URL("../src/app/engineering/page.tsx", import.meta.url), "utf8");
-const engineeringAst = ts.createSourceFile("engineering-page.tsx", engineeringSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const parserFunctions = ["normalizeHeader", "parseDelimitedLine", "parseRoomOperationsText"].map((name) => {
-  const node = engineeringAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+const importerSource = readFileSync(new URL("../src/app/engineering/room-operations/RoomOperationsImport.tsx", import.meta.url), "utf8");
+const importerAst = ts.createSourceFile("room-operations-importer.tsx", importerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const parserFunctions = ["normalizeHeader", "parseDelimitedLine", "parseImportText"].map((name) => {
+  const node = importerAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
   assert.ok(node, `${name} must be declared`);
-  return node.getText(engineeringAst);
+  return node.getText(importerAst);
 });
 const parserExports = {};
-vm.runInNewContext(ts.transpileModule(`${parserFunctions.join("\n")}\nexports.parseRoomOperationsText = parseRoomOperationsText;`, {
+vm.runInNewContext(ts.transpileModule(`${parserFunctions.join("\n")}\nexports.parseImportText = parseImportText;`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports: parserExports });
-const parseExtractedTable = parserExports.parseRoomOperationsText;
+const parseExtractedTable = parserExports.parseImportText;
 
 const row = (room, overrides = {}) => ({
   room,
@@ -58,15 +58,13 @@ test("AI room-operations import rejects duplicates, malformed values, and oversi
 });
 
 test("picture extraction stages validated rows and does not write before Commit", () => {
-  const source = readFileSync(new URL("../src/app/engineering/page.tsx", import.meta.url), "utf8");
-  const start = source.indexOf("async function handleRoomOpsImage");
-  const end = source.indexOf("\n  useEffect(() => {", start);
-  const photoHandler = source.slice(start, end);
-  assert.match(photoHandler, /setRoomOpsInput\(extracted\)/);
-  assert.match(photoHandler, /previewRoomOperationsText\(extracted, "photo"\)/);
-  assert.doesNotMatch(photoHandler, /commitRoomOperationsImport/);
-  assert.match(source, /function previewRoomOperationsText\(raw: string, source: RoomOperationImportSource\)/);
-  assert.match(source, /prepareRoomOperationsImport\(parseRoomOperationsText\(raw\), source\)/);
+  const source = importerSource;
+  const photoHandler = source.slice(source.indexOf("async function handleImage"), source.indexOf("\n  return (", source.indexOf("async function handleImage")));
+  assert.match(photoHandler, /setInput\(extracted\)/);
+  assert.match(photoHandler, /previewText\(extracted, "photo"\)/);
+  assert.doesNotMatch(photoHandler, /commitImport/);
+  assert.match(source, /function previewText\(raw: string, source: ImportSource\)/);
+  assert.match(source, /prepareImport\(parseImportText\(raw\), source\)/);
 });
 
 test("validation-only request returns normalized rows before the existing RPC", () => {
@@ -78,18 +76,18 @@ test("validation-only request returns normalized rows before the existing RPC", 
 });
 
 test("Commit uses only validated preview rows and reports success only after verified readback", () => {
-  const source = readFileSync(new URL("../src/app/engineering/page.tsx", import.meta.url), "utf8");
-  const start = source.indexOf("async function commitRoomOperationsImport");
-  const end = source.indexOf("\n  async function handleRoomOpsFile", start);
+  const source = importerSource;
+  const start = source.indexOf("async function commitImport");
+  const end = source.indexOf("\n  function previewText", start);
   const commit = source.slice(start, end);
-  assert.match(commit, /rows: roomOpsPreview\.rows/);
-  assert.match(commit, /report_date: roomOpsPreview\.date/);
+  assert.match(commit, /rows: preview\.rows/);
+  assert.match(commit, /report_date: preview\.date/);
   assert.match(commit, /payload\.ok !== true \|\| !payload\.import_id/);
-  assert.match(commit, /fetchRoomOperations\(roomOpsPreview\.date\)/);
-  assert.match(commit, /saved\.rows\.length === roomOpsPreview\.rows\.length/);
-  assert.match(commit, /actual\.guestCode === expected\.guest_code/);
+  assert.match(commit, /api\/room-operations\?date=/);
+  assert.match(commit, /saved\.rows\.length === preview\.rows\.length/);
+  assert.match(commit, /actual\.guest_code === expected\.guest_code/);
   assert.match(commit, /actual\.reserved === expected\.reserved/);
-  assert.ok(commit.indexOf("fetchRoomOperations(roomOpsPreview.date)") < commit.indexOf("were saved and verified"));
+  assert.ok(commit.indexOf("api/room-operations?date=") < commit.indexOf("were saved and verified"));
 });
 
 test("existing extraction parser preserves all recognized operational cells", () => {

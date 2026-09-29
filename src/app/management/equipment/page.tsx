@@ -292,11 +292,12 @@ export default function ManageEquipmentPage() {
           </div>
           <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
         </header>}
+        {embedded && <div className="mb-2"><ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink></div>}
 
         {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</div>}
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900">
             <div className="border-b border-slate-800 px-4 py-3">
               <h2 className="font-bold">All Equipment</h2>
               <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
@@ -311,6 +312,7 @@ export default function ManageEquipmentPage() {
                 }}
                 placeholder={loading ? "Loading equipment…" : "Search all equipment…"}
                 topSuggestions={3}
+                expandOnOpen
                 noMatchesText="No equipment matches this search."
                 disabled={loading || !assets.length}
               />
