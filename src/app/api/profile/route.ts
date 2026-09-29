@@ -21,13 +21,24 @@ function preferencesForRole(role: unknown, value: unknown) {
 }
 
 async function chatgptConnectionForUser(admin: NonNullable<Awaited<ReturnType<typeof requireUser>>>["admin"], userId: string) {
-  const { data, error } = await admin.from("cmpri_mcp_oauth_tokens")
-    .select("scope")
-    .eq("user_id", userId)
-    .eq("token_type", "access_token")
-    .is("revoked_at", null)
-    .gt("expires_at", new Date().toISOString());
-  return connectionFromActiveTokens((data || []).map((token) => token.scope), error);
+  const [{ data: oauthTokens, error: oauthError }, { data: personalLinks, error: personalError }] = await Promise.all([
+    admin.from("cmpri_mcp_oauth_tokens")
+      .select("scope")
+      .eq("user_id", userId)
+      .eq("token_type", "access_token")
+      .is("revoked_at", null)
+      .gt("expires_at", new Date().toISOString()),
+    admin.from("cmpri_personal_mcp_links")
+      .select("scope")
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .gt("expires_at", new Date().toISOString()),
+  ]);
+  const connection = connectionFromActiveTokens(
+    [...(oauthTokens || []), ...(personalLinks || [])].map((token) => token.scope),
+    oauthError || personalError,
+  );
+  return { ...connection, personal_link_active: (personalLinks || []).length > 0 };
 }
 
 export async function GET(request: NextRequest) {

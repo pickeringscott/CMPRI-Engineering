@@ -15,6 +15,10 @@ export function randomMcpToken() {
   return `cmpri_mcp_${randomOAuthToken()}`;
 }
 
+export function randomPersonalMcpLinkToken() {
+  return `cmpri_link_${randomOAuthToken(48)}`;
+}
+
 export function hashOAuthToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }

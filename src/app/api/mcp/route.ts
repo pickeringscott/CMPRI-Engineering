@@ -133,7 +133,7 @@ async function runTool(identity: McpIdentity, name: string, args: Record<string,
 
 function unauthorized(request: NextRequest) {
   const metadata = `${request.nextUrl.origin}/.well-known/oauth-protected-resource`;
-  return Response.json({ error: "unauthorized", error_description: "Authorize this ChatGPT app with a CMPRI account." }, {
+  return Response.json({ error: "unauthorized", error_description: "Provide a valid CMPRI connection link or authorize this app." }, {
     status: 401,
     headers: {
       ...NO_STORE,

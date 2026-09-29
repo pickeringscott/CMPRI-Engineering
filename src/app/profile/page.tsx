@@ -15,7 +15,7 @@ type Preferences = {
   notification_mode: "in_app" | "email" | "both";
   notifications: { new_work_orders: boolean; status_changes: boolean; mentions: boolean };
 };
-type ChatGptConnection = { connected: boolean; status: "active" | "disconnected"; access: "read_write" | "read_only" | "disconnected"; provider: string; endpoint: string; message: string } | null;
+type ChatGptConnection = { connected: boolean; status: "active" | "disconnected"; access: "read_write" | "read_only" | "disconnected"; provider: string; endpoint: string; message: string; personal_link_active?: boolean } | null;
 type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; can_manage_users: boolean; chatgpt_connection: ChatGptConnection; warning?: string };
 
 function applyPreferences(preferences: Preferences) {
@@ -147,8 +147,8 @@ export default function ProfilePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">{tx("ChatGPT Connection", "Conexión de ChatGPT")}</h2>
-              <p className="mt-1 text-sm text-slate-300">Status: <span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.connected ? data.chatgpt_connection.access === "read_write" ? "Connected · Read and write" : "Connected · Read only" : "Not connected"}</span></p>
-              <p className="mt-1 text-sm text-slate-400">{tx("When connecting from ChatGPT, sign in to CMPRI with the pre-approved Google account for your CMPRI profile. CMPRI checks your role and permissions on every tool call.", "Al conectarte desde ChatGPT, inicia sesión en CMPRI con la cuenta de Google aprobada previamente para tu perfil de CMPRI. CMPRI verifica tu rol y permisos en cada solicitud.")}</p>
+              <p className="mt-1 text-sm text-slate-300">Status: <span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.personal_link_active ? "Private link active" : data.chatgpt_connection?.connected ? data.chatgpt_connection.access === "read_write" ? "Connected · Read and write" : "Connected · Read only" : "Not connected"}</span></p>
+              <p className="mt-1 text-sm text-slate-400">{tx("Create a private no-OAuth connection link for an AI app. CMPRI checks your account permissions on every tool call.", "Crea un enlace privado de conexión sin OAuth para una aplicación de IA. CMPRI verifica los permisos de tu cuenta en cada solicitud.")}</p>
             </div>
             <ModalNavigationButton href="/profile/ai-connection" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("Connect ChatGPT", "Conectar ChatGPT")}</ModalNavigationButton>
           </div>

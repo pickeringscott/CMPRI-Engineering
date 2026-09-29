@@ -34,14 +34,23 @@ export async function mcpIdentity(authorization: string | null): Promise<McpIden
   if (!admin) throw new Error("CMPRI database access is unavailable.");
 
   const tokenHash = await hashToken(bearer);
-  const { data: token, error: tokenError } = await admin.from("cmpri_mcp_oauth_tokens")
+  const [{ data: oauthToken, error: oauthError }, { data: personalToken, error: personalError }] = await Promise.all([
+    admin.from("cmpri_mcp_oauth_tokens")
     .select("user_id, scope, expires_at, resource")
     .eq("token_hash", tokenHash)
     .eq("token_type", "access_token")
     .is("revoked_at", null)
     .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-  if (tokenError) throw new Error("CMPRI could not verify the ChatGPT authorization.");
+    .maybeSingle(),
+    admin.from("cmpri_personal_mcp_links")
+      .select("user_id, scope, expires_at, resource")
+      .eq("token_hash", tokenHash)
+      .is("revoked_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle(),
+  ]);
+  if (oauthError || personalError) throw new Error("CMPRI could not verify the AI connection.");
+  const token = personalToken || oauthToken;
   if (!token || !validMcpScope(token.scope) || token.resource !== CMPRI_MCP_RESOURCE) return null;
 
   const [{ data: userResult, error: userError }, { data: profileRow, error: profileError }] = await Promise.all([
