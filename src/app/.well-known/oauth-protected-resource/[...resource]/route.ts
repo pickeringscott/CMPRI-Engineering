@@ -13,7 +13,7 @@ export async function GET(
     resource: `${origin}/api/mcp`,
     authorization_servers: [origin],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["cmpri:read"],
+    scopes_supported: ["cmpri:read", "cmpri:write"],
   }, {
     headers: { "Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*" },
   });

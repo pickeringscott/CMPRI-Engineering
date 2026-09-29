@@ -17,6 +17,8 @@ test("profile connection UI explains per-user ChatGPT OAuth and connection revoc
   assert.match(page, /select <strong>OAuth<\/strong>/);
   assert.match(page, /OpenAI API credits are separate from OAuth/);
   assert.match(page, /Revoke ChatGPT access/);
+  assert.match(page, /remove the CMPRI app from ChatGPT/);
+  assert.match(page, /approve <strong>read and write<\/strong> access/);
   assert.match(consent, /Authorize read-only access/);
   assert.match(consent, /provider: "google"/);
   assert.match(consent, /Continue with Google/);

@@ -91,11 +91,14 @@ test("CMPRI MCP tools are exposed through the remote OAuth-protected endpoint", 
   const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
   const endpoint = readFileSync(new URL("../src/app/api/mcp/route.ts", import.meta.url), "utf8");
   const resource = readFileSync(new URL("../src/app/.well-known/oauth-protected-resource/route.ts", import.meta.url), "utf8");
+  const resourceCatchAll = readFileSync(new URL("../src/app/.well-known/oauth-protected-resource/[...resource]/route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(layout, /DashboardAssistant/);
   assert.match(endpoint, /tools\/list/);
   assert.match(endpoint, /tools\/call/);
   assert.match(endpoint, /mcpIdentity\(request\.headers\.get\("authorization"\)\)/);
   assert.match(resource, /authorization_servers/);
+  assert.match(resource, /scopes_supported: \["cmpri:read", "cmpri:write"\]/);
+  assert.match(resourceCatchAll, /scopes_supported: \["cmpri:read", "cmpri:write"\]/);
 });
 
 test("MCP writes are explicitly scoped and delegated through existing CMPRI endpoints", () => {

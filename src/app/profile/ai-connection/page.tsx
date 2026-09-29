@@ -122,11 +122,12 @@ export default function AiConnectionPage() {
           <section className="mt-5 rounded-xl border border-slate-700 bg-slate-950/60 p-4">
             <p className="text-sm">Status: <span className={connection.oauth_connected ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"}>{connection.oauth_connected ? connection.oauth_access === "read_write" ? "OAuth connected · Read and write" : "OAuth connected · Read only" : connection.personal_link_active ? "Legacy private link active" : "Not connected"}</span></p>
           <p className="mt-2 text-sm text-slate-300">{connection.message}</p>
+          {connection.oauth_access === "read_only" && <p className="mt-2 text-sm text-amber-200">To upgrade this existing connection: revoke access here, remove the CMPRI app from ChatGPT, then add it again and approve <strong>read and write</strong> access on the CMPRI consent screen.</p>}
           </section>
 
           <section className="mt-5 space-y-3 rounded-xl border border-slate-700 p-4">
           <h2 className="font-semibold">Connect with secure OAuth</h2>
-          <p className="text-sm text-slate-300">In ChatGPT, add a custom MCP app using the CMPRI endpoint below and select <strong>OAuth</strong>. ChatGPT will open CMPRI sign-in; sign in with the Google account linked to your CMPRI profile and approve the requested access. CMPRI checks your current role and permissions on every call.</p>
+          <p className="text-sm text-slate-300">In ChatGPT, add a custom MCP app using the CMPRI endpoint below and select <strong>OAuth</strong>. ChatGPT will open CMPRI sign-in; sign in with the Google account linked to your CMPRI profile and approve <strong>read and write</strong> access. CMPRI checks your current role and permissions on every call.</p>
           <p className="text-sm text-slate-300">There is no payment UI. OpenAI API credits are separate from OAuth and do not pay for ChatGPT model usage; this connection only grants ChatGPT access to your CMPRI account.</p>
           <div className="flex flex-wrap items-center gap-2">
             <code className="min-w-0 flex-1 break-all rounded-lg bg-slate-950 px-3 py-2 text-xs text-sky-200">{connection.endpoint}</code>
