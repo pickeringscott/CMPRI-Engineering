@@ -99,6 +99,11 @@ export function prepareMcpPoolLogInput(
   if (!facility) {
     throw new Error("Select an active pool by its name or the pool id returned by the pool-log read.");
   }
+  for (const field of ["requires_attention", "closure_condition"] as const) {
+    if (typeof input[field] !== "boolean") {
+      throw new Error(`Include an explicit true or false value for ${field}; false is valid.`);
+    }
+  }
 
   const readings = { ...input };
   delete readings.date;
@@ -110,6 +115,8 @@ export function prepareMcpPoolLogInput(
     ...readings,
     log_date: logDate,
     pool_facility_id: facility.id,
+    requires_attention: input.requires_attention,
+    closure_condition: input.closure_condition,
   };
 }
 
