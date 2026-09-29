@@ -34,11 +34,18 @@ async function chatgptConnectionForUser(admin: NonNullable<Awaited<ReturnType<ty
       .is("revoked_at", null)
       .gt("expires_at", new Date().toISOString()),
   ]);
-  const connection = connectionFromActiveTokens(
-    [...(oauthTokens || []), ...(personalLinks || [])].map((token) => token.scope),
-    oauthError || personalError,
+  const oauthConnection = connectionFromActiveTokens(
+    (oauthTokens || []).map((token) => token.scope),
+    oauthError,
   );
-  return { ...connection, personal_link_active: (personalLinks || []).length > 0 };
+  if (personalError) throw new Error("Legacy ChatGPT connection status could not be loaded.");
+  return {
+    ...oauthConnection,
+    oauth_connected: oauthConnection.connected,
+    oauth_access: oauthConnection.access,
+    message: oauthConnection.message,
+    personal_link_active: (personalLinks || []).length > 0,
+  };
 }
 
 export async function GET(request: NextRequest) {

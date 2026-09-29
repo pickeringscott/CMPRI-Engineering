@@ -1,20 +1,22 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { resolveMcpWorkOrderLocation } from "../src/lib/ai/mcp-work-order-location.ts";
 
 const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("profile connection UI issues a private no-OAuth MCP link scoped to the signed-in CMPRI account", () => {
+test("profile connection UI explains per-user ChatGPT OAuth and connection revocation", () => {
   const page = source("../src/app/profile/ai-connection/page.tsx");
   const consent = source("../src/app/mcp/authorize/page.tsx");
   const profile = source("../src/app/profile/page.tsx");
   const dashboard = source("../src/app/engineering/page.tsx");
   const route = source("../src/app/api/profile/ai-connection/route.ts");
   assert.match(page, /Connect ChatGPT/);
-  assert.match(page, /No Authentication/);
-  assert.match(page, /Developer mode/);
-  assert.match(page, /Create connection link/);
-  assert.match(page, /Treat this URL like a password/);
+  assert.match(page, /Connect with secure OAuth/);
+  assert.match(page, /Each user authorizes their own CMPRI account/);
+  assert.match(page, /select <strong>OAuth<\/strong>/);
+  assert.match(page, /OpenAI API credits are separate from OAuth/);
+  assert.match(page, /Revoke ChatGPT access/);
   assert.match(consent, /Authorize read-only access/);
   assert.match(consent, /provider: "google"/);
   assert.match(consent, /Continue with Google/);
@@ -23,19 +25,19 @@ test("profile connection UI issues a private no-OAuth MCP link scoped to the sig
   assert.doesNotMatch(page, /type="password"|api_key|Load models/);
   assert.match(profile, /ChatGPT Connection/);
   assert.match(profile, /Connect ChatGPT/);
-  assert.match(profile, /private no-OAuth connection link for an AI app/);
+  assert.match(profile, /Connect ChatGPT with secure per-user OAuth/);
   assert.match(dashboard, /payload\.chatgpt_connection\?\.connected === true/);
   assert.match(dashboard, /Connect ChatGPT/);
   assert.doesNotMatch(dashboard, /personalAiConnected|Connect OpenAI/);
   assert.match(route, /requireUser\(request\)/);
   assert.match(route, /allows\(auth\.principal, "submit"\)/);
   assert.match(route, /cmpri_personal_mcp_links/);
-  assert.match(route, /randomPersonalMcpLinkToken/);
-  assert.match(route, /365 \* 24 \* 60 \* 60 \* 1000/);
   assert.match(route, /revoked_at/);
+  assert.match(route, /Private-link connections are retired/);
+  assert.match(route, /status: 410/);
 });
 
-test("personal MCP links authenticate the user without an OAuth exchange and preserve normal MCP permission checks", () => {
+test("legacy personal MCP links remain valid but new profile links are disabled in favor of OAuth", () => {
   const migration = source("../supabase/migrations/20260929010000_cmpri_personal_mcp_links.sql");
   const route = source("../src/app/api/mcp/personal/[token]/route.ts");
   const identity = source("../src/lib/server/cmpri-mcp-auth.ts");
@@ -47,9 +49,25 @@ test("personal MCP links authenticate the user without an OAuth exchange and pre
   assert.match(route, /responseHeaders\.delete\("WWW-Authenticate"\)/);
   assert.match(identity, /cmpri_personal_mcp_links/);
   assert.match(identity, /token\.scope === CMPRI_MCP_WRITE_SCOPE/);
-  assert.match(profileRoute, /hashOAuthToken\(token\)/);
-  assert.match(profileRoute, /expires_at/);
+  assert.match(profileRoute, /Private-link connections are retired/);
+  assert.match(profileRoute, /status: 410/);
   assert.match(profileRoute, /personal_link_active/);
+});
+
+test("ChatGPT work-order room resolution requires a unique exact active location", () => {
+  const locations = [
+    { id: "room-110", name: "Guest Room", room_number: "110" },
+    { id: "room-111", name: "Guest Room", room_number: "111" },
+  ];
+  assert.deepEqual(resolveMcpWorkOrderLocation("Room 110", locations), {
+    status: "found",
+    location: locations[0],
+  });
+  assert.deepEqual(resolveMcpWorkOrderLocation("999", locations), { status: "not_found" });
+  assert.deepEqual(resolveMcpWorkOrderLocation("Room 110", [
+    ...locations,
+    { id: "duplicate", name: "110", room_number: "different" },
+  ]), { status: "ambiguous" });
 });
 
 test("ChatGPT OAuth supports read/write scopes with dynamic registration, PKCE, one-time codes, and rotated opaque tokens", () => {
@@ -83,6 +101,12 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   const auth = source("../src/lib/server/auth.ts");
   const authorizePage = source("../src/app/mcp/authorize/page.tsx");
   assert.match(route, /search_work_orders/);
+  assert.match(route, /search_locations/);
+  assert.match(route, /create_work_order/);
+  assert.match(route, /No active CMPRI room exactly matches/);
+  assert.match(route, /location_id: resolution\.location\.id/);
+  assert.match(route, /issue,/);
+  assert.match(route, /work_orders\.create/);
   assert.match(route, /get_work_order/);
   assert.match(route, /search_equipment/);
   assert.match(route, /readOnlyHint: true/);

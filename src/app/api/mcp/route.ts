@@ -2,12 +2,24 @@ import { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
 import { availableMcpWriteActions, callMcpWriteAction } from "@/lib/server/cmpri-mcp-writes";
+import { resolveMcpWorkOrderLocation } from "@/lib/ai/mcp-work-order-location";
 
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store", Pragma: "no-cache" };
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26"];
 const MCP_TOOLS = [
+  {
+    name: "search_locations",
+    description: "Find active rooms and locations in CMPRI by room number, name, or area. Use this before creating a work order so the correct location is selected.",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Room number, location name, or area to find." } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Find a room or location", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
   {
     name: "search_work_orders",
     description: "Search work orders the signed-in CMPRI user is permitted to view. Technicians see only work assigned to them.",
@@ -17,6 +29,21 @@ const MCP_TOOLS = [
       additionalProperties: false,
     },
     annotations: { title: "Search work orders", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "create_work_order",
+    description: "Create one work order in CMPRI when the user explicitly asks. Supply the room number or exact location name and the reported issue. CMPRI applies the connected user's current submit permission, infers category and priority, checks for duplicates, and applies the same validation and attribution as the live site. Ask a follow-up if the room or issue is ambiguous. Never claim success unless the tool returns the created work order.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room: { type: "string", description: "Room number or exact active CMPRI location name, for example 110." },
+        issue: { type: "string", description: "The maintenance issue as reported by the user." },
+        notes: { type: "string", description: "Optional additional details about the issue." },
+      },
+      required: ["room", "issue"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Create a work order", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "get_work_order",
@@ -79,6 +106,25 @@ function stringArgument(args: Record<string, unknown>, name: string, maximum = 2
 
 async function runTool(identity: McpIdentity, name: string, args: Record<string, unknown>) {
   const { admin, principal } = identity;
+  if (name === "search_locations") {
+    if (!identity.readAllWorkOrders && !identity.readAssignedWorkOrders && !identity.readOwnWorkOrders) {
+      throw new Error("Your CMPRI role cannot look up locations for work orders.");
+    }
+    const needle = normalized(stringArgument(args, "query", 100));
+    if (!needle) throw new Error("Enter a room number, location name, or area to search.");
+    const { data, error } = await admin.from("locations")
+      .select("id, name, room_number, area, location_type")
+      .eq("hotel_id", HOTEL_ID)
+      .eq("active", true)
+      .order("area")
+      .order("room_number")
+      .limit(1000);
+    if (error) throw new Error("CMPRI could not load active rooms and locations.");
+    const locations = (data || []).filter((location) =>
+      [location.name, location.room_number, location.area].some((value) => normalized(value).includes(needle)));
+    return { locations: locations.slice(0, 30), limited: locations.length > 30 };
+  }
+
   if (name === "search_work_orders") {
     if (!identity.readAllWorkOrders && !identity.readAssignedWorkOrders && !identity.readOwnWorkOrders) {
       throw new Error("Your CMPRI role cannot read work orders.");
@@ -196,6 +242,7 @@ export async function POST(request: NextRequest) {
   if (rpc.method === "tools/list") {
     const tools = MCP_TOOLS.filter((tool) => {
       if (tool.name === "search_equipment") return identity.readEquipment;
+      if (tool.name === "create_work_order") return availableMcpWriteActions(identity).some((action) => action.action === "work_orders.create");
       if (tool.name === "perform_cmpri_write") return availableMcpWriteActions(identity).length > 0;
       return true;
     }).map((tool) => tool.name === "perform_cmpri_write"
@@ -224,6 +271,46 @@ export async function POST(request: NextRequest) {
       ? params.arguments as Record<string, unknown>
       : {};
     try {
+      if (params.name === "create_work_order") {
+        if (!availableMcpWriteActions(identity).some((action) => action.action === "work_orders.create")) {
+          throw new Error("Your current CMPRI role cannot create work orders.");
+        }
+        const room = stringArgument(args, "room", 100);
+        const issue = stringArgument(args, "issue", 4000);
+        const notes = stringArgument(args, "notes", 20000);
+        if (!room || !issue) throw new Error("A room and maintenance issue are required.");
+        const { data: locations, error: locationError } = await identity.admin.from("locations")
+          .select("id, name, room_number, area")
+          .eq("hotel_id", HOTEL_ID)
+          .eq("active", true)
+          .limit(1000);
+        if (locationError) throw new Error("CMPRI could not verify the requested room.");
+        const resolution = resolveMcpWorkOrderLocation(room, locations || []);
+        if (resolution.status === "not_found") {
+          throw new Error(`No active CMPRI room exactly matches "${room}". Search rooms and locations, then try again.`);
+        }
+        if (resolution.status === "ambiguous") {
+          throw new Error(`More than one active CMPRI location matches "${room}". Ask which area/location the user means.`);
+        }
+        const outcome = await callMcpWriteAction(request, identity, "work_orders.create", {
+          orders: [{
+            location_id: resolution.location.id,
+            issue,
+            ...(notes ? { notes } : {}),
+          }],
+        });
+        if (outcome.status < 200 || outcome.status >= 300) {
+          const details = outcome.body && typeof outcome.body === "object" && "error" in outcome.body
+            ? String(outcome.body.error)
+            : "CMPRI rejected the work order.";
+          throw new Error(details);
+        }
+        return Response.json({
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: toolResult(outcome.body),
+        }, { headers: NO_STORE });
+      }
       if (params.name === "perform_cmpri_write") {
         const action = stringArgument(args, "action", 100);
         const input = args.input && typeof args.input === "object" && !Array.isArray(args.input)

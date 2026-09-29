@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/auth";
 import { allows } from "@/lib/server/access";
 import { connectionFromActiveTokens } from "@/lib/server/cmpri-mcp";
-import { CMPRI_MCP_RESOURCE, CMPRI_MCP_WRITE_SCOPE } from "@/lib/server/cmpri-mcp-oauth-scope";
-import { hashOAuthToken, randomPersonalMcpLinkToken } from "@/lib/server/cmpri-mcp-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +30,18 @@ async function connection(admin: NonNullable<Awaited<ReturnType<typeof requireUs
       .is("revoked_at", null)
       .gt("expires_at", new Date().toISOString()),
   ]);
-  const result = connectionFromActiveTokens(
-    [...(oauthTokens || []), ...(personalLinks || [])].map((token) => token.scope),
-    oauthError || personalError,
+  const oauthConnection = connectionFromActiveTokens(
+    (oauthTokens || []).map((token) => token.scope),
+    oauthError,
   );
-  return { ...result, personal_link_active: (personalLinks || []).length > 0 };
+  if (personalError) throw new Error("Legacy ChatGPT connection status could not be loaded.");
+  return {
+    ...oauthConnection,
+    oauth_connected: oauthConnection.connected,
+    oauth_access: oauthConnection.access,
+    message: oauthConnection.message,
+    personal_link_active: (personalLinks || []).length > 0,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -49,45 +54,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
-  const { auth, response } = await authorized(request);
-  if (response) return response;
-  const admin = auth.admin;
-  const userId = auth.principal.identity.id;
-  const token = randomPersonalMcpLinkToken();
-  const now = Date.now();
-  const { error: insertError } = await admin.from("cmpri_personal_mcp_links").insert({
-    token_hash: hashOAuthToken(token),
-    user_id: userId,
-    resource: CMPRI_MCP_RESOURCE,
-    scope: CMPRI_MCP_WRITE_SCOPE,
-    expires_at: new Date(now + 365 * 24 * 60 * 60 * 1000).toISOString(),
-  });
-  if (insertError) {
-    console.error("CMPRI personal AI connection could not be stored:", insertError.message);
-    return NextResponse.json({ error: "A CMPRI connection link could not be created." }, { status: 503, headers: NO_STORE });
-  }
-
-  const { error: revokeError } = await admin.from("cmpri_personal_mcp_links")
-    .update({ revoked_at: new Date(now).toISOString() })
-    .eq("user_id", userId)
-    .neq("token_hash", hashOAuthToken(token))
-    .is("revoked_at", null);
-  if (revokeError) {
-    const { error: rollbackError } = await admin.from("cmpri_personal_mcp_links")
-      .update({ revoked_at: new Date(now).toISOString() })
-      .eq("token_hash", hashOAuthToken(token))
-      .is("revoked_at", null);
-    if (rollbackError) console.error("CMPRI personal AI link rollback failed:", rollbackError.message);
-    return NextResponse.json({ error: "The previous connection could not be rotated safely." }, { status: 503, headers: NO_STORE });
-  }
-
-  const result = await connection(admin, userId);
+export async function POST() {
   return NextResponse.json({
-    connection: result,
-    connect_url: `${request.nextUrl.origin}/api/mcp/personal/${token}`,
-    expires_at: new Date(now + 365 * 24 * 60 * 60 * 1000).toISOString(),
-  }, { headers: NO_STORE });
+    error: "Private-link connections are retired. Connect ChatGPT using OAuth from the ChatGPT app settings.",
+  }, { status: 410, headers: NO_STORE });
 }
 
 export async function DELETE(request: NextRequest) {
