@@ -98,6 +98,7 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   const route = source("../src/app/api/mcp/route.ts");
   const identity = source("../src/lib/server/cmpri-mcp-auth.ts");
   const writes = source("../src/lib/server/cmpri-mcp-writes.ts");
+  const reads = source("../src/lib/server/cmpri-mcp-reads.ts");
   const auth = source("../src/lib/server/auth.ts");
   const authorizePage = source("../src/app/mcp/authorize/page.tsx");
   assert.match(route, /search_work_orders/);
@@ -109,12 +110,18 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   assert.match(route, /work_orders\.create/);
   assert.match(route, /get_work_order/);
   assert.match(route, /search_equipment/);
+  assert.match(route, /read_cmpri_data/);
+  assert.match(route, /availableMcpReadViews\(identity\)/);
   assert.match(route, /readOnlyHint: true/);
   assert.match(route, /perform_cmpri_write/);
   assert.match(route, /availableMcpWriteActions\(identity\)/);
   assert.match(writes, /allows\(identity\.principal, action\.capability\)/);
   assert.match(writes, /@\/app\/api\/work-orders\/route/);
   assert.match(writes, /@\/app\/api\/work-orders\/\[id\]\/route/);
+  assert.match(reads, /allows\(identity\.principal, capability\)/);
+  assert.match(reads, /@\/app\/api\/engineering\/operations\/route/);
+  assert.match(reads, /@\/app\/api\/work-orders\/\[id\]\/attachments\/route/);
+  assert.match(reads, /availableMcpReadViews\(identity\)\.includes\(view\)/);
   assert.match(auth, /isMutatingMethod\(request\.method\) && !mcp\.canWrite/);
   assert.match(identity, /token\.scope === CMPRI_MCP_WRITE_SCOPE/);
   assert.match(identity, /cmpri_mcp_oauth_tokens/);

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
+import { availableMcpReadViews, callMcpReadView } from "@/lib/server/cmpri-mcp-reads";
 import { availableMcpWriteActions, callMcpWriteAction } from "@/lib/server/cmpri-mcp-writes";
 import { resolveMcpWorkOrderLocation } from "@/lib/ai/mcp-work-order-location";
 
@@ -55,6 +56,25 @@ const MCP_TOOLS = [
       additionalProperties: false,
     },
     annotations: { title: "Read work order", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "read_cmpri_data",
+    description: "Read manager and engineering data from CMPRI using the connected user's current role and permissions. Choose a view from the allowed views listed for this account. Supply record ids, dates, rooms, or asset ids when that view requires them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        view: { type: "string", description: "A view returned in this user's allowed_views list." },
+        id: { type: "string", description: "Work-order UUID or display ID for a single work order, activity, or attachments." },
+        date: { type: "string", description: "Date in YYYY-MM-DD format, used by room operations and pool logs." },
+        facility: { type: "string", description: "Optional active pool facility id." },
+        asset_id: { type: "string", description: "Equipment id for equipment documentation or a focused maintenance reference." },
+        room: { type: "string", description: "Room name/number for Corporate PM." },
+        sheet: { type: "string", description: "Sheet name for Corporate PM when no room is specified." },
+      },
+      required: ["view"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Read CMPRI data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "search_equipment",
@@ -242,10 +262,23 @@ export async function POST(request: NextRequest) {
   if (rpc.method === "tools/list") {
     const tools = MCP_TOOLS.filter((tool) => {
       if (tool.name === "search_equipment") return identity.readEquipment;
+      if (tool.name === "read_cmpri_data") return availableMcpReadViews(identity).length > 0;
       if (tool.name === "create_work_order") return availableMcpWriteActions(identity).some((action) => action.action === "work_orders.create");
       if (tool.name === "perform_cmpri_write") return availableMcpWriteActions(identity).length > 0;
       return true;
-    }).map((tool) => tool.name === "perform_cmpri_write"
+    }).map((tool) => tool.name === "read_cmpri_data"
+      ? {
+        ...tool,
+        description: `${tool.description} Allowed views for this user: ${availableMcpReadViews(identity).join(", ")}`,
+        inputSchema: {
+          ...tool.inputSchema,
+          properties: {
+            ...tool.inputSchema.properties,
+            view: { type: "string", enum: availableMcpReadViews(identity) },
+          },
+        },
+      }
+      : tool.name === "perform_cmpri_write"
       ? {
         ...tool,
         description: `${tool.description} Allowed actions for this user: ${availableMcpWriteActions(identity).map((action) => `${action.action} (${action.description})`).join("; ")}`,
@@ -324,6 +357,15 @@ export async function POST(request: NextRequest) {
           jsonrpc: "2.0",
           id: rpc.id,
           result: toolResult({ status: outcome.status, response: outcome.body }, !success),
+        }, { headers: NO_STORE });
+      }
+      if (params.name === "read_cmpri_data") {
+        const view = stringArgument(args, "view", 80);
+        const result = await callMcpReadView(request, identity, view, args);
+        return Response.json({
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: toolResult(result),
         }, { headers: NO_STORE });
       }
       const result = await runTool(identity, params.name, args);
