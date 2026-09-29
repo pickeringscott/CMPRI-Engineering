@@ -86,6 +86,15 @@ test('pool save uses authenticated actor and profile initials, never submitted a
 for(const config of [{noFacility:true},{lookupError:true},{readError:true},{existing:{id:'saved',revision:2},body:{expected_revision:1}}])test(`unsafe pool save rejected ${JSON.stringify(config)}`,async()=>{
  const f=fixture(config);assert.ok((await f.handlers.POST(f.request)).status>=400);assert.equal(f.writes.length,0);
 });
+test('missing pool log with an old revision explains safe reload and retry',async()=>{
+ const f=fixture({body:{expected_revision:2}});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,409);
+ assert.match(result.body.error,/nothing was saved/i);
+ assert.match(result.body.error,/same date and pool/i);
+ assert.match(result.body.error,/new log/i);
+ assert.equal(f.writes.length,0);
+});
 test('pool edit checks revision and preserves original creator',async()=>{
  const f=fixture({existing:{id:'saved',revision:2},body:{expected_revision:2,created_by:'spoof'}});assert.equal((await f.handlers.POST(f.request)).status,200);assert.equal(f.writes[0].created_by,undefined);
 });

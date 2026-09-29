@@ -61,9 +61,21 @@ export function normalizeMcpWorkOrderUpdate(input: Record<string, unknown>) {
 
 const FEEDBACK_TYPES = ["Problem", "Bug", "Suggestion"] as const;
 
+function isFeedbackRoute(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//")
+    && value.length <= 500 && !/[\r\n]/.test(value);
+}
+
 export function normalizeMcpFeedbackInput(input: Record<string, unknown>) {
   const rawType = input.feedback_type ?? input.type;
-  if (typeof rawType !== "string") return input;
-  const feedbackType = FEEDBACK_TYPES.find((candidate) => candidate.toLowerCase() === rawType.trim().toLowerCase());
-  return feedbackType ? { ...input, feedback_type: feedbackType } : input;
+  const feedbackType = typeof rawType === "string"
+    ? FEEDBACK_TYPES.find((candidate) => candidate.toLowerCase() === rawType.trim().toLowerCase())
+    : undefined;
+  const route = [input.page_route, input.originating_page, input.route]
+    .find(isFeedbackRoute) ?? "/mcp";
+  return {
+    ...input,
+    ...(feedbackType ? { feedback_type: feedbackType } : {}),
+    page_route: route,
+  };
 }

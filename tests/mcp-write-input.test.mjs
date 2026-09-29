@@ -62,11 +62,26 @@ test("feedback MCP input normalizes Bug casing and common type alias", () => {
   assert.deepEqual(normalizeMcpFeedbackInput({
     type: " bug ",
     description: "A defect.",
-    page_route: "/work-orders",
+    originating_page: "/work-orders",
   }), {
     type: " bug ",
     feedback_type: "Bug",
     description: "A defect.",
+    originating_page: "/work-orders",
     page_route: "/work-orders",
   });
+});
+
+test("feedback MCP input falls back to the MCP route for missing or non-path origins", () => {
+  assert.equal(normalizeMcpFeedbackInput({
+    feedback_type: "Problem",
+    description: "Could not save.",
+    originating_page: "ChatGPT",
+  }).page_route, "/mcp");
+  assert.equal(normalizeMcpFeedbackInput({
+    feedback_type: "Bug",
+    description: "Could not save.",
+    page_route: "//external.example",
+    route: "/engineering/pool-log",
+  }).page_route, "/engineering/pool-log");
 });

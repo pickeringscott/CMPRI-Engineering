@@ -80,7 +80,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "This log changed. Keep your entries and reload the saved readings before combining changes." }, { status: 409 });
   }
   if (!existing && body.expected_revision != null) {
-    return NextResponse.json({ error: "The original log is no longer available. Reload before saving." }, { status: 409 });
+    return NextResponse.json({
+      error: "The saved log is no longer available, so nothing was saved. Keep your readings, reload this same date and pool, and if the log is still empty, save again as a new log.",
+    }, { status: 409 });
   }
 
   const fields = {
