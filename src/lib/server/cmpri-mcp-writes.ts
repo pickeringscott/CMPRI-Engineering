@@ -1,6 +1,8 @@
 import "server-only";
 
 import { NextRequest } from "next/server";
+import { HOTEL_ID } from "@/lib/constants";
+import { prepareMcpPoolLogInput } from "@/lib/pool-log";
 import { allows, type Capability } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
 
@@ -29,7 +31,7 @@ const WRITE_ACTIONS: WriteAction[] = [
   { action: "room_ranker.update", description: "Update a supported CMPRI room-ranker record.", capability: "operate_integrations" },
   { action: "corporate_pm.update", description: "Write an allowed verified cell through CMPRI's Corporate PM integration.", capability: "operate_integrations" },
   { action: "room_operations.import", description: "Import validated CMPRI room-operations data.", capability: "edit_tickets" },
-  { action: "pool_log.save", description: "Save CMPRI pool readings with the current log revision.", capability: "operate_integrations" },
+  { action: "pool_log.save", description: "Save pool readings. Required: date (YYYY-MM-DD, use the date from the pool read) and pool (exact active pool name such as Indoor Pool, or its id from the pool read). Include the reading fields, remarks, requires_attention, closure_condition, and expected_revision from the read when editing an existing log. The pool name is resolved to the active facility id before saving.", capability: "operate_integrations" },
   { action: "feedback.submit", description: "Submit feedback to CMPRI.", capability: "submit_feedback" },
   { action: "feedback.review", description: "Review or update CMPRI feedback when permitted.", capability: "review_feedback" },
   { action: "feedback.delete", description: "Delete CMPRI feedback when permitted.", capability: "review_feedback" },
@@ -156,8 +158,14 @@ export async function callMcpWriteAction(
       return callApi(incoming, "/api/room-operations", "POST", bearer, input, route.POST);
     }
     case "pool_log.save": {
+      const { data: facilities, error } = await identity.admin.from("pool_facilities")
+        .select("id, pool_name, facility_name")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("active", true);
+      if (error) throw new Error("Active pool facilities could not be loaded. Nothing was saved.");
+      const payload = prepareMcpPoolLogInput(input, facilities || []);
       const route = await import("@/app/api/pool-log/route");
-      return callApi(incoming, "/api/pool-log", "POST", bearer, input, route.POST);
+      return callApi(incoming, "/api/pool-log", "POST", bearer, payload, route.POST);
     }
     case "feedback.submit":
     case "feedback.review":

@@ -55,6 +55,64 @@ export function validLogDate(value: unknown): value is string {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+type McpPoolFacility = {
+  id: string;
+  pool_name?: string | null;
+  facility_name?: string | null;
+};
+
+function normalizedPoolName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function prepareMcpPoolLogInput(
+  input: Record<string, unknown>,
+  facilities: readonly McpPoolFacility[],
+) {
+  const logDate = input.log_date ?? input.date;
+  if (!validLogDate(logDate)) {
+    throw new Error("Pool-log date must use YYYY-MM-DD. Use the date returned by the pool-log read.");
+  }
+
+  const selected = typeof input.pool_facility_id === "string" && /^[a-f0-9-]{36}$/i.test(input.pool_facility_id)
+    ? input.pool_facility_id
+    : input.pool ?? input.pool_name ?? input.facility_name ?? input.facility ?? input.pool_facility_id;
+  const selection = selected && typeof selected === "object" && !Array.isArray(selected)
+    ? selected as Record<string, unknown>
+    : null;
+  const identifier = selection?.id ?? (typeof selected === "string" ? selected : null);
+  const name = selection?.pool_name ?? selection?.facility_name
+    ?? (typeof selected === "string" ? selected : null);
+
+  let facility: McpPoolFacility | undefined;
+  if (typeof identifier === "string" && /^[a-f0-9-]{36}$/i.test(identifier)) {
+    facility = facilities.find((candidate) => candidate.id === identifier);
+  } else if (typeof name === "string" && name.trim()) {
+    const poolName = normalizedPoolName(name);
+    const matches = facilities.filter((candidate) =>
+      [candidate.pool_name, candidate.facility_name]
+        .some((candidateName) => typeof candidateName === "string" && normalizedPoolName(candidateName) === poolName));
+    if (matches.length > 1) throw new Error(`More than one active pool matches "${name}". Specify the exact pool.`);
+    facility = matches[0];
+  }
+
+  if (!facility) {
+    throw new Error("Select an active pool by its name or the pool id returned by the pool-log read.");
+  }
+
+  const readings = { ...input };
+  delete readings.date;
+  delete readings.pool;
+  delete readings.pool_name;
+  delete readings.facility_name;
+  delete readings.facility;
+  return {
+    ...readings,
+    log_date: logDate,
+    pool_facility_id: facility.id,
+  };
+}
+
 function numericReading(value: unknown, key: string) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`Enter a valid number for ${key.replaceAll("_", " ")}.`);

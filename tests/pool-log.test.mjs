@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { poolLogInput, validLogDate, poolLocationValue } from '../src/lib/pool-log.ts';
+import { poolLogInput, validLogDate, poolLocationValue, prepareMcpPoolLogInput } from '../src/lib/pool-log.ts';
 const facilityId='00000000-0000-0000-0000-000000000001';
 const input={pool_facility_id:facilityId,log_date:'2026-09-15',ph_am:7.4,sanitizer_am:4,sample_location_am:'shallow',requires_attention:false,closure_condition:false,remarks:''};
 test('pool input preserves unmeasured fields as null and measured zero as zero',()=>{
@@ -13,6 +13,23 @@ test('pool input preserves unmeasured fields as null and measured zero as zero',
 });
 for(const change of [{log_date:'2026-02-30'},{ph_am:15},{sanitizer_am:-1},{ph_am:'7.4'},{flow_rate_gpm:Infinity},{main_drain_visible:'yes'},{remarks:{}},{requires_attention:'false'}])test(`invalid pool input rejected: ${JSON.stringify(change)}`,()=>assert.throws(()=>poolLogInput({...input,...change})));
 test('date validation rejects impossible dates and retains leap days',()=>{assert.equal(validLogDate('2028-02-29'),true);assert.equal(validLogDate('2026-02-29'),false);});
+test('MCP pool save maps read date and pool name to the existing API fields',()=>{
+ const facilities=[{id:facilityId,pool_name:'Indoor Pool',facility_name:'Residence Inn Indoor Pool'}];
+ const payload=prepareMcpPoolLogInput({date:'2026-09-29',pool:'indoor pool',ph_am:7.4},facilities);
+ assert.equal(payload.log_date,'2026-09-29');
+ assert.equal(payload.pool_facility_id,facilityId);
+ assert.equal('date' in payload,false);
+ assert.equal('pool' in payload,false);
+});
+test('MCP pool save accepts the facility object returned by pool-log read',()=>{
+ const facilities=[{id:facilityId,pool_name:'Indoor Pool'}];
+ assert.equal(prepareMcpPoolLogInput({log_date:'2026-09-29',facility:facilities[0]},facilities).pool_facility_id,facilityId);
+});
+test('MCP pool save rejects ambiguous pool names and non-ISO dates before saving',()=>{
+ const facilities=[{id:facilityId,pool_name:'Indoor Pool'},{id:'00000000-0000-0000-0000-000000000002',pool_name:'Indoor Pool'}];
+ assert.throws(()=>prepareMcpPoolLogInput({date:'September 29',pool:'Indoor Pool'},facilities),/YYYY-MM-DD/);
+ assert.throws(()=>prepareMcpPoolLogInput({date:'2026-09-29',pool:'Indoor Pool'},facilities),/More than one active pool/);
+});
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 function fixture(config={}) {
  const calls=[],writes=[];
