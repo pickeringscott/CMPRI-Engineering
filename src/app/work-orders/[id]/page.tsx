@@ -637,6 +637,8 @@ export default function WorkOrderTicketPage() {
 
   const [order, setOrder] = useState<WorkOrder | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
+  const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
   const [manualPagePreview, setManualPagePreview] = useState<number | null>(null);
@@ -695,22 +697,29 @@ export default function WorkOrderTicketPage() {
   }, [notes, order?.created_at]);
 
   async function loadMaintenanceReference() {
-    const session = await getValidSession();
-    const token = session?.access_token;
-    if (!token) return [] as Asset[];
+    setAssetReferenceLoading(true);
+    setAssetReferenceError("");
     try {
+      const session = await getValidSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Sign in again to load equipment.");
       const response = await fetch("/api/maintenance-reference", {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
-      if (!response.ok) return [] as Asset[];
-      const payload = await response.json();
-      const referenceAssets = (payload.assets ?? []) as Asset[];
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(payload.assets)) {
+        throw new Error(payload.error || "Equipment could not be loaded.");
+      }
+      const referenceAssets = payload.assets as Asset[];
       setAssets(referenceAssets);
       setTechnicians((payload.technicians ?? []) as TechnicianProfile[]);
       return referenceAssets;
-    } catch {
+    } catch (error) {
+      setAssetReferenceError(error instanceof Error ? error.message : "Equipment could not be loaded.");
       return [] as Asset[];
+    } finally {
+      setAssetReferenceLoading(false);
     }
   }
 
@@ -1699,7 +1708,7 @@ export default function WorkOrderTicketPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment</div>
-                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} placeholder="Asset / Equipment" options={assetOptions} topSuggestions={3} footerActionLabel="+ Add New Asset" onFooterAction={() => setShowAddAsset(true)} />{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
+                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} footerActionLabel="+ Add New Asset" onFooterAction={() => setShowAddAsset(true)} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</div>

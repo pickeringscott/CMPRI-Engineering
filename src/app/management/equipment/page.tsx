@@ -73,21 +73,26 @@ export default function ManageEquipmentPage() {
 
   async function loadAssets(preferId?: string) {
     setLoading(true);
-    const access = await token();
-    const response = await fetch("/api/assets?include_documentation=false", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
-    const payload = await response.json();
-    if (!response.ok) {
-      setMessage(payload.error || "Could not load equipment.");
+    setMessage("");
+    try {
+      const access = await token();
+      if (!access) throw new Error("Sign in again to load equipment.");
+      const response = await fetch("/api/assets?include_documentation=false", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(payload.assets)) {
+        throw new Error(payload.error || "Could not load equipment.");
+      }
+      const list = payload.assets as Asset[];
+      setCanManage(payload.can_manage === true);
+      setAssets(list);
+      const nextId = preferId || selectedId || "";
+      const item = list.find((asset) => asset.id === nextId) || blankAsset;
+      selectAsset(item);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load equipment.");
+    } finally {
       setLoading(false);
-      return;
     }
-    const list = (payload.assets || []) as Asset[];
-    setCanManage(payload.can_manage === true);
-    setAssets(list);
-    const nextId = preferId || selectedId || "";
-    const item = list.find((asset) => asset.id === nextId) || blankAsset;
-    selectAsset(item);
-    setLoading(false);
   }
 
   async function loadDocuments(assetId: string): Promise<{ documents: Doc[]; verified: boolean }> {
