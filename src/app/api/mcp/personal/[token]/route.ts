@@ -10,7 +10,7 @@ function invalidLink() {
   });
 }
 
-export async function POST(request: NextRequest, context: RouteContext<"/api/mcp/personal/[token]">) {
+export async function POST(request: NextRequest, context: { params: Promise<{ token: string }> }) {
   const { token } = await context.params;
   if (!/^cmpri_link_[A-Za-z0-9_-]{64}$/.test(token)) return invalidLink();
   if (Number(request.headers.get("content-length") || 0) > 1_000_000) {
