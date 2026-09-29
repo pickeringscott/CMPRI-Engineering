@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
+import { normalizeMcpFeedbackInput, normalizeMcpWorkOrderUpdate } from "@/lib/ai/mcp-write-input";
 import { prepareMcpPoolLogInput } from "@/lib/pool-log";
 import { allows, type Capability } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
@@ -16,7 +17,7 @@ type WriteAction = {
 const WRITE_ACTIONS: WriteAction[] = [
   { action: "work_orders.create", description: "Submit one or more CMPRI work orders, using the same validation and attribution as the CMPRI form.", capability: "submit" },
   { action: "work_orders.import", description: "Import validated CMPRI work orders from SafetyCulture or a spreadsheet.", capability: "edit_tickets" },
-  { action: "work_orders.update", description: "Update a work order you are permitted to edit or review. Include its UUID and current expected_revision.", anyOf: ["edit_tickets", "review_tickets"] },
+  { action: "work_orders.update", description: "Edit an authorized work order by supplying its UUID as id, expected_revision from the latest work-order read, and editable fields. Fields may be flat or nested under changes, updates, or fields. Editable fields include notes, status, technician_name (assignment), category, issue, priority, asset_id, cost, hours, due_by, parts, and action_root_cause. Use the exact status 'In Progress' or 'Completed' when reopening a closed work order; reopening to Open is rejected. An In Progress order must have an assigned technician.", anyOf: ["edit_tickets", "review_tickets"] },
   { action: "work_orders.delete", description: "Delete a work order when your CMPRI role permits it. Include its UUID.", anyOf: ["edit_tickets", "close_tickets", "manage_users"] },
   { action: "work_order_drafts.create", description: "Create a CMPRI work-order draft.", capability: "submit" },
   { action: "work_order_drafts.update", description: "Update your CMPRI work-order draft using its current revision.", capability: "submit" },
@@ -32,7 +33,7 @@ const WRITE_ACTIONS: WriteAction[] = [
   { action: "corporate_pm.update", description: "Write an allowed verified cell through CMPRI's Corporate PM integration.", capability: "operate_integrations" },
   { action: "room_operations.import", description: "Import validated CMPRI room-operations data.", capability: "edit_tickets" },
   { action: "pool_log.save", description: "Save pool readings. Required: date (YYYY-MM-DD, use the date from the pool read), pool (exact active pool name such as Indoor Pool, or its id from the pool read), and explicit Boolean values for requires_attention and closure_condition. Both true and false are valid; false must be sent explicitly and is not missing. For an explicitly requested test entry with no readings, set test_entry: true; CMPRI records 'Test entry' in remarks so the normal non-empty-log validation passes. Include readings, remarks, and expected_revision from the read when editing an existing log. The pool name is resolved to the active facility id before saving.", capability: "operate_integrations" },
-  { action: "feedback.submit", description: "Submit feedback to CMPRI.", capability: "submit_feedback" },
+  { action: "feedback.submit", description: "Submit feedback to CMPRI. Provide feedback_type as Problem, Bug, or Suggestion, description, and page_route (a path starting with /). Feedback type matching is case-insensitive.", capability: "submit_feedback" },
   { action: "feedback.review", description: "Review or update CMPRI feedback when permitted.", capability: "review_feedback" },
   { action: "feedback.delete", description: "Delete CMPRI feedback when permitted.", capability: "review_feedback" },
   { action: "profile.update", description: "Update your own CMPRI profile preferences or display name.", },
@@ -107,7 +108,8 @@ export async function callMcpWriteAction(
     case "work_orders.update": {
       const route = await import("@/app/api/work-orders/[id]/route");
       const path = withId("/api/work-orders");
-      return callApi(incoming, path, "PATCH", bearer, input, (request) => route.PATCH(request, { params: Promise.resolve({ id }) }));
+      const payload = normalizeMcpWorkOrderUpdate(input);
+      return callApi(incoming, path, "PATCH", bearer, payload, (request) => route.PATCH(request, { params: Promise.resolve({ id }) }));
     }
     case "work_orders.delete": {
       const route = await import("@/app/api/work-orders/[id]/route");
@@ -174,7 +176,8 @@ export async function callMcpWriteAction(
       const method = actionName.endsWith(".submit") ? "POST" : actionName.endsWith(".review") ? "PATCH" : "DELETE";
       const handler = method === "POST" ? route.POST : method === "PATCH" ? route.PATCH : route.DELETE;
       const path = method === "DELETE" ? `/api/feedback?id=${encodeURIComponent(id)}` : "/api/feedback";
-      return callApi(incoming, path, method, bearer, input, handler);
+      const payload = actionName === "feedback.submit" ? normalizeMcpFeedbackInput(input) : input;
+      return callApi(incoming, path, method, bearer, payload, handler);
     }
     case "profile.update": {
       const route = await import("@/app/api/profile/route");

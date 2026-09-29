@@ -49,9 +49,12 @@ export async function POST(request: NextRequest) {
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid feedback report is required." }, { status: 400 });
 
-  const feedbackType = body.feedback_type;
+  const rawFeedbackType = body.feedback_type ?? body.type;
+  const feedbackType = typeof rawFeedbackType === "string"
+    ? FEEDBACK_TYPES.find((type) => type.toLowerCase() === rawFeedbackType.trim().toLowerCase())
+    : undefined;
   const description = typeof body.description === "string" ? body.description.trim() : "";
-  if (typeof feedbackType !== "string" || !FEEDBACK_TYPES.includes(feedbackType as typeof FEEDBACK_TYPES[number])) {
+  if (!feedbackType) {
     return NextResponse.json({ error: "Choose Problem, Bug, or Suggestion." }, { status: 400 });
   }
   if (!description || description.length > 10000) {

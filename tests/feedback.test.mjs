@@ -102,6 +102,13 @@ test('feedback submission records server identity, role, version, and New status
   assert.equal('work_orders' in f.inserted[0], false);
 });
 
+test('feedback submission accepts lowercase bug and the MCP type alias', async () => {
+  const f = fixture({ role: 'Engineer' });
+  const result = await f.handlers.POST(f.request({ type: ' bug ', description: 'The MCP write failed.', page_route: '/work-orders' }));
+  assert.equal(result.status, 201);
+  assert.equal(f.inserted[0].feedback_type, 'Bug');
+});
+
 test('invalid type, blank text, invalid route, and unauthorized submit are rejected', async () => {
   for (const body of [
     { feedback_type: 'Other', description: 'text', page_route: '/profile' },

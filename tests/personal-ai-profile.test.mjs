@@ -100,6 +100,7 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   const route = source("../src/app/api/mcp/route.ts");
   const identity = source("../src/lib/server/cmpri-mcp-auth.ts");
   const writes = source("../src/lib/server/cmpri-mcp-writes.ts");
+  const writeInput = source("../src/lib/ai/mcp-write-input.ts");
   const reads = source("../src/lib/server/cmpri-mcp-reads.ts");
   const auth = source("../src/lib/server/auth.ts");
   const authorizePage = source("../src/app/mcp/authorize/page.tsx");
@@ -120,6 +121,10 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   assert.match(writes, /allows\(identity\.principal, action\.capability\)/);
   assert.match(writes, /@\/app\/api\/work-orders\/route/);
   assert.match(writes, /@\/app\/api\/work-orders\/\[id\]\/route/);
+  assert.match(writes, /normalizeMcpWorkOrderUpdate\(input\)/);
+  assert.match(writes, /normalizeMcpFeedbackInput\(input\)/);
+  assert.match(writes, /expected_revision from the latest work-order read/);
+  assert.match(writeInput, /In Progress/);
   assert.match(reads, /allows\(identity\.principal, capability\)/);
   assert.match(reads, /@\/app\/api\/engineering\/operations\/route/);
   assert.match(reads, /@\/app\/api\/work-orders\/\[id\]\/attachments\/route/);
