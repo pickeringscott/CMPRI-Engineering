@@ -104,6 +104,9 @@ export function prepareMcpPoolLogInput(
       throw new Error(`Include an explicit true or false value for ${field}; false is valid.`);
     }
   }
+  if (Object.prototype.hasOwnProperty.call(input, "test_entry") && typeof input.test_entry !== "boolean") {
+    throw new Error("test_entry must be true or false.");
+  }
 
   const readings = { ...input };
   delete readings.date;
@@ -111,6 +114,16 @@ export function prepareMcpPoolLogInput(
   delete readings.pool_name;
   delete readings.facility_name;
   delete readings.facility;
+  const testEntry = readings.test_entry === true;
+  delete readings.test_entry;
+  if (testEntry && readings.remarks === undefined) {
+    readings.remarks = "Test entry";
+  } else if (testEntry && typeof readings.remarks === "string") {
+    const existingRemarks = readings.remarks.trim();
+    readings.remarks = existingRemarks ? `${existingRemarks}\nTest entry` : "Test entry";
+  } else if (readings.remarks === undefined) {
+    readings.remarks = "";
+  }
   return {
     ...readings,
     log_date: logDate,

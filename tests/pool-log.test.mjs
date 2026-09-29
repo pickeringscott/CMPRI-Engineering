@@ -36,6 +36,20 @@ test('MCP pool save requires explicit Boolean closure and attention values',()=>
   assert.throws(()=>prepareMcpPoolLogInput({date:'2026-09-29',pool:'Indoor Pool',requires_attention:false,closure_condition:false,[field]:undefined},facilities),new RegExp(`explicit true or false value for ${field}`));
  }
 });
+test('MCP pool test entry adds a remark and passes the normal meaningful-log validation',()=>{
+ const facilities=[{id:facilityId,pool_name:'Indoor Pool'}];
+ const payload=prepareMcpPoolLogInput({date:'2026-09-29',pool:'Indoor Pool',requires_attention:false,closure_condition:false,test_entry:true},facilities);
+ assert.equal(payload.remarks,'Test entry');
+ assert.equal(payload.requires_attention,false);
+ assert.equal(payload.closure_condition,false);
+ assert.equal('test_entry' in payload,false);
+ assert.equal(poolLogInput(payload).remarks,'Test entry');
+});
+test('MCP pool save still rejects an empty non-test entry',()=>{
+ const facilities=[{id:facilityId,pool_name:'Indoor Pool'}];
+ const payload=prepareMcpPoolLogInput({date:'2026-09-29',pool:'Indoor Pool',requires_attention:false,closure_condition:false},facilities);
+ assert.throws(()=>poolLogInput(payload),/Enter an AM\/PM sample/);
+});
 test('MCP pool save rejects ambiguous pool names and non-ISO dates before saving',()=>{
  const facilities=[{id:facilityId,pool_name:'Indoor Pool'},{id:'00000000-0000-0000-0000-000000000002',pool_name:'Indoor Pool'}];
  assert.throws(()=>prepareMcpPoolLogInput({date:'September 29',pool:'Indoor Pool'},facilities),/YYYY-MM-DD/);
