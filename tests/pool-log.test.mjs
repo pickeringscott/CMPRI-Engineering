@@ -319,7 +319,7 @@ test('database failures are reported instead of a generic conflict',async()=>{
  const missing=fixture({dbError:{code:'PGRST204',message:"Could not find the 'closure_reason' column in the schema cache"}});
  const missingResult=await missing.handlers.POST(missing.request);
  assert.equal(missingResult.status,503);
- assert.match(missingResult.body.error,/20260930070000_cmpri_pool_log_daily_samples/);
+ assert.match(missingResult.body.error,/missing the latest pool-log update/);
  const rejected=fixture({dbError:{code:'P0001',message:'Only a System Administrator can change saved pool-log values'}});
  const rejectedResult=await rejected.handlers.POST(rejected.request);
  assert.equal(rejectedResult.status,400);

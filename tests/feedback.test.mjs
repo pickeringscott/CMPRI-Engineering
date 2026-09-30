@@ -184,7 +184,7 @@ test('reviewer badge count returns only the number of New submissions', async ()
 });
 
 test('migration enables own-row/reviewer RLS, status constraints, and newest-first indexes', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20260927100000_cmpri_user_feedback.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations_archive/20260927100000_cmpri_user_feedback.sql', import.meta.url), 'utf8');
   assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.user_feedback/);
   assert.match(sql, /ENABLE ROW LEVEL SECURITY/);
   assert.match(sql, /user_id = auth\.uid\(\)/);
@@ -202,7 +202,7 @@ test('migration enables own-row/reviewer RLS, status constraints, and newest-fir
 });
 
 test('hardening migration restricts reviewer updates to status/review columns and scopes delete to reviewers', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20260927140000_cmpri_user_feedback_hardening.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations_archive/20260927140000_cmpri_user_feedback_hardening.sql', import.meta.url), 'utf8');
   assert.match(sql, /REVOKE UPDATE ON public\.user_feedback FROM authenticated/);
   assert.match(sql, /GRANT UPDATE \(status, reviewed_at, resolved_at\) ON public\.user_feedback TO authenticated/);
   assert.match(sql, /GRANT DELETE ON public\.user_feedback TO authenticated/);

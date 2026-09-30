@@ -39,6 +39,8 @@ Purchase/shipment state is deliberately separate from the work-order status. Rec
 
 ## Database migration
 
+`supabase/migrations/20260930180000_cmpri_prod_baseline.sql` is a schema-only dump of live production (`supabase db dump --linked`) and is the only migration recorded in production's history. `supabase db diff --linked` against it is empty. Add new changes as new timestamped files in `supabase/migrations`. Earlier migrations are kept for reference and tests in `supabase/migrations_archive/`; they are already reflected in the baseline and should not be re-applied.
+
 Before enabling the new email/purchasing screens in production, apply:
 
 ```text
@@ -47,9 +49,9 @@ supabase/cmpri_v1_0_integrations.sql
 
 The migration creates server-managed operational tables for email events, purchases, split shipments, Enseo tickets, warranty/RMA cases, supplier follow-ups, and GSS reports. Row-level security is enabled; these records are accessed through authenticated CMPRI server routes using the Supabase service role.
 
-The pool-log requirements migration, `supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql`, adds the closure-reason column and requires a reason for recorded closures. Chlorine and cyanuric-acid readings are not used.
+The pool-log requirements migration, `supabase/migrations_archive/20260930060000_cmpri_pool_log_requirements.sql`, adds the closure-reason column and requires a reason for recorded closures. Chlorine and cyanuric-acid readings are not used.
 
-The pool-log daily-samples migration, `supabase/migrations/20260930070000_cmpri_pool_log_daily_samples.sql`, supersedes it and is self-contained (safe to run even if the earlier pool migrations were skipped, and safe to rerun). One water sample is taken per AM/PM test; its reading is recorded for both shallow and deep, and each sample needs pH, bromine, and a shallow or deep location ("middle of pool" is kept only on historical rows). Water temperature, flow rate, main-drain visibility, and filter backwash are recorded once per day and are required. The AM sample is saved when taken; any engineer can later add the PM sample to the same day's log without overwriting AM, and only System Administrators can change saved values. Pool closure is recorded automatically for pH outside 7.2–7.8, bromine at or below 2 or at or above 7.5 ppm, main drain not visible, or water above 104°F. Apply it in Supabase before deploying the pool-log changes, then run `npm run check:release-schema`. Until it is applied, pool-log saves report that the database is missing this update.
+The pool-log daily-samples migration, `supabase/migrations_archive/20260930070000_cmpri_pool_log_daily_samples.sql`, supersedes it and is self-contained (safe to run even if the earlier pool migrations were skipped, and safe to rerun). One water sample is taken per AM/PM test; its reading is recorded for both shallow and deep, and each sample needs pH, bromine, and a shallow or deep location ("middle of pool" is kept only on historical rows). Water temperature, flow rate, main-drain visibility, and filter backwash are recorded once per day and are required. The AM sample is saved when taken; any engineer can later add the PM sample to the same day's log without overwriting AM, and only System Administrators can change saved values. Pool closure is recorded automatically for pH outside 7.2–7.8, bromine at or below 2 or at or above 7.5 ppm, main drain not visible, or water above 104°F. Apply it in Supabase before deploying the pool-log changes, then run `npm run check:release-schema`. Until it is applied, pool-log saves report that the database is missing this update.
 
 ## Required deployment environment variables
 
@@ -121,7 +123,7 @@ PDF inspection data (measurements, notes, follow-up, repair dates, and repeatabl
 logs) is also held pending review. The corporate workbook is never written by
 this workflow; the existing sync remains responsible for corporate updates.
 
-Apply `supabase/migrations/20260930010000_cmpri_pm_review.sql` only to the
+Apply `supabase/migrations_archive/20260930010000_cmpri_pm_review.sql` only to the
 intended development database after validating its schema and RLS. During local
 preview, keep `CMPRI_LIVE_PM_WRITES_ENABLED=false`; set it to `true` only after
 the dev review is complete. The explicit reviewer confirmation remains required

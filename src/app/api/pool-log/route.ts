@@ -19,7 +19,7 @@ function saveFailure(error: DatabaseError) {
     return { status: 409, error: "A pool log for this date was just created by someone else. Your entries are still on screen; save again to add them to that log." };
   }
   if (code === "PGRST204" || code === "42703" || /column .* (does not exist|could not find)|schema cache/i.test(detail)) {
-    return { status: 503, error: "The database is missing the latest pool-log update (supabase/migrations/20260930070000_cmpri_pool_log_daily_samples.sql). Nothing was saved; your entries are still on screen." };
+    return { status: 503, error: "The database is missing the latest pool-log update (apply the pending Supabase migrations in supabase/migrations). Nothing was saved; your entries are still on screen." };
   }
   if ((code === "P0001" || code === "23514" || code === "23502") && detail) {
     return { status: 400, error: `The database did not accept this pool log: ${detail}. Your entries are still on screen.` };

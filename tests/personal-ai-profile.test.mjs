@@ -40,7 +40,7 @@ test("profile connection UI explains per-user ChatGPT OAuth and connection revoc
 });
 
 test("legacy personal MCP links remain valid but new profile links are disabled in favor of OAuth", () => {
-  const migration = source("../supabase/migrations/20260929010000_cmpri_personal_mcp_links.sql");
+  const migration = source("../supabase/migrations_archive/20260929010000_cmpri_personal_mcp_links.sql");
   const route = source("../src/app/api/mcp/personal/[token]/route.ts");
   const identity = source("../src/lib/server/cmpri-mcp-auth.ts");
   const profileRoute = source("../src/app/api/profile/ai-connection/route.ts");
@@ -142,7 +142,7 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
 });
 
 test("one deliberate migration creates isolated OAuth storage and retires saved API credentials", () => {
-  const migration = source("../supabase/migrations/20260928230000_cmpri_chatgpt_mcp_oauth.sql");
+  const migration = source("../supabase/migrations_archive/20260928230000_cmpri_chatgpt_mcp_oauth.sql");
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.cmpri_mcp_oauth_clients/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.cmpri_mcp_oauth_codes/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.cmpri_mcp_oauth_tokens/);

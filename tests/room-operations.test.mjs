@@ -83,7 +83,7 @@ test("room moves are detected from unique guest names across the two snapshots",
 test("room-operations uploads are manual, limited to retained dates, and preserve MGR", () => {
   const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
   const sql = readFileSync(new URL("../supabase/cmpri_v1_0_room_operations.sql", import.meta.url), "utf8");
-  const migration = readFileSync(new URL("../supabase/migrations/20260930040000_cmpri_daily_room_operations.sql", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations_archive/20260930040000_cmpri_daily_room_operations.sql", import.meta.url), "utf8");
   assert.match(api, /\["paste", "file"\]/);
   assert.match(api, /isRetainedDate\(reportDate\)/);
   assert.match(api, /roomValue/);

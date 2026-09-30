@@ -47,19 +47,19 @@ try {
   for (const file of files) await check(`migration ${file}`, async () => {
     await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
   });
-  const bromineBandMigration = readFileSync(new URL('../supabase/migrations/20260930030000_cmpri_pool_log_bromine_bands.sql', import.meta.url), 'utf8');
+  const bromineBandMigration = readFileSync(new URL('../supabase/migrations_archive/20260930030000_cmpri_pool_log_bromine_bands.sql', import.meta.url), 'utf8');
   await check('pool-log bromine-band migration', async () => db.exec(bromineBandMigration));
   await check('pool-log bromine-band migration is idempotent', async () => db.exec(bromineBandMigration));
-  const poolLogRequirementsMigration = readFileSync(new URL('../supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql', import.meta.url), 'utf8');
+  const poolLogRequirementsMigration = readFileSync(new URL('../supabase/migrations_archive/20260930060000_cmpri_pool_log_requirements.sql', import.meta.url), 'utf8');
   await check('pool-log requirements migration', async () => db.exec(poolLogRequirementsMigration));
   await check('pool-log requirements migration is idempotent', async () => db.exec(poolLogRequirementsMigration));
-  const poolLogDailySamplesMigration = readFileSync(new URL('../supabase/migrations/20260930070000_cmpri_pool_log_daily_samples.sql', import.meta.url), 'utf8');
+  const poolLogDailySamplesMigration = readFileSync(new URL('../supabase/migrations_archive/20260930070000_cmpri_pool_log_daily_samples.sql', import.meta.url), 'utf8');
   await check('pool-log daily-samples migration', async () => db.exec(poolLogDailySamplesMigration));
   await check('pool-log daily-samples migration is idempotent', async () => db.exec(poolLogDailySamplesMigration));
-  const dailyRoomOperationsMigration = readFileSync(new URL('../supabase/migrations/20260930040000_cmpri_daily_room_operations.sql', import.meta.url), 'utf8');
+  const dailyRoomOperationsMigration = readFileSync(new URL('../supabase/migrations_archive/20260930040000_cmpri_daily_room_operations.sql', import.meta.url), 'utf8');
   await check('daily room-operations snapshot migration', async () => db.exec(dailyRoomOperationsMigration));
   await check('daily room-operations snapshot migration is idempotent', async () => db.exec(dailyRoomOperationsMigration));
-  const technicianViewsMigration = readFileSync(new URL('../supabase/migrations/20260930050000_cmpri_work_order_technician_views.sql', import.meta.url), 'utf8');
+  const technicianViewsMigration = readFileSync(new URL('../supabase/migrations_archive/20260930050000_cmpri_work_order_technician_views.sql', import.meta.url), 'utf8');
   await check('technician first-view notification migration', async () => db.exec(technicianViewsMigration));
   await check('technician first-view notification migration is idempotent', async () => db.exec(technicianViewsMigration));
   await check('technician first-view notices resolve only after status changes', async () => {
@@ -84,7 +84,7 @@ try {
     await db.exec(poolLogDailySamplesMigration);
   });
   await check('user-management grants are restored for account managers', async () => {
-    const migration = readFileSync(new URL('../supabase/migrations/20260926101000_cmpri_manage_users_grants.sql', import.meta.url), 'utf8');
+    const migration = readFileSync(new URL('../supabase/migrations_archive/20260926101000_cmpri_manage_users_grants.sql', import.meta.url), 'utf8');
     await db.exec('create table public.role_permissions (role text not null, permission text not null, allowed boolean not null default false)');
     await db.exec("insert into public.role_permissions(role, permission, allowed) values ('Chief Engineer', 'manage_users', false)");
     await db.exec(migration);
@@ -99,7 +99,7 @@ try {
   });
   await check('manager role is accepted without widening other profile roles', async () => {
     await db.exec("alter table public.profiles add constraint profiles_role_check check (role in ('engineer', 'technician', 'front_desk', 'housekeeping', 'system_admin'))");
-    const migration = readFileSync(new URL('../supabase/migrations/20260926101500_cmpri_allow_manager_profile_role.sql', import.meta.url), 'utf8');
+    const migration = readFileSync(new URL('../supabase/migrations_archive/20260926101500_cmpri_allow_manager_profile_role.sql', import.meta.url), 'utf8');
     await db.exec(migration);
     await db.exec(migration);
     await db.exec("insert into public.profiles(id, role, active, full_name) values ('00000000-0000-0000-0000-000000000004', 'manager', true, 'Test Manager')");
@@ -109,7 +109,7 @@ try {
     );
   });
   await check('user feedback table migration is isolated, constrained, and idempotent', async () => {
-    const migration = readFileSync(new URL('../supabase/migrations/20260927100000_cmpri_user_feedback.sql', import.meta.url), 'utf8');
+    const migration = readFileSync(new URL('../supabase/migrations_archive/20260927100000_cmpri_user_feedback.sql', import.meta.url), 'utf8');
     await db.exec(migration);
     await db.exec(migration);
     const { rows } = await db.query("select relrowsecurity from pg_class where relname='user_feedback'");
@@ -168,7 +168,7 @@ try {
       insert into public.work_order_creator_audit(id, hotel_id, work_order_id, previous_creator_name, previous_creator_initials, corrected_creator_name, corrected_creator_initials, correction_reason, corrected_by)
       values ('00000000-0000-0000-0000-000000000040', ${quote(hotel)}, ${quote(survivorWorkOrder.id)}, 'Before', 'B', 'After', 'A', 'Test correction', ${quote(target)});`);
 
-    const migration = readFileSync(new URL('../supabase/migrations/20260926102000_cmpri_permanent_user_purge.sql', import.meta.url), 'utf8');
+    const migration = readFileSync(new URL('../supabase/migrations_archive/20260926102000_cmpri_permanent_user_purge.sql', import.meta.url), 'utf8');
     await db.exec(migration);
     await db.query('select public.purge_cmpri_user($1)', [target]);
     await db.query('select public.purge_cmpri_user($1)', [target]);
