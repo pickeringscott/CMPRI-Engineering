@@ -24,13 +24,13 @@ type SyncState = "loading" | "saved" | "saving" | "error";
 type SheetColumn = { key: "room" | EditableField; label: string; width: string };
 
 const columns: SheetColumn[] = [
-  { key: "room", label: "Room", width: "w-28" },
-  { key: "inspectedBy", label: "Room Inspected by", width: "w-64" },
-  { key: "check1", label: "Specific Room Check 1", width: "w-72" },
-  { key: "check2", label: "Specific Room Check 2", width: "w-72" },
-  { key: "check3", label: "Specific Room Check 3", width: "w-72" },
-  { key: "rank", label: "Room Rank", width: "w-36" },
-  { key: "notes", label: "Notes / Actions Needed", width: "w-80" },
+  { key: "room", label: "Room", width: "w-20" },
+  { key: "inspectedBy", label: "Room Inspected by", width: "w-36" },
+  { key: "check1", label: "Specific Room Check 1", width: "w-44" },
+  { key: "check2", label: "Specific Room Check 2", width: "w-44" },
+  { key: "check3", label: "Specific Room Check 3", width: "w-44" },
+  { key: "rank", label: "Room Rank", width: "w-24" },
+  { key: "notes", label: "Notes / Actions Needed", width: "w-48" },
 ];
 
 function cellKey(rowNumber: number, field: EditableField) {
@@ -187,20 +187,20 @@ export default function RoomRankerPage() {
 
       <section aria-label="Room Ranker spreadsheet" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-max min-w-full border-collapse text-sm">
+          <table className="w-max min-w-full border-collapse text-xs">
             <thead className="sticky top-0 z-20">
-              <tr className="h-8 bg-slate-100 text-xs text-slate-600">
-                <th aria-label="Row numbers" className="sticky left-0 z-30 w-11 min-w-11 border border-slate-300 bg-slate-100" />
+              <tr className="h-6 bg-blue-50 text-[10px] text-blue-700">
+                <th aria-label="Row numbers" className="sticky left-0 z-30 w-8 min-w-8 border border-blue-200 bg-blue-50" />
                 {columns.map((column, index) => (
-                  <th key={column.key} className={`${column.width} min-w-28 border border-slate-300 bg-slate-100 px-2 text-center font-normal`}>
+                  <th key={column.key} className={`${column.width} min-w-20 border border-blue-200 bg-blue-50 px-1 text-center font-medium`}>
                     {String.fromCharCode(65 + index)}
                   </th>
                 ))}
               </tr>
-              <tr className="h-11 bg-[#f6b26b] text-left text-slate-900">
-                <th className="sticky left-0 z-30 w-11 min-w-11 border border-slate-300 bg-slate-100 text-center text-xs font-normal text-slate-600">1</th>
+              <tr className="h-8 bg-blue-700 text-left text-white">
+                <th className="sticky left-0 z-30 w-8 min-w-8 border border-blue-800 bg-blue-50 text-center text-[10px] font-normal text-blue-700">1</th>
                 {columns.map((column) => (
-                  <th key={column.key} className={`${column.width} min-w-28 border border-[#d6a05f] px-3 font-medium`}>
+                  <th key={column.key} className={`${column.width} min-w-20 border border-blue-800 px-2 font-semibold`}>
                     {column.label}
                   </th>
                 ))}
@@ -209,13 +209,13 @@ export default function RoomRankerPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={columns.length + 1} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
+                  <td colSpan={columns.length + 1} className="border border-slate-200 px-2 py-4 text-center text-slate-500">
                     Loading live rooms…
                   </td>
                 </tr>
               ) : rooms.map((row) => (
-                <tr key={row.rowNumber} className="h-10 odd:bg-white even:bg-slate-50">
-                  <th scope="row" className="sticky left-0 z-10 w-11 min-w-11 border border-slate-200 bg-slate-100 px-2 text-center text-xs font-normal text-slate-600">
+                <tr key={row.rowNumber} className="h-7 odd:bg-white even:bg-slate-50">
+                  <th scope="row" className="sticky left-0 z-10 w-8 min-w-8 border border-slate-200 bg-slate-100 px-1 text-center text-[10px] font-normal text-slate-600">
                     {row.rowNumber}
                   </th>
                   {columns.map((column) => {
@@ -244,7 +244,7 @@ export default function RoomRankerPage() {
                               setDrafts((current) => ({ ...current, [key]: nextValue }));
                               void saveCell(row, editableField, nextValue);
                             }}
-                            className={`h-10 w-full cursor-pointer appearance-none border-0 bg-transparent px-3 text-center font-medium outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed ${rankCellClass(displayedValue)}`}
+                            className={`!min-h-0 !text-xs h-7 w-full cursor-pointer appearance-none border-0 bg-transparent px-1 text-center font-medium outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed ${rankCellClass(displayedValue)}`}
                           >
                             <option value="">—</option>
                             <option value="A">A</option>
@@ -258,7 +258,7 @@ export default function RoomRankerPage() {
                             value={displayedValue}
                             onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
                             onBlur={(event) => void saveCell(row, editableField, event.currentTarget.value)}
-                            className="h-10 w-full border-0 bg-transparent px-3 text-slate-800 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed"
+                            className="!min-h-0 !text-xs h-7 w-full border-0 bg-transparent px-1.5 text-slate-800 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed"
                           />
                         )}
                       </td>
@@ -268,7 +268,7 @@ export default function RoomRankerPage() {
               ))}
               {!loading && rooms.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length + 1} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
+                  <td colSpan={columns.length + 1} className="border border-slate-200 px-2 py-4 text-center text-slate-500">
                     No rooms are available in the source sheet.
                   </td>
                 </tr>
@@ -276,8 +276,8 @@ export default function RoomRankerPage() {
             </tbody>
           </table>
         </div>
-        <div className="flex h-11 shrink-0 items-center border-t border-slate-200 bg-slate-50 px-4">
-          <span className="border-b-2 border-blue-600 bg-white px-4 py-2 text-sm font-medium text-blue-700">🔒 Room Ranker</span>
+        <div className="flex h-8 shrink-0 items-center border-t border-slate-200 bg-slate-50 px-2">
+          <span className="border-b-2 border-blue-600 bg-white px-2 py-1 text-xs font-medium text-blue-700">🔒 Room Ranker</span>
         </div>
       </section>
     </main>
