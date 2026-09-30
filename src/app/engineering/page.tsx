@@ -12,7 +12,9 @@ import { filterKpiWorkOrders, isKpiOverdue, isOpenKpiStatus, normalizeKpiStatus 
 import {
   fetchWorkOrderNotifications,
   mergeWorkOrderNotifications,
+  readDismissedWorkOrderViewNotifications,
   readWorkOrderNotificationCursor,
+  saveDismissedWorkOrderViewNotifications,
   saveWorkOrderNotificationCursor,
   unseenWorkOrderNotifications,
   type WorkOrderNotification,
@@ -195,6 +197,7 @@ export default function EngineeringDashboardPage() {
   const notificationPollInFlightRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
+  const dismissedViewNotificationIdsRef = useRef<Set<string>>(new Set());
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
   const lastSeenMsRef = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -310,10 +313,17 @@ export default function EngineeringDashboardPage() {
   }
 
   function dismissWorkOrderNotifications() {
+    const viewIds = workOrderNotifications
+      .filter((notification) => notification.id.startsWith("technician-view:"))
+      .map((notification) => notification.id);
+    viewIds.forEach((id) => dismissedViewNotificationIdsRef.current.add(id));
+    if (cmpriSession?.user.id) {
+      saveDismissedWorkOrderViewNotifications(cmpriSession.user.id, dismissedViewNotificationIdsRef.current);
+    }
     setWorkOrderNotifications([]);
     pendingNotificationIdsRef.current.clear();
     if (cmpriSession?.user.id && notificationCursorRef.current) {
-      saveWorkOrderNotificationCursor(cmpriSession.user.id, notificationCursorRef.current);
+      saveWorkOrderNotificationCursor(cmpriSession.user.id, "engineer", notificationCursorRef.current);
     }
   }
 
@@ -390,7 +400,8 @@ export default function EngineeringDashboardPage() {
   useEffect(() => {
     if (!cmpriSession || roleKey(cmpriSession.user.role) !== "engineer") return;
     const userId = cmpriSession.user.id;
-    notificationCursorRef.current = readWorkOrderNotificationCursor(userId);
+    notificationCursorRef.current = readWorkOrderNotificationCursor(userId, "engineer");
+    dismissedViewNotificationIdsRef.current = readDismissedWorkOrderViewNotifications(userId);
     let current = true;
     const pollNotifications = async () => {
       if (notificationPollInFlightRef.current) return;
@@ -398,18 +409,31 @@ export default function EngineeringDashboardPage() {
       try {
         const session = await getValidSession();
         if (!session?.access_token) throw new Error("Sign in again to load work-order notifications.");
-        const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId);
+        const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId, "engineer");
         const result = await fetchWorkOrderNotifications(session.access_token, cursor);
         if (!current) return;
         notificationCursorRef.current = result.checked_at;
-        const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, result.notifications);
+        const visibleNotifications = result.notifications.filter(
+          (notification) => !dismissedViewNotificationIdsRef.current.has(notification.id),
+        );
+        const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, visibleNotifications);
+        const resolvedIds = new Set(result.resolved_notification_ids);
         if (unseen.length) {
           unseen.forEach((notification) => pendingNotificationIdsRef.current.add(notification.id));
-          setWorkOrderNotifications((existing) => mergeWorkOrderNotifications(existing, unseen));
           playAlertTone();
         }
-        if (!result.notifications.length && pendingNotificationIdsRef.current.size === 0) {
-          saveWorkOrderNotificationCursor(userId, result.checked_at);
+        result.resolved_notification_ids.forEach((id) => pendingNotificationIdsRef.current.delete(id));
+        result.resolved_notification_ids.forEach((id) => dismissedViewNotificationIdsRef.current.delete(id));
+        if (result.resolved_notification_ids.length) {
+          saveDismissedWorkOrderViewNotifications(userId, dismissedViewNotificationIdsRef.current);
+        }
+        if (unseen.length || resolvedIds.size) {
+          setWorkOrderNotifications((existing) =>
+            mergeWorkOrderNotifications(existing, unseen).filter((notification) => !resolvedIds.has(notification.id)),
+          );
+        }
+        if (!visibleNotifications.length && pendingNotificationIdsRef.current.size === 0) {
+          saveWorkOrderNotificationCursor(userId, "engineer", result.checked_at);
         }
         setNotificationError("");
       } catch (error) {
@@ -639,7 +663,7 @@ if (showWorkOrderList) {
 
   return (
     <main className="min-h-screen w-full min-w-0 bg-slate-950 text-white">
-      <div className={`mx-auto w-full max-w-none min-w-0 px-3 py-4 sm:px-4 lg:px-6 ${isFullWidthDashboard ? "" : "lg:w-[66vw]"}`}>
+      <div className={`mx-auto w-full max-w-none min-w-0 px-1 py-2 sm:px-2 lg:px-2 ${isFullWidthDashboard ? "" : "lg:w-[66vw]"}`}>
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-start gap-4">
             <CmpriMark />
@@ -724,7 +748,11 @@ if (showWorkOrderList) {
         )}
 
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
-        <WorkOrderNotificationBanner notifications={workOrderNotifications} onDismiss={dismissWorkOrderNotifications} />
+        <WorkOrderNotificationBanner
+          notifications={workOrderNotifications}
+          onDismiss={dismissWorkOrderNotifications}
+          dismissLabel="Clear after review or approval"
+        />
         {message && <div className="mt-5 rounded-xl border border-red-400/30 bg-red-950/20 p-4 text-sm text-red-200">{message}</div>}
 
       </div>

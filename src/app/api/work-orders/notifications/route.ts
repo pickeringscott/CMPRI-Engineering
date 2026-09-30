@@ -4,8 +4,10 @@ import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { roleKey } from "@/lib/server/roles";
 import {
+  technicianViewNotificationsForEngineer,
   workOrderNotificationsForRecipient,
   type WorkOrderHistoryNotification,
+  type WorkOrderTechnicianView,
 } from "@/lib/dashboard/work-order-notifications";
 
 export async function GET(request: NextRequest) {
@@ -65,7 +67,49 @@ export async function GET(request: NextRequest) {
     name: auth.principal.profile.full_name || "",
     role,
   }, actorProfiles);
-  return NextResponse.json({ notifications, checked_at: checkedAt }, {
+
+  let resolvedNotificationIds: string[] = [];
+  if (role === "engineer") {
+    const sinceIso = new Date(sinceTime).toISOString();
+    const views: WorkOrderTechnicianView[] = [];
+    const resolvedViews: Array<{ id: string }> = [];
+    for (let offset = 0; offset < maximumEvents; offset += pageSize) {
+      const [viewResult, resolvedViewResult] = await Promise.all([
+        auth.admin
+        .from("cmpri_work_order_technician_views")
+        .select("id, work_order_id, work_order_display_id, technician_name, viewed_at")
+        .eq("hotel_id", HOTEL_ID)
+        .lte("viewed_at", checkedAt)
+        .is("resolved_at", null)
+        .order("viewed_at", { ascending: true })
+        .range(offset, offset + pageSize - 1),
+        auth.admin
+        .from("cmpri_work_order_technician_views")
+        .select("id")
+        .eq("hotel_id", HOTEL_ID)
+        .gt("resolved_at", sinceIso)
+        .lte("resolved_at", checkedAt)
+        .order("resolved_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + pageSize - 1),
+      ]);
+      if (viewResult.error || resolvedViewResult.error) {
+        return NextResponse.json({ error: "Technician view notifications could not be loaded." }, { status: 503 });
+      }
+      const viewPage = (viewResult.data || []) as WorkOrderTechnicianView[];
+      const resolvedViewPage = (resolvedViewResult.data || []) as Array<{ id: string }>;
+      views.push(...viewPage);
+      resolvedViews.push(...resolvedViewPage);
+      if (viewPage.length < pageSize && resolvedViewPage.length < pageSize) break;
+      if (offset + pageSize >= maximumEvents) {
+        return NextResponse.json({ error: "Too many technician view updates are pending. Refresh the dashboard before retrying." }, { status: 503 });
+      }
+    }
+    notifications.push(...technicianViewNotificationsForEngineer(views));
+    resolvedNotificationIds = resolvedViews.map((view) => `technician-view:${view.id}`);
+  }
+
+  return NextResponse.json({ notifications, resolved_notification_ids: resolvedNotificationIds, checked_at: checkedAt }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

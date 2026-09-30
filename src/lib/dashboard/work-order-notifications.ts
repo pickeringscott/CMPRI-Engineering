@@ -20,7 +20,16 @@ export type WorkOrderNotification = {
 
 export type WorkOrderNotificationResponse = {
   notifications: WorkOrderNotification[];
+  resolved_notification_ids: string[];
   checked_at: string;
+};
+
+export type WorkOrderTechnicianView = {
+  id: string;
+  work_order_id: string;
+  work_order_display_id: string;
+  technician_name: string;
+  viewed_at: string;
 };
 
 type NotificationRecipient = {
@@ -33,6 +42,8 @@ type ActorProfile = {
   full_name: string | null;
   role: string;
 };
+
+export type WorkOrderNotificationRole = "engineer" | "technician";
 
 function cleanName(value: unknown) {
   return typeof value === "string" ? value.trim().toLocaleLowerCase() : "";
@@ -100,21 +111,63 @@ export function workOrderNotificationsForRecipient(
   return notifications;
 }
 
-function cursorKey(userId: string) {
+export function technicianViewNotificationsForEngineer(
+  views: WorkOrderTechnicianView[],
+): WorkOrderNotification[] {
+  return views.flatMap((view) => {
+    return [{
+      id: `technician-view:${view.id}`,
+      work_order_id: view.work_order_id,
+      message: `${orderLabel({ display_id: view.work_order_display_id })} viewed awaiting satisfying.`,
+      recorded_at: view.viewed_at,
+    }];
+  });
+}
+
+export function workOrderNotificationCursorKey(userId: string, role: WorkOrderNotificationRole) {
+  return `cmpri:work-order-notifications:v2:${role}:${userId}`;
+}
+
+function legacyCursorKey(userId: string) {
   return `cmpri:work-order-notifications:v1:${userId}`;
 }
 
-export function readWorkOrderNotificationCursor(userId: string) {
+export function readWorkOrderNotificationCursor(userId: string, role: WorkOrderNotificationRole) {
   try {
-    const saved = window.localStorage.getItem(cursorKey(userId));
+    const saved = window.localStorage.getItem(workOrderNotificationCursorKey(userId, role))
+      || window.localStorage.getItem(legacyCursorKey(userId));
     if (saved && Number.isFinite(Date.parse(saved))) return saved;
   } catch {}
   return new Date().toISOString();
 }
 
-export function saveWorkOrderNotificationCursor(userId: string, cursor: string) {
+export function saveWorkOrderNotificationCursor(userId: string, role: WorkOrderNotificationRole, cursor: string) {
   try {
-    window.localStorage.setItem(cursorKey(userId), cursor);
+    window.localStorage.setItem(workOrderNotificationCursorKey(userId, role), cursor);
+  } catch {}
+}
+
+function dismissedViewNotificationsKey(userId: string) {
+  return `cmpri:work-order-view-notifications-dismissed:v1:engineer:${userId}`;
+}
+
+export function readDismissedWorkOrderViewNotifications(userId: string) {
+  try {
+    const saved = window.localStorage.getItem(dismissedViewNotificationsKey(userId));
+    const parsed: unknown = saved ? JSON.parse(saved) : [];
+    if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
+      return new Set(parsed);
+    }
+  } catch {}
+  return new Set<string>();
+}
+
+export function saveDismissedWorkOrderViewNotifications(userId: string, notificationIds: Iterable<string>) {
+  try {
+    window.localStorage.setItem(
+      dismissedViewNotificationsKey(userId),
+      JSON.stringify(Array.from(new Set(notificationIds))),
+    );
   } catch {}
 }
 
@@ -128,10 +181,20 @@ export async function fetchWorkOrderNotifications(
   });
   const payload = await response.json().catch(() => ({})) as Partial<WorkOrderNotificationResponse> & { error?: string };
   if (!response.ok) throw new Error(payload.error || "Work-order notifications could not be loaded.");
-  if (!Array.isArray(payload.notifications) || typeof payload.checked_at !== "string" || !Number.isFinite(Date.parse(payload.checked_at))) {
+  if (
+    !Array.isArray(payload.notifications) ||
+    !Array.isArray(payload.resolved_notification_ids) ||
+    !payload.resolved_notification_ids.every((id) => typeof id === "string") ||
+    typeof payload.checked_at !== "string" ||
+    !Number.isFinite(Date.parse(payload.checked_at))
+  ) {
     throw new Error("Work-order notifications returned an invalid response.");
   }
-  return { notifications: payload.notifications, checked_at: payload.checked_at };
+  return {
+    notifications: payload.notifications,
+    resolved_notification_ids: payload.resolved_notification_ids,
+    checked_at: payload.checked_at,
+  };
 }
 
 export function mergeWorkOrderNotifications(

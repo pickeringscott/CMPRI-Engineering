@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs';
 import {
   mergeWorkOrderNotifications,
   unseenWorkOrderNotifications,
+  technicianViewNotificationsForEngineer,
+  workOrderNotificationCursorKey,
   workOrderNotificationsForRecipient,
+  readDismissedWorkOrderViewNotifications,
+  saveDismissedWorkOrderViewNotifications,
 } from '../src/lib/dashboard/work-order-notifications.ts';
 
 function historyEvent(id, patch = {}) {
@@ -94,6 +98,50 @@ test('notification helpers de-duplicate repeated polling responses', () => {
   assert.deepEqual(mergeWorkOrderNotifications(first, [notification]), [notification]);
 });
 
+test('technician first views create an engineer-only awaiting-satisfaction notification', () => {
+  const result = technicianViewNotificationsForEngineer([
+    {
+      id: 'view-1',
+      work_order_id: 'order-1',
+      work_order_display_id: 'WO-1',
+      technician_name: 'Morgan Lee',
+      viewed_at: '2026-09-28T20:00:00.000Z',
+    },
+  ]);
+  assert.deepEqual(result, [{
+    id: 'technician-view:view-1',
+    work_order_id: 'order-1',
+    message: 'WO-1 viewed awaiting satisfying.',
+    recorded_at: '2026-09-28T20:00:00.000Z',
+  }]);
+});
+
+test('engineer and technician notification cursors are independent', () => {
+  assert.notEqual(
+    workOrderNotificationCursorKey('shared-user', 'engineer'),
+    workOrderNotificationCursorKey('shared-user', 'technician'),
+  );
+});
+
+test('engineer dismissals persist technician-view notices for the engineer only', () => {
+  const values = new Map();
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    },
+  };
+  try {
+    saveDismissedWorkOrderViewNotifications('engineer-id', ['technician-view:view-1']);
+    assert.deepEqual(Array.from(readDismissedWorkOrderViewNotifications('engineer-id')), ['technician-view:view-1']);
+    assert.equal(readDismissedWorkOrderViewNotifications('technician-id').size, 0);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test('technician dashboard excludes CMPRI AI and shows due date beneath ordered ticket metadata', () => {
   const dashboard = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
@@ -109,4 +157,15 @@ test('notification endpoint authorizes dashboard recipients and scopes audit rec
   assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
   assert.match(route, /\.eq\("hotel_id", HOTEL_ID\)/);
   assert.match(route, /\.gt\("recorded_at",/);
+  assert.match(route, /role === "engineer"/);
+  assert.match(route, /resolved_notification_ids/);
+});
+
+test('first technician view is recorded once and rendered as a locked timeline note', () => {
+  const detailRoute = readFileSync(new URL('../src/app/api/work-orders/[id]/route.ts', import.meta.url), 'utf8');
+  const ticket = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
+  assert.match(detailRoute, /cmpri_work_order_technician_views/);
+  assert.match(detailRoute, /ignoreDuplicates: true/);
+  assert.match(ticket, /Technician first viewed this work order/);
+  assert.match(ticket, /entry\.locked &&/);
 });

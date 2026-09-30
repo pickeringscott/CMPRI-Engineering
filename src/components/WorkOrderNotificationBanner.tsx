@@ -4,9 +4,11 @@ import type { WorkOrderNotification } from "@/lib/dashboard/work-order-notificat
 export default function WorkOrderNotificationBanner({
   notifications,
   onDismiss,
+  dismissLabel,
 }: {
   notifications: WorkOrderNotification[];
   onDismiss: () => void;
+  dismissLabel: string;
 }) {
   if (!notifications.length) return null;
   return (
@@ -16,7 +18,7 @@ export default function WorkOrderNotificationBanner({
           {notifications.length} work-order update{notifications.length === 1 ? "" : "s"}
         </h2>
         <button type="button" onClick={onDismiss} className="rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-semibold text-sky-100">
-          Dismiss
+          {dismissLabel}
         </button>
       </div>
       <ul className="mt-2 divide-y divide-sky-400/20">

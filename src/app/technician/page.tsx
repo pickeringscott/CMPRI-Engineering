@@ -89,7 +89,7 @@ export default function TechnicianDashboard() {
 
   const refreshNotifications = useCallback(async (accessToken: string, userId: string) => {
     try {
-      const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId);
+      const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId, "technician");
       const result = await fetchWorkOrderNotifications(accessToken, cursor);
       notificationCursorRef.current = result.checked_at;
       const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, result.notifications);
@@ -99,7 +99,7 @@ export default function TechnicianDashboard() {
         playAlertTone();
       }
       if (!result.notifications.length && pendingNotificationIdsRef.current.size === 0) {
-        saveWorkOrderNotificationCursor(userId, result.checked_at);
+        saveWorkOrderNotificationCursor(userId, "technician", result.checked_at);
       }
       setNotificationError("");
     } catch (error) {
@@ -177,7 +177,7 @@ export default function TechnicianDashboard() {
     setNotifications([]);
     pendingNotificationIdsRef.current.clear();
     if (account?.id && notificationCursorRef.current) {
-      saveWorkOrderNotificationCursor(account.id, notificationCursorRef.current);
+      saveWorkOrderNotificationCursor(account.id, "technician", notificationCursorRef.current);
     }
   }
 
@@ -212,7 +212,7 @@ export default function TechnicianDashboard() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto w-full px-3 py-4 sm:px-4 lg:w-[66vw]">
+      <div className="mx-auto w-full px-1 py-2 sm:px-2 lg:w-[66vw]">
         <div className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-[20px] font-bold text-amber-400">{account?.name?.trim() || account?.role || "Maintenance Technician"}</h1>
@@ -234,7 +234,11 @@ export default function TechnicianDashboard() {
         </div>
 
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
-        <WorkOrderNotificationBanner notifications={notifications} onDismiss={dismissNotifications} />
+        <WorkOrderNotificationBanner
+          notifications={notifications}
+          onDismiss={dismissNotifications}
+          dismissLabel="Dismiss my alerts"
+        />
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
 
         {newWorkQueue.length > 0 && (

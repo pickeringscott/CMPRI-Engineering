@@ -1975,7 +1975,7 @@ export default function WorkOrdersPage() {
 
 
   return (
-    <main className="min-h-screen bg-slate-950 px-[15px] py-[15px] text-white">
+    <main className="min-h-screen bg-slate-950 p-1 text-white">
       <div className={`mx-auto w-full max-w-none ${isSubmitOnlyUser ? "" : "lg:w-[66vw]"}`}>
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">

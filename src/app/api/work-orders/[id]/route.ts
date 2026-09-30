@@ -68,6 +68,32 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
 
+  const isTechnician = roleKey(auth.principal.profile.role) === "technician";
+  if (isTechnician) {
+    const { error: viewError } = await auth.admin
+      .from("cmpri_work_order_technician_views")
+      .upsert({
+        hotel_id: HOTEL_ID,
+        work_order_id: id,
+        work_order_display_id: String(workOrder.display_id || ""),
+        technician_user_id: auth.principal.identity.id,
+        technician_name: auth.principal.profile.full_name?.trim() || "Technician",
+        status_at_view: String(workOrder.status || "Open"),
+      }, {
+        onConflict: "hotel_id,work_order_id,technician_user_id",
+        ignoreDuplicates: true,
+      });
+    if (viewError) return NextResponse.json({ error: "The technician view could not be recorded." }, { status: 503 });
+  }
+
+  const { data: technicianViewEntries, error: viewEntriesError } = await auth.admin
+    .from("cmpri_work_order_technician_views")
+    .select("id, technician_name, viewed_at, resolved_at")
+    .eq("hotel_id", HOTEL_ID)
+    .eq("work_order_id", id)
+    .order("viewed_at", { ascending: true });
+  if (viewEntriesError) return NextResponse.json({ error: "Technician view notes could not be loaded." }, { status: 503 });
+
   let creatorRole: string | null = null;
   if (workOrder.created_by) {
     if (String(workOrder.created_by) === String(auth.principal.identity.id)) {
@@ -99,7 +125,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     mentionTickets = (mentionRows ?? []) as Array<Record<string, unknown>>;
   }
 
-  return NextResponse.json({ workOrder: { ...workOrder, creator_role: creatorRole }, mentionTickets }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({
+    workOrder: {
+      ...workOrder,
+      creator_role: creatorRole,
+      technician_view_entries: technicianViewEntries || [],
+    },
+    mentionTickets,
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

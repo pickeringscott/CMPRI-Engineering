@@ -54,6 +54,12 @@ type WorkOrder = {
   due_by?: string | null;
   creator_name?: string | null;
   created_at?: string | null;
+  technician_view_entries?: {
+    id: string;
+    technician_name: string;
+    viewed_at: string;
+    resolved_at: string | null;
+  }[];
 };
 
 type MentionTicket = {
@@ -92,6 +98,8 @@ type RoomPmContext = {
 type RoomOperationalContext = {
   ranker: RoomRankerContext | null;
   pm: RoomPmContext | null;
+  checkoutTime: string;
+  checkoutError: string;
   loading: boolean;
 };
 
@@ -613,6 +621,7 @@ type TicketHistoryEntry = {
   kind: "note" | "change" | "system";
   text: string;
   staged?: boolean;
+  locked?: boolean;
 };
 
 function parseTicketHistory(raw: string, fallbackTime?: string | null): TicketHistoryEntry[] {
@@ -685,7 +694,7 @@ export default function WorkOrderTicketPage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [externalActivity, setExternalActivity] = useState<ExternalActivity>({ purchases: [], enseo: [], warranties: [], followups: [] });
-  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, pm: null, loading: false });
+  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, pm: null, checkoutTime: "", checkoutError: "", loading: false });
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
 
@@ -783,14 +792,15 @@ export default function WorkOrderTicketPage() {
   }
 
   async function loadRoomOperationalContext(roomLabel?: string | null) {
-    const room = String(roomLabel || "").match(/\b\d{2,4}\b/)?.[0] || "";
-    if (!room) { setRoomOperationalContext({ ranker: null, pm: null, loading: false }); return; }
+    const roomText = String(roomLabel || "");
+    const room = roomText.match(/\b(?:\d{2,4}|MGR)\b/i)?.[0] || "";
+    if (!room) { setRoomOperationalContext({ ranker: null, pm: null, checkoutTime: "", checkoutError: "", loading: false }); return; }
     setRoomOperationalContext((current) => ({ ...current, loading: true }));
     try {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) {
-        setRoomOperationalContext({ ranker: null, pm: { error: "Your CMPRI session has expired. Sign in again." }, loading: false });
+        setRoomOperationalContext({ ranker: null, pm: { error: "Your CMPRI session has expired. Sign in again." }, checkoutTime: "", checkoutError: "Today's checkout time could not be loaded.", loading: false });
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
@@ -802,11 +812,30 @@ export default function WorkOrderTicketPage() {
       const rankerPayload = rankerResponse?.ok ? await rankerResponse.json().catch(() => ({})) : {};
       const rankerRows = Array.isArray(rankerPayload?.rooms) ? rankerPayload.rooms as RoomRankerContext[] : [];
       const ranker = rankerRows.find((item) => String(item.room || "").trim() === room) || null;
-      setRoomOperationalContext({ ranker, pm: {}, loading: false });
+      let checkoutTime = "";
+      let checkoutError = "";
+      if (!current.capabilities.includes("view_dashboard")) {
+        checkoutError = "Today's checkout time is not available to this account.";
+      } else {
+        try {
+          const roomOperationsResponse = await fetch("/api/room-operations", { headers, cache: "no-store" });
+          const roomOperationsPayload = await roomOperationsResponse.json().catch(() => ({})) as { rows?: Array<{ room?: string; checkout_time?: string }>; error?: string };
+          if (!roomOperationsResponse.ok || !Array.isArray(roomOperationsPayload.rows)) {
+            throw new Error(roomOperationsPayload.error || "Today's room-operations data could not be loaded.");
+          }
+          const roomOperation = roomOperationsPayload.rows.find((item) => String(item.room || "").trim().toUpperCase() === room.toUpperCase());
+          checkoutTime = String(roomOperation?.checkout_time || "");
+        } catch (error) {
+          checkoutError = error instanceof Error ? error.message : "Today's checkout time could not be loaded.";
+        }
+      }
+      setRoomOperationalContext({ ranker, pm: {}, checkoutTime, checkoutError, loading: false });
     } catch (error) {
       setRoomOperationalContext({
         ranker: null,
         pm: { error: error instanceof Error ? error.message : "Room PM checks could not be loaded." },
+        checkoutTime: "",
+        checkoutError: error instanceof Error ? error.message : "Today's checkout time could not be loaded.",
         loading: false,
       });
     }
@@ -1195,7 +1224,7 @@ export default function WorkOrderTicketPage() {
         throw new Error(payload.error || "This work order could not be assigned to you.");
       }
       const claimed = payload.workOrder as WorkOrder;
-      setOrder(claimed);
+      setOrder({ ...claimed, technician_view_entries: order.technician_view_entries });
       setTechnicianName(assignedName);
       setInitialFingerprint(JSON.stringify({
         issue, assetId, category, priority, technicianName: assignedName, status, notes,
@@ -1299,7 +1328,7 @@ export default function WorkOrderTicketPage() {
       return;
     }
 
-    if (savedRow) setOrder(savedRow);
+    if (savedRow) setOrder({ ...savedRow, technician_view_entries: order.technician_view_entries });
     setNotes(notesWithChanges);
     setStagedNoteIds([]);
 
@@ -1546,6 +1575,16 @@ export default function WorkOrderTicketPage() {
     ...entry,
     staged: entry.kind === "note" && stagedLineSet.has(historyLine(entry)),
   }));
+  for (const view of order.technician_view_entries || []) {
+    historyEntries.push({
+      id: `technician-view-${view.id}`,
+      timestamp: view.viewed_at,
+      actor: view.technician_name || "Technician",
+      kind: "system",
+      text: "Technician first viewed this work order",
+      locked: true,
+    });
+  }
   const authoritativeHistory = externalActivity.history || [];
   for (const event of authoritativeHistory) {
     const fields = event.changed_fields && typeof event.changed_fields === "object" ? Object.keys(event.changed_fields) : [];
@@ -1755,7 +1794,7 @@ export default function WorkOrderTicketPage() {
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="text-lg font-bold tracking-tight text-slate-100">Ticket History</h2>
+              <h2 className="text-lg font-bold tracking-tight text-slate-100">Technician Notes &amp; Ticket History</h2>
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-xl border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
                   const when = new Date(entry.timestamp);
@@ -1766,6 +1805,7 @@ export default function WorkOrderTicketPage() {
                       <span className="text-slate-500" title={hoverTime}>{shortDate}</span>
                       <span className="truncate font-semibold text-sky-200" title={entry.actor}>{entry.actor}</span>
                       <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
+                      {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
                       {entry.staged && <button type="button" onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
                     </div>
                   );
@@ -2005,6 +2045,12 @@ export default function WorkOrderTicketPage() {
                 <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Room Context</p><h2 className="mt-1 text-lg font-semibold">{roleKey(cmpriSession?.user.role) === "system_admin" ? "Room Ranker & Preventive Maintenance" : "Preventive Maintenance"}</h2></div><div className="flex gap-2">{roleKey(cmpriSession?.user.role) === "system_admin" && <Link href="/engineering/room-ranker" className="text-xs font-semibold text-amber-300 hover:underline">Ranker</Link>}</div></div>
                 {roomOperationalContext.loading ? <p className="mt-3 text-sm text-slate-400">Loading live room context…</p> : <>
                   {roleKey(cmpriSession?.user.role) === "system_admin" && <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="flex items-center justify-between gap-3"><b>Room Ranker</b><span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs font-bold text-amber-200">{roomOperationalContext.ranker?.rank || "Unranked"}</span></div>{roomRankerFlags.length ? <ul className="mt-2 space-y-1 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul> : <p className="mt-2 text-xs text-slate-500">No Room Ranker flags/notes returned for this room.</p>}</div>}
+                  <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
+                    <b>Today&apos;s checkout time</b>
+                    {roomOperationalContext.checkoutError
+                      ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.checkoutError}</p>
+                      : <p className="mt-2 text-sm text-slate-300">{roomOperationalContext.checkoutTime || "No checkout is listed for this room today."}</p>}
+                  </div>
                   <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
                     <b>PM checks and quarterly room forms</b>
                     {roomOperationalContext.pm?.error
