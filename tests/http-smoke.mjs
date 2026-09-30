@@ -13,7 +13,7 @@ const uiPaths = [
 const apiPaths = [
   '/api/session', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
-  '/api/integrations/email/scan', '/api/integrations/room-ranker/sync', '/api/maintenance-ai',
+  '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
   '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-ranker',
   '/api/rooms', '/api/users', '/api/work-orders', '/api/work-orders/test-id',
   '/api/work-orders/test-id/activity', '/api/work-orders/drafts', '/api/work-orders/import',
@@ -21,7 +21,7 @@ const apiPaths = [
 const mutationCases = [
   ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/assets', 'POST'],
   ['/api/assets', 'PATCH'], ['/api/users', 'POST'], ['/api/users', 'PATCH'],
-  ['/api/maintenance-ai', 'POST'], ['/api/work-orders', 'POST'], ['/api/room-ranker', 'PATCH'],
+  ['/api/work-orders', 'POST'], ['/api/room-ranker', 'PATCH'],
   ['/api/corporate-pm', 'PATCH'], ['/api/work-orders/test-id', 'PATCH'], ['/api/room-operations', 'POST'],
   ['/api/work-orders/drafts', 'POST'], ['/api/work-orders/import', 'POST'],
 ];

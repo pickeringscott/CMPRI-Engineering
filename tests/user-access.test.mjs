@@ -6,8 +6,13 @@ import ts from 'typescript';
 
 function fixture(config={}) {
   const writes=[];
+  const deletedAuthIds=[];
+  const memberships=config.memberships??[
+    {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+    {user_id:'target',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+  ];
   const caller=config.caller===undefined?{id:'caller',role:'Engineer',active:true}:config.caller;
-  const target=config.target===undefined?{id:'target',role:'Front Desk',active:true}:config.target;
+  const target=config.target===undefined?{id:'target',role:'Front Desk',active:true,full_name:'Test User'}:config.target;
 
   const roleKey=(r)=>{
     if(typeof r!=='string')return 'unknown';
@@ -52,26 +57,47 @@ function fixture(config={}) {
     admin:{
       inviteUserByEmail:async()=>{writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
       createUser:async()=>{writes.push('createUser');return {data:{user:{id:'created'}},error:null};},
-    }
-  },from(table){
-    const filters={};let update;
+      deleteUser:async(id)=>{writes.push('deleteUser');deletedAuthIds.push(id);return {error:config.authDeleteError?{message:'Auth cleanup failed'}:null};},
+    },
+  },
+  rpc:async(name,args)=>{
+    writes.push(`rpc:${name}:${args.target_id}`);
+    return {error:config.purgeError?{message:'Purge failed'}:null};
+  },
+  from(table){
+    const filters={};let update;let includes;
+    const filteredRows=()=>{
+      if(table==='hotel_members')return memberships.filter((row)=>(filters.user_id===undefined||row.user_id===filters.user_id)&&(filters.hotel_id===undefined||row.hotel_id===filters.hotel_id)&&(!includes||includes.includes(row.user_id)));
+      const rows=[caller,target].filter(Boolean);
+      return rows.filter((row)=>(filters.id===undefined||row.id===filters.id)&&(!includes||includes.includes(row.id)));
+    };
     const q={select(){return q;},eq(k,v){filters[k]=v;return q;},
+      in(k,v){if(k==='user_id'||k==='id')includes=v;return q;},
+      then(resolve){return Promise.resolve({data:filteredRows(),error:table==='hotel_members'&&config.membershipError?{message:'failed'}:null}).then(resolve);},
       maybeSingle:async()=> table==='role_permissions'
         ? {data:config.permission===false?null:{allowed:true},error:config.permissionError?{message:'failed'}:null}
         : {data:filters.id==='caller'?caller:target,error:(filters.id==='caller'?config.profileError:config.targetError)?{message:'failed'}:null},
-      order:async()=>({data:[caller,target].filter(Boolean),error:null}),
+      order:async()=>({data:filteredRows(),error:null}),
       update(value){writes.push('update');update=value;return q;},
       single:async()=>config.changedRole && filters.role!==config.changedRole
         ? {data:null,error:{message:'Account changed while saving'}}
         : {data:{...target,...update},error:null},
-      upsert:async()=>{writes.push('upsert');return {error:null};},
+      delete(){writes.push(`delete:${table}`);return q;},
+      limit(){return q;},
+      upsert:async()=>{
+        writes.push('upsert');
+        const failed=table==='profiles'&&config.profileUpsertError||table==='hotel_members'&&config.membershipUpsertError;
+        return {error:failed?{message:`${table} setup failed`}:null};
+      },
     };return q;
   }};
 
   function compile(path){
     const exports={};
+    const env={NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'};
+    if(config.noServiceRoleKey)delete env.SUPABASE_SERVICE_ROLE_KEY;
     vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
-      exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'}},
+      exports,URL,process:{env},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:()=>client};
@@ -81,6 +107,7 @@ function fixture(config={}) {
         if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
         if(name==='@/lib/server/access')return {allows:()=>true};
         if(name==='@/lib/server/roles')return rolesModule;
+        if(name==='@/lib/server/supabase-admin')return {createSupabaseAdmin:()=>config.noAdmin?null:client};
         if(name==='@/lib/server/auth')return {
           requireUser:async()=>{
             const u=await client.auth.getUser();
@@ -107,6 +134,7 @@ function fixture(config={}) {
   return {
     handlers:compile('../src/app/api/users/route.ts'),
     writes,
+    deletedAuthIds,
     request:{
       url:'https://test.invalid/api/users?id=target&confirm_name=Test%20User',
       headers:new Headers({authorization:'Bearer fake'}),
@@ -180,6 +208,78 @@ test('list exposes subordinate editing and only subordinate assignable roles',as
   assert.equal(r.body.assignable_roles.includes('Housekeeping'),true);
   assert.equal(r.body.assignable_roles.includes('Maintenance Technician'),true);
 });
+test('user list excludes profiles without membership in this hotel',async()=>{
+  const memberships=[
+    {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+    {user_id:'target',hotel_id:'another-hotel',active:true},
+  ];
+  const f=fixture({memberships});
+  const r=await f.handlers.GET(f.request);
+  assert.equal(r.status,200);
+  assert.deepEqual(r.body.users.map(user=>user.id),['caller']);
+});
+test('shared-property users are visible but immutable from this hotel',async()=>{
+  const memberships=[
+    {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+    {user_id:'target',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+    {user_id:'target',hotel_id:'another-hotel',active:true},
+  ];
+  const f=fixture({memberships});
+  const listed=await f.handlers.GET(f.request);
+  assert.equal(listed.body.users.find(user=>user.id==='target').can_manage,false);
+  const patched=await f.handlers.PATCH(f.request);
+  assert.equal(patched.status,409);
+  assert.deepEqual(f.writes,[]);
+});
+test('foreign-property profiles cannot be patched or deactivated',async()=>{
+  const memberships=[
+    {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+    {user_id:'target',hotel_id:'another-hotel',active:true},
+  ];
+  const f=fixture({memberships});
+  assert.equal((await f.handlers.PATCH(f.request)).status,404);
+  assert.equal((await f.handlers.DELETE(f.request)).status,404);
+  assert.deepEqual(f.writes,[]);
+});
+test('DELETE permanently purges CMPRI data before deleting the Auth login',async()=>{
+  const f=fixture();
+  const r=await f.handlers.DELETE(f.request);
+  assert.equal(r.status,200);
+  assert.equal(r.body.deleted,'target');
+  assert.equal(r.body.preserved_history,false);
+  assert.deepEqual(f.writes,['rpc:purge_cmpri_user:target','deleteUser']);
+  assert.deepEqual(f.deletedAuthIds,['target']);
+});
+test('DELETE does not remove the Auth login when CMPRI purge fails',async()=>{
+  const f=fixture({purgeError:true});
+  const r=await f.handlers.DELETE(f.request);
+  assert.equal(r.status,503);
+  assert.match(r.body.error,/Auth login was not deleted/i);
+  assert.deepEqual(f.writes,['rpc:purge_cmpri_user:target']);
+  assert.deepEqual(f.deletedAuthIds,[]);
+});
+test('DELETE reports when the Auth login remains after CMPRI data purge',async()=>{
+  const f=fixture({authDeleteError:true});
+  const r=await f.handlers.DELETE(f.request);
+  assert.equal(r.status,500);
+  assert.match(r.body.error,/Auth login remains/i);
+  assert.deepEqual(f.writes,['rpc:purge_cmpri_user:target','deleteUser']);
+});
+test('DELETE requires service-role credentials before removing any account data',async()=>{
+  const f=fixture({noServiceRoleKey:true});
+  const r=await f.handlers.DELETE(f.request);
+  assert.equal(r.status,503);
+  assert.match(r.body.error,/SUPABASE_SERVICE_ROLE_KEY/i);
+  assert.deepEqual(f.writes,[]);
+  assert.deepEqual(f.deletedAuthIds,[]);
+});
+test('DELETE requires exact target-name confirmation before purging',async()=>{
+  const f=fixture();
+  f.request.url='https://test.invalid/api/users?id=target&confirm_name=Wrong%20Name';
+  const r=await f.handlers.DELETE(f.request);
+  assert.equal(r.status,400);
+  assert.deepEqual(f.writes,[]);
+});
 test('a changed target role prevents applying a stale authorized edit',async()=>{
   const f=fixture({changedRole:'system_admin'});
   const r=await f.handlers.PATCH(f.request);
@@ -200,11 +300,41 @@ test('system_admin can create a manager profile when role label is Manager',asyn
   assert.equal(r.body.user.role,'manager');
   assert.deepEqual(f.writes,['invite','upsert','upsert']);
 });
+for(const [mode,password] of [['invite',undefined],['temporary password','temporary123']]){
+  test(`POST rolls back the ${mode} Auth account when profile setup fails`,async()=>{
+    const f=fixture({profileUpsertError:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk',...(password?{password}:{})}});
+    const r=await f.handlers.POST(f.request);
+    assert.equal(r.status,500);
+    assert.match(r.body.error,/rolled back/i);
+    assert.deepEqual(f.writes,[password?'createUser':'invite','upsert','delete:hotel_members','delete:profiles','deleteUser']);
+  });
+}
+test('POST rolls back the profile and Auth account when property membership setup fails',async()=>{
+  const f=fixture({membershipUpsertError:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,500);
+  assert.match(r.body.error,/rolled back/i);
+  assert.deepEqual(f.writes,['invite','upsert','upsert','delete:hotel_members','delete:profiles','deleteUser']);
+});
+test('POST reports manual cleanup when Auth account deletion fails during rollback',async()=>{
+  const f=fixture({profileUpsertError:true,authDeleteError:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,500);
+  assert.match(r.body.error,/remove this account manually/i);
+  assert.match(r.body.error,/Auth login/i);
+});
 test('POST fails clearly when no server admin is configured for user creation',async()=>{
   const f=fixture({noAdmin:true, body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk',password:'temporary123'}});
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,500);
   assert.match(String(r.body.error), /SUPABASE_SERVICE_ROLE_KEY/i);
+  assert.deepEqual(f.writes,[]);
+});
+test('POST rejects the bearer session admin client when the service-role key is missing',async()=>{
+  const f=fixture({noServiceRoleKey:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk',password:'temporary123'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,500);
+  assert.match(String(r.body.error),/SUPABASE_SERVICE_ROLE_KEY/i);
   assert.deepEqual(f.writes,[]);
 });
 test('engineer can deactivate a housekeeping user',async()=>{
@@ -253,6 +383,59 @@ test('system_admin access policy bypasses empty permission rows for bootstrap ma
     permissions: [],
   };
 
+  const engineerWithoutGrants = {
+    ...principal,
+    identity: { id: 'engineer', email: 'engineer@example.invalid' },
+    profile: { id: 'engineer', email: 'engineer@example.invalid', role: 'Chief Engineer', active: true, full_name: 'Engineer' },
+    membership: { user_id: 'engineer', hotel_id: 'hotel-1', role: 'admin', active: true },
+  };
+
   assert.equal(accessExports.allows(principal, 'manage_users'), true);
   assert.equal(accessExports.allows(principal, 'view_dashboard'), true);
+  assert.equal(accessExports.allows(engineerWithoutGrants, 'manage_users'), false);
+  assert.equal(accessExports.allows(engineerWithoutGrants, 'edit_tickets'), false);
+  assert.equal(accessExports.allows(engineerWithoutGrants, 'view_dashboard'), true);
+  assert.equal(accessExports.allows(engineerWithoutGrants, 'submit'), true);
+});
+test('role policy gives General Manager manager permissions without granting them to operational roles',()=>{
+  const rolesExports = {};
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/roles.ts', import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
+    exports: rolesExports,
+    require: () => ({}),
+    process: { env: {} },
+  });
+  const accessExports = {};
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/access.ts', import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
+    exports: accessExports,
+    require(name) {
+      if (name === './roles') return rolesExports;
+      throw new Error(`Missing mock for ${name}`);
+    },
+    process: { env: {} },
+  });
+  const base = {
+    identity: { id: 'role-test', email: 'role-test@example.invalid' },
+    profile: { id: 'role-test', email: 'role-test@example.invalid', role: '', active: true, full_name: 'Role Test' },
+    hotelId: 'hotel-1',
+    membership: { user_id: 'role-test', hotel_id: 'hotel-1', role: 'viewer', active: true },
+  };
+  const grants = (role, permissions) => permissions.map((permission) => ({ role, permission, allowed: true }));
+  const asRole = (role, permissions) => ({ ...base, profile: { ...base.profile, role }, permissions });
+  const frontDesk = asRole('Front Desk', grants('Front Desk', ['manage_users', 'manage_work_orders']));
+  const technician = asRole('Maintenance Technician', grants('Maintenance Technician', ['manage_users', 'manage_work_orders']));
+  const housekeeper = asRole('Lead Housekeeper', grants('Lead Housekeeper', ['manage_users', 'manage_work_orders']));
+  const manager = asRole('General Manager', grants('General Manager', ['manage_users', 'approve_work_orders', 'review_work_orders']));
+
+  assert.equal(accessExports.allows(frontDesk, 'submit'), true);
+  assert.equal(accessExports.allows(frontDesk, 'manage_users'), false);
+  assert.equal(accessExports.allows(technician, 'edit_tickets'), true);
+  assert.equal(accessExports.allows(technician, 'manage_users'), false);
+  assert.equal(accessExports.allows(housekeeper, 'submit'), true);
+  assert.equal(accessExports.allows(housekeeper, 'edit_tickets'), false);
+  assert.equal(accessExports.allows(housekeeper, 'manage_users'), false);
+  assert.equal(accessExports.allows(manager, 'review_tickets'), true);
+  assert.equal(accessExports.allows(manager, 'manage_users'), true);
+  assert.equal(accessExports.allows(manager, 'edit_tickets'), false);
+  assert.equal(rolesExports.canManageTargetRole('General Manager', 'Front Desk'), true);
+  assert.equal(rolesExports.canManageTargetRole('General Manager', 'Chief Engineer'), false);
 });

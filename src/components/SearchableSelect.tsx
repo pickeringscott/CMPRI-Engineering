@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type SearchableSelectOption = {
   value: string;
@@ -22,6 +22,7 @@ type Props = {
   footerActionLabel?: string;
   onFooterAction?: () => void;
   showSuggestionsOnOpen?: boolean;
+  expandOnOpen?: boolean;
 };
 
 function normalize(value: string) {
@@ -52,6 +53,30 @@ function scoreOption(option: SearchableSelectOption, rawQuery: string) {
   return best;
 }
 
+type DropdownPosition = { top: number; left: number; width: number; maxHeight: number };
+
+export function getDropdownPosition(
+  anchor: Pick<DOMRect, "top" | "bottom" | "left" | "width">,
+  viewport: { width: number; height: number },
+): DropdownPosition {
+  const gap = 4;
+  const viewportPadding = 8;
+  const maxListHeight = 320;
+  const spaceBelow = Math.max(0, viewport.height - anchor.bottom - gap - viewportPadding);
+  const spaceAbove = Math.max(0, anchor.top - gap - viewportPadding);
+  const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+  const maxHeight = Math.min(maxListHeight, placeAbove ? spaceAbove : spaceBelow);
+  const width = Math.min(anchor.width, viewport.width - viewportPadding * 2);
+  const left = Math.min(Math.max(viewportPadding, anchor.left), viewport.width - width - viewportPadding);
+
+  return {
+    top: placeAbove ? anchor.top - gap - maxHeight : anchor.bottom + gap,
+    left,
+    width,
+    maxHeight,
+  };
+}
+
 export default function SearchableSelect({
   value,
   options,
@@ -65,16 +90,17 @@ export default function SearchableSelect({
   footerActionLabel,
   onFooterAction,
   showSuggestionsOnOpen = true,
+  expandOnOpen = false,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const listId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listboxRef = useRef<HTMLDivElement | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement | null>(null);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
   const selected = useMemo(() => options.find((option) => option.value === value), [options, value]);
 
@@ -109,38 +135,30 @@ export default function SearchableSelect({
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [onDismiss, selected?.label]);
 
-
-  function positionMenu() {
-    const wrapper = wrapperRef.current;
-    if (!wrapper || typeof window === "undefined") return;
-
-    const rect = wrapper.getBoundingClientRect();
-    const padding = 8;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const available = Math.max(40, Math.min(320, spaceBelow - 12));
-
-    setMenuStyle({
-      position: "fixed",
-      left: Math.max(padding, Math.min(rect.left, window.innerWidth - padding - rect.width)),
-      width: Math.max(160, Math.min(rect.width, window.innerWidth - padding * 2)),
-      maxHeight: available,
-      zIndex: 2147483000,
-      top: rect.bottom + 4,
-      bottom: "auto",
-    });
-  }
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
-    positionMenu();
-    const reposition = () => positionMenu();
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
+
+    function positionListbox() {
+      const input = inputRef.current;
+      const listbox = listboxRef.current;
+      if (!input || !listbox) return;
+      const rect = input.getBoundingClientRect();
+      const position = getDropdownPosition(rect, { width: window.innerWidth, height: window.innerHeight });
+      listbox.style.top = `${position.top}px`;
+      listbox.style.left = `${position.left}px`;
+      listbox.style.width = `${position.width}px`;
+      listbox.style.maxHeight = `${position.maxHeight}px`;
+    }
+
+    positionListbox();
+    window.addEventListener("resize", positionListbox);
+    window.addEventListener("scroll", positionListbox, true);
     return () => {
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", positionListbox);
+      window.removeEventListener("scroll", positionListbox, true);
     };
   }, [open]);
+
 
   function commit(option?: SearchableSelectOption) {
     if (!option) return;
@@ -153,7 +171,7 @@ export default function SearchableSelect({
   function openBrowse() {
     if (disabled) return;
     setOpen(true);
-    setExpanded(false);
+    setExpanded(expandOnOpen);
     setHighlightedIndex(0);
     // Keep the current selection visible when entering edit/browse mode.
     // Typing replaces/refines it; simply opening and clicking away is a no-op.
@@ -266,7 +284,12 @@ export default function SearchableSelect({
       </div>
 
       {open && !disabled && (
-        <div id={listId} role="listbox" style={menuStyle} className="overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 py-0.5 shadow-2xl">
+        <div
+          ref={listboxRef}
+          id={listId}
+          role="listbox"
+          className="cmpri-searchable-select-listbox fixed z-[2147483000] max-h-80 overflow-y-auto overscroll-contain touch-pan-y rounded-lg border border-slate-600 bg-slate-900 py-0.5 shadow-2xl"
+        >
           {visibleOptions.length ? (
             <>
               {visibleOptions.map((option, optionIndex) => {

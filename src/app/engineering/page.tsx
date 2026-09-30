@@ -1,17 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
-import { DASHBOARD_AI_ACTION, type DashboardAISummary } from "@/lib/ai/dashboard-analysis";
+import AccountSummary from "@/components/AccountSummary";
+import { dashboardTitleForRole, roleDisplayName } from "@/lib/account-display";
 import { BUILD_VERSION } from "@/lib/constants";
 import { filterKpiWorkOrders, isKpiOverdue, isOpenKpiStatus, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
-import CopyButton from "@/components/CopyButton";
+import {
+  fetchWorkOrderNotifications,
+  mergeWorkOrderNotifications,
+  readWorkOrderNotificationCursor,
+  saveWorkOrderNotificationCursor,
+  unseenWorkOrderNotifications,
+  type WorkOrderNotification,
+} from "@/lib/dashboard/work-order-notifications";
+import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
+import { roleKey } from "@/lib/server/roles";
 
 const REFRESH_MS = 30_000;
-const AI_DEVICE_ID_STORAGE_KEY = "cmpri:ai-device-id:v1";
 const NEW_ORDER_LAST_SEEN_PREFIX = "cmpri:new-order-last-seen:v1:";
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 
@@ -91,38 +100,24 @@ function statusClass(status?: string | null) {
   return "border-slate-600 bg-slate-800 text-slate-200";
 }
 
-function roomStatusClass(status?: string | null) {
-  const value = String(status || "").trim().toLowerCase();
-  if (value.includes("vacant ready")) return "border-green-400/45 bg-green-950/35 text-green-200";
-  if (value.includes("vacant dirty")) return "border-amber-400/45 bg-amber-950/35 text-amber-200";
-  if (value === "ooo" || value.includes("out of order") || value.includes("out-of-order")) return "border-red-400/45 bg-red-950/35 text-red-200";
-  return "border-slate-600 bg-slate-900 text-slate-300";
-}
-
-function parseRoomOpsDate(value?: string | null) {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  const us = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
-  if (us) {
-    const year = Number(us[3].length === 2 ? `20${us[3]}` : us[3]);
-    const date = new Date(year, Number(us[1]) - 1, Number(us[2]));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function roomOpsDateClass(value?: string | null) {
-  const date = parseRoomOpsDate(value);
-  if (!date) return "border-slate-600 bg-slate-900 text-slate-300";
-  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const days = Math.round((target - today) / 86_400_000);
-  if (days < 0) return "border-red-400/45 bg-red-950/35 text-red-200";
-  if (days === 0) return "border-green-400/45 bg-green-950/35 text-green-200";
-  if (days === 1) return "border-amber-400/45 bg-amber-950/35 text-amber-200";
-  return "border-blue-400/45 bg-blue-950/35 text-blue-200";
+function mapRoomOperation(row: Record<string, unknown>): RoomOperation {
+  return {
+    room: String(row.room || ""),
+    checkoutDate: String(row.checkout_date || ""),
+    checkoutTime: String(row.checkout_time || ""),
+    roomStatus: String(row.room_status || ""),
+    arrivalDate: String(row.arrival_date || ""),
+    arrivalTime: String(row.arrival_time || ""),
+    moveFrom: String(row.move_from || ""),
+    moveTo: String(row.move_to || ""),
+    guestName: String(row.guest_name || ""),
+    roomType: String(row.room_type || ""),
+    guestCode: String(row.guest_code || ""),
+    guestArrivalDate: String(row.guest_arrival_date || ""),
+    stayNights: Number(row.stay_nights || 0),
+    reserved: row.reserved === true,
+    importedAt: String(row.imported_at || ""),
+  };
 }
 
 function CmpriMark() {
@@ -134,95 +129,6 @@ function CmpriMark() {
     </div>
   );
 }
-function normalizeHeader(value: string) {
-  return value.trim().toUpperCase().replace(/\s+/g, " ");
-}
-
-function parseDelimitedLine(line: string, delimiter: string) {
-  if (delimiter === "\t") return line.split("\t").map((cell) => cell.trim());
-  const cells: string[] = [];
-  let current = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"') {
-      if (quoted && line[index + 1] === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === delimiter && !quoted) {
-      cells.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-function parseRoomOperationsText(raw: string): RoomOperation[] {
-  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return [];
-  const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
-  const rows = lines.map((line) => parseDelimitedLine(line, delimiter));
-  const headers = rows[0].map(normalizeHeader);
-  const findIndex = (...names: string[]) => {
-    const normalized = names.map(normalizeHeader);
-    const exact = headers.findIndex((header) => normalized.includes(header));
-    if (exact >= 0) return exact;
-    return headers.findIndex((header) => normalized.some((name) => name.length >= 4 && header.includes(name)));
-  };
-  const roomIndex = findIndex("ROOM", "ROOM #", "ROOM NUMBER", "RM");
-  const checkoutDateIndex = findIndex("CHECKOUT DATE", "CHECK OUT DATE", "DEPARTURE DATE", "DEP DATE");
-  const checkoutTimeIndex = findIndex("CHECKOUT TIME", "CHECK OUT TIME", "DEPARTURE TIME", "DEP TIME");
-  const roomStatusIndex = findIndex("ROOM STATUS", "HOUSEKEEPING STATUS", "HK STATUS", "STATUS");
-  const arrivalDateIndex = findIndex("INCOMING ARRIVAL DATE", "CHECKIN DATE", "CHECK-IN DATE", "CHECK IN DATE");
-  const arrivalTimeIndex = findIndex("INCOMING ARRIVAL TIME", "CHECKIN TIME", "CHECK-IN TIME", "CHECK IN TIME");
-  const moveFromIndex = findIndex("MOVE FROM", "MOVED FROM", "ROOM MOVE FROM", "FROM ROOM", "PREVIOUS ROOM");
-  const moveToIndex = findIndex("MOVE TO", "MOVED TO", "ROOM MOVE TO", "TO ROOM", "NEW ROOM");
-  const guestNameIndex = findIndex("GUEST NAME", "GUEST / NAME", "GUEST", "NAME");
-  const roomTypeIndex = findIndex("ROOM TYPE", "RM TYPE", "ROOM TYPE CODE", "TYPE");
-  const guestCodeIndex = findIndex("GUEST CODE", "GUEST TYPE CODE", "RATE CODE", "MEMBER CODE", "CODE");
-  const guestArrivalIndex = findIndex("GUEST ARRIVAL", "ARV", "ARV DATE");
-  const stayNightsIndex = findIndex("LOS", "LENGTH OF STAY", "NIGHTS");
-  const reservedIndex = findIndex("RESERVED", "BLOCKED", "BLK");
-  const start = roomIndex >= 0 ? 1 : 0;
-  return rows.slice(start).map((row) => ({
-    room: String(row[roomIndex >= 0 ? roomIndex : 0] || "").match(/\b\d{2,4}\b/)?.[0] || "",
-    checkoutDate: checkoutDateIndex >= 0 ? String(row[checkoutDateIndex] || "") : "",
-    checkoutTime: checkoutTimeIndex >= 0 ? String(row[checkoutTimeIndex] || "") : "",
-    roomStatus: roomStatusIndex >= 0 ? String(row[roomStatusIndex] || "") : "",
-    arrivalDate: arrivalDateIndex >= 0 ? String(row[arrivalDateIndex] || "") : "",
-    arrivalTime: arrivalTimeIndex >= 0 ? String(row[arrivalTimeIndex] || "") : "",
-    moveFrom: moveFromIndex >= 0 ? String(row[moveFromIndex] || "").match(/\b\d{2,4}\b/)?.[0] || "" : "",
-    moveTo: moveToIndex >= 0 ? String(row[moveToIndex] || "").match(/\b\d{2,4}\b/)?.[0] || "" : "",
-    guestName: guestNameIndex >= 0 ? String(row[guestNameIndex] || "").trim() : "",
-    roomType: roomTypeIndex >= 0 ? String(row[roomTypeIndex] || "").trim() : "",
-    guestCode: guestCodeIndex >= 0 ? String(row[guestCodeIndex] || "").trim() : "",
-    guestArrivalDate: guestArrivalIndex >= 0 ? String(row[guestArrivalIndex] || "").trim() : "",
-    stayNights: stayNightsIndex >= 0 ? Math.max(0, Math.round(Number(String(row[stayNightsIndex] || "").replace(/[^0-9.]/g, "")) || 0)) : 0,
-    reserved: reservedIndex >= 0
-      ? ["true", "yes", "y", "1", "reserved", "blk"].includes(String(row[reservedIndex] || "").trim().toLowerCase())
-      : row.some((cell) => ["reserved", "blk"].includes(String(cell || "").trim().toLowerCase())),
-    importedAt: "",
-  })).filter((row) => row.room);
-}
-
-function roomNumberFromLabel(value?: string | null) {
-  return String(value || "").match(/\b\d{2,4}\b/)?.[0] || "";
-}
-
-function getOrCreateAiDeviceId() {
-  const existing = window.localStorage.getItem(AI_DEVICE_ID_STORAGE_KEY)?.trim() || "";
-  if (/^[A-Za-z0-9_-]{16,100}$/.test(existing)) return existing;
-  const generated = crypto.randomUUID().replace(/-/g, "_");
-  window.localStorage.setItem(AI_DEVICE_ID_STORAGE_KEY, generated);
-  return generated;
-}
-
 function readLastSeenTimestamp(userId: string): number {
   try {
     const raw = window.localStorage.getItem(`${NEW_ORDER_LAST_SEEN_PREFIX}${userId}`);
@@ -271,16 +177,24 @@ export default function EngineeringDashboardPage() {
   const [listSearchQuery, setListSearchQuery] = useState("");
   const [activeWorkOrderId, setActiveWorkOrderId] = useState("");
   const [workOrderModalToken, setWorkOrderModalToken] = useState("");
-  const [aiRefreshMessage, setAiRefreshMessage] = useState("");
-  const [aiRefreshing, setAiRefreshing] = useState(false);
-  const [personalAiConnected, setPersonalAiConnected] = useState(false);
-  const aiInFlightRef = useRef(false);
-  const [aiSummaries, setAiSummaries] = useState<DashboardAISummary[]>([]);
+  const workOrderModalFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const workOrderFrameCleanupRef = useRef<(() => void) | null>(null);
+  const dashboardDialogRef = useRef<HTMLElement | null>(null);
+  function setDashboardDialogElement(element: HTMLElement | null) {
+    dashboardDialogRef.current = element;
+  }
+  const [chatgptConnected, setChatgptConnected] = useState(false);
+  const [newFeedbackCount, setNewFeedbackCount] = useState(0);
   const [roomOperations, setRoomOperations] = useState<RoomOperation[]>([]);
-  const [roomOpsInput, setRoomOpsInput] = useState("");
-  const [showRoomOpsImport, setShowRoomOpsImport] = useState(false);
   const [newOrderQueue, setNewOrderQueue] = useState<WorkOrder[]>([]);
+  const [workOrderNotifications, setWorkOrderNotifications] = useState<WorkOrderNotification[]>([]);
+  const [notificationError, setNotificationError] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
+  const notificationCursorRef = useRef<string | null>(null);
+  const notificationPollInFlightRef = useRef(false);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
   const knownOrderIdsRef = useRef<Set<string> | null>(null);
   const lastSeenMsRef = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -313,11 +227,13 @@ export default function EngineeringDashboardPage() {
   }
 
   function openCreateWorkOrder() {
-    router.push("/work-orders");
+    window.dispatchEvent(new CustomEvent("cmpri-open-modal", {
+      detail: { href: "/work-orders", title: "Create Work Order" },
+    }));
   }
 
   function playAlertTone() {
-    if (!soundEnabled) return;
+    if (!soundEnabledRef.current) return;
     try {
       const AudioCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtor) return;
@@ -386,10 +302,19 @@ export default function EngineeringDashboardPage() {
   function toggleSound() {
     setSoundEnabled((current) => {
       const next = !current;
+      soundEnabledRef.current = next;
       writeSoundPreference(next);
       if (next) playAlertTone();
       return next;
     });
+  }
+
+  function dismissWorkOrderNotifications() {
+    setWorkOrderNotifications([]);
+    pendingNotificationIdsRef.current.clear();
+    if (cmpriSession?.user.id && notificationCursorRef.current) {
+      saveWorkOrderNotificationCursor(cmpriSession.user.id, notificationCursorRef.current);
+    }
   }
 
   function openWorkOrder(workOrderId: string) {
@@ -401,161 +326,31 @@ export default function EngineeringDashboardPage() {
     setActiveWorkOrderId(workOrderId);
   }
 
-  async function requestAIRefresh() {
-    if (aiInFlightRef.current) return;
-    aiInFlightRef.current = true;
-    setAiRefreshing(true);
-    setAiSummaries([]);
-    setAiRefreshMessage("Analyzing saved active work orders…");
-    try {
-      const session = await getValidSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Sign in to refresh AI.");
-      const response = await fetch("/api/maintenance-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: DASHBOARD_AI_ACTION, device_id: getOrCreateAiDeviceId() }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !Array.isArray(payload.summaries)) throw new Error(payload.error || "AI refresh failed.");
-      setAiSummaries(payload.summaries);
-      setAiRefreshMessage(payload.summaries.length
-        ? `AI-imported summaries refreshed at ${new Date(payload.generated_at).toLocaleTimeString()} for ${payload.summaries.length} saved active work orders.${payload.limited ? " Limited to the 20 most recent eligible records in this batch." : ""} The refresh is audit-recorded by user, device, and timestamp. Review summaries against the work-order records.`
-        : "No saved active work orders with issue or note text were found in the latest batch. No AI request was made.");
-    } catch (error) {
-      setAiRefreshMessage(error instanceof Error ? error.message : "AI refresh failed.");
-    } finally {
-      aiInFlightRef.current = false;
-      setAiRefreshing(false);
-    }
+  async function fetchRoomOperations(reportDate?: string) {
+    const session = await getValidSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("Sign in again to load room operations.");
+    const query = reportDate ? `?date=${encodeURIComponent(reportDate)}` : "";
+    const response = await fetch(`/api/room-operations${query}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as { date?: string; rows?: Record<string, unknown>[]; error?: string };
+    if (!response.ok || !Array.isArray(payload.rows) || typeof payload.date !== "string") throw new Error(payload.error || "Room operations could not be loaded.");
+    return { date: payload.date, rows: payload.rows.map(mapRoomOperation).sort((a, b) => a.room.localeCompare(b.room, undefined, { numeric: true, sensitivity: "base" })) };
   }
 
   async function loadRoomOperations(silent = false) {
     if (roomOpsInFlightRef.current) return;
     roomOpsInFlightRef.current = true;
     try {
-      const session = await getValidSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Sign in again to load room operations.");
-      const response = await fetch("/api/room-operations", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !Array.isArray(payload.rows)) throw new Error(payload.error || "Room operations could not be loaded.");
-      setRoomOperations(payload.rows.map((row: Record<string, unknown>) => ({
-        room: String(row.room || ""),
-        checkoutDate: String(row.checkout_date || ""),
-        checkoutTime: String(row.checkout_time || ""),
-        roomStatus: String(row.room_status || ""),
-        arrivalDate: String(row.arrival_date || ""),
-        arrivalTime: String(row.arrival_time || ""),
-        moveFrom: String(row.move_from || ""),
-        moveTo: String(row.move_to || ""),
-        guestName: String(row.guest_name || ""),
-        roomType: String(row.room_type || ""),
-        guestCode: String(row.guest_code || ""),
-        guestArrivalDate: String(row.guest_arrival_date || ""),
-        stayNights: Number(row.stay_nights || 0),
-        reserved: row.reserved === true,
-        importedAt: String(row.imported_at || ""),
-      })) as RoomOperation[]);
+      const result = await fetchRoomOperations();
+      setRoomOperations(result.rows);
       if (!silent) setMessage("");
     } catch (error) {
       if (!silent) setMessage(error instanceof Error ? `Room operations error: ${error.message}` : "Room operations error.");
     } finally {
       roomOpsInFlightRef.current = false;
-    }
-  }
-
-  async function importRoomOperations(rows: RoomOperation[], source: "paste" | "file" | "photo") {
-    if (!rows.length) {
-      setMessage("No room checkout rows were found. Paste a spreadsheet table with a Room column.");
-      return;
-    }
-    try {
-      const session = await getValidSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Sign in again before importing room operations.");
-      const response = await fetch("/api/room-operations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ source, rows }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.ok !== true) throw new Error(payload.error || "Room operations were not saved.");
-      await loadRoomOperations(true);
-      setShowRoomOpsImport(false);
-      setRoomOpsInput("");
-      setMessage(`${payload.count || rows.length} room-operation rows saved to the shared CMPRI daily snapshot.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? `Room operations import error: ${error.message}` : "Room operations import error.");
-    }
-  }
-
-  async function handleRoomOpsFile(file?: File | null) {
-    if (!file) return;
-    if (!/\.(csv|tsv|txt)$/i.test(file.name)) {
-      setMessage("Export the checkout sheet as CSV/TSV/TXT, or paste the spreadsheet rows.");
-      return;
-    }
-    await importRoomOperations(parseRoomOperationsText(await file.text()), "file");
-  }
-
-
-  async function handleRoomOpsImage(file?: File | null) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setMessage("Choose a checkout/arrival report photo or screenshot.");
-      return;
-    }
-    const Detector = (window as unknown as {
-      TextDetector?: new () => { detect(input: ImageBitmap): Promise<Array<{ rawValue?: string; boundingBox?: { x: number; y: number; width: number; height: number } }>> };
-    }).TextDetector;
-    if (!Detector) {
-      setMessage("This browser does not expose local image text recognition. Use pasted rows or CSV/TSV/TXT on this device; the photo itself was not uploaded to an AI provider.");
-      return;
-    }
-    try {
-      const bitmap = await createImageBitmap(file);
-      const items = (await new Detector().detect(bitmap))
-        .filter((item) => String(item.rawValue || "").trim())
-        .sort((a, b) => {
-          const ay = a.boundingBox?.y ?? 0;
-          const by = b.boundingBox?.y ?? 0;
-          if (Math.abs(ay - by) > 8) return ay - by;
-          return (a.boundingBox?.x ?? 0) - (b.boundingBox?.x ?? 0);
-        });
-      bitmap.close();
-      const rows: Array<{ y: number; h: number; cells: typeof items }> = [];
-      for (const item of items) {
-        const box = item.boundingBox;
-        const centerY = box ? box.y + box.height / 2 : rows.length * 20;
-        const existing = rows.find((row) => Math.abs(row.y - centerY) <= Math.max(8, row.h * 0.65));
-        if (existing) {
-          existing.cells.push(item);
-          existing.y = (existing.y + centerY) / 2;
-          existing.h = Math.max(existing.h, box?.height ?? 12);
-        } else {
-          rows.push({ y: centerY, h: box?.height ?? 12, cells: [item] });
-        }
-      }
-      const extracted = rows
-        .sort((a, b) => a.y - b.y)
-        .map((row) => row.cells
-          .sort((a, b) => (a.boundingBox?.x ?? 0) - (b.boundingBox?.x ?? 0))
-          .map((item) => String(item.rawValue || "").trim())
-          .join("\t"))
-        .join("\n");
-      setRoomOpsInput(extracted);
-      const parsed = parseRoomOperationsText(extracted);
-      if (!parsed.length) {
-        setMessage("Text was read from the image locally, but no room table could be identified. Review the extracted text in the import box before importing.");
-        return;
-      }
-      await importRoomOperations(parsed, "photo");
-    } catch (error) {
-      setMessage(`Photo import error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -574,7 +369,9 @@ export default function EngineeringDashboardPage() {
         }
         setCmpriSession(session);
         lastSeenMsRef.current = readLastSeenTimestamp(session.user.id);
-        setSoundEnabled(readSoundPreference());
+        const soundPreference = readSoundPreference();
+        soundEnabledRef.current = soundPreference;
+        setSoundEnabled(soundPreference);
       } catch {
         window.location.replace("/");
         return;
@@ -591,6 +388,47 @@ export default function EngineeringDashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (!cmpriSession || roleKey(cmpriSession.user.role) !== "engineer") return;
+    const userId = cmpriSession.user.id;
+    notificationCursorRef.current = readWorkOrderNotificationCursor(userId);
+    let current = true;
+    const pollNotifications = async () => {
+      if (notificationPollInFlightRef.current) return;
+      notificationPollInFlightRef.current = true;
+      try {
+        const session = await getValidSession();
+        if (!session?.access_token) throw new Error("Sign in again to load work-order notifications.");
+        const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId);
+        const result = await fetchWorkOrderNotifications(session.access_token, cursor);
+        if (!current) return;
+        notificationCursorRef.current = result.checked_at;
+        const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, result.notifications);
+        if (unseen.length) {
+          unseen.forEach((notification) => pendingNotificationIdsRef.current.add(notification.id));
+          setWorkOrderNotifications((existing) => mergeWorkOrderNotifications(existing, unseen));
+          playAlertTone();
+        }
+        if (!result.notifications.length && pendingNotificationIdsRef.current.size === 0) {
+          saveWorkOrderNotificationCursor(userId, result.checked_at);
+        }
+        setNotificationError("");
+      } catch (error) {
+        if (current) setNotificationError(error instanceof Error ? error.message : "Work-order notifications could not be loaded.");
+      } finally {
+        notificationPollInFlightRef.current = false;
+      }
+    };
+    void pollNotifications();
+    const interval = window.setInterval(() => { void pollNotifications(); }, REFRESH_MS);
+    return () => {
+      current = false;
+      window.clearInterval(interval);
+    };
+    // The effect intentionally polls for the active engineer and uses refs for cursor/sound state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmpriSession]);
+
+  useEffect(() => {
     if (!cmpriSession) return;
     void (async () => {
       try {
@@ -599,9 +437,29 @@ export default function EngineeringDashboardPage() {
         const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
         if (!response.ok) return;
         const payload = await response.json().catch(() => ({}));
-        setPersonalAiConnected(payload.personal_ai?.connected === true);
+        setChatgptConnected(payload.chatgpt_connection?.connected === true);
       } catch {}
     })();
+  }, [cmpriSession]);
+
+  useEffect(() => {
+    if (!cmpriSession || !hasCapability(cmpriSession, "review_feedback")) return;
+    let current = true;
+    const refreshFeedbackCount = async () => {
+      try {
+        const session = await getValidSession();
+        if (!session?.access_token) return;
+        const response = await fetch("/api/feedback?mode=count", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (current && response.ok && Number.isInteger(payload.count) && payload.count >= 0) setNewFeedbackCount(payload.count);
+      } catch {}
+    };
+    void refreshFeedbackCount();
+    const interval = window.setInterval(() => void refreshFeedbackCount(), 60_000);
+    return () => { current = false; window.clearInterval(interval); };
   }, [cmpriSession]);
 
   useEffect(() => {
@@ -614,27 +472,105 @@ export default function EngineeringDashboardPage() {
     };
   }, [newOrderQueue.length]);
 
-  function closeTopOverlay() {
+  const closeTopOverlay = useCallback(() => {
     if (activeWorkOrderId) {
       setActiveWorkOrderId("");
       setWorkOrderModalToken("");
       return;
     }
-    if (showRoomOpsImport) {
-      setShowRoomOpsImport(false);
-      return;
-    }
-    if (showWorkOrderList) {
+if (showWorkOrderList) {
       setShowWorkOrderList(false);
     }
+  }, [activeWorkOrderId, showWorkOrderList]);
+
+  function handleWorkOrderModalFrameLoad(event: React.SyntheticEvent<HTMLIFrameElement>) {
+    workOrderFrameCleanupRef.current?.();
+    const frameDocument = event.currentTarget.contentDocument;
+    if (!frameDocument) return;
+    const handleFrameEscape = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") {
+        if (keyEvent.defaultPrevented) return;
+        if (frameDocument.querySelector('[role="listbox"], [role="dialog"][aria-modal="true"]')) return;
+        const cancelRequest = new Event("cmpri-modal-cancel-request", { cancelable: true });
+        const handledByFrame = !frameDocument.dispatchEvent(cancelRequest);
+        keyEvent.preventDefault();
+        if (!handledByFrame) closeTopOverlay();
+        return;
+      }
+      if (keyEvent.key !== "Tab") return;
+      const content = frameDocument.querySelector("main") || frameDocument.body;
+      const focusable = Array.from(content.querySelectorAll<HTMLElement>(
+        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      )).filter((element) => element.getClientRects().length > 0);
+      if (!focusable.length) {
+        keyEvent.preventDefault();
+        event.currentTarget.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (keyEvent.shiftKey && (frameDocument.activeElement === first || frameDocument.activeElement === frameDocument.body || !content.contains(frameDocument.activeElement))) {
+        keyEvent.preventDefault();
+        last.focus();
+      } else if (!keyEvent.shiftKey && (frameDocument.activeElement === last || frameDocument.activeElement === frameDocument.body || !content.contains(frameDocument.activeElement))) {
+        keyEvent.preventDefault();
+        first.focus();
+      }
+    };
+    frameDocument.addEventListener("keydown", handleFrameEscape);
+    workOrderFrameCleanupRef.current = () => frameDocument.removeEventListener("keydown", handleFrameEscape);
+    event.currentTarget.focus();
   }
 
   useEffect(() => {
-    if (!showWorkOrderList && !showRoomOpsImport && !activeWorkOrderId) return;
+    if (!showWorkOrderList && !activeWorkOrderId) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [activeWorkOrderId, showRoomOpsImport, showWorkOrderList]);
+  }, [activeWorkOrderId, showWorkOrderList]);
+
+  useEffect(() => {
+    const overlayOpen = showWorkOrderList || Boolean(activeWorkOrderId);
+    if (!overlayOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (activeWorkOrderId) {
+      workOrderModalFrameRef.current?.focus();
+    } else {
+      dashboardDialogRef.current?.querySelector<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), a[href]",
+      )?.focus();
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeTopOverlay();
+        return;
+      }
+      if (event.key !== "Tab" || activeWorkOrderId) return;
+      const focusable = Array.from(dashboardDialogRef.current?.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+      ) ?? []).filter((element) => element.getClientRects().length > 0);
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dashboardDialogRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dashboardDialogRef.current)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      workOrderFrameCleanupRef.current?.();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [activeWorkOrderId, closeTopOverlay, showWorkOrderList]);
 
   useEffect(() => {
     function handleWorkOrderMessage(event: MessageEvent) {
@@ -672,12 +608,6 @@ export default function EngineeringDashboardPage() {
     all: orders,
   };
 
-  const cards = [
-    ["open", "Open", openOrders.length],
-    ["progress", "In Progress", inProgress.length],
-    ["priority", "Urgent / High", urgentHigh.length],
-    ["overdue", "Overdue", overdue.length],
-  ] as const;
   const listFilters = [
     ["open", "Open", openOrders.length],
     ["progress", "In Progress", inProgress.length],
@@ -690,6 +620,17 @@ export default function EngineeringDashboardPage() {
     ? orders.filter((order) => Object.values(order).some((value) => String(value ?? "").toLowerCase().includes(normalizedListSearch)))
     : groups[filter];
 
+  if (!cmpriSession) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-950 p-4 text-white" aria-busy="true">
+        <p role="status" className="text-sm text-slate-300">Loading your authorized dashboard…</p>
+      </main>
+    );
+  }
+
+  const isHousekeepingDashboard = roleDisplayName(cmpriSession.user.role) === "Lead Housekeeper";
+  const isFullWidthDashboard = ["Front Desk", "Lead Housekeeper"].includes(roleDisplayName(cmpriSession.user.role));
+
   async function signOut() {
     await signOutDevice();
     router.replace("/");
@@ -697,40 +638,39 @@ export default function EngineeringDashboardPage() {
 
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
+    <main className="min-h-screen w-full min-w-0 bg-slate-950 text-white">
+      <div className={`mx-auto w-full max-w-none min-w-0 px-3 py-4 sm:px-4 lg:px-6 ${isFullWidthDashboard ? "" : "lg:w-[66vw]"}`}>
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-start gap-4">
             <CmpriMark />
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">CMPRI Engineering</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">{isHousekeepingDashboard ? "CMPRI Housekeeping" : "CMPRI Engineering"}</p>
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-bold tracking-tight">Engineering Dashboard</h1>
+                <h1 className="text-3xl font-bold tracking-tight">{dashboardTitleForRole(cmpriSession?.user.role || "Engineer")}</h1>
                 <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold text-slate-300">Version {BUILD_VERSION}</span>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
-                <span>Work orders, priorities, assignments, and due work at a glance.</span>
                 <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-2.5 py-0.5 font-bold text-sky-200">Moves: {moveCount}</span>
               </div>
+              {cmpriSession && <div className="mt-3"><AccountSummary user={cmpriSession.user} /></div>}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</a>
-            <a href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</a>
-            <a href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</a>
-            <a href="/engineering/gss" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">GSS Reports</a>
-            <a href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</a>
-            <a href="/engineering/room-operations" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Daily Room Ops</a>
-            <button type="button" onClick={() => setShowRoomOpsImport(true)} className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Import Room Ops</button>
-            <a href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</a>
-            <a href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</a>
-            <a href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</a>
-            <a href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</a>
-            <a href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</a>
-            <a href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</a>
-            <a href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</a>
-            {!personalAiConnected && <a href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect AI</a>}
-            <button type="button" onClick={requestAIRefresh} disabled={aiRefreshing} className="rounded-lg border border-purple-400/50 bg-purple-950/30 px-4 py-2 text-sm font-bold text-purple-100 hover:bg-purple-900/40 disabled:opacity-50">{aiRefreshing ? "Refreshing AI…" : "Refresh AI"}</button>
+            {roleKey(cmpriSession?.user.role) === "system_admin" && <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</button>}
+            {roleKey(cmpriSession?.user.role) === "system_admin" && <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>}
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/purchasing" className="rounded-lg border border-orange-400/50 bg-orange-950/30 px-4 py-2 text-sm font-bold text-orange-100 hover:bg-orange-900/40">Purchasing & Email</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/gss" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">GSS Reports</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-operations" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Daily Room Ops</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/equipment" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Manage Equipment</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/enseo-assignments" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Enseo Assignments</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/parts" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">Parts & Vendors</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/import-work-orders" className="rounded-lg border border-fuchsia-400/50 bg-fuchsia-950/30 px-4 py-2 text-sm font-bold text-fuchsia-100 hover:bg-fuchsia-900/40">Import Existing WOs</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/rooms" className="rounded-lg border border-indigo-400/50 bg-indigo-950/30 px-4 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-900/40">Manage Rooms</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/management/users" className="rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Manage Users</button>
+            {hasCapability(cmpriSession, "review_feedback") && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("cmpri-open-modal", { detail: { href: `/feedback?route=${encodeURIComponent(window.location.pathname)}`, title: "Feedback" } }))} className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/30">Feedback{newFeedbackCount > 0 ? ` (${newFeedbackCount})` : ""}</button>}
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Manage Profile</button>
+            {!chatgptConnected && <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/profile" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">Connect ChatGPT</button>}
             <button type="button" onClick={() => { setFilter("all"); setShowWorkOrderList(true); }} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Work Order List</button>
             <button type="button" onClick={openCreateWorkOrder} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">+ Create Work Order</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
@@ -783,92 +723,54 @@ export default function EngineeringDashboardPage() {
           </section>
         )}
 
+        {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
+        <WorkOrderNotificationBanner notifications={workOrderNotifications} onDismiss={dismissWorkOrderNotifications} />
         {message && <div className="mt-5 rounded-xl border border-red-400/30 bg-red-950/20 p-4 text-sm text-red-200">{message}</div>}
-        {aiRefreshMessage && <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-purple-400/30 bg-purple-950/20 p-4 text-sm text-purple-100">{aiRefreshMessage}</div>}
-
-        {aiSummaries.length > 0 && <section aria-label="AI work-order summaries" className="mt-4 rounded-xl border border-purple-400/30 bg-purple-950/10 p-4">
-          <h2 className="font-bold text-purple-100">AI work-order summaries</h2>
-          <p className="mt-1 text-xs text-slate-400">AI-imported snapshot from the last manual Refresh AI click. Work-order records are unchanged; the refresh is audit-recorded with user, device, and timestamp.</p>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            {aiSummaries.map((item) => <article key={item.id} className="rounded-lg border border-slate-700 bg-slate-900 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <a className="text-sm font-bold text-purple-200 underline" href={`/work-orders/${encodeURIComponent(item.id)}`}>{item.display_id || item.id}{item.room ? ` · ${item.room}` : ""}</a>
-                <CopyButton text={item.summary} label="Copy summary" />
-              </div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-200">{item.summary}</p>
-            </article>)}
-          </div>
-        </section>}
-
-        <section className="mt-5 grid gap-2 sm:grid-cols-4">
-          {cards.map(([key, label, value]) => {
-            const active = filter === key;
-            return (
-              <button key={key} type="button" onClick={() => { setFilter(key); setShowWorkOrderList(true); }} className={`rounded-xl border px-3 py-3 text-left transition ${active ? "border-amber-400 bg-slate-900 ring-1 ring-amber-400/30" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
-                <p className={active ? "text-amber-300" : "text-slate-400"}>{label}</p>
-                <p className="mt-1 text-2xl font-bold leading-none">{loading ? "—" : value}</p>
-              </button>
-            );
-          })}
-        </section>
 
       </div>
 
       {showWorkOrderList && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 sm:p-6">
-          <section role="dialog" aria-modal="true" aria-labelledby="work-order-list-title" className="cmpri-dashboard-overlay-panel flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 px-4 py-4 sm:px-5">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Engineering Dashboard</p>
-                <h2 id="work-order-list-title" className="mt-1 text-2xl font-bold">Work Order List</h2>
-              </div>
-              <button type="button" onClick={closeTopOverlay} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Close</button>
-            </div>
-
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-1">
+          <section ref={setDashboardDialogElement} role="dialog" aria-modal="true" aria-labelledby="work-order-list-title" className="cmpri-modal-shell cmpri-dashboard-overlay-panel flex flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 sm:p-5">
+              <button type="button" onClick={closeTopOverlay} className="self-start rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</button>
               <div className="relative">
                 <input type="search" value={listSearchQuery} onChange={(event) => setListSearchQuery(event.target.value)} placeholder="Search work orders…" className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 pr-11 text-base text-white outline-none placeholder:text-slate-400 focus:border-amber-400" />
                 {listSearchQuery && <button type="button" onClick={() => setListSearchQuery("")} aria-label="Clear work-order search" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
-                <span className="font-semibold uppercase tracking-wide text-slate-500">Quick View</span>
-                <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Unassigned <b className="text-white">{openOrders.filter((order) => !String(order.technician_name || "").trim()).length}</b></span>
-                <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Due date set <b className="text-white">{openOrders.filter((order) => !!order.due_by).length}</b></span>
-                <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">HVAC <b className="text-white">{openOrders.filter((order) => String(order.category || "").toLowerCase() === "hvac").length}</b></span>
-              </div>
-
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {listFilters.map(([key, label, value]) => (
-                  <button key={key} type="button" onClick={() => setFilter(key)} className={`rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${filter === key ? "border-amber-400 bg-slate-900 text-amber-300" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600"}`}>
-                    <span>{label}</span>
-                    <span className="ml-2 text-lg text-white">{loading ? "—" : value}</span>
+                  <button key={key} type="button" onClick={() => setFilter(key)} className={`rounded-lg border px-2 py-1.5 text-left text-[11px] font-semibold transition ${filter === key ? "border-amber-400 bg-slate-900 text-amber-300" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{label}</span>
+                      <span className="text-sm text-white">{loading ? "—" : value}</span>
+                    </div>
                   </button>
                 ))}
               </div>
 
               <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
                 <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 sm:px-5">
-                  <h3 className="text-xl font-bold">{normalizedListSearch ? "Search Results" : cards.find(([key]) => key === filter)?.[1] || "Work Orders"}</h3>
+                  {normalizedListSearch && <h3 className="text-xl font-bold">Search Results</h3>}
                   <span className="text-sm text-slate-400">{loading ? "Loading…" : `${filteredListOrders.length} shown`}</span>
                 </div>
                 <div className="min-h-0 flex-1 divide-y divide-slate-800 overflow-y-auto">
                   {!loading && filteredListOrders.length === 0 && <p className="p-5 text-sm text-slate-400">{normalizedListSearch ? "No work orders match your search." : "No work orders match this filter."}</p>}
                   {filteredListOrders.slice(0, 75).map((order) => (
-                    <button type="button" key={order.id} onClick={() => openWorkOrder(order.id)} className="block w-full px-4 py-4 text-left hover:bg-slate-800/60 sm:px-5">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-2xl font-bold leading-none text-white">{order.room || "No location"}</span>
-                            {order.category && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{order.category}</span>}
+                    <button type="button" key={order.id} onClick={() => openWorkOrder(order.id)} className="block w-full px-3 py-2.5 text-left hover:bg-slate-800/60 sm:px-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-lg font-bold leading-none text-white">{order.room || "No location"}</span>
+                            {order.category && <span className="rounded-full border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">{order.category}</span>}
                           </div>
-                          <p className="mt-1 text-sm font-medium text-slate-200">{order.issue || "No issue description"}</p>
-                          {order.asset_name && <p className="mt-1 text-xs text-slate-500">{order.asset_name}</p>}
+                          <p className="mt-0.5 line-clamp-2 text-xs font-medium text-slate-200">{order.issue || "No issue description"}</p>
+                          {order.asset_name && <p className="mt-0.5 text-[10px] text-slate-500">{order.asset_name}</p>}
                         </div>
-                        <div className="shrink-0 text-left text-xs text-slate-400 lg:text-right">
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass(order.status)}`}>{normalizeStatus(order.status)}</span>
+                        <div className="shrink-0 text-right text-[10px] text-slate-400">
+                          <span className={`inline-flex rounded-full border px-1.5 py-0.5 font-semibold ${statusClass(order.status)}`}>{normalizeStatus(order.status)}</span>
                           <div className="mt-1">{order.technician_name || "Unassigned"}</div>
-                          <div className={`mt-1 inline-flex rounded-full border px-2 py-0.5 ${isOverdue(order.due_by) ? "border-red-400/50 bg-red-950/40 font-semibold text-red-200" : "border-transparent"}`}>{formatDue(order.due_by)}</div>
                         </div>
                       </div>
                     </button>
@@ -881,32 +783,21 @@ export default function EngineeringDashboardPage() {
       )}
 
       {activeWorkOrderId && workOrderModalToken && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-2 sm:p-5">
-          <div role="dialog" aria-modal="true" aria-label="Work order detail" className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-1">
+          <div role="dialog" aria-modal="true" aria-label="Work order detail" className="cmpri-modal-shell cmpri-dashboard-overlay-panel flex overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
             <iframe
+              ref={workOrderModalFrameRef}
               title="Work order detail"
               src={`/work-orders/${encodeURIComponent(activeWorkOrderId)}?embedded=1&modalToken=${encodeURIComponent(workOrderModalToken)}`}
-              className="h-full w-full border-0"
+              onLoad={handleWorkOrderModalFrameLoad}
+              className="h-full w-full min-w-0 border-0"
+              style={{ minHeight: "min(88vh, 60rem)" }}
             />
           </div>
         </div>
       )}
 
-      {showRoomOpsImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="cmpri-dashboard-overlay-panel max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Room Operations</p><h2 className="mt-1 text-xl font-semibold">Import Daily Room Operations</h2><p className="mt-1 text-sm text-slate-400">Paste spreadsheet rows, import CSV/TSV/TXT, or use a report photo/screenshot when this browser supports local text recognition. Photos are processed on-device, not sent to the AI refresh provider.</p></div><button type="button" onClick={closeTopOverlay} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800">Close</button></div>
-            <div className="space-y-4 p-5">
-              <textarea value={roomOpsInput} onChange={(event) => setRoomOpsInput(event.target.value)} rows={8} placeholder={"Room\tCheckout Date\tCheckout Time\tRoom Status\tCheck-in Date\tCheck-in Time\tMove From\tMove To\tGuest Name\tRoom Type\tGuest Code\tARV\tLOS\tReserved\n316\t9/15/2026\t11:00 AM\tVacant Dirty\t9/15/2026\t4:00 PM\t316\t412\tGuest Name\tKING\tCODE\t9/12/2026\t3\tYes"} className="w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-white outline-none focus:border-amber-400" />
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => void importRoomOperations(parseRoomOperationsText(roomOpsInput), "paste")} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Import Pasted Rows</button>
-                <label className="cursor-pointer rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Import CSV / TSV / TXT<input type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={(event) => void handleRoomOpsFile(event.target.files?.[0])} /></label>
-                <label className="cursor-pointer rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-900/40">Import Photo / Screenshot<input type="file" accept="image/*" className="hidden" onChange={(event) => void handleRoomOpsImage(event.target.files?.[0])} /></label>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
     </main>
   );

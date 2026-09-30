@@ -42,6 +42,25 @@ function shortText(value: unknown, label: string, max: number) {
   return value.trim();
 }
 
+function stayNights(value: unknown, label: string) {
+  if (value === undefined || value === null || value === "") throw new Error(`${label} is required; supply the extracted value instead of guessing.`);
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!/^\d+$/.test(text)) throw new Error(`${label} must be a whole number from 0 to 3650.`);
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed > 3650) throw new Error(`${label} must be a whole number from 0 to 3650.`);
+  return parsed;
+}
+
+function reserved(value: unknown, label: string) {
+  if (value === undefined || value === null || value === "") throw new Error(`${label} is required; supply the extracted Yes/No value instead of guessing.`);
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string" && typeof value !== "number") throw new Error(`${label} is invalid.`);
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "yes", "y", "1", "reserved", "blk"].includes(normalized)) return true;
+  if (["false", "no", "n", "0", "not reserved"].includes(normalized)) return false;
+  throw new Error(`${label} value '${normalized}' is not recognized.`);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
@@ -64,7 +83,7 @@ export async function POST(request: NextRequest) {
     body = parsed as Record<string, unknown>;
   } catch { return NextResponse.json({ error: "A valid JSON import is required." }, { status: 400 }); }
   const source = shortText(body.source, "Import source", 20) || "paste";
-  if (!["paste", "file", "photo"].includes(source)) return NextResponse.json({ error: "Import source is invalid." }, { status: 400 });
+  if (!["paste", "file", "photo", "ai"].includes(source)) return NextResponse.json({ error: "Import source is invalid." }, { status: 400 });
   const reportDate = typeof body.report_date === "string" && body.report_date ? body.report_date : hotelDate();
   if (!validDate(reportDate)) return NextResponse.json({ error: "Report date is invalid." }, { status: 400 });
   if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 500) return NextResponse.json({ error: "Import between 1 and 500 room rows." }, { status: 400 });
@@ -96,11 +115,15 @@ export async function POST(request: NextRequest) {
         room_type: shortText(row.roomType ?? row.room_type, `Row ${index + 1} room type`, 80),
         guest_code: shortText(row.guestCode ?? row.guest_code, `Row ${index + 1} guest code`, 80),
         guest_arrival_date: normalizedDate(row.guestArrivalDate ?? row.guest_arrival_date, `Row ${index + 1} guest arrival date`),
-        stay_nights: Math.max(0, Math.min(3650, Math.round(Number(row.stayNights ?? row.stay_nights ?? 0) || 0))),
-        reserved: row.reserved === true || ["true", "yes", "y", "1", "reserved", "blk"].includes(String(row.reserved || "").trim().toLowerCase()),
+        stay_nights: stayNights(row.stayNights ?? row.stay_nights, `Row ${index + 1} length of stay`),
+        reserved: reserved(row.reserved, `Row ${index + 1} reserved`),
       });
     });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Room-operations validation failed." }, { status: 400 }); }
+
+  if (body.validate_only === true) {
+    return NextResponse.json({ ok: true, date: reportDate, count: rows.length, rows }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Authorization" } });
+  }
 
   const actorName = auth.principal.profile.full_name || auth.principal.identity.email || "CMPRI Engineering";
   const { data: importId, error } = await auth.admin.rpc("cmpri_replace_room_operations", {

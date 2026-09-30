@@ -84,7 +84,7 @@ export function allows(principal: Principal, capability: Capability): boolean {
 
   const required = GRANTS[capability];
   if (!required) return true;
-  return principal.permissions.length === 0 ? true : hasAnyGrant(principal, required);
+  return hasAnyGrant(principal, required);
 }
 
 /** No access cache: every request rechecks identity, activation, exact-property membership and grants. */

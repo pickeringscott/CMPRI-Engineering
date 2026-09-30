@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { authenticatedUser } from "@/lib/server/request-auth";
@@ -9,16 +11,48 @@ import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { validFirstName, workOrderAttribution } from "@/lib/work-order-attribution";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
-import { inferWorkOrder, separateIssueFromReporterNotes } from "@/lib/work-order-suggestions";
+import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
 const ACTIVE_DUPLICATE_LIMIT = 1000;
 
-function callerDatabase(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+async function fetchAllAssetsForLocations(
+  db: SupabaseClient,
+  locationIds: string[],
+): Promise<SuggestionAsset[]> {
+  if (!locationIds.length) return [];
+
+  const rows: SuggestionAsset[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await db
+      .from("assets")
+      .select("id, location_id, name, asset_type, manufacturer, model_number, generation, asset_tag, documentation_key, active")
+      .eq("hotel_id", HOTEL_ID)
+      .in("location_id", locationIds)
+      .range(offset, offset + 999);
+
+    if (error) {
+      throw new Error(error.message || "Equipment could not be read.");
+    }
+
+    if (!data || !data.length) break;
+    rows.push(...(data as SuggestionAsset[]));
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+
+  return rows;
+}
+
+function callerDatabase(request: NextRequest, admin: SupabaseClient | null) {
+  if (/^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "")) {
+    return admin;
+  }
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
   const authorization = request.headers.get("authorization") || "";
   if (!url || !key || !authorization) return null;
   return createClient(url, key, {
@@ -46,17 +80,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Technician dashboard access is required." }, { status: 403 });
     }
     const technicianName = auth.principal.profile.full_name?.trim();
-    if (!technicianName) return NextResponse.json({ work_orders: [] });
-    const { data, error } = await auth.admin
+    const unassignedQuery = auth.admin
       .from("work_orders")
       .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
       .eq("hotel_id", HOTEL_ID)
-      .eq("technician_name", technicianName)
+      .or("technician_name.is.null,technician_name.eq.")
       .neq("status", "Closed")
       .order("due_by", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
-    if (error) return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
-    return NextResponse.json({ work_orders: data || [] }, { headers: { "Cache-Control": "no-store" } });
+    const assignedQuery = technicianName
+      ? auth.admin
+        .from("work_orders")
+        .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("technician_name", technicianName)
+        .neq("status", "Closed")
+        .order("due_by", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false })
+      : null;
+    const [unassigned, assigned] = await Promise.all([
+      unassignedQuery,
+      assignedQuery ?? Promise.resolve({ data: [], error: null }),
+    ]);
+    if (unassigned.error || assigned.error) {
+      return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
+    }
+    const workOrders = Array.from(new Map(
+      [...(assigned.data || []), ...(unassigned.data || [])].map((order) => [order.id, order]),
+    ).values()).sort((a, b) => {
+      const dueA = a.due_by ? Date.parse(a.due_by) : Number.POSITIVE_INFINITY;
+      const dueB = b.due_by ? Date.parse(b.due_by) : Number.POSITIVE_INFINITY;
+      return dueA - dueB || Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
+    });
+    return NextResponse.json({ work_orders: workOrders }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (mode === "duplicate-candidates") {
@@ -184,7 +240,8 @@ export async function POST(request: NextRequest) {
       }
       if (!row.location_id || !row.issue) throw new Error("Room/location and issue are required.");
       const { issue: cleanIssue, reporterNotes } = separateIssueFromReporterNotes(String(row.issue));
-      if (cleanIssue) row.issue = cleanIssue;
+      if (!cleanIssue) throw new Error("A maintenance issue is required. Add comments to an existing work order's notes.");
+      row.issue = cleanIssue;
       if (reporterNotes) {
         const existingNotes = typeof row.notes === "string" && row.notes.trim() ? `${row.notes.trim()}\n` : "";
         row.reporter_notes = `${existingNotes}${reporterNotes}`;
@@ -212,7 +269,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid work-order details." }, { status: 400 });
   }
 
-  const db = sourceDraft ? admin : callerDatabase(request);
+  const db = sourceDraft ? admin : callerDatabase(request, admin);
   if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
   const uniqueLocationIds = Array.from(new Set(rows.map((row) => String(row.location_id))));
   const { data: locations, error: locationError } = await db.from("locations")
@@ -227,21 +284,26 @@ export async function POST(request: NextRequest) {
   }
 
   if (submitOnly) {
-    const { data: availableAssets, error: assetError } = await db.from("assets")
-      .select("id, location_id, name, asset_type, manufacturer, model_number, generation, asset_tag, documentation_key, active")
-      .eq("hotel_id", HOTEL_ID)
-      .in("location_id", uniqueLocationIds)
-      .limit(1000);
-    if (assetError || !availableAssets || availableAssets.length >= 1000) {
+    try {
+      const availableAssets = await fetchAllAssetsForLocations(db, uniqueLocationIds);
+      for (const row of rows) {
+        const candidates = availableAssets.filter((asset) => asset.location_id === row.location_id && asset.active !== false);
+        const guess = inferWorkOrder(`${row.issue} ${row.notes || ""}`.trim(), candidates);
+        row.asset_id = guess.assetId;
+        row.asset_name = candidates.find((asset) => asset.id === guess.assetId)?.name || "";
+        row.category = guess.category || "General";
+        row.priority = guess.priority || "Medium";
+      }
+    } catch {
       return NextResponse.json({ error: "Equipment guesses could not be checked completely. No tickets were created." }, { status: 503 });
     }
-    for (const row of rows) {
-      const candidates = availableAssets.filter((asset) => asset.location_id === row.location_id && asset.active !== false);
-      const guess = inferWorkOrder(`${row.issue} ${row.notes || ""}`.trim(), candidates);
-      row.asset_id = guess.assetId;
-      row.asset_name = candidates.find((asset) => asset.id === guess.assetId)?.name || "";
-      row.category = guess.category || "General";
-      row.priority = guess.priority || "Medium";
+  }
+
+  for (const row of rows) {
+    if (!row.asset_id && (!row.category || String(row.category).trim() === "General")) {
+      const suggestion = inferWorkOrder(`${String(row.issue || "")} ${String(row.notes || "")}`.trim(), []);
+      if (suggestion.category) row.category = suggestion.category;
+      if (suggestion.priority) row.priority = suggestion.priority;
     }
   }
 

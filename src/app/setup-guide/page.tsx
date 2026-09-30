@@ -180,8 +180,8 @@ export default function SetupGuidePage() {
                 "Approved Google email receives its CMPRI role",
                 "System Administrator uses the same Google sign-in flow",
                 "Auth redirects stay on the correct domain",
-                "Room Ranker loads in read-only mode",
-                "Corporate PM loads in read-only mode",
+                "System Administrators can read and update the private Room Ranker Google Sheet",
+                "Staff can stage PM work for review, and System Administrators can approve or reject it before personal-workbook changes apply",
                 "No auth flow points back to development URLs",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2">

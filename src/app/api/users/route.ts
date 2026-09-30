@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
 import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole, roleKey } from "@/lib/server/roles";
@@ -22,8 +23,60 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
 }
 
 function ensureServiceRoleAdmin(admin: { auth?: { admin?: unknown } } | null | undefined) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const authAdmin = admin && typeof admin === "object" ? (admin as { auth?: { admin?: unknown } }).auth?.admin : undefined;
   return authAdmin && typeof authAdmin === "object" ? (authAdmin as Record<string, unknown>) : null;
+}
+
+async function rollbackCreatedAccount(id: string, authAdmin: Record<string, unknown>, admin: SupabaseClient) {
+  const failures: string[] = [];
+  const cleanupSteps = [
+    {
+      label: "property membership",
+      run: () => admin.from("hotel_members").delete().eq("hotel_id", HOTEL_ID).eq("user_id", id),
+    },
+    {
+      label: "CMPRI profile",
+      run: () => admin.from("profiles").delete().eq("id", id),
+    },
+  ];
+
+  for (const step of cleanupSteps) {
+    try {
+      const { error } = await step.run();
+      if (error) failures.push(step.label);
+    } catch {
+      failures.push(step.label);
+    }
+  }
+
+  const deleteUser = authAdmin.deleteUser as ((userId: string) => Promise<{ error: { message?: string } | null }>) | undefined;
+  if (!deleteUser) {
+    failures.push("Auth login");
+  } else {
+    try {
+      const { error } = await deleteUser.call(authAdmin, id);
+      if (error) failures.push("Auth login");
+    } catch {
+      failures.push("Auth login");
+    }
+  }
+
+  return failures;
+}
+
+async function setupFailureResponse(
+  id: string,
+  authAdmin: Record<string, unknown>,
+  admin: SupabaseClient,
+  failedStep: string,
+  cause: string,
+) {
+  const cleanupFailures = await rollbackCreatedAccount(id, authAdmin, admin);
+  const error = cleanupFailures.length
+    ? `The login was created, but ${failedStep} failed: ${cause}. Automatic cleanup could not remove the ${cleanupFailures.join(", ")}; remove this account manually.`
+    : `${failedStep} failed: ${cause}. The newly created login and CMPRI records were rolled back.`;
+  return NextResponse.json({ error }, { status: 500 });
 }
 
 export async function GET(request: NextRequest) {
@@ -31,17 +84,38 @@ export async function GET(request: NextRequest) {
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
   const { principal, admin } = access;
 
-  const { data: profiles, error: profileError } = await admin
-    .from("profiles")
-    .select("id, email, full_name, role, active")
-    .order("full_name", { ascending: true });
+  const { data: propertyMemberships, error: membershipError } = await admin
+    .from("hotel_members")
+    .select("user_id, hotel_id, active")
+    .eq("hotel_id", HOTEL_ID);
+  if (membershipError) return NextResponse.json({ error: "Unable to read property memberships." }, { status: 503 });
+
+  const memberIds = Array.from(new Set((propertyMemberships || []).map((membership) => String(membership.user_id || "")).filter(Boolean)));
+  if (!memberIds.length) return NextResponse.json({ users: [], assignable_roles: [] });
+
+  const [{ data: profiles, error: profileError }, { data: allMemberships, error: allMembershipsError }] = await Promise.all([
+    admin.from("profiles")
+      .select("id, email, full_name, role, active")
+      .in("id", memberIds)
+      .order("full_name", { ascending: true }),
+    admin.from("hotel_members")
+      .select("user_id, hotel_id")
+      .in("user_id", memberIds),
+  ]);
   if (profileError) return NextResponse.json({ error: "Unable to read CMPRI user profiles." }, { status: 503 });
+  if (allMembershipsError) return NextResponse.json({ error: "Unable to verify property account scope." }, { status: 503 });
 
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
-  const users = (profiles || []).map((user: { id: string; role: unknown }) => ({
+  const membershipsByUserId = new Map((propertyMemberships || []).map((membership) => [String(membership.user_id), membership]));
+  const userIdsWithOtherPropertyMemberships = new Set((allMemberships || [])
+    .filter((membership) => membership.hotel_id !== HOTEL_ID)
+    .map((membership) => String(membership.user_id)));
+  const users = (profiles || []).map((user: { id: string; role: unknown; active: boolean | null }) => ({
     ...user,
-    can_manage: callerCanChangeAccount(callerRole, callerId, { id: user.id, role: user.role }),
+    active: user.active === true && membershipsByUserId.get(user.id)?.active === true,
+    can_manage: !userIdsWithOtherPropertyMemberships.has(user.id)
+      && callerCanChangeAccount(callerRole, callerId, { id: user.id, role: user.role }),
   }));
 
   const managedRoles = new Set<string>();
@@ -80,7 +154,10 @@ export async function POST(request: NextRequest) {
 
   let id: string | undefined;
   if (password) {
-    const { data: created, error: createError } = await (adminAuth as any).createUser({
+    const createUser = adminAuth.createUser as
+      | ((attrs: { email: string; password: string; email_confirm: boolean; user_metadata: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
+      | undefined;
+    const { data: created, error: createError } = await createUser!({
       email,
       password,
       email_confirm: true,
@@ -89,7 +166,10 @@ export async function POST(request: NextRequest) {
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
     id = created.user?.id;
   } else {
-    const { data: invited, error: inviteError } = await (adminAuth as any).inviteUserByEmail(email, { data: { full_name: fullName } });
+    const inviteUserByEmail = adminAuth.inviteUserByEmail as
+      | ((email: string, options?: { data?: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
+      | undefined;
+    const { data: invited, error: inviteError } = await inviteUserByEmail!(email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }
@@ -104,7 +184,7 @@ export async function POST(request: NextRequest) {
     active: true,
   });
   if (profileError) {
-    return NextResponse.json({ error: `The login was created, but its CMPRI profile could not be set up: ${profileError.message}` }, { status: 500 });
+    return setupFailureResponse(id, adminAuth, admin, "CMPRI profile setup", profileError.message);
   }
 
   const { error: membershipError } = await admin.from("hotel_members").upsert({
@@ -114,8 +194,7 @@ export async function POST(request: NextRequest) {
     active: true,
   }, { onConflict: "hotel_id,user_id" });
   if (membershipError) {
-    await admin.from("profiles").update({ active: false }).eq("id", id);
-    return NextResponse.json({ error: `The login was created, but property access could not be assigned: ${membershipError.message}` }, { status: 500 });
+    return setupFailureResponse(id, adminAuth, admin, "Property access setup", membershipError.message);
   }
 
   return NextResponse.json({ user: { id, email, full_name: fullName, role: profileRole, active: true, invited: !password } });
@@ -137,6 +216,17 @@ export async function PATCH(request: NextRequest) {
     .maybeSingle();
   if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
   if (!target) return NextResponse.json({ error: "Account not found." }, { status: 404 });
+
+  const { data: targetMemberships, error: membershipScopeError } = await admin.from("hotel_members")
+    .select("user_id, hotel_id")
+    .eq("user_id", id);
+  if (membershipScopeError) return NextResponse.json({ error: "Unable to verify this account's property scope." }, { status: 503 });
+  if (!(targetMemberships || []).some((membership) => membership.hotel_id === HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is not a member of this property." }, { status: 404 });
+  }
+  if ((targetMemberships || []).some((membership) => membership.hotel_id !== HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is shared with another property and must be managed centrally." }, { status: 409 });
+  }
 
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
@@ -199,13 +289,19 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * Account removal is intentionally a soft deactivation. CMPRI preserves identity,
- * ticket attribution, notes, assignments, AI provenance, and audit history.
+ * Account removal permanently purges CMPRI data (tickets, notes, assignments, AI
+ * provenance, audit history) via the purge_cmpri_user database function, then
+ * removes the Supabase Auth login. This requires service-role credentials.
  */
 export async function DELETE(request: NextRequest) {
   const access = await requireCapability(request, "manage_users");
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
   const { principal, admin } = access;
+
+  const adminAuth = ensureServiceRoleAdmin(admin);
+  if (!adminAuth) {
+    return NextResponse.json({ error: "This deployment is missing Supabase service-role credentials. Set SUPABASE_SERVICE_ROLE_KEY before permanently removing an account." }, { status: 503 });
+  }
 
   const url = new URL(request.url);
   const id = url.searchParams.get("id")?.trim() ?? "";
@@ -220,25 +316,41 @@ export async function DELETE(request: NextRequest) {
   if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
   if (!target) return NextResponse.json({ error: "Account not found." }, { status: 404 });
 
+  const { data: targetMemberships, error: membershipScopeError } = await admin.from("hotel_members")
+    .select("user_id, hotel_id")
+    .eq("user_id", id);
+  if (membershipScopeError) return NextResponse.json({ error: "Unable to verify this account's property scope." }, { status: 503 });
+  if (!(targetMemberships || []).some((membership) => membership.hotel_id === HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is not a member of this property." }, { status: 404 });
+  }
+  if ((targetMemberships || []).some((membership) => membership.hotel_id !== HOTEL_ID)) {
+    return NextResponse.json({ error: "This account is shared with another property and must be managed centrally." }, { status: 409 });
+  }
+
   const callerRole = principal.profile.role;
   const callerId = principal.identity?.id ?? principal.profile.id;
   if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
-    return NextResponse.json({ error: "You cannot deactivate your own, an equal, or a superior CMPRI account." }, { status: 403 });
+    return NextResponse.json({ error: "You cannot permanently remove your own, an equal, or a superior CMPRI account." }, { status: 403 });
   }
 
   const expected = (target.full_name || "").trim();
   if (!expected || confirmName !== expected) {
-    return NextResponse.json({ error: "Type the account's full name exactly to confirm deactivation." }, { status: 400 });
+    return NextResponse.json({ error: "Type the account's full name exactly to confirm permanent removal." }, { status: 400 });
   }
 
-  const { error: profileError } = await admin.from("profiles").update({ active: false }).eq("id", id);
-  if (profileError) return NextResponse.json({ error: "Unable to deactivate this CMPRI profile." }, { status: 500 });
+  const { error: purgeError } = await admin.rpc("purge_cmpri_user", { target_id: id });
+  if (purgeError) {
+    return NextResponse.json({ error: `CMPRI data could not be fully purged: ${purgeError.message}. The Auth login was not deleted.` }, { status: 503 });
+  }
 
-  const { error: membershipError } = await admin.from("hotel_members")
-    .update({ active: false })
-    .eq("hotel_id", HOTEL_ID)
-    .eq("user_id", id);
-  if (membershipError) return NextResponse.json({ error: "The profile was deactivated, but property access could not be revoked." }, { status: 500 });
+  const deleteUser = adminAuth.deleteUser as ((userId: string) => Promise<{ error: { message?: string } | null }>) | undefined;
+  const { error: authDeleteError } = deleteUser
+    ? await deleteUser.call(adminAuth, id)
+    : { error: { message: "Auth admin client is unavailable." } };
+  if (authDeleteError) {
+    return NextResponse.json({ error: `CMPRI data was purged, but the Auth login remains: ${authDeleteError.message || "unknown error"}. Remove it manually in Supabase Auth.` }, { status: 500 });
+  }
 
-  return NextResponse.json({ deactivated: id, preserved_history: true });
+  return NextResponse.json({ deleted: id, preserved_history: false });
 }
+

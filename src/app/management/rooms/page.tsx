@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { getValidSession } from "@/lib/supabase/client";
+import ModalNavigationButton from "@/components/ModalNavigationButton";
+import ModalDashboardLink from "@/components/ModalDashboardLink";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 interface Location {
   id: string;
@@ -60,6 +62,7 @@ function dueState(nextDueOn: string | null) {
 }
 
 export default function RoomsPage() {
+  const embedded = useEmbeddedModal();
   const [locations, setLocations] = useState<Location[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [pmPlans, setPmPlans] = useState<PmPlan[]>([]);
@@ -67,6 +70,7 @@ export default function RoomsPage() {
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState<Location | null>(null);
   const [canEdit, setCanEdit] = useState(false);
+  const [canManageCorporatePm, setCanManageCorporatePm] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -84,6 +88,7 @@ export default function RoomsPage() {
       pm_plans?: PmPlan[];
       pm_completions?: PmCompletion[];
       can_edit?: boolean;
+      can_manage_corporate_pm?: boolean;
     };
     if (!response.ok) { setMessage(result.error || "Rooms could not be loaded."); return; }
     const list = result.locations || [];
@@ -92,6 +97,7 @@ export default function RoomsPage() {
     setPmPlans(result.pm_plans || []);
     setPmCompletions(result.pm_completions || []);
     setCanEdit(result.can_edit === true);
+    setCanManageCorporatePm(result.can_manage_corporate_pm === true);
     setSelectedId((current) => {
       const nextId = current && list.some((item) => item.id === current) ? current : list[0]?.id || "";
       const selected = list.find((item) => item.id === nextId) || null;
@@ -154,15 +160,16 @@ export default function RoomsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4">
-        <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
+      <div className="mx-auto w-full px-3 py-4 sm:px-4">
+        {!embedded && <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">CMPRI Engineering</p>
             <h1 className="mt-1 text-2xl font-bold">Rooms & Locations</h1>
             <p className="mt-1 text-sm text-slate-400">Review room/location records, work orders, and preventive maintenance history.</p>
           </div>
-          <Link href="/engineering" className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold">← Dashboard</Link>
-        </header>
+          <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>
+        </header>}
+        {embedded && <div className="mb-4"><ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></div>}
         {message ? <div role="status" className="mt-3 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm">{message}</div> : null}
         <div className="mt-4 grid gap-3 lg:grid-cols-[245px_minmax(0,1fr)]">
           <section className="max-h-[76vh] overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900">
@@ -201,7 +208,7 @@ export default function RoomsPage() {
               <div className="mt-5 border-t border-slate-800 pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-bold">Preventive maintenance</h3>
-                  <Link href="/engineering/preventive-maintenance" className="text-xs font-semibold text-indigo-300 hover:text-indigo-200">Open corporate PM tracker →</Link>
+                  {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="text-xs font-semibold text-indigo-300 hover:text-indigo-200">Open corporate PM tracker →</ModalNavigationButton>}
                 </div>
                 <div className="mt-3 space-y-3">
                   {locationPmPlans.length ? locationPmPlans.map((plan) => {
@@ -230,7 +237,7 @@ export default function RoomsPage() {
               <div className="mt-5 border-t border-slate-800 pt-4">
                 <h3 className="font-bold">Tickets for this room/location</h3>
                 <div className="mt-3 space-y-2">
-                  {roomOrders.length ? roomOrders.map((order) => <Link key={order.id} href={`/work-orders/${order.id}`} className="block rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 hover:border-indigo-500"><div className="font-semibold">{order.issue || "No issue description"}</div><div className="mt-1 text-xs text-slate-500">{order.status || "Open"}</div></Link>) : <p className="text-sm text-slate-500">No tickets are tied to this location.</p>}
+                  {roomOrders.length ? roomOrders.map((order) => <ModalNavigationButton key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="block w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-left hover:border-indigo-500"><div className="font-semibold">{order.issue || "No issue description"}</div><div className="mt-1 text-xs text-slate-500">{order.status || "Open"}</div></ModalNavigationButton>) : <p className="text-sm text-slate-500">No tickets are tied to this location.</p>}
                 </div>
               </div>
             </> : <p className="text-sm text-slate-500">No active locations are available.</p>}

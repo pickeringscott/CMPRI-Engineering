@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   createClient,
@@ -8,6 +8,7 @@ import {
   setRememberOnDevice,
   signOutDevice,
   getValidSession,
+  OAUTH_PENDING_KEY,
 } from "@/lib/supabase/client";
 import { APP_TITLE } from "@/lib/constants";
 
@@ -30,8 +31,28 @@ async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"
   return result.landing;
 }
 
+function oauthCallbackParams() {
+  const query = new URLSearchParams(window.location.search);
+  const fragment = new URLSearchParams(window.location.hash.slice(1));
+  return new URLSearchParams([...query, ...fragment]);
+}
+
+function hasOAuthCallback() {
+  return window.sessionStorage.getItem(OAUTH_PENDING_KEY) === "true";
+}
+
+function subscribeToLocation(callback: () => void) {
+  window.addEventListener("popstate", callback);
+  window.addEventListener("hashchange", callback);
+  return () => {
+    window.removeEventListener("popstate", callback);
+    window.removeEventListener("hashchange", callback);
+  };
+}
+
 export default function SignInPage() {
   const router = useRouter();
+  const processingOAuthCallback = useSyncExternalStore(subscribeToLocation, hasOAuthCallback, () => false);
   const [message, setMessage] = useState("");
   const [initializing, setInitializing] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
@@ -39,9 +60,12 @@ export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
+  const [showPasswordAccess, setShowPasswordAccess] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    const callbackParams = oauthCallbackParams();
+    const isOAuthCallback = hasOAuthCallback();
     void (async () => {
       try {
         setRememberMe(remembersDevice());
@@ -49,12 +73,21 @@ export default function SignInPage() {
         if (session) {
           const landing = await authorizedLanding(session.access_token, controller.signal);
           if (!controller.signal.aborted) {
+            window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
             setRedirecting(true);
             router.replace(landing);
           }
+        } else if (isOAuthCallback) {
+          window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
+          setMessage(
+            callbackParams.get("error_description")
+              || callbackParams.get("error")
+              || "Google sign-in did not complete. Please try again.",
+          );
         }
       } catch (error) {
         if (!controller.signal.aborted) {
+          if (isOAuthCallback) window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
           setRedirecting(false);
           setMessage(error instanceof Error ? error.message : "Unable to restore this device session.");
         }
@@ -70,13 +103,21 @@ export default function SignInPage() {
     setMessage("");
     try {
       setRememberOnDevice(rememberMe);
+      window.sessionStorage.setItem(OAUTH_PENDING_KEY, "true");
       const redirectTo = `${window.location.origin}/`;
-      const { error } = await createClient().auth.signInWithOAuth({
+      const { data, error } = await createClient().auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
       });
       if (error) throw error;
+      if (data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+      throw new Error("Google sign-in did not return a redirect URL.");
     } catch (error) {
+      window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
+      setRedirecting(false);
       setMessage(error instanceof Error ? error.message : "Google sign-in could not be started.");
       setBusy(false);
     }
@@ -106,14 +147,24 @@ export default function SignInPage() {
   }
 
   const disabled = initializing || busy || redirecting;
+  if (redirecting || (initializing && processingOAuthCallback)) {
+    return (
+      <main className="flex min-h-[100dvh] w-full items-start justify-center bg-slate-950 px-4 pt-4 text-center text-amber-400">
+        <p role="status" aria-live="polite" className="text-[16pt] font-semibold">
+          Loading Dashboard...<br />
+          Have a wonderful day!
+        </p>
+      </main>
+    );
+  }
   return (
-    <main className="grid min-h-[100dvh] w-full place-items-center bg-slate-950 px-4 text-white">
+    <main className="grid min-h-[100dvh] w-full items-start justify-items-center bg-slate-950 px-4 pt-4 text-white sm:pt-6">
       <section aria-busy={disabled} className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 shadow-lg shadow-slate-950/25">
         <div className="text-center">
           <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
           <h1 className="mt-1 text-[1.7rem] font-bold leading-tight">{APP_TITLE}</h1>
         </div>
-        {redirecting ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-amber-400/30 bg-amber-950/20 p-2.5 text-sm text-amber-100">Loading your dashboard…</p> : message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
+        {message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
         <div className="mt-3 space-y-3">
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition hover:bg-[#f7f8f8] disabled:opacity-60">
             <svg aria-hidden="true" className="h-5 w-5 shrink-0" viewBox="0 0 48 48">
@@ -124,13 +175,26 @@ export default function SignInPage() {
             </svg>
             <span>{busy ? "Opening Google…" : "Continue with Google"}</span>
           </button>
-          <label className="ml-1.5 flex items-center gap-2 text-sm text-slate-300">
-            <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
-            Remember me
-          </label>
-          <div className="border-t border-slate-800 pt-3">
-            <p className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-400">Password access</p>
-            <form onSubmit={signInWithPassword} className="mt-2 space-y-2.5">
+          <div className="flex items-center justify-between gap-3 px-1.5">
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
+              Remember me
+            </label>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-expanded={showPasswordAccess}
+              aria-controls="password-access"
+              onClick={() => setShowPasswordAccess((open) => !open)}
+              className="min-h-9 px-2 text-sm font-semibold text-sky-300 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-200 disabled:opacity-50"
+            >
+              More…
+            </button>
+          </div>
+          {showPasswordAccess && (
+            <div id="password-access" className="border-t border-slate-800 pt-3">
+              <p className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-400">Password access</p>
+              <form onSubmit={signInWithPassword} className="mt-2 space-y-2.5">
               <input
                 required
                 disabled={disabled}
@@ -156,8 +220,9 @@ export default function SignInPage() {
               <button type="submit" disabled={disabled} className="min-h-11 w-full rounded-lg border border-amber-400 px-4 font-bold text-amber-300 transition hover:bg-amber-400/10 disabled:opacity-60">
                 {busy ? "Signing in…" : "Sign in with Password"}
               </button>
-            </form>
-          </div>
+              </form>
+            </div>
+          )}
         </div>
       </section>
     </main>

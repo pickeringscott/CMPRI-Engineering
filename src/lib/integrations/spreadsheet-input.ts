@@ -27,7 +27,15 @@ export function corporatePmUpdate(body: Payload | null): Payload | null {
   const action = body.action.trim().toLowerCase();
   if (action === "setcheckbox") {
     if (!text(body.sheet, 100, true) || !positiveInteger(body.row) || !positiveInteger(body.column) || typeof body.checked !== "boolean") return null;
-    return { action, sheet: String(body.sheet).trim().toUpperCase(), row: body.row, column: body.column, checked: body.checked };
+    if (body.expectedChecked !== undefined && typeof body.expectedChecked !== "boolean") return null;
+    return {
+      action,
+      sheet: String(body.sheet).trim().toUpperCase(),
+      row: body.row,
+      column: body.column,
+      checked: body.checked,
+      ...(body.expectedChecked === undefined ? {} : { expectedChecked: body.expectedChecked }),
+    };
   }
   if (action !== "completeroompm" && action !== "clearroompm") return null;
   if (!text(body.room, 80, true) || !text(body.quarter, 40, true)) return null;

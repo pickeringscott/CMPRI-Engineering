@@ -47,33 +47,83 @@ supabase/cmpri_v1_0_integrations.sql
 
 The migration creates server-managed operational tables for email events, purchases, split shipments, Enseo tickets, warranty/RMA cases, supplier follow-ups, and GSS reports. Row-level security is enabled; these records are accessed through authenticated CMPRI server routes using the Supabase service role.
 
+The pool-log requirements migration, `supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql`, adds the middle sample location, enforces one shared location for AM/PM, requires main-drain and filter-backwash checks, and requires a reason for recorded closures. Chlorine and cyanuric-acid readings are not used. Validate and apply it before deploying the pool-log changes, which also include a complete-history view.
+
 ## Required deployment environment variables
 
-Use `.env.example` as the non-secret checklist. Existing CMPRI Supabase, OpenAI, Room Ranker, and Corporate PM variables remain in use. The email integration requires provider credentials and CRON_SECRET for scheduled scans. Microsoft 365 is preferred when both providers are configured unless CMPRI_EMAIL_PROVIDER explicitly selects Gmail. Mail.Read mailbox-scoped permission or Gmail gmail.readonly permission must be configured externally. No mailbox writing or sending is implemented.
+Use `.env.example` as the non-secret checklist. Existing CMPRI Supabase, OpenAI, Room Ranker, and Corporate PM integrations remain in use. The email integration requires provider credentials and CRON_SECRET for scheduled scans. Microsoft 365 is preferred when both providers are configured unless CMPRI_EMAIL_PROVIDER explicitly selects Gmail. Mail.Read mailbox-scoped permission or Gmail gmail.readonly permission must be configured externally. No mailbox writing or sending is implemented.
 
 The Gmail integration is designed to use a read-only Gmail OAuth scope for mailbox ingestion. It does not autonomously send warranty claims, supplier messages, or other outgoing mail.
 
 ## Room Ranker
 
-Configure:
+Room Ranker is available only to System Administrators. CMPRI accesses the
+private Google Sheet directly using a Google Cloud service account; no Apps
+Script endpoint or custom Room Ranker API key is used. Enable the Google Sheets
+API in the service account's Google Cloud project and share the spreadsheet
+with that service account's `client_email` as an Editor. Keep the sheet private
+to its normal users and that service account. Only System Administrators can
+open or edit Room Ranker.
 
 ```text
-CMPRI_ROOM_RANKER_API_URL=<deployed Apps Script URL>
-CMPRI_ROOM_RANKER_API_KEY=<private Apps Script key>
+CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON=<full service-account JSON>
+CMPRI_ROOM_RANKER_SPREADSHEET_ID=<spreadsheet id from its URL>
+CMPRI_ROOM_RANKER_SHEET_NAME=<exact worksheet tab name>
 ```
 
-The key is server-only and must not use a `NEXT_PUBLIC_` prefix.
+Alternatively, the service-account fields may be supplied in separate
+server-only variables:
+
+```text
+CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL=<service-account client_email>
+CMPRI_GOOGLE_SHEETS_PRIVATE_KEY=<service-account private_key>
+```
+
+Set these in Vercel's Production environment only. The JSON contains the
+private key and must never be committed or exposed to browser code. CMPRI
+exchanges a server-signed JWT for a short-lived Google access token and uses it
+only from server routes. Saving edits retains row/room checks and verifies the
+written values by reading them back.
 
 ## Corporate PM
 
-Configure:
+The legacy Corporate PM adapter is retained for read-only compatibility. CMPRI
+no longer writes directly to the corporate workbook; direct Corporate PM and
+work-order PM write routes return a conflict response directing staff to the
+personal live-workbook proposal and review flow. The existing personal-to-
+corporate sync remains the only corporate propagation path.
 
 ```text
-CMPRI_CORPORATE_PM_API_URL=<deployed Apps Script URL>
-CMPRI_CORPORATE_PM_API_KEY=<matching private key>
+CMPRI_CORPORATE_PM_SPREADSHEET_ID=<spreadsheet id from its URL>
 ```
 
-CMPRI reads the corporate PM schedule/checklist through the protected server route and preserves the corporate spreadsheet as the governing source.
+The legacy monthly tabs use the existing JAN–DEC names. Google credentials
+and spreadsheet IDs stay in server-only environment variables; no Apps Script
+URL or API key is used.
+
+## Live-workbook Preventive Maintenance
+
+The Engineering Preventive Maintenance workspace reads the personal live PM
+workbook configured by `CMPRI_LIVE_PM_SPREADSHEET_ID`, using the shared
+server-only Google Sheets service account. It reads the year tab for quarterly
+room completion dates and the JAN–DEC tabs for daily dates, weekly slots,
+monthly tasks, and linked checklist references. Technicians use CMPRI only and
+do not receive direct spreadsheet rights.
+
+Technician checkbox, room-date, and PDF form changes are stored as pending
+proposals in `cmpri_pm_proposals`. A System Administrator must review and
+explicitly confirm a proposal before CMPRI applies its verified changes to the
+personal live workbook. Formula-backed cells and cells changed since proposal
+submission are rejected, and successful writes are read back for verification.
+PDF inspection data (measurements, notes, follow-up, repair dates, and repeatable
+logs) is also held pending review. The corporate workbook is never written by
+this workflow; the existing sync remains responsible for corporate updates.
+
+Apply `supabase/migrations/20260930010000_cmpri_pm_review.sql` only to the
+intended development database after validating its schema and RLS. During local
+preview, keep `CMPRI_LIVE_PM_WRITES_ENABLED=false`; set it to `true` only after
+the dev review is complete. The explicit reviewer confirmation remains required
+for every proposal even when the write gate is enabled.
 
 ## Local verification
 

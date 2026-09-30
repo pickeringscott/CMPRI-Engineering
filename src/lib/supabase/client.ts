@@ -3,6 +3,8 @@ import { createClient as createSupabaseClient, type SupabaseClient } from "@supa
 import { createSessionStoragePolicy, SESSION_KEY } from "@/lib/auth/session-storage";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
+export const OAUTH_PENDING_KEY = "cmpri:auth:oauth-pending";
+
 let client: SupabaseClient | undefined;
 let policy: ReturnType<typeof createSessionStoragePolicy> | undefined;
 
@@ -42,7 +44,11 @@ export async function signOutDevice() {
   try {
     await supabase.auth.signOut({ scope: "local" });
   } finally {
-    clearDeviceSessionStorage();
+    try {
+      window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
+    } finally {
+      clearDeviceSessionStorage();
+    }
   }
 }
 

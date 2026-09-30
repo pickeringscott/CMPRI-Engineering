@@ -13,3 +13,7 @@ for(const [name,other,expected] of [
   ['missing asset',{...a,asset_id:null},true],
 ])test(`duplicate matching: ${name}`,()=>assert.equal(likelyDuplicate(a,other),expected));
 test('negation is retained',()=>assert.equal(likelyDuplicate({...a,issue:'Unit cooling'},{...a,issue:'Unit not cooling'}),false));
+test('domain synonyms and inflections match',()=>{
+  assert.equal(likelyDuplicate({...a,asset_id:'vtac',issue:'AC not cooling'},{...a,asset_id:'vtac',issue:"Air conditioner isn't cool"}),true);
+  assert.equal(likelyDuplicate({...a,asset_id:'tv',issue:'TV no signal'},{...a,asset_id:'tv',issue:'Television no picture'}),true);
+});
