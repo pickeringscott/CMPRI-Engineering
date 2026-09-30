@@ -156,6 +156,7 @@ test("room-operations uploads are manual, limited to retained dates, and preserv
   assert.match(sql, /report_date < timezone\('America\/Chicago', now\(\)\)::date - 1/);
   assert.match(sql, /report_date = p_report_date/);
   assert.match(sql, /p_source_type not in \('paste', 'file'\)/);
+  assert.match(migration, /p_source_type not in \('paste', 'file'\)/);
   assert.match(migration, /delete from public\.cmpri_room_operation_imports[\s\S]*report_date < timezone\('America\/Chicago', now\(\)\)::date - 1/);
   assert.match(migration, /create or replace function public\.cmpri_replace_room_operations/);
   assert.match(migration, /p_report_date not between/);

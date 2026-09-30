@@ -15,7 +15,7 @@ function load(relative) {
   vm.runInNewContext(source,{exports,require(name){
     if(name==='server-only')return {};
     if(name==='next/server')return {NextRequest:class NextRequest {}};
-    if(name==='@/lib/server/access')return {allows:()=>true};
+    if(name==='@/lib/server/access')return {allows:(principal,capability)=>capability!=='edit_tickets'||['chief engineer','engineering manager','maintenance technician','system administrator'].includes(String(principal.profile.role).trim().toLowerCase())};
     if(name==='@/lib/server/roles')return {roleKey:role=>String(role).trim().toLowerCase()==='system administrator'?'system_admin':String(role).trim().toLowerCase()};
     if(name==='@/lib/constants')return {HOTEL_ID:'test-hotel'};
     if(name==='@/lib/ai/mcp-write-input')return {normalizeMcpFeedbackInput:()=>({}),normalizeMcpWorkOrderUpdate:()=>({})};
@@ -43,6 +43,12 @@ test('MCP exposes Ranker and PM management writes only to system administrators'
   const restricted=['integrations.room_ranker.sync','room_ranker.update','corporate_pm.update'];
   const engineerActions=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action);
   const adminActions=writes.availableMcpWriteActions(identity('System Administrator')).map(({action})=>action);
+  const technicianActions=writes.availableMcpWriteActions(identity('Maintenance Technician')).map(({action})=>action);
+  const frontDeskActions=writes.availableMcpWriteActions(identity('Front Desk')).map(({action})=>action);
+  assert.equal(engineerActions.includes('room_operations.import'),true);
+  assert.equal(adminActions.includes('room_operations.import'),true);
+  assert.equal(technicianActions.includes('room_operations.import'),true);
+  assert.equal(frontDeskActions.includes('room_operations.import'),false);
   for(const action of restricted) {
     assert.equal(engineerActions.includes(action),false,action);
     assert.equal(adminActions.includes(action),true,action);

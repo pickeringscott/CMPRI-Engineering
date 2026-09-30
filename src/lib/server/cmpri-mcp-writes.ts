@@ -19,6 +19,7 @@ type WriteAction = {
 const WRITE_ACTIONS: WriteAction[] = [
   { action: "work_orders.create", description: "Submit one or more CMPRI work orders, using the same validation and attribution as the CMPRI form.", capability: "submit" },
   { action: "work_orders.import", description: "Import validated CMPRI work orders from SafetyCulture or a spreadsheet.", capability: "edit_tickets" },
+  { action: "room_operations.import", description: "Import a daily room-operations snapshot from a CSV created from room-status/departures photos. Extract the report date and every room row from the supplied source; merge status and departures by room before calling this action. Set source to 'file'. Required: report_date (YYYY-MM-DD) and rows with room, stay_nights (whole number), and reserved (true/false). Include extracted checkout_date, checkout_time, room_status, arrival_date, arrival_time, guest_name, room_type, guest_code, and guest_arrival_date when present; use empty strings for absent text/date fields and never guess missing source values. This replaces the complete snapshot for that date, so only call it when the user explicitly asks to import/save. CMPRI validates active rooms, dates, row count, and permissions before saving atomically.", capability: "edit_tickets" },
   { action: "work_orders.update", description: "Edit an authorized work order by supplying its UUID as id, expected_revision from the latest work-order read, and editable fields. Fields may be flat or nested under changes, updates, or fields. Editable fields include notes, status, technician_name (assignment), category, issue, priority, asset_id, cost, hours, due_by, parts, and action_root_cause. Use the exact status 'In Progress' or 'Completed' when reopening a closed work order; reopening to Open is rejected. An In Progress order must have an assigned technician.", anyOf: ["edit_tickets", "review_tickets"] },
   { action: "work_orders.delete", description: "Delete a work order when your CMPRI role permits it. Include its UUID.", anyOf: ["edit_tickets", "close_tickets", "manage_users"] },
   { action: "work_order_drafts.create", description: "Create a CMPRI work-order draft.", capability: "submit" },
@@ -106,6 +107,10 @@ export async function callMcpWriteAction(
     case "work_orders.import": {
       const route = await import("@/app/api/work-orders/import/route");
       return callApi(incoming, "/api/work-orders/import", "POST", bearer, input, route.POST);
+    }
+    case "room_operations.import": {
+      const route = await import("@/app/api/room-operations/route");
+      return callApi(incoming, "/api/room-operations", "POST", bearer, input, route.POST);
     }
     case "work_orders.update": {
       const route = await import("@/app/api/work-orders/[id]/route");

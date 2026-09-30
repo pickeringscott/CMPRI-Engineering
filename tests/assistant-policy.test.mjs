@@ -112,16 +112,20 @@ test("MCP writes are explicitly scoped and delegated through existing CMPRI endp
   assert.match(writes, /identity\.canWrite/);
   assert.match(writes, /work_orders\.create/);
   assert.match(writes, /work_orders\.update/);
+  assert.match(writes, /room_operations\.import/);
+  assert.match(writes, /@\/app\/api\/room-operations\/route/);
   assert.match(writes, /users\.delete/);
   assert.match(writes, /availableMcpWriteActions\(identity\)/);
   assert.doesNotMatch(writes, /\.from\(["'](work_orders|profiles|assets)["']\)\.(insert|update|delete)/);
   assert.match(importer, /requireCapability\(request, "edit_tickets"\)/);
+  assert.match(importer, /\["paste", "file"\]/);
 });
 
 test("room-operations repair uses the existing schema and service-role RPC unchanged", () => {
   const schema = readFileSync(new URL("../supabase/cmpri_v1_0_room_operations.sql", import.meta.url), "utf8");
   const importer = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
   assert.match(schema, /source_type text not null check \(source_type in \('paste', 'file', 'photo'\)\)/);
+  assert.match(schema, /p_source_type not in \('paste', 'file'\)/);
   assert.match(schema, /create or replace function public\.cmpri_replace_room_operations/);
   assert.match(schema, /if auth\.role\(\) <> 'service_role'/i);
   assert.match(schema, /grant execute on function public\.cmpri_replace_room_operations[\s\S]*to service_role/i);
