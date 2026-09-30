@@ -93,14 +93,19 @@ function serviceAccount() {
     throw new IntegrationConfigurationError("Google Sheets is missing the server deployment setting CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON.");
   }
 
-  let credentials: { clientEmail: string; privateKey: string } | null = null;
+  let credentials: { clientEmail: string; privateKey: string } | null =
+    separateEmail && separateKey
+      ? { clientEmail: separateEmail, privateKey: normalizePrivateKey(separateKey) }
+      : null;
   let topLevelFields = "";
-  for (const candidate of credentialValues) {
-    const parsed = parseCredentialJson(candidate.value);
-    const object = objectValue(parsed);
-    if (!topLevelFields && object) topLevelFields = Object.keys(object).sort().join(", ");
-    credentials = findCredentialPair(parsed);
-    if (credentials) break;
+  if (!credentials) {
+    for (const candidate of credentialValues) {
+      const parsed = parseCredentialJson(candidate.value);
+      const object = objectValue(parsed);
+      if (!topLevelFields && object) topLevelFields = Object.keys(object).sort().join(", ");
+      credentials = findCredentialPair(parsed);
+      if (credentials) break;
+    }
   }
   const clientEmail = credentials?.clientEmail || separateEmail || "";
   const privateKey = credentials?.privateKey || (separateKey ? normalizePrivateKey(separateKey) : "");

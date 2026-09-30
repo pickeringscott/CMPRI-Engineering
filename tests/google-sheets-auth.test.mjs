@@ -112,6 +112,20 @@ test('Google Sheets accepts the service-account email and key as separate server
   assert.equal(result.sheets[0].properties.title,'PM');
 });
 
+test('Google Sheets prefers a configured email/key pair over stale JSON credentials',async()=>{
+  const pair=generateKeyPairSync('rsa',{modulusLength:2048});
+  const credentials={client_email:'current-service-account@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
+  const f=loadModule({
+    raw:JSON.stringify({client_email:'stale-service-account@example.invalid',private_key:'not-a-valid-private-key'}),
+    clientEmail:credentials.client_email,
+    privateKey:credentials.private_key,
+    credentials,
+    publicKey:pair.publicKey,
+  });
+  const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
+  assert.equal(result.sheets[0].properties.title,'PM');
+});
+
 test('Google Sheets skips unrelated credential JSON and uses a configured service-account alias',async()=>{
   const pair=generateKeyPairSync('rsa',{modulusLength:2048});
   const credentials={client_email:'service-account@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
