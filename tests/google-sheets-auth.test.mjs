@@ -34,6 +34,7 @@ function loadModule(config={}) {
     return {ok:true,status:200,json:async()=>({sheets:[{properties:{title:'PM'}}]})};
   },process:{env:{
     CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON:config.raw===undefined?secret:config.raw,
+    GOOGLE_SERVICE_ACCOUNT_JSON:config.fallbackJson,
     CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL:config.clientEmail,
     CMPRI_GOOGLE_SHEETS_PRIVATE_KEY:config.privateKey,
   }},require(name){
@@ -63,7 +64,7 @@ test('Google Sheets rejects a missing service-account setting before network acc
 
 test('Google Sheets rejects malformed service-account JSON before network access',async()=>{
   const f=loadModule({raw:'not-json'});
-  await assert.rejects(()=>f.api.googleSheetsRequest('private-id','?fields=x'),/valid Google service-account JSON/);
+  await assert.rejects(()=>f.api.googleSheetsRequest('private-id','?fields=x'),/credentials need client_email and private_key/);
   assert.equal(f.calls.length,0);
 });
 
@@ -85,6 +86,19 @@ test('Google Sheets accepts the service-account email and key as separate server
   const pair=generateKeyPairSync('rsa',{modulusLength:2048});
   const credentials={client_email:'service-account@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
   const f=loadModule({raw:'',clientEmail:credentials.client_email,privateKey:credentials.private_key,credentials,publicKey:pair.publicKey});
+  const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
+  assert.equal(result.sheets[0].properties.title,'PM');
+});
+
+test('Google Sheets skips unrelated credential JSON and uses a configured service-account alias',async()=>{
+  const pair=generateKeyPairSync('rsa',{modulusLength:2048});
+  const credentials={client_email:'service-account@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
+  const f=loadModule({
+    raw:JSON.stringify({name:'cmpri-app',dependencies:{}}),
+    fallbackJson:JSON.stringify(credentials),
+    credentials,
+    publicKey:pair.publicKey,
+  });
   const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
   assert.equal(result.sheets[0].properties.title,'PM');
 });

@@ -33,7 +33,7 @@ function findCredentialPair(value: unknown, depth = 0): { clientEmail: string; p
   return null;
 }
 
-function parseCredentialJson(value: string): unknown {
+function parseCredentialJson(value: string): unknown | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -41,34 +41,59 @@ function parseCredentialJson(value: string): unknown {
     try {
       parsed = JSON.parse(Buffer.from(value, "base64").toString("utf8"));
     } catch {
-      throw new Error("CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON must contain a valid Google service-account JSON object.");
+      return null;
     }
   }
   if (typeof parsed === "string") {
     try {
       parsed = JSON.parse(parsed);
     } catch {
-      throw new Error("CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON contains a JSON string that is not a valid service-account object.");
+      return null;
     }
   }
   return parsed;
 }
 
 function serviceAccount() {
-  const serviceAccountJson = process.env.CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON?.trim();
-  const separateEmail = process.env.CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL?.trim();
-  const separateKey = process.env.CMPRI_GOOGLE_SHEETS_PRIVATE_KEY?.trim();
-  if (!serviceAccountJson && (!separateEmail || !separateKey)) {
+  const credentialVariables = [
+    "CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS",
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  ] as const;
+  const credentialValues = credentialVariables.flatMap((name) => {
+    const value = process.env[name]?.trim();
+    return value ? [{ name, value }] : [];
+  });
+  const emailVariables = [
+    "CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL",
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL",
+    "GOOGLE_CLIENT_EMAIL",
+  ] as const;
+  const keyVariables = [
+    "CMPRI_GOOGLE_SHEETS_PRIVATE_KEY",
+    "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY",
+    "GOOGLE_PRIVATE_KEY",
+  ] as const;
+  const separateEmail = emailVariables.map((name) => process.env[name]?.trim()).find(Boolean) || "";
+  const separateKey = keyVariables.map((name) => process.env[name]?.trim()).find(Boolean) || "";
+  if (!credentialValues.length && (!separateEmail || !separateKey)) {
     throw new IntegrationConfigurationError("Google Sheets is missing the server deployment setting CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON.");
   }
 
-  const credentials = serviceAccountJson ? findCredentialPair(parseCredentialJson(serviceAccountJson)) : null;
+  let credentials: { clientEmail: string; privateKey: string } | null = null;
+  let topLevelFields = "";
+  for (const candidate of credentialValues) {
+    const parsed = parseCredentialJson(candidate.value);
+    const object = objectValue(parsed);
+    if (!topLevelFields && object) topLevelFields = Object.keys(object).sort().join(", ");
+    credentials = findCredentialPair(parsed);
+    if (credentials) break;
+  }
   const clientEmail = credentials?.clientEmail || separateEmail || "";
   const privateKey = credentials?.privateKey || separateKey?.replace(/\\n/g, "\n") || "";
   if (!clientEmail || !privateKey) {
-    const topLevelFields = serviceAccountJson
-      ? Object.keys(objectValue(parseCredentialJson(serviceAccountJson)) || {}).sort().join(", ")
-      : "";
     const fieldsDescription = topLevelFields ? ` Top-level fields found: ${topLevelFields}.` : "";
     throw new Error(`Google Sheets service-account credentials need client_email and private_key fields (or CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL and CMPRI_GOOGLE_SHEETS_PRIVATE_KEY).${fieldsDescription} Use a Google service-account key, not OAuth client credentials or an API key.`);
   }
