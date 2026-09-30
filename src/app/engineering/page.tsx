@@ -586,7 +586,7 @@ export default function EngineeringDashboardPage() {
 
         <nav aria-label="Open dashboard windows" className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {launcherGroups.map((group) => (
-            <div key={group.label} role="group" aria-label={group.label} className="flex flex-wrap items-center gap-0.5 rounded-md border border-slate-800 bg-slate-900/60 p-0.5">
+            <div key={group.label} role="group" aria-label={group.label} className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-800 bg-slate-900/60 p-0.5">
               <span aria-hidden="true" className="hidden px-1 text-[9px] font-semibold uppercase tracking-wider text-slate-500 min-[1900px]:inline">{group.label}</span>
               {group.items.filter((item): item is Launcher => Boolean(item)).map((launcher) => (
                 <button
@@ -594,8 +594,9 @@ export default function EngineeringDashboardPage() {
                   type="button"
                   data-cmpri-desktop-launch={launcher.key}
                   data-open={openKeys.has(launcher.key) ? "true" : "false"}
+                  title={launcher.label}
                   onClick={() => launch(launcher)}
-                  className={`cmpri-desktop-launch rounded border px-2 py-0.5 font-semibold ${launcher.tone}`}
+                  className={`cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-2 py-0.5 font-semibold ${launcher.tone}`}
                 >
                   {launcher.label}
                 </button>
