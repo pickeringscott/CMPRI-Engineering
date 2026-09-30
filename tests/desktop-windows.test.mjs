@@ -112,13 +112,14 @@ test('only well-formed local notifications are imported into the server inbox', 
     { id: 'technician-view:3', work_order_id: uuid, message: 'x'.repeat(900), recorded_at: 'bad' },
     'junk',
   ]);
-  assert.deepEqual(accepted, [{ id: `new-order:${uuid}`, work_order_id: uuid, message: 'New WO-1', recorded_at: '2026-09-28T20:00:00.000Z' }]);
+  assert.deepEqual(accepted, [{ id: `new-order:${uuid}`, work_order_id: uuid, target_path: null, message: 'New WO-1', recorded_at: '2026-09-28T20:00:00.000Z' }]);
   assert.deepEqual(sanitizeImportedDashboardNotifications('nope'), []);
 });
 
 test('dashboard notifications live in the database, scoped to the signed-in user', () => {
   const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
   const migration = readFileSync(new URL('../supabase/migrations/20260930190000_cmpri_dashboard_notifications.sql', import.meta.url), 'utf8');
+  const roomOpsMigration = readFileSync(new URL('../supabase/migrations/20260930210000_cmpri_room_ops_notifications.sql', import.meta.url), 'utf8');
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   assert.match(migration, /unique \(hotel_id, recipient_user_id, notification_key\)/);
   assert.match(migration, /enable row level security/);
@@ -127,7 +128,12 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 4, 'every inbox read/write is scoped to the requester');
   assert.match(route, /\.update\(\{ cleared_at: new Date\(\)\.toISOString\(\) \}\)/);
   assert.doesNotMatch(route, /\.delete\(/);
+  assert.match(route, /target_path: notification\.target_path \|\| null/);
   assert.doesNotMatch(dashboard, /saveDashboardInbox|addEventListener\("storage"|detectNewOrders/);
+  assert.match(dashboard, /if \(notification\.target_path\) openRoute\(notification\.target_path, "Daily Room Ops"\)/);
+  assert.match(roomOpsMigration, /alter column work_order_id drop not null/);
+  assert.match(roomOpsMigration, /add column if not exists target_path text/);
+  assert.match(migration, /clears them/);
   assert.match(dashboard, /DASHBOARD_NOTIFICATION_POLL_MS/);
   assert.match(dashboard, /void loadDashboard\(true\)/);
 });

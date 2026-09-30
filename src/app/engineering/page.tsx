@@ -528,6 +528,11 @@ export default function EngineeringDashboardPage() {
     openWindow({ key: APPROVALS_KEY, title: "Work Order Approvals", kind: "approvals", accent: "bg-purple-400", preferred: { width: 780, height: 540 } });
   }
 
+  function openNotification(notification: WorkOrderNotification) {
+    if (notification.target_path) openRoute(notification.target_path, "Daily Room Ops");
+    else if (notification.work_order_id) openWorkOrder(notification.work_order_id);
+  }
+
   const launcherGroups: LauncherGroup[] = [
     {
       label: "Work Orders",
@@ -692,6 +697,7 @@ export default function EngineeringDashboardPage() {
                   soundEnabled={soundEnabled}
                   onToggleSound={toggleSound}
                   onOpenWorkOrder={openWorkOrder}
+                  onOpenNotification={openNotification}
                   onClear={(id) => void clearNotifications([id])}
                   onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
                 />

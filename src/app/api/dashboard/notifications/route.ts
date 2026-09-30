@@ -67,6 +67,7 @@ async function recordNotifications(admin: SupabaseClient, userId: string, candid
       recipient_user_id: userId,
       notification_key: notification.id,
       work_order_id: notification.work_order_id,
+      target_path: notification.target_path || null,
       message: notification.message,
       recorded_at: notification.recorded_at,
     })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true });
@@ -154,7 +155,7 @@ export async function GET(request: NextRequest) {
   const [inboxResult, versionResult] = await Promise.all([
     admin
       .from("cmpri_dashboard_notifications")
-      .select("notification_key, work_order_id, message, recorded_at")
+      .select("notification_key, work_order_id, target_path, message, recorded_at")
       .eq("hotel_id", HOTEL_ID)
       .eq("recipient_user_id", userId)
       .is("cleared_at", null)
@@ -171,9 +172,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Notifications could not be loaded." }, { status: 503 });
   }
 
-  const notifications = (inboxResult.data || []).map((row: { notification_key: string; work_order_id: string; message: string; recorded_at: string }) => ({
+  const notifications = (inboxResult.data || []).map((row: { notification_key: string; work_order_id: string | null; target_path: string | null; message: string; recorded_at: string }) => ({
     id: row.notification_key,
     work_order_id: row.work_order_id,
+    target_path: row.target_path,
     message: row.message,
     recorded_at: row.recorded_at,
   }));

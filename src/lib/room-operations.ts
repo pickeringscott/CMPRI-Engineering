@@ -1,6 +1,7 @@
 export type RoomOperationMoveRow = {
   room: string;
   guest_name?: string | null;
+  guest_code?: string | null;
   move_from?: string | null;
   move_to?: string | null;
 };
@@ -13,10 +14,12 @@ export function detectRoomMoves<T extends RoomOperationMoveRow>(
   const currentByGuest = new Map<string, T[]>();
 
   for (const row of yesterday) {
+    if (String(row.guest_code || "").trim().toLocaleUpperCase("en-US") === "RCNA") continue;
     const guest = String(row.guest_name || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
     if (guest) previousByGuest.set(guest, [...(previousByGuest.get(guest) || []), row]);
   }
   for (const row of today) {
+    if (String(row.guest_code || "").trim().toLocaleUpperCase("en-US") === "RCNA") continue;
     const guest = String(row.guest_name || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
     if (guest) currentByGuest.set(guest, [...(currentByGuest.get(guest) || []), row]);
   }

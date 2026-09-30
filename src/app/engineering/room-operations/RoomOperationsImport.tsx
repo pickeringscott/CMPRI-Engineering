@@ -296,7 +296,7 @@ export default function RoomOperationsImport({
         headers: { "Content-Type": "application/json", ...await authorizationHeaders() },
         body: JSON.stringify({ source: preview.source, report_date: preview.date, rows: preview.rows }),
       });
-      const payload = await response.json().catch(() => ({})) as { ok?: boolean; import_id?: string; date?: string; error?: string };
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; import_id?: string; date?: string; notifications_recorded?: boolean; error?: string };
       if (!response.ok || payload.ok !== true || !payload.import_id) throw new Error(payload.error || "Room operations were not saved.");
 
       const headers = await authorizationHeaders();
@@ -331,7 +331,9 @@ export default function RoomOperationsImport({
       setStatusFileName("");
       setDeparturesFileName("");
       setPreview(null);
-      setMessage(`${result.rows.length} merged room-operation rows were saved and verified for ${result.date} (import ${payload.import_id}).`);
+      setMessage(payload.notifications_recorded === false
+        ? `${result.rows.length} merged room-operation rows were saved and verified for ${result.date} (import ${payload.import_id}), but notifications could not be saved. Contact an administrator.`
+        : `${result.rows.length} merged room-operation rows were saved and verified for ${result.date} (import ${payload.import_id}).`);
       onCommitted(result.date);
     } catch (error) {
       setMessage(error instanceof Error ? `Room operations commit error: ${error.message}` : "Room operations commit error: import status could not be verified.");

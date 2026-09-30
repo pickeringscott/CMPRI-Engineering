@@ -15,7 +15,8 @@ export type WorkOrderHistoryNotification = {
 
 export type WorkOrderNotification = {
   id: string;
-  work_order_id: string;
+  work_order_id: string | null;
+  target_path?: string | null;
   message: string;
   recorded_at: string;
 };
@@ -223,7 +224,11 @@ export function dashboardInboxKey(userId: string) {
 function isNotification(value: unknown): value is WorkOrderNotification {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
-  return ["id", "work_order_id", "message", "recorded_at"].every((key) => typeof item[key] === "string");
+  return typeof item.id === "string"
+    && (typeof item.work_order_id === "string" || item.work_order_id === null)
+    && (item.target_path === undefined || item.target_path === null || typeof item.target_path === "string")
+    && typeof item.message === "string"
+    && typeof item.recorded_at === "string";
 }
 
 function byNewest(a: WorkOrderNotification, b: WorkOrderNotification) {
@@ -253,7 +258,7 @@ export const DASHBOARD_NOTIFICATION_OVERLAP_MS = 5 * 60_000;
 /** The server cursor is written at most this often; the overlap window covers the gap. */
 export const DASHBOARD_NOTIFICATION_CURSOR_WRITE_MS = 60_000;
 export const DASHBOARD_NOTIFICATION_KEY_MAX = 200;
-export const DASHBOARD_NOTIFICATION_MESSAGE_MAX = 500;
+export const DASHBOARD_NOTIFICATION_MESSAGE_MAX = 120_000;
 export const DASHBOARD_NOTIFICATION_IMPORT_MAX = 200;
 
 export type DashboardInboxResponse = {
@@ -299,11 +304,12 @@ export function sanitizeImportedDashboardNotifications(value: unknown): WorkOrde
     const id = item.id.trim();
     const message = item.message.trim();
     if (!/^(new-order|technician-view):/.test(id) || id.length > DASHBOARD_NOTIFICATION_KEY_MAX || seen.has(id)) continue;
-    if (!UUID_PATTERN.test(item.work_order_id) || !message || !Number.isFinite(Date.parse(item.recorded_at))) continue;
+    if (typeof item.work_order_id !== "string" || !UUID_PATTERN.test(item.work_order_id) || !message || !Number.isFinite(Date.parse(item.recorded_at))) continue;
     seen.add(id);
     accepted.push({
       id,
       work_order_id: item.work_order_id,
+      target_path: null,
       message: message.slice(0, DASHBOARD_NOTIFICATION_MESSAGE_MAX),
       recorded_at: new Date(Date.parse(item.recorded_at)).toISOString(),
     });

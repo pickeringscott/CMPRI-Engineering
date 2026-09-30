@@ -26,6 +26,19 @@ vm.runInNewContext(ts.transpileModule(
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText, { exports: parserExports });
 
+const notificationSource = readFileSync(new URL("../src/lib/dashboard/room-operations-notifications.ts", import.meta.url), "utf8");
+const notificationAst = ts.createSourceFile("room-operations-notifications.ts", notificationSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const notificationFunctions = ["isOutOfOrder", "roomOperationsNotification"].map((name) => {
+  const node = notificationAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+  assert.ok(node, `${name} must be declared`);
+  return node.getText(notificationAst);
+});
+const notificationExports = {};
+vm.runInNewContext(ts.transpileModule(
+  `${notificationFunctions.join("\n")}\nexports.roomOperationsNotification = roomOperationsNotification;`,
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+).outputText, { exports: notificationExports, detectRoomMoves });
+
 test("room status and expected departures merge by room with an 11 AM checkout default", () => {
   const statusRows = parserExports.parseRoomStatusReport([
     "Room\tRoom Status\tGuest Name\tRoom Type\tLOS\tReserved",
@@ -78,6 +91,48 @@ test("room moves are detected from unique guest names across the two snapshots",
     [{ room: "412", guest_name: "Same Name" }],
   );
   assert.equal(ambiguous[0].move_from, "");
+
+  const rcnaIgnored = detectRoomMoves(
+    [
+      { room: "316", guest_name: "Same Name", guest_code: " rcna " },
+      { room: "317", guest_name: "Same Name", guest_code: "REG" },
+    ],
+    [{ room: "412", guest_name: "Same Name", guest_code: "reg" }],
+  );
+  assert.equal(rcnaIgnored[0].move_from, "317", "RCNA rows do not make a real guest appear duplicated");
+  assert.equal(rcnaIgnored.length, 1);
+
+  const rcnaCurrent = detectRoomMoves(
+    [{ room: "316", guest_name: "Casey Guest", guest_code: "REG" }],
+    [{ room: "412", guest_name: "Casey Guest", guest_code: "RCNA" }],
+  );
+  assert.equal(rcnaCurrent[0].move_from, "", "a current RCNA row is excluded from room-move matching");
+});
+
+test("room-operations notifications report out-of-order and move room numbers, excluding RCNA", () => {
+  const notification = notificationExports.roomOperationsNotification(
+    "import-123",
+    "2026-09-30",
+    [
+      { room: "412", guest_name: "Same Name", guest_code: "REG", room_status: "Occupied" },
+      { room: "509", guest_name: "", guest_code: "", room_status: "Out of Order" },
+    ],
+    [
+      { room: "316", guest_name: "Same Name", guest_code: "RCNA", room_status: "Occupied" },
+      { room: "317", guest_name: "Same Name", guest_code: "REG", room_status: "Occupied" },
+    ],
+    "2026-09-30T15:00:00.000Z",
+  );
+  assert.equal(notification.work_order_id, null);
+  assert.equal(notification.target_path, "/engineering/room-operations");
+  assert.match(notification.message, /509 \(Out of Order\)/);
+  assert.match(notification.message, /317 → 412/);
+  assert.doesNotMatch(notification.message, /316/);
+  assert.equal(notificationExports.roomOperationsNotification("import-456", "2026-09-30", [
+    { room: "316", guest_name: "Guest", guest_code: "RCNA", room_status: "Occupied" },
+  ], [
+    { room: "412", guest_name: "Guest", guest_code: "REG", room_status: "Occupied" },
+  ]), null);
 });
 
 test("room-operations uploads are manual, limited to retained dates, and preserve MGR", () => {
@@ -93,6 +148,11 @@ test("room-operations uploads are manual, limited to retained dates, and preserv
   assert.match(api, /if \(date !== today\)[\s\S]*move_from: "", move_to: ""/);
   assert.match(api, /detectRoomMoves\(yesterdayRows \|\| \[\], data \|\| \[\]\)/);
   assert.match(api, /auth\.admin\.rpc\("cmpri_replace_room_operations"/);
+  assert.match(api, /roomOperationsNotification/);
+  assert.match(api, /guest_code: typeof row\.guest_code === "string" \? row\.guest_code : ""/);
+  assert.match(api, /\.select\("room, guest_name, guest_code, move_from, move_to"\)/);
+  assert.match(api, /notification_key: notification\.id/);
+  assert.match(api, /target_path: notification\.target_path/);
   assert.match(sql, /report_date < timezone\('America\/Chicago', now\(\)\)::date - 1/);
   assert.match(sql, /report_date = p_report_date/);
   assert.match(sql, /p_source_type not in \('paste', 'file'\)/);

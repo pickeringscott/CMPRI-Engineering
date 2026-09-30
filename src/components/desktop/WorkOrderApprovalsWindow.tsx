@@ -18,6 +18,7 @@ export default function WorkOrderApprovalsWindow({
   soundEnabled,
   onToggleSound,
   onOpenWorkOrder,
+  onOpenNotification,
   onClear,
   onClearAll,
 }: {
@@ -28,6 +29,7 @@ export default function WorkOrderApprovalsWindow({
   soundEnabled: boolean;
   onToggleSound: () => void;
   onOpenWorkOrder: (workOrderId: string) => void;
+  onOpenNotification: (notification: WorkOrderNotification) => void;
   onClear: (notificationId: string) => void;
   onClearAll: () => void;
 }) {
@@ -77,7 +79,7 @@ export default function WorkOrderApprovalsWindow({
             {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">No notifications. New ones stay on your account, on every computer, until you clear them.</li>}
             {notifications.map((notification) => (
               <li key={notification.id} className="flex items-start gap-[0.4em] px-[0.7em] py-[0.4em] hover:bg-slate-800/40">
-                <button type="button" onClick={() => onOpenWorkOrder(notification.work_order_id)} className="min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => onOpenNotification(notification)} className="min-w-0 flex-1 text-left">
                   <span className="block text-slate-100 hover:underline">{notification.message}</span>
                   <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at)}</span>
                 </button>

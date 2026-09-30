@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
 import { detectRoomMoves } from "@/lib/room-operations";
+import { roomOperationsNotification } from "@/lib/dashboard/room-operations-notifications";
+import { roleKey } from "@/lib/server/roles";
 
 function hotelDate() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: HOTEL_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" })
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { data: yesterdayRows, error: yesterdayError } = await auth.admin.from("cmpri_room_operations")
-    .select("room, guest_name, move_from, move_to")
+    .select("room, guest_name, guest_code, move_from, move_to")
     .eq("hotel_id", HOTEL_ID).eq("report_date", yesterdayDate(today));
   if (yesterdayError) return NextResponse.json({ error: "Yesterday's room snapshot could not be loaded to compare room moves." }, { status: 503 });
   const rows = detectRoomMoves(yesterdayRows || [], data || []);
@@ -157,6 +159,16 @@ export async function POST(request: NextRequest) {
   }
 
   const actorName = auth.principal.profile.full_name || auth.principal.identity.email || "CMPRI Engineering";
+  let yesterdayRows: Array<{ room: string; guest_name: string | null; guest_code: string | null }> = [];
+  if (reportDate === hotelDate()) {
+    const { data, error: previousRowsError } = await auth.admin.from("cmpri_room_operations")
+      .select("room, guest_name, guest_code")
+      .eq("hotel_id", HOTEL_ID).eq("report_date", yesterdayDate(reportDate));
+    if (previousRowsError) {
+      return NextResponse.json({ error: "Yesterday's room snapshot could not be loaded to detect room moves. Nothing was imported." }, { status: 503 });
+    }
+    yesterdayRows = data || [];
+  }
   const { data: importId, error } = await auth.admin.rpc("cmpri_replace_room_operations", {
     p_hotel_id: HOTEL_ID,
     p_report_date: reportDate,
@@ -166,5 +178,65 @@ export async function POST(request: NextRequest) {
     p_rows: rows,
   });
   if (error) return NextResponse.json({ error: `Room operations were not saved: ${error.message}` }, { status: 409 });
-  return NextResponse.json({ ok: true, import_id: importId, date: reportDate, count: rows.length });
+
+  const notification = roomOperationsNotification(
+    String(importId),
+    reportDate,
+    rows.map((row) => ({
+      room: String(row.room),
+      room_status: typeof row.room_status === "string" ? row.room_status : "",
+      guest_name: typeof row.guest_name === "string" ? row.guest_name : "",
+      guest_code: typeof row.guest_code === "string" ? row.guest_code : "",
+    })),
+    yesterdayRows.map((row) => ({ ...row, room_status: null })),
+  );
+  let notificationsRecorded = true;
+  if (notification) {
+    const { data: profiles, error: profilesError } = await auth.admin.from("profiles")
+      .select("id, role, active")
+      .eq("active", true);
+    if (profilesError) {
+      notificationsRecorded = false;
+    } else {
+      const engineers = (profiles || [])
+        .filter((profile) => roleKey(profile.role) === "engineer")
+        .map((profile) => profile.id);
+      const { data: memberships, error: membershipError } = engineers.length
+        ? await auth.admin.from("hotel_members")
+          .select("user_id")
+          .eq("hotel_id", HOTEL_ID)
+          .eq("active", true)
+          .in("user_id", engineers)
+        : { data: [], error: null };
+      if (membershipError) notificationsRecorded = false;
+      const recipients = new Set(
+        (memberships || []).map((membership) => membership.user_id),
+      );
+      if (roleKey(auth.principal.profile.role) === "engineer") {
+        recipients.add(auth.principal.identity.id);
+      }
+      if (!recipients.size) notificationsRecorded = false;
+      if (recipients.size) {
+        const { error: notificationError } = await auth.admin.from("cmpri_dashboard_notifications")
+          .upsert([...recipients].map((recipient_user_id) => ({
+            hotel_id: HOTEL_ID,
+            recipient_user_id,
+            notification_key: notification.id,
+            work_order_id: null,
+            target_path: notification.target_path,
+            message: notification.message,
+            recorded_at: notification.recorded_at,
+          })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true });
+        if (notificationError) notificationsRecorded = false;
+      }
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    import_id: importId,
+    date: reportDate,
+    count: rows.length,
+    notifications_recorded: notificationsRecorded,
+  });
 }
