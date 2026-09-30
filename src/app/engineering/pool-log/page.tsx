@@ -37,11 +37,11 @@ function emptyForm() {
     ...poolReadings.map(([key]) => [key, ""]),
     ["sanitizer_band_am", ""],
     ["sanitizer_band_pm", ""],
-    ["sample_location_am", ""],
-    ["sample_location_pm", ""],
+    ["sample_location", ""],
     ["main_drain_visible", ""],
     ["filter_backwashed", ""],
     ["remarks", ""],
+    ["closure_reason", ""],
     ["requires_attention", false],
     ["closure_condition", false],
   ]);
@@ -71,6 +71,11 @@ function formFromLog(log: Log | null): Record<string, unknown> {
         : key.startsWith("ph_") ? genericReading(log, key) : log[key];
     result[key] = typeof result[key] === "boolean" ? value === true : value == null ? "" : String(value);
   }
+  const amLocation = typeof log.sample_location_am === "string" ? log.sample_location_am : "";
+  const pmLocation = typeof log.sample_location_pm === "string" ? log.sample_location_pm : "";
+  result.sample_location = amLocation && pmLocation && amLocation !== pmLocation
+    ? ""
+    : amLocation || pmLocation;
   return result;
 }
 
@@ -90,6 +95,10 @@ export default function PoolLogPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [reload, setReload] = useState(0);
+  const [history, setHistory] = useState<Log[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
   const dirty = baseline !== "" && JSON.stringify(form) !== baseline;
 
   useEffect(() => {
@@ -111,8 +120,8 @@ export default function PoolLogPage() {
       if (!response.ok) throw new Error(result.error || "Unable to load pool log.");
       if (controller.signal.aborted) return;
       const values = formFromLog(result.log || null);
-      const savedValues = JSON.stringify(values);
       if (poolClosureReasons(values).length) values.closure_condition = true;
+      const savedValues = JSON.stringify(values);
       setFacilities(result.facilities || []);
       setFacility(result.facility || null);
       setSaved(result.log || null);
@@ -140,9 +149,17 @@ export default function PoolLogPage() {
   function change(key: string, value: unknown) {
     setForm((current) => {
       const updated = { ...current, [key]: value };
+      if (key === "closure_condition" && value !== true) updated.closure_reason = "";
       if (poolClosureReasons(updated).length) updated.closure_condition = true;
       return updated;
     });
+  }
+
+  function chooseFacility(value: string) {
+    setFacilityChoice(value);
+    setHistory([]);
+    setShowHistory(false);
+    setHistoryMessage("");
   }
 
   async function save(event: FormEvent) {
@@ -182,6 +199,8 @@ export default function PoolLogPage() {
       setForm(values);
       setBaseline(JSON.stringify(values));
       setEditingSavedLog(false);
+      setHistory([]);
+      setShowHistory(false);
       setMessage("Pool log saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save readings.");
@@ -190,11 +209,44 @@ export default function PoolLogPage() {
     }
   }
 
+  async function toggleHistory() {
+    if (showHistory) {
+      setShowHistory(false);
+      return;
+    }
+    if (!facility || historyLoading) return;
+    setHistoryLoading(true);
+    setHistoryMessage("");
+    try {
+      const session = await getValidSession();
+      if (!session) throw new Error("Sign in again to view the complete pool log.");
+      const query = new URLSearchParams({ history: "1", facility: facility.id });
+      const response = await fetch(`/api/pool-log?${query}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: "no-store",
+      });
+      const result = await response.json() as { error?: string; history?: Log[] };
+      if (!response.ok || !Array.isArray(result.history)) {
+        throw new Error(result.error || "Unable to load the complete pool log.");
+      }
+      setHistory(result.history);
+      setShowHistory(true);
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : "Unable to load the complete pool log.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   const fieldClass = "mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 p-2 text-white disabled:opacity-70";
   const amComplete = form.ph_am !== "" && (form.sanitizer_band_am !== "" || form.sanitizer_am !== "");
   const pmComplete = form.ph_pm !== "" && (form.sanitizer_band_pm !== "" || form.sanitizer_pm !== "");
   const closureReasons = poolClosureReasons(form);
   const canEditForm = canEdit && (!saved || (canEditSavedLog && editingSavedLog));
+  const closureRequired = closureReasons.length > 0 || form.closure_condition === true;
+  const historicalLocationsDiffer = !!saved?.sample_location_am
+    && !!saved?.sample_location_pm
+    && saved.sample_location_am !== saved.sample_location_pm;
 
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
@@ -207,6 +259,7 @@ export default function PoolLogPage() {
           <div className="flex gap-2 print:hidden">
             <ModalDashboardLink className="rounded-lg border border-slate-600 px-3 py-2">Dashboard</ModalDashboardLink>
             {saved && canEditSavedLog ? <button type="button" disabled={loading || saving || editingSavedLog || dirty} onClick={() => setEditingSavedLog(true)} className="rounded-lg border border-amber-400/60 px-3 py-2 text-amber-100 disabled:opacity-50">{editingSavedLog ? "Editing saved log" : "Edit saved log"}</button> : null}
+            <button type="button" disabled={!facility || loading || historyLoading} onClick={() => void toggleHistory()} className="rounded-lg border border-cyan-400/50 px-3 py-2 text-cyan-100 disabled:opacity-50">{historyLoading ? "Loading pool log…" : showHistory ? "Hide entire pool log" : "View entire pool log"}</button>
             <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
           </div>
         </header>}
@@ -214,6 +267,7 @@ export default function PoolLogPage() {
           <ModalDashboardLink className="rounded-lg border border-slate-600 px-3 py-2">← Dashboard</ModalDashboardLink>
           <div className="flex gap-2">
             {saved && canEditSavedLog ? <button type="button" disabled={loading || saving || editingSavedLog || dirty} onClick={() => setEditingSavedLog(true)} className="rounded-lg border border-amber-400/60 px-3 py-2 text-amber-100 disabled:opacity-50">{editingSavedLog ? "Editing saved log" : "Edit saved log"}</button> : null}
+            <button type="button" disabled={!facility || loading || historyLoading} onClick={() => void toggleHistory()} className="rounded-lg border border-cyan-400/50 px-3 py-2 text-cyan-100 disabled:opacity-50">{historyLoading ? "Loading pool log…" : showHistory ? "Hide entire pool log" : "View entire pool log"}</button>
           <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
           </div>
         </div>}
@@ -225,15 +279,16 @@ export default function PoolLogPage() {
             <div><span className="text-slate-400 print:text-black">Required flow</span><div className="font-bold">{CMPRI_POOL.requiredFlowGpm} GPM</div></div>
             <div><span className="text-slate-400 print:text-black">Observed 06/23/2026</span><div className="font-bold">{CMPRI_POOL.observedFlowGpm20260623} GPM</div></div>
           </div>
-          <p className="mt-3 text-xs text-slate-400 print:text-black">CMPRI records one physical AM sample and one physical PM sample. Each sample contains pH + bromine and is recorded at the selected shallow or deep location. This page records results only—it does not calculate chemical doses or certify pool opening.</p>
+          <p className="mt-3 text-xs text-slate-400 print:text-black">CMPRI records one physical AM sample and one physical PM sample. Each sample contains pH + bromine and uses one shared shallow, middle, or deep sample location. This page records results only—it does not calculate chemical doses or certify pool opening.</p>
         </section>
 
         <section className="print:hidden">
           <div className="flex flex-wrap gap-3">
             <label>Date<input type="date" value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className={fieldClass} /></label>
-            {facilities.length > 1 ? <label className="min-w-56">Pool<SearchableSelect value={facilityChoice || facility?.id || ""} disabled={saving || dirty} onChange={setFacilityChoice} placeholder="Pool" options={facilities.map((item) => ({ value: item.id, label: item.pool_name }))} /></label> : null}
+            {facilities.length > 1 ? <label className="min-w-56">Pool<SearchableSelect value={facilityChoice || facility?.id || ""} disabled={saving || dirty || historyLoading} onChange={chooseFacility} placeholder="Pool" options={facilities.map((item) => ({ value: item.id, label: item.pool_name }))} /></label> : null}
             <button type="button" disabled={saving || loading} className="self-end rounded-lg border border-slate-600 p-2" onClick={() => setReload((value) => value + 1)}>{dirty ? "Discard edits and reload" : "Reload"}</button>
           </div>
+          {historicalLocationsDiffer ? <p className="mt-2 text-sm text-amber-200">This saved log has different AM and PM locations. Choose one shared location before saving edits.</p> : null}
           {message ? <p role="status" className="my-3 rounded-lg border border-amber-400 p-3">{message}</p> : null}
           {loading ? <p className="py-4">Loading saved readings…</p> : facility ? (
             <form onSubmit={save} className="mt-4 space-y-4">
@@ -243,10 +298,22 @@ export default function PoolLogPage() {
                 <ul className="mt-2 list-inside list-disc">{closureReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
               </section> : null}
               <fieldset disabled={!canEditForm || saving} className="space-y-4 disabled:opacity-80">
+                <label className="block max-w-sm text-sm">One shared sample location
+                  <select aria-label="One shared sample location" value={String(form.sample_location ?? "")} onChange={(event) => change("sample_location", event.target.value)} className={fieldClass}>
+                    <option value="">Select one location</option>
+                    <option value="shallow">Shallow</option>
+                    <option value="middle">Middle of pool</option>
+                    <option value="deep">Deep</option>
+                  </select>
+                </label>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {(["am", "pm"] as const).map((period) => (
-                    <section key={period} className="rounded-xl border border-slate-700 bg-slate-900 p-4">
-                      <div className="flex items-center justify-between"><h2 className="font-bold">{period.toUpperCase()} physical sample</h2><span className={`rounded-full px-2 py-0.5 text-xs font-bold ${(period === "am" ? amComplete : pmComplete) ? "bg-emerald-900 text-emerald-200" : "bg-slate-800 text-slate-400"}`}>{(period === "am" ? amComplete : pmComplete) ? "Complete" : "Not complete"}</span></div>
+                  {(["am", "pm"] as const).map((period) => {
+                    const complete = period === "am" ? amComplete : pmComplete;
+                    return <section key={period} className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+                      <div className="flex items-center justify-between">
+                        <h2 className="font-bold">{period.toUpperCase()} physical sample</h2>
+                        <span className={complete ? "rounded-full bg-emerald-900 px-2 py-0.5 text-xs font-bold text-emerald-200" : "rounded-full bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400"}>{complete ? "Complete" : "Not complete"}</span>
+                      </div>
                       <label className="mt-3 block text-sm">pH
                         <select aria-label={`${period.toUpperCase()} pH`} value={String(form[`ph_${period}`] ?? "")} onChange={(event) => change(`ph_${period}`, event.target.value)} className={fieldClass}>
                           <option value="">Not recorded</option>
@@ -265,25 +332,19 @@ export default function PoolLogPage() {
                           {bromineBands.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </select>
                       </label>
-                      <label className="mt-3 block text-sm">Sample location
-                        <select aria-label={`${period.toUpperCase()} sample location`} value={String(form[`sample_location_${period}`] ?? "")} onChange={(event) => change(`sample_location_${period}`, event.target.value)} className={fieldClass}>
-                          <option value="">Select shallow or deep</option>
-                          <option value="shallow">Shallow</option>
-                          <option value="deep">Deep</option>
-                        </select>
-                      </label>
-                      <p className="mt-2 text-xs text-slate-500">One physical test only. The result is recorded at the selected inspector location.</p>
-                    </section>
-                  ))}
+                      <p className="mt-2 text-xs text-slate-500">One physical {period.toUpperCase()} test only. Both samples use the shared location above.</p>
+                    </section>;
+                  })}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {poolReadings.filter(([key]) => !["ph_am", "sanitizer_am", "ph_pm", "sanitizer_pm"].includes(key)).map(([key, label]) => <label key={key} className="text-sm">{label}<input type="number" min="0" step="any" value={String(form[key] ?? "")} onChange={(event) => change(key, event.target.value)} className={fieldClass} /></label>)}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {[["main_drain_visible", "Main drain visible"], ["filter_backwashed", "Filter backwashed"]].map(([key, label]) => <label key={key}>{label}<SearchableSelect value={String(form[key] ?? "")} onChange={(value) => change(key, value)} placeholder={label} options={[{ value: "", label: "Not recorded" }, { value: "true", label: "Yes" }, { value: "false", label: "No" }]} /></label>)}
+                  {[["main_drain_visible", "Main drain visible (required)"], ["filter_backwashed", "Filter backwashed (required)"]].map(([key, label]) => <label key={key}>{label}<SearchableSelect required value={String(form[key] ?? "")} onChange={(value) => change(key, value)} placeholder="Select Yes or No" options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]} /></label>)}
                 </div>
                 <label className="flex gap-2"><input type="checkbox" checked={form.requires_attention === true} onChange={(event) => change("requires_attention", event.target.checked)} />Attention needed</label>
-                <label className="flex gap-2"><input type="checkbox" checked={closureReasons.length > 0 || form.closure_condition === true} onChange={(event) => change("closure_condition", event.target.checked)} />Closure condition recorded — describe below{closureReasons.length ? " (required by reading)" : ""}</label>
+                <label className="flex gap-2"><input type="checkbox" checked={closureRequired} onChange={(event) => change("closure_condition", event.target.checked)} />Pool closed / closure condition recorded{closureReasons.length ? " (required by reading)" : ""}</label>
+                {closureRequired ? <label className="block">Reason pool is closed (required)<textarea required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
                 <label className="block">Remarks / actions taken<textarea value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
               </fieldset>
               {canEditForm ? <button type="submit" disabled={saving || !dirty} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : "Save pool log"}</button> : <p className="text-slate-300">{saved && canEditSavedLog ? "Select Edit saved log to make corrections." : "View-only access"}</p>}
@@ -292,9 +353,52 @@ export default function PoolLogPage() {
           ) : null}
         </section>
 
+        {historyMessage ? <p role="status" className="rounded-lg border border-amber-400 p-3 print:hidden">{historyMessage}</p> : null}
+        {showHistory ? <section className="rounded-xl border border-cyan-700 bg-slate-900 p-4 print:border-black print:bg-white">
+          <h2 className="text-xl font-bold">Entire pool log · {facility?.pool_name}</h2>
+          <p className="mt-1 text-sm text-slate-300 print:text-black">{history.length} saved entries, newest first.</p>
+          {history.length ? <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[1550px] border-collapse text-sm">
+              <thead><tr>{["Date", "AM pH", "AM bromine", "PM pH", "PM bromine", "Sample location", "Flow rate (GPM)", "Water temp (°F)", "Main drain visible", "Filter backwashed", "Attention needed", "Closure / reason", "Remarks", "Recorded by", "Last updated"].map((heading) => <th key={heading} className="border border-slate-700 p-2 text-left print:border-black">{heading}</th>)}</tr></thead>
+              <tbody>{history.map((entry) => {
+                const bandLabel = (period: "am" | "pm") => {
+                  const band = entry[`sanitizer_band_${period}`];
+                  return bromineBands.find(([value]) => value === band)?.[1] ?? entry[`sanitizer_${period}`] ?? "—";
+                };
+                const amLocation = String(entry.sample_location_am || "—");
+                const pmLocation = String(entry.sample_location_pm || "—");
+                const locationLabel = (value: string) => value === "middle" ? "Middle of pool" : value === "shallow" ? "Shallow" : value === "deep" ? "Deep" : value;
+                const location = amLocation === pmLocation
+                  ? locationLabel(amLocation)
+                  : `AM: ${locationLabel(amLocation)}; PM: ${locationLabel(pmLocation)}`;
+                const closure = entry.closure_condition === true
+                  ? `Closed: ${String(entry.closure_reason || "Reason not recorded")}`
+                  : entry.closure_condition === false ? "Open" : "Not recorded";
+                return <tr key={entry.id}>
+                  <td className="border border-slate-700 p-2 print:border-black">{entry.log_date}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(entry.ph_am ?? "—")}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(bandLabel("am"))}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(entry.ph_pm ?? "—")}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(bandLabel("pm"))}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{location}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(entry.flow_rate_gpm ?? "—")}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(entry.temperature_f ?? "—")}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{entry.main_drain_visible === true ? "Yes" : entry.main_drain_visible === false ? "No" : "Not recorded"}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{entry.filter_backwashed === true ? "Yes" : entry.filter_backwashed === false ? "No" : "Not recorded"}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{entry.requires_attention === true ? "Yes" : entry.requires_attention === false ? "No" : "Not recorded"}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{closure}</td>
+                  <td className="whitespace-pre-wrap border border-slate-700 p-2 print:border-black">{String(entry.remarks || "—")}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{String(entry.completed_by_initials || "—")}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{entry.updated_at ? new Date(String(entry.updated_at)).toLocaleString("en-US", { timeZone: "America/Chicago" }) : "—"}</td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div> : <p className="mt-3">No saved pool-log entries were found.</p>}
+        </section> : null}
+
         {saved ? <section className="rounded-lg border border-slate-600 p-3 print:border-black">
-          <h2 className="font-semibold">Inspector shallow / deep recording</h2>
-          <p className="text-sm">Each AM/PM physical sample is intentionally shown in both locations.</p>
+          <h2 className="font-semibold">Sample location recording</h2>
+          <p className="text-sm">Each AM/PM sample is shown at its recorded shallow, middle, or deep location.</p>
           <table className="mt-3 w-full border-collapse text-sm"><thead><tr><th className="border p-2 text-left">Location / measurement</th><th className="border p-2 text-left">Recorded value</th></tr></thead><tbody>{poolLocationReadings.map(([key, label]) => {
             const value = poolLocationValue(saved, key);
             const bandLabel = bromineBands.find(([band]) => band === value)?.[1];

@@ -47,6 +47,8 @@ supabase/cmpri_v1_0_integrations.sql
 
 The migration creates server-managed operational tables for email events, purchases, split shipments, Enseo tickets, warranty/RMA cases, supplier follow-ups, and GSS reports. Row-level security is enabled; these records are accessed through authenticated CMPRI server routes using the Supabase service role.
 
+The pool-log requirements migration, `supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql`, adds the middle sample location, enforces one shared location for AM/PM, requires main-drain and filter-backwash checks, and requires a reason for recorded closures. Chlorine and cyanuric-acid readings are not used. Validate and apply it before deploying the pool-log changes, which also include a complete-history view.
+
 ## Required deployment environment variables
 
 Use `.env.example` as the non-secret checklist. Existing CMPRI Supabase, OpenAI, Room Ranker, and Corporate PM integrations remain in use. The email integration requires provider credentials and CRON_SECRET for scheduled scans. Microsoft 365 is preferred when both providers are configured unless CMPRI_EMAIL_PROVIDER explicitly selects Gmail. Mail.Read mailbox-scoped permission or Gmail gmail.readonly permission must be configured externally. No mailbox writing or sending is implemented.

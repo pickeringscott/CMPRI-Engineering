@@ -14,8 +14,6 @@ export const poolReadings = [
   ["sanitizer_pm", "PM bromine (ppm)"],
   ["flow_rate_gpm", "Flow rate (gpm)"],
   ["temperature_f", "Water temperature (°F)"],
-  ["combined_chlorine_ppm", "Combined chlorine (ppm), if recorded"],
-  ["cyanuric_acid_ppm", "Cyanuric acid (ppm), if recorded"],
 ] as const;
 
 export const bromineBands = [
@@ -64,22 +62,24 @@ export function poolClosureReasons(readings: Record<string, unknown>): string[] 
 export const poolLocationReadings = [
   ["ph_shallow_am", "AM shallow pH"],
   ["sanitizer_shallow_am", "AM shallow bromine (ppm)"],
+  ["ph_middle_am", "AM middle pH"],
+  ["sanitizer_middle_am", "AM middle bromine (ppm)"],
   ["ph_deep_am", "AM deep pH"],
   ["sanitizer_deep_am", "AM deep bromine (ppm)"],
   ["ph_shallow_pm", "PM shallow pH"],
   ["sanitizer_shallow_pm", "PM shallow bromine (ppm)"],
+  ["ph_middle_pm", "PM middle pH"],
+  ["sanitizer_middle_pm", "PM middle bromine (ppm)"],
   ["ph_deep_pm", "PM deep pH"],
   ["sanitizer_deep_pm", "PM deep bromine (ppm)"],
 ] as const;
 
 /**
- * CMPRI takes ONE physical sample per period at a chosen location (shallow or
- * deep). The single reading is reported at that location column, while the
- * other location column stays empty. Historical rows that pre-date this rule
- * remain readable from their stored location columns.
+ * CMPRI records one physical sample per period at one shared location (shallow,
+ * middle, or deep). Historical rows remain readable from their stored columns.
  */
 export function poolLocationValue(log: Record<string, unknown>, key: string): unknown {
-  const match = key.match(/^(ph|sanitizer)_(shallow|deep)_(am|pm)$/);
+  const match = key.match(/^(ph|sanitizer)_(shallow|middle|deep)_(am|pm)$/);
   if (!match) return log[key] ?? null;
   const [, reading, location, period] = match;
   const stored = log[key];
@@ -144,9 +144,9 @@ export function prepareMcpPoolLogInput(
   if (!facility) {
     throw new Error("Select an active pool by its name or the pool id returned by the pool-log read.");
   }
-  for (const field of ["requires_attention", "closure_condition"] as const) {
+  for (const field of ["requires_attention", "closure_condition", "main_drain_visible", "filter_backwashed"] as const) {
     if (typeof input[field] !== "boolean") {
-      throw new Error(`Include an explicit true or false value for ${field}; false is valid.`);
+      throw new Error(`Include an explicit true or false value for ${field.replaceAll("_", " ")}; false is valid.`);
     }
   }
   if (Object.prototype.hasOwnProperty.call(input, "test_entry") && typeof input.test_entry !== "boolean") {
@@ -169,6 +169,7 @@ export function prepareMcpPoolLogInput(
   } else if (readings.remarks === undefined) {
     readings.remarks = "";
   }
+  if (readings.closure_reason === undefined) readings.closure_reason = "";
   return {
     ...readings,
     log_date: logDate,
@@ -225,18 +226,26 @@ export function poolLogInput(body: Record<string, unknown>) {
     if (ph == null) {
       row[`sample_location_${period}`] = null;
     } else {
-      if (location !== "shallow" && location !== "deep") {
-        throw new Error(`Select shallow or deep for the ${period.toUpperCase()} sample.`);
+      const sharedLocation = body.sample_location;
+      const selectedLocation = sharedLocation ?? location;
+      if (selectedLocation !== "shallow" && selectedLocation !== "middle" && selectedLocation !== "deep") {
+        throw new Error("Select one shared sample location: shallow, middle, or deep.");
       }
-      row[`sample_location_${period}`] = location;
+      if (location != null && location !== "" && location !== selectedLocation) {
+        throw new Error("Use one shared sample location for both AM and PM samples.");
+      }
+      row[`sample_location_${period}`] = selectedLocation;
     }
+  }
+  if (row.sample_location_am && row.sample_location_pm && row.sample_location_am !== row.sample_location_pm) {
+    throw new Error("Use one shared sample location for both AM and PM samples.");
   }
 
   for (const key of ["main_drain_visible", "filter_backwashed"]) {
-    if (body[key] !== true && body[key] !== false && body[key] != null) {
-      throw new Error("Select Yes, No, or Not recorded for each check.");
+    if (body[key] !== true && body[key] !== false) {
+      throw new Error(`Select Yes or No for ${key.replaceAll("_", " ")}.`);
     }
-    row[key] = body[key] ?? null;
+    row[key] = body[key];
   }
   for (const key of ["requires_attention", "closure_condition"]) {
     if (typeof body[key] !== "boolean") throw new Error("Record attention and closure status.");
@@ -245,9 +254,16 @@ export function poolLogInput(body: Record<string, unknown>) {
   if (poolClosureReasons(row).length) row.closure_condition = true;
   if (typeof body.remarks !== "string" || body.remarks.length > 20_000) throw new Error("Remarks must be text, up to 20,000 characters.");
   row.remarks = body.remarks.trim();
+  if (typeof body.closure_reason !== "string" || body.closure_reason.length > 2_000) {
+    throw new Error("Enter a pool-closure reason, up to 2,000 characters.");
+  }
+  row.closure_reason = body.closure_reason.trim() || null;
+  if (row.closure_condition === true && !row.closure_reason) {
+    throw new Error("Enter a reason whenever the pool is closed.");
+  }
 
   const hasSample = row.ph_am != null || row.ph_pm != null;
-  const hasOtherReading = ["flow_rate_gpm", "temperature_f", "combined_chlorine_ppm", "cyanuric_acid_ppm"].some((key) => row[key] != null);
+  const hasOtherReading = ["flow_rate_gpm", "temperature_f"].some((key) => row[key] != null);
   if (!hasSample && !hasOtherReading && !row.remarks && row.closure_condition !== true) {
     throw new Error("Enter an AM/PM sample, another reading, closure condition, or remarks before saving.");
   }

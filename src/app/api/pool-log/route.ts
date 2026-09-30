@@ -5,14 +5,12 @@ import { roleAllows, roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { poolLogInput, validLogDate } from "@/lib/pool-log";
+import { fetchAllPages } from "@/lib/server/paginated-query";
 
 export async function GET(request: NextRequest) {
   const auth = await authenticatedUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
   if (!roleAllows(auth.profile.role, "view_dashboard")) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
-  const date = request.nextUrl.searchParams.get("date");
-  if (!validLogDate(date)) return NextResponse.json({ error: "Select a valid date." }, { status: 400 });
-
   const admin = auth.admin ?? createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
@@ -26,6 +24,19 @@ export async function GET(request: NextRequest) {
   const facility = requested ? facilities?.find((item) => item.id === requested) : facilities?.[0];
   if (!facility) return NextResponse.json({ error: "No matching active pool is configured." }, { status: 404 });
 
+  if (request.nextUrl.searchParams.get("history") === "1") {
+    const { data: history, error: historyError } = await fetchAllPages((from, to) => admin.from("pool_daily_logs")
+      .select("*")
+      .eq("hotel_id", HOTEL_ID)
+      .eq("pool_facility_id", facility.id)
+      .order("log_date", { ascending: false })
+      .range(from, to));
+    if (historyError) return NextResponse.json({ error: "The complete pool log could not be loaded." }, { status: 503 });
+    return NextResponse.json({ facility, facilities, history }, { headers: { "Cache-Control": "private, no-store" } });
+  }
+
+  const date = request.nextUrl.searchParams.get("date");
+  if (!validLogDate(date)) return NextResponse.json({ error: "Select a valid date." }, { status: 400 });
   const { data: log, error: logError } = await admin.from("pool_daily_logs")
     .select("*")
     .eq("hotel_id", HOTEL_ID)
