@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   for (let offset = 0; offset < maximumEvents; offset += pageSize) {
     const { data, error } = await auth.admin
       .from("cmpri_work_order_history")
-      .select("id, work_order_id, actor_user_id, old_status, new_status, changed_fields, snapshot, recorded_at")
+      .select("id, work_order_id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, snapshot, recorded_at")
       .eq("hotel_id", HOTEL_ID)
       .gt("recorded_at", new Date(sinceTime).toISOString())
       .lte("recorded_at", checkedAt)
@@ -47,26 +47,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const actorIds = Array.from(new Set(events
-    .filter((event) => Object.prototype.hasOwnProperty.call(event.changed_fields || {}, "technician_name"))
-    .map((event) => event.actor_user_id)
-    .filter((id): id is string => !!id)));
-
-  let actorProfiles = new Map<string, { full_name: string | null; role: string }>();
-  if (role === "engineer" && actorIds.length > 0) {
-    const { data: profiles, error: profileError } = await auth.admin
-      .from("profiles")
-      .select("id, full_name, role")
-      .in("id", actorIds);
-    if (profileError) return NextResponse.json({ error: "Work-order notification actors could not be verified." }, { status: 503 });
-    actorProfiles = new Map((profiles || []).map((profile: { id: string; full_name: string | null; role: string }) => [profile.id, profile]));
-  }
-
   const notifications = workOrderNotificationsForRecipient(events, {
     id: auth.principal.identity.id,
     name: auth.principal.profile.full_name || "",
     role,
-  }, actorProfiles);
+  });
 
   let resolvedNotificationIds: string[] = [];
   if (role === "engineer") {

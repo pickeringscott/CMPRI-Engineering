@@ -4,6 +4,8 @@ export type WorkOrderHistoryNotification = {
   id: string;
   work_order_id: string;
   actor_user_id: string | null;
+  actor_name?: string | null;
+  event_type?: string | null;
   old_status: string | null;
   new_status: string | null;
   changed_fields: Record<string, unknown> | null;
@@ -38,11 +40,6 @@ type NotificationRecipient = {
   role: CmpriRole;
 };
 
-type ActorProfile = {
-  full_name: string | null;
-  role: string;
-};
-
 export type WorkOrderNotificationRole = "engineer" | "technician";
 
 function cleanName(value: unknown) {
@@ -54,61 +51,74 @@ function orderLabel(snapshot: Record<string, unknown>) {
   return displayId || "Work order";
 }
 
-function isTechnicianRole(value: string) {
-  const role = value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  return role === "technician" || role === "maintenancetechnician";
+function isEngineerRole(value: unknown) {
+  const role = typeof value === "string" ? value.trim().toLowerCase().replace(/[^a-z]/g, "") : "";
+  return ["engineer", "chiefengineer", "systemadmin", "systemadministrator", "administrator", "admin"].includes(role);
+}
+
+function changedText(event: WorkOrderHistoryNotification, key: string) {
+  const value = event.changed_fields?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+const STATUS_EVENTS = new Set(["status_changed", "closed", "reopened"]);
+
+/** Engineer inbox: every status change and claim made by someone else. */
+export function engineerHistoryNotifications(
+  events: WorkOrderHistoryNotification[],
+  recipientId: string,
+): WorkOrderNotification[] {
+  const notifications: WorkOrderNotification[] = [];
+  for (const event of events) {
+    if (event.actor_user_id && event.actor_user_id === recipientId) continue;
+    const order = orderLabel(event.snapshot || {});
+    const who = event.actor_name?.trim() || "System";
+    let message = "";
+    if (STATUS_EVENTS.has(event.event_type || "") && event.new_status) {
+      message = `${order} status changed: ${event.old_status || "—"} → ${event.new_status} by ${who}.`;
+    } else if (event.event_type === "claimed") {
+      message = `${order} was claimed by ${changedText(event, "technician_name") || who}.`;
+    }
+    if (message) {
+      notifications.push({ id: `history:${event.id}`, work_order_id: event.work_order_id, message, recorded_at: event.recorded_at });
+    }
+  }
+  return notifications;
+}
+
+/** Technician alerts: work assigned to them by someone else, and any ticket an engineer claims. */
+export function technicianHistoryNotifications(
+  events: WorkOrderHistoryNotification[],
+  recipient: { id: string; name: string },
+): WorkOrderNotification[] {
+  const notifications: WorkOrderNotification[] = [];
+  for (const event of events) {
+    if (event.actor_user_id && event.actor_user_id === recipient.id) continue;
+    const order = orderLabel(event.snapshot || {});
+    const technician = changedText(event, "technician_name");
+    let message = "";
+    if ((event.event_type === "assigned" || event.event_type === "claimed") &&
+      technician && cleanName(technician) === cleanName(recipient.name)) {
+      message = event.changed_fields?.after_close === true
+        ? `${order} was reopened and reassigned to you.`
+        : `${order} was assigned to you.`;
+    } else if (event.event_type === "claimed" && isEngineerRole(event.changed_fields?.actor_role)) {
+      message = `${order}: Claimed by Engineer`;
+    }
+    if (message) {
+      notifications.push({ id: event.id, work_order_id: event.work_order_id, message, recorded_at: event.recorded_at });
+    }
+  }
+  return notifications;
 }
 
 export function workOrderNotificationsForRecipient(
   events: WorkOrderHistoryNotification[],
   recipient: NotificationRecipient,
-  actorProfiles: ReadonlyMap<string, ActorProfile>,
 ): WorkOrderNotification[] {
-  const notifications: WorkOrderNotification[] = [];
-  for (const event of events) {
-    const snapshot = event.snapshot || {};
-    const order = orderLabel(snapshot);
-    if (recipient.role === "engineer" && event.old_status && event.old_status !== event.new_status && event.new_status) {
-      notifications.push({
-        id: event.id,
-        work_order_id: event.work_order_id,
-        message: `${order} status changed: ${event.old_status || "—"} → ${event.new_status}`,
-        recorded_at: event.recorded_at,
-      });
-      continue;
-    }
-
-    if (!Object.prototype.hasOwnProperty.call(event.changed_fields || {}, "technician_name")) continue;
-    const technicianName = typeof snapshot.technician_name === "string" ? snapshot.technician_name.trim() : "";
-    if (!technicianName) continue;
-
-    if (recipient.role === "technician" &&
-      cleanName(technicianName) === cleanName(recipient.name) &&
-      event.actor_user_id !== recipient.id) {
-      notifications.push({
-        id: event.id,
-        work_order_id: event.work_order_id,
-        message: `${order} was assigned to you.`,
-        recorded_at: event.recorded_at,
-      });
-      continue;
-    }
-
-    if (recipient.role === "engineer" && event.actor_user_id) {
-      const actor = actorProfiles.get(event.actor_user_id);
-      if (actor && isTechnicianRole(actor.role) &&
-        cleanName(actor.full_name) !== "" &&
-        cleanName(actor.full_name) === cleanName(technicianName)) {
-        notifications.push({
-          id: event.id,
-          work_order_id: event.work_order_id,
-          message: `${order} was claimed by ${actor.full_name?.trim()}.`,
-          recorded_at: event.recorded_at,
-        });
-      }
-    }
-  }
-  return notifications;
+  if (recipient.role === "engineer") return engineerHistoryNotifications(events, recipient.id);
+  if (recipient.role === "technician") return technicianHistoryNotifications(events, recipient);
+  return [];
 }
 
 export function technicianViewNotificationsForEngineer(

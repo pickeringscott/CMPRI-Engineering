@@ -30,7 +30,10 @@ export function workOrderHistoryAction(event: WorkOrderHistoryEvent) {
   const statusChange = `Status ${event.old_status || "—"} → ${event.new_status || "—"}`;
   switch (event.event_type) {
     case "created": return "Work order created";
-    case "claimed": return `Claimed by ${technician || event.actor_name?.trim() || "a technician"}`;
+    case "claimed": {
+      const claimer = technician || event.actor_name?.trim() || "a technician";
+      return previous && previous !== claimer ? `Claimed by ${claimer} (was ${previous})` : `Claimed by ${claimer}`;
+    }
     case "assigned": return previous ? `Reassigned from ${previous} to ${technician}` : `Assigned to ${technician}`;
     case "unassigned": return previous ? `Unassigned from ${previous}` : "Technician unassigned";
     case "closed": return `Closed (${statusChange})`;

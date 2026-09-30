@@ -25,64 +25,85 @@ function historyEvent(id, patch = {}) {
   };
 }
 
-test('technician alerts only for another user assigning work to them', () => {
+test('technicians hear about work assigned to them, reassignment after close, and engineer claims', () => {
   const events = [
     historyEvent('self-claim', {
+      event_type: 'claimed',
       actor_user_id: 'technician-id',
-      changed_fields: { technician_name: 'Morgan Lee' },
-      snapshot: { display_id: 'WO-1', technician_name: 'Morgan Lee' },
+      changed_fields: { technician_name: 'Morgan Lee', previous_technician_name: '', actor_role: 'Technician' },
     }),
-    historyEvent('assigned-by-coworker', {
+    historyEvent('assigned-by-engineer', {
+      event_type: 'assigned',
       actor_user_id: 'engineer-id',
-      changed_fields: { technician_name: 'Morgan Lee' },
-      snapshot: { display_id: 'WO-2', technician_name: 'Morgan Lee' },
+      changed_fields: { technician_name: 'morgan lee ', previous_technician_name: '', actor_role: 'Engineer', after_close: false },
+      snapshot: { display_id: 'WO-2' },
+    }),
+    historyEvent('reopened-to-me', {
+      event_type: 'assigned',
+      actor_user_id: 'engineer-id',
+      changed_fields: { technician_name: 'Morgan Lee', previous_technician_name: '', actor_role: 'Engineer', after_close: true },
+      snapshot: { display_id: 'WO-3' },
     }),
     historyEvent('assigned-to-other', {
+      event_type: 'assigned',
       actor_user_id: 'engineer-id',
-      changed_fields: { technician_name: 'Taylor Smith' },
-      snapshot: { display_id: 'WO-3', technician_name: 'Taylor Smith' },
+      changed_fields: { technician_name: 'Taylor Smith', previous_technician_name: '', actor_role: 'Engineer', after_close: true },
     }),
+    historyEvent('engineer-claim', {
+      event_type: 'claimed',
+      actor_user_id: 'engineer-id',
+      changed_fields: { technician_name: 'Alex Engineer', previous_technician_name: 'Taylor Smith', actor_role: 'Engineer' },
+      snapshot: { display_id: 'WO-5' },
+    }),
+    historyEvent('coworker-claim', {
+      event_type: 'claimed',
+      actor_user_id: 'tech-2',
+      changed_fields: { technician_name: 'Taylor Smith', previous_technician_name: '', actor_role: 'Technician' },
+    }),
+    historyEvent('status-change', { event_type: 'status_changed', actor_user_id: 'engineer-id', old_status: 'Open', new_status: 'In Progress' }),
   ];
-  const result = workOrderNotificationsForRecipient(events, {
-    id: 'technician-id',
-    name: 'Morgan Lee',
-    role: 'technician',
-  }, new Map());
+  const result = workOrderNotificationsForRecipient(events, { id: 'technician-id', name: 'Morgan Lee', role: 'technician' });
   assert.deepEqual(result.map(({ id, message }) => [id, message]), [
-    ['assigned-by-coworker', 'WO-2 was assigned to you.'],
+    ['assigned-by-engineer', 'WO-2 was assigned to you.'],
+    ['reopened-to-me', 'WO-3 was reopened and reassigned to you.'],
+    ['engineer-claim', 'WO-5: Claimed by Engineer'],
   ]);
 });
 
-test('engineers are alerted on every status change and technician self-claims', () => {
+test('engineers are alerted on status changes and claims by anyone else', () => {
   const events = [
-    historyEvent('created', { old_status: null, new_status: 'Open' }),
-    historyEvent('status-change', { old_status: 'Open', new_status: 'In Progress' }),
+    historyEvent('created', { event_type: 'created', old_status: null, new_status: 'Open' }),
+    historyEvent('status-change', { event_type: 'status_changed', actor_name: 'Morgan Lee', actor_user_id: 'technician-id', old_status: 'Open', new_status: 'In Progress' }),
+    historyEvent('closed', { event_type: 'closed', actor_name: 'Pat Admin', actor_user_id: 'admin-id', old_status: 'Completed', new_status: 'Closed' }),
+    historyEvent('own-change', { event_type: 'status_changed', actor_user_id: 'engineer-id', old_status: 'Open', new_status: 'Completed' }),
     historyEvent('self-claim', {
+      event_type: 'claimed',
+      actor_name: 'Morgan Lee',
       actor_user_id: 'technician-id',
       changed_fields: { technician_name: 'Morgan Lee' },
-      snapshot: { display_id: 'WO-2', technician_name: 'Morgan Lee' },
+      snapshot: { display_id: 'WO-2' },
     }),
-    historyEvent('engineer-assignment', {
-      actor_user_id: 'engineer-id',
+    historyEvent('assignment', {
+      event_type: 'assigned',
+      actor_user_id: 'other-engineer',
       changed_fields: { technician_name: 'Taylor Smith' },
-      snapshot: { display_id: 'WO-3', technician_name: 'Taylor Smith' },
     }),
   ];
-  const actors = new Map([
-    ['technician-id', { full_name: 'Morgan Lee', role: 'Maintenance Technician' }],
-    ['engineer-id', { full_name: 'Alex Engineer', role: 'Engineer' }],
-  ]);
-  const result = workOrderNotificationsForRecipient(events, {
-    id: 'engineer-id',
-    name: 'Alex Engineer',
-    role: 'engineer',
-  }, actors);
+  const result = workOrderNotificationsForRecipient(events, { id: 'engineer-id', name: 'Alex Engineer', role: 'engineer' });
   assert.deepEqual(result.map(({ id, message }) => [id, message]), [
-    ['status-change', 'WO-status-change status changed: Open → In Progress'],
-    ['self-claim', 'WO-2 was claimed by Morgan Lee.'],
+    ['history:status-change', 'WO-status-change status changed: Open \u2192 In Progress by Morgan Lee.'],
+    ['history:closed', 'WO-closed status changed: Completed \u2192 Closed by Pat Admin.'],
+    ['history:self-claim', 'WO-2 was claimed by Morgan Lee.'],
   ]);
 });
 
+test('engineer dashboard inbox records status and claim history for engineers only', () => {
+  const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /if \(isEngineer\) \{[\s\S]*from\("cmpri_work_order_history"\)[\s\S]*\.in\("event_type", \["status_changed", "closed", "reopened", "claimed"\]\)[\s\S]*engineerHistoryNotifications\(history, userId\)/);
+  const migration = readFileSync(new URL('../supabase/migrations/20260930220000_cmpri_work_order_history_notifications.sql', import.meta.url), 'utf8');
+  assert.match(migration, /'actor_role', coalesce\(v_actor_role, ''\), 'after_close', v_after_close/);
+  assert.match(migration, /v_after_close := old\.status::text = 'Closed' or/);
+});
 test('notification helpers de-duplicate repeated polling responses', () => {
   const notification = {
     id: 'event-1',

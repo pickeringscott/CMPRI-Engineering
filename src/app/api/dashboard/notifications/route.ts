@@ -6,11 +6,13 @@ import { requireUser } from "@/lib/server/auth";
 import { roleKey } from "@/lib/server/roles";
 import {
   dashboardNotificationScanStart,
+  engineerHistoryNotifications,
   newWorkOrderNotification,
   sanitizeImportedDashboardNotifications,
   shouldWriteDashboardNotificationCursor,
   technicianViewNotificationsForEngineer,
   unrecordedDashboardNotifications,
+  type WorkOrderHistoryNotification,
   type WorkOrderNotification,
   type WorkOrderTechnicianView,
 } from "@/lib/dashboard/work-order-notifications";
@@ -119,6 +121,21 @@ export async function GET(request: NextRequest) {
       );
       if (!views) return NextResponse.json({ error: "Technician view notifications could not be checked." }, { status: 503 });
       candidates.push(...technicianViewNotificationsForEngineer(views));
+
+      const history = await scanPages<WorkOrderHistoryNotification>(
+        (from, to) => admin
+          .from("cmpri_work_order_history")
+          .select("id, work_order_id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, snapshot, recorded_at")
+          .eq("hotel_id", HOTEL_ID)
+          .in("event_type", ["status_changed", "closed", "reopened", "claimed"])
+          .gt("recorded_at", scanStart)
+          .lte("recorded_at", checkedAt)
+          .order("recorded_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      if (!history) return NextResponse.json({ error: "Work-order updates could not be checked." }, { status: 503 });
+      candidates.push(...engineerHistoryNotifications(history, userId));
     }
   }
 
