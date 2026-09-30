@@ -30,6 +30,7 @@ function fixture(body,config={},options={}) {
         if(name==='@supabase/supabase-js')return {createClient:(url,key,options)=>{clients.push({url,key,options});return db;}};
         if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'shared-id',email:'desk@example.invalid'},profile}};if(name==='server-only')return {};
         if(name==='@/lib/supabase/config')return configStub;
+        if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>({processed:true})};
         let target=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(file),name);if(!existsSync(target))target+='.ts';return load(target);
       },
     });return exports;

@@ -6,12 +6,14 @@ import { normalizeMcpFeedbackInput, normalizeMcpWorkOrderUpdate } from "@/lib/ai
 import { prepareMcpPoolLogInput } from "@/lib/pool-log";
 import { allows, type Capability } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
+import { roleKey } from "@/lib/server/roles";
 
 type WriteAction = {
   action: string;
   description: string;
   capability?: Capability;
   anyOf?: Capability[];
+  systemAdminOnly?: boolean;
 };
 
 const WRITE_ACTIONS: WriteAction[] = [
@@ -28,9 +30,9 @@ const WRITE_ACTIONS: WriteAction[] = [
   { action: "engineering_catalog.update", description: "Update a supported CMPRI engineering catalog record.", capability: "manage_assets" },
   { action: "engineering_operations.update", description: "Update a permitted CMPRI purchase or shipment operation.", capability: "operate_integrations" },
   { action: "integrations.email.scan", description: "Run the authorized mailbox scan and import eligible operational records into CMPRI.", capability: "operate_integrations" },
-  { action: "integrations.room_ranker.sync", description: "Run the authorized CMPRI room-ranker synchronization.", capability: "operate_integrations" },
-  { action: "room_ranker.update", description: "Update a supported CMPRI room-ranker record.", capability: "operate_integrations" },
-  { action: "corporate_pm.update", description: "Write an allowed verified cell through CMPRI's Corporate PM integration.", capability: "operate_integrations" },
+  { action: "integrations.room_ranker.sync", description: "Run the authorized CMPRI room-ranker synchronization.", capability: "operate_integrations", systemAdminOnly: true },
+  { action: "room_ranker.update", description: "Update a supported CMPRI room-ranker record.", capability: "operate_integrations", systemAdminOnly: true },
+  { action: "corporate_pm.update", description: "Write an allowed verified cell through CMPRI's Corporate PM integration.", capability: "operate_integrations", systemAdminOnly: true },
   { action: "room_operations.import", description: "Import validated CMPRI room-operations data.", capability: "edit_tickets" },
   { action: "pool_log.save", description: "Save pool readings. Required: date (YYYY-MM-DD, use the date from the pool read), pool (exact active pool name such as Indoor Pool, or its id from the pool read), and explicit Boolean values for requires_attention and closure_condition. Both true and false are valid; false must be sent explicitly and is not missing. For an explicitly requested test entry with no readings, set test_entry: true; CMPRI records 'Test entry' in remarks so the normal non-empty-log validation passes. When editing an existing log, include expected_revision from read.log.revision. If read.log is null, omit expected_revision. If saving reports that the original log is unavailable, re-read the same date and pool; if it is still empty, retry as a new log without expected_revision. The pool name is resolved to the active facility id before saving.", capability: "operate_integrations" },
   { action: "feedback.submit", description: "Submit feedback to CMPRI. Provide feedback_type as Problem, Bug, or Suggestion and description. page_route is optional; if supplied it must be a site path starting with /. The MCP connection records /mcp when no valid site path is provided. Feedback type matching is case-insensitive.", capability: "submit_feedback" },
@@ -45,6 +47,7 @@ const WRITE_ACTIONS: WriteAction[] = [
 ];
 
 function actionAllowed(identity: McpIdentity, action: WriteAction) {
+  if (action.systemAdminOnly && roleKey(identity.principal.profile.role) !== "system_admin") return false;
   if (!action.capability && !action.anyOf) return true;
   if (action.capability) return allows(identity.principal, action.capability);
   return action.anyOf?.some((capability) => allows(identity.principal, capability)) ?? false;

@@ -6,6 +6,8 @@ import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { loadCmpriSession } from "@/lib/auth/client-session";
+import { roleKey } from "@/lib/server/roles";
 
 type SheetResult = {
   ok: boolean;
@@ -63,6 +65,13 @@ export default function PreventiveMaintenancePage() {
       const allowed = await enforceSessionPreference();
       if (!current) return;
       if (!allowed) return window.location.replace("/");
+      const session = await loadCmpriSession();
+      if (!current) return;
+      if (roleKey(session.user.role) !== "system_admin") {
+        setError("Preventive Maintenance management is available only to System Administrators.");
+        setLoading(false);
+        return;
+      }
       if (loadSequence.current !== sequenceAtMount) return;
       await load(currentMonth);
     })().catch(() => { if (current) { setError("Unable to verify your session. Please sign in again."); setLoading(false); } });
@@ -79,7 +88,7 @@ export default function PreventiveMaintenancePage() {
       const response = await fetch("/api/corporate-pm", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ action: "setcheckbox", sheet, row, column, checked }),
+        body: JSON.stringify({ action: "setcheckbox", sheet, row, column, checked, expectedChecked: !checked }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Unable to update Corporate PM tracker.");

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { isIntegrationsSafeMode, requireIntegrationConfig, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
+import { googleSheetsRequest } from "@/lib/server/google-sheets";
+import { IntegrationConfigurationError, isIntegrationsSafeMode, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
 
 export type RoomRankerRow = {
   rowNumber: number;
@@ -9,38 +10,157 @@ export type RoomRankerRow = {
   [key: string]: unknown;
 };
 
+type RoomRankerConfig = { spreadsheetId: string; sheetName: string };
+type SheetLayout = { headerRow: number; columns: Record<string, number> };
+
+const RANKER_FIELDS = ["inspectedBy", "check1", "check2", "check3", "rank", "notes"] as const;
+const FIELD_HEADERS: Record<(typeof RANKER_FIELDS)[number] | "room", string[]> = {
+  room: ["room", "roomnumber", "roomno", "roomnum", "rm"],
+  inspectedBy: ["inspectedby", "inspector", "inspected"],
+  check1: ["check1", "roomcheck1", "specificroomcheck1"],
+  check2: ["check2", "roomcheck2", "specificroomcheck2"],
+  check3: ["check3", "roomcheck3", "specificroomcheck3"],
+  rank: ["rank", "roomrank"],
+  notes: ["notes", "notesactionsneeded", "actionsneeded", "notesactions"],
+};
+function roomRankerConfig(): RoomRankerConfig {
+  const spreadsheetId = process.env.CMPRI_ROOM_RANKER_SPREADSHEET_ID?.trim();
+  const sheetName = process.env.CMPRI_ROOM_RANKER_SHEET_NAME?.trim();
+  const missing = [
+    !spreadsheetId && "CMPRI_ROOM_RANKER_SPREADSHEET_ID",
+    !sheetName && "CMPRI_ROOM_RANKER_SHEET_NAME",
+  ].filter(Boolean);
+  if (missing.length) {
+    throw new IntegrationConfigurationError(`Room Ranker is missing server deployment settings: ${missing.join(", ")}.`);
+  }
+  return { spreadsheetId: spreadsheetId as string, sheetName: sheetName as string };
+}
+
+function columnName(index: number) {
+  let value = index + 1;
+  let result = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
+function escapedSheetName(name: string) {
+  return `'${name.replace(/'/g, "''")}'`;
+}
+
+async function getRoomRankerValues(config: RoomRankerConfig) {
+  const metadata = await googleSheetsRequest<{ sheets?: Array<{ properties?: { title?: string } }> }>(
+    config.spreadsheetId,
+    "?fields=sheets.properties.title",
+    {},
+    "Room Ranker",
+  );
+  if (!metadata.sheets?.some((sheet) => sheet.properties?.title === config.sheetName)) {
+    throw new Error(`The configured Room Ranker tab '${config.sheetName}' was not found in the spreadsheet.`);
+  }
+  const range = encodeURIComponent(`${escapedSheetName(config.sheetName)}!A:Z`);
+  const result = await googleSheetsRequest<{ values?: unknown[][] }>(
+    config.spreadsheetId,
+    `/values/${range}?valueRenderOption=FORMATTED_VALUE`,
+    {},
+    "Room Ranker",
+  );
+  return result.values || [];
+}
+
+function normalizedHeader(value: unknown) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function sheetLayout(values: unknown[][]): SheetLayout {
+  for (let rowIndex = 0; rowIndex < Math.min(values.length, 20); rowIndex += 1) {
+    const headers = values[rowIndex].map(normalizedHeader);
+    const columns: Record<string, number> = {};
+    for (const [field, aliases] of Object.entries(FIELD_HEADERS)) {
+      const index = headers.findIndex((header) => aliases.includes(header));
+      if (index >= 0) columns[field] = index;
+    }
+    if (columns.room !== undefined && RANKER_FIELDS.every((field) => columns[field] !== undefined)) {
+      return { headerRow: rowIndex, columns };
+    }
+  }
+  throw new Error("Room Ranker headers were not found. The sheet needs Room, Inspected By, Check 1–3, Rank, and Notes columns.");
+}
+
+function getCell(row: unknown[], index: number) {
+  const value = row[index];
+  return value === undefined || value === null ? "" : String(value);
+}
+
+async function readRoomRanker(config: RoomRankerConfig) {
+  const values = await getRoomRankerValues(config);
+  const layout = sheetLayout(values);
+  const rooms = values.slice(layout.headerRow + 1).flatMap((row, index) => {
+    if (!Array.isArray(row)) return [];
+    const room = getCell(row, layout.columns.room).trim();
+    if (!room) return [];
+    return [{
+      rowNumber: layout.headerRow + index + 2,
+      room,
+      inspectedBy: getCell(row, layout.columns.inspectedBy),
+      check1: getCell(row, layout.columns.check1),
+      check2: getCell(row, layout.columns.check2),
+      check3: getCell(row, layout.columns.check3),
+      rank: getCell(row, layout.columns.rank),
+      notes: getCell(row, layout.columns.notes),
+    }];
+  });
+  return { ok: true, rooms, fetchedAt: new Date().toISOString(), config, layout };
+}
+
+async function updateRoomRanker(config: RoomRankerConfig, payload: Record<string, unknown>) {
+  const { layout, rooms } = await readRoomRanker(config);
+  const rowNumber = Number(payload.rowNumber);
+  const target = rooms.find((room) => room.rowNumber === rowNumber);
+  if (!target || target.room !== String(payload.expectedRoom || "").trim()) {
+    throw new Error("The Room Ranker row changed since it was loaded. Refresh and try again.");
+  }
+
+  const updates = RANKER_FIELDS.flatMap((field) => {
+    if (!(field in payload)) return [];
+    return [{
+      range: `${escapedSheetName(config.sheetName)}!${columnName(layout.columns[field])}${rowNumber}`,
+      values: [[String(payload[field] ?? "")]],
+    }];
+  });
+  if (!updates.length) throw new Error("No editable Room Ranker fields were supplied.");
+  await googleSheetsRequest(config.spreadsheetId, "/values:batchUpdate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ valueInputOption: "RAW", data: updates }),
+  }, "Room Ranker");
+
+  const verified = await readRoomRanker(config);
+  const saved = verified.rooms.find((room) => room.rowNumber === rowNumber);
+  if (!saved || saved.room !== target.room || updates.some((update) => {
+    const field = RANKER_FIELDS.find((key) => update.range.startsWith(`${escapedSheetName(config.sheetName)}!${columnName(layout.columns[key])}`));
+    return field !== undefined && saved[field] !== update.values[0][0];
+  })) {
+    throw new Error("Google Sheets accepted the Room Ranker write, but read-back verification did not match. Refresh and verify the room.");
+  }
+  return { ok: true, room: saved.room, rowNumber };
+}
+
 export async function callRoomRanker(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const action = String(payload.action || "").trim().toLowerCase();
   if (action !== "read" && isIntegrationsSafeMode()) {
     return safeModeBlocked("Room Ranker", action || "write") as unknown as Record<string, unknown>;
   }
-  const { url, apiKey } = requireIntegrationConfig(
-    "Room Ranker",
-    process.env.CMPRI_ROOM_RANKER_API_URL,
-    process.env.CMPRI_ROOM_RANKER_API_KEY,
-    "CMPRI_ROOM_RANKER_API_URL",
-    "CMPRI_ROOM_RANKER_API_KEY",
-  );
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, apiKey }),
-    cache: "no-store",
-    redirect: "follow",
-  });
-  const text = await response.text();
-  let result: Record<string, unknown>;
-  try { result = JSON.parse(text) as Record<string, unknown>; }
-  catch {
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(`Room Ranker endpoint rejected CMPRI with HTTP ${response.status}. Verify CMPRI_ROOM_RANKER_API_URL points to the current deployed Apps Script /exec URL, external server requests are allowed by that deployment, and its expected API key matches Vercel Production.`);
-    }
-    throw new Error(`Room Ranker returned an unreadable response (${response.status}).`);
+  const config = roomRankerConfig();
+  if (action === "read") {
+    const { rooms, fetchedAt } = await readRoomRanker(config);
+    return { ok: true, rooms, fetchedAt };
   }
-  if (!response.ok || result.ok !== true) {
-    throw new Error(String(result.error || `Room Ranker request failed (${response.status}).`));
-  }
-  return result;
+  if (action !== "update") throw new Error("Room Ranker action is not supported.");
+  return updateRoomRanker(config, payload);
 }
 
 function roomNumber(value: unknown) {

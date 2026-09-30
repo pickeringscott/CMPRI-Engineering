@@ -5,79 +5,108 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
+
 const root=fileURLToPath(new URL('../src/',import.meta.url));
-function fixture(route,body,config={}) {
+function fixture(body,config={}) {
   const calls=[];
   function load(filename) {
     const exports={};
     vm.runInNewContext(ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
-      exports,URL,AbortSignal,process:{env:{CMPRI_INTEGRATIONS_SAFE_MODE:'false',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_ROOM_RANKER_API_URL:'https://test.invalid/api',CMPRI_CORPORATE_PM_API_KEY:'fake',CMPRI_CORPORATE_PM_API_URL:'https://test.invalid/api',...(config.env||{})}},
-      fetch:async(url,init={})=>{calls.push({url:String(url),...init});return {ok:config.ok??true,status:config.status??200,text:async()=>config.responseText??JSON.stringify(config.upstream || {ok:true,sheet:'JAN',values:[['Header'],['Task','FALSE']],formulas:[[''],['','']]})};},
+      exports,URL,AbortSignal,process:{env:{CMPRI_INTEGRATIONS_SAFE_MODE:'false',CMPRI_CORPORATE_PM_SPREADSHEET_ID:'private-sheet-id',...(config.env||{})}},
+      fetch:async()=>{calls.push('network');return {ok:true,status:200,json:async()=>({}),text:async()=>'{}'};},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
-        if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>({profile:{active:true,role:'Chief Engineer'}})};
         if(name==='server-only')return {};
-        if(name==='@supabase/supabase-js')return {createClient:()=>({})};
-        if(name==='@/lib/server/auth'){const p={principal:{identity:{id:'actor'},profile:{active:true,role:'Chief Engineer'},membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:{}};return {requireUser:async()=>p,requireCapability:async()=>p}}
-        if(name==='@/lib/server/access')return {allows:()=>true};
+        if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>({profile:{active:true,role:'System Administrator'}})};
+        if(name==='@/lib/server/auth'){
+          const database={from:table=>{
+            if(table!=='work_orders')throw new Error(`Unexpected database table ${table}`);
+            const query={select(){return query;},eq(){return query;},maybeSingle:async()=>({data:config.workOrder??{id:'work-order-id',room:'409',technician_name:'Engineer'},error:null})};
+            return query;
+          }};
+          const p={principal:{identity:{id:'actor'},profile:{active:true,role:config.role||'System Administrator',full_name:config.fullName||'Engineer'},membership:{hotel_id:'hotel'},permissions:[]},admin:database};
+          return {requireUser:async()=>p};
+        }
+        if(name==='@/lib/server/access')return {allows:(_principal,capability)=>capability==='view_dashboard'||capability==='edit_tickets'||capability==='operate_integrations'};
+        if(name==='@/lib/server/corporate-pm')return {
+          CORPORATE_PM_MONTHS:['JAN','FEB','MAR','APR','MAY','JUNE','JULY','AUG','SEPT','OCT','NOV','DEC'],
+          readCorporatePmSheet:async sheet=>{calls.push(['read',sheet]);return {ok:true,sheet,values:[['Room','Daily check'],['409','FALSE']],formulas:[['',''],['','']],timestamp:'2026-03-01T00:00:00.000Z'};},
+          readCorporatePmRoom:async room=>{calls.push(['room',room]);return {ok:true,room,tasks:[{sheet:'JAN',row:2,column:2,label:'Daily check',checked:false}],fetchedAt:'2026-03-01T00:00:00.000Z'};},
+          setCorporatePmCheckbox:async(...args)=>{calls.push(['write',...args]);return {ok:true,...Object.fromEntries(['sheet','row','column','checked'].map((key,index)=>[key,args[index]]))};},
+        };
+        if(name==='@/lib/server/room-ranker')return {callRoomRanker:async()=>({ok:true,rooms:[]})};
+        if(name==='@/lib/server/roles')return {roleKey:role=>String(role).toLowerCase()==='system administrator'?'system_admin':String(role).toLowerCase()};
         let file=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(filename),name);
-        if(!existsSync(file))file+='.ts';return load(file);
+        if(!existsSync(file))file+='.ts';
+        return load(file);
       },
     });return exports;
   }
-  return {calls,handler:load(path.join(root,'app/api',route,'route.ts')).PATCH,request:{json:async()=>{if(config.badJson)throw new SyntaxError('Invalid JSON');return body;}}};
+  const request={url:'https://test.invalid/api/corporate-pm',headers:new Headers({authorization:'Bearer token'}),json:async()=>{if(config.badJson)throw new SyntaxError('Invalid JSON');return body;}};
+  return {calls,handlers:load(path.join(root,'app/api/corporate-pm/route.ts')),load,request};
 }
-const ranker={rowNumber:2,expectedRoom:'409',rank:'A',notes:'Reviewed'};
-const checkbox={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true};
-for(const route of ['room-ranker','corporate-pm'])for(const body of [null,[],{},42])test(`${route} rejects malformed body ${JSON.stringify(body)} before upstream access`,async()=>{
-  const f=fixture(route,body);assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);
+
+for(const body of [null,[],{},42])test(`Corporate PM rejects malformed body ${JSON.stringify(body)}`,async()=>{
+  const f=fixture(body);const response=await f.handlers.PATCH(f.request);
+  assert.equal(response.status,400);assert.equal(f.calls.length,0);
 });
-for(const route of ['room-ranker','corporate-pm'])test(`${route} rejects broken JSON`,async()=>{
-  const f=fixture(route,null,{badJson:true});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);
+
+test('Corporate PM rejects broken JSON before reading the sheet',async()=>{
+  const f=fixture(null,{badJson:true});const response=await f.handlers.PATCH(f.request);
+  assert.equal(response.status,400);assert.equal(f.calls.length,0);
 });
-for(const [route,env,body,setting] of [
-  ['room-ranker',{CMPRI_ROOM_RANKER_API_URL:undefined,CMPRI_ROOM_RANKER_API_KEY:undefined}, {rowNumber:2,expectedRoom:'409',rank:'A'}, 'CMPRI_ROOM_RANKER_API_URL'],
-  ['corporate-pm',{CMPRI_CORPORATE_PM_API_URL:undefined,CMPRI_CORPORATE_PM_API_KEY:undefined}, {action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true}, 'CMPRI_CORPORATE_PM_API_URL'],
-])test(`${route} reports missing deployment settings without contacting a placeholder`,async()=>{
-  const f=fixture(route,body,{env});const response=await f.handler(f.request);
-  assert.equal(response.status,503);assert.match(response.body.error,new RegExp(setting));assert.equal(f.calls.length,0);
+
+test('only system administrators can open the monthly Corporate PM manager',async()=>{
+  const f=fixture(null,{role:'Chief Engineer'});
+  const response=await f.handlers.GET({...f.request,url:'https://test.invalid/api/corporate-pm?sheet=JAN'});
+  assert.equal(response.status,403);assert.equal(f.calls.length,0);
 });
-for(const patch of [{rowNumber:0},{rowNumber:2.5},{rowNumber:'2'},{expectedRoom:''},{rank:'Z'},{notes:{text:'x'}},{notes:'=IMPORTXML("https://example.invalid","x")'}])test(`ranker validates target/text ${JSON.stringify(patch)}`,async()=>{
-  const f=fixture('room-ranker',{...ranker,...patch});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);
+
+test('work-order room reads return only room checklist fields, not credentials',async()=>{
+  const f=fixture(null,{role:'Maintenance Technician'});
+  const response=await f.handlers.GET({...f.request,url:'https://test.invalid/api/corporate-pm?room=409'});
+  assert.equal(response.status,200);assert.equal(response.body.tasks[0].label,'Daily check');
+  assert.equal(response.body.can_edit,true);
+  assert.equal(JSON.stringify(response.body).includes('private-sheet-id'),false);
+  assert.equal(JSON.stringify(response.body).includes('private_key'),false);
 });
-for(const patch of [{row:0},{column:-1},{row:1.5},{checked:'false'},{checked:null},{sheet:''},{action:'unsupported'}])test(`PM validates target/checkbox ${JSON.stringify(patch)}`,async()=>{
-  const f=fixture('corporate-pm',{...checkbox,...patch});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);
+
+test('system administrator PM edits use the verified shared-sheet adapter',async()=>{
+  const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true,spreadsheetId:'attacker',key:'attacker'};
+  const f=fixture(body);const response=await f.handlers.PATCH(f.request);
+  assert.equal(response.status,200);
+  assert.deepEqual(f.calls[0].slice(0,5),['write','JAN',2,2,true]);
 });
-test('ranker forwards only editable fields and the expected room',async()=>{
-  const f=fixture('room-ranker',{...ranker,apiKey:'attacker',action:'delete',room:'999'});
-  assert.equal((await f.handler(f.request)).status,200);const sent=JSON.parse(f.calls[0].body);
-  assert.equal(sent.apiKey,'fake');assert.equal(sent.action,'update');assert.equal(sent.expectedRoom,'409');assert.equal('room' in sent,false);
+
+test('Corporate PM rejects unsupported completion actions',async()=>{
+  const f=fixture({action:'completeroompm',room:'409',quarter:'Q1'});
+  const response=await f.handlers.PATCH(f.request);
+  assert.equal(response.status,400);assert.equal(f.calls.length,0);
 });
-test('ranker explains non-JSON upstream authentication failures',async()=>{
-  const f=fixture('room-ranker',ranker,{ok:false,status:401,responseText:'<!doctype html>'});
-  const response=await f.handler(f.request);
-  assert.equal(response.status,502);
-  assert.match(response.body.error,/HTTP 401/);
-  assert.match(response.body.error,/\/exec URL/);
-  assert.match(response.body.error,/expected API key matches Vercel Production/);
+
+test('work-order PM commits are limited to the current room checklist and assignment',async()=>{
+  const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true,expectedChecked:false};
+  const f=fixture(body,{role:'Technician'});
+  const handler=f.load(path.join(root,'app/api/work-orders/[id]/preventive-maintenance/route.ts'));
+  const response=await handler.PATCH(f.request,{params:Promise.resolve({id:'work-order-id'})});
+  assert.equal(response.status,200);
+  assert.deepEqual(f.calls.find(call=>Array.isArray(call)&&call[0]==='write').slice(0,7),['write','JAN',2,2,true,'409',false]);
 });
-test('PM verifies the current cell before a boolean write',async()=>{
-  const f=fixture('corporate-pm',checkbox);assert.equal((await f.handler(f.request)).status,200);
-  assert.equal(f.calls.length,2);assert.equal(f.calls[0].method,undefined);assert.equal(JSON.parse(f.calls[1].body).checked,true);
+
+test('work-order PM commit rejects changes without an expected checkbox value',async()=>{
+  const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true};
+  const f=fixture(body,{role:'Technician'});
+  const handler=f.load(path.join(root,'app/api/work-orders/[id]/preventive-maintenance/route.ts'));
+  const response=await handler.PATCH(f.request,{params:Promise.resolve({id:'work-order-id'})});
+  assert.equal(response.status,400);
+  assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='write'),false);
 });
-for(const upstream of [
-  {ok:true,sheet:'JAN',values:[['Header'],['Task','FALSE']],formulas:[[''],['','=A1']]},
-  {ok:true,sheet:'JAN',values:[['Header'],['Task','Text']],formulas:[[''],['','']]},
-  {ok:true,sheet:'FEB',values:[['Header'],['Task','FALSE']],formulas:[[''],['','']]},
-  {ok:true,sheet:'JAN',values:[['Header'],['Task','FALSE']]},
-])test(`PM refuses non-checkbox/formula/wrong-sheet snapshot ${JSON.stringify(upstream)}`,async()=>{
-  const f=fixture('corporate-pm',checkbox,{upstream});assert.equal((await f.handler(f.request)).status,409);assert.equal(f.calls.length,1);
-});
-test('PM preserves an explicit false checkbox value',async()=>{
-  const f=fixture('corporate-pm',{...checkbox,checked:false});assert.equal((await f.handler(f.request)).status,200);
-  assert.equal(JSON.parse(f.calls[1].body).checked,false);
-});
-for(const completedDate of ['2026-02-30','2026-13-01','yesterday'])test(`PM rejects invalid completion date ${completedDate}`,async()=>{
-  const f=fixture('corporate-pm',{action:'completeroompm',room:'409',quarter:'Q1',completedDate});
-  assert.equal((await f.handler(f.request)).status,400);assert.equal(f.calls.length,0);
+
+test('work-order PM commits reject a technician assigned to another staff member',async()=>{
+  const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true,expectedChecked:false};
+  const f=fixture(body,{role:'Technician',fullName:'Other Engineer',workOrder:{id:'work-order-id',room:'409',technician_name:'Assigned Engineer'}});
+  const handler=f.load(path.join(root,'app/api/work-orders/[id]/preventive-maintenance/route.ts'));
+  const response=await handler.PATCH(f.request,{params:Promise.resolve({id:'work-order-id'})});
+  assert.equal(response.status,403);
+  assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='write'),false);
 });

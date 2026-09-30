@@ -49,31 +49,49 @@ The migration creates server-managed operational tables for email events, purcha
 
 ## Required deployment environment variables
 
-Use `.env.example` as the non-secret checklist. Existing CMPRI Supabase, OpenAI, Room Ranker, and Corporate PM variables remain in use. The email integration requires provider credentials and CRON_SECRET for scheduled scans. Microsoft 365 is preferred when both providers are configured unless CMPRI_EMAIL_PROVIDER explicitly selects Gmail. Mail.Read mailbox-scoped permission or Gmail gmail.readonly permission must be configured externally. No mailbox writing or sending is implemented.
+Use `.env.example` as the non-secret checklist. Existing CMPRI Supabase, OpenAI, Room Ranker, and Corporate PM integrations remain in use. The email integration requires provider credentials and CRON_SECRET for scheduled scans. Microsoft 365 is preferred when both providers are configured unless CMPRI_EMAIL_PROVIDER explicitly selects Gmail. Mail.Read mailbox-scoped permission or Gmail gmail.readonly permission must be configured externally. No mailbox writing or sending is implemented.
 
 The Gmail integration is designed to use a read-only Gmail OAuth scope for mailbox ingestion. It does not autonomously send warranty claims, supplier messages, or other outgoing mail.
 
 ## Room Ranker
 
-Configure:
+Room Ranker is available only to System Administrators. CMPRI accesses the
+private Google Sheet directly using a Google Cloud service account; no Apps
+Script endpoint or custom Room Ranker API key is used. Enable the Google Sheets
+API in the service account's Google Cloud project and share the spreadsheet
+with that service account's `client_email` as an Editor. Keep the sheet private
+to its normal users and that service account. Only System Administrators can
+open or edit Room Ranker.
 
 ```text
-CMPRI_ROOM_RANKER_API_URL=<deployed Apps Script URL>
-CMPRI_ROOM_RANKER_API_KEY=<private Apps Script key>
+CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON=<full service-account JSON>
+CMPRI_ROOM_RANKER_SPREADSHEET_ID=<spreadsheet id from its URL>
+CMPRI_ROOM_RANKER_SHEET_NAME=<exact worksheet tab name>
 ```
 
-The key is server-only and must not use a `NEXT_PUBLIC_` prefix.
+Set these in Vercel's Production environment only. The JSON contains the
+private key and must never be committed or exposed to browser code. CMPRI
+exchanges a server-signed JWT for a short-lived Google access token and uses it
+only from server routes. Saving edits retains row/room checks and verifies the
+written values by reading them back.
 
 ## Corporate PM
 
-Configure:
+Corporate PM uses the same server-only Google service account as Room Ranker.
+Create/configure the service account as above, enable the Sheets API, and share
+the private PM spreadsheet with its `client_email` as an Editor. The admin-only
+PM manager reads its monthly tabs; work orders display matching daily and
+weekly room checks and let authorized work-order staff confirm them back to
+the sheet. Sheet writes are verified by reading them back. Integrations safe
+mode blocks writes until deliberately disabled.
 
 ```text
-CMPRI_CORPORATE_PM_API_URL=<deployed Apps Script URL>
-CMPRI_CORPORATE_PM_API_KEY=<matching private key>
+CMPRI_CORPORATE_PM_SPREADSHEET_ID=<spreadsheet id from its URL>
 ```
 
-CMPRI reads the corporate PM schedule/checklist through the protected server route and preserves the corporate spreadsheet as the governing source.
+The monthly tabs are expected to use the existing JAN–DEC names. Google
+credentials and spreadsheet IDs stay in Vercel server environment variables;
+no Apps Script URL or API key is used.
 
 ## Local verification
 

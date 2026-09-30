@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
+import { roleKey } from "@/lib/server/roles";
 
 async function bodyObject(request: NextRequest): Promise<Record<string, unknown> | null> {
   try {
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
     pm_plans: pmPlanResult.data || [],
     pm_completions: pmCompletionResult.data || [],
     can_edit: allows(principal, "manage_rooms"),
+    can_manage_corporate_pm: roleKey(principal.profile.role) === "system_admin",
   }, { headers: { "Cache-Control": "no-store" } });
 }
 

@@ -70,6 +70,7 @@ export default function RoomsPage() {
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState<Location | null>(null);
   const [canEdit, setCanEdit] = useState(false);
+  const [canManageCorporatePm, setCanManageCorporatePm] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -87,6 +88,7 @@ export default function RoomsPage() {
       pm_plans?: PmPlan[];
       pm_completions?: PmCompletion[];
       can_edit?: boolean;
+      can_manage_corporate_pm?: boolean;
     };
     if (!response.ok) { setMessage(result.error || "Rooms could not be loaded."); return; }
     const list = result.locations || [];
@@ -95,6 +97,7 @@ export default function RoomsPage() {
     setPmPlans(result.pm_plans || []);
     setPmCompletions(result.pm_completions || []);
     setCanEdit(result.can_edit === true);
+    setCanManageCorporatePm(result.can_manage_corporate_pm === true);
     setSelectedId((current) => {
       const nextId = current && list.some((item) => item.id === current) ? current : list[0]?.id || "";
       const selected = list.find((item) => item.id === nextId) || null;
@@ -205,7 +208,7 @@ export default function RoomsPage() {
               <div className="mt-5 border-t border-slate-800 pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-bold">Preventive maintenance</h3>
-                  <ModalNavigationButton href="/engineering/preventive-maintenance" className="text-xs font-semibold text-indigo-300 hover:text-indigo-200">Open corporate PM tracker →</ModalNavigationButton>
+                  {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="text-xs font-semibold text-indigo-300 hover:text-indigo-200">Open corporate PM tracker →</ModalNavigationButton>}
                 </div>
                 <div className="mt-3 space-y-3">
                   {locationPmPlans.length ? locationPmPlans.map((plan) => {

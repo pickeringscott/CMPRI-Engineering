@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
+import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { roleKey } from "@/lib/server/roles";
 
 type RoomRankerRow = {
   rowNumber: number;
@@ -41,6 +43,13 @@ export default function RoomRankerPage() {
     if (!silent) setLoading(true);
     setError(""); setCanEdit(false);
     try {
+      const session = await loadCmpriSession();
+      if (roleKey(session.user.role) !== "system_admin") {
+        setError("Room Ranker is available only to System Administrators.");
+        setRooms([]);
+        setLoading(false);
+        return;
+      }
       const response = await fetch("/api/room-ranker", { headers: { Authorization: `Bearer ${await token()}` }, cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Unable to load Room Ranker.");

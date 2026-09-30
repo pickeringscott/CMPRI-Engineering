@@ -3,6 +3,7 @@ import "server-only";
 import { NextRequest } from "next/server";
 import { allows } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
+import { roleKey } from "@/lib/server/roles";
 
 const DASHBOARD_VIEWS = [
   "work_orders",
@@ -26,8 +27,9 @@ const READ_VIEW_CAPABILITIES = {
 } as const;
 
 export function availableMcpReadViews(identity: McpIdentity) {
+  const isSystemAdmin = roleKey(identity.principal.profile.role) === "system_admin";
   const views = [
-    ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
+    ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS.filter((view) => view !== "room_ranker" || isSystemAdmin) : []),
     ...(identity.readAllWorkOrders || identity.readAssignedWorkOrders || identity.readOwnWorkOrders
       ? ["work_order", "work_order_activity", "work_order_attachments"] as const
       : []),
@@ -157,6 +159,9 @@ export async function callMcpReadView(
       const room = argument(args, "room", 80);
       const sheet = argument(args, "sheet", 80);
       if (room && sheet) throw new Error("Specify either room or sheet, not both.");
+      if (!room && roleKey(identity.principal.profile.role) !== "system_admin") {
+        throw new Error("A room is required to read daily and weekly PM checks; monthly PM management is restricted to System Administrators.");
+      }
       const query = room
         ? `?room=${encodeURIComponent(room)}`
         : sheet

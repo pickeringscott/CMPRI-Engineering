@@ -33,13 +33,20 @@ function fixture(config={}) {
     if(cache.has(filename))return cache.get(filename);
     const exports={};cache.set(filename,exports);
     const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-    vm.runInNewContext(source,{exports,URL,Headers,AbortSignal,console,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_ROOM_RANKER_API_URL:'https://test.invalid/room-ranker',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_CORPORATE_PM_API_URL:'https://test.invalid/corporate-pm',CMPRI_CORPORATE_PM_API_KEY:'fake'}},
+    vm.runInNewContext(source,{exports,URL,Headers,AbortSignal,console,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON:'{}',CMPRI_CORPORATE_PM_SPREADSHEET_ID:'test-sheet',CMPRI_ROOM_RANKER_SPREADSHEET_ID:'test-sheet',CMPRI_ROOM_RANKER_SHEET_NAME:'ROOM RANKER'}},
       fetch:async()=>{calls.push('network');return {ok:true,status:200,text:async()=>'{"ok":true}'};},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:()=>db};
         if(name==='openai')return {default:class {constructor(){throw new Error('Unexpected AI provider access');}}};
         if(name==='server-only')return {};
+        if(name==='@/lib/server/room-ranker')return {callRoomRanker:async()=>({ok:true,rooms:[]})};
+        if(name==='@/lib/server/corporate-pm')return {
+          CORPORATE_PM_MONTHS:['JAN','FEB','MAR','APR','MAY','JUNE','JULY','AUG','SEPT','OCT','NOV','DEC'],
+          readCorporatePmSheet:async sheet=>({ok:true,sheet,values:[],formulas:[],lastRow:0,lastColumn:0,timestamp:new Date().toISOString()}),
+          readCorporatePmRoom:async room=>({ok:true,room,tasks:[]}),
+          setCorporatePmCheckbox:async()=>({ok:true}),
+        };
         if(name.startsWith('@/')||name.startsWith('.')) {
           let file=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(filename),name);
           if(!existsSync(file))file=file.replace(/\.ts$/,'')+'.ts';
@@ -63,18 +70,18 @@ test('same bearer token is rechecked and denied immediately after profile deacti
   assert.equal(await auth.authenticatedUser(f.request),null);
   assert.equal(f.calls.filter(v=>v==='profiles').length,2);
 });
-const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
+const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/work-orders/[id]/preventive-maintenance/route.ts','PATCH'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
 for(const [route,method] of routes)for(const config of [{active:false},{profileError:true}])test(`${route} ${method} blocks revoked/unverifiable session ${JSON.stringify(config)}`,async()=>{
   const f=fixture(config);const r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
   assert.equal(r.status,401);assert.ok(f.calls.every(v=>v==='profiles'),'No downstream data, network or provider access');
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
-  const f=fixture({permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,true);
+  const f=fixture({role:'System Administrator',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,true);
   f.state.active=false;f.calls.length=0;
   assert.equal((await handlers.GET(f.request)).status,401);assert.equal(f.calls.includes('network'),false);
 });
 for(const [route,method] of routes.filter(([route,method])=>method==='PATCH'||route.includes('/email/')))for(const role of ['Front Desk','Housekeeping','unknown-admin'])test(`${route} denies integration writes by ${role}`,async()=>{
-  const f=fixture({role}),r=await f.load(route)[method](f.request);
+  const f=fixture({role}),r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
   assert.equal(r.status,route.includes('/email/')?401:403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} denies housekeeping read access (dashboard required)`,async()=>{
@@ -86,4 +93,12 @@ for(const config of [{noMembership:true},{membershipActive:false},{membershipErr
 });
 test('the same token is rejected after property membership revocation',async()=>{
  const f=fixture(),auth=f.load('lib/server/request-auth.ts');assert.ok(await auth.authenticatedUser(f.request));f.state.membershipActive=false;assert.equal(await auth.authenticatedUser(f.request),null);
+});
+test('Room Ranker is unavailable to engineers and other non-system-admin roles',async()=>{
+ for (const role of ['Chief Engineer','General Manager','Maintenance Technician','Housekeeping']) {
+   const f=fixture({role});
+   const response=await f.load('api/room-ranker/route.ts').GET(f.request);
+   assert.equal(response.status,403,role);
+   assert.equal(f.calls.includes('network'),false,role);
+ }
 });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCapability } from "@/lib/server/auth";
+import { requireUser } from "@/lib/server/auth";
+import { roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { processDueRoomRankerSync } from "@/lib/server/room-ranker";
 
@@ -8,8 +9,8 @@ async function authorizedAdmin(request: NextRequest) {
   if (cronSecret && request.headers.get("authorization") === `Bearer ${cronSecret}`) {
     return createSupabaseAdmin();
   }
-  const auth = await requireCapability(request, "operate_integrations");
-  return auth?.admin ?? null;
+  const auth = await requireUser(request);
+  return auth && roleKey(auth.principal.profile.role) === "system_admin" ? auth.admin : null;
 }
 
 async function run(request: NextRequest) {
