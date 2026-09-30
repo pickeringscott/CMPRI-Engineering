@@ -2,34 +2,80 @@ import "server-only";
 import { createHash, createSign } from "node:crypto";
 import { IntegrationConfigurationError } from "@/lib/server/integrations-safe-mode";
 
-type GoogleServiceAccount = { client_email?: unknown; private_key?: unknown };
+type CredentialObject = Record<string, unknown>;
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 let cachedToken: { accessToken: string; expiresAt: number; keyFingerprint: string } | null = null;
 
+function objectValue(value: unknown): CredentialObject | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as CredentialObject
+    : null;
+}
+
+function findCredentialPair(value: unknown, depth = 0): { clientEmail: string; privateKey: string } | null {
+  if (depth > 5) return null;
+  const object = objectValue(value);
+  if (!object) return null;
+
+  const clientEmail = object.client_email ?? object.clientEmail;
+  const privateKey = object.private_key ?? object.privateKey;
+  if (typeof clientEmail === "string" && clientEmail.trim()
+    && typeof privateKey === "string" && privateKey.trim()) {
+    return { clientEmail: clientEmail.trim(), privateKey: privateKey.replace(/\\n/g, "\n") };
+  }
+  for (const child of Object.values(object)) {
+    const match = findCredentialPair(child, depth + 1);
+    if (match) return match;
+  }
+  return null;
+}
+
+function parseCredentialJson(value: string): unknown {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    try {
+      parsed = JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+    } catch {
+      throw new Error("CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON must contain a valid Google service-account JSON object.");
+    }
+  }
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      throw new Error("CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON contains a JSON string that is not a valid service-account object.");
+    }
+  }
+  return parsed;
+}
+
 function serviceAccount() {
   const serviceAccountJson = process.env.CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON?.trim();
-  if (!serviceAccountJson) {
+  const separateEmail = process.env.CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL?.trim();
+  const separateKey = process.env.CMPRI_GOOGLE_SHEETS_PRIVATE_KEY?.trim();
+  if (!serviceAccountJson && (!separateEmail || !separateKey)) {
     throw new IntegrationConfigurationError("Google Sheets is missing the server deployment setting CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON.");
   }
 
-  let credentials: GoogleServiceAccount;
-  try {
-    credentials = JSON.parse(serviceAccountJson) as GoogleServiceAccount;
-  } catch {
-    throw new Error("CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON must contain a valid Google service-account JSON object.");
+  const credentials = serviceAccountJson ? findCredentialPair(parseCredentialJson(serviceAccountJson)) : null;
+  const clientEmail = credentials?.clientEmail || separateEmail || "";
+  const privateKey = credentials?.privateKey || separateKey?.replace(/\\n/g, "\n") || "";
+  if (!clientEmail || !privateKey) {
+    const topLevelFields = serviceAccountJson
+      ? Object.keys(objectValue(parseCredentialJson(serviceAccountJson)) || {}).sort().join(", ")
+      : "";
+    const fieldsDescription = topLevelFields ? ` Top-level fields found: ${topLevelFields}.` : "";
+    throw new Error(`Google Sheets service-account credentials need client_email and private_key fields (or CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL and CMPRI_GOOGLE_SHEETS_PRIVATE_KEY).${fieldsDescription} Use a Google service-account key, not OAuth client credentials or an API key.`);
   }
-  if (typeof credentials.client_email !== "string" || !credentials.client_email.trim()
-    || typeof credentials.private_key !== "string" || !credentials.private_key.trim()) {
-    throw new Error("CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON must include client_email and private_key.");
-  }
-  const privateKey = credentials.private_key.replace(/\\n/g, "\n");
   return {
-    clientEmail: credentials.client_email.trim(),
+    clientEmail,
     privateKey,
-    keyFingerprint: createHash("sha256").update(`${credentials.client_email}:${privateKey}`).digest("hex"),
+    keyFingerprint: createHash("sha256").update(`${clientEmail}:${privateKey}`).digest("hex"),
   };
 }
 

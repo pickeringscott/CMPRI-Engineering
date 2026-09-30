@@ -69,6 +69,14 @@ CMPRI_ROOM_RANKER_SPREADSHEET_ID=<spreadsheet id from its URL>
 CMPRI_ROOM_RANKER_SHEET_NAME=<exact worksheet tab name>
 ```
 
+Alternatively, the service-account fields may be supplied in separate
+server-only variables:
+
+```text
+CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL=<service-account client_email>
+CMPRI_GOOGLE_SHEETS_PRIVATE_KEY=<service-account private_key>
+```
+
 Set these in Vercel's Production environment only. The JSON contains the
 private key and must never be committed or exposed to browser code. CMPRI
 exchanges a server-signed JWT for a short-lived Google access token and uses it
