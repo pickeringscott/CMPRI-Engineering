@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { createHash, createSign, generateKeyPairSync, verify } from 'node:crypto';
+import { createHash, createPrivateKey, createSign, generateKeyPairSync, verify } from 'node:crypto';
 
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 
@@ -41,7 +41,7 @@ function loadModule(config={}) {
     CMPRI_GOOGLE_SHEETS_PRIVATE_KEY:config.privateKey,
   }},require(name){
     if(name==='server-only')return {};
-    if(name==='node:crypto')return {createHash,createSign};
+    if(name==='node:crypto')return {createHash,createPrivateKey,createSign};
     if(name==='@/lib/server/integrations-safe-mode')return {IntegrationConfigurationError:class IntegrationConfigurationError extends Error {constructor(message){super(message);this.name='IntegrationConfigurationError';}}};
     throw new Error(`Unexpected import ${name}`);
   }});
@@ -126,6 +126,20 @@ test('Google Sheets prefers a configured email/key pair over stale JSON credenti
     raw:JSON.stringify({client_email:'stale-service-account@example.invalid',private_key:'not-a-valid-private-key'}),
     clientEmail:credentials.client_email,
     privateKey:credentials.private_key,
+    credentials,
+    publicKey:pair.publicKey,
+  });
+  const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
+  assert.equal(result.sheets[0].properties.title,'PM');
+});
+
+test('Google Sheets skips an unparsable separate key and uses a valid service-account JSON key',async()=>{
+  const pair=generateKeyPairSync('rsa',{modulusLength:2048});
+  const credentials={client_email:'current-service-account@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
+  const f=loadModule({
+    raw:JSON.stringify(credentials),
+    clientEmail:credentials.client_email,
+    privateKey:'invalid-separate-key-value',
     credentials,
     publicKey:pair.publicKey,
   });
