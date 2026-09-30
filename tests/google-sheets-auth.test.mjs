@@ -70,6 +70,17 @@ test('Google Sheets rejects malformed service-account JSON before network access
   assert.equal(f.calls.length,0);
 });
 
+test('Google Sheets surfaces invalid private-key format as a configuration error',async()=>{
+  const f=loadModule({
+    credentials:{client_email:'service-account@example.invalid',private_key:'-----BEGIN PRIVATE KEY-----\\nnot-a-real-key\\n-----END PRIVATE KEY-----'},
+  });
+  await assert.rejects(
+    ()=>f.api.googleSheetsRequest('private-id','?fields=x'),
+    /Google Sheets private key could not be parsed/,
+  );
+  assert.equal(f.calls.length,0);
+});
+
 test('Google Sheets accepts service-account JSON wrapped or JSON-encoded by deployment settings',async()=>{
   const pair=generateKeyPairSync('rsa',{modulusLength:2048});
   const credentials={clientEmail:'service-account@example.invalid',privateKey:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
@@ -82,6 +93,15 @@ test('Google Sheets accepts service-account JSON wrapped or JSON-encoded by depl
     const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
     assert.equal(result.sheets[0].properties.title,'PM');
   }
+});
+
+test('Google Sheets normalizes quoted PEM keys with escaped newlines',async()=>{
+  const pair=generateKeyPairSync('rsa',{modulusLength:2048});
+  const pem=pair.privateKey.export({type:'pkcs8',format:'pem'}).toString();
+  const credentials={client_email:'service-account@example.invalid',private_key:JSON.stringify(pem)};
+  const f=loadModule({credentials,publicKey:pair.publicKey});
+  const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
+  assert.equal(result.sheets[0].properties.title,'PM');
 });
 
 test('Google Sheets accepts the service-account email and key as separate server variables',async()=>{

@@ -9,6 +9,17 @@ const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const GOOGLE_SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 let cachedToken: { accessToken: string; expiresAt: number; keyFingerprint: string } | null = null;
 
+function normalizePrivateKey(value: string) {
+  const trimmed = value.trim();
+  const unwrapped = (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\""))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  )
+    ? trimmed.slice(1, -1)
+    : trimmed;
+  return unwrapped.replace(/\\n/g, "\n").trim();
+}
+
 function objectValue(value: unknown): CredentialObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as CredentialObject
@@ -24,7 +35,7 @@ function findCredentialPair(value: unknown, depth = 0): { clientEmail: string; p
   const privateKey = object.private_key ?? object.privateKey;
   if (typeof clientEmail === "string" && clientEmail.trim()
     && typeof privateKey === "string" && privateKey.trim()) {
-    return { clientEmail: clientEmail.trim(), privateKey: privateKey.replace(/\\n/g, "\n") };
+    return { clientEmail: clientEmail.trim(), privateKey: normalizePrivateKey(privateKey) };
   }
   for (const child of Object.values(object)) {
     const match = findCredentialPair(child, depth + 1);
@@ -92,7 +103,7 @@ function serviceAccount() {
     if (credentials) break;
   }
   const clientEmail = credentials?.clientEmail || separateEmail || "";
-  const privateKey = credentials?.privateKey || separateKey?.replace(/\\n/g, "\n") || "";
+  const privateKey = credentials?.privateKey || (separateKey ? normalizePrivateKey(separateKey) : "");
   if (!clientEmail || !privateKey) {
     const fieldsDescription = topLevelFields ? ` Top-level fields found: ${topLevelFields}.` : "";
     throw new Error(`Google Sheets service-account credentials need client_email and private_key fields (or CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL and CMPRI_GOOGLE_SHEETS_PRIVATE_KEY).${fieldsDescription} Use a Google service-account key, not OAuth client credentials or an API key.`);
@@ -123,9 +134,16 @@ async function googleAccessToken() {
     exp: now + 3600,
   };
   const unsignedToken = `${encodeBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${encodeBase64Url(JSON.stringify(claims))}`;
-  const signature = createSign("RSA-SHA256")
-    .update(unsignedToken)
-    .sign(account.privateKey, "base64url");
+  let signature = "";
+  try {
+    signature = createSign("RSA-SHA256")
+      .update(unsignedToken)
+      .sign(account.privateKey, "base64url");
+  } catch {
+    throw new IntegrationConfigurationError(
+      "Google Sheets private key could not be parsed. Confirm CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON contains a valid service-account private_key PEM (BEGIN/END PRIVATE KEY), and preserve newline escapes exactly.",
+    );
+  }
   const assertion = `${unsignedToken}.${signature}`;
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
