@@ -159,7 +159,8 @@ export async function googleSheetsRequest<T>(
   });
   if (!response.ok) {
     if (response.status === 403) {
-      throw new Error(`Google Sheets denied ${integration} access. Share the private spreadsheet with the configured service-account email as an Editor and ensure the Google Sheets API is enabled.`);
+      const serviceAccountEmail = serviceAccount().clientEmail;
+      throw new Error(`Google Sheets denied ${integration} access to spreadsheet ${spreadsheetId}. The configured service account is ${serviceAccountEmail}. Confirm this exact account has Editor access to this spreadsheet and that the Google Sheets API is enabled in its Cloud project.`);
     }
     if (response.status === 404) {
       throw new Error(`Google Sheets could not find the configured ${integration} spreadsheet or tab.`);

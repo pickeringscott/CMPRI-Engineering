@@ -31,7 +31,9 @@ function loadModule(config={}) {
       return {ok:true,status:200,json:async()=>({access_token:'short-lived-access-token',expires_in:3600})};
     }
     assert.equal(init.headers.Authorization,'Bearer short-lived-access-token');
-    return {ok:true,status:200,json:async()=>({sheets:[{properties:{title:'PM'}}]})};
+    return config.apiStatus
+      ? {ok:false,status:config.apiStatus,json:async()=>({error:'access denied'})}
+      : {ok:true,status:200,json:async()=>({sheets:[{properties:{title:'PM'}}]})};
   },process:{env:{
     CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON:config.raw===undefined?secret:config.raw,
     GOOGLE_SERVICE_ACCOUNT_JSON:config.fallbackJson,
@@ -101,4 +103,14 @@ test('Google Sheets skips unrelated credential JSON and uses a configured servic
   });
   const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
   assert.equal(result.sheets[0].properties.title,'PM');
+});
+
+test('Google Sheets permission errors identify the exact service account and spreadsheet',async()=>{
+  const pair=generateKeyPairSync('rsa',{modulusLength:2048});
+  const credentials={client_email:'ranker-editor@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};
+  const f=loadModule({credentials,publicKey:pair.publicKey,apiStatus:403});
+  await assert.rejects(
+    ()=>f.api.googleSheetsRequest('ranker-sheet-id','?fields=x',{},'Room Ranker'),
+    /Room Ranker access to spreadsheet ranker-sheet-id\. The configured service account is ranker-editor@example\.invalid/,
+  );
 });
