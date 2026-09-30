@@ -18,6 +18,49 @@ export const poolReadings = [
   ["cyanuric_acid_ppm", "Cyanuric acid (ppm), if recorded"],
 ] as const;
 
+export const bromineBands = [
+  ["0", "0 ppm"],
+  ["1-2", "1–2 ppm"],
+  ["2-4", "2–4 ppm"],
+  ["3-6", "3–6 ppm"],
+  ["5-10", "5–10 ppm"],
+  ["7.5-15", "7.5–15 ppm"],
+  ["10-20", "10–20 ppm"],
+] as const;
+
+export const phReadings = ["7.0", "7.2", "7.4", "7.6", "7.8", "8.0"] as const;
+
+const closingBromineBands = new Set(["0", "1-2", "7.5-15", "10-20"]);
+
+export function poolClosureReasons(readings: Record<string, unknown>): string[] {
+  const reasons: string[] = [];
+  for (const period of ["am", "pm"] as const) {
+    const label = period.toUpperCase();
+    const rawPh = readings[`ph_${period}`];
+    const ph = typeof rawPh === "number" || (typeof rawPh === "string" && rawPh.trim() !== "")
+      ? Number(rawPh)
+      : NaN;
+    if (Number.isFinite(ph) && (ph < 7.2 || ph > 7.8)) {
+      reasons.push(`${label} pH ${ph.toFixed(1)} is outside 7.2–7.8`);
+    }
+
+    const band = readings[`sanitizer_band_${period}`];
+    const legacy = readings[`sanitizer_${period}`];
+    if (typeof band === "string" && closingBromineBands.has(band)) {
+      const option = bromineBands.find(([value]) => value === band);
+      reasons.push(`${label} bromine ${option?.[1] ?? band} requires closure`);
+    } else {
+      const legacyValue = typeof band === "string" && band.startsWith("legacy:")
+        ? Number(band.slice("legacy:".length))
+        : legacy;
+      if (typeof legacyValue === "number" && Number.isFinite(legacyValue) && (legacyValue <= 2 || legacyValue >= 7.5)) {
+        reasons.push(`${label} bromine ${legacyValue} ppm is outside 2–7.5 ppm`);
+      }
+    }
+  }
+  return reasons;
+}
+
 export const poolLocationReadings = [
   ["ph_shallow_am", "AM shallow pH"],
   ["sanitizer_shallow_am", "AM shallow bromine (ppm)"],
@@ -43,7 +86,9 @@ export function poolLocationValue(log: Record<string, unknown>, key: string): un
   if (stored != null && stored !== "") return stored;
   const sampleLocation = log[`sample_location_${period}`];
   if (sampleLocation === location) {
-    const generic = log[`${reading}_${period}`];
+    const generic = reading === "sanitizer"
+      ? log[`sanitizer_band_${period}`] ?? log[`sanitizer_${period}`]
+      : log[`${reading}_${period}`];
     return generic ?? null;
   }
   return null;
@@ -141,6 +186,14 @@ function numericReading(value: unknown, key: string) {
   return value;
 }
 
+function bromineBand(value: unknown, key: string) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !bromineBands.some(([option]) => option === value)) {
+    throw new Error(`Select a valid bromine range for ${key.replaceAll("_", " ")}.`);
+  }
+  return value;
+}
+
 export function poolLogInput(body: Record<string, unknown>) {
   if (!validLogDate(body.log_date) || typeof body.pool_facility_id !== "string" || !/^[a-f0-9-]{36}$/i.test(body.pool_facility_id)) {
     throw new Error("Select a valid date and pool.");
@@ -150,14 +203,24 @@ export function poolLogInput(body: Record<string, unknown>) {
     pool_facility_id: body.pool_facility_id,
   };
 
-  for (const [key] of poolReadings) row[key] = numericReading(body[key], key);
+  for (const [key] of poolReadings) {
+    if (key === "sanitizer_am" || key === "sanitizer_pm") continue;
+    row[key] = numericReading(body[key], key);
+  }
 
   for (const period of ["am", "pm"] as const) {
     const ph = row[`ph_${period}`];
-    const bromine = row[`sanitizer_${period}`];
+    const numericBromine = numericReading(body[`sanitizer_${period}`], `sanitizer_${period}`);
+    const selectedBand = bromineBand(body[`sanitizer_band_${period}`], `sanitizer_band_${period}`);
+    if (numericBromine != null && selectedBand != null) {
+      throw new Error(`${period.toUpperCase()} sample cannot contain both a numeric bromine reading and a selected range.`);
+    }
+    const bromine = selectedBand ?? numericBromine;
     if ((ph == null) !== (bromine == null)) {
       throw new Error(`${period.toUpperCase()} completion requires both pH and bromine from the same physical sample.`);
     }
+    row[`sanitizer_${period}`] = numericBromine;
+    row[`sanitizer_band_${period}`] = selectedBand;
     const location = body[`sample_location_${period}`];
     if (ph == null) {
       row[`sample_location_${period}`] = null;
@@ -179,6 +242,7 @@ export function poolLogInput(body: Record<string, unknown>) {
     if (typeof body[key] !== "boolean") throw new Error("Record attention and closure status.");
     row[key] = body[key];
   }
+  if (poolClosureReasons(row).length) row.closure_condition = true;
   if (typeof body.remarks !== "string" || body.remarks.length > 20_000) throw new Error("Remarks must be text, up to 20,000 characters.");
   row.remarks = body.remarks.trim();
 
@@ -191,5 +255,6 @@ export function poolLogInput(body: Record<string, unknown>) {
 }
 
 export function sampleComplete(log: Record<string, unknown>, period: "am" | "pm") {
-  return log[`ph_${period}`] != null && log[`sanitizer_${period}`] != null;
+  return log[`ph_${period}`] != null
+    && (log[`sanitizer_${period}`] != null || log[`sanitizer_band_${period}`] != null);
 }

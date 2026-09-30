@@ -5,11 +5,36 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { poolLogInput, validLogDate, poolLocationValue, prepareMcpPoolLogInput } from '../src/lib/pool-log.ts';
+import { poolLogInput, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons } from '../src/lib/pool-log.ts';
 const facilityId='00000000-0000-0000-0000-000000000001';
 const input={pool_facility_id:facilityId,log_date:'2026-09-15',ph_am:7.4,sanitizer_am:4,sample_location_am:'shallow',requires_attention:false,closure_condition:false,remarks:''};
 test('pool input preserves explicit false Booleans, unmeasured fields, and measured zero',()=>{
  const row=poolLogInput({...input,flow_rate_gpm:0,created_by:'spoof'});assert.equal(row.flow_rate_gpm,0);assert.equal(row.ph_pm,null);assert.equal(row.main_drain_visible,null);assert.equal(row.requires_attention,false);assert.equal(row.closure_condition,false);assert.equal('created_by' in row,false);
+});
+test('selected bromine bands are stored as labels and closure-triggering bands force a closure record',()=>{
+ const row=poolLogInput({...input,sanitizer_am:null,sanitizer_band_am:'1-2'});
+ assert.equal(row.sanitizer_am,null);assert.equal(row.sanitizer_band_am,'1-2');assert.equal(row.closure_condition,true);
+ assert.equal(poolLocationValue(row,'sanitizer_shallow_am'),'1-2');
+ assert.equal(poolLocationValue(row,'sanitizer_deep_am'),null);
+});
+test('closure thresholds include zero and both ends of the selected pH range',()=>{
+ for(const [ph,band] of [[7.0,'2-4'],[8.0,'2-4'],[7.4,'0'],[7.4,'1-2'],[7.4,'7.5-15'],[7.4,'10-20']]){
+  const row=poolLogInput({...input,ph_am:ph,sanitizer_am:null,sanitizer_band_am:band});
+  assert.equal(row.closure_condition,true,`${ph}/${band}`);
+  assert.ok(poolClosureReasons(row).length);
+ }
+ for(const band of ['2-4','3-6','5-10']){
+  const row=poolLogInput({...input,sanitizer_am:null,sanitizer_band_am:band});
+  assert.equal(row.closure_condition,false,band);
+ }
+ for(const ph of [7.2,7.8]){
+  const row=poolLogInput({...input,ph_am:ph,sanitizer_am:null,sanitizer_band_am:'2-4'});
+  assert.equal(row.closure_condition,false,String(ph));
+ }
+});
+test('invalid bromine bands and simultaneous numeric/band entries are rejected',()=>{
+ assert.throws(()=>poolLogInput({...input,sanitizer_am:null,sanitizer_band_am:'4-8'}),/valid bromine range/);
+ assert.throws(()=>poolLogInput({...input,sanitizer_band_am:'1-2'}),/both a numeric bromine reading and a selected range/);
 });
 for(const change of [{log_date:'2026-02-30'},{ph_am:15},{sanitizer_am:-1},{ph_am:'7.4'},{flow_rate_gpm:Infinity},{main_drain_visible:'yes'},{remarks:{}},{requires_attention:'false'}])test(`invalid pool input rejected: ${JSON.stringify(change)}`,()=>assert.throws(()=>poolLogInput({...input,...change})));
 test('date validation rejects impossible dates and retains leap days',()=>{assert.equal(validLogDate('2028-02-29'),true);assert.equal(validLogDate('2026-02-29'),false);});
@@ -83,6 +108,13 @@ test('pool save uses authenticated actor and profile initials, never submitted a
  const f=fixture({body:{created_by:'spoof',updated_by:'spoof',completed_by_initials:'XX'}});assert.equal((await f.handlers.POST(f.request)).status,200);assert.equal(f.writes[0].created_by,'actor');assert.equal(f.writes[0].updated_by,'actor');assert.equal(f.writes[0].completed_by_initials,'SP');
  assert.ok(f.calls.every(c=>c.filters.some(([key,value])=>key==='hotel_id'&&value==='c81ad01a-7a9f-4880-ac1c-5e849f30bad6')));
 });
+test('pool API persists selected bromine ranges and forces closure for unsafe readings',async()=>{
+ const f=fixture({body:{ph_am:7.4,sanitizer_am:null,sanitizer_band_am:'10-20',sample_location_am:'deep',closure_condition:false}});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);
+ assert.equal(f.writes[0].sanitizer_band_am,'10-20');
+ assert.equal(f.writes[0].closure_condition,true);
+});
 for(const config of [{noFacility:true},{lookupError:true},{readError:true},{existing:{id:'saved',revision:2},body:{expected_revision:1}}])test(`unsafe pool save rejected ${JSON.stringify(config)}`,async()=>{
  const f=fixture(config);assert.ok((await f.handlers.POST(f.request)).status>=400);assert.equal(f.writes.length,0);
 });
@@ -97,6 +129,24 @@ test('missing pool log with an old revision explains safe reload and retry',asyn
 });
 test('pool edit checks revision and preserves original creator',async()=>{
  const f=fixture({existing:{id:'saved',revision:2},body:{expected_revision:2,created_by:'spoof'}});assert.equal((await f.handlers.POST(f.request)).status,200);assert.equal(f.writes[0].created_by,undefined);
+});
+test('only System Administrators can edit an existing pool log',async()=>{
+ const f=fixture({role:'Engineer',existing:{id:'saved',revision:2},body:{expected_revision:2}});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,403);
+ assert.match(result.body.error,/only system administrators/i);
+ assert.equal(f.writes.length,0);
+});
+test('engineers can still create a new pool log',async()=>{
+ const f=fixture({role:'Engineer'});
+ assert.equal((await f.handlers.POST(f.request)).status,200);
+ assert.equal(f.writes.length,1);
+});
+test('pool log read identifies System Administrator saved-log edit access',async()=>{
+ const admin=fixture({role:'System Administrator'});
+ const operator=fixture({role:'Engineer'});
+ assert.equal((await admin.handlers.GET(admin.request)).body.can_edit_saved,true);
+ assert.equal((await operator.handlers.GET(operator.request)).body.can_edit_saved,false);
 });
 for(const config of [{saveError:true},{concurrent:true,existing:{id:'saved',revision:2},body:{expected_revision:2}}])test('conflicting pool saves report a conflict',async()=>{
  const f=fixture(config);assert.equal((await f.handlers.POST(f.request)).status,409);

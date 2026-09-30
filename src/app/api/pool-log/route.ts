@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { authenticatedUser } from "@/lib/server/request-auth";
-import { roleAllows } from "@/lib/server/roles";
+import { roleAllows, roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { poolLogInput, validLogDate } from "@/lib/pool-log";
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     log,
     date,
     can_edit: roleAllows(auth.profile.role, "operate_integrations"),
+    can_edit_saved: roleKey(auth.profile.role) === "system_admin",
     operator: auth.profile.full_name || "",
   }, { headers: { "Cache-Control": "private, no-store" } });
 }
@@ -76,6 +77,9 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (readError) return NextResponse.json({ error: "The existing log could not be checked. Nothing was saved." }, { status: 503 });
 
+  if (existing && roleKey(auth.profile.role) !== "system_admin") {
+    return NextResponse.json({ error: "Only System Administrators can edit a saved pool log." }, { status: 403 });
+  }
   if (existing && (body.expected_revision !== existing.revision || !Number.isSafeInteger(body.expected_revision))) {
     return NextResponse.json({ error: "This log changed. Keep your entries and reload the saved readings before combining changes." }, { status: 409 });
   }
