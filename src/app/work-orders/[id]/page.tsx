@@ -12,6 +12,7 @@ import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge, type ManualSymptomRule } from "@/lib/manual-knowledge";
 import { roleKey } from "@/lib/server/roles";
+import { workOrderHistoryText } from "@/lib/work-order-history";
 
 
 type Asset = {
@@ -78,7 +79,7 @@ type ExternalActivity = {
   warranties?: { id: string; rma_number?: string | null; warranty_case_number?: string | null; status?: string | null }[];
   followups?: { id: string; status?: string | null }[];
   history_configured?: boolean;
-  history?: { id: string; actor_name?: string | null; event_type?: string | null; old_status?: string | null; new_status?: string | null; changed_fields?: Record<string, unknown> | null; recorded_at?: string | null }[];
+  history?: { id: string; actor_name?: string | null; event_type?: string | null; old_status?: string | null; new_status?: string | null; changed_fields?: Record<string, unknown> | null; source?: string | null; recorded_at?: string | null }[];
 };
 
 type RoomRankerContext = {
@@ -1587,21 +1588,17 @@ export default function WorkOrderTicketPage() {
   }
   const authoritativeHistory = externalActivity.history || [];
   for (const event of authoritativeHistory) {
-    const fields = event.changed_fields && typeof event.changed_fields === "object" ? Object.keys(event.changed_fields) : [];
-    const statusText = event.old_status !== event.new_status && event.new_status
-      ? `Status ${event.old_status || "—"} → ${event.new_status}`
-      : "";
-    const fieldText = fields.filter((field) => field !== "notes").map((field) => field.replace(/_/g, " ")).join(", ");
-    const text = [statusText, fieldText ? `Updated ${fieldText}` : ""].filter(Boolean).join(" · ") || String(event.event_type || "Work order updated").replace(/_/g, " ");
+    const text = workOrderHistoryText(event, event.recorded_at);
     historyEntries.push({
       id: `db-${event.id}`,
       timestamp: event.recorded_at || order.created_at || new Date(0).toISOString(),
       actor: event.actor_name || "CMPRI User",
       kind: event.event_type === "created" ? "system" : "change",
       text,
+      locked: true,
     });
   }
-  if (!externalActivity.history_configured && order.created_at) {
+  if (order.created_at && !authoritativeHistory.some((event) => event.event_type === "created")) {
     historyEntries.push({ id: "created", timestamp: order.created_at, actor: "System", kind: "system", text: "Work order created" });
   }
   const uniqueHistory = new Map<string, TicketHistoryEntry>();

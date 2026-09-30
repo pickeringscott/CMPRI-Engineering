@@ -16,8 +16,12 @@ const TECHNICAL_FIELDS = [
 ] as const;
 const REVIEW_FIELDS = ["status", "notes"] as const;
 
+function isMcpRequest(request: NextRequest) {
+  return /^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "");
+}
+
 function callerDatabase(request: NextRequest, admin: NonNullable<Awaited<ReturnType<typeof requireUser>>>["admin"]) {
-  if (/^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "")) {
+  if (isMcpRequest(request)) {
     return admin;
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
@@ -299,7 +303,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const mutation = db.from("work_orders")
-    .update(update)
+    .update({ ...update, history_actor_user_id: auth.principal.identity.id, history_source: isMcpRequest(request) ? "ChatGPT" : "CMPRI app" })
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .eq("revision", body.expected_revision);

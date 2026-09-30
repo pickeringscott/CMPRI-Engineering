@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     auth.admin.from("cmpri_enseo_tickets").select("*").eq("hotel_id", HOTEL_ID).eq("work_order_id", id).order("updated_at", { ascending: false }),
     auth.admin.from("cmpri_warranty_cases").select("*").eq("hotel_id", HOTEL_ID).eq("work_order_id", id).order("updated_at", { ascending: false }),
     auth.admin.from("cmpri_supplier_followups").select("*").eq("hotel_id", HOTEL_ID).eq("work_order_id", id).order("updated_at", { ascending: false }),
-    auth.admin.from("cmpri_work_order_history").select("id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, recorded_at").eq("hotel_id", HOTEL_ID).eq("work_order_id", id).order("recorded_at", { ascending: true }).limit(500),
+    auth.admin.from("cmpri_work_order_history").select("id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, source, recorded_at").eq("hotel_id", HOTEL_ID).eq("work_order_id", id).order("recorded_at", { ascending: true }).limit(500),
   ]);
 
   const schemaError = [purchases, enseo, warranties, followups].map((item) => item.error?.message).find(Boolean);
