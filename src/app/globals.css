@@ -322,3 +322,136 @@ button:disabled,
   cursor: not-allowed;
   filter: saturate(0.45);
 }
+
+/* ---------- Engineering desktop: compact top bar + floating windows ---------- */
+.cmpri-desktop-topbar button {
+  font-size: 0.72rem !important;
+  line-height: 1.1rem;
+}
+
+h1.cmpri-desktop-heading {
+  font-size: 0.875rem !important;
+  line-height: 1.15 !important;
+  letter-spacing: normal !important;
+}
+
+.cmpri-desktop-launch[data-open="true"] {
+  box-shadow: inset 0 -2px 0 0 rgb(251 191 36 / 0.85);
+}
+
+.cmpri-desktop {
+  color-scheme: dark;
+  background-color: #020617;
+  background-image:
+    linear-gradient(rgb(56 189 248 / 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(56 189 248 / 0.045) 1px, transparent 1px),
+    linear-gradient(rgb(56 189 248 / 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(56 189 248 / 0.02) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+}
+
+.cmpri-desktop-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgb(51 65 85);
+  border-radius: 0.5rem;
+  background: #020617;
+  box-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.75);
+}
+
+.cmpri-desktop-window[data-active="true"] {
+  border-color: rgb(251 191 36 / 0.55);
+  box-shadow: 0 22px 50px -12px rgb(0 0 0 / 0.85), 0 0 0 1px rgb(251 191 36 / 0.15);
+}
+
+.cmpri-desktop-titlebar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.75rem;
+  padding: 0 0.25rem 0 0.6rem;
+  border-bottom: 1px solid rgb(30 41 59);
+  background: rgb(15 23 42);
+  color: rgb(203 213 225);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.cmpri-desktop-window[data-active="true"] .cmpri-desktop-titlebar {
+  background: rgb(30 41 59);
+  color: #fff;
+}
+
+.cmpri-desktop-titlebar button.cmpri-desktop-close {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.35rem;
+  border-radius: 0.25rem;
+  color: rgb(148 163 184);
+  font-size: 0.95rem !important;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cmpri-desktop-titlebar button.cmpri-desktop-close:hover,
+.cmpri-desktop-titlebar button.cmpri-desktop-close:focus-visible {
+  background: rgb(220 38 38);
+  color: #fff;
+}
+
+.cmpri-desktop-window-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+/* Native windows size everything in em so content scales with the window width. */
+.cmpri-desktop-scale {
+  font-size: clamp(0.72rem, 0.62rem + 0.35cqi, 0.95rem);
+  line-height: 1.35;
+}
+
+.cmpri-desktop-scale :is(button, input, select, textarea) {
+  font-size: revert-layer !important;
+  min-height: revert-layer !important;
+}
+
+.cmpri-desktop-resize {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.cmpri-desktop-resize-n { top: -3px; left: 10px; right: 10px; height: 7px; cursor: ns-resize; }
+.cmpri-desktop-resize-s { bottom: -3px; left: 10px; right: 10px; height: 7px; cursor: ns-resize; }
+.cmpri-desktop-resize-e { right: -3px; top: 10px; bottom: 10px; width: 7px; cursor: ew-resize; }
+.cmpri-desktop-resize-w { left: -3px; top: 10px; bottom: 10px; width: 7px; cursor: ew-resize; }
+.cmpri-desktop-resize-ne { top: -3px; right: -3px; width: 14px; height: 14px; cursor: nesw-resize; }
+.cmpri-desktop-resize-sw { bottom: -3px; left: -3px; width: 14px; height: 14px; cursor: nesw-resize; }
+.cmpri-desktop-resize-nw { top: -3px; left: -3px; width: 14px; height: 14px; cursor: nwse-resize; }
+.cmpri-desktop-resize-se { bottom: -3px; right: -3px; width: 14px; height: 14px; cursor: nwse-resize; }
+
+/* While dragging or resizing, iframes must not swallow pointer events. */
+html.cmpri-desktop-interacting,
+html.cmpri-desktop-interacting * {
+  user-select: none !important;
+}
+html.cmpri-desktop-interacting iframe {
+  pointer-events: none !important;
+}
+html.cmpri-desktop-interacting[data-cmpri-desktop-cursor="move"] * { cursor: move !important; }
+html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="n"], [data-cmpri-desktop-cursor="s"]) * { cursor: ns-resize !important; }
+html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="e"], [data-cmpri-desktop-cursor="w"]) * { cursor: ew-resize !important; }
+html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="ne"], [data-cmpri-desktop-cursor="sw"]) * { cursor: nesw-resize !important; }
+html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="nw"], [data-cmpri-desktop-cursor="se"]) * { cursor: nwse-resize !important; }

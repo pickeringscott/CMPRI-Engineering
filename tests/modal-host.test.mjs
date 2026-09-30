@@ -191,12 +191,10 @@ test('dashboard action pages render without duplicate outer headers when embedde
   assert.match(profile, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">/);
 });
 
-test('Engineering Dashboard screen-launch controls are real buttons that target modal routes', () => {
+test('Engineering Dashboard screen-launch controls are real buttons that open desktop windows', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  const navigation = dashboard.slice(
-    dashboard.indexOf('<div className="flex flex-wrap gap-2">'),
-    dashboard.indexOf('</div>', dashboard.indexOf('<div className="flex flex-wrap gap-2">')),
-  );
+  const launchers = dashboard.slice(dashboard.indexOf('const launcherGroups'), dashboard.indexOf('function launch('));
+  const navigation = dashboard.slice(dashboard.indexOf('<nav aria-label="Open dashboard windows"'), dashboard.indexOf('</nav>'));
   const routes = [
     '/engineering/room-ranker',
     '/engineering/preventive-maintenance',
@@ -213,9 +211,11 @@ test('Engineering Dashboard screen-launch controls are real buttons that target 
     '/profile',
   ];
   for (const route of routes) {
-    assert.match(navigation, new RegExp(`<button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="${route.replaceAll('/', '\\/')}"`));
+    assert.match(launchers, new RegExp(`href: "${route.replaceAll('/', '\\/')}"`));
   }
-  assert.doesNotMatch(navigation, /<a\b/);
+  assert.match(navigation, /<button\s+key=[\s\S]*?type="button"\s+data-cmpri-desktop-launch=\{launcher\.key\}/);
+  assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
+  assert.match(dashboard, /onClick=\{\(\) => launch\(launcher\)\}/);
 });
 
 test('shared modal navigation controls render buttons instead of links', () => {

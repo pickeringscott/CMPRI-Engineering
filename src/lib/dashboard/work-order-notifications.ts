@@ -206,6 +206,75 @@ export function mergeWorkOrderNotifications(
   ).values());
 }
 
+export function dashboardInboxKey(userId: string) {
+  return `cmpri:dashboard-notification-inbox:v1:${userId}`;
+}
+
+function isNotification(value: unknown): value is WorkOrderNotification {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return ["id", "work_order_id", "message", "recorded_at"].every((key) => typeof item[key] === "string");
+}
+
+function byNewest(a: WorkOrderNotification, b: WorkOrderNotification) {
+  return (Date.parse(b.recorded_at) || 0) - (Date.parse(a.recorded_at) || 0);
+}
+
+export function readDashboardInbox(userId: string): WorkOrderNotification[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(dashboardInboxKey(userId)) || "[]");
+    if (Array.isArray(parsed)) return parsed.filter(isNotification).sort(byNewest);
+  } catch {}
+  return [];
+}
+
+export function saveDashboardInbox(userId: string, notifications: WorkOrderNotification[]) {
+  try {
+    window.localStorage.setItem(dashboardInboxKey(userId), JSON.stringify(notifications));
+  } catch {}
+}
+
+/**
+ * Adds new notifications without removing any existing ones. Only the signed-in
+ * user clearing an item removes it; technician actions never do.
+ */
+export function addToDashboardInbox(
+  inbox: WorkOrderNotification[],
+  incoming: WorkOrderNotification[],
+  cleared: ReadonlySet<string> = new Set(),
+) {
+  const known = new Set(inbox.map((notification) => notification.id));
+  const added = incoming.filter((notification) => {
+    if (known.has(notification.id) || cleared.has(notification.id)) return false;
+    known.add(notification.id);
+    return true;
+  });
+  return { inbox: added.length ? [...inbox, ...added].sort(byNewest) : inbox, added };
+}
+
+export function clearDashboardInbox(inbox: WorkOrderNotification[], ids: Iterable<string>) {
+  const clearing = new Set(ids);
+  return inbox.filter((notification) => !clearing.has(notification.id));
+}
+
+export function newWorkOrderNotification(order: {
+  id: string;
+  display_id?: string | null;
+  room?: string | null;
+  issue?: string | null;
+  created_at?: string | null;
+}): WorkOrderNotification {
+  const label = order.display_id?.trim() || "Work order";
+  const location = order.room?.trim() || "No location";
+  const issue = order.issue?.trim();
+  return {
+    id: `new-order:${order.id}`,
+    work_order_id: order.id,
+    message: `New ${label}: ${location}${issue ? ` — ${issue}` : ""}`,
+    recorded_at: order.created_at && Number.isFinite(Date.parse(order.created_at)) ? order.created_at : new Date().toISOString(),
+  };
+}
+
 export function unseenWorkOrderNotifications(
   seenIds: Set<string>,
   incoming: WorkOrderNotification[],
