@@ -26,7 +26,10 @@ function objectValue(value: unknown): CredentialObject | null {
     : null;
 }
 
-function findCredentialPair(value: unknown, depth = 0): { clientEmail: string; privateKey: string } | null {
+function findCredentialPair(
+  value: unknown,
+  depth = 0,
+): { clientEmail: string; privateKey: string } | null {
   if (depth > 5) return null;
   const object = objectValue(value);
   if (!object) return null;
@@ -87,16 +90,21 @@ function serviceAccount() {
     "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY",
     "GOOGLE_PRIVATE_KEY",
   ] as const;
-  const separateEmail = emailVariables.map((name) => process.env[name]?.trim()).find(Boolean) || "";
-  const separateKey = keyVariables.map((name) => process.env[name]?.trim()).find(Boolean) || "";
-  if (!credentialValues.length && (!separateEmail || !separateKey)) {
+  const separateEmail = emailVariables
+    .map((name) => ({ name, value: process.env[name]?.trim() }))
+    .find(({ value }) => value);
+  const separateKey = keyVariables
+    .map((name) => ({ name, value: process.env[name]?.trim() }))
+    .find(({ value }) => value);
+  if (!credentialValues.length && (!separateEmail?.value || !separateKey?.value)) {
     throw new IntegrationConfigurationError("Google Sheets is missing the server deployment setting CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON.");
   }
 
   let credentials: { clientEmail: string; privateKey: string } | null =
-    separateEmail && separateKey
-      ? { clientEmail: separateEmail, privateKey: normalizePrivateKey(separateKey) }
+    separateEmail?.value && separateKey?.value
+      ? { clientEmail: separateEmail.value, privateKey: normalizePrivateKey(separateKey.value) }
       : null;
+  let credentialSource = credentials && separateKey ? separateKey.name : "";
   let topLevelFields = "";
   if (!credentials) {
     for (const candidate of credentialValues) {
@@ -104,11 +112,14 @@ function serviceAccount() {
       const object = objectValue(parsed);
       if (!topLevelFields && object) topLevelFields = Object.keys(object).sort().join(", ");
       credentials = findCredentialPair(parsed);
-      if (credentials) break;
+      if (credentials) {
+        credentialSource = candidate.name;
+        break;
+      }
     }
   }
-  const clientEmail = credentials?.clientEmail || separateEmail || "";
-  const privateKey = credentials?.privateKey || (separateKey ? normalizePrivateKey(separateKey) : "");
+  const clientEmail = credentials?.clientEmail || separateEmail?.value || "";
+  const privateKey = credentials?.privateKey || (separateKey?.value ? normalizePrivateKey(separateKey.value) : "");
   if (!clientEmail || !privateKey) {
     const fieldsDescription = topLevelFields ? ` Top-level fields found: ${topLevelFields}.` : "";
     throw new Error(`Google Sheets service-account credentials need client_email and private_key fields (or CMPRI_GOOGLE_SHEETS_CLIENT_EMAIL and CMPRI_GOOGLE_SHEETS_PRIVATE_KEY).${fieldsDescription} Use a Google service-account key, not OAuth client credentials or an API key.`);
@@ -116,6 +127,7 @@ function serviceAccount() {
   return {
     clientEmail,
     privateKey,
+    credentialSource,
     keyFingerprint: createHash("sha256").update(`${clientEmail}:${privateKey}`).digest("hex"),
   };
 }
@@ -144,9 +156,15 @@ async function googleAccessToken() {
     signature = createSign("RSA-SHA256")
       .update(unsignedToken)
       .sign(account.privateKey, "base64url");
-  } catch {
+  } catch (error) {
+    const pemBlock = account.privateKey.match(/-----BEGIN ([A-Z0-9 ]+)-----/)?.[1] || "missing";
+    const lineCount = account.privateKey.split(/\r?\n/).length;
+    const cryptoCode = typeof error === "object" && error !== null && "code" in error
+      && typeof error.code === "string"
+      ? error.code
+      : "unavailable";
     throw new IntegrationConfigurationError(
-      "Google Sheets private key could not be parsed. Confirm CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON contains a valid service-account private_key PEM (BEGIN/END PRIVATE KEY), and preserve newline escapes exactly.",
+      `Google Sheets private key could not be parsed (source: ${account.credentialSource || "unknown"}; PEM block: ${pemBlock}; normalized length: ${account.privateKey.length}; PEM lines: ${lineCount}; crypto code: ${cryptoCode}). Confirm the selected setting contains a complete service-account private_key PEM.`,
     );
   }
   const assertion = `${unsignedToken}.${signature}`;

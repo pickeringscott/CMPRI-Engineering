@@ -76,7 +76,14 @@ test('Google Sheets surfaces invalid private-key format as a configuration error
   });
   await assert.rejects(
     ()=>f.api.googleSheetsRequest('private-id','?fields=x'),
-    /Google Sheets private key could not be parsed/,
+    error => {
+      assert.match(error.message, /Google Sheets private key could not be parsed/);
+      assert.match(error.message, /source: CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON/);
+      assert.match(error.message, /PEM block: PRIVATE KEY/);
+      assert.match(error.message, /PEM lines: 3/);
+      assert.equal(error.message.includes('not-a-real-key'), false);
+      return true;
+    },
   );
   assert.equal(f.calls.length,0);
 });
