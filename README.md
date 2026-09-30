@@ -47,7 +47,9 @@ supabase/cmpri_v1_0_integrations.sql
 
 The migration creates server-managed operational tables for email events, purchases, split shipments, Enseo tickets, warranty/RMA cases, supplier follow-ups, and GSS reports. Row-level security is enabled; these records are accessed through authenticated CMPRI server routes using the Supabase service role.
 
-The pool-log requirements migration, `supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql`, adds the middle sample location, enforces one shared location for AM/PM, requires main-drain and filter-backwash checks, and requires a reason for recorded closures. Chlorine and cyanuric-acid readings are not used. Validate and apply it before deploying the pool-log changes, which also include a complete-history view.
+The pool-log requirements migration, `supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql`, adds the closure-reason column and requires a reason for recorded closures. Chlorine and cyanuric-acid readings are not used.
+
+The pool-log daily-samples migration, `supabase/migrations/20260930070000_cmpri_pool_log_daily_samples.sql`, supersedes it and is self-contained (safe to run even if the earlier pool migrations were skipped, and safe to rerun). One water sample is taken per AM/PM test; its reading is recorded for both shallow and deep, and each sample needs pH, bromine, and a shallow or deep location ("middle of pool" is kept only on historical rows). Water temperature, flow rate, main-drain visibility, and filter backwash are recorded once per day and are required. The AM sample is saved when taken; any engineer can later add the PM sample to the same day's log without overwriting AM, and only System Administrators can change saved values. Pool closure is recorded automatically for pH outside 7.2–7.8, bromine at or below 2 or at or above 7.5 ppm, main drain not visible, or water above 104°F. Apply it in Supabase before deploying the pool-log changes, then run `npm run check:release-schema`. Until it is applied, pool-log saves report that the database is missing this update.
 
 ## Required deployment environment variables
 

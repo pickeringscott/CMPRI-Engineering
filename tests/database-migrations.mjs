@@ -43,12 +43,45 @@ try {
     insert into public.profiles(id,role,active,full_name) values (${quote(actor)},'front_desk',true,'Shared Front Desk');
     insert into public.hotel_members(hotel_id,user_id,role,active) values (${quote(hotel)},${quote(actor)},'admin',true);
     select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false);`);
-  const files = ['status_values', 'integrations', 'submitter_attribution', 'work_order_revision', 'exact_duplicate_guard', 'pool_log_guard'];
+  const files = ['status_values', 'integrations', 'submitter_attribution', 'work_order_revision', 'exact_duplicate_guard', 'pool_log_guard', 'room_operations'];
   for (const file of files) await check(`migration ${file}`, async () => {
     await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
   });
+  const bromineBandMigration = readFileSync(new URL('../supabase/migrations/20260930030000_cmpri_pool_log_bromine_bands.sql', import.meta.url), 'utf8');
+  await check('pool-log bromine-band migration', async () => db.exec(bromineBandMigration));
+  await check('pool-log bromine-band migration is idempotent', async () => db.exec(bromineBandMigration));
+  const poolLogRequirementsMigration = readFileSync(new URL('../supabase/migrations/20260930060000_cmpri_pool_log_requirements.sql', import.meta.url), 'utf8');
+  await check('pool-log requirements migration', async () => db.exec(poolLogRequirementsMigration));
+  await check('pool-log requirements migration is idempotent', async () => db.exec(poolLogRequirementsMigration));
+  const poolLogDailySamplesMigration = readFileSync(new URL('../supabase/migrations/20260930070000_cmpri_pool_log_daily_samples.sql', import.meta.url), 'utf8');
+  await check('pool-log daily-samples migration', async () => db.exec(poolLogDailySamplesMigration));
+  await check('pool-log daily-samples migration is idempotent', async () => db.exec(poolLogDailySamplesMigration));
+  const dailyRoomOperationsMigration = readFileSync(new URL('../supabase/migrations/20260930040000_cmpri_daily_room_operations.sql', import.meta.url), 'utf8');
+  await check('daily room-operations snapshot migration', async () => db.exec(dailyRoomOperationsMigration));
+  await check('daily room-operations snapshot migration is idempotent', async () => db.exec(dailyRoomOperationsMigration));
+  const technicianViewsMigration = readFileSync(new URL('../supabase/migrations/20260930050000_cmpri_work_order_technician_views.sql', import.meta.url), 'utf8');
+  await check('technician first-view notification migration', async () => db.exec(technicianViewsMigration));
+  await check('technician first-view notification migration is idempotent', async () => db.exec(technicianViewsMigration));
+  await check('technician first-view notices resolve only after status changes', async () => {
+    await db.exec("select set_config('cmpri.test_uid','',false),set_config('cmpri.test_role','service_role',false)");
+    const { rows } = await db.query(`insert into public.work_orders(hotel_id,display_id,room,issue,status)
+      values (${quote(hotel)},'view-test','Room 410','Technician view test','Open') returning id`);
+    await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false)`);
+    const workOrderId = rows[0].id;
+    await db.exec(`insert into public.cmpri_work_order_technician_views(
+        hotel_id,work_order_id,work_order_display_id,technician_user_id,technician_name,status_at_view
+      ) values (${quote(hotel)},${quote(workOrderId)},'view-test',${quote(actor)},'Test Technician','Open');
+      update public.work_orders set issue='Updated technician view test' where id=${quote(workOrderId)};`);
+    const { rows: pendingViews } = await db.query(`select resolved_at from public.cmpri_work_order_technician_views where work_order_id=${quote(workOrderId)}`);
+    assert.equal(pendingViews[0].resolved_at, null);
+    await db.exec(`update public.work_orders set status='In Progress' where id=${quote(workOrderId)}`);
+    const { rows: views } = await db.query(`select resolved_at from public.cmpri_work_order_technician_views where work_order_id=${quote(workOrderId)}`);
+    assert.ok(views[0].resolved_at);
+  });
   await check('migrations can be reapplied', async () => {
     for (const file of files) await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
+    // The dated pool-log migration supersedes the v1.0 pool trigger and must follow it.
+    await db.exec(poolLogDailySamplesMigration);
   });
   await check('user-management grants are restored for account managers', async () => {
     const migration = readFileSync(new URL('../supabase/migrations/20260926101000_cmpri_manage_users_grants.sql', import.meta.url), 'utf8');
@@ -164,7 +197,20 @@ try {
     assert.equal(saved.created_by,actor);assert.equal(saved.creator_name,'Scott');assert.equal(saved.status,'Pending Verification');assert.equal(Number(saved.revision),1);
   });
   await check('missing first name is rejected by PostgreSQL', async () => { await assert.rejects(()=>insert('Door sticks',''),/first name/); });
-  await check('punctuation/case duplicate is blocked by unique index', async () => { await assert.rejects(()=>insert('  SINK leaking!!! '),/duplicate key/); });
+  await check('punctuation/case duplicate is blocked by unique index', async () => {
+    await db.exec("select set_config('cmpri.test_uid','',false),set_config('cmpri.test_role','service_role',false)");
+    try {
+      await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
+        values ($1,$2,'duplicate-active-1','Room 410','Sink leaking!!!','Open')`,[hotel,room]);
+      await assert.rejects(
+        () => db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
+          values ($1,$2,'duplicate-active-2','Room 411','  SINK leaking!!! ','Open')`,[hotel,room]),
+        /duplicate key/,
+      );
+    } finally {
+      await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false)`);
+    }
+  });
   await check('stale same-status save cannot overwrite the newer notes', async () => {
     const first=await db.query('update public.work_orders set notes=$1 where id=$2 and revision=1 returning revision',['First save',saved.id]);
     const second=await db.query('update public.work_orders set notes=$1 where id=$2 and revision=1 returning revision',['Stale save',saved.id]);
@@ -184,22 +230,79 @@ try {
   });
   await check('pool log insert and edits retain attribution, audit snapshots and revision guard', async () => {
     await db.query("update public.profiles set active=true,role='system_admin' where id=$1",[actor]);
-    const inserted=await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am) values ($1,$1,'2026-09-15',$2,$2,7.4) returning id,revision",[hotel,actor]);
+    const inserted=await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed) values ($1,$1,'2026-09-15',$2,$2,7.4,'2-4','shallow',84,60,true,false) returning id,revision,ph_shallow_am,ph_deep_am",[hotel,actor]);
     const id=inserted.rows[0].id;assert.equal(Number(inserted.rows[0].revision),1);
-    await assert.rejects(()=>db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date) values ($1,$1,'2026-09-15')",[hotel]),/duplicate key/);
-    const updated=await db.query('update public.pool_daily_logs set ph_pm=7.5,created_by=$1 where id=$2 and revision=1 returning revision,created_by',[hotel,id]);
+    assert.equal(Number(inserted.rows[0].ph_shallow_am),7.4);assert.equal(Number(inserted.rows[0].ph_deep_am),7.4);
+    await assert.rejects(()=>db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed) values ($1,$1,'2026-09-15',84,60,true,false)",[hotel]),/duplicate key/);
+    const split=await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,ph_pm,sanitizer_band_pm,sample_location_pm,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed) values ($1,$1,'2026-09-22',$2,$2,7.4,'2-4','shallow',7.6,'2-4','deep',84,60,true,false) returning sample_location_am,sample_location_pm,ph_shallow_pm,ph_deep_pm",[hotel,actor]);
+    assert.equal(split.rows[0].sample_location_pm,'deep');assert.equal(Number(split.rows[0].ph_shallow_pm),7.6);assert.equal(Number(split.rows[0].ph_deep_pm),7.6);
+    const updated=await db.query("update public.pool_daily_logs set ph_pm=7.5,sanitizer_band_pm='3-6',sample_location_pm='shallow',created_by=$1 where id=$2 and revision=1 returning revision,created_by",[hotel,id]);
     assert.equal(Number(updated.rows[0].revision),2);assert.equal(updated.rows[0].created_by,actor);
     assert.equal((await db.query("update public.pool_daily_logs set remarks='stale' where id=$1 and revision=1 returning id",[id])).rows.length,0);
     const audit=await db.query('select snapshot,actor_id from public.cmpri_pool_log_history where pool_log_id=$1 order by recorded_at,id',[id]);
     assert.equal(audit.rows.length,2);assert.ok(audit.rows.every(row=>row.actor_id===actor));
     assert.deepEqual(audit.rows.map(row=>Number(row.snapshot.revision)).sort(),[1,2]);
   });
+  await check('pool database trigger automatically records a closure condition for unsafe readings', async () => {
+    const base = `hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed`;
+    const result=await db.query(`insert into public.pool_daily_logs(${base},closure_condition,closure_reason) values ($1,$1,'2026-09-17',$2,$2,7.0,'0','deep',84,60,true,false,false,'Unsafe readings') returning closure_condition,ph_deep_am,ph_middle_am`,[hotel,actor]);
+    assert.equal(result.rows[0].closure_condition,true);
+    assert.equal(Number(result.rows[0].ph_deep_am),7.0);
+    assert.equal(result.rows[0].ph_middle_am,null);
+    await assert.rejects(
+      ()=>db.query(`insert into public.pool_daily_logs(${base}) values ($1,$1,'2026-09-18',$2,$2,7.4,'not-a-band','shallow',84,60,true,false)`,[hotel,actor]),
+      /pool_daily_logs_sanitizer_band_am_check/,
+    );
+    await assert.rejects(
+      ()=>db.query(`insert into public.pool_daily_logs(${base}) values ($1,$1,'2026-09-18',$2,$2,7.4,'2-4','middle',84,60,true,false)`,[hotel,actor]),
+      /shallow or deep/,
+    );
+    for (const [day, temperature, drain] of [['2026-09-23', 84, false], ['2026-09-24', 105, true]]) {
+      await assert.rejects(
+        ()=>db.query(`insert into public.pool_daily_logs(${base}) values ($1,$1,$3,$2,$2,7.4,'2-4','shallow',$4,60,$5,false)`,[hotel,actor,day,temperature,drain]),
+        /pool must be closed/,
+      );
+    }
+  });
+  await check('pool closure at pH 8.0 requires a reason and required daily checks', async () => {
+    const base = `hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed`;
+    await assert.rejects(
+      () => db.query(`insert into public.pool_daily_logs(${base}) values ($1,$1,'2026-09-19',$2,$2,8.0,'2-4','shallow',84,60,true,false)`,[hotel,actor]),
+      /reason is required whenever the pool is closed/,
+    );
+    for (const missing of ['temperature_f', 'flow_rate_gpm', 'main_drain_visible', 'filter_backwashed']) {
+      const values = { temperature_f: '84', flow_rate_gpm: '60', main_drain_visible: 'true', filter_backwashed: 'false', [missing]: 'null' };
+      await assert.rejects(
+        () => db.query(`insert into public.pool_daily_logs(${base}) values ($1,$1,'2026-09-20',$2,$2,7.4,'2-4','shallow',${values.temperature_f},${values.flow_rate_gpm},${values.main_drain_visible},${values.filter_backwashed})`,[hotel,actor]),
+        /Daily checks are required/,
+      );
+    }
+    await assert.rejects(
+      () => db.query(`insert into public.pool_daily_logs(${base}) values ($1,$1,'2026-09-20',$2,$2,7.4,null,'shallow',84,60,true,false)`,[hotel,actor]),
+      /requires both pH and bromine/,
+    );
+    const result=await db.query(`insert into public.pool_daily_logs(${base},closure_reason) values ($1,$1,'2026-09-21',$2,$2,8.0,'2-4','deep',84,60,true,false,'pH above operating limit') returning closure_condition,closure_reason`,[hotel,actor]);
+    assert.equal(result.rows[0].closure_condition,true);
+    assert.equal(result.rows[0].closure_reason,'pH above operating limit');
+  });
+  await check('engineers add the PM sample to a saved log but cannot change saved readings', async () => {
+    await db.query("update public.profiles set role='engineer' where id=$1",[actor]);
+    const saved=await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed) values ($1,$1,'2026-09-25',$2,$2,7.4,'2-4','shallow',84,60,true,false) returning id",[hotel,actor]);
+    const id=saved.rows[0].id;
+    const pm=await db.query("update public.pool_daily_logs set ph_pm=7.6,sanitizer_band_pm='3-6',sample_location_pm='deep',remarks='PM added' where id=$1 returning ph_am,sample_location_am,ph_pm,ph_deep_pm",[id]);
+    assert.equal(Number(pm.rows[0].ph_am),7.4);assert.equal(pm.rows[0].sample_location_am,'shallow');assert.equal(Number(pm.rows[0].ph_deep_pm),7.6);
+    for (const change of ["ph_am=7.6", "ph_pm=null,sanitizer_band_pm=null", "temperature_f=90", "remarks='replaced'"]) {
+      await assert.rejects(()=>db.query(`update public.pool_daily_logs set ${change} where id=$1`,[id]),/Only System Administrators can change saved pool readings/);
+    }
+    await db.query("update public.profiles set role='system_admin' where id=$1",[actor]);
+    assert.equal(Number((await db.query("update public.pool_daily_logs set ph_am=7.6 where id=$1 returning ph_am",[id])).rows[0].ph_am),7.6);
+  });
   await check('pool database trigger rejects front desk, deactivated and unassigned operators', async () => {
     const insert=()=>db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,updated_by) values ($1,$1,'2026-09-16',$2)",[hotel,actor]);
-    await db.query("update public.profiles set role='front_desk' where id=$1",[actor]);await assert.rejects(insert,/active engineering account/);
-    await db.query("update public.profiles set role='system_admin',active=false where id=$1",[actor]);await assert.rejects(insert,/active engineering account/);
+    await db.query("update public.profiles set role='front_desk' where id=$1",[actor]);await assert.rejects(insert,/active CMPRI engineering account/);
+    await db.query("update public.profiles set role='system_admin',active=false where id=$1",[actor]);await assert.rejects(insert,/active CMPRI engineering account/);
     await db.query('update public.profiles set active=true where id=$1',[actor]);
-    await db.query('update public.hotel_members set active=false where user_id=$1',[actor]);await assert.rejects(insert,/active engineering account/);
+    await db.query('update public.hotel_members set active=false where user_id=$1',[actor]);await assert.rejects(insert,/active CMPRI engineering account/);
   });
   console.log(`${passed} PostgreSQL migration/behavior checks passed. Supabase RLS policies and concurrent sessions are not reproduced.`);
 } finally { await db.close(); }

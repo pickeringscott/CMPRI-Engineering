@@ -4,8 +4,28 @@ import { authenticatedUser } from "@/lib/server/request-auth";
 import { roleAllows, roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
-import { poolLogInput, validLogDate } from "@/lib/pool-log";
+import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolClosureReasons, validLogDate } from "@/lib/pool-log";
 import { fetchAllPages } from "@/lib/server/paginated-query";
+
+type DatabaseError = { code?: string; message?: string; details?: string | null; hint?: string | null } | null;
+
+function saveFailure(error: DatabaseError) {
+  const code = error?.code ?? "";
+  const detail = error?.message?.trim() ?? "";
+  if (code === "PGRST116") {
+    return { status: 409, error: "Someone else saved this pool log while you were saving. Your entries are still on screen; reload this date and save again." };
+  }
+  if (code === "23505") {
+    return { status: 409, error: "A pool log for this date was just created by someone else. Your entries are still on screen; save again to add them to that log." };
+  }
+  if (code === "PGRST204" || code === "42703" || /column .* (does not exist|could not find)|schema cache/i.test(detail)) {
+    return { status: 503, error: "The database is missing the latest pool-log update (supabase/migrations/20260930070000_cmpri_pool_log_daily_samples.sql). Nothing was saved; your entries are still on screen." };
+  }
+  if ((code === "P0001" || code === "23514" || code === "23502") && detail) {
+    return { status: 400, error: `The database did not accept this pool log: ${detail}. Your entries are still on screen.` };
+  }
+  return { status: 500, error: "Pool readings could not be saved to the database. Your entries are still on screen; try again, and report this if it continues." };
+}
 
 export async function GET(request: NextRequest) {
   const auth = await authenticatedUser(request);
@@ -49,6 +69,7 @@ export async function GET(request: NextRequest) {
     facilities,
     log,
     date,
+    status: poolLogStatus(log),
     can_edit: roleAllows(auth.profile.role, "operate_integrations"),
     can_edit_saved: roleKey(auth.profile.role) === "system_admin",
     operator: auth.profile.full_name || "",
@@ -65,13 +86,13 @@ export async function POST(request: NextRequest) {
   const admin = auth.admin ?? createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
-  let row: ReturnType<typeof poolLogInput>;
-  try { row = poolLogInput(body); }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid readings." }, { status: 400 }); }
+  if (typeof body.log_date !== "string" || !validLogDate(body.log_date) || typeof body.pool_facility_id !== "string" || !/^[a-f0-9-]{36}$/i.test(body.pool_facility_id)) {
+    return NextResponse.json({ error: "Select a valid date and pool." }, { status: 400 });
+  }
 
   const { data: facility, error: facilityError } = await admin.from("pool_facilities")
     .select("id")
-    .eq("id", row.pool_facility_id)
+    .eq("id", body.pool_facility_id)
     .eq("hotel_id", HOTEL_ID)
     .eq("active", true)
     .maybeSingle();
@@ -81,28 +102,41 @@ export async function POST(request: NextRequest) {
   const name = typeof auth.profile.full_name === "string" ? auth.profile.full_name.trim() : "";
   if (!name) return NextResponse.json({ error: "Your profile needs your name before you can record pool readings." }, { status: 400 });
   const { data: existing, error: readError } = await admin.from("pool_daily_logs")
-    .select("id, revision")
+    .select("*")
     .eq("hotel_id", HOTEL_ID)
     .eq("pool_facility_id", facility.id)
-    .eq("log_date", row.log_date)
+    .eq("log_date", body.log_date)
     .maybeSingle();
   if (readError) return NextResponse.json({ error: "The existing log could not be checked. Nothing was saved." }, { status: 503 });
 
-  if (existing && roleKey(auth.profile.role) !== "system_admin") {
-    return NextResponse.json({ error: "Only System Administrators can edit a saved pool log." }, { status: 403 });
-  }
-  if (existing && (body.expected_revision !== existing.revision || !Number.isSafeInteger(body.expected_revision))) {
-    return NextResponse.json({ error: "This log changed. Keep your entries and reload the saved readings before combining changes." }, { status: 409 });
-  }
-  if (!existing && body.expected_revision != null) {
-    return NextResponse.json({
-      error: "The saved log is no longer available, so nothing was saved. Keep your readings, reload this same date and pool, and if the log is still empty, save again as a new log.",
-    }, { status: 409 });
+  const isSystemAdmin = roleKey(auth.profile.role) === "system_admin";
+  // A System Administrator correcting the saved log on the web page replaces it as shown.
+  // Every other save (later AM/PM samples, voice logging) is merged into the saved log.
+  const replace = !!existing && isSystemAdmin && body.edit_mode === "replace";
+  if (replace && body.expected_revision !== existing.revision) {
+    return NextResponse.json({ error: "This log changed after you opened it. Your entries are still on screen; reload the saved readings before making corrections." }, { status: 409 });
   }
 
+  let row: ReturnType<typeof poolLogInput>;
+  try {
+    const merged = existing && !replace ? mergePoolLogBody(existing, body, isSystemAdmin) : body;
+    row = poolLogInput(merged, existing);
+  } catch (error) {
+    if (error instanceof PoolLogConflictError) return NextResponse.json({ error: error.message, log: existing }, { status: 403 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid readings." }, { status: 400 });
+  }
+
+  if (existing && !poolLogChanged(existing, row)) {
+    return NextResponse.json({ log: existing, unchanged: true, status: poolLogStatus(existing) });
+  }
+
+  const initials = name.split(/\s+/).map((word) => Array.from(word)[0]).join("");
+  const savedInitials = typeof existing?.completed_by_initials === "string" ? existing.completed_by_initials.trim() : "";
   const fields = {
     ...row,
-    completed_by_initials: name.split(/\s+/).map((word) => Array.from(word)[0]).join("").slice(0, 20),
+    completed_by_initials: (savedInitials && !savedInitials.split(/\s*\/\s*/).includes(initials)
+      ? `${savedInitials} / ${initials}`
+      : savedInitials || initials).slice(0, 20),
     updated_by: auth.user.id,
   };
   const mutation = existing
@@ -110,7 +144,16 @@ export async function POST(request: NextRequest) {
     : admin.from("pool_daily_logs").insert({ ...fields, hotel_id: HOTEL_ID, created_by: auth.user.id });
   const { data: log, error: saveError } = await mutation.select("*").single();
   if (saveError || !log) {
-    return NextResponse.json({ error: "Pool readings could not be saved because the record changed or the database rejected the update. Your entries are still available." }, { status: 409 });
+    console.error("Pool log save failed", { code: saveError?.code, message: saveError?.message, details: saveError?.details, hint: saveError?.hint });
+    const failure = saveFailure(saveError);
+    return NextResponse.json({ error: failure.error }, { status: failure.status });
   }
-  return NextResponse.json({ log });
+  const closureReasons = poolClosureReasons(log);
+  return NextResponse.json({
+    log,
+    status: poolLogStatus(log),
+    closure_required: closureReasons.length > 0 || log.closure_condition === true,
+    closure_reasons: closureReasons,
+    warnings: poolReadingWarnings(log),
+  });
 }

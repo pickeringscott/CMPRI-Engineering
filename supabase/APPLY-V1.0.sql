@@ -268,6 +268,10 @@ alter table public.pool_daily_logs add column if not exists ph_am numeric;
 alter table public.pool_daily_logs add column if not exists ph_pm numeric;
 alter table public.pool_daily_logs add column if not exists sanitizer_am numeric;
 alter table public.pool_daily_logs add column if not exists sanitizer_pm numeric;
+alter table public.pool_daily_logs add column if not exists sanitizer_band_am text
+  check (sanitizer_band_am in ('0', '1-2', '2-4', '3-6', '5-10', '7.5-15', '10-20'));
+alter table public.pool_daily_logs add column if not exists sanitizer_band_pm text
+  check (sanitizer_band_pm in ('0', '1-2', '2-4', '3-6', '5-10', '7.5-15', '10-20'));
 alter table public.pool_daily_logs add column if not exists revision bigint not null default 1;
 alter table public.pool_daily_logs add column if not exists updated_by uuid;
 create unique index if not exists cmpri_pool_daily_log_unique
@@ -295,6 +299,36 @@ begin
      'technician','maintenancetechnician','regionalmaintenance','generalmanager','gm',
      'assistantmanager','assistantgeneralmanager','assistantgm') then
     raise exception 'An active engineering account assigned to this property is required';
+  end if;
+  if (new.ph_am is null) <> (new.sanitizer_am is null and new.sanitizer_band_am is null)
+    or (new.ph_pm is null) <> (new.sanitizer_pm is null and new.sanitizer_band_pm is null) then
+    raise exception 'Each AM/PM sample requires both pH and bromine';
+  end if;
+  if (new.sanitizer_am is not null and new.sanitizer_band_am is not null)
+    or (new.sanitizer_pm is not null and new.sanitizer_band_pm is not null) then
+    raise exception 'Use either a numeric bromine reading or a selected range, not both';
+  end if;
+  if (new.ph_am is not null and new.sample_location_am is null)
+    or (new.ph_pm is not null and new.sample_location_pm is null) then
+    raise exception 'Each sample requires a shallow or deep location';
+  end if;
+  if new.ph_am is null then new.sample_location_am := null; end if;
+  if new.ph_pm is null then new.sample_location_pm := null; end if;
+  new.ph_shallow_am := case when new.sample_location_am = 'shallow' then new.ph_am else null end;
+  new.ph_deep_am := case when new.sample_location_am = 'deep' then new.ph_am else null end;
+  new.sanitizer_shallow_am := case when new.sample_location_am = 'shallow' then new.sanitizer_am else null end;
+  new.sanitizer_deep_am := case when new.sample_location_am = 'deep' then new.sanitizer_am else null end;
+  new.ph_shallow_pm := case when new.sample_location_pm = 'shallow' then new.ph_pm else null end;
+  new.ph_deep_pm := case when new.sample_location_pm = 'deep' then new.ph_pm else null end;
+  new.sanitizer_shallow_pm := case when new.sample_location_pm = 'shallow' then new.sanitizer_pm else null end;
+  new.sanitizer_deep_pm := case when new.sample_location_pm = 'deep' then new.sanitizer_pm else null end;
+  if new.ph_am < 7.2 or new.ph_am > 7.8
+    or new.ph_pm < 7.2 or new.ph_pm > 7.8
+    or new.sanitizer_band_am in ('0', '1-2', '7.5-15', '10-20')
+    or new.sanitizer_band_pm in ('0', '1-2', '7.5-15', '10-20')
+    or new.sanitizer_am <= 2 or new.sanitizer_am >= 7.5
+    or new.sanitizer_pm <= 2 or new.sanitizer_pm >= 7.5 then
+    new.closure_condition := true;
   end if;
   new.updated_by := actor;
   new.updated_at := now();
