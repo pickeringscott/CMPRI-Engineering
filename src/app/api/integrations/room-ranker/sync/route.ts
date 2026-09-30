@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/server/auth";
 import { roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { processDueRoomRankerSync } from "@/lib/server/room-ranker";
+import { integrationErrorMessage } from "@/lib/server/integrations-safe-mode";
 
 async function authorizedAdmin(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -21,7 +22,7 @@ async function run(request: NextRequest) {
     const processed = results.filter((result) => result.processed).length;
     return NextResponse.json({ ok: true, checked: results.length, processed, pending_or_failed: results.length - processed });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Room Ranker synchronization failed." }, { status: 503 });
+    return NextResponse.json({ error: integrationErrorMessage(error, "Room Ranker synchronization") }, { status: 503 });
   }
 }
 

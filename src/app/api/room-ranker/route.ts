@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/auth";
 import { jsonObject, rankerUpdate } from "@/lib/integrations/spreadsheet-input";
 import { callRoomRanker } from "@/lib/server/room-ranker";
-import { integrationErrorStatus, isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
+import { integrationErrorMessage, integrationErrorStatus, isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
 import { roleKey } from "@/lib/server/roles";
 
 function isSystemAdmin(auth: Awaited<ReturnType<typeof requireUser>>) {
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const result = await callRoomRanker({ action: "read" });
     return NextResponse.json({ ...result, can_edit: true, safeMode: isIntegrationsSafeMode() }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: integrationErrorStatus(error) });
+    return NextResponse.json({ error: integrationErrorMessage(error, "Room Ranker") }, { status: integrationErrorStatus(error) });
   }
 }
 
@@ -31,6 +31,6 @@ export async function PATCH(request: NextRequest) {
     const result = await callRoomRanker(payload);
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: integrationErrorStatus(error) });
+    return NextResponse.json({ error: integrationErrorMessage(error, "Room Ranker") }, { status: integrationErrorStatus(error) });
   }
 }

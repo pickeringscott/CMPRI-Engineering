@@ -35,6 +35,16 @@ export function integrationErrorStatus(error: unknown) {
     : 502;
 }
 
+const OPENSSL_DECODER_UNSUPPORTED_PATTERN = /error:1e08010c:decoder routines::unsupported|decoder routines::unsupported/i;
+
+export function integrationErrorMessage(error: unknown, integration: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (OPENSSL_DECODER_UNSUPPORTED_PATTERN.test(message)) {
+    return `${integration} credentials are misconfigured: the service-account private key could not be parsed. Confirm the key uses BEGIN/END PRIVATE KEY and preserves newline escapes exactly.`;
+  }
+  return message;
+}
+
 export function isIntegrationsSafeMode() {
   return String(process.env.CMPRI_INTEGRATIONS_SAFE_MODE ?? "true").trim().toLowerCase() !== "false";
 }

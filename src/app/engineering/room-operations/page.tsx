@@ -46,6 +46,10 @@ function hotelDate() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function previousHotelDate() {
+  return new Date(new Date(`${hotelDate()}T12:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
+}
+
 function naturalRoomCompare(a: RoomOperation, b: RoomOperation) {
   return a.room.localeCompare(b.room, undefined, { numeric: true, sensitivity: "base" });
 }
@@ -200,15 +204,15 @@ export default function RoomOperationsPage() {
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
               <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-2.5 py-0.5 text-xs font-bold text-sky-200">Moves: {summary.moves}</span>
             </div>
-            <p className="mt-2 text-sm text-slate-400">Shared CMPRI departure, arrival, guest, room-status, reserved and room-move data.</p>
+            <p className="mt-2 text-sm text-slate-400">Manual room-status and expected-departure uploads create daily snapshots; room moves are detected by comparing today with yesterday.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs font-semibold text-slate-300">
               Report date
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
+              <input type="date" min={previousHotelDate()} max={hotelDate()} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
             </label>
             {hasCapability(session, "edit_tickets") ? (
-              <button type="button" onClick={() => setImportOpen((open) => !open)} className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">{importOpen ? "Hide Import Form" : "Import Room Ops"}</button>
+              <button type="button" onClick={() => setImportOpen((open) => !open)} className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">{importOpen ? "Hide Upload Form" : "Upload Room Ops"}</button>
             ) : null}
           </div>
         </header>

@@ -1,6 +1,5 @@
 -- CMPRI v1.0 shared daily room-operations snapshot.
--- One import replaces one property's daily snapshot atomically. Photos are
--- recognized in the browser; only extracted structured room data is persisted.
+-- Manual Room Status and Expected Departures uploads replace one daily snapshot atomically.
 
 create table if not exists public.cmpri_room_operation_imports (
   id uuid primary key default gen_random_uuid(),
@@ -73,7 +72,10 @@ begin
   if auth.role() <> 'service_role' then
     raise exception 'Service role required';
   end if;
-  if p_source_type not in ('paste', 'file', 'photo') then
+  if p_report_date not between (timezone('America/Chicago', now())::date - 1) and timezone('America/Chicago', now())::date then
+    raise exception 'Only today''s and yesterday''s room-operation snapshots may be saved';
+  end if;
+  if p_source_type not in ('paste', 'file') then
     raise exception 'Invalid room-operations source';
   end if;
   if jsonb_typeof(p_rows) <> 'array' then
@@ -84,14 +86,16 @@ begin
     raise exception 'Room-operations row count out of range';
   end if;
 
+  delete from public.cmpri_room_operation_imports
+  where hotel_id = p_hotel_id
+    and (report_date = p_report_date
+      or report_date < timezone('America/Chicago', now())::date - 1);
+
   insert into public.cmpri_room_operation_imports(
     hotel_id, report_date, source_type, row_count, imported_by_user_id, imported_by_name
   ) values (
     p_hotel_id, p_report_date, p_source_type, v_count, p_actor_id, left(coalesce(p_actor_name, ''), 200)
   ) returning id into v_import_id;
-
-  delete from public.cmpri_room_operations
-  where hotel_id = p_hotel_id and report_date = p_report_date;
 
   insert into public.cmpri_room_operations(
     hotel_id, import_id, report_date, room, checkout_date, checkout_time,
