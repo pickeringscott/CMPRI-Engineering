@@ -138,7 +138,7 @@ test('authorized Housekeeping render replaces the Engineering fallback and share
   assert.match(dashboard, /if \(!cmpriSession\)\s*\{\s*return/);
   assert.match(dashboard, /isHousekeepingDashboard \? "CMPRI Housekeeping" : "CMPRI Engineering"/);
   assert.match(dashboard, /const isFullWidthDashboard = \["Front Desk", "Lead Housekeeper"\]\.includes\(roleDisplayName\(cmpriSession\.user\.role\)\)/);
-  assert.match(dashboard, /max-w-none min-w-0 px-3 py-4 sm:px-4 lg:px-6 \$\{isFullWidthDashboard \? "" : "lg:w-\[66vw\]"\}/);
+  assert.match(dashboard, /max-w-none min-w-0 px-1 py-2 sm:px-2 lg:px-2 \$\{isFullWidthDashboard \? "" : "lg:w-\[66vw\]"\}/);
   assert.doesNotMatch(layout, /DashboardAssistant/);
   assert.doesNotMatch(styles, /cmpri-dashboard-assistant/);
 });

@@ -10,8 +10,8 @@
   --cmpri-text-label: 0.8125rem;
   --cmpri-control-height: 2.5rem;
   --cmpri-panel-radius: 0.75rem;
-  --cmpri-panel-padding: 0.875rem;
-  --cmpri-modal-spacing: 0.5rem;
+  --cmpri-panel-padding: 0.5rem;
+  --cmpri-modal-spacing: 0.25rem;
 }
 
 @theme inline {
@@ -259,46 +259,46 @@ div.fixed.inset-0 [role="dialog"] > div {
 }
 
 .cmpri-dashboard-overlay-panel {
-  width: var(--cmpri-modal-width, min(59.4vw, 64.8rem));
+  width: var(--cmpri-modal-width, min(66vw, 72rem));
   min-height: 0;
-  height: var(--cmpri-modal-height, min(calc(90dvh - 14.4px), 50.4rem));
-  max-height: calc(100dvh - 16px);
+  height: var(--cmpri-modal-height, calc(100dvh - 8px));
+  max-height: calc(100dvh - 8px);
 }
 
 .cmpri-modal-shell {
   box-sizing: border-box;
-  width: min(59.4vw, 37.8rem) !important;
+  width: min(66vw, 72rem) !important;
   height: auto !important;
-  max-width: calc(100vw - 16px) !important;
-  max-height: calc(100dvh - 16px) !important;
+  max-width: calc(100vw - 8px) !important;
+  max-height: calc(100dvh - 8px) !important;
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: var(--cmpri-panel-radius);
-  padding: 1rem !important;
+  padding: 0.5rem !important;
 }
 
 html[data-cmpri-embedded="true"] .cmpri-modal-shell:not(.cmpri-dashboard-overlay-panel) {
-  width: min(90vw, 42rem) !important;
+  width: min(66vw, 72rem) !important;
 }
 
 .cmpri-modal-shell.cmpri-dashboard-overlay-panel {
-  width: var(--cmpri-modal-width, min(59.4vw, 64.8rem)) !important;
-  height: var(--cmpri-modal-height, min(calc(90dvh - 14.4px), 50.4rem)) !important;
+  width: var(--cmpri-modal-width, min(66vw, 72rem)) !important;
+  height: var(--cmpri-modal-height, calc(100dvh - 8px)) !important;
   padding: 0 !important;
 }
 
 @media (max-width: 640px) {
   .cmpri-modal-shell {
-    width: calc(100vw - 16px) !important;
+    width: calc(100vw - 8px) !important;
   }
 
   html[data-cmpri-embedded="true"] .cmpri-modal-shell:not(.cmpri-dashboard-overlay-panel) {
-    width: calc(90vw - 14.4px) !important;
+    width: calc(100vw - 8px) !important;
   }
 
   .cmpri-modal-shell.cmpri-dashboard-overlay-panel {
-    width: var(--cmpri-modal-mobile-width, calc(100vw - 16px)) !important;
-    height: var(--cmpri-modal-mobile-height, calc(90dvh - 14.4px)) !important;
+    width: var(--cmpri-modal-mobile-width, calc(100vw - 8px)) !important;
+    height: var(--cmpri-modal-mobile-height, calc(100dvh - 8px)) !important;
   }
 }
 

@@ -439,9 +439,9 @@ export default function GlobalModalHost() {
         const scale = 0.9 ** (index + 1);
         const panelStyle: ModalPanelStyle = {
           "--cmpri-modal-width": `min(${66 * scale}vw, ${72 * scale}rem)`,
-          "--cmpri-modal-height": `min(calc(${100 * scale}dvh - ${16 * scale}px), ${56 * scale}rem)`,
-          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${16 * scale}px)`,
-          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${16 * scale}px)`,
+          "--cmpri-modal-height": `calc(${100 * scale}dvh - ${8 * scale}px)`,
+          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${8 * scale}px)`,
+          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${8 * scale}px)`,
         };
         return (
           <div

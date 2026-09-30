@@ -99,14 +99,17 @@ test('global route modals scale down from their dashboard and retain usable mobi
   assert.match(source, /className="cmpri-modal-shell cmpri-dashboard-overlay-panel/);
   assert.match(source, /const scale = 0\.9 \*\* \(index \+ 1\)/);
   assert.match(source, /"--cmpri-modal-width": `min\(\$\{66 \* scale\}vw, \$\{72 \* scale\}rem\)`/);
-  assert.match(styles, /\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(59\.4vw, 64\.8rem\)\)/);
-  assert.match(styles, /\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(59\.4vw, 64\.8rem\)\) !important/);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-mobile-width, calc\(100vw - 16px\)\) !important/);
+  assert.match(source, /"--cmpri-modal-mobile-width": `calc\(\$\{100 \* scale\}vw - \$\{8 \* scale\}px\)`/);
+  assert.match(source, /"--cmpri-modal-height": `calc\(\$\{100 \* scale\}dvh - \$\{8 \* scale\}px\)`/);
+  assert.match(source, /"--cmpri-modal-mobile-height": `calc\(\$\{100 \* scale\}dvh - \$\{8 \* scale\}px\)`/);
+  assert.match(styles, /\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(66vw, 72rem\)\)/);
+  assert.match(styles, /\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(66vw, 72rem\)\) !important/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-mobile-width, calc\(100vw - 8px\)\) !important/);
 });
 
 test('embedded and standalone modals share a compact spacing rhythm', () => {
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
-  assert.match(styles, /--cmpri-modal-spacing:\s*0\.5rem/);
+  assert.match(styles, /--cmpri-modal-spacing:\s*0\.25rem/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] main,\s*\.cmpri-modal-shell\s*\{\s*padding:\s*var\(--cmpri-modal-spacing\) !important/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] section\[class\*="rounded"\]\[class\*="border"\],\s*\.cmpri-modal-shell section\[class\*="rounded"\]\[class\*="border"\]/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] main :is\(div, section, form, article\)\[class~="p-6"\]/);
@@ -240,8 +243,10 @@ test('room operations import form and commit workflow live in the Daily Room Ope
   assert.match(page, /importOpen && hasCapability\(session, "edit_tickets"\)/);
   assert.match(page, /<RoomOperationsImport date=\{date\} onDateChange=\{setDate\} onCommitted=\{handleImportCommitted\}/);
   assert.doesNotMatch(dashboard, /Import Room Ops|showRoomOpsImport|Import Daily Room Operations/);
-  assert.match(importer, /Paste spreadsheet rows, import CSV\/TSV\/TXT/);
-  assert.match(importer, /Import Photo \/ Screenshot/);
+  assert.match(importer, /Upload today(?:&apos;|')s Room Status Report and Expected Departures/);
+  assert.match(importer, /Expected Departures/);
+  assert.match(importer, /11:00 AM/);
+  assert.doesNotMatch(importer, /Import Photo \/ Screenshot|AI import/i);
   assert.match(importer, /Validated preview/);
   assert.match(importer, /async function commitImport/);
   assert.match(importer, /snapshotMatches/);
