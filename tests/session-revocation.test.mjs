@@ -76,7 +76,7 @@ for(const [route,method] of routes)for(const config of [{active:false},{profileE
   assert.equal(r.status,401);assert.ok(f.calls.every(v=>v==='profiles'),'No downstream data, network or provider access');
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
-  const f=fixture({role:'System Administrator',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,true);
+  const f=fixture({role:'System Administrator',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,route.includes('corporate-pm')?false:true);
   f.state.active=false;f.calls.length=0;
   assert.equal((await handlers.GET(f.request)).status,401);assert.equal(f.calls.includes('network'),false);
 });

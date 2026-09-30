@@ -1,5 +1,5 @@
 import "server-only";
-import { IntegrationConfigurationError, isIntegrationsSafeMode, safeModeBlocked } from "@/lib/server/integrations-safe-mode";
+import { IntegrationConfigurationError } from "@/lib/server/integrations-safe-mode";
 import { googleSheetsRequest } from "@/lib/server/google-sheets";
 
 export const CORPORATE_PM_MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"] as const;
@@ -140,57 +140,4 @@ export async function readCorporatePmRoom(roomValue: string) {
     room,
   ));
   return { ok: true, room: roomValue.trim(), tasks, fetchedAt: new Date().toISOString() };
-}
-
-function columnName(index: number) {
-  let number = index;
-  let name = "";
-  while (number > 0) {
-    number -= 1;
-    name = String.fromCharCode(65 + (number % 26)) + name;
-    number = Math.floor(number / 26);
-  }
-  return name;
-}
-
-export async function setCorporatePmCheckbox(
-  sheetValue: string,
-  row: number,
-  column: number,
-  checked: boolean,
-  expectedRoom?: string,
-  expectedChecked?: boolean,
-) {
-  const sheet = validMonth(sheetValue);
-  const snapshot = await readCorporatePmSheet(sheet);
-  const currentValue = snapshot.values[row - 1]?.[column - 1];
-  const formula = snapshot.formulas[row - 1]?.[column - 1];
-  if (!checkbox(currentValue || "", formula || "")) {
-    throw new Error("The target PM cell is no longer an editable checkbox. Refresh the checklist.");
-  }
-  if (expectedChecked !== undefined && (currentValue === "TRUE") !== expectedChecked) {
-    throw new Error("The PM checkbox changed after this work order was loaded. Refresh the checklist before committing.");
-  }
-  if (expectedRoom) {
-    const room = expectedRoom.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const task = dailyWeeklyCells(sheet, snapshot.values, snapshot.formulas, room)
-      .find((cell) => cell.row === row && cell.column === column);
-    if (!task) throw new Error("The target checkbox is not a daily or weekly check for this work-order room. Refresh the checklist.");
-  }
-  if (isIntegrationsSafeMode()) {
-    return safeModeBlocked("Corporate PM", `set ${sheet} cell ${columnName(column)}${row}`);
-  }
-
-  const range = encodeURIComponent(`'${sheet.replace(/'/g, "''")}'!${columnName(column)}${row}`);
-  await googleSheetsRequest(
-    spreadsheetId(),
-    `/values/${range}?valueInputOption=RAW`,
-    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: [[checked]] }) },
-    "Corporate PM",
-  );
-  const verified = await readCorporatePmSheet(sheet);
-  if (verified.values[row - 1]?.[column - 1] !== String(checked).toUpperCase()) {
-    throw new Error("Google Sheets accepted the PM update, but read-back verification did not match. Refresh and verify the checklist.");
-  }
-  return { ok: true, sheet, row, column, checked };
 }

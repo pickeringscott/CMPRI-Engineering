@@ -46,14 +46,14 @@ function fixture(body,config={}) {
   return {calls,handlers:load(path.join(root,'app/api/corporate-pm/route.ts')),load,request};
 }
 
-for(const body of [null,[],{},42])test(`Corporate PM rejects malformed body ${JSON.stringify(body)}`,async()=>{
+for(const body of [null,[],{},42])test(`legacy Corporate PM rejects direct write ${JSON.stringify(body)}`,async()=>{
   const f=fixture(body);const response=await f.handlers.PATCH(f.request);
-  assert.equal(response.status,400);assert.equal(f.calls.length,0);
+  assert.equal(response.status,409);assert.equal(f.calls.length,0);
 });
 
-test('Corporate PM rejects broken JSON before reading the sheet',async()=>{
+test('legacy Corporate PM does not parse or write direct updates',async()=>{
   const f=fixture(null,{badJson:true});const response=await f.handlers.PATCH(f.request);
-  assert.equal(response.status,400);assert.equal(f.calls.length,0);
+  assert.equal(response.status,409);assert.equal(f.calls.length,0);
 });
 
 test('only system administrators can open the monthly Corporate PM manager',async()=>{
@@ -66,39 +66,39 @@ test('work-order room reads return only room checklist fields, not credentials',
   const f=fixture(null,{role:'Maintenance Technician'});
   const response=await f.handlers.GET({...f.request,url:'https://test.invalid/api/corporate-pm?room=409'});
   assert.equal(response.status,200);assert.equal(response.body.tasks[0].label,'Daily check');
-  assert.equal(response.body.can_edit,true);
+  assert.equal(response.body.can_edit,false);
   assert.equal(JSON.stringify(response.body).includes('private-sheet-id'),false);
   assert.equal(JSON.stringify(response.body).includes('private_key'),false);
 });
 
-test('system administrator PM edits use the verified shared-sheet adapter',async()=>{
+test('Corporate PM writes are retired in favor of the personal live PM review flow',async()=>{
   const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true,spreadsheetId:'attacker',key:'attacker'};
   const f=fixture(body);const response=await f.handlers.PATCH(f.request);
-  assert.equal(response.status,200);
-  assert.deepEqual(f.calls[0].slice(0,5),['write','JAN',2,2,true]);
+  assert.equal(response.status,409);
+  assert.equal(f.calls.length,0);
 });
 
 test('Corporate PM rejects unsupported completion actions',async()=>{
   const f=fixture({action:'completeroompm',room:'409',quarter:'Q1'});
   const response=await f.handlers.PATCH(f.request);
-  assert.equal(response.status,400);assert.equal(f.calls.length,0);
+  assert.equal(response.status,409);assert.equal(f.calls.length,0);
 });
 
-test('work-order PM commits are limited to the current room checklist and assignment',async()=>{
+test('work-order PM endpoint never writes directly to the corporate workbook',async()=>{
   const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true,expectedChecked:false};
   const f=fixture(body,{role:'Technician'});
   const handler=f.load(path.join(root,'app/api/work-orders/[id]/preventive-maintenance/route.ts'));
   const response=await handler.PATCH(f.request,{params:Promise.resolve({id:'work-order-id'})});
-  assert.equal(response.status,200);
-  assert.deepEqual(f.calls.find(call=>Array.isArray(call)&&call[0]==='write').slice(0,7),['write','JAN',2,2,true,'409',false]);
+  assert.equal(response.status,409);
+  assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='write'),false);
 });
 
-test('work-order PM commit rejects changes without an expected checkbox value',async()=>{
+test('work-order PM endpoint directs checklist changes to explicit review',async()=>{
   const body={action:'setcheckbox',sheet:'JAN',row:2,column:2,checked:true};
   const f=fixture(body,{role:'Technician'});
   const handler=f.load(path.join(root,'app/api/work-orders/[id]/preventive-maintenance/route.ts'));
   const response=await handler.PATCH(f.request,{params:Promise.resolve({id:'work-order-id'})});
-  assert.equal(response.status,400);
+  assert.equal(response.status,409);
   assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='write'),false);
 });
 
@@ -107,6 +107,6 @@ test('work-order PM commits reject a technician assigned to another staff member
   const f=fixture(body,{role:'Technician',fullName:'Other Engineer',workOrder:{id:'work-order-id',room:'409',technician_name:'Assigned Engineer'}});
   const handler=f.load(path.join(root,'app/api/work-orders/[id]/preventive-maintenance/route.ts'));
   const response=await handler.PATCH(f.request,{params:Promise.resolve({id:'work-order-id'})});
-  assert.equal(response.status,403);
+  assert.equal(response.status,409);
   assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='write'),false);
 });

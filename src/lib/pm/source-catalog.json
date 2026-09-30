@@ -1,0 +1,3951 @@
+{
+  "workbook": "Copy of Preventative Maintenance Tracking - CMPRI.xlsx",
+  "daily": [
+    {
+      "id": "daily-7",
+      "category": "Fire/Life Safety",
+      "label": "Check Fire Panel for Troubles",
+      "source": "JAN!A7"
+    },
+    {
+      "id": "daily-8",
+      "category": "Fire/Life Safety",
+      "label": "Check Fire Pump",
+      "source": "JAN!A8"
+    },
+    {
+      "id": "daily-9",
+      "category": "Fire/Life Safety",
+      "label": "Verify exterior access doors are secure",
+      "source": "JAN!A9"
+    },
+    {
+      "id": "daily-11",
+      "category": "Boiler Room",
+      "label": "Check water heating system for errors, leaks, temp is in operating range",
+      "source": "JAN!A11"
+    },
+    {
+      "id": "daily-12",
+      "category": "Boiler Room",
+      "label": "Check water softener for leaks/errors and salt level",
+      "source": "JAN!A12"
+    },
+    {
+      "id": "daily-13",
+      "category": "Boiler Room",
+      "label": "Recirculation pumps and motors properly functioning",
+      "source": "JAN!A13"
+    },
+    {
+      "id": "daily-15",
+      "category": "Daily Kickoff",
+      "label": "Check with front desk for any occupied room issues & review open tickets",
+      "source": "JAN!A15"
+    },
+    {
+      "id": "daily-16",
+      "category": "Daily Kickoff",
+      "label": "Log pool readings & make any corrections, check pump room equipment",
+      "source": "JAN!A16"
+    },
+    {
+      "id": "daily-17",
+      "category": "Daily Kickoff",
+      "label": "Daily Exterior Walk: Debris Cleanup and visual inspection",
+      "source": "JAN!A17"
+    },
+    {
+      "id": "daily-19",
+      "category": "Winter Condition",
+      "label": "Sidewalks, driveway/parking are cleared/ salted as needed",
+      "source": "JAN!A19"
+    },
+    {
+      "id": "daily-20",
+      "category": "Winter Condition",
+      "label": "Property walk to verify adequate heat protection when under freezing temps",
+      "source": "JAN!A20"
+    },
+    {
+      "id": "daily-21",
+      "category": "Winter Condition",
+      "label": "DAILY CHECKLIST COMPLETION",
+      "source": "JAN!A21"
+    }
+  ],
+  "weekly": [
+    {
+      "id": "weekly-24",
+      "label": "Maintenance Department Meeting",
+      "source": "JAN!A24",
+      "reference": "Weekly Meeting.pdf"
+    },
+    {
+      "id": "weekly-25",
+      "label": "Weekly Property Walk",
+      "source": "JAN!A25",
+      "reference": "Property Walk Guide.pdf"
+    },
+    {
+      "id": "weekly-26",
+      "label": "Shop: Clean & organize",
+      "source": "JAN!A26",
+      "reference": null
+    }
+  ],
+  "months": [
+    {
+      "month": "JAN",
+      "tasks": [
+        {
+          "id": "jan-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "JAN!C35",
+          "references": []
+        },
+        {
+          "id": "jan-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses. Ensure operation.",
+          "source": "JAN!C36",
+          "references": []
+        },
+        {
+          "id": "jan-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "JAN!C37",
+          "references": []
+        },
+        {
+          "id": "jan-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Semi-Annual Tool Inventory form**",
+          "source": "JAN!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "jan-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check rooftop drains, ensure drain screens are present and not obstructed by debris, snow, and ice",
+          "source": "JAN!C40",
+          "references": []
+        },
+        {
+          "id": "jan-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "JAN!C41",
+          "references": []
+        },
+        {
+          "id": "jan-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check exterior vent discharge from water heaters/boilers and ensure ice buildup is not present",
+          "source": "JAN!C42",
+          "references": []
+        },
+        {
+          "id": "jan-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Verify ice melt salt stock to ensure adequate inventory",
+          "source": "JAN!C43",
+          "references": []
+        },
+        {
+          "id": "jan-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "JAN!C45",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "jan-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "JAN!C46",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "jan-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "JAN!C47",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "jan-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "JAN!C48",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "jan-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "JAN!C49",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "jan-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "JAN!C51",
+          "references": []
+        },
+        {
+          "id": "jan-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "JAN!C52",
+          "references": []
+        },
+        {
+          "id": "jan-16",
+          "number": 16,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "JAN!C53",
+          "references": []
+        },
+        {
+          "id": "jan-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Lobby",
+          "source": "JAN!C56",
+          "references": [
+            "Lobby.pdf"
+          ]
+        },
+        {
+          "id": "jan-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Market/Pantry/Retail",
+          "source": "JAN!C57",
+          "references": [
+            "Market:Pantry.pdf"
+          ]
+        },
+        {
+          "id": "jan-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Dining/Breakfast area",
+          "source": "JAN!C58",
+          "references": [
+            "Dining:Breakfast.pdf"
+          ]
+        },
+        {
+          "id": "jan-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Business Center",
+          "source": "JAN!C59",
+          "references": [
+            "Business Center.pdf"
+          ]
+        },
+        {
+          "id": "jan-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Front Office",
+          "source": "JAN!C60",
+          "references": [
+            "Front Office:Desk.pdf"
+          ]
+        },
+        {
+          "id": "jan-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Public Restrooms",
+          "source": "JAN!C61",
+          "references": [
+            "Public Restrooms.pdf"
+          ]
+        },
+        {
+          "id": "jan-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Elevator(s)",
+          "source": "JAN!C62",
+          "references": [
+            "Elevator Checklist.pdf"
+          ]
+        },
+        {
+          "id": "jan-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Complete Quarterly Safety Checklist",
+          "source": "JAN!C63",
+          "references": [
+            "Safety Checklist.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "FEB",
+      "tasks": [
+        {
+          "id": "feb-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "FEB!C35",
+          "references": []
+        },
+        {
+          "id": "feb-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Start obtaining lawncare quotes for upcoming season and submit for approval",
+          "source": "FEB!C36",
+          "references": []
+        },
+        {
+          "id": "feb-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Start obtaining Guest room Ptac/Vtac cleaning quotes and submit for approval, typically cleanings should happen in between March and May, before summer. Develop a backup plan and timeline for handling this in-house.",
+          "source": "FEB!C37",
+          "references": []
+        },
+        {
+          "id": "feb-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "FEB!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "feb-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check rooftop drains, ensure drain screens are present and not obstructed by debris, snow, and ice",
+          "source": "FEB!C40",
+          "references": []
+        },
+        {
+          "id": "feb-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "FEB!C41",
+          "references": []
+        },
+        {
+          "id": "feb-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check exterior vent discharge from water heaters/boilers and ensure ice buildup is not present",
+          "source": "FEB!C42",
+          "references": []
+        },
+        {
+          "id": "feb-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Verify ice melt salt stock to ensure adequate inventory",
+          "source": "FEB!C43",
+          "references": []
+        },
+        {
+          "id": "feb-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "FEB!C45",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "feb-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "FEB!C46",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "feb-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "FEB!C47",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "feb-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "FEB!C48",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "feb-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "FEB!C49",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "feb-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "FEB!C51",
+          "references": []
+        },
+        {
+          "id": "feb-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "FEB!C52",
+          "references": []
+        },
+        {
+          "id": "feb-16",
+          "number": 16,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "FEB!C53",
+          "references": []
+        },
+        {
+          "id": "feb-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Hallways/Corridors",
+          "source": "FEB!C56",
+          "references": [
+            "Hallway Checklist.pdf"
+          ]
+        },
+        {
+          "id": "feb-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Stairwell(s)",
+          "source": "FEB!C57",
+          "references": [
+            "Stairwell.pdf"
+          ]
+        },
+        {
+          "id": "feb-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Guest Laundry",
+          "source": "FEB!C58",
+          "references": [
+            "Laundry-Guest.pdf"
+          ]
+        },
+        {
+          "id": "feb-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Fitness Center",
+          "source": "FEB!C59",
+          "references": [
+            "Fitness Center.pdf"
+          ]
+        },
+        {
+          "id": "feb-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Meeting Space(s)",
+          "source": "FEB!C60",
+          "references": [
+            "Meeting Room.pdf"
+          ]
+        },
+        {
+          "id": "feb-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Commercial Laundry",
+          "source": "FEB!C61",
+          "references": [
+            "Laundry-Commercial.pdf"
+          ]
+        },
+        {
+          "id": "feb-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Complete Quarterly Test of Sprinkler Flow and Tamper Switches",
+          "source": "FEB!C62",
+          "references": [
+            "Sprinkler Flow:Tamper Test.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "MAR",
+      "tasks": [
+        {
+          "id": "mar-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "MAR!C35",
+          "references": []
+        },
+        {
+          "id": "mar-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses",
+          "source": "MAR!C36",
+          "references": []
+        },
+        {
+          "id": "mar-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "MAR!C37",
+          "references": []
+        },
+        {
+          "id": "mar-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Turn off stairwell heaters and pipe warmers from winter season by end of month",
+          "source": "MAR!C38",
+          "references": []
+        },
+        {
+          "id": "mar-5",
+          "number": 5,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "MAR!C39",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "mar-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check rooftop drains, ensure drain screens are present and not obstructed by debris",
+          "source": "MAR!C41",
+          "references": []
+        },
+        {
+          "id": "mar-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "MAR!C42",
+          "references": []
+        },
+        {
+          "id": "mar-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Obtain quote for landscaping irrigation spring startup. Once approved, schedule the work",
+          "source": "MAR!C43",
+          "references": []
+        },
+        {
+          "id": "mar-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "MAR!C45",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "mar-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "MAR!C46",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "mar-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "MAR!C47",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "mar-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "MAR!C48",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "mar-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "MAR!C49",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "mar-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "MAR!C51",
+          "references": []
+        },
+        {
+          "id": "mar-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "MAR!C52",
+          "references": []
+        },
+        {
+          "id": "mar-16",
+          "number": 16,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "MAR!C53",
+          "references": []
+        },
+        {
+          "id": "mar-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Exterior/Site Maintenance",
+          "source": "MAR!C56",
+          "references": [
+            "Exterior:Site Maintenance.pdf"
+          ]
+        },
+        {
+          "id": "mar-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Shuttle(s) if applicable",
+          "source": "MAR!C57",
+          "references": [
+            "Shuttle.pdf"
+          ]
+        },
+        {
+          "id": "mar-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Vending/Ice Machine areas",
+          "source": "MAR!C58",
+          "references": [
+            "Ice Machine Areas.pdf"
+          ]
+        },
+        {
+          "id": "mar-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Kitchen",
+          "source": "MAR!C59",
+          "references": [
+            "Kitchen.pdf"
+          ]
+        },
+        {
+          "id": "mar-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Pool",
+          "source": "MAR!C60",
+          "references": [
+            "Pool.pdf"
+          ]
+        },
+        {
+          "id": "mar-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Storage/Closets",
+          "source": "MAR!C61",
+          "references": [
+            "Storage.pdf"
+          ]
+        },
+        {
+          "id": "mar-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - RTUs / Split Systems",
+          "source": "MAR!C62",
+          "references": [
+            "RTU Quarterly.pdf",
+            "Split Unit Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "mar-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Air Handlers",
+          "source": "MAR!C63",
+          "references": [
+            "Air Handlers Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "mar-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Conduct the Quarterly Fire Drill with Staff",
+          "source": "MAR!C64",
+          "references": [
+            "Quarterly Fire Drill.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "APRIL",
+      "tasks": [
+        {
+          "id": "april-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "APRIL!C35",
+          "references": []
+        },
+        {
+          "id": "april-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses. Ensure operation.",
+          "source": "APRIL!C36",
+          "references": []
+        },
+        {
+          "id": "april-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "APRIL!C37",
+          "references": []
+        },
+        {
+          "id": "april-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Semi-Annual Tool Inventory form**",
+          "source": "APRIL!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "april-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check rooftop drains, ensure drain screens are present and not obstructed by debris, snow, and ice",
+          "source": "APRIL!C40",
+          "references": []
+        },
+        {
+          "id": "april-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "APRIL!C41",
+          "references": []
+        },
+        {
+          "id": "april-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check exterior vent discharge from water heaters/boilers and ensure ice buildup is not present",
+          "source": "APRIL!C42",
+          "references": []
+        },
+        {
+          "id": "april-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Verify ice melt salt stock to ensure adequate inventory",
+          "source": "APRIL!C43",
+          "references": []
+        },
+        {
+          "id": "april-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "APRIL!C45",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "april-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "APRIL!C46",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "april-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "APRIL!C47",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "april-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "APRIL!C48",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "april-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "APRIL!C49",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "april-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "APRIL!C51",
+          "references": []
+        },
+        {
+          "id": "april-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "APRIL!C52",
+          "references": []
+        },
+        {
+          "id": "april-16",
+          "number": 16,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "APRIL!C53",
+          "references": []
+        },
+        {
+          "id": "april-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Lobby",
+          "source": "APRIL!C56",
+          "references": [
+            "Lobby.pdf"
+          ]
+        },
+        {
+          "id": "april-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Market/Pantry/Retail",
+          "source": "APRIL!C57",
+          "references": [
+            "Market:Pantry.pdf"
+          ]
+        },
+        {
+          "id": "april-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Dining/Breakfast area",
+          "source": "APRIL!C58",
+          "references": [
+            "Dining:Breakfast.pdf"
+          ]
+        },
+        {
+          "id": "april-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Business Center",
+          "source": "APRIL!C59",
+          "references": [
+            "Business Center.pdf"
+          ]
+        },
+        {
+          "id": "april-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Front Office",
+          "source": "APRIL!C60",
+          "references": [
+            "Front Office:Desk.pdf"
+          ]
+        },
+        {
+          "id": "april-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Public Restrooms",
+          "source": "APRIL!C61",
+          "references": [
+            "Public Restrooms.pdf"
+          ]
+        },
+        {
+          "id": "april-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Elevator(s)",
+          "source": "APRIL!C62",
+          "references": [
+            "Elevator Checklist.pdf"
+          ]
+        },
+        {
+          "id": "april-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Complete Quarterly Safety Checklist",
+          "source": "APRIL!C63",
+          "references": [
+            "Safety Checklist.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "MAY",
+      "tasks": [
+        {
+          "id": "may-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "MAY!C35",
+          "references": []
+        },
+        {
+          "id": "may-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Start obtaining lawncare quotes for upcoming season and submit for approval",
+          "source": "MAY!C36",
+          "references": []
+        },
+        {
+          "id": "may-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Start obtaining Guest room Ptac/Vtac cleaning quotes and submit for approval, typically cleanings should happen in between March and May, before summer. Develop a backup plan and timeline for handling this in-house.",
+          "source": "MAY!C37",
+          "references": []
+        },
+        {
+          "id": "may-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "MAY!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "may-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check rooftop drains, ensure drain screens are present and not obstructed by debris, snow, and ice",
+          "source": "MAY!C40",
+          "references": []
+        },
+        {
+          "id": "may-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "MAY!C41",
+          "references": []
+        },
+        {
+          "id": "may-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check exterior vent discharge from water heaters/boilers and ensure ice buildup is not present",
+          "source": "MAY!C42",
+          "references": []
+        },
+        {
+          "id": "may-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Verify ice melt salt stock to ensure adequate inventory",
+          "source": "MAY!C43",
+          "references": []
+        },
+        {
+          "id": "may-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "MAY!C45",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "may-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "MAY!C46",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "may-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "MAY!C47",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "may-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "MAY!C48",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "may-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "MAY!C49",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "may-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "MAY!C51",
+          "references": []
+        },
+        {
+          "id": "may-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "MAY!C52",
+          "references": []
+        },
+        {
+          "id": "may-16",
+          "number": 16,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "MAY!C53",
+          "references": []
+        },
+        {
+          "id": "may-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Hallways/Corridors",
+          "source": "MAY!C56",
+          "references": [
+            "Hallway Checklist.pdf"
+          ]
+        },
+        {
+          "id": "may-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Stairwell(s)",
+          "source": "MAY!C57",
+          "references": [
+            "Stairwell.pdf"
+          ]
+        },
+        {
+          "id": "may-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Guest Laundry",
+          "source": "MAY!C58",
+          "references": [
+            "Laundry-Guest.pdf"
+          ]
+        },
+        {
+          "id": "may-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Fitness Center",
+          "source": "MAY!C59",
+          "references": [
+            "Fitness Center.pdf"
+          ]
+        },
+        {
+          "id": "may-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Meeting Space(s)",
+          "source": "MAY!C60",
+          "references": [
+            "Meeting Room.pdf"
+          ]
+        },
+        {
+          "id": "may-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Commercial Laundry",
+          "source": "MAY!C61",
+          "references": [
+            "Laundry-Commercial.pdf"
+          ]
+        },
+        {
+          "id": "may-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Complete Quarterly Test of Sprinkler Flow and Tamper Switches",
+          "source": "MAY!C62",
+          "references": [
+            "Sprinkler Flow:Tamper Test.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "JUNE",
+      "tasks": [
+        {
+          "id": "june-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "JUNE!C35",
+          "references": []
+        },
+        {
+          "id": "june-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses",
+          "source": "JUNE!C36",
+          "references": []
+        },
+        {
+          "id": "june-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "JUNE!C37",
+          "references": []
+        },
+        {
+          "id": "june-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Turn off stairwell heaters and pipe warmers from winter season by end of month",
+          "source": "JUNE!C38",
+          "references": []
+        },
+        {
+          "id": "june-5",
+          "number": 5,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "JUNE!C39",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "june-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check rooftop drains, ensure drain screens are present and not obstructed by debris",
+          "source": "JUNE!C41",
+          "references": []
+        },
+        {
+          "id": "june-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "JUNE!C42",
+          "references": []
+        },
+        {
+          "id": "june-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Obtain quote for landscaping irrigation spring startup. Once approved, schedule the work",
+          "source": "JUNE!C43",
+          "references": []
+        },
+        {
+          "id": "june-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "JUNE!C45",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "june-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "JUNE!C46",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "june-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "JUNE!C47",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "june-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "JUNE!C48",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "june-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "JUNE!C49",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "june-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "JUNE!C51",
+          "references": []
+        },
+        {
+          "id": "june-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "JUNE!C52",
+          "references": []
+        },
+        {
+          "id": "june-16",
+          "number": 16,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "JUNE!C53",
+          "references": []
+        },
+        {
+          "id": "june-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Exterior/Site Maintenance",
+          "source": "JUNE!C56",
+          "references": [
+            "Exterior:Site Maintenance.pdf"
+          ]
+        },
+        {
+          "id": "june-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Shuttle(s) if applicable",
+          "source": "JUNE!C57",
+          "references": [
+            "Shuttle.pdf"
+          ]
+        },
+        {
+          "id": "june-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Vending/Ice Machine areas",
+          "source": "JUNE!C58",
+          "references": [
+            "Ice Machine Areas.pdf"
+          ]
+        },
+        {
+          "id": "june-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Kitchen",
+          "source": "JUNE!C59",
+          "references": [
+            "Kitchen.pdf"
+          ]
+        },
+        {
+          "id": "june-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Pool",
+          "source": "JUNE!C60",
+          "references": [
+            "Pool.pdf"
+          ]
+        },
+        {
+          "id": "june-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Storage/Closets",
+          "source": "JUNE!C61",
+          "references": [
+            "Storage.pdf"
+          ]
+        },
+        {
+          "id": "june-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - RTUs / Split Systems",
+          "source": "JUNE!C62",
+          "references": [
+            "RTU Quarterly.pdf",
+            "Split Unit Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "june-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Air Handlers",
+          "source": "JUNE!C63",
+          "references": [
+            "Air Handlers Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "june-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Conduct the Quarterly Fire Drill with Staff",
+          "source": "JUNE!C64",
+          "references": [
+            "Quarterly Fire Drill.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "JULY",
+      "tasks": [
+        {
+          "id": "july-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "JULY!C35",
+          "references": []
+        },
+        {
+          "id": "july-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses. Ensure operation.",
+          "source": "JULY!C36",
+          "references": []
+        },
+        {
+          "id": "july-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "JULY!C37",
+          "references": []
+        },
+        {
+          "id": "july-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Semi-Annual Tool Inventory form**",
+          "source": "JULY!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "july-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior facade (siding, brick, EAFIS, ect) inspected for needed repairs",
+          "source": "JULY!C40",
+          "references": []
+        },
+        {
+          "id": "july-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "JULY!C41",
+          "references": []
+        },
+        {
+          "id": "july-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Building exterior windows – cleanliness and condition",
+          "source": "JULY!C42",
+          "references": []
+        },
+        {
+          "id": "july-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Sidewalks and walkways, cleaned, maintained, and power washed as needed",
+          "source": "JULY!C43",
+          "references": []
+        },
+        {
+          "id": "july-9",
+          "number": 9,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "During season: check irrigation system for leaks, damaged heads, or head adjustments (spraying in wrong direction)",
+          "source": "JULY!C44",
+          "references": []
+        },
+        {
+          "id": "july-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "JULY!C46",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "july-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "JULY!C47",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "july-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "JULY!C48",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "july-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "JULY!C49",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "july-14",
+          "number": 14,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "JULY!C50",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "july-15",
+          "number": 15,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "RTU (Utilize RTU Checklist)**",
+          "source": "JULY!C52",
+          "references": [
+            "RTU Monthly.pdf"
+          ]
+        },
+        {
+          "id": "july-16",
+          "number": 16,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Air Handler (Utilize Air Handler Checklist)**",
+          "source": "JULY!C53",
+          "references": [
+            "Monthly Air Handler.pdf"
+          ]
+        },
+        {
+          "id": "july-17",
+          "number": 17,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Split Units (Utilize Split Unit Checklist)**",
+          "source": "JULY!C54",
+          "references": [
+            "Split Unit.pdf"
+          ]
+        },
+        {
+          "id": "july-18",
+          "number": 18,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "JULY!C56",
+          "references": []
+        },
+        {
+          "id": "july-19",
+          "number": 19,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "JULY!C57",
+          "references": []
+        },
+        {
+          "id": "july-20",
+          "number": 20,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "JULY!C58",
+          "references": []
+        },
+        {
+          "id": "july-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Lobby",
+          "source": "JULY!C61",
+          "references": [
+            "Lobby.pdf"
+          ]
+        },
+        {
+          "id": "july-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Market/Pantry/Retail",
+          "source": "JULY!C62",
+          "references": [
+            "Market:Pantry.pdf"
+          ]
+        },
+        {
+          "id": "july-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Dining/Breakfast area",
+          "source": "JULY!C63",
+          "references": [
+            "Dining:Breakfast.pdf"
+          ]
+        },
+        {
+          "id": "july-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Business Center",
+          "source": "JULY!C64",
+          "references": [
+            "Business Center.pdf"
+          ]
+        },
+        {
+          "id": "july-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Front Office",
+          "source": "JULY!C65",
+          "references": [
+            "Front Office:Desk.pdf"
+          ]
+        },
+        {
+          "id": "july-26",
+          "number": 26,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Public Restrooms",
+          "source": "JULY!C66",
+          "references": [
+            "Public Restrooms.pdf"
+          ]
+        },
+        {
+          "id": "july-27",
+          "number": 27,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Elevator(s)",
+          "source": "JULY!C67",
+          "references": [
+            "Elevator Checklist.pdf"
+          ]
+        },
+        {
+          "id": "july-28",
+          "number": 28,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Complete Quarterly Safety Checklist",
+          "source": "JULY!C68",
+          "references": [
+            "Safety Checklist.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "AUG",
+      "tasks": [
+        {
+          "id": "aug-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "AUG!C35",
+          "references": []
+        },
+        {
+          "id": "aug-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses. Ensure operation.",
+          "source": "AUG!C36",
+          "references": []
+        },
+        {
+          "id": "aug-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "AUG!C37",
+          "references": []
+        },
+        {
+          "id": "aug-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Major Monthly Tool Inventory form**",
+          "source": "AUG!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "aug-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior facade (siding, brick, EAFIS, ect) inspected for needed repairs",
+          "source": "AUG!C40",
+          "references": []
+        },
+        {
+          "id": "aug-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "AUG!C41",
+          "references": []
+        },
+        {
+          "id": "aug-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Building exterior windows – cleanliness and condition",
+          "source": "AUG!C42",
+          "references": []
+        },
+        {
+          "id": "aug-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Sidewalks and walkways, cleaned, maintained, and power washed as needed",
+          "source": "AUG!C43",
+          "references": []
+        },
+        {
+          "id": "aug-9",
+          "number": 9,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "During season: check irrigation system for leaks, damaged heads, or head adjustments (spraying in wrong direction)",
+          "source": "AUG!C44",
+          "references": []
+        },
+        {
+          "id": "aug-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "AUG!C46",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "aug-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "AUG!C47",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "aug-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "AUG!C48",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "aug-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "AUG!C49",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "aug-14",
+          "number": 14,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "AUG!C50",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "aug-15",
+          "number": 15,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "RTU (Utilize RTU Checklist)**",
+          "source": "AUG!C52",
+          "references": [
+            "RTU Monthly.pdf"
+          ]
+        },
+        {
+          "id": "aug-16",
+          "number": 16,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Air Handler (Utilize Air Handler Checklist)**",
+          "source": "AUG!C53",
+          "references": [
+            "Monthly Air Handler.pdf"
+          ]
+        },
+        {
+          "id": "aug-17",
+          "number": 17,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Split Units (Utilize Split Unit Checklist)**",
+          "source": "AUG!C54",
+          "references": [
+            "Split Unit.pdf"
+          ]
+        },
+        {
+          "id": "aug-18",
+          "number": 18,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "AUG!C56",
+          "references": []
+        },
+        {
+          "id": "aug-19",
+          "number": 19,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "AUG!C57",
+          "references": []
+        },
+        {
+          "id": "aug-20",
+          "number": 20,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "AUG!C58",
+          "references": []
+        },
+        {
+          "id": "aug-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Hallways/Corridors",
+          "source": "AUG!C61",
+          "references": [
+            "Hallway Checklist.pdf"
+          ]
+        },
+        {
+          "id": "aug-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Stairwell(s)",
+          "source": "AUG!C62",
+          "references": [
+            "Stairwell.pdf"
+          ]
+        },
+        {
+          "id": "aug-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Guest Laundry",
+          "source": "AUG!C63",
+          "references": [
+            "Laundry-Guest.pdf"
+          ]
+        },
+        {
+          "id": "aug-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Fitness Center",
+          "source": "AUG!C64",
+          "references": [
+            "Fitness Center.pdf"
+          ]
+        },
+        {
+          "id": "aug-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Meeting Space(s)",
+          "source": "AUG!C65",
+          "references": [
+            "Meeting Room.pdf"
+          ]
+        },
+        {
+          "id": "aug-26",
+          "number": 26,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Commercial Laundry",
+          "source": "AUG!C66",
+          "references": [
+            "Laundry-Commercial.pdf"
+          ]
+        },
+        {
+          "id": "aug-27",
+          "number": 27,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Complete Quarterly Test of Sprinkler Flow and Tamper Switches",
+          "source": "AUG!C67",
+          "references": [
+            "Sprinkler Flow:Tamper Test.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "SEPT",
+      "tasks": [
+        {
+          "id": "sept-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "SEPT!C35",
+          "references": []
+        },
+        {
+          "id": "sept-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "If the property has a lawn irrigation system, obtain quotes for winterization and submit for approval. Once approved, schedule winteraztion for October, no later than mid-November (to prevent freezing irrigation pipes)",
+          "source": "SEPT!C36",
+          "references": []
+        },
+        {
+          "id": "sept-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Start obtaining snow removal quotes for upcoming season and submit for review/approval",
+          "source": "SEPT!C37",
+          "references": []
+        },
+        {
+          "id": "sept-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "SEPT!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "sept-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior facade (siding, brick, EAFIS, ect) inspected for needed repairs",
+          "source": "SEPT!C40",
+          "references": []
+        },
+        {
+          "id": "sept-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "SEPT!C41",
+          "references": []
+        },
+        {
+          "id": "sept-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Building exterior windows – cleanliness and condition",
+          "source": "SEPT!C42",
+          "references": []
+        },
+        {
+          "id": "sept-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Sidewalks and walkways, cleaned, maintained, and power washed as needed",
+          "source": "SEPT!C43",
+          "references": []
+        },
+        {
+          "id": "sept-9",
+          "number": 9,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "During season: check irrigation system for leaks, damaged heads, or head adjustments (spraying in wrong direction)",
+          "source": "SEPT!C44",
+          "references": []
+        },
+        {
+          "id": "sept-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "SEPT!C46",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "sept-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "SEPT!C47",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "sept-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "SEPT!C48",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "sept-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "SEPT!C49",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "sept-14",
+          "number": 14,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "SEPT!C50",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "sept-15",
+          "number": 15,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "RTU (Utilize RTU Checklist)**",
+          "source": "SEPT!C52",
+          "references": [
+            "RTU Monthly.pdf"
+          ]
+        },
+        {
+          "id": "sept-16",
+          "number": 16,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Air Handler (Utilize Air Handler Checklist)**",
+          "source": "SEPT!C53",
+          "references": [
+            "Monthly Air Handler.pdf"
+          ]
+        },
+        {
+          "id": "sept-17",
+          "number": 17,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Split Units (Utilize Split Unit Checklist)**",
+          "source": "SEPT!C54",
+          "references": [
+            "Split Unit.pdf"
+          ]
+        },
+        {
+          "id": "sept-18",
+          "number": 18,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "SEPT!C56",
+          "references": []
+        },
+        {
+          "id": "sept-19",
+          "number": 19,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "SEPT!C57",
+          "references": []
+        },
+        {
+          "id": "sept-21",
+          "number": 21,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "SEPT!C58",
+          "references": []
+        },
+        {
+          "id": "sept-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Exterior/Site Maintenance",
+          "source": "SEPT!C61",
+          "references": [
+            "Exterior:Site Maintenance.pdf"
+          ]
+        },
+        {
+          "id": "sept-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Shuttle(s) if applicable",
+          "source": "SEPT!C62",
+          "references": [
+            "Shuttle.pdf"
+          ]
+        },
+        {
+          "id": "sept-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Vending/Ice Machine areas",
+          "source": "SEPT!C63",
+          "references": [
+            "Ice Machine Areas.pdf"
+          ]
+        },
+        {
+          "id": "sept-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Kitchen",
+          "source": "SEPT!C64",
+          "references": [
+            "Kitchen.pdf"
+          ]
+        },
+        {
+          "id": "sept-26",
+          "number": 26,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Pool",
+          "source": "SEPT!C65",
+          "references": [
+            "Pool.pdf"
+          ]
+        },
+        {
+          "id": "sept-27",
+          "number": 27,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Storage/Closets",
+          "source": "SEPT!C66",
+          "references": [
+            "Storage.pdf"
+          ]
+        },
+        {
+          "id": "sept-28",
+          "number": 28,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - RTUs / Split Systems",
+          "source": "SEPT!C67",
+          "references": [
+            "RTU Quarterly.pdf",
+            "Split Unit Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "sept-29",
+          "number": 29,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Air Handlers",
+          "source": "SEPT!C68",
+          "references": [
+            "Air Handlers Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "sept-30",
+          "number": 30,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Conduct the Quarterly Fire Drill with Staff",
+          "source": "SEPT!C69",
+          "references": [
+            "Quarterly Fire Drill.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "OCT",
+      "tasks": [
+        {
+          "id": "oct-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "OCT!C35",
+          "references": []
+        },
+        {
+          "id": "oct-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial washers: Check water valves and seals for leaking, check belts and hoses. Ensure operation.",
+          "source": "OCT!C36",
+          "references": []
+        },
+        {
+          "id": "oct-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Check laundry room commercial dryers: clean/inspect lint filters, proper belt tension, clean lint from burners, gas valves, around motors and pipes",
+          "source": "OCT!C37",
+          "references": []
+        },
+        {
+          "id": "oct-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "OCT!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "oct-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "OCT!C40",
+          "references": []
+        },
+        {
+          "id": "oct-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Ensure lawn irrigation system is on schedule for winterization - irragation vendors get extremely busy OCT/NOV.",
+          "source": "OCT!C41",
+          "references": []
+        },
+        {
+          "id": "oct-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Work with RDO/Corporate Ops to ensure snow removal contracts are finalized",
+          "source": "OCT!C42",
+          "references": []
+        },
+        {
+          "id": "oct-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Verify ice melt salt stock to ensure adequate inventory and/or submit initial order for upcoming winter season",
+          "source": "OCT!C43",
+          "references": []
+        },
+        {
+          "id": "oct-9",
+          "number": 9,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Begin working on the Winter Preparedness Checklist**",
+          "source": "OCT!C44",
+          "references": [
+            "2025 Winter Preparedness Checklist.pdf"
+          ]
+        },
+        {
+          "id": "oct-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "OCT!C46",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "oct-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "OCT!C47",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "oct-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "OCT!C48",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "oct-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "OCT!C49",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "oct-14",
+          "number": 14,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "OCT!C50",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "oct-15",
+          "number": 15,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "RTU (Utilize RTU Checklist)**",
+          "source": "OCT!C52",
+          "references": [
+            "RTU Monthly.pdf"
+          ]
+        },
+        {
+          "id": "oct-16",
+          "number": 16,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Air Handler (Utilize Air Handler Checklist)**",
+          "source": "OCT!C53",
+          "references": [
+            "Monthly Air Handler.pdf"
+          ]
+        },
+        {
+          "id": "oct-17",
+          "number": 17,
+          "section": "HVAC PREVENTATIVE MAINTENANCE",
+          "label": "Split Units (Utilize Split Unit Checklist)**",
+          "source": "OCT!C54",
+          "references": [
+            "Split Unit.pdf"
+          ]
+        },
+        {
+          "id": "oct-18",
+          "number": 18,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "OCT!C56",
+          "references": []
+        },
+        {
+          "id": "oct-19",
+          "number": 19,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "OCT!C57",
+          "references": []
+        },
+        {
+          "id": "oct-20",
+          "number": 20,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "OCT!C58",
+          "references": []
+        },
+        {
+          "id": "oct-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Lobby",
+          "source": "OCT!C61",
+          "references": [
+            "Lobby.pdf"
+          ]
+        },
+        {
+          "id": "oct-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Market/Pantry/Retail",
+          "source": "OCT!C62",
+          "references": [
+            "Market:Pantry.pdf"
+          ]
+        },
+        {
+          "id": "oct-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Dining/Breakfast area",
+          "source": "OCT!C63",
+          "references": [
+            "Dining:Breakfast.pdf"
+          ]
+        },
+        {
+          "id": "oct-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Business Center",
+          "source": "OCT!C64",
+          "references": [
+            "Business Center.pdf"
+          ]
+        },
+        {
+          "id": "oct-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Front Office",
+          "source": "OCT!C65",
+          "references": [
+            "Front Office:Desk.pdf"
+          ]
+        },
+        {
+          "id": "oct-26",
+          "number": 26,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Public Restrooms",
+          "source": "OCT!C66",
+          "references": [
+            "Public Restrooms.pdf"
+          ]
+        },
+        {
+          "id": "oct-27",
+          "number": 27,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Quarterly Preventative Maintenance - Elevator(s)",
+          "source": "OCT!C67",
+          "references": [
+            "Elevator Checklist.pdf"
+          ]
+        },
+        {
+          "id": "oct-28",
+          "number": 28,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for January, April, July, and October)",
+          "label": "Complete Quarterly Safety Checklist",
+          "source": "OCT!C68",
+          "references": [
+            "Safety Checklist.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "NOV",
+      "tasks": [
+        {
+          "id": "nov-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "NOV!C35",
+          "references": []
+        },
+        {
+          "id": "nov-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Yearly Water heating system preventative maintenance (follow preventative recommendations based on heating system of the property). If you have any questions, contact your Regional Maintenance Team",
+          "source": "NOV!C36",
+          "references": []
+        },
+        {
+          "id": "nov-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Ensure Winter Preparedness Checklist is complete",
+          "source": "NOV!C37",
+          "references": []
+        },
+        {
+          "id": "nov-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Major Monthly Tool Inventory form**",
+          "source": "NOV!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "nov-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior facade (siding, brick, EAFIS, ect) inspected for needed repairs",
+          "source": "NOV!C40",
+          "references": []
+        },
+        {
+          "id": "nov-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "NOV!C41",
+          "references": []
+        },
+        {
+          "id": "nov-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Building exterior windows – cleanliness and condition",
+          "source": "NOV!C42",
+          "references": []
+        },
+        {
+          "id": "nov-8",
+          "number": 8,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "NOV!C44",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "nov-9",
+          "number": 9,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "NOV!C45",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "nov-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "NOV!C46",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "nov-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "NOV!C47",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "nov-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "NOV!C48",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "nov-13",
+          "number": 13,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "NOV!C50",
+          "references": []
+        },
+        {
+          "id": "nov-14",
+          "number": 14,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "NOV!C51",
+          "references": []
+        },
+        {
+          "id": "nov-15",
+          "number": 15,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "NOV!C52",
+          "references": []
+        },
+        {
+          "id": "nov-16",
+          "number": 16,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Hallways/Corridors",
+          "source": "NOV!C55",
+          "references": [
+            "Hallway Checklist.pdf"
+          ]
+        },
+        {
+          "id": "nov-17",
+          "number": 17,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Stairwell(s)",
+          "source": "NOV!C56",
+          "references": [
+            "Stairwell.pdf"
+          ]
+        },
+        {
+          "id": "nov-18",
+          "number": 18,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Guest Laundry",
+          "source": "NOV!C57",
+          "references": [
+            "Laundry-Guest.pdf"
+          ]
+        },
+        {
+          "id": "nov-19",
+          "number": 19,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Fitness Center",
+          "source": "NOV!C58",
+          "references": [
+            "Fitness Center.pdf"
+          ]
+        },
+        {
+          "id": "nov-20",
+          "number": 20,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Meeting Space(s)",
+          "source": "NOV!C59",
+          "references": [
+            "Meeting Room.pdf"
+          ]
+        },
+        {
+          "id": "nov-21",
+          "number": 21,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Quarterly Preventative Maintenance - Commercial Laundry",
+          "source": "NOV!C60",
+          "references": [
+            "Laundry-Commercial.pdf"
+          ]
+        },
+        {
+          "id": "nov-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for February, May, August, and November)",
+          "label": "Complete Quarterly Test of Sprinkler Flow and Tamper Switches",
+          "source": "NOV!C61",
+          "references": [
+            "Sprinkler Flow:Tamper Test.pdf"
+          ]
+        }
+      ]
+    },
+    {
+      "month": "DEC",
+      "tasks": [
+        {
+          "id": "dec-1",
+          "number": 1,
+          "section": "MONTHLY ITEMS",
+          "label": "Review Prior Month Top Maintenance GSS guest concerns and identify trends, deploy a resolution plan. Incorporate into the first weekly maintenance meeting of the month.",
+          "source": "DEC!C35",
+          "references": []
+        },
+        {
+          "id": "dec-2",
+          "number": 2,
+          "section": "MONTHLY ITEMS",
+          "label": "Notify Operations Team (GM, AGM, FOM) to check Failsafe Key Expiration and remake failsafe keys for new year. Verify\ncompletion once Ops team completes the task",
+          "source": "DEC!C36",
+          "references": []
+        },
+        {
+          "id": "dec-3",
+          "number": 3,
+          "section": "MONTHLY ITEMS",
+          "label": "Winterization Spot Check - Walk property being mindful of heating and winter protection - Winterization Checklist should already be complete, this is just an ongoing spot check",
+          "source": "DEC!C37",
+          "references": []
+        },
+        {
+          "id": "dec-4",
+          "number": 4,
+          "section": "MONTHLY ITEMS",
+          "label": "Complete Monthly Major Tool Inventory form**",
+          "source": "DEC!C38",
+          "references": [
+            "Tool Inventory.pdf"
+          ]
+        },
+        {
+          "id": "dec-5",
+          "number": 5,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior facade (siding, brick, EAFIS, ect) inspected for needed repairs",
+          "source": "DEC!C40",
+          "references": []
+        },
+        {
+          "id": "dec-6",
+          "number": 6,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+          "source": "DEC!C41",
+          "references": []
+        },
+        {
+          "id": "dec-7",
+          "number": 7,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Building exterior windows – cleanliness and condition",
+          "source": "DEC!C42",
+          "references": []
+        },
+        {
+          "id": "dec-8",
+          "number": 8,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Sidewalks and walkways, cleaned, maintained, and power washed as needed",
+          "source": "DEC!C43",
+          "references": []
+        },
+        {
+          "id": "dec-9",
+          "number": 9,
+          "section": "MONTHLY EXTERIOR BUILDING AND SITE MAINTENANCE",
+          "label": "Check exterior vent discharge from water heaters/boilers and ensure ice buildup is not present",
+          "source": "DEC!C44",
+          "references": []
+        },
+        {
+          "id": "dec-10",
+          "number": 10,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Sprinkler Valve Inspection Log",
+          "source": "DEC!C46",
+          "references": [
+            "Monthly Sprinkler Valve Insp.pdf"
+          ]
+        },
+        {
+          "id": "dec-11",
+          "number": 11,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Emergency Lighting and Exit Sign Log",
+          "source": "DEC!C47",
+          "references": [
+            "Emergency lighting-Exit Sign log Master.pdf"
+          ]
+        },
+        {
+          "id": "dec-12",
+          "number": 12,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire Extinguisher Log",
+          "source": "DEC!C48",
+          "references": [
+            "Monthly Fire Extinguisher Log.pdf"
+          ]
+        },
+        {
+          "id": "dec-13",
+          "number": 13,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Fire and Smoke Door Log",
+          "source": "DEC!C49",
+          "references": [
+            "Monthly fire Door log.pdf"
+          ]
+        },
+        {
+          "id": "dec-14",
+          "number": 14,
+          "section": "MONTHLY FLS LOGS",
+          "label": "Laundry Chute/Trash Chute Log",
+          "source": "DEC!C50",
+          "references": [
+            "Monthly Laundry Chute Log.pdf"
+          ]
+        },
+        {
+          "id": "dec-18",
+          "number": 18,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review required brand training and ensure department is in compliance",
+          "source": "DEC!C52",
+          "references": []
+        },
+        {
+          "id": "dec-19",
+          "number": 19,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Review previous QA's to ensure outstanding deficiencies have been corrected",
+          "source": "DEC!C53",
+          "references": []
+        },
+        {
+          "id": "dec-21",
+          "number": 21,
+          "section": "BRAND QA REQUIREMENTS",
+          "label": "Complete all brand required audits (Inspections current, FLS Logs, check with GM for brand specific maintenance items)",
+          "source": "DEC!C54",
+          "references": []
+        },
+        {
+          "id": "dec-22",
+          "number": 22,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Exterior/Site Maintenance",
+          "source": "DEC!C57",
+          "references": [
+            "Exterior:Site Maintenance.pdf"
+          ]
+        },
+        {
+          "id": "dec-23",
+          "number": 23,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Shuttle(s) if applicable",
+          "source": "DEC!C58",
+          "references": [
+            "Shuttle.pdf"
+          ]
+        },
+        {
+          "id": "dec-24",
+          "number": 24,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Vending/Ice Machine areas",
+          "source": "DEC!C59",
+          "references": [
+            "Ice Machine Areas.pdf"
+          ]
+        },
+        {
+          "id": "dec-25",
+          "number": 25,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Kitchen",
+          "source": "DEC!C60",
+          "references": [
+            "Kitchen.pdf"
+          ]
+        },
+        {
+          "id": "dec-26",
+          "number": 26,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Pool",
+          "source": "DEC!C61",
+          "references": [
+            "Pool.pdf"
+          ]
+        },
+        {
+          "id": "dec-27",
+          "number": 27,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Storage/Closets",
+          "source": "DEC!C62",
+          "references": [
+            "Storage.pdf"
+          ]
+        },
+        {
+          "id": "dec-28",
+          "number": 28,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - RTUs / Split Systems",
+          "source": "DEC!C63",
+          "references": [
+            "RTU Quarterly.pdf",
+            "Split Unit Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "dec-29",
+          "number": 29,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Quarterly Preventative Maintenance - Air Handlers",
+          "source": "DEC!C64",
+          "references": [
+            "Air Handlers Quarterly.pdf"
+          ]
+        },
+        {
+          "id": "dec-30",
+          "number": 30,
+          "section": "QUARTERLY PREVENTATIVE MAINTENANCE (for March, June, September, and December)",
+          "label": "Conduct the Quarterly Fire Drill with Staff",
+          "source": "DEC!C65",
+          "references": [
+            "Quarterly Fire Drill.pdf"
+          ]
+        }
+      ]
+    }
+  ],
+  "roomNumbers": [
+    "101",
+    "102",
+    "103",
+    "104",
+    "105",
+    "106",
+    "108",
+    "110",
+    "112",
+    "118",
+    "120",
+    "122",
+    "124",
+    "126",
+    "127",
+    "128",
+    "129",
+    "130",
+    "131",
+    "132",
+    "133",
+    "134",
+    "201",
+    "202",
+    "203",
+    "204",
+    "205",
+    "206",
+    "207",
+    "208",
+    "209",
+    "210",
+    "211",
+    "212",
+    "214",
+    "215",
+    "216",
+    "218",
+    "219",
+    "220",
+    "221",
+    "222",
+    "224",
+    "226",
+    "227",
+    "228",
+    "229",
+    "230",
+    "231",
+    "232",
+    "233",
+    "234",
+    "301",
+    "302",
+    "303",
+    "304",
+    "305",
+    "306",
+    "307",
+    "308",
+    "309",
+    "310",
+    "311",
+    "312",
+    "314",
+    "315",
+    "316",
+    "318",
+    "319",
+    "320",
+    "321",
+    "322",
+    "324",
+    "326",
+    "327",
+    "328",
+    "329",
+    "330",
+    "331",
+    "332",
+    "333",
+    "334",
+    "401",
+    "402",
+    "403",
+    "404",
+    "405",
+    "406",
+    "407",
+    "408",
+    "409",
+    "410",
+    "411",
+    "412",
+    "414",
+    "415",
+    "416",
+    "418",
+    "419",
+    "420",
+    "421",
+    "422",
+    "424",
+    "426",
+    "427",
+    "428",
+    "429",
+    "430",
+    "431",
+    "432",
+    "433",
+    "434"
+  ],
+  "pdfs": [
+    {
+      "file": "Air Handlers Quarterly.pdf",
+      "pages": 1,
+      "lines": [
+        "Unit number, serial number, or unique identiﬁer:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Turn off the power: All power must be turned off prior to performing maintenance on air handler units",
+        "If model is equipped with with ﬁlters, replace the ﬁlters each month. Ensure proper ﬁlter direction for airﬂow and date the ﬁlter with a marker",
+        "Clean coils, ensuring free of dust/debris build-up",
+        "Inspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtighten",
+        "Check condensate pan and clean as needed",
+        "Inspect wiring for damaged or loose connections",
+        "Check drainage: Clogged drain pipes can cause damage by not allowing liquids to properly escape the RTU unit",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Business Center.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Ensure equipment (computers, printers, ect.) is operable",
+        "Ensure cabinetry and shelving is in proper working order, repair as needed.",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Test outlets for proper operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Dining_Breakfast.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Inspect ﬂooring for condition (carpet, grout, tile, etc) and repair/replace as need.",
+        "Clean carpet, grout, tile, etc.",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Ensure equipment (oven, microwave, refrigerator, etc) is operable",
+        "Window Package – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "Ensure cabinetry and shelving is in proper working order, repair as needed.",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Test outlets for proper operation",
+        "Furniture/tables/chairs – remove any stains, repair scratches, etc.",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Elevator Checklist.pdf",
+      "pages": 1,
+      "lines": [
+        "Elevator Number/Location:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lighting and replace as needed, clean ﬁxture",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Clean elevator tracks with wire or nylon brush, ensure tracks are free of debris",
+        "Check ceiling condition and repair as needed",
+        "Inspect walls/panels for defects, repair",
+        "Check handrails and ensure they are secure",
+        "Test emergency phone call button for proper functionality",
+        "Check functionality of illuminated buttons inside the elevator car and outside on each elevator landing",
+        "Ensure proper certiﬁcate or acceptable documentation is present and in compliance",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Emergency lighting-Exit Sign log Master.pdf",
+      "pages": 1,
+      "lines": [
+        "MONTH YEAR",
+        "| MONTHLY EMERGENCY LIGHTING LOG",
+        "functionality by depressing the test button. Document the monthly checks on this form by listing the lighting location (the",
+        "closest guest room or identifying area) and functionality of the device.",
+        "LOCATION TYPE OF DEVICE FUNCTIONAL DATE NOTES DATE REPAIRED INITIALS"
+      ]
+    },
+    {
+      "file": "Exterior_Site Maintenance.pdf",
+      "pages": 4,
+      "lines": [
+        "YEAR",
+        "| BUILDING EXTERIOR QUARTERLY CHECKLIST",
+        "orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "Date Date Date Date",
+        "PARKING LOT/GARAGE Q1 Q2 Q3 Q4",
+        "LANDSCAPING Q1 Q2 Q3 Q4",
+        "ENTRANCE (mark NA if any items do not apply) Q1 Q2 Q3 Q4",
+        "Surface & Curb Conditions",
+        "Striping Condition",
+        "ADA Parking spaces (Markings/Signage)",
+        "Lighting - functional and consistent luminocity matching throughout (color of light)",
+        "Signage - (Brand signage, directional signage, security/disclaimers)",
+        "Overall Curb Appeal",
+        "Weed control: Pull, treat, fertilize as needed",
+        "Grass/Mulch : Healthy, trimmed grass. Adequate mulch/rock coverage",
+        "Trees and Shrubs – healthy and trimmed",
+        "Irrigation – sprinklers (function, no leaking, position/do not spray building and/or parking spaces/vehicles)",
+        "Flags/Flagpoles - All brand required ﬂags are present and in good condition, clean and free of rips and tears",
+        "Planters",
+        "Seating",
+        "Trash receptacles - cleanliness and condition",
+        "Signage",
+        "Smoking area: free of cigarette butts, clean sand (if applicable), condition of cigarette disposal bin",
+        "Windows: cleanliness and condition",
+        "Doors – caulking, jams, frames, and thresholds are clear and in good condition. Open, close, and latch properly",
+        "PTAC/VTAC grilles secure and in good condition",
+        "Building penetrations sealed and in good condition (electrical conduit, ﬁxtures, hose bibs, etc)",
+        "Siding/Trim",
+        "EIFS (Stucco/texture)",
+        "Brick, Mortar Joints, and Weep Holes",
+        "Expansion/control joint(s)",
+        "Gutters and downspouts – condition and securely attached",
+        "Sofﬁts and overhangs",
+        "No Ponding Water (Flat Roofs Only)",
+        "WINDOWS AND DOORS Q1 Q2 Q3 Q4",
+        "BUILDING SURFACE (Check for holes, impact damage, discoloration, deterioration, cracking, overall condition) Q1 Q2 Q3 Q4",
+        "GUTTERS/DOWNSPOUTS Q1 Q2 Q3 Q4",
+        "ROOFING Q1 Q2 Q3 Q4",
+        "Roof drains (Flat Roofs Only): Covers/Grates are secure and free of debris/blockages",
+        "Vents: Unobstructed, secure raincovers",
+        "Shingle roofs: missing or damaged shingles, unusual wear or discoloration ***Observe safely, from a distance, do not climb on pitched roof without proper safety",
+        "measures taken, consult with your regional before attempting any climbing onto shingled and/or pitched roofs)",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Fitness Center (1).pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Check belts and hoses in commercial washers/dryers",
+        "Ensure the towel rack/caddy is secure, functional, and in good condition",
+        "Ensure the water fountain or water dispenser is secure, clean, and operable",
+        "PM HVAC unit, clean, and ensure proper operation",
+        "Test all exercise equipment and ensure operable",
+        "Ensure mirror(s) are secure/good condition",
+        "Window Package, if applicable – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "If applicable, verify all free weights are present. Replace as needed",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Verify TVs and Channels are working properly",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Fitness Center.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Check belts and hoses in commercial washers/dryers",
+        "Ensure the towel rack/caddy is secure, functional, and in good condition",
+        "Ensure the water fountain or water dispenser is secure, clean, and operable",
+        "PM HVAC unit, clean, and ensure proper operation",
+        "Test all exercise equipment and ensure operable",
+        "Ensure mirror(s) are secure/good condition",
+        "Window Package, if applicable – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "If applicable, verify all free weights are present. Replace as needed",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Verify TVs and Channels are working properly",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Front Office_Desk.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Inspect ﬂooring for condition (carpet, grout, tile, etc) and repair/replace as need.",
+        "Clean carpet, grout, tile, etc.",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Ensure equipment (computers, printers, ect.) is operable",
+        "Artwork or Illuminated signage is in good condition",
+        "Ensure cabinetry and shelving is in proper working order, repair as needed.",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Test outlets for proper operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Hallway Checklist.pdf",
+      "pages": 1,
+      "lines": [
+        "Hallway location and Floorr:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Check ﬁre extinguisher boxes, clean, ensure glass is intact",
+        "Ensure proper signage/stair indicators are present",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Clean ﬂooring (shampoo carpet, clean tile grout, etc)",
+        "Ensure all room number signs and directional signs are present and secure",
+        "Test any public phones and ensure operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Ice Machine Areas.pdf",
+      "pages": 1,
+      "lines": [
+        "1",
+        "Ice Machine location",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "(Floor, area, machine number, etc):",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Remove light covers and clean",
+        "Check all lightbulbs, including emergency lighting",
+        "Clean and maintain ﬂooring according to surface",
+        "Inspect walls and make repairs according to surface (paint, wallpaper, etc)",
+        "Ceiling – paint touch-up as necessary or ceiling tile replacements",
+        "Check drain on ice machine is functional",
+        "Test GFCI",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Kitchen.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Inspect Sinks, plumbing, faucets for leaks, repair and cleanout as needed",
+        "Inspect freezer to ensure it is in good working order (holding temp, fan properly operates, lighting works)",
+        "Clean refrigerators and freezer coils",
+        "Clean all vents/air returns",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed according to surface",
+        "Inspect walls for defects and repair according to surface",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Ensure MSDS binder is present and up to date with GM",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Laundry-Commercial.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Check belts and hoses in commercial washers/dryers",
+        "Check operation and make adjustments in washers/dryers",
+        "If applicable, lubricate bearings in commercial washing machine",
+        "Clean out drains/lint catch from washing machine",
+        "Ensure dryer(s) are heating properly (ﬂame check)",
+        "Clean dryer discharge area ensure free from blockage/lint buildup",
+        "Utility Sink – proper drainage/caulking, etc.",
+        "Clean all vents/air returns to keep free from lint buildup",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Inspect eyewash station and test operation",
+        "Ensure MSDS binder is present and up to date with GM"
+      ]
+    },
+    {
+      "file": "Laundry-Guest.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Check belts and hoses in commercial washers/dryers",
+        "Check operation and make adjustments in washers/dryers",
+        "Check/clean out drains from washing machines",
+        "Clean out drains/lint catch from washing machine",
+        "Vacuum dust and lint from behind washers/dryers",
+        "Clean dryer discharge area ensure free from blockage/lint buildup",
+        "Clean all vents/air returns to keep free from lint buildup",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Lobby.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Entry doors (sliding and standard) are in working order. Proper opening and closing, keycard operation, phone/intercom.",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Window Package – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "Inspect ﬂooring for condition (carpet, grout, tile, etc) and repair/replace as need.",
+        "Clean carpet, grout, tile, etc.",
+        "Floor mats/runners are free of excessive wear and are clean",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Ensure furniture (couches, tables, chairs) is in good condition, repair as needed.",
+        "Artwork or Illuminated signage is in good condition",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Test outlets for proper operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Market_Pantry.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Inspect ﬂooring for condition (grout, tile, etc) and repair/replace as need.",
+        "Inspect ﬂooring for cleanliness. Clean grout, strip/wax, as needed.",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect freezer to ensure it is in good working order (holding temp, fan properly operates, lighting works)",
+        "Clean refrigerators and freezer coils",
+        "Ensure cabinetry and shelving is in proper working order, repair as needed.",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Test outlet for proper operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Meeting Room.pdf",
+      "pages": 1,
+      "lines": [
+        "Meeting Room Name/Location:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Entry Doors – Self closes and latches. Check condition for wear/markings and repair if needed.",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Window Package – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "Inspect ﬂooring for condition (carpet, grout, tile, etc) and repair/replace as need.",
+        "Clean ﬂooring (shampoo, etc)",
+        "Furniture – remove, replace or repair all furniture and ﬁxtures",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Make sure the doors and exit signs are operational",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Test thermostats and proper HVAC functionality",
+        "If applicable, test AV (built in speakers, built in projector screens, etc)",
+        "If applicable, inspect airwalls/partitions and ensure proper functionality",
+        "Test outlets for proper operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Monthly fire Door log.pdf",
+      "pages": 1,
+      "lines": [
+        "MONTH YEAR",
+        "| MONTHLY FIRE DOORS LOG",
+        "and mechanical room doors, should be tested monthly to ensure they are self-closing and self-latching",
+        "properly.",
+        "LOCATION FUNCTIONAL DATE NOTES DATE REPAIRED INITIALS"
+      ]
+    },
+    {
+      "file": "Monthly Fire Extinguisher Log.pdf",
+      "pages": 1,
+      "lines": [
+        "MONTH YEAR",
+        "| MONTHLY PORTABLE FIRE EXTINGUISHER LOG",
+        "locations. If in a breakable glass style cabinet, ensure glass is and breakbar are in tact. The location of the ﬁre",
+        "extinguisher may be noted on the form by listing the closest guest room or specifying its location. Fire extinguishers",
+        "should be inspected by a qualiﬁed third party annually.",
+        "LOCATION PASSED INSPECTION DATE NOTES DATE REPAIRED INITIALS"
+      ]
+    },
+    {
+      "file": "Monthly Laundry Chute Log.pdf",
+      "pages": 1,
+      "lines": [
+        "MONTH YEAR",
+        "| MONTHLY LAUNDRY CHUTE/TRASH DOORS LOG",
+        "self-latching. If the fusible link or closing device is not working properly, the door should remain closed at all",
+        "times, except when laundry is being removed from the chute by hotel personnel.",
+        "LOCATION FUNCTIONAL DATE NOTES DATE REPAIRED INITIALS"
+      ]
+    },
+    {
+      "file": "Monthly Sprinkler Valve Insp.pdf",
+      "pages": 1,
+      "lines": [
+        "MONTH YEAR",
+        "The closed valve system is used to guard against delayed reopening of",
+        "valves. Red Tags shall be used every time a sprinkler control valve is closed.",
+        "| MONTHLY SPRINKLER VALVE INSPECTION",
+        "“ ”",
+        "Were any valves operated since the last",
+        "inspection? ____YES ____ NO",
+        "Were Red Tags used?",
+        "____YES ____ NO",
+        "Was the valve reopened fully and drain test made",
+        "before the valve was re-locked and resealed? ____YES ____ NO",
+        "All inside and outside valves controlling sprinkler or ﬁre protection water supply should be",
+        "listed below. Check off condition of valve. Physically inspect that all sprinkler control valves are",
+        "SECURED and OPEN, and no damage or leaking is observed",
+        "RED TAG",
+        "VALVE LOCATION AREA CONTROLLED CLEAR ACCESS TO VALVE OPEN/SHUT LOCKED DATE INITIALS",
+        "OPEN YES",
+        "SHUT NO"
+      ]
+    },
+    {
+      "file": "Pool.pdf",
+      "pages": 2,
+      "lines": [
+        "Drain cover expiration date:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "If applicable, Check the gate/door and lock is operational",
+        "Ensure the water fountain or water dispenser is secure, clean, and operable",
+        "Make sure the pool/whirlpool are clean – free from debris, no hard water scale buildup on pool walls, at and above water line",
+        "Check for cracks or damages to the pool/whirlpool",
+        "Inspect the ADA chair, if applicable, and ensure working order",
+        "If there is a restroom, use the Public Restrooms checklist",
+        "Window Package, if applicable – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "Inspect the handrails and ladders, ensure they are secure. Clean with scotch-brite pad for corrosion control",
+        "Inspect decking for condition, repair if needed. Power wash or scrub deck.",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls and sound boards, if applicable, for defects and repair (patch, paint, etc)",
+        "Check all underwater pool/whirlpool lightning",
+        "Check all required signage is visible and safety equipment available and in good working order (life rings, hooks, etc)",
+        "Test phone and ensure functionality",
+        "Check sand ﬁlter for date of sand replacement. Sand needs replaced every 2-3 years, replace if needed.",
+        "Inspect chemical delivery system, ensure no clogs or blockages (hardened chlorine, etc)",
+        "Exercise pool piping shutoff valves",
+        "Verify no trouble lights on pool heater, troubleshoot if necessary",
+        "Test Jets in hot tub/whirlpool",
+        "Inspect dehumidiﬁer for proper operation. Dehumidiﬁer should be PM'd during HVAC preventative schedule",
+        "Drain covers are required to be changed every ﬁve years, refer to records and change as needed. If no records available, check",
+        "manufacture date on the drain cover itself. Log at the top of this page and along with your license in the inspections section",
+        "Veriﬁy pool license is posted and not expired",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Property Walk Guide.pdf",
+      "pages": 3,
+      "lines": [
+        "Best Practice:",
+        "The property walk is all about surveying the property and assessing its cleanliness, condition, and appearance. Keep the High Touch Areas in mind and",
+        "view the property from a guest's perspective. Build notes and create a schedule of work orders to address deﬁcient items identiﬁed on the property walk. This document",
+        "serves as a guide and assists in developing a routine for major value drivers of the property's cleanliness and upkeep.",
+        "Engineering and Housekeeping should conduct a weekly property walk. All department heads should conduct a property walk together with the GM",
+        "at least once monthly WK1 WK2 WK3 WK4 WK5",
+        "EXTERIOR BUILDING/SITE MAINTENANCE",
+        "INTERIOR PUBLIC AREAS",
+        "Parking lot – Pavement in good condition, parking spaces clearly striped, ADA spaces have signage and markings, lot is free of trash/debris",
+        "Landscape – free from trash, weeds, debris, properly maintained, welcoming and inviting.",
+        "Exterior Building Lighting and Signage – operational, maintained, welcoming, and inviting",
+        "All sidewalks, walkways – clear and free path, fee from trip hazards (uneven concrete) and obstructions (snow, ice, rocks, debris), clean and maintained",
+        "All Doorways and Entryways – open and close properly, free from debris, cigarette butts, trash. Trash receptacles are in good condition and appearance",
+        "All Outside Windows – free from streaks, watermarks, dirt, debris, and are in a well maintained condition",
+        "Entry/Porte Cochere – furniture, planters and trash receptacles are properly placed and in good condition, plants are healthy and maintained",
+        "Dumpster Area– free from trash, weeds, debris, and looks safe, and properly maintained. Gates are closed and function properly and look clean.",
+        "Exterior facade (siding, brick, EAFIS, ect) inspected for needed repairs",
+        "Patio, Gazebo, Outdoor Grille, Outdoor Seating Area– equipment is operational; area is secure, clean, properly maintained, and looks safe/inviting",
+        "Lobby Area – ﬂooring, lighting, windows, shelves, furniture, luggage carts, front desk, and sitting area is clean, in good condition, and properly placed",
+        "Market/Pantry – ﬂoor, lighting, glass; items for sale are clean, stocked, neatly organized and properly placed; equipment is operational",
+        "Business Center – ﬂooring, lighting, shelves, furniture, is clean in good condition; equipment is operational, printer is printing properly, has ink and paper",
+        "Restrooms – ﬂoor, lighting, walls, mirrors, stalls, toilet paper, paper towels, trash, ADA handrails, and soap dispensers are clean, stocked, in good condition",
+        "Dining/Breakfast Area – ﬂooring, lighting, furniture, tables, chairs; is clean and properly placed; equipment is operational, walls/ceilings in good condition",
+        "Restaurant and Bar (if applicable) – ﬂoor, lighting, counter, bar, chairs, and table tops are clean, in good condition, clutter free, stocked, and properly staged",
+        "Meeting Room(s) / Prefunction Area – ﬂoor, lighting, tables, and chairs are clean, in good condition. Walls, ceilings, and equipment in good condition",
+        "Fitness Area – ﬂoor, lighting, windows, equipment, mirrors, TV, water station, disinfecting wipes, and towel station is clean, in good condition and stocked",
+        "Guest Laundry – ﬂoor, lighting, equipment are clean and operational, vents/ﬁlters clear, phone operational",
+        "Pool Area – ﬂoor, walls, ceiling, lighting, chairs, tables, handrails, equipment and towels clean, in good condition, stocked. Water clean/balanced",
+        "Elevators – ﬂoor, buttons, walls, lighting, ceiling, and tracks are clean, in good condition",
+        "**Take elevator up to top ﬂoor and walk every corridor and take the stairwells down to the next ﬂoor, repeating the same process of inspection on each ﬂoor",
+        "Check lighting, condition of walls and wallcoverings, ﬂooring, ceilings, artwork, guest room doors and room numbers, ice machine/vending areas and equipment are clean and functional, storage closets.",
+        "Ensure all ﬁre extinguishers, and smoke detectors are present, stairwell doors close and latch properly.",
+        "Back Ofﬁces – ﬂoor, walls, desk tops, and storage are clean, in good condition, decluttered, organized, and properly placed",
+        "Back Hallways – ﬂoor, walls, counter tops, and storage is clean, in good condition, decluttered, organized",
+        "Break Room / Locker Room – ﬂoor, tables, chairs, and area is clean, in good condition, clutter free, organized; equipment operational, ptac/AC in working order",
+        "Boiler Room – ﬂoor, equipment, plumbing, and area is clean, in good condition, not leaking, clutter free, organized, and functioning properly.",
+        "Maintenance Shop – ﬂoor, equipment, and area is clean, in good condition, clutter free, organized, and functioning properly.",
+        "Commercial Laundry – ﬂoor, lighting, equipment are clean and operational, clutter free and organized, equipment vents/ﬁlters are clean",
+        "Kitchen – ﬂoor, walls, counter tops and storage are clean, in good condition, decluttered and organized, equipment operational and service up to date, vents are clean and clear",
+        "FLOORS/CORRIDORS",
+        "BACK OF HOUSE",
+        "Emphasis on high dust/lint",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Public Restrooms.pdf",
+      "pages": 1,
+      "lines": [
+        "Restroom type and location:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Entry Door – Self closes and latches. Check condition for wear/markings and repair if needed.",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Inspect vanity and toilet caulking, re-caulk as needed.",
+        "Check the toilet seat and make sure it is secure",
+        "Check proper ﬂushing of toilet",
+        "Check the sink faucet/plumbing for proper operation and drainage",
+        "Check soap dispensers for proper operation, repair if necessary",
+        "Check toilet paper holders and repair as needed",
+        "Mirrors/artwork are secure and in good condition",
+        "Check bathroom partitions are secure and in good condition. If partitions have doors, ensure they close and lock.",
+        "Ensure baby changing tables (if applicable) are secure/good condition",
+        "Inspect condition of ﬂooring tile/grout and repair",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)"
+      ]
+    },
+    {
+      "file": "Quarterly Fire Drill.pdf",
+      "pages": 2,
+      "lines": [
+        "Safety Standards require that Evacuation Drills",
+        "must be held at least once every quarter (3 months). Every 12",
+        "months, the Evacuation Drill involve the use of the ﬁre alarm",
+        "and detection system (tip: Perform during annual ﬁre alarm test)",
+        ":",
+        "Date of Drill ________________",
+        "Time of Alarm ________________",
+        "Pre-planning",
+        "Notiﬁcation of Guests (if Activating Alarm)",
+        "Front Ofﬁce",
+        "Engineering",
+        "Housekeeping",
+        "Food and Beverage",
+        "Security",
+        "Other",
+        "Report from 3rd party alarm inspection",
+        "Response time",
+        "Containment",
+        "Communication",
+        "| QUARTERLY FIRE DRILL",
+        "must Type of Drill ____ Exercise Only ____ Alarm Activation",
+        "SEQUENCE OF EVENTS SATISFACTORY ACTION ITEM ASSIGNED TO INITIALS",
+        "1. Preparation",
+        "2. Departmental Duties",
+        "2. Alarm Activation",
+        "3. Response from ERT",
+        "YES NO N/A",
+        "(See Emergency Action Plan)",
+        "(Mark N/A if Exercise Only)",
+        "4. Employee Rally Point",
+        "Fire Drill Attendees",
+        "All Employees Accounted For",
+        "Time to Full Evacuation",
+        "Supervising Manager's Signature: _______________________________________"
+      ]
+    },
+    {
+      "file": "Room PM Checklist.pdf",
+      "pages": 1,
+      "lines": [
+        "create work orders based off the slash marks and complete the X once repaired. Do not start any task that would take longer than 30 minutes.",
+        "Desk/Table",
+        "Outlets and Light Switches Functional and Tight Chair Condition - Desk Chair/Sitting Chairs/Ottomans",
+        "Cover Plates - Secure, no cracks or paint spill over Dressers/Drawers",
+        "Night Stands/Drawers",
+        "Ceiling Lights functional/clean/good condition Artwork/Glass/Mirrors",
+        "Ceiling Lights functional/clean/good condition Luggage Rack",
+        "Lamps/Sconces functional/clean/good condition Sofa Sleeper/Pullout Couch",
+        "All other lighting functional/clean/good condition Bed Frames & Headboards",
+        "Box Spring/Mattress",
+        "Ensure mattress rotation compliant with rotation sticker",
+        "Programmed (Channels/Guide/Internet Features)",
+        "Remote Control Present and Functional Blackout Condition/Clean/Operational",
+        "Cord Managment (Cords Secure and inconspicious) Drapery/Shade/Sheers Condition/Clean/Operational",
+        "TV Stand or Mount - Functional swivel, etc. Window Condition - Cracks/Fogging/Leaks/Caulking",
+        "Window locks does not open more than 6 inches",
+        "Phone faceplate present/displays correct room #",
+        "Buttons work and do not stick Thermostat Correct Operation/AccurateTemperature",
+        "Cord Managment (Cords Secure and inconspicious) Heating, Cooling, and Fan all operational",
+        "Message Light Clean Filters/Fins/Coils/Fan & Fan Motor",
+        "Call front desk and conﬁrm correct room # on caller ID Condensate drain free ﬂowing and free of debris",
+        "Alarm Clock - Correct Time, Batteries hold charge Verify Hot/Cold water - Sink and Tub/Shower",
+        "Correct Time, Batteries hold charge Caulking- Vanity, Toilet, Tub/Shower, and all other",
+        "Coffee Maker Functional and Clean Faucets: Sink & Tub - Faucets, stoppers, Trim rings, Shower head",
+        "All other property-speciﬁc electronic devices functonal Toilet - Seat & toilet secure, ﬂushes/ﬁlls, no leaks, bolt covers",
+        "Inspect water shutoff valves - behind toilet/under sink",
+        "Baseboard/Cove Base Microwave clean and in working order. Correct time Exhaust Fan - functional (tissue test) and clean",
+        "Refrigerator - Clean coils/functional/maintains temp Mirror - Secure and free of cracks",
+        "If applicable - Stove (and hood) clean and functional Towel Bar/Rack secure",
+        "Toilet paper holder secure and functional",
+        "Closet doors functional with ease of use Shower Curtain - Rod secure, rings in place",
+        "Walls and Ceiling Condtion and Paint Shower Doors - Secure & functional, no glass cracks, leak free",
+        "Baseboard/Cove Base Hair Dryer functional and lint screen clean/clear",
+        "Iron and Iron Caddy Test Outlets and GFCI",
+        "Ironing Board Grab Bars & Rails secure, ADA seat secure and functional",
+        "Hangers",
+        "Safe - Functional/Programmed Carpet Condition - free of frays, rips & tears",
+        "Tile/Vinyl/Other - No cracks/damage - Grout in tact",
+        "Head is clean, leak free, and \"no hang\" sticker is present Action Item - Shampoo carpet and clean tile & grout",
+        "| GUEST ROOM Maintained by (initial)",
+        "DATE DATE DATE DATE DATE DATE DATE DATE DATE DATE DATE DATE",
+        "Outlets - Light switches - Cover plates",
+        "Lighting - Ensure Matching Luminocity Throughout",
+        "Television",
+        "Phone",
+        "Other Electronics",
+        "ENTRY DOOR Q1 Q2 Q3 Q4 ELECTRICAL AND LIGHTING - ALL (including bathroom) Q1 Q2 Q3 Q4 FF&E Q1 Q2 Q3 Q4",
+        "ELECTRONIC DEVICES",
+        "CONNECTING DOORS",
+        "WINDOW AREA",
+        "BATHROOM DOOR HVAC",
+        "WALLS AND CEILINGS BATHROOM",
+        "APPLIANCES",
+        "CLOSET AREA",
+        "FLOORING - ALL FLOORING INCLUDING BATHROOM",
+        "SMOKE ALARM SPRINKLER",
+        "Room Number Signage",
+        "Entry Door Lock Operation and Deadbolt",
+        "Door Closer - Door self closes/Latches",
+        "Security Latch & Peep hole Viewer",
+        "Door Stop",
+        "Hinges - Quiet, Clean, Functional",
+        "Weather stripping/Smoke seals",
+        "Door/Door Frame/Trim - Paint/Finish Inside & Out",
+        "Law card and Fire Exit/Evacuation Plan",
+        "Lock Operation",
+        "Door handle/Privacy Lock",
+        "No signs of leaks/water damage",
+        "Texture and Paint Finish",
+        "Wallpaper",
+        "Corner guards",
+        "Tested, functional, fresh batteries if applicable",
+        "Guest Room Area Walls/Ceilings (see below)",
+        "Bathroom Area Walls/Ceilings (see below)",
+        "Separate Bedroom(s) If applicable (see below)"
+      ]
+    },
+    {
+      "file": "RTU Quarterly.pdf",
+      "pages": 1,
+      "lines": [
+        "Unit number, serial number, or unique identiﬁer:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Turn off the power: All power must be turned off prior to performing maintenance on rooftop HVAC units",
+        "Replace all air ﬁlters, ensuring proper airﬂow direction. Be sure to date the air ﬁlters with a marker",
+        "Inspect fans: ensure fans able to spin freely without wobbles or rattling",
+        "Inspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtighten",
+        "Visually inspect heat exchangers, be watchful for excessive rust buildup",
+        "Check economizer: Make sure that dampers, actuators, and temperature sensors are still functioning correctly",
+        "Check drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit",
+        "Check electrical section with POWER OFF. Check for loose wiring connections, tighten as needed. Check for blown fuses",
+        "DO NOT LET COIL CLEANER STAY ON COILS FOR LONGER THAN 5 MINUTES",
+        "NOTES",
+        "Inspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum. DO NOT CLEAN COILS DU",
+        "Utilize water from a garden hose (low pressure), spraying from the inside out. If coils are extremely dirty, use non-acidic coil cleaner and rinse after 5-minutes"
+      ]
+    },
+    {
+      "file": "Safety Checklist.pdf",
+      "pages": 3,
+      "lines": [
+        "Checklist Completed by:",
+        ": The Safety Checklist is scheduled for review in . Perform checks and best practices.",
+        "Utilize this checklist in conjunction with quarterly safety meetings. Refer to the Ops Portal for details or request guidance from your General Manager or",
+        "Corporate support channels",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "SITE INFORMATION Q1 Q2 Q3 Q4",
+        "WORK AREAS Q1 Q2 Q3 Q4",
+        "Are worksite injury records processes being followed?",
+        "First aid equipment available and properly stocked?",
+        "OSHA and other work site posters are posted?",
+        "Quarterly Safety Meetings being held and Meeting-Minutes form being utilized and kept on record?",
+        "Fire and Life Safety Logs being maintained (Emergency lighting, ﬁre doors, etc.)",
+        "General organization of work areas being maintained",
+        "Proper disposal of trash and waste",
+        "Clear passages and walkways",
+        "Sanitary facilities clean and adequate",
+        "Adequate lighting",
+        "Emergency lighting functional",
+        "Smoking restricted to approved areas",
+        "Are electrical cords and plugs in good condition",
+        "Is a miniumum of 3' (feet) of clearance kept around water heaters, boilers, circuit breakers, and ﬁre suppression risers?",
+        "Emergency procedures in place and posted - Emergency Action Plan available at front desk, emergency exit routes on guest room doors",
+        "Fire extinguishers accessible, fully charged, and logs maintained",
+        "Proper storage and handling of ﬂammable materials",
+        "Gasoline is only stored in UL approved containers",
+        "Are stored and/or stacked materials maintaining at least 18\" (inches) of clearance from ﬁre sprinkler heads?",
+        "Shelves in stockrooms in good condition and adequately holding weight",
+        "Items placed on shelves not exceeding weight limits of shelving",
+        "Sharps containers available and in proper use and disposal",
+        "Proper disposal procedures of hazardous waste being followed",
+        "Items properly placed in storage areas and not in passageways/pathways",
+        "Flammable materials and cabinets not stored in areas used for exits or stairways",
+        "Ensure tools are stored neatly and properly",
+        "Electric tools are grounded",
+        "Power tools being properly and safely maintained",
+        "FIRE PREVENTION Q1 Q2 Q3 Q4",
+        "STORAGE AND HANDLING Q1 Q2 Q3 Q4",
+        "HAND TOOLS Q1 Q2 Q3 Q4",
+        "Employees are trained on proper use of hand tools if their job function calls for use of tools",
+        "Eye Protection",
+        "Hearing Protection",
+        "Masks and Respirators",
+        "Gloves, aprons, sleeves",
+        "Fall protection harness",
+        "Back support belts",
+        "Is a Safety Data Sheet \"SDS\" Binder for supplies containing hazardous materials available to employees before use?",
+        "Are \"Safety Data Sheets Available On Request\" signs posted in conspicous locations?",
+        "All hazardous materials storage areas clearly identiﬁed?",
+        "Proper storage practices of hazardous materials abserved?",
+        "PERSONAL PROTECTIVE EQUIPMENT AVAILABLE FOR USE Q1 Q2 Q3 Q4",
+        "HAZARDOUS MATERIALS Q1 Q2 Q3 Q4"
+      ]
+    },
+    {
+      "file": "Split Unit Quarterly.pdf",
+      "pages": 1,
+      "lines": [
+        "Unit number, serial number, or unique identiﬁer:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "INDOOR HEAD UNIT",
+        "Clean the primary removable mesh ﬁlters located underneath the pop-up cover of the head unit",
+        "Check and clean the evaporator coil as needed. Do not use acid coil cleaner and do not let sit for more than 5 minutes",
+        "Check and clean the blower wheel as needed. Compressed air to blow dust off is sufﬁcient",
+        "Check the condensate pan and condensate tubing for clogs, clean out as needed",
+        "If a condensate pump is applicable, check the pump for functionality and ensure no clogs/debris",
+        "OUTDOOR CONDENSING UNIT",
+        "Turn off the power: All power must be turned off prior to performing maintenance on the outdoor condensing unit of the split system",
+        "Remove any vegetation and clutter from within 18″ of the unit",
+        "Inspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum",
+        "Utilize water from a garden hose on a low pressure setting, clean the coils. If coils are extremely dirty, use non-acidic coil cleaner and rinse after 5-minutes.",
+        "DO NOT LET COIL CLEANER STAY ON COILS FOR LONGER THAN 5 MINUTES",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Sprinkler Flow_Tamper Test.pdf",
+      "pages": 1,
+      "lines": [
+        ": This form is to be used to document quarterly sprinkler system tests. It is to be kept on ﬁle as a record of the tests to demonstrate to authorities",
+        "having jurisdiction and insurance representatives that code requirements for testing and maintenance of these systems are being met. When testing the sprinkler",
+        "control valves and tamper switches, it is necessary to remove locks, chains, or seals and physically turn the valve. Upon completion of the test, re-lock or reseal",
+        "the valves in the open position. If tamper, ﬂow or pressure switches failed to respond during the test, must note date of repairs and person doing repairs.",
+        "YEAR : _________________",
+        "Q1 DATE: INSPECTED BY: Q2 DATE: INSPECTED BY: Q3 DATE: INSPECTED BY: Q4 DATE: INSPECTED BY:",
+        "Flow Pressure Tamper Yes No Yes No Yes No Yes No",
+        "QUARTERLY SPRINKLER FLOW AND TAMPER SWITCH TESTING",
+        "LOCATION TYPE OF CONTROL VALVE PASSSEC. TO SIGNAL REPAIR DATE / NAME SEC. TO SIGNAL PASS REPAIR DATE / NAME SEC. TO SIGNAL PASS REPAIR DATE / NAME SEC. TO SIGNAL PASS REPAIR DATE / NAME"
+      ]
+    },
+    {
+      "file": "Stairwell.pdf",
+      "pages": 1,
+      "lines": [
+        "Stairwell location and number:",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Ensure entry and exit doors self-close and latch. Inspect condtion.",
+        "Ensure proper signage/stair indicators are present",
+        "Check all lightbulbs and replace as needed, clean ﬁxture.",
+        "Inspect handrails, ensure they're secure and in good condition",
+        "Ensure stair tread/nosing is present and secure",
+        "Check/service stairwell heater, if applicable",
+        "Inspect ﬂooring for condition, maintain according to surface",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Storage.pdf",
+      "pages": 1,
+      "lines": [
+        "Storage room location",
+        "create work orders based off the slash marks and complete the X just as you would a room PM.\"",
+        "(Floor, area, room number, etc):",
+        "YEAR",
+        "Q1 DATE Q2 DATE Q3 DATE Q4 DATE",
+        "MAINTENANCE Q1 Q2 Q3 Q4",
+        "Entry door is in working order. Proper opening and closing. Check paint ﬁnish",
+        "Check all lightbulbs, switches, cover plates and replace as needed, clean ﬁxture.",
+        "Window Package – caulk as needed, screen/glass/tracks/sills/blinds condition is good",
+        "Check HVAC for proper operation",
+        "Inspect ﬂooring for condition (carpet, grout, tile, etc) and repair/replace as need.",
+        "Clean carpet, grout, tile, etc.",
+        "Check ceiling condition and repair as needed (ceiling tiles, patch, paint, ect.)",
+        "Inspect walls for defects and repair (patch, paint, wallpaper, etc)",
+        "Inspect shelving condition",
+        "If applicable, Inspect mop sink, chemical station, eye wash station.",
+        "Test outlets for proper operation",
+        "NOTES"
+      ]
+    },
+    {
+      "file": "Weekly Meeting.pdf",
+      "pages": 1,
+      "lines": [
+        ": Once per week, ideally at the start of the week, conduct a maintenance meeting with the GM to review progress, planning, and goal setting. Date:",
+        "Goals should have GSS trends tied into focus points while conduction PMs. This meeting should be a brief overview, lasting 15-20minutes.",
+        "WEEKLY MAINTENANCE MEETING",
+        "WEEKLY PROGRESS REVEIW AND PLANNING",
+        "Are minimum room PM requirements met?",
+        "If no to above, what is the plan to get back to current?",
+        "Is the quality of PM work satisfactory?",
+        "Communicate ﬁnished PMs and upcoming PMs to HSK for deep cleans",
+        "Are items from Monthly/Quarterly List on track?",
+        "Is the PM tracker up to date on the google drive? If not, update now.",
+        "Are there any Out-of-Order rooms? If so, how many?",
+        "What is the plan and ETA of getting OOO rooms back in service?",
+        "Are there any upcoming occupancy constraints that will hinder progress",
+        "or require projects to wrap up?",
+        "(Forecast occupancy against PM plan for the following week, discuss",
+        "upcoming high occupancy dates this month)",
+        "Are there areas of opportunity for training and developement of skills?",
+        "If so, outline plan for training",
+        "Are any inspections due this month? If so, are they scheduled?",
+        "Will guests be impacted? (Fire alarm inspection, etc)",
+        "If so, outline plan for guest communication (Ops team, front desk)",
+        "Is any 3rd Party Vendor work coming up? If so, when?",
+        "If so, will guests be impacted or do areas need to be shut down for",
+        "work to commence? Outline plan of guest communication and/or",
+        "areas of property to be shut down/vacated",
+        "Review any upcoming items from the monthly list (this month and next",
+        "month) that effect all staff. Plan announcement for huddle. For",
+        "example: Quarterly Fire Drill",
+        "Review last week's Goals, did we hit our goals?",
+        "If not, how could we have done better?",
+        "Set top 3 Goals for this week",
+        "Incorporate GSS scores into goal setting in order to identify focus areas",
+        "during PMs",
+        "REVIEW COMMENTS",
+        "PLANNING",
+        "GOAL SETTING"
+      ]
+    }
+  ]
+}

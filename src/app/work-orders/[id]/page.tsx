@@ -85,19 +85,7 @@ type RoomRankerContext = {
   notes?: string;
 };
 
-type RoomPmTask = {
-  sheet: string;
-  row: number;
-  column: number;
-  label: string;
-  checked: boolean;
-};
-
 type RoomPmContext = {
-  can_edit?: boolean;
-  safeMode?: boolean;
-  room?: string;
-  tasks?: RoomPmTask[];
   error?: string;
 };
 
@@ -698,9 +686,6 @@ export default function WorkOrderTicketPage() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [externalActivity, setExternalActivity] = useState<ExternalActivity>({ purchases: [], enseo: [], warranties: [], followups: [] });
   const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, pm: null, loading: false });
-  const [savingPmCell, setSavingPmCell] = useState("");
-  const [pmActionError, setPmActionError] = useState("");
-  const [pmActionMessage, setPmActionMessage] = useState("");
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
 
@@ -811,59 +796,19 @@ export default function WorkOrderTicketPage() {
       const headers = { Authorization: `Bearer ${token}` };
       const current = await loadCmpriSession();
       const isSystemAdmin = roleKey(current.user.role) === "system_admin";
-      const [rankerResponse, pmResponse] = await Promise.all([
-        isSystemAdmin ? fetch("/api/room-ranker", { headers, cache: "no-store" }) : Promise.resolve(null),
-        fetch(`/api/corporate-pm?room=${encodeURIComponent(room)}`, { headers, cache: "no-store" }),
-      ]);
+      const rankerResponse = isSystemAdmin
+        ? await fetch("/api/room-ranker", { headers, cache: "no-store" })
+        : null;
       const rankerPayload = rankerResponse?.ok ? await rankerResponse.json().catch(() => ({})) : {};
-      const pmPayload = await pmResponse.json().catch(() => null);
       const rankerRows = Array.isArray(rankerPayload?.rooms) ? rankerPayload.rooms as RoomRankerContext[] : [];
       const ranker = rankerRows.find((item) => String(item.room || "").trim() === room) || null;
-      const pm = pmPayload && typeof pmPayload === "object" && !Array.isArray(pmPayload)
-        ? pmResponse.ok
-          ? {
-              ...(pmPayload as RoomPmContext),
-              tasks: Array.isArray((pmPayload as RoomPmContext).tasks)
-                ? (pmPayload as RoomPmContext).tasks?.filter((task) => typeof task.sheet === "string" && Number.isSafeInteger(task.row) && Number.isSafeInteger(task.column) && typeof task.label === "string" && typeof task.checked === "boolean")
-                : [],
-            }
-          : { error: String((pmPayload as { error?: unknown }).error || "Room PM checks could not be loaded.") }
-        : { error: "Room PM checks could not be loaded." };
-      setRoomOperationalContext({ ranker, pm, loading: false });
+      setRoomOperationalContext({ ranker, pm: {}, loading: false });
     } catch (error) {
       setRoomOperationalContext({
         ranker: null,
         pm: { error: error instanceof Error ? error.message : "Room PM checks could not be loaded." },
         loading: false,
       });
-    }
-  }
-
-  async function toggleRoomPmTask(task: RoomPmTask) {
-    if (!order?.id || roomOperationalContext.pm?.can_edit !== true || savingPmCell) return;
-    const cell = `${task.sheet}:${task.row}:${task.column}`;
-    setSavingPmCell(cell);
-    setPmActionError("");
-    setPmActionMessage("");
-    try {
-      const session = await getValidSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Your CMPRI session has expired. Sign in again.");
-      const response = await fetch(`/api/work-orders/${encodeURIComponent(order.id)}/preventive-maintenance`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: "setcheckbox", sheet: task.sheet, row: task.row, column: task.column, checked: !task.checked, expectedChecked: task.checked }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to commit this room check.");
-      await loadRoomOperationalContext(order.room);
-      setPmActionMessage(result.blocked
-        ? `Safe mode is on: ${task.label} was not sent to the corporate PM sheet.`
-        : `${task.label} was committed to the ${task.sheet} PM sheet.`);
-    } catch (error) {
-      setPmActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSavingPmCell("");
     }
   }
 
@@ -2055,20 +2000,17 @@ export default function WorkOrderTicketPage() {
           </div>
 
           <aside className="space-y-6">
-            {(roomOperationalContext.loading || roomOperationalContext.ranker || roomOperationalContext.pm) && (
+            {(roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
               <section className="rounded-2xl border border-cyan-500/30 bg-slate-900 p-5">
-                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Room Context</p><h2 className="mt-1 text-lg font-semibold">{roleKey(cmpriSession?.user.role) === "system_admin" ? "Room Ranker & Corporate PM" : "Daily & Weekly Property Checks"}</h2></div><div className="flex gap-2">{roleKey(cmpriSession?.user.role) === "system_admin" && <><Link href="/engineering/room-ranker" className="text-xs font-semibold text-amber-300 hover:underline">Ranker</Link><Link href="/engineering/preventive-maintenance" className="text-xs font-semibold text-amber-300 hover:underline">PM</Link></>}</div></div>
+                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Room Context</p><h2 className="mt-1 text-lg font-semibold">{roleKey(cmpriSession?.user.role) === "system_admin" ? "Room Ranker & Preventive Maintenance" : "Preventive Maintenance"}</h2></div><div className="flex gap-2">{roleKey(cmpriSession?.user.role) === "system_admin" && <Link href="/engineering/room-ranker" className="text-xs font-semibold text-amber-300 hover:underline">Ranker</Link>}</div></div>
                 {roomOperationalContext.loading ? <p className="mt-3 text-sm text-slate-400">Loading live room context…</p> : <>
                   {roleKey(cmpriSession?.user.role) === "system_admin" && <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="flex items-center justify-between gap-3"><b>Room Ranker</b><span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs font-bold text-amber-200">{roomOperationalContext.ranker?.rank || "Unranked"}</span></div>{roomRankerFlags.length ? <ul className="mt-2 space-y-1 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul> : <p className="mt-2 text-xs text-slate-500">No Room Ranker flags/notes returned for this room.</p>}</div>}
                   <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                    <div className="flex items-center justify-between gap-2"><b>Daily & Weekly Property Checks</b><button type="button" onClick={() => void loadRoomOperationalContext(order?.room)} disabled={!!savingPmCell} className="text-xs text-cyan-300 hover:underline disabled:opacity-50">Refresh</button></div>
-                    {roomOperationalContext.pm?.safeMode && <p className="mt-2 text-xs text-amber-200">Safe mode is on. Checks can be reviewed, but commits will not update the corporate sheet.</p>}
-                    {roomOperationalContext.pm?.error ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.pm.error}</p> : roomOperationalContext.pm?.tasks?.length ? <ul className="mt-2 space-y-2">{roomOperationalContext.pm.tasks.map((task) => {
-                      const cell = `${task.sheet}:${task.row}:${task.column}`;
-                      return <li key={cell} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0"><span className="text-slate-300">{task.label}</span><span className="ml-2 text-slate-500">{task.sheet}</span></span><button type="button" disabled={roomOperationalContext.pm?.can_edit !== true || !!savingPmCell} onClick={() => void toggleRoomPmTask(task)} className={`shrink-0 rounded-md border px-2 py-1 font-bold disabled:opacity-50 ${task.checked ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-200" : "border-slate-600 bg-slate-950 text-slate-400"}`}>{savingPmCell === cell ? "Saving…" : task.checked ? "✓ Done" : "○ Confirm"}</button></li>;
-                    })}</ul> : <p className="mt-2 text-xs text-slate-500">{roomOperationalContext.pm ? "No daily or weekly PM checks for this room were found in the monthly sheets." : "No live room PM checks returned."}</p>}
-                    {pmActionError && <p role="alert" className="mt-2 text-xs text-red-300">{pmActionError}</p>}
-                    {pmActionMessage && <p role="status" className="mt-2 text-xs text-emerald-300">{pmActionMessage}</p>}
+                    <b>PM checks and quarterly room forms</b>
+                    {roomOperationalContext.pm?.error
+                      ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
+                      : <p className="mt-2 text-xs text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
+                    <Link href="/engineering/preventive-maintenance" className="mt-3 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
                   </div>
                 </>}
               </section>

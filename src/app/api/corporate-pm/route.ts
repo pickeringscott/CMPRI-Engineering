@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { corporatePmUpdate, jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { integrationErrorStatus, isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
-import { CORPORATE_PM_MONTHS, readCorporatePmRoom, readCorporatePmSheet, setCorporatePmCheckbox } from "@/lib/server/corporate-pm";
+import { CORPORATE_PM_MONTHS, readCorporatePmRoom, readCorporatePmSheet } from "@/lib/server/corporate-pm";
 import { roleKey } from "@/lib/server/roles";
 
 export async function GET(request: NextRequest) {
@@ -17,7 +16,8 @@ export async function GET(request: NextRequest) {
       const result = await readCorporatePmRoom(room);
       return NextResponse.json({
         ...result,
-        can_edit: allows(auth.principal, "edit_tickets"),
+        can_edit: false,
+        write_disabled: true,
         safeMode: isIntegrationsSafeMode(),
       }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
     const result = await readCorporatePmSheet(sheet);
     return NextResponse.json({
       ...result,
-      can_edit: true,
+      can_edit: false,
+      write_disabled: true,
       safeMode: isIntegrationsSafeMode(),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -42,21 +43,8 @@ export async function PATCH(request: NextRequest) {
   if (roleKey(auth.principal.profile.role) !== "system_admin") {
     return NextResponse.json({ error: "Preventive Maintenance management is available only to System Administrators." }, { status: 403 });
   }
-  const payload = corporatePmUpdate(await jsonObject(request));
-  if (!payload || payload.action !== "setcheckbox") {
-    return NextResponse.json({ error: "Supply a valid PM checklist checkbox and typed value." }, { status: 400 });
-  }
-  try {
-    const result = await setCorporatePmCheckbox(
-      String(payload.sheet),
-      Number(payload.row),
-      Number(payload.column),
-      Boolean(payload.checked),
-      undefined,
-      typeof payload.expectedChecked === "boolean" ? payload.expectedChecked : undefined,
-    );
-    return NextResponse.json({ ...result, safeMode: isIntegrationsSafeMode(), blocked: result.ok !== true });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: integrationErrorStatus(error) });
-  }
+  return NextResponse.json(
+    { error: "Direct Corporate PM edits are disabled. Submit changes in CMPRI and confirm them against the live PM workbook through the reviewer queue." },
+    { status: 409 },
+  );
 }

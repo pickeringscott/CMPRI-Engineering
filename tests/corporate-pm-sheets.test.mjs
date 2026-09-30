@@ -76,39 +76,16 @@ test('room PM reads return matching daily and weekly cells from monthly sheets',
   assert.equal(f.calls.filter(({path})=>path.startsWith('/values:batchGet')).length,2);
 });
 
-test('formula cells are omitted from room checklist and cannot be committed',async()=>{
+test('formula cells are omitted from read-only room checklist data',async()=>{
   const f=fixture();
   f.setJan([['Room','Daily property check','Weekly property check'],['409','FALSE','FALSE']], [['','',''],['','=FORMULA','']]);
   const room=await f.api.readCorporatePmRoom('409');
   assert.deepEqual(JSON.parse(JSON.stringify(room.tasks.map(task=>task.column))),[3]);
-  await assert.rejects(()=>f.api.setCorporatePmCheckbox('JAN',2,2,true,'409'),/no longer an editable checkbox/);
-  assert.equal(f.calls.some(({init})=>init.method==='PUT'),false);
 });
 
-test('work-order PM commit confirms the room target and verifies its write',async()=>{
+test('legacy Corporate PM adapter has no write method',async()=>{
   const f=fixture();
-  const result=await f.api.setCorporatePmCheckbox('JAN',2,2,true,'409');
-  assert.equal(result.ok,true);assert.equal(result.checked,true);
-  assert.equal(f.getJan()[1][1],'TRUE');
-  assert.equal(f.calls.some(({init})=>init.method==='PUT'),true);
-});
-
-test('work-order PM commit rejects a cell that does not belong to its room',async()=>{
-  const f=fixture();
-  await assert.rejects(()=>f.api.setCorporatePmCheckbox('JAN',3,2,true,'409'),/not a daily or weekly check for this work-order room/);
-  assert.equal(f.calls.some(({init})=>init.method==='PUT'),false);
-});
-
-test('work-order PM commit rejects a checkbox changed since it was read',async()=>{
-  const f=fixture();
-  await assert.rejects(()=>f.api.setCorporatePmCheckbox('JAN',2,2,true,'409',true),/changed after this work order was loaded/);
-  assert.equal(f.calls.some(({init})=>init.method==='PUT'),false);
-});
-
-test('safe mode reports PM commits as blocked and makes no write',async()=>{
-  const f=fixture({safeMode:true});
-  const result=await f.api.setCorporatePmCheckbox('JAN',2,2,true,'409');
-  assert.equal(result.blocked,true);
+  assert.equal(typeof f.api.setCorporatePmCheckbox,'undefined');
   assert.equal(f.calls.some(({init})=>init.method==='PUT'),false);
 });
 

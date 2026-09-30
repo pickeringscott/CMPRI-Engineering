@@ -85,21 +85,43 @@ written values by reading them back.
 
 ## Corporate PM
 
-Corporate PM uses the same server-only Google service account as Room Ranker.
-Create/configure the service account as above, enable the Sheets API, and share
-the private PM spreadsheet with its `client_email` as an Editor. The admin-only
-PM manager reads its monthly tabs; work orders display matching daily and
-weekly room checks and let authorized work-order staff confirm them back to
-the sheet. Sheet writes are verified by reading them back. Integrations safe
-mode blocks writes until deliberately disabled.
+The legacy Corporate PM adapter is retained for read-only compatibility. CMPRI
+no longer writes directly to the corporate workbook; direct Corporate PM and
+work-order PM write routes return a conflict response directing staff to the
+personal live-workbook proposal and review flow. The existing personal-to-
+corporate sync remains the only corporate propagation path.
 
 ```text
 CMPRI_CORPORATE_PM_SPREADSHEET_ID=<spreadsheet id from its URL>
 ```
 
-The monthly tabs are expected to use the existing JAN–DEC names. Google
-credentials and spreadsheet IDs stay in Vercel server environment variables;
-no Apps Script URL or API key is used.
+The legacy monthly tabs use the existing JAN–DEC names. Google credentials
+and spreadsheet IDs stay in server-only environment variables; no Apps Script
+URL or API key is used.
+
+## Live-workbook Preventive Maintenance
+
+The Engineering Preventive Maintenance workspace reads the personal live PM
+workbook configured by `CMPRI_LIVE_PM_SPREADSHEET_ID`, using the shared
+server-only Google Sheets service account. It reads the year tab for quarterly
+room completion dates and the JAN–DEC tabs for daily dates, weekly slots,
+monthly tasks, and linked checklist references. Technicians use CMPRI only and
+do not receive direct spreadsheet rights.
+
+Technician checkbox, room-date, and PDF form changes are stored as pending
+proposals in `cmpri_pm_proposals`. A System Administrator must review and
+explicitly confirm a proposal before CMPRI applies its verified changes to the
+personal live workbook. Formula-backed cells and cells changed since proposal
+submission are rejected, and successful writes are read back for verification.
+PDF inspection data (measurements, notes, follow-up, repair dates, and repeatable
+logs) is also held pending review. The corporate workbook is never written by
+this workflow; the existing sync remains responsible for corporate updates.
+
+Apply `supabase/migrations/20260930010000_cmpri_pm_review.sql` only to the
+intended development database after validating its schema and RLS. During local
+preview, keep `CMPRI_LIVE_PM_WRITES_ENABLED=false`; set it to `true` only after
+the dev review is complete. The explicit reviewer confirmation remains required
+for every proposal even when the write gate is enabled.
 
 ## Local verification
 
