@@ -16,7 +16,7 @@ type SheetLayout = { headerRow: number; columns: Record<string, number> };
 const RANKER_FIELDS = ["inspectedBy", "check1", "check2", "check3", "rank", "notes"] as const;
 const FIELD_HEADERS: Record<(typeof RANKER_FIELDS)[number] | "room", string[]> = {
   room: ["room", "roomnumber", "roomno", "roomnum", "rm"],
-  inspectedBy: ["inspectedby", "inspector", "inspected"],
+  inspectedBy: ["inspectedby", "roominspectedby", "inspector", "inspected"],
   check1: ["check1", "roomcheck1", "specificroomcheck1"],
   check2: ["check2", "roomcheck2", "specificroomcheck2"],
   check3: ["check3", "roomcheck3", "specificroomcheck3"],
