@@ -228,33 +228,124 @@ export function readDashboardInbox(userId: string): WorkOrderNotification[] {
   return [];
 }
 
-export function saveDashboardInbox(userId: string, notifications: WorkOrderNotification[]) {
+/** Removes the pre-server (per-browser) inbox, dismissals and cursor once they are imported. */
+export function forgetLocalDashboardInbox(userId: string) {
   try {
-    window.localStorage.setItem(dashboardInboxKey(userId), JSON.stringify(notifications));
+    window.localStorage.removeItem(dashboardInboxKey(userId));
+    window.localStorage.removeItem(dismissedViewNotificationsKey(userId));
+    window.localStorage.removeItem(workOrderNotificationCursorKey(userId, "engineer"));
   } catch {}
 }
 
-/**
- * Adds new notifications without removing any existing ones. Only the signed-in
- * user clearing an item removes it; technician actions never do.
- */
-export function addToDashboardInbox(
-  inbox: WorkOrderNotification[],
-  incoming: WorkOrderNotification[],
-  cleared: ReadonlySet<string> = new Set(),
+export const DASHBOARD_NOTIFICATION_POLL_MS = 1_000;
+/** Re-scan window so rows committed late (created_at is the transaction start) are never missed. */
+export const DASHBOARD_NOTIFICATION_OVERLAP_MS = 5 * 60_000;
+/** The server cursor is written at most this often; the overlap window covers the gap. */
+export const DASHBOARD_NOTIFICATION_CURSOR_WRITE_MS = 60_000;
+export const DASHBOARD_NOTIFICATION_KEY_MAX = 200;
+export const DASHBOARD_NOTIFICATION_MESSAGE_MAX = 500;
+export const DASHBOARD_NOTIFICATION_IMPORT_MAX = 200;
+
+export type DashboardInboxResponse = {
+  notifications: WorkOrderNotification[];
+  orders_version: string;
+  checked_at: string;
+};
+
+/** Where the server starts scanning for new events. A first-ever poll starts now instead of replaying history. */
+export function dashboardNotificationScanStart(savedCursor: string | null | undefined, nowIso: string) {
+  const saved = savedCursor ? Date.parse(savedCursor) : NaN;
+  if (!Number.isFinite(saved)) return nowIso;
+  return new Date(Math.min(saved, Date.parse(nowIso)) - DASHBOARD_NOTIFICATION_OVERLAP_MS).toISOString();
+}
+
+export function shouldWriteDashboardNotificationCursor(savedCursor: string | null | undefined, nowIso: string) {
+  const saved = savedCursor ? Date.parse(savedCursor) : NaN;
+  return !Number.isFinite(saved) || Date.parse(nowIso) - saved >= DASHBOARD_NOTIFICATION_CURSOR_WRITE_MS;
+}
+
+/** Keys not yet recorded for this recipient (cleared ones included, so a cleared item never returns). */
+export function unrecordedDashboardNotifications(
+  candidates: WorkOrderNotification[],
+  recordedKeys: Iterable<string>,
 ) {
-  const known = new Set(inbox.map((notification) => notification.id));
-  const added = incoming.filter((notification) => {
-    if (known.has(notification.id) || cleared.has(notification.id)) return false;
+  const known = new Set(recordedKeys);
+  return candidates.filter((notification) => {
+    if (known.has(notification.id)) return false;
     known.add(notification.id);
     return true;
   });
-  return { inbox: added.length ? [...inbox, ...added].sort(byNewest) : inbox, added };
 }
 
-export function clearDashboardInbox(inbox: WorkOrderNotification[], ids: Iterable<string>) {
-  const clearing = new Set(ids);
-  return inbox.filter((notification) => !clearing.has(notification.id));
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Validates notifications a browser asks to import from its old local inbox. */
+export function sanitizeImportedDashboardNotifications(value: unknown): WorkOrderNotification[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const accepted: WorkOrderNotification[] = [];
+  for (const item of value.slice(0, DASHBOARD_NOTIFICATION_IMPORT_MAX)) {
+    if (!isNotification(item)) continue;
+    const id = item.id.trim();
+    const message = item.message.trim();
+    if (!/^(new-order|technician-view):/.test(id) || id.length > DASHBOARD_NOTIFICATION_KEY_MAX || seen.has(id)) continue;
+    if (!UUID_PATTERN.test(item.work_order_id) || !message || !Number.isFinite(Date.parse(item.recorded_at))) continue;
+    seen.add(id);
+    accepted.push({
+      id,
+      work_order_id: item.work_order_id,
+      message: message.slice(0, DASHBOARD_NOTIFICATION_MESSAGE_MAX),
+      recorded_at: new Date(Date.parse(item.recorded_at)).toISOString(),
+    });
+  }
+  return accepted;
+}
+
+export function sortDashboardNotifications(notifications: WorkOrderNotification[]) {
+  return [...notifications].sort(byNewest);
+}
+
+export async function fetchDashboardInbox(accessToken: string): Promise<DashboardInboxResponse> {
+  const response = await fetch("/api/dashboard/notifications", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => ({})) as Partial<DashboardInboxResponse> & { error?: string };
+  if (!response.ok) throw new Error(payload.error || "Notifications could not be loaded.");
+  if (
+    !Array.isArray(payload.notifications) ||
+    !payload.notifications.every(isNotification) ||
+    typeof payload.orders_version !== "string" ||
+    typeof payload.checked_at !== "string"
+  ) {
+    throw new Error("Notifications returned an invalid response.");
+  }
+  return {
+    notifications: sortDashboardNotifications(payload.notifications),
+    orders_version: payload.orders_version,
+    checked_at: payload.checked_at,
+  };
+}
+
+async function postDashboardInbox(accessToken: string, body: Record<string, unknown>, fallback: string) {
+  const response = await fetch("/api/dashboard/notifications", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(payload.error || fallback);
+  }
+}
+
+export function clearServerDashboardNotifications(accessToken: string, ids: string[]) {
+  return postDashboardInbox(accessToken, { action: "clear", ids }, "Notifications could not be cleared.");
+}
+
+export function importServerDashboardNotifications(accessToken: string, notifications: WorkOrderNotification[]) {
+  return postDashboardInbox(accessToken, { action: "import", notifications }, "Saved notifications could not be moved to your account.");
 }
 
 export function newWorkOrderNotification(order: {

@@ -8,17 +8,12 @@ import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/
 import { dashboardTitleForRole, roleDisplayName } from "@/lib/account-display";
 import { BUILD_VERSION } from "@/lib/constants";
 import {
-  addToDashboardInbox,
-  clearDashboardInbox,
-  dashboardInboxKey,
-  fetchWorkOrderNotifications,
-  newWorkOrderNotification,
+  DASHBOARD_NOTIFICATION_POLL_MS,
+  clearServerDashboardNotifications,
+  fetchDashboardInbox,
+  forgetLocalDashboardInbox,
+  importServerDashboardNotifications,
   readDashboardInbox,
-  readDismissedWorkOrderViewNotifications,
-  readWorkOrderNotificationCursor,
-  saveDashboardInbox,
-  saveDismissedWorkOrderViewNotifications,
-  saveWorkOrderNotificationCursor,
   type WorkOrderNotification,
 } from "@/lib/dashboard/work-order-notifications";
 import {
@@ -123,10 +118,11 @@ export default function EngineeringDashboardPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const soundEnabledRef = useRef(true);
   const userIdRef = useRef("");
-  const notificationCursorRef = useRef<string | null>(null);
   const notificationPollInFlightRef = useRef(false);
-  const dismissedViewNotificationIdsRef = useRef<Set<string>>(new Set());
-  const knownOrderIdsRef = useRef<Set<string> | null>(null);
+  const seenNotificationIdsRef = useRef<Set<string> | null>(null);
+  const pendingClearIdsRef = useRef<Set<string>>(new Set());
+  const clearGenerationRef = useRef(0);
+  const ordersVersionRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const previousTitleRef = useRef<string>("");
 
@@ -172,28 +168,34 @@ export default function EngineeringDashboardPage() {
     } catch {}
   }, []);
 
-  const addNotifications = useCallback((incoming: WorkOrderNotification[]) => {
-    const userId = userIdRef.current;
-    if (!userId || incoming.length === 0) return;
-    // Re-read storage so another open tab's additions or clears are never overwritten.
-    const result = addToDashboardInbox(readDashboardInbox(userId), incoming, dismissedViewNotificationIdsRef.current);
-    if (!result.added.length) return;
-    saveDashboardInbox(userId, result.inbox);
-    setInbox(result.inbox);
-    playAlertTone();
+  // The server inbox is the source of truth, so every computer shows the same list.
+  const applyServerInbox = useCallback((notifications: WorkOrderNotification[]) => {
+    const visible = notifications.filter((notification) => !pendingClearIdsRef.current.has(notification.id));
+    const seen = seenNotificationIdsRef.current;
+    const arrived = seen !== null && visible.some((notification) => !seen.has(notification.id));
+    seenNotificationIdsRef.current = new Set([...(seen || []), ...visible.map((notification) => notification.id)]);
+    setInbox(visible);
+    if (arrived) playAlertTone();
   }, [playAlertTone]);
 
-  function clearNotifications(ids: string[]) {
-    const userId = userIdRef.current;
-    if (!userId || ids.length === 0) return;
-    const technicianViewIds = ids.filter((id) => id.startsWith("technician-view:"));
-    if (technicianViewIds.length) {
-      technicianViewIds.forEach((id) => dismissedViewNotificationIdsRef.current.add(id));
-      saveDismissedWorkOrderViewNotifications(userId, dismissedViewNotificationIdsRef.current);
+  async function clearNotifications(ids: string[]) {
+    if (ids.length === 0) return;
+    const clearing = new Set(ids);
+    ids.forEach((id) => pendingClearIdsRef.current.add(id));
+    clearGenerationRef.current += 1;
+    setInbox((current) => current.filter((notification) => !clearing.has(notification.id)));
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Sign in again to clear notifications.");
+      await clearServerDashboardNotifications(session.access_token, ids);
+      setNotificationError("");
+    } catch (error) {
+      setNotificationError(error instanceof Error ? error.message : "Notifications could not be cleared.");
+    } finally {
+      // Ignore any poll that started before the clear finished, then let the server list rule again.
+      clearGenerationRef.current += 1;
+      ids.forEach((id) => pendingClearIdsRef.current.delete(id));
     }
-    const next = clearDashboardInbox(readDashboardInbox(userId), ids);
-    saveDashboardInbox(userId, next);
-    setInbox(next);
   }
 
   function toggleSound() {
@@ -203,14 +205,6 @@ export default function EngineeringDashboardPage() {
     writeSoundPreference(next);
     if (next) playAlertTone();
   }
-
-  const detectNewOrders = useCallback((fetched: DesktopWorkOrder[]) => {
-    const previous = knownOrderIdsRef.current;
-    knownOrderIdsRef.current = new Set(fetched.map((order) => order.id));
-    if (previous === null) return;
-    const arrivals = fetched.filter((order) => !previous.has(order.id));
-    addNotifications(arrivals.map(newWorkOrderNotification));
-  }, [addNotifications]);
 
   // ---------- Data loading ----------
 
@@ -230,7 +224,6 @@ export default function EngineeringDashboardPage() {
       if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Dashboard work orders could not be loaded.");
       const fetched = payload.work_orders as DesktopWorkOrder[];
       setOrders(fetched);
-      detectNewOrders(fetched);
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? `Dashboard error: ${error.message}` : "Dashboard error.");
@@ -238,7 +231,7 @@ export default function EngineeringDashboardPage() {
       setLoading(false);
       refreshInFlightRef.current = false;
     }
-  }, [detectNewOrders]);
+  }, []);
 
   const loadMoveCount = useCallback(async () => {
     try {
@@ -281,8 +274,6 @@ export default function EngineeringDashboardPage() {
         }
         userIdRef.current = session.user.id;
         layoutsRef.current = readDesktopLayouts(window.localStorage, session.user.id);
-        dismissedViewNotificationIdsRef.current = readDismissedWorkOrderViewNotifications(session.user.id);
-        setInbox(readDashboardInbox(session.user.id));
         const soundPreference = readSoundPreference();
         soundEnabledRef.current = soundPreference;
         setSoundEnabled(soundPreference);
@@ -301,51 +292,50 @@ export default function EngineeringDashboardPage() {
   }, [loadDashboard, loadMoveCount]);
 
   useEffect(() => {
-    const syncInbox = (event: StorageEvent) => {
-      const userId = userIdRef.current;
-      if (userId && event.key === dashboardInboxKey(userId)) setInbox(readDashboardInbox(userId));
-    };
-    window.addEventListener("storage", syncInbox);
-    return () => window.removeEventListener("storage", syncInbox);
-  }, []);
-
-  useEffect(() => {
-    if (!cmpriSession || roleKey(cmpriSession.user.role) !== "engineer") return;
+    if (!cmpriSession) return;
     const userId = cmpriSession.user.id;
-    notificationCursorRef.current = readWorkOrderNotificationCursor(userId, "engineer");
     let current = true;
+    let imported = false;
+    const importLocalInbox = async (accessToken: string) => {
+      // One-time move of notifications this browser kept before the inbox moved to the server.
+      const local = readDashboardInbox(userId);
+      if (local.length) await importServerDashboardNotifications(accessToken, local);
+      forgetLocalDashboardInbox(userId);
+    };
     const pollNotifications = async () => {
       if (notificationPollInFlightRef.current) return;
       notificationPollInFlightRef.current = true;
+      const generation = clearGenerationRef.current;
       try {
         const session = await getValidSession();
-        if (!session?.access_token) throw new Error("Sign in again to load work-order notifications.");
-        const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId, "engineer");
-        const result = await fetchWorkOrderNotifications(session.access_token, cursor);
-        if (!current) return;
-        // Technician actions resolve views on the server, but never remove the
-        // engineer's copy; only forget dismissals that can no longer reappear.
-        if (result.resolved_notification_ids.length) {
-          result.resolved_notification_ids.forEach((id) => dismissedViewNotificationIdsRef.current.delete(id));
-          saveDismissedWorkOrderViewNotifications(userId, dismissedViewNotificationIdsRef.current);
+        if (!session?.access_token) throw new Error("Sign in again to load notifications.");
+        if (!imported) {
+          await importLocalInbox(session.access_token);
+          imported = true;
         }
-        addNotifications(result.notifications);
-        notificationCursorRef.current = result.checked_at;
-        saveWorkOrderNotificationCursor(userId, "engineer", result.checked_at);
+        const result = await fetchDashboardInbox(session.access_token);
+        if (!current) return;
+        if (ordersVersionRef.current === null) {
+          ordersVersionRef.current = result.orders_version;
+        } else if (result.orders_version !== ordersVersionRef.current && !refreshInFlightRef.current) {
+          ordersVersionRef.current = result.orders_version;
+          void loadDashboard(true);
+        }
+        if (generation === clearGenerationRef.current) applyServerInbox(result.notifications);
         setNotificationError("");
       } catch (error) {
-        if (current) setNotificationError(error instanceof Error ? error.message : "Work-order notifications could not be loaded.");
+        if (current) setNotificationError(error instanceof Error ? error.message : "Notifications could not be loaded.");
       } finally {
         notificationPollInFlightRef.current = false;
       }
     };
     void pollNotifications();
-    const interval = window.setInterval(() => { void pollNotifications(); }, REFRESH_MS);
+    const interval = window.setInterval(() => { void pollNotifications(); }, DASHBOARD_NOTIFICATION_POLL_MS);
     return () => {
       current = false;
       window.clearInterval(interval);
     };
-  }, [addNotifications, cmpriSession]);
+  }, [applyServerInbox, cmpriSession, loadDashboard]);
 
   useEffect(() => {
     if (!cmpriSession || !hasCapability(cmpriSession, "review_feedback")) return;
@@ -702,8 +692,8 @@ export default function EngineeringDashboardPage() {
                   soundEnabled={soundEnabled}
                   onToggleSound={toggleSound}
                   onOpenWorkOrder={openWorkOrder}
-                  onClear={(id) => clearNotifications([id])}
-                  onClearAll={() => clearNotifications(inbox.map((notification) => notification.id))}
+                  onClear={(id) => void clearNotifications([id])}
+                  onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
                 />
               )}
             </DesktopWindow>

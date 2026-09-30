@@ -74,7 +74,7 @@ export default function WorkOrderApprovalsWindow({
           </div>
           {notificationError && <p role="status" className="shrink-0 border-b border-amber-400/30 bg-amber-950/25 px-[0.7em] py-[0.35em] text-[0.88em] text-amber-100">{notificationError}</p>}
           <ul aria-live="polite" className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
-            {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">No notifications. New ones stay here until you clear them.</li>}
+            {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">No notifications. New ones stay on your account, on every computer, until you clear them.</li>}
             {notifications.map((notification) => (
               <li key={notification.id} className="flex items-start gap-[0.4em] px-[0.7em] py-[0.4em] hover:bg-slate-800/40">
                 <button type="button" onClick={() => onOpenWorkOrder(notification.work_order_id)} className="min-w-0 flex-1 text-left">

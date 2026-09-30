@@ -16,9 +16,12 @@ import {
   windowLayoutKey,
 } from '../src/lib/ui/desktop-windows.ts';
 import {
-  addToDashboardInbox,
-  clearDashboardInbox,
+  dashboardNotificationScanStart,
   newWorkOrderNotification,
+  sanitizeImportedDashboardNotifications,
+  shouldWriteDashboardNotificationCursor,
+  unrecordedDashboardNotifications,
+  DASHBOARD_NOTIFICATION_POLL_MS,
 } from '../src/lib/dashboard/work-order-notifications.ts';
 
 const desktop = { width: 1600, height: 900 };
@@ -77,22 +80,56 @@ test('desktop routes open same-origin screens as embedded windows', () => {
   assert.equal(desktopFrameHref('/feedback?route=%2Fengineering', 'tok', origin), '/feedback?route=%2Fengineering&embedded=1&modalToken=tok');
 });
 
-test('dashboard inbox keeps notifications until the engineer clears them', () => {
+test('server inbox records each notification once and a cleared one never returns', () => {
   const view = { id: 'technician-view:1', work_order_id: 'wo-1', message: 'Tech viewed WO-1', recorded_at: '2026-09-28T20:00:00.000Z' };
   const created = newWorkOrderNotification({ id: 'wo-2', display_id: 'WO-2', room: '101', issue: 'Leak', created_at: '2026-09-28T21:00:00.000Z' });
   assert.equal(created.id, 'new-order:wo-2');
   assert.match(created.message, /WO-2/);
-  let { inbox, added } = addToDashboardInbox([], [view, created]);
-  assert.equal(added.length, 2);
-  assert.deepEqual(inbox.map((item) => item.id), ['new-order:wo-2', 'technician-view:1']);
-  // Re-delivery (every poll) or a technician resolving the view never removes or duplicates it.
-  ({ inbox, added } = addToDashboardInbox(inbox, [view]));
-  assert.equal(added.length, 0);
-  assert.equal(inbox.length, 2);
-  inbox = clearDashboardInbox(inbox, ['technician-view:1']);
-  assert.deepEqual(inbox.map((item) => item.id), ['new-order:wo-2']);
-  ({ inbox, added } = addToDashboardInbox(inbox, [view], new Set(['technician-view:1'])));
-  assert.equal(added.length, 0, 'a cleared notification does not come back');
+  assert.deepEqual(unrecordedDashboardNotifications([view, created, view], []).map((item) => item.id), ['technician-view:1', 'new-order:wo-2']);
+  // Recorded keys include cleared rows, so re-scans and technician actions never re-add or remove them.
+  assert.deepEqual(unrecordedDashboardNotifications([view, created], ['technician-view:1']).map((item) => item.id), ['new-order:wo-2']);
+  assert.equal(unrecordedDashboardNotifications([view, created], ['technician-view:1', 'new-order:wo-2']).length, 0);
+});
+
+test('server notification cursor starts now, then re-scans an overlap window', () => {
+  const now = '2026-09-30T12:00:00.000Z';
+  assert.equal(DASHBOARD_NOTIFICATION_POLL_MS, 1000, 'new work orders are checked every second');
+  assert.equal(dashboardNotificationScanStart(null, now), now);
+  assert.equal(dashboardNotificationScanStart('2026-09-30T11:59:00.000Z', now), '2026-09-30T11:54:00.000Z');
+  assert.equal(dashboardNotificationScanStart('2026-09-30T13:00:00.000Z', now), '2026-09-30T11:55:00.000Z', 'a future cursor cannot hide events');
+  assert.equal(shouldWriteDashboardNotificationCursor(null, now), true);
+  assert.equal(shouldWriteDashboardNotificationCursor('2026-09-30T11:59:30.000Z', now), false);
+  assert.equal(shouldWriteDashboardNotificationCursor('2026-09-30T11:59:00.000Z', now), true);
+});
+
+test('only well-formed local notifications are imported into the server inbox', () => {
+  const uuid = '11111111-2222-4333-8444-555555555555';
+  const accepted = sanitizeImportedDashboardNotifications([
+    { id: `new-order:${uuid}`, work_order_id: uuid, message: ' New WO-1 ', recorded_at: '2026-09-28T20:00:00Z' },
+    { id: `new-order:${uuid}`, work_order_id: uuid, message: 'dup', recorded_at: '2026-09-28T20:00:00Z' },
+    { id: 'other:1', work_order_id: uuid, message: 'x', recorded_at: '2026-09-28T20:00:00Z' },
+    { id: 'technician-view:2', work_order_id: 'not-a-uuid', message: 'x', recorded_at: '2026-09-28T20:00:00Z' },
+    { id: 'technician-view:3', work_order_id: uuid, message: 'x'.repeat(900), recorded_at: 'bad' },
+    'junk',
+  ]);
+  assert.deepEqual(accepted, [{ id: `new-order:${uuid}`, work_order_id: uuid, message: 'New WO-1', recorded_at: '2026-09-28T20:00:00.000Z' }]);
+  assert.deepEqual(sanitizeImportedDashboardNotifications('nope'), []);
+});
+
+test('dashboard notifications live in the database, scoped to the signed-in user', () => {
+  const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
+  const migration = readFileSync(new URL('../supabase/migrations/20260930190000_cmpri_dashboard_notifications.sql', import.meta.url), 'utf8');
+  const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
+  assert.match(migration, /unique \(hotel_id, recipient_user_id, notification_key\)/);
+  assert.match(migration, /enable row level security/);
+  assert.match(migration, /revoke all on table public\.cmpri_dashboard_notifications from anon, authenticated;/);
+  assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
+  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 4, 'every inbox read/write is scoped to the requester');
+  assert.match(route, /\.update\(\{ cleared_at: new Date\(\)\.toISOString\(\) \}\)/);
+  assert.doesNotMatch(route, /\.delete\(/);
+  assert.doesNotMatch(dashboard, /saveDashboardInbox|addEventListener\("storage"|detectNewOrders/);
+  assert.match(dashboard, /DASHBOARD_NOTIFICATION_POLL_MS/);
+  assert.match(dashboard, /void loadDashboard\(true\)/);
 });
 
 test('engineering dashboard is a desktop of floating windows under a fixed top bar', () => {
@@ -108,7 +145,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(dashboard, /raise\(entry\.key, true\)/);
   assert.match(dashboard, /aria-label=\{bellLabel\}/);
   assert.match(dashboard, /onClick=\{openApprovals\}/);
-  assert.doesNotMatch(dashboard, /WorkOrderNotificationBanner|resolved_notification_ids\.[a-z]+\([^)]*clearDashboardInbox/);
+  assert.doesNotMatch(dashboard, /WorkOrderNotificationBanner|resolved_notification_ids/);
   assert.doesNotMatch(dashboard, /Awaiting Approval|KPI/, 'KPI cards live in the work order list window');
   assert.match(listWindow, /Awaiting Approval/);
   assert.match(styles, /html\.cmpri-desktop-interacting iframe \{\s*pointer-events: none !important;/);
