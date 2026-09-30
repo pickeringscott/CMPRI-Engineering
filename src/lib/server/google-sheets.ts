@@ -21,10 +21,16 @@ function normalizePrivateKey(value: string) {
   if (/-----BEGIN [A-Z0-9 ]+-----/.test(normalized)) return normalized;
 
   const base64 = normalized.replace(/\s+/g, "");
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return normalized;
+  const isBase64 = /^[A-Za-z0-9+/]+={0,2}$/.test(base64);
+  const isBase64Url = /^[A-Za-z0-9_-]+={0,2}$/.test(base64);
+  if (!isBase64 && !isBase64Url) return normalized;
 
-  const der = Buffer.from(base64, "base64");
-  if (der.toString("base64").replace(/=+$/, "") !== base64.replace(/=+$/, "")) return normalized;
+  const standardBase64 = isBase64Url
+    ? base64.replace(/-/g, "+").replace(/_/g, "/")
+    : base64;
+  const paddedBase64 = standardBase64.padEnd(Math.ceil(standardBase64.length / 4) * 4, "=");
+  const der = Buffer.from(paddedBase64, "base64");
+  if (der.toString("base64").replace(/=+$/, "") !== standardBase64.replace(/=+$/, "")) return normalized;
   for (const type of ["pkcs8", "pkcs1"] as const) {
     try {
       const key = createPrivateKey({ key: der, format: "der", type });
@@ -34,6 +40,36 @@ function normalizePrivateKey(value: string) {
     }
   }
   return normalized;
+}
+
+function privateKeyDiagnostics(value: string) {
+  const base64 = value.replace(/\s+/g, "");
+  const alphabet = /^[A-Za-z0-9+/]+={0,2}$/.test(base64)
+    ? "standard"
+    : /^[A-Za-z0-9_-]+={0,2}$/.test(base64)
+      ? "URL-safe"
+      : "unrecognized";
+  if (alphabet === "unrecognized") {
+    return "base64 body: unrecognized; DER bytes: unavailable; PKCS#8/PKCS#1: not attempted";
+  }
+
+  const standardBase64 = alphabet === "URL-safe"
+    ? base64.replace(/-/g, "+").replace(/_/g, "/")
+    : base64;
+  const paddedBase64 = standardBase64.padEnd(Math.ceil(standardBase64.length / 4) * 4, "=");
+  const der = Buffer.from(paddedBase64, "base64");
+  const parseCode = (type: "pkcs8" | "pkcs1") => {
+    try {
+      createPrivateKey({ key: der, format: "der", type });
+      return "valid";
+    } catch (error) {
+      return typeof error === "object" && error !== null && "code" in error
+        && typeof error.code === "string"
+        ? error.code
+        : "unavailable";
+    }
+  };
+  return `base64 body: ${alphabet}; DER bytes: ${der.length}; PKCS#8: ${parseCode("pkcs8")}; PKCS#1: ${parseCode("pkcs1")}`;
 }
 
 function objectValue(value: unknown): CredentialObject | null {
@@ -190,7 +226,7 @@ async function googleAccessToken() {
       ? error.code
       : "unavailable";
     throw new IntegrationConfigurationError(
-      `Google Sheets private key could not be parsed (source: ${account.credentialSource || "unknown"}; PEM block: ${pemBlock}; normalized length: ${account.privateKey.length}; PEM lines: ${lineCount}; crypto code: ${cryptoCode}). Confirm the selected setting contains a complete service-account private_key PEM.`,
+      `Google Sheets private key could not be parsed (source: ${account.credentialSource || "unknown"}; PEM block: ${pemBlock}; normalized length: ${account.privateKey.length}; PEM lines: ${lineCount}; crypto code: ${cryptoCode}; ${privateKeyDiagnostics(account.privateKey)}). Confirm the selected setting contains a complete service-account private_key PEM.`,
     );
   }
   const assertion = `${unsignedToken}.${signature}`;
