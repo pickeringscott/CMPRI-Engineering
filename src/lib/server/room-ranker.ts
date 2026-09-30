@@ -15,13 +15,13 @@ type SheetLayout = { headerRow: number; columns: Record<string, number> };
 
 const RANKER_FIELDS = ["inspectedBy", "check1", "check2", "check3", "rank", "notes"] as const;
 const FIELD_HEADERS: Record<(typeof RANKER_FIELDS)[number] | "room", string[]> = {
-  room: ["room", "roomnumber", "roomno", "roomnum", "rm"],
+  room: ["room", "rooms", "roomnumber", "roomno", "roomnum", "rm"],
   inspectedBy: ["inspectedby", "roominspectedby", "inspector", "inspected"],
   check1: ["check1", "roomcheck1", "specificroomcheck1"],
   check2: ["check2", "roomcheck2", "specificroomcheck2"],
   check3: ["check3", "roomcheck3", "specificroomcheck3"],
-  rank: ["rank", "roomrank"],
-  notes: ["notes", "notesactionsneeded", "actionsneeded", "notesactions"],
+  rank: ["rank", "roomrank", "roomranker"],
+  notes: ["notes", "notesactionsneeded", "actionsneeded", "notesactions", "notesactionsneededinroom"],
 };
 function roomRankerConfig(): RoomRankerConfig {
   const spreadsheetId = process.env.CMPRI_ROOM_RANKER_SPREADSHEET_ID?.trim();
