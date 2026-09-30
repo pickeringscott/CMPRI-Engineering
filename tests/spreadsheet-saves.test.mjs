@@ -12,7 +12,7 @@ function fixture(route,body,config={}) {
     const exports={};
     vm.runInNewContext(ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
       exports,URL,AbortSignal,process:{env:{CMPRI_INTEGRATIONS_SAFE_MODE:'false',CMPRI_ROOM_RANKER_API_KEY:'fake',CMPRI_ROOM_RANKER_API_URL:'https://test.invalid/api',CMPRI_CORPORATE_PM_API_KEY:'fake',CMPRI_CORPORATE_PM_API_URL:'https://test.invalid/api',...(config.env||{})}},
-      fetch:async(url,init={})=>{calls.push({url:String(url),...init});return {ok:true,status:200,text:async()=>JSON.stringify(config.upstream || {ok:true,sheet:'JAN',values:[['Header'],['Task','FALSE']],formulas:[[''],['','']]})};},
+      fetch:async(url,init={})=>{calls.push({url:String(url),...init});return {ok:config.ok??true,status:config.status??200,text:async()=>config.responseText??JSON.stringify(config.upstream || {ok:true,sheet:'JAN',values:[['Header'],['Task','FALSE']],formulas:[[''],['','']]})};},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>({profile:{active:true,role:'Chief Engineer'}})};
@@ -52,6 +52,14 @@ test('ranker forwards only editable fields and the expected room',async()=>{
   const f=fixture('room-ranker',{...ranker,apiKey:'attacker',action:'delete',room:'999'});
   assert.equal((await f.handler(f.request)).status,200);const sent=JSON.parse(f.calls[0].body);
   assert.equal(sent.apiKey,'fake');assert.equal(sent.action,'update');assert.equal(sent.expectedRoom,'409');assert.equal('room' in sent,false);
+});
+test('ranker explains non-JSON upstream authentication failures',async()=>{
+  const f=fixture('room-ranker',ranker,{ok:false,status:401,responseText:'<!doctype html>'});
+  const response=await f.handler(f.request);
+  assert.equal(response.status,502);
+  assert.match(response.body.error,/HTTP 401/);
+  assert.match(response.body.error,/\/exec URL/);
+  assert.match(response.body.error,/expected API key matches Vercel Production/);
 });
 test('PM verifies the current cell before a boolean write',async()=>{
   const f=fixture('corporate-pm',checkbox);assert.equal((await f.handler(f.request)).status,200);

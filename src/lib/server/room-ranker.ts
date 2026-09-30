@@ -31,7 +31,12 @@ export async function callRoomRanker(payload: Record<string, unknown>): Promise<
   const text = await response.text();
   let result: Record<string, unknown>;
   try { result = JSON.parse(text) as Record<string, unknown>; }
-  catch { throw new Error(`Room Ranker returned an unreadable response (${response.status}).`); }
+  catch {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`Room Ranker endpoint rejected CMPRI with HTTP ${response.status}. Verify CMPRI_ROOM_RANKER_API_URL points to the current deployed Apps Script /exec URL, external server requests are allowed by that deployment, and its expected API key matches Vercel Production.`);
+    }
+    throw new Error(`Room Ranker returned an unreadable response (${response.status}).`);
+  }
   if (!response.ok || result.ok !== true) {
     throw new Error(String(result.error || `Room Ranker request failed (${response.status}).`));
   }
