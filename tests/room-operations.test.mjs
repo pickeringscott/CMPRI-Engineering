@@ -178,6 +178,15 @@ test("manual import previews two reports and verifies the replacement snapshot",
   assert.match(commit, /actual\.guest_code === expected\.guest_code/);
 });
 
+test("room operations do not show move or out-of-order event bubbles", () => {
+  const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /Moves: \{summary\.moves\}/);
+  assert.doesNotMatch(page, /\["moves", "Moves"/);
+  assert.doesNotMatch(page, /\["outOfOrder", "Out of Order"/);
+  assert.doesNotMatch(page, /rounded-full[^>]*>Move \{/);
+  assert.match(page, /isOutOfOrder\(row\.room_status\)[\s\S]*text-red-200/);
+});
+
 test("work-order room context reads today's checkout time from the room snapshot", () => {
   const page = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
   assert.match(page, /fetch\("\/api\/room-operations", \{ headers, cache: "no-store" \}\)/);

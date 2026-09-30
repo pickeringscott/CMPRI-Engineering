@@ -29,10 +29,8 @@ type Summary = {
   departures: number;
   arrivals: number;
   reserved: number;
-  moves: number;
   vacantReady: number;
   vacantDirty: number;
-  outOfOrder: number;
 };
 
 function hotelDate() {
@@ -58,8 +56,12 @@ function roomStatusClass(status: string | null) {
   const value = String(status || "").trim().toLowerCase();
   if (value.includes("vacant ready") || value === "vr") return "border-green-400/45 bg-green-950/35 text-green-200";
   if (value.includes("vacant dirty") || value === "vd") return "border-amber-400/45 bg-amber-950/35 text-amber-200";
-  if (value === "ooo" || value.includes("out of order") || value.includes("out-of-order")) return "border-red-400/45 bg-red-950/35 text-red-200";
   return "border-slate-600 bg-slate-900 text-slate-300";
+}
+
+function isOutOfOrder(status: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+  return value === "ooo" || value.includes("out of order") || value.includes("out-of-order");
 }
 
 function parseDate(value: string | null) {
@@ -89,13 +91,11 @@ function summaryFor(rows: RoomOperation[]): Summary {
     if (row.checkout_date) summary.departures += 1;
     if (row.arrival_date) summary.arrivals += 1;
     if (row.reserved) summary.reserved += 1;
-    if (row.move_from || row.move_to) summary.moves += 1;
     const status = String(row.room_status || "").trim().toLowerCase();
     if (status.includes("vacant ready") || status === "vr") summary.vacantReady += 1;
     if (status.includes("vacant dirty") || status === "vd") summary.vacantDirty += 1;
-    if (status === "ooo" || status.includes("out of order") || status.includes("out-of-order")) summary.outOfOrder += 1;
     return summary;
-  }, { departures: 0, arrivals: 0, reserved: 0, moves: 0, vacantReady: 0, vacantDirty: 0, outOfOrder: 0 });
+  }, { departures: 0, arrivals: 0, reserved: 0, vacantReady: 0, vacantDirty: 0 });
 }
 
 export default function RoomOperationsPage() {
@@ -162,10 +162,8 @@ export default function RoomOperationsPage() {
     ["departures", "Departures", summary.departures],
     ["arrivals", "Incoming", summary.arrivals],
     ["reserved", "Reserved", summary.reserved],
-    ["moves", "Moves", summary.moves],
     ["vacantReady", "Vacant Ready", summary.vacantReady],
     ["vacantDirty", "Vacant Dirty", summary.vacantDirty],
-    ["outOfOrder", "Out of Order", summary.outOfOrder],
   ];
   const summaryRows = useMemo(() => {
     if (!activeSummary) return [];
@@ -174,10 +172,9 @@ export default function RoomOperationsPage() {
       if (activeSummary === "departures") return !!row.checkout_date;
       if (activeSummary === "arrivals") return !!row.arrival_date;
       if (activeSummary === "reserved") return row.reserved === true;
-      if (activeSummary === "moves") return !!row.move_from || !!row.move_to;
       if (activeSummary === "vacantReady") return status.includes("vacant ready") || status === "vr";
       if (activeSummary === "vacantDirty") return status.includes("vacant dirty") || status === "vd";
-      return status === "ooo" || status.includes("out of order") || status.includes("out-of-order");
+      return false;
     });
   }, [activeSummary, rows]);
   const filtered = useMemo(() => {
@@ -202,7 +199,6 @@ export default function RoomOperationsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
-              <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-2.5 py-0.5 text-xs font-bold text-sky-200">Moves: {summary.moves}</span>
             </div>
             <p className="mt-2 text-sm text-slate-400">Manual room-status and expected-departure uploads create daily snapshots; room moves are detected by comparing today with yesterday.</p>
           </div>
@@ -252,9 +248,10 @@ export default function RoomOperationsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-lg font-black text-white">Room {row.room}</span>
-                      {row.room_status ? <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
+                      {row.room_status ? isOutOfOrder(row.room_status)
+                        ? <span className="text-xs font-bold text-red-200">{row.room_status}</span>
+                        : <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
                       {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-bold text-fuchsia-200">Reserved</span> : null}
-                      {row.move_from || row.move_to ? <span className="rounded-full border border-sky-400/45 bg-sky-950/35 px-2 py-0.5 text-xs font-bold text-sky-200">Move {row.move_from ? `${row.move_from} → ` : ""}{row.move_to || row.room}</span> : null}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-300">
                       {row.guest_name ? <span><strong className="text-slate-400">Guest:</strong> {row.guest_name}</span> : null}
@@ -291,7 +288,9 @@ export default function RoomOperationsPage() {
                   <article key={row.room} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-black text-white">Room {row.room}</span>
-                      {row.room_status ? <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
+                      {row.room_status ? isOutOfOrder(row.room_status)
+                        ? <span className="text-xs font-bold text-red-200">{row.room_status}</span>
+                        : <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
                       {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-bold text-fuchsia-200">Reserved</span> : null}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-300">

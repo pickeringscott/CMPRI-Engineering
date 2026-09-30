@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store", Pragma: "no-cache" };
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26"];
-const ROOM_OPERATIONS_REPORTING_INSTRUCTIONS = "After daily room operations are imported, read the room_operations view and tell the user every room marked out of order (including OOO) and every detected room move. Include room numbers, status for out-of-order rooms, and the move_from to move_to room numbers for moves. Do not omit these findings when summarizing an import.";
+const ROOM_OPERATIONS_REPORTING_INSTRUCTIONS = "When a user reports a daily room-operations import, read the room_operations view for that date and tell the user every room marked out of order (including OOO) and every detected room move. Include each room number and its out-of-order status, and report every move as move_from to move_to room numbers. Do not omit or summarize away these room numbers.";
 const MCP_TOOLS = [
   {
     name: "search_locations",

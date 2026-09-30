@@ -112,7 +112,6 @@ export default function EngineeringDashboardPage() {
   const [message, setMessage] = useState("");
   const [chatgptConnected, setChatgptConnected] = useState(false);
   const [newFeedbackCount, setNewFeedbackCount] = useState(0);
-  const [moveCount, setMoveCount] = useState(0);
   const [inbox, setInbox] = useState<WorkOrderNotification[]>([]);
   const [notificationError, setNotificationError] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -233,21 +232,6 @@ export default function EngineeringDashboardPage() {
     }
   }, []);
 
-  const loadMoveCount = useCallback(async () => {
-    try {
-      const session = await getValidSession();
-      if (!session?.access_token) return;
-      const response = await fetch("/api/room-operations", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => ({})) as { rows?: Array<Record<string, unknown>> };
-      if (response.ok && Array.isArray(payload.rows)) {
-        setMoveCount(payload.rows.filter((row) => row.move_from || row.move_to).length);
-      }
-    } catch {}
-  }, []);
-
   const refreshChatgptConnection = useCallback(async () => {
     try {
       const session = await getValidSession();
@@ -282,14 +266,14 @@ export default function EngineeringDashboardPage() {
         window.location.replace("/");
         return;
       }
-      await Promise.all([loadDashboard(), loadMoveCount(), refreshChatgptConnection()]);
+      await Promise.all([loadDashboard(), refreshChatgptConnection()]);
     })();
-  }, [loadDashboard, loadMoveCount, refreshChatgptConnection]);
+  }, [loadDashboard, refreshChatgptConnection]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => { void loadDashboard(true); void loadMoveCount(); }, REFRESH_MS);
+    const interval = window.setInterval(() => { void loadDashboard(true); }, REFRESH_MS);
     return () => window.clearInterval(interval);
-  }, [loadDashboard, loadMoveCount]);
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (!cmpriSession) return;
@@ -598,7 +582,6 @@ export default function EngineeringDashboardPage() {
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400">{isHousekeepingDashboard ? "CMPRI Housekeeping" : "CMPRI Engineering"}</p>
             <h1 className="cmpri-desktop-heading">{dashboardTitleForRole(session.user.role)} <span className="font-normal text-slate-500">v{BUILD_VERSION}</span></h1>
           </div>
-          <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-2 py-px text-[10px] font-bold text-sky-200">Moves: {moveCount}</span>
         </div>
 
         <nav aria-label="Open dashboard windows" className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
