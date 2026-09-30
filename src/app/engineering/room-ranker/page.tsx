@@ -24,13 +24,13 @@ type SyncState = "loading" | "saved" | "saving" | "error";
 type SheetColumn = { key: "room" | EditableField; label: string; width: string };
 
 const columns: SheetColumn[] = [
-  { key: "room", label: "Room", width: "w-20" },
-  { key: "inspectedBy", label: "Room Inspected by", width: "w-36" },
-  { key: "check1", label: "Specific Room Check 1", width: "w-44" },
-  { key: "check2", label: "Specific Room Check 2", width: "w-44" },
-  { key: "check3", label: "Specific Room Check 3", width: "w-44" },
-  { key: "rank", label: "Room Rank", width: "w-24" },
-  { key: "notes", label: "Notes / Actions Needed", width: "w-48" },
+  { key: "room", label: "Room", width: "w-12" },
+  { key: "inspectedBy", label: "Room Inspected by", width: "w-24" },
+  { key: "check1", label: "Specific Room Check 1", width: "w-28" },
+  { key: "check2", label: "Specific Room Check 2", width: "w-28" },
+  { key: "check3", label: "Specific Room Check 3", width: "w-28" },
+  { key: "rank", label: "Room Rank", width: "w-16" },
+  { key: "notes", label: "Notes / Actions Needed", width: "w-32" },
 ];
 
 function cellKey(rowNumber: number, field: EditableField) {
@@ -169,16 +169,16 @@ export default function RoomRankerPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-white text-slate-800">
-      <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <h1 className="truncate text-lg font-medium text-slate-800">Room Ranker</h1>
+      <header className="flex min-h-7 flex-wrap items-center justify-between gap-1 border-b border-slate-200 bg-white px-1.5 py-0.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <h1 className="!text-xs truncate font-medium text-slate-800">Room Ranker</h1>
           {embedded && (
-            <ModalDashboardLink className="shrink-0 rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            <ModalDashboardLink className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-50">
               ← Dashboard
             </ModalDashboardLink>
           )}
         </div>
-        <p role="status" aria-live="polite" className={`text-sm ${statusClass}`}>
+        <p role="status" aria-live="polite" className={`text-[10px] ${statusClass}`}>
           {syncState === "saved" && !safeMode && lastRefresh && syncStatus === "Connected to source sheet"
             ? `${syncStatus} · Synced ${lastRefresh}`
             : syncStatus}
@@ -189,18 +189,9 @@ export default function RoomRankerPage() {
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-max min-w-full border-collapse text-xs">
             <thead className="sticky top-0 z-20">
-              <tr className="h-6 bg-blue-50 text-[10px] text-blue-700">
-                <th aria-label="Row numbers" className="sticky left-0 z-30 w-8 min-w-8 border border-blue-200 bg-blue-50" />
-                {columns.map((column, index) => (
-                  <th key={column.key} className={`${column.width} min-w-20 border border-blue-200 bg-blue-50 px-1 text-center font-medium`}>
-                    {String.fromCharCode(65 + index)}
-                  </th>
-                ))}
-              </tr>
-              <tr className="h-8 bg-blue-700 text-left text-white">
-                <th className="sticky left-0 z-30 w-8 min-w-8 border border-blue-800 bg-blue-50 text-center text-[10px] font-normal text-blue-700">1</th>
+              <tr className="h-6 bg-blue-700 text-left text-white">
                 {columns.map((column) => (
-                  <th key={column.key} className={`${column.width} min-w-20 border border-blue-800 px-2 font-semibold`}>
+                  <th key={column.key} className={`${column.width} min-w-12 border border-blue-800 px-1 text-[9px] font-semibold leading-none`}>
                     {column.label}
                   </th>
                 ))}
@@ -209,15 +200,12 @@ export default function RoomRankerPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={columns.length + 1} className="border border-slate-200 px-2 py-4 text-center text-slate-500">
+                  <td colSpan={columns.length} className="border border-slate-200 px-2 py-4 text-center text-slate-500">
                     Loading live rooms…
                   </td>
                 </tr>
               ) : rooms.map((row) => (
-                <tr key={row.rowNumber} className="h-7 odd:bg-white even:bg-slate-50">
-                  <th scope="row" className="sticky left-0 z-10 w-8 min-w-8 border border-slate-200 bg-slate-100 px-1 text-center text-[10px] font-normal text-slate-600">
-                    {row.rowNumber}
-                  </th>
+                <tr key={row.rowNumber} className="h-5 text-[10px] leading-none odd:bg-white even:bg-slate-50">
                   {columns.map((column) => {
                     const field = column.key;
                     const value = String(row[field] ?? "");
@@ -244,7 +232,7 @@ export default function RoomRankerPage() {
                               setDrafts((current) => ({ ...current, [key]: nextValue }));
                               void saveCell(row, editableField, nextValue);
                             }}
-                            className={`!min-h-0 !text-xs h-7 w-full cursor-pointer appearance-none border-0 bg-transparent px-1 text-center font-medium outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed ${rankCellClass(displayedValue)}`}
+                            className={`!min-h-0 !text-[10px] h-5 w-full cursor-pointer appearance-none border-0 bg-transparent px-0.5 text-center font-medium leading-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed ${rankCellClass(displayedValue)}`}
                           >
                             <option value="">—</option>
                             <option value="A">A</option>
@@ -258,7 +246,7 @@ export default function RoomRankerPage() {
                             value={displayedValue}
                             onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
                             onBlur={(event) => void saveCell(row, editableField, event.currentTarget.value)}
-                            className="!min-h-0 !text-xs h-7 w-full border-0 bg-transparent px-1.5 text-slate-800 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed"
+                            className="!min-h-0 !text-[10px] h-5 w-full border-0 bg-transparent px-1 text-slate-800 leading-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 disabled:cursor-not-allowed"
                           />
                         )}
                       </td>
@@ -268,7 +256,7 @@ export default function RoomRankerPage() {
               ))}
               {!loading && rooms.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length + 1} className="border border-slate-200 px-2 py-4 text-center text-slate-500">
+                  <td colSpan={columns.length} className="border border-slate-200 px-2 py-4 text-center text-slate-500">
                     No rooms are available in the source sheet.
                   </td>
                 </tr>
@@ -276,8 +264,8 @@ export default function RoomRankerPage() {
             </tbody>
           </table>
         </div>
-        <div className="flex h-8 shrink-0 items-center border-t border-slate-200 bg-slate-50 px-2">
-          <span className="border-b-2 border-blue-600 bg-white px-2 py-1 text-xs font-medium text-blue-700">🔒 Room Ranker</span>
+        <div className="flex h-5 shrink-0 items-center border-t border-slate-200 bg-slate-50 px-1.5">
+          <span className="border-b-2 border-blue-600 bg-white px-1.5 text-[9px] font-medium text-blue-700">🔒 Room Ranker</span>
         </div>
       </section>
     </main>
