@@ -111,6 +111,16 @@ test('Google Sheets normalizes quoted PEM keys with escaped newlines',async()=>{
   assert.equal(result.sheets[0].properties.title,'PM');
 });
 
+test('Google Sheets restores PEM boundaries around a base64-only DER private key',async()=>{
+  const pair=generateKeyPairSync('rsa',{modulusLength:2048});
+  const der=pair.privateKey.export({type:'pkcs8',format:'der'});
+  const body=der.toString('base64').match(/.{1,64}/g).join('\n');
+  const credentials={client_email:'service-account@example.invalid',private_key:body};
+  const f=loadModule({credentials,publicKey:pair.publicKey});
+  const result=await f.api.googleSheetsRequest('private-id','?fields=sheets.properties.title');
+  assert.equal(result.sheets[0].properties.title,'PM');
+});
+
 test('Google Sheets accepts the service-account email and key as separate server variables',async()=>{
   const pair=generateKeyPairSync('rsa',{modulusLength:2048});
   const credentials={client_email:'service-account@example.invalid',private_key:pair.privateKey.export({type:'pkcs8',format:'pem'}).toString()};

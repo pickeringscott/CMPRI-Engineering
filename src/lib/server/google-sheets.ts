@@ -17,7 +17,23 @@ function normalizePrivateKey(value: string) {
   )
     ? trimmed.slice(1, -1)
     : trimmed;
-  return unwrapped.replace(/\\n/g, "\n").trim();
+  const normalized = unwrapped.replace(/\\n/g, "\n").trim();
+  if (/-----BEGIN [A-Z0-9 ]+-----/.test(normalized)) return normalized;
+
+  const base64 = normalized.replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return normalized;
+
+  const der = Buffer.from(base64, "base64");
+  if (der.toString("base64").replace(/=+$/, "") !== base64.replace(/=+$/, "")) return normalized;
+  for (const type of ["pkcs8", "pkcs1"] as const) {
+    try {
+      const key = createPrivateKey({ key: der, format: "der", type });
+      return key.export({ type: "pkcs8", format: "pem" }).toString();
+    } catch {
+      // Try the other supported DER private-key container.
+    }
+  }
+  return normalized;
 }
 
 function objectValue(value: unknown): CredentialObject | null {
