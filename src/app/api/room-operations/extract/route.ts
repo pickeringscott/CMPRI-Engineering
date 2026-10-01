@@ -83,16 +83,17 @@ Room,Room Status,Guest Name,Room Type,LOS,Reserved,Checkout Date,Checkout Time,I
 
 Extraction rules:
 1. Output ONLY the raw CSV text. Do not wrap in markdown backticks or commentary.
-2. Room: 2 to 4 digit room number or MGR (all uppercase). Ignore non-room summary/footer rows (e.g., Total Clean, Occupancy %, Grand Total, Page numbers).
-3. Room Status: Extract current room status (e.g. Clean, Dirty, Occupied, Vacant, Out of Order, Inspection).
-4. Guest Name: Full guest name, or blank if vacant/unoccupied.
-5. Room Type: Room type code (e.g. KING, 2QUEEN, STNK, etc.) or blank.
-6. LOS: Length of stay as a whole number (0 if empty/vacant).
-7. Reserved: Yes or No (default No if vacant/blank).
-8. Checkout Date: YYYY-MM-DD or MM/DD/YYYY if specified, or blank.
-9. Checkout Time: HH:MM AM/PM or blank (default 11:00 AM for departures).
-10. Incoming Arrival Date, Incoming Arrival Time, Guest Code, Guest Arrival: extract if present or leave blank.
-Ensure every active room listed in the report is included.`,
+2. Include exactly one data row for EVERY room shown in the Room Status Report, including vacant, occupied, blocked, and out-of-order rooms. Do not limit rows to rooms with guests or departures. Ignore non-room summary/footer rows (e.g., Total Clean, Occupancy %, Grand Total, Page numbers).
+3. Room: 2 to 4 digit room number or MGR (all uppercase).
+4. Room Status: Transcribe the room-status/housekeeping-status cell exactly as shown, including abbreviations such as VR or VD. Never infer it from guest, arrival, or departure data. Leave it blank only if the cell is visibly blank or unreadable.
+5. Guest Name: Full guest name, or blank if vacant/unoccupied.
+6. Room Type: Room type code (e.g. KING, 2QUEEN, STNK, etc.) or blank.
+7. LOS: Length of stay as a whole number (0 if empty/vacant).
+8. Reserved: Yes or No (default No if vacant/blank).
+9. Checkout Date: YYYY-MM-DD or MM/DD/YYYY if specified, or blank.
+10. Checkout Time: HH:MM AM/PM or blank (default 11:00 AM for departures).
+11. Incoming Arrival Date, Incoming Arrival Time, Guest Code, Guest Arrival: extract if present or leave blank.
+12. Do not omit a room because any other field is blank. Ensure every active room shown in the report is included.`,
     },
   ];
 

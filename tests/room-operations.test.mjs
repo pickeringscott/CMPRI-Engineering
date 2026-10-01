@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { detectRoomMoves } from "../src/lib/room-operations.ts";
+import { roomKey, roomStatusBadge } from "../src/lib/room-availability.ts";
 
 const importerSource = readFileSync(new URL("../src/app/engineering/room-operations/RoomOperationsImport.tsx", import.meta.url), "utf8");
 const importerAst = ts.createSourceFile("room-operations-importer.tsx", importerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -176,8 +177,60 @@ test("manual import previews two reports and verifies the replacement snapshot",
   assert.match(commit, /report_date: preview\.date/);
   assert.match(commit, /payload\.ok !== true \|\| !payload\.import_id/);
   assert.match(commit, /api\/room-operations\?date=/);
-  assert.match(commit, /result\.rows\.length === preview\.rows\.length/);
-  assert.match(commit, /actual\.guest_code === expected\.guest_code/);
+  assert.match(source, /function snapshotMatches/);
+  assert.match(commit, /snapshotMatches\(preview\.rows, result\.rows\)/);
+  assert.match(source, /snapshotMatches\(validationPayload\.rows, result\.rows\)/);
+});
+
+test("server CSV parser preserves room status aliases and all room rows", () => {
+  const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
+  const apiAst = ts.createSourceFile("room-operations-route.ts", api, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const functions = ["parseDelimitedCells", "parseCsvToRows"].map((name) => {
+    const node = apiAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+    assert.ok(node, `${name} must be declared`);
+    return node.getText(apiAst);
+  });
+  const parserExports = {};
+  vm.runInNewContext(ts.transpileModule(
+    `${functions.join("\n")}\nexports.parseCsvToRows = parseCsvToRows;`,
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+  ).outputText, { exports: parserExports });
+  const rows = parserExports.parseCsvToRows([
+    "Room,HK Status,Guest Name,Room Type",
+    "316,VR,Casey Guest,KING",
+    "317,VD,,2QUEEN",
+    "318,Out of Order,,KING",
+  ].join("\n"));
+  assert.equal(rows.length, 3);
+  assert.deepEqual(Array.from(rows, (row) => row.room_status), ["VR", "VD", "Out of Order"]);
+  assert.deepEqual(Array.from(rows, (row) => row.room), ["316", "317", "318"]);
+});
+
+test("room imports reject incomplete room/status snapshots and image uploads preflight before saving", () => {
+  const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
+  const importer = importerSource;
+  assert.match(api, /const missingRooms = \[\.\.\.knownRooms\]\.filter/);
+  assert.match(api, /const missingStatuses = rows\.filter/);
+  assert.match(api, /status: 422/);
+  assert.match(api, /Nothing was saved/);
+  assert.match(importer, /validate_only: true/);
+  assert.match(importer, /rows: validationPayload\.rows/);
+});
+
+test("room availability bubbles normalize room identifiers and mark only vacant-ready rooms available", () => {
+  assert.equal(roomKey("Room 0316"), "0316");
+  assert.equal(roomKey("mgr"), "MGR");
+  assert.equal(roomStatusBadge("VR")?.available, true);
+  assert.equal(roomStatusBadge("Vacant Ready")?.label, "Available");
+  assert.equal(roomStatusBadge("VD")?.available, false);
+  assert.equal(roomStatusBadge("Occupied")?.available, false);
+  assert.equal(roomStatusBadge("") , null);
+  const createRoute = readFileSync(new URL("../src/app/api/rooms/route.ts", import.meta.url), "utf8");
+  const workOrdersRoute = readFileSync(new URL("../src/app/api/work-orders/route.ts", import.meta.url), "utf8");
+  const selector = readFileSync(new URL("../src/components/desktop/WorkOrderListWindow.tsx", import.meta.url), "utf8");
+  assert.match(createRoute, /room_status: currentRoomStatus/);
+  assert.match(workOrdersRoute, /room_status: currentRoomStatus/);
+  assert.match(selector, /roomStatusBadge\(order\.room_status\)/);
 });
 
 test("room operations do not show move or out-of-order event bubbles", () => {

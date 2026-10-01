@@ -13,6 +13,7 @@ import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-ca
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roleKey } from "@/lib/server/roles";
 import { workOrderHistoryText } from "@/lib/work-order-history";
+import { roomStatusBadge } from "@/lib/room-availability";
 
 
 type Asset = {
@@ -40,6 +41,7 @@ type WorkOrder = {
   location_id?: string | null;
   asset_id?: string | null;
   room?: string | null;
+  room_status?: string | null;
   asset_name?: string | null;
   category?: string | null;
   issue?: string | null;
@@ -1624,6 +1626,7 @@ export default function WorkOrderTicketPage() {
             <div className="mt-2 flex flex-wrap items-start gap-3">
               <div className="min-w-0">
                 <h1 className="text-3xl font-bold leading-none sm:text-4xl">{order.room || "Work Order"}</h1>
+                {roomStatusBadge(order.room_status) && <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}
                 <p className="mt-1 max-w-[22rem] truncate text-sm leading-5 text-slate-200 sm:max-w-[26rem]" title={issue || "No reported issue"}>
                   {issue || "No reported issue"}
                 </p>

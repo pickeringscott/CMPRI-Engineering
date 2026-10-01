@@ -65,6 +65,10 @@ function fixture(config = {}) {
       if (name === '@/lib/work-order-suggestions') return { inferWorkOrder: () => ({}), separateIssueFromReporterNotes: () => ({}) };
       if (name === '@/lib/work-order-categories') return { normalizeWorkOrderCategory: () => null };
       if (name === '@/lib/server/room-ranker') return { processRoomRankerSyncForWorkOrder: async () => ({}) };
+      if (name === '@/lib/server/room-availability') return {
+        loadCurrentRoomStatuses: async () => ({ date: '2026-10-01', statuses: new Map(), error: null }),
+        currentRoomStatus: () => null,
+      };
       throw new Error(`Unexpected import: ${name}`);
     },
   });

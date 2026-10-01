@@ -214,6 +214,25 @@ function mergeRoomOperations(
   return [...merged.values()];
 }
 
+function snapshotMatches(expected: ValidatedRow[], actual: SnapshotRow[]) {
+  const savedByRoom = new Map(actual.map((row) => [row.room, row]));
+  return actual.length === expected.length && expected.every((row) => {
+    const saved = savedByRoom.get(row.room);
+    return !!saved
+      && saved.checkout_date === row.checkout_date
+      && saved.checkout_time === row.checkout_time
+      && saved.room_status === row.room_status
+      && saved.arrival_date === row.arrival_date
+      && saved.arrival_time === row.arrival_time
+      && saved.guest_name === row.guest_name
+      && saved.room_type === row.room_type
+      && saved.guest_code === row.guest_code
+      && saved.guest_arrival_date === row.guest_arrival_date
+      && saved.stay_nights === row.stay_nights
+      && saved.reserved === row.reserved;
+  });
+}
+
 export default function RoomOperationsImport({
   date,
   onDateChange,
@@ -261,12 +280,27 @@ export default function RoomOperationsImport({
       setStatusText(extractedCsv);
       setStatusFileName(`ChatGPT Extracted (${fileList.map((f) => f.name).join(", ")})`);
 
-      setMessage("ChatGPT extracted and validated CSV data. Importing daily room operations snapshot…");
+      setMessage("Checking that the extraction contains every active room and its room status…");
+      const validationRes = await fetch("/api/room-operations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ source: "file", report_date: date, csv: extractedCsv, validate_only: true }),
+      });
+      const validationPayload = await validationRes.json().catch(() => ({})) as {
+        ok?: boolean;
+        count?: number;
+        rows?: ValidatedRow[];
+        error?: string;
+      };
+      if (!validationRes.ok || validationPayload.ok !== true || !Array.isArray(validationPayload.rows)) {
+        throw new Error(validationPayload.error || "Extracted room data failed validation.");
+      }
+      setMessage(`Validated ${validationPayload.count || validationPayload.rows.length} rooms and their status values. Saving the daily snapshot…`);
 
       const importRes = await fetch("/api/room-operations", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ source: "file", report_date: date, csv: extractedCsv }),
+        body: JSON.stringify({ source: "file", report_date: date, rows: validationPayload.rows }),
       });
       const importPayload = await importRes.json().catch(() => ({})) as {
         ok?: boolean;
@@ -284,6 +318,9 @@ export default function RoomOperationsImport({
       const result = await readback.json().catch(() => ({})) as { date?: string; rows?: SnapshotRow[]; error?: string };
       if (!readback.ok || typeof result.date !== "string" || !Array.isArray(result.rows)) {
         throw new Error(`Import ${importPayload.import_id} succeeded, but read-back verification failed: ${result.error || "Room operations could not be reloaded."}`);
+      }
+      if (result.date !== date || !snapshotMatches(validationPayload.rows, result.rows)) {
+        throw new Error(`Import ${importPayload.import_id} succeeded, but saved room statuses did not match the validated extraction. Reload Room Operations and verify report date ${date}.`);
       }
 
       const count = result.rows.length;
@@ -377,25 +414,8 @@ export default function RoomOperationsImport({
       if (!readback.ok || typeof result.date !== "string" || !Array.isArray(result.rows)) {
         throw new Error(`RPC ${payload.import_id} succeeded, but read-back verification failed: ${result.error || "Room operations could not be reloaded."}`);
       }
-      const savedByRoom = new Map(result.rows.map((row) => [row.room, row]));
-      const snapshotMatches = result.date === preview.date
-        && result.rows.length === preview.rows.length
-        && preview.rows.every((expected) => {
-          const actual = savedByRoom.get(expected.room);
-          return !!actual
-            && actual.checkout_date === expected.checkout_date
-            && actual.checkout_time === expected.checkout_time
-            && actual.room_status === expected.room_status
-            && actual.arrival_date === expected.arrival_date
-            && actual.arrival_time === expected.arrival_time
-            && actual.guest_name === expected.guest_name
-            && actual.room_type === expected.room_type
-            && actual.guest_code === expected.guest_code
-            && actual.guest_arrival_date === expected.guest_arrival_date
-            && actual.stay_nights === expected.stay_nights
-            && actual.reserved === expected.reserved;
-        });
-      if (!snapshotMatches) {
+      const matches = result.date === preview.date && snapshotMatches(preview.rows, result.rows);
+      if (!matches) {
         throw new Error(`RPC ${payload.import_id} succeeded, but the saved snapshot did not match the validated preview. Reload Room Operations and verify report date ${preview.date}.`);
       }
       setStatusText("");

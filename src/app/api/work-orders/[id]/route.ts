@@ -8,6 +8,7 @@ import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { roleKey } from "@/lib/server/roles";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
+import { currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
 const TECHNICAL_FIELDS = [
@@ -71,6 +72,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
+  const roomStatuses = await loadCurrentRoomStatuses(auth.admin);
+  if (roomStatuses.error || !roomStatuses.statuses) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
 
   const isTechnician = roleKey(auth.principal.profile.role) === "technician";
   if (isTechnician) {
@@ -132,6 +135,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({
     workOrder: {
       ...workOrder,
+      room_status: currentRoomStatus(roomStatuses.statuses, workOrder.room),
       creator_role: creatorRole,
       technician_view_entries: technicianViewEntries || [],
     },

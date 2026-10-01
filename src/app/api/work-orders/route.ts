@@ -14,9 +14,20 @@ import { likelyDuplicate } from "@/lib/work-order-duplicates";
 import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
+import { currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
 const ACTIVE_DUPLICATE_LIMIT = 1000;
+
+async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: SupabaseClient, orders: T[]) {
+  const roomStatuses = await loadCurrentRoomStatuses(admin);
+  const statuses = roomStatuses.statuses;
+  if (roomStatuses.error || !statuses) return null;
+  return orders.map((order) => ({
+    ...order,
+    room_status: currentRoomStatus(statuses, order.room),
+  }));
+}
 
 async function fetchAllAssetsForLocations(
   db: SupabaseClient,
@@ -112,7 +123,9 @@ export async function GET(request: NextRequest) {
       const dueB = b.due_by ? Date.parse(b.due_by) : Number.POSITIVE_INFINITY;
       return dueA - dueB || Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
     });
-    return NextResponse.json({ work_orders: workOrders }, { headers: { "Cache-Control": "no-store" } });
+    const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, workOrders);
+    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+    return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (mode === "duplicate-candidates") {
@@ -124,7 +137,9 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(500);
     if (error) return NextResponse.json({ error: "Existing work orders could not be checked for duplicates." }, { status: 503 });
-    return NextResponse.json({ work_orders: data || [] }, { headers: { "Cache-Control": "private, no-store" } });
+    const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
+    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+    return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
   if (mode !== "dashboard" || !allows(auth.principal, "view_dashboard")) {
@@ -140,7 +155,9 @@ export async function GET(request: NextRequest) {
   if ((data || []).length >= 2000) {
     return NextResponse.json({ error: "The dashboard result reached its safety limit. Narrow or archive old records before relying on this view." }, { status: 503 });
   }
-  return NextResponse.json({ work_orders: data || [] }, { headers: { "Cache-Control": "no-store" } });
+  const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
+  if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+  return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: NextRequest) {

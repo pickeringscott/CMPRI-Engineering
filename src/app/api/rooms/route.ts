@@ -3,6 +3,7 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { roleKey } from "@/lib/server/roles";
+import { loadCurrentRoomStatuses, currentRoomStatus } from "@/lib/server/room-availability";
 
 async function bodyObject(request: NextRequest): Promise<Record<string, unknown> | null> {
   try {
@@ -31,7 +32,15 @@ export async function GET(request: NextRequest) {
       .order("room_number", { ascending: true })
       .order("name", { ascending: true });
     if (error) return NextResponse.json({ error: "Locations could not be loaded." }, { status: 503 });
-    return NextResponse.json({ locations: data || [] }, { headers: { "Cache-Control": "no-store" } });
+    const roomStatuses = await loadCurrentRoomStatuses(admin);
+    const statuses = roomStatuses.statuses;
+    if (roomStatuses.error || !statuses) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+    const locations = (data || []).map((location) => ({
+      ...location,
+      room_status: currentRoomStatus(statuses, location.room_number || location.name),
+      room_status_report_date: roomStatuses.date,
+    }));
+    return NextResponse.json({ locations }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (!allows(principal, "view_dashboard") && !allows(principal, "manage_rooms")) {

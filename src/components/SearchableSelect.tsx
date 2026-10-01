@@ -7,6 +7,7 @@ export type SearchableSelectOption = {
   label: string;
   group?: string;
   keywords?: string[];
+  badge?: { label: string; className: string };
 };
 
 type Props = {
@@ -322,7 +323,10 @@ export default function SearchableSelect({
                             : "bg-slate-900 text-white hover:bg-sky-900/45"
                       }`}
                     >
-                      <span className="block truncate">{option.label}</span>
+                      <span className="flex min-w-0 items-center justify-between gap-2">
+                        <span className="truncate">{option.label}</span>
+                        {option.badge && <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${option.badge.className}`}>{option.badge.label}</span>}
+                      </span>
                     </button>
                   </div>
                 );

@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { filterKpiWorkOrders, isKpiOverdue, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
+import { roomStatusBadge } from "@/lib/room-availability";
 
 export type DesktopWorkOrder = Record<string, unknown> & {
   id: string;
   display_id?: string | null;
   room?: string | null;
+  room_status?: string | null;
   asset_name?: string | null;
   category?: string | null;
   issue?: string | null;
@@ -155,6 +157,7 @@ export default function WorkOrderListWindow({
                     <button type="button" onClick={(event) => { event.stopPropagation(); onOpenWorkOrder(order); }} className="max-w-full truncate text-left font-bold text-white hover:underline">
                       {order.room || "No location"}
                     </button>
+                    {roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[0.72em] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}
                     {order.category && <span className="block truncate text-[0.8em] text-slate-500">{order.category}</span>}
                   </td>
                   <td className="px-[0.6em] py-[0.45em]">

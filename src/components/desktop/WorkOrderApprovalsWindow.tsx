@@ -3,6 +3,7 @@
 import type { WorkOrderNotification } from "@/lib/dashboard/work-order-notifications";
 import { roleDisplayName } from "@/lib/account-display";
 import { priorityClass, type DesktopWorkOrder } from "./WorkOrderListWindow";
+import { roomStatusBadge } from "@/lib/room-availability";
 
 function formatWhen(value: string) {
   const time = Date.parse(value);
@@ -56,7 +57,7 @@ export default function WorkOrderApprovalsWindow({
               <li key={order.id}>
                 <button type="button" onClick={() => onOpenWorkOrder(order.id)} className="flex w-full items-start gap-[0.6em] px-[0.7em] py-[0.45em] text-left hover:bg-slate-800/60">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold text-white">{order.display_id ? `${order.display_id} · ` : ""}{order.room || "No location"}</span>
+                    <span className="block truncate font-semibold text-white">{order.display_id ? `${order.display_id} · ` : ""}{order.room || "No location"}{roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}</span>
                     <span className="block truncate text-[0.88em] text-slate-300">{order.issue || "No issue description"}</span>
                     <span className="block truncate text-[0.8em] text-slate-500">{order.technician_name || "Unassigned"}</span>
                   </span>

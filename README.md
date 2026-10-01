@@ -18,6 +18,10 @@ The migration has not been executed against the real schema/RLS in this session.
 
 The source includes the engineering dashboard, work-order creation and detail pages, client-side duplicate warnings, room/location and asset management, documentation/manual routing and maintenance AI, technician pages, Room Ranker and Corporate PM adapters, user management, and purchasing/email operations. These are not claims of complete integration: server-enforced duplicate concurrency, required attribution/drafts, access-control coverage, real sheet/mailbox integration and other acceptance items remain incomplete as detailed in REQUIREMENTS-V1.0.md.
 
+## Daily room status and availability
+
+Daily room-operation imports must include every active guest room and its reported room status. Image extraction is preflighted before saving; incomplete room lists or missing statuses are rejected rather than silently creating a partial snapshot. Current-day status badges appear in the room selector and on accessible work-order lists and details. `Vacant Ready` / `VR` is labeled **Available**; other reported conditions retain their status label. Availability is based on today's hotel-local report only.
+
 ## v1.0 purchasing and email operations
 
 CMPRI can ingest operational messages through read-only Microsoft 365/Outlook or Gmail adapters into the same purchasing and activity records. These adapters were tested with fixtures, not the real work mailbox.

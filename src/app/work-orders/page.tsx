@@ -21,6 +21,7 @@ import { categoryOptions } from "@/lib/work-order-categories";
 import { validFirstName } from "@/lib/work-order-attribution";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
+import { roomStatusBadge } from "@/lib/room-availability";
 
 type Location = {
   id: string;
@@ -28,6 +29,7 @@ type Location = {
   name: string;
   room_number: string | null;
   location_type: string;
+  room_status?: string | null;
 };
 
 
@@ -964,6 +966,7 @@ export default function WorkOrdersPage() {
       (location) =>
         location.id === locationId
     );
+  const selectedLocationStatus = roomStatusBadge(selectedLocation?.room_status);
 
   const locationAssets = assetsForLocation(selectedLocation, assets);
   const availableAssets = locationAssets;
@@ -1920,10 +1923,12 @@ export default function WorkOrdersPage() {
         value: location.id,
         label: location.name,
         group: cmpriLocationSection(location),
+        badge: roomStatusBadge(location.room_status) || undefined,
         keywords: [
           location.room_number ?? "",
           location.area ?? "",
           location.location_type ?? "",
+          location.room_status ?? "",
         ],
       }));
   }, [locations]);
@@ -2064,6 +2069,11 @@ export default function WorkOrdersPage() {
                 options={locationOptions}
                 topSuggestions={2}
               />
+              {selectedLocation && (selectedLocationStatus ? (
+                <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${selectedLocationStatus.className}`}>
+                  Room condition: {selectedLocationStatus.label}
+                </span>
+              ) : <span className="mt-1 block text-xs text-slate-500">Room status not reported today.</span>)}
             </label>
 
             <label className="block">

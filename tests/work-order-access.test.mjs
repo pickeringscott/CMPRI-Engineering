@@ -94,6 +94,10 @@ function fixture(config={}){
       if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment};
       if(name==='@/lib/work-order-categories')return {normalizeWorkOrderCategory:(value)=>typeof value==='string'&&value.trim()?value.trim():null};
       if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>{}};
+      if(name==='@/lib/server/room-availability')return {
+        loadCurrentRoomStatuses:async()=>({date:'2026-10-01',statuses:new Map(),error:null}),
+        currentRoomStatus:()=>null,
+      };
       throw new Error(name);
     },
   });

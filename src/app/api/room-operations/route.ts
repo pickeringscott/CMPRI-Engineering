@@ -129,7 +129,7 @@ function parseCsvToRows(rawCsv: string): Record<string, unknown>[] {
 
   const roomIdx = findCol("ROOM", "ROOM #", "ROOM NUMBER", "RM");
   if (roomIdx < 0) return [];
-  const statusIdx = findCol("ROOM STATUS", "HOUSEKEEPING STATUS", "HK STATUS", "STATUS");
+  const statusIdx = findCol("ROOM STATUS", "HOUSEKEEPING STATUS", "HK STATUS", "ROOM CONDITION", "CONDITION", "STATUS");
   const guestNameIdx = findCol("GUEST NAME", "GUEST / NAME", "GUEST", "NAME");
   const roomTypeIdx = findCol("ROOM TYPE", "RM TYPE", "ROOM TYPE CODE", "TYPE");
   const losIdx = findCol("LOS", "LENGTH OF STAY", "NIGHTS");
@@ -360,6 +360,19 @@ export async function POST(request: NextRequest) {
       }
     });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Room-operations validation failed." }, { status: 400 }); }
+
+  const importedRooms = new Set(rows.map((row) => String(row.room)));
+  const missingRooms = [...knownRooms].filter((room) => !importedRooms.has(room)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const missingStatuses = rows.filter((row) => !String(row.room_status || "").trim()).map((row) => String(row.room));
+  if (missingRooms.length || missingStatuses.length) {
+    const details = [
+      missingRooms.length ? `missing rooms: ${missingRooms.slice(0, 20).join(", ")}${missingRooms.length > 20 ? ` and ${missingRooms.length - 20} more` : ""}` : "",
+      missingStatuses.length ? `missing room status: ${missingStatuses.slice(0, 20).join(", ")}${missingStatuses.length > 20 ? ` and ${missingStatuses.length - 20} more` : ""}` : "",
+    ].filter(Boolean).join("; ");
+    return NextResponse.json({
+      error: `Room snapshot is incomplete (${details}). Nothing was saved. Include every active room and its reported room status, then retry.`,
+    }, { status: 422 });
+  }
 
   if (body.validate_only === true) {
     return NextResponse.json({ ok: true, date: reportDate, count: rows.length, rows }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Authorization" } });
