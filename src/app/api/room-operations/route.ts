@@ -315,19 +315,19 @@ export async function POST(request: NextRequest) {
       const room = roomValue(rawRoom, `Row ${index + 1} room`);
       if (room !== "MGR" && !knownRooms.has(room)) throw new Error(`Row ${index + 1}: Room ${room} is not an active CMPRI room.`);
 
-      const checkoutDate = normalizedDate(row.checkoutDate ?? row.checkout_date ?? row["Checkout Date"], `Row ${index + 1} checkout date`);
-      const checkoutTime = normalizedDate(row.checkoutDate ?? row.checkout_date ?? row["Checkout Date"], `Row ${index + 1} checkout date`)
+      const checkoutDate = normalizedDate(row.checkoutDate ?? row.checkout_date ?? row["Checkout Date"]);
+      const checkoutTime = normalizedDate(row.checkoutDate ?? row.checkout_date ?? row["Checkout Date"])
         ? shortText(row.checkoutTime ?? row.checkout_time ?? row["Checkout Time"], `Row ${index + 1} checkout time`, 80) || "11:00 AM"
         : "";
       const roomStatus = shortText(row.roomStatus ?? row.room_status ?? row["Room Status"] ?? row.status, `Row ${index + 1} room status`, 200);
-      const arrivalDate = normalizedDate(row.arrivalDate ?? row.arrival_date ?? row["Arrival Date"], `Row ${index + 1} arrival date`);
+      const arrivalDate = normalizedDate(row.arrivalDate ?? row.arrival_date ?? row["Arrival Date"]);
       const arrivalTime = shortText(row.arrivalTime ?? row.arrival_time ?? row["Arrival Time"], `Row ${index + 1} arrival time`, 80);
       const guestName = shortText(row.guestName ?? row.guest_name ?? row["Guest Name"], `Row ${index + 1} guest name`, 200);
       const roomType = shortText(row.roomType ?? row.room_type ?? row["Room Type"], `Row ${index + 1} room type`, 80);
       const guestCode = shortText(row.guestCode ?? row.guest_code ?? row["Guest Code"], `Row ${index + 1} guest code`, 80);
-      const guestArrivalDate = normalizedDate(row.guestArrivalDate ?? row.guest_arrival_date ?? row["Guest Arrival"], `Row ${index + 1} guest arrival date`);
-      const stayNightsVal = stayNights(row.stayNights ?? row.stay_nights ?? row.LOS ?? row.los, `Row ${index + 1} length of stay`);
-      const reservedVal = reserved(row.reserved ?? row.Reserved, `Row ${index + 1} reserved`);
+      const guestArrivalDate = normalizedDate(row.guestArrivalDate ?? row.guest_arrival_date ?? row["Guest Arrival"]);
+      const stayNightsVal = stayNights(row.stayNights ?? row.stay_nights ?? row.LOS ?? row.los);
+      const reservedVal = reserved(row.reserved ?? row.Reserved);
 
       const existingIdx = rows.findIndex((r) => r.room === room);
       if (existingIdx >= 0) {
