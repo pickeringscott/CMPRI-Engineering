@@ -16,6 +16,7 @@ import {
   type WorkOrderNotification,
 } from "@/lib/dashboard/work-order-notifications";
 import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
+import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 
 const REFRESH_MS = 30_000;
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
@@ -58,6 +59,7 @@ export default function TechnicianDashboard() {
   const notificationCursorRef = useRef<string | null>(null);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
+  const notificationCount = notifications.length;
 
   const playAlertTone = useCallback(() => {
     if (!soundEnabledRef.current) return;
@@ -212,11 +214,24 @@ export default function TechnicianDashboard() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto w-full px-1 py-2 sm:px-2 lg:w-[66vw]">
+      <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
         <div className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-[20px] font-bold text-amber-400">{account?.name?.trim() || account?.role || "Maintenance Technician"}</h1>
-            <p className="mt-1 text-sm text-slate-300">Maintenance Technician</p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></h1>
+              <div className="mt-2 flex items-center gap-2">
+                <p className="text-[14pt] font-semibold tracking-tight text-slate-100">{account?.name?.trim() || account?.role || "Maintenance Technician"}</p>
+                {notificationCount > 0 && (
+                  <DashboardNotificationBell
+                    count={notificationCount}
+                    label={`${notificationCount} work-order notification${notificationCount === 1 ? "" : "s"}`}
+                    title="Go to work-order notifications"
+                    onClick={() => document.getElementById("technician-notifications")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+                  />
+                )}
+              </div>
+              <p className="mt-1 text-[9pt] font-medium text-sky-200/90">Maintenance Technician</p>
+            </div>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
               <span>Assigned Work</span>
               <span className="text-slate-500">•</span>
@@ -224,21 +239,23 @@ export default function TechnicianDashboard() {
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 disabled:opacity-50">
+            <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-[9pt] font-bold text-slate-200 disabled:opacity-50">
               {loading ? "Refreshing…" : "Refresh"}
             </button>
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
-            <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
-            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
+            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </div>
 
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
-        <WorkOrderNotificationBanner
-          notifications={notifications}
-          onDismiss={dismissNotifications}
-          dismissLabel="Dismiss my alerts"
-        />
+        <div id="technician-notifications">
+          <WorkOrderNotificationBanner
+            notifications={notifications}
+            onDismiss={dismissNotifications}
+            dismissLabel="Dismiss my alerts"
+          />
+        </div>
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
 
         {newWorkQueue.length > 0 && (

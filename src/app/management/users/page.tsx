@@ -6,8 +6,9 @@ import { getValidSession } from "@/lib/supabase/client";
 import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { roleDisplayName } from "@/lib/account-display";
 
-type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; active: boolean | null; can_manage: boolean };
+type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[]; active: boolean | null; can_manage: boolean };
 
 export default function UserManagementPage() {
   const embedded = useEmbeddedModal();
@@ -168,9 +169,12 @@ export default function UserManagementPage() {
                 <p className="mt-1 text-xs text-slate-500">{user.active === true ? "Active" : "Inactive"}</p>
               </div>
               {user.can_manage ? (
-                <SearchableSelect value={user.role || ""} onChange={(value) => void updateUser(user, { role: value })} options={roles.includes(user.role || "") ? roleOptions : [{ value: user.role || "", label: user.role || "Unassigned" }, ...roleOptions]} placeholder={`Role for ${user.full_name || "user"}`} disabled={busy} />
+                <div className="min-w-0">
+                  <SearchableSelect value={user.role || ""} onChange={(value) => void updateUser(user, { role: value })} options={roles.includes(user.role || "") ? roleOptions : [{ value: user.role || "", label: roleDisplayName(user.role || "Unassigned") }, ...roleOptions]} placeholder={`Role for ${user.full_name || "user"}`} disabled={busy} />
+                  {Boolean(user.secondary_roles?.length) && <p className="mt-1 text-xs text-slate-500">{roleDisplayName(user.secondary_roles || [])}</p>}
+                </div>
               ) : (
-                <p className="text-sm text-slate-400">{user.role || "Unassigned"}</p>
+                <p className="text-sm text-slate-400">{roleDisplayName([user.role || "Unassigned", ...(user.secondary_roles || [])])}</p>
               )}
               {user.can_manage ? (
                 <button disabled={busy} onClick={() => void updateUser(user, { active: user.active !== true })} className={`rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50 ${user.active !== true ? "border-emerald-500/50 text-emerald-200" : "border-red-500/50 text-red-200"}`}>{user.active !== true ? "Reactivate" : "Deactivate"}</button>
@@ -188,8 +192,8 @@ export default function UserManagementPage() {
       </div>
 
       {pendingDelete && (
-        <div role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-1">
-          <div className="cmpri-modal-shell rounded-2xl border border-red-500/50 bg-slate-900 p-6 shadow-2xl">
+        <div role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" className="cmpri-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80">
+          <div className="cmpri-modal-shell border border-red-500/50 bg-slate-900 shadow-2xl">
             <h2 id="delete-dialog-title" className="text-lg font-bold text-red-200">Permanently Delete Account</h2>
             <p className="mt-3 text-sm text-slate-300">
               This removes <span className="font-semibold text-white">{deleteExpectedName || "this account"}</span> and every work order, draft, note, history event, and activity record they created. It cannot be undone.

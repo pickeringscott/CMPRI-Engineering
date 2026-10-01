@@ -233,10 +233,82 @@ export default function RoomOperationsImport({
   const today = hotelDate();
   const yesterday = new Date(new Date(`${today}T12:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
 
+  async function handleImageUpload(files: FileList | File[]) {
+    const fileList = Array.from(files);
+    if (!fileList.length) return;
+    if (!date) {
+      setMessage("Choose the report date before uploading report images.");
+      return;
+    }
+    setBusy(true);
+    setMessage("Sending RoomStatus image(s) to ChatGPT for extraction and validation…");
+    try {
+      const authHeaders = await authorizationHeaders();
+      const formData = new FormData();
+      fileList.forEach((file) => formData.append("images", file));
+
+      const extractRes = await fetch("/api/room-operations/extract", {
+        method: "POST",
+        headers: authHeaders,
+        body: formData,
+      });
+      const extractPayload = await extractRes.json().catch(() => ({})) as { ok?: boolean; csv?: string; error?: string };
+      if (!extractRes.ok || extractPayload.ok !== true || !extractPayload.csv) {
+        throw new Error(extractPayload.error || "ChatGPT image extraction failed.");
+      }
+
+      const extractedCsv = extractPayload.csv;
+      setStatusText(extractedCsv);
+      setStatusFileName(`ChatGPT Extracted (${fileList.map((f) => f.name).join(", ")})`);
+
+      setMessage("ChatGPT extracted and validated CSV data. Importing daily room operations snapshot…");
+
+      const importRes = await fetch("/api/room-operations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ source: "file", report_date: date, csv: extractedCsv }),
+      });
+      const importPayload = await importRes.json().catch(() => ({})) as {
+        ok?: boolean;
+        import_id?: string;
+        date?: string;
+        count?: number;
+        notifications_recorded?: boolean;
+        error?: string;
+      };
+      if (!importRes.ok || importPayload.ok !== true || !importPayload.import_id) {
+        throw new Error(importPayload.error || "Room operations import failed.");
+      }
+
+      const readback = await fetch(`/api/room-operations?date=${encodeURIComponent(date)}`, { headers: authHeaders, cache: "no-store" });
+      const result = await readback.json().catch(() => ({})) as { date?: string; rows?: SnapshotRow[]; error?: string };
+      if (!readback.ok || typeof result.date !== "string" || !Array.isArray(result.rows)) {
+        throw new Error(`Import ${importPayload.import_id} succeeded, but read-back verification failed: ${result.error || "Room operations could not be reloaded."}`);
+      }
+
+      const count = result.rows.length;
+      setMessage(
+        importPayload.notifications_recorded === false
+          ? `ChatGPT successfully extracted and imported ${count} room rows for ${result.date} (import ${importPayload.import_id}), but notifications could not be saved.`
+          : `ChatGPT successfully extracted, validated, and imported ${count} room rows for ${result.date} (import ${importPayload.import_id})! Out of Order status and room moves are active.`
+      );
+      setPreview(null);
+      onCommitted(result.date);
+    } catch (error) {
+      setMessage(error instanceof Error ? `Image extraction & import error: ${error.message}` : "Image extraction and import failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadFile(file: File | undefined, kind: "status" | "departures") {
     if (!file) return;
+    if (file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp|heic|pdf)$/i.test(file.name)) {
+      void handleImageUpload([file]);
+      return;
+    }
     if (!/\.(csv|tsv|txt)$/i.test(file.name)) {
-      setMessage("Choose a CSV, TSV, or TXT report file.");
+      setMessage("Choose a CSV, TSV, TXT, or image report file.");
       return;
     }
     try {
@@ -345,9 +417,36 @@ export default function RoomOperationsImport({
   return (
     <section aria-label="Import Daily Room Operations" className="space-y-3 rounded-xl border border-emerald-500/35 bg-slate-900/70 p-3">
       <div>
-        <h2 className="text-lg font-semibold">Manual Daily Room Ops Upload</h2>
-        <p className="mt-1 text-sm text-slate-400">Upload today&apos;s Room Status Report and Expected Departures. They are merged by room; expected departures without a checkout time default to 11:00 AM. No automated integrations or AI extraction are used.</p>
+        <h2 className="text-lg font-semibold">Daily Room Ops Upload</h2>
+        <p className="mt-1 text-sm text-slate-400">Upload today&apos;s Room Status Report and Expected Departures photos or CSV files. When images are uploaded, CMPRI sends them to ChatGPT to extract, validate, and import them with zero manual CSV steps. Expected departures without a checkout time default to 11:00 AM.</p>
       </div>
+
+      <div className="rounded-xl border border-sky-500/40 bg-sky-950/25 p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-sky-200">Upload RoomStatus Images (ChatGPT Auto-Import)</h3>
+            <p className="text-xs text-slate-300">Take or upload photos of Room Status & Departures reports. ChatGPT extracts and validates the exact CSV format and imports it automatically.</p>
+          </div>
+          <label className="shrink-0">
+            <span className={`inline-block cursor-pointer rounded-lg bg-sky-500 px-4 py-2 text-center text-xs font-bold text-slate-950 shadow hover:bg-sky-400 ${busy ? "pointer-events-none opacity-50" : ""}`}>
+              {busy ? "Processing with ChatGPT…" : "Upload Images & Auto-Import"}
+            </span>
+            <input
+              type="file"
+              accept=".csv,.tsv,.txt,image/*,.pdf"
+              multiple
+              disabled={busy}
+              onChange={(event) => {
+                const files = event.target.files;
+                if (files && files.length) void handleImageUpload(files);
+                event.currentTarget.value = "";
+              }}
+              className="sr-only"
+            />
+          </label>
+        </div>
+      </div>
+
       <label className="block max-w-xs text-xs font-semibold text-slate-300">
         Report date
         <input type="date" required min={yesterday} max={today} value={date} onChange={(event) => { onDateChange(event.target.value); setPreview(null); }} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
@@ -356,12 +455,12 @@ export default function RoomOperationsImport({
         <label className="block text-xs font-semibold text-slate-300">
           Room Status Report {statusFileName ? `· ${statusFileName}` : ""}
           <textarea value={statusText} onChange={(event) => { setStatusText(event.target.value); setStatusFileName(""); setPreview(null); }} rows={8} placeholder={"Room\tRoom Status\tGuest Name\tRoom Type\n316\tOccupied\tGuest Name\tKING\nMGR\tOut of Order\t\t"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
-          <input type="file" accept=".csv,.tsv,.txt" onChange={(event) => { void loadFile(event.target.files?.[0], "status"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
+          <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "status"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
         <label className="block text-xs font-semibold text-slate-300">
           Expected Departures {departuresFileName ? `· ${departuresFileName}` : ""}
           <textarea value={departuresText} onChange={(event) => { setDeparturesText(event.target.value); setDeparturesFileName(""); setPreview(null); }} rows={8} placeholder={"Room\tCheckout Date\tCheckout Time\tGuest Name\n316\t9/30/2026\t\tGuest Name"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
-          <input type="file" accept=".csv,.tsv,.txt" onChange={(event) => { void loadFile(event.target.files?.[0], "departures"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
+          <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "departures"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
       </div>
       <button type="button" onClick={() => void prepareImport()} disabled={busy || !date} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">Preview Merged Snapshot</button>

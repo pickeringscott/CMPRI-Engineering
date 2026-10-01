@@ -99,21 +99,29 @@ test('global route modals scale down from their dashboard and retain usable mobi
   assert.match(source, /className="cmpri-modal-shell cmpri-dashboard-overlay-panel/);
   assert.match(source, /const scale = 0\.9 \*\* \(index \+ 1\)/);
   assert.match(source, /"--cmpri-modal-width": `min\(\$\{66 \* scale\}vw, \$\{72 \* scale\}rem\)`/);
-  assert.match(source, /"--cmpri-modal-mobile-width": `calc\(\$\{100 \* scale\}vw - \$\{8 \* scale\}px\)`/);
-  assert.match(source, /"--cmpri-modal-height": `calc\(\$\{100 \* scale\}dvh - \$\{8 \* scale\}px\)`/);
-  assert.match(source, /"--cmpri-modal-mobile-height": `calc\(\$\{100 \* scale\}dvh - \$\{8 \* scale\}px\)`/);
+  assert.match(source, /"--cmpri-modal-mobile-width": `calc\(\$\{100 \* scale\}vw - \$\{16 \* scale\}px\)`/);
+  assert.match(source, /"--cmpri-modal-height": `calc\(\$\{100 \* scale\}dvh - \$\{16 \* scale\}px\)`/);
+  assert.match(source, /"--cmpri-modal-mobile-height": `calc\(\$\{100 \* scale\}dvh - \$\{16 \* scale\}px\)`/);
   assert.match(styles, /\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(66vw, 72rem\)\)/);
-  assert.match(styles, /\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-width, min\(66vw, 72rem\)\) !important/);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-dashboard-overlay-panel\s*\{\s*width: var\(--cmpri-modal-mobile-width, calc\(100vw - 8px\)\) !important/);
+  assert.match(source, /cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame/);
+  assert.match(styles, /\.cmpri-modal-shell\.cmpri-modal-frame\s*\{\s*width: var\(--cmpri-modal-width, min\(66vw, 72rem\)\) !important/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.cmpri-modal-shell\.cmpri-modal-frame\s*\{\s*width: var\(--cmpri-modal-mobile-width, calc\(100vw - 1rem\)\) !important/);
+  assert.match(styles, /\.cmpri-modal-shell\.cmpri-modal-frame\s*\{[\s\S]*?padding:\s*0 !important/);
 });
 
-test('embedded and standalone modals share a compact spacing rhythm', () => {
+test('embedded and standalone modals share typography and compact spacing tokens', () => {
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
-  assert.match(styles, /--cmpri-modal-spacing:\s*0\.25rem/);
+  assert.match(styles, /--cmpri-text-body:\s*0\.875rem/);
+  assert.match(styles, /--cmpri-text-body-line-height:\s*1\.45/);
+  assert.match(styles, /--cmpri-panel-padding:\s*0\.5rem/);
+  assert.match(styles, /--cmpri-modal-spacing:\s*var\(--cmpri-panel-padding\)/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] main,\s*\.cmpri-modal-shell\s*\{\s*padding:\s*var\(--cmpri-modal-spacing\) !important/);
+  assert.match(styles, /font-size:\s*var\(--cmpri-text-body\);\s*line-height:\s*var\(--cmpri-text-body-line-height\)/);
+  assert.match(styles, /\.cmpri-modal-backdrop\s*\{\s*box-sizing:\s*border-box;\s*padding:\s*var\(--cmpri-modal-spacing\) !important/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] section\[class\*="rounded"\]\[class\*="border"\],\s*\.cmpri-modal-shell section\[class\*="rounded"\]\[class\*="border"\]/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] main :is\(div, section, form, article\)\[class~="p-6"\]/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] \[class~="gap-5"\],[\s\S]*?\.cmpri-modal-shell \[class~="gap-5"\][\s\S]*?margin-top:\s*var\(--cmpri-modal-spacing\) !important/);
+  assert.match(styles, /\.cmpri-modal-shell\s*\{[\s\S]*?width:\s*min\(66vw,\s*72rem\) !important/);
 });
 
 test('sign out from an embedded modal clears modal state and redirects the host', () => {
@@ -150,6 +158,13 @@ test('dashboard return works for tokenless modals and respects embedded cancel g
   assert.match(source, /if \(returnToDashboard\) \{\s*if \(stack\.length === 0\) return;\s*event\.preventDefault\(\);\s*setStack\(\[\]\)/);
   assert.match(source, /button\[data-cmpri-modal-dashboard='true'\]/);
   assert.match(source, /embeddedCleanupRefs\.current\.get\(entry\.id\)/);
+});
+
+test('dashboard return actions are omitted from embedded modal pages', () => {
+  const dashboardLink = readFileSync(new URL('../src/components/ModalDashboardLink.tsx', import.meta.url), 'utf8');
+  const workOrder = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
+  assert.match(dashboardLink, /const embedded = useEmbeddedModal\(\);\s*if \(embedded\) return null;/);
+  assert.match(workOrder, /\{!embedded && \(\s*<Link href="\/engineering"[\s\S]*?← Engineering Dashboard[\s\S]*?<\/Link>\s*\)\}/);
 });
 
 test('embedded navigation is handled by the parent host without opening a child-host modal', () => {
@@ -215,7 +230,7 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
   }
   assert.match(navigation, /<button\s+key=[\s\S]*?type="button"\s+data-cmpri-desktop-launch=\{launcher\.key\}/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
-  assert.match(dashboard, /onClick=\{\(\) => launch\(launcher\)\}/);
+  assert.match(dashboard, /onClick=\{\(\) => launch\(launcher/);
 });
 
 test('shared modal navigation controls render buttons instead of links', () => {

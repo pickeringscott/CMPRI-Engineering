@@ -1,6 +1,7 @@
 "use client";
 
 import type { MouseEvent, ReactNode } from "react";
+import useEmbeddedModal from "@/components/use-embedded-modal";
 
 export default function ModalDashboardLink({
   href = "/engineering",
@@ -11,6 +12,9 @@ export default function ModalDashboardLink({
   className?: string;
   children?: ReactNode;
 }) {
+  const embedded = useEmbeddedModal();
+  if (embedded) return null;
+
   const label = typeof children === "string"
     ? children.replace(/^\s*←\s*/, "")
     : children;

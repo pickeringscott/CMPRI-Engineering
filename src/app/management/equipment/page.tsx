@@ -373,8 +373,8 @@ export default function ManageEquipmentPage() {
       </div>
 
       {showDocumentationDialog && selected && canManage && editing && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-1">
-          <div role="dialog" aria-modal="true" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/75">
+          <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div><h2 className="text-xl font-bold">Add Documentation</h2><p className="mt-1 text-sm text-slate-400">{selected.name}</p></div>
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>

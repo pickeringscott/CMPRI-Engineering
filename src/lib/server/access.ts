@@ -6,6 +6,7 @@ export type AccessProfile = {
   id: string;
   email: string | null;
   role: string;
+  secondary_roles?: string[];
   active: boolean;
   full_name: string | null;
   property_scope?: string | null;

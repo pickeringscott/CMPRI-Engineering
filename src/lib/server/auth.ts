@@ -66,7 +66,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
 
     let { data: profileRow, error: profileError } = await lookup
       .from("profiles")
-      .select("id, email, full_name, role, active, property_scope")
+      .select("id, email, full_name, role, secondary_roles, active, property_scope")
       .eq("id", userId)
       .maybeSingle();
     if (admin && profileError && isInvalidApiKey(profileError.message)) {
@@ -74,7 +74,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
       lookup = sessionClient;
       ({ data: profileRow, error: profileError } = await lookup
         .from("profiles")
-        .select("id, email, full_name, role, active, property_scope")
+        .select("id, email, full_name, role, secondary_roles, active, property_scope")
         .eq("id", userId)
         .maybeSingle());
     }

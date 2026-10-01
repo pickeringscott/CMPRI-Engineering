@@ -18,7 +18,7 @@ const actor = '00000000-0000-0000-0000-000000000002';
 const room = '00000000-0000-0000-0000-000000000003';
 try {
   await db.exec(`create schema auth;
-    create table auth.users (id uuid primary key);
+    create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}'::jsonb);
     create role anon;
     create role authenticated;
     create role service_role;
@@ -106,6 +106,48 @@ try {
     await assert.rejects(
       () => db.exec("insert into public.profiles(id, role, active, full_name) values ('00000000-0000-0000-0000-000000000005', 'unknown_role', true, 'Invalid Role')"),
       /profiles_role_check/,
+    );
+  });
+  await check('Front Desk Manager role migration is idempotent and preserves existing roles', async () => {
+    const migration = readFileSync(new URL('../supabase/migrations/20260930230000_cmpri_front_desk_manager_role.sql', import.meta.url), 'utf8');
+    await db.exec(migration);
+    await db.exec(migration);
+    await db.exec("insert into public.profiles(id, role, active, full_name) values ('00000000-0000-0000-0000-000000000007', 'front_desk_manager', true, 'Test Front Desk Manager')");
+    await assert.rejects(
+      () => db.exec("insert into public.profiles(id, role, active, full_name) values ('00000000-0000-0000-0000-000000000008', 'unknown_role', true, 'Invalid Role')"),
+      /profiles_role_check/,
+    );
+    const frontDeskManager = '00000000-0000-0000-0000-000000000009';
+    await db.exec(`insert into public.profiles(id, role, active, full_name) values (${quote(frontDeskManager)}, 'front_desk_manager', true, 'Test Front Desk Manager');
+      insert into public.hotel_members(hotel_id, user_id, role, active) values (${quote(hotel)}, ${quote(frontDeskManager)}, 'viewer', true);
+      select set_config('cmpri.test_uid', ${quote(frontDeskManager)}, false);`);
+    const { rows: attributed } = await db.query(`insert into public.work_orders(hotel_id, display_id, room, issue, status, submitted_by_name)
+      values (${quote(hotel)}, 'front-desk-manager-test', 'Room 409', 'Test request', 'Open', 'Taylor')
+      returning creator_name, creator_source, status, submitted_by_name`);
+    assert.deepEqual(attributed[0], {
+      creator_name: 'Taylor',
+      creator_source: 'front_desk_pending_verification',
+      status: 'Pending Verification',
+      submitted_by_name: 'Taylor',
+    });
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(actor)}, false);`);
+  });
+  await check('secondary profile roles migration assigns engineer alongside system admin', async () => {
+    const target = '00000000-0000-0000-0000-000000000010';
+    await db.exec("alter table public.hotel_members add primary key (hotel_id, user_id)");
+    await db.exec(`insert into auth.users(id, email) values (${quote(target)}, 'maint.cmpri@hawkeyehotels.com');
+      insert into public.profiles(id, email, role, active, full_name) values (${quote(target)}, 'maint.cmpri@hawkeyehotels.com', 'engineer', true, 'CMPRI Maintenance');
+      insert into public.hotel_members(hotel_id, user_id, role, active) values (${quote(hotel)}, ${quote(target)}, 'viewer', true);`);
+    const migration = readFileSync(new URL('../supabase/migrations/20261001022500_cmpri_secondary_profile_roles.sql', import.meta.url), 'utf8');
+    await db.exec(migration);
+    await db.exec(migration);
+    const { rows } = await db.query(`select role, secondary_roles, active from public.profiles where id = ${quote(target)}`);
+    assert.deepEqual(rows[0], { role: 'system_admin', secondary_roles: ['engineer'], active: true });
+    const { rows: memberships } = await db.query(`select role, active from public.hotel_members where hotel_id = ${quote(hotel)} and user_id = ${quote(target)}`);
+    assert.deepEqual(memberships[0], { role: 'admin', active: true });
+    await assert.rejects(
+      () => db.exec(`update public.profiles set secondary_roles = ARRAY['system_admin']::text[] where id = ${quote(target)}`),
+      /profiles_secondary_roles_check/,
     );
   });
   await check('user feedback table migration is isolated, constrained, and idempotent', async () => {

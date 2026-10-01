@@ -8,7 +8,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 
-type Profile = { id: string; email: string | null; full_name: string | null; role: string | null };
+type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
 type Preferences = {
   language: "en" | "es";
   appearance: "light" | "dark";
@@ -37,8 +37,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const isSpanish = preferences?.language === "es";
+  const displayedRole = roleDisplayName([data?.profile.role || "", ...(data?.profile.secondary_roles || [])]);
   const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
-  const isSubmitOnlyProfile = ["Front Desk", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
+  const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
   const profileDashboardHref = isSubmitOnlyProfile
     ? "/work-orders"
     : "/engineering";
@@ -179,7 +180,7 @@ export default function ProfilePage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Display name", "Nombre para mostrar")}<input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white" /></label>
             {!isSubmitOnlyProfile && <label className="grid gap-1 text-sm text-slate-300">{tx("Sign-in email", "Correo de inicio de sesión")}<input value={data.profile.email || ""} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>}
-            <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={isHousekeeping ? "Housekeeping" : roleDisplayName(data.profile.role || "Unknown")} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
+            <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={isHousekeeping ? "Housekeeping" : displayedRole || "Unknown"} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
           </div>
         </section>
 

@@ -13,6 +13,7 @@ const ROLE_LABELS: Record<string, string> = {
   assistant_gm: "Front Desk",
   assistant_manager: "Front Desk",
   sales_manager: "Front Desk",
+  front_desk_manager: "Front Desk Manager",
   housekeeping: "Lead Housekeeper",
   lead_housekeeper: "Lead Housekeeper",
   executive_housekeeper: "Lead Housekeeper",
@@ -20,9 +21,13 @@ const ROLE_LABELS: Record<string, string> = {
   system_administrator: "System Administrator",
 };
 
-export function roleDisplayName(value: string) {
-  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return ROLE_LABELS[normalized] || value;
+export function roleDisplayName(value: string | readonly string[], secondaryRoles: readonly string[] = []) {
+  const roles = Array.isArray(value) ? value : [value];
+  const labels = [...roles, ...secondaryRoles].map((role) => {
+    const normalized = role.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return ROLE_LABELS[normalized] || role;
+  });
+  return [...new Set(labels)].join(" + ");
 }
 
 export function dashboardTitleForRole(role: string) {

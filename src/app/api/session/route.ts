@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
       name: attempt.principal.profile.full_name,
       email: attempt.principal.identity.email,
       role: attempt.principal.profile.role,
+      secondary_roles: attempt.principal.profile.secondary_roles || [],
     },
     hotelId: attempt.principal.hotelId,
     landing,

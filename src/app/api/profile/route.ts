@@ -52,12 +52,12 @@ export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data, error } = await auth.admin.from("profiles")
-    .select("id, email, full_name, role, preferences")
+    .select("id, email, full_name, role, secondary_roles, preferences")
     .eq("id", auth.principal.identity.id)
     .maybeSingle();
   if (error) {
     const { data: legacyProfile, error: legacyError } = await auth.admin.from("profiles")
-      .select("id, email, full_name, role, preferences")
+      .select("id, email, full_name, role, secondary_roles, preferences")
       .eq("id", auth.principal.identity.id)
       .maybeSingle();
     if (legacyError) return NextResponse.json({ error: "Profile could not be loaded." }, { status: 503 });
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "ChatGPT connection status could not be loaded. Apply the CMPRI MCP authorization migration." }, { status: 503 });
     }
     return NextResponse.json({
-      profile: { id: legacyProfile.id, email: legacyProfile.email, full_name: legacyProfile.full_name, role: legacyProfile.role },
+      profile: { id: legacyProfile.id, email: legacyProfile.email, full_name: legacyProfile.full_name, role: legacyProfile.role, secondary_roles: legacyProfile.secondary_roles || [] },
       preferences: preferencesForRole(auth.principal.profile.role, legacyProfile.preferences || DEFAULT_PROFILE_PREFERENCES),
       profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "ChatGPT connection status could not be loaded. Apply the CMPRI MCP authorization migration." }, { status: 503 });
   }
   return NextResponse.json({
-    profile: { id: data.id, email: data.email, full_name: data.full_name, role: data.role },
+    profile: { id: data.id, email: data.email, full_name: data.full_name, role: data.role, secondary_roles: data.secondary_roles || [] },
     preferences: preferencesForRole(auth.principal.profile.role, data.preferences || DEFAULT_PROFILE_PREFERENCES),
     profile_settings_available: true,
     can_manage_users: allows(auth.principal, "manage_users"),
@@ -111,7 +111,7 @@ export async function PATCH(request: NextRequest) {
   const { data, error } = await auth.admin.from("profiles")
     .update(update)
     .eq("id", auth.principal.identity.id)
-    .select("id, email, full_name, role, preferences")
+    .select("id, email, full_name, role, secondary_roles, preferences")
     .single();
   if (error) {
     const legacyUpdate: Record<string, unknown> = {};
@@ -120,7 +120,7 @@ export async function PATCH(request: NextRequest) {
     const { data: legacyProfile, error: legacyError } = await auth.admin.from("profiles")
       .update(legacyUpdate)
       .eq("id", auth.principal.identity.id)
-      .select("id, email, full_name, role, preferences")
+      .select("id, email, full_name, role, secondary_roles, preferences")
       .single();
     if (legacyError || !legacyProfile) return NextResponse.json({ error: "Profile could not be saved." }, { status: 400 });
     let chatgptConnection;
@@ -130,7 +130,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Profile was saved, but ChatGPT connection status could not be loaded." }, { status: 503 });
     }
     return NextResponse.json({
-      profile: { id: legacyProfile.id, email: legacyProfile.email, full_name: legacyProfile.full_name, role: legacyProfile.role },
+      profile: { id: legacyProfile.id, email: legacyProfile.email, full_name: legacyProfile.full_name, role: legacyProfile.role, secondary_roles: legacyProfile.secondary_roles || [] },
       preferences: preferencesForRole(auth.principal.profile.role, legacyProfile.preferences || DEFAULT_PROFILE_PREFERENCES),
       profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
@@ -145,7 +145,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Profile was saved, but ChatGPT connection status could not be loaded." }, { status: 503 });
   }
   return NextResponse.json({
-    profile: { id: data.id, email: data.email, full_name: data.full_name, role: data.role },
+    profile: { id: data.id, email: data.email, full_name: data.full_name, role: data.role, secondary_roles: data.secondary_roles || [] },
     preferences: preferencesForRole(auth.principal.profile.role, data.preferences || DEFAULT_PROFILE_PREFERENCES),
     profile_settings_available: true,
     chatgpt_connection: chatgptConnection,

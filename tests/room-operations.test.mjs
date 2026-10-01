@@ -195,3 +195,30 @@ test("work-order room context reads today's checkout time from the room snapshot
   assert.match(page, /Today(?:&apos;|')s checkout time/);
   assert.match(page, /checkoutTime = String\(roomOperation\?\.checkout_time \|\| ""\)/);
 });
+
+test("room-operations API accepts direct CSV payload and lenient LOS/reserved values", () => {
+  const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
+  assert.match(api, /text\/csv/);
+  assert.match(api, /parseCsvToRows/);
+  assert.match(api, /body\.csv/);
+  assert.match(api, /Number\.isSafeInteger\(parsed\)/);
+});
+
+test("room-operations image extraction endpoint sends image parts to ChatGPT vision", () => {
+  const extractRoute = readFileSync(new URL("../src/app/api/room-operations/extract/route.ts", import.meta.url), "utf8");
+  assert.match(extractRoute, /requireCapability\(request, "edit_tickets"\)/);
+  assert.match(extractRoute, /OPENAI_API_KEY/);
+  assert.match(extractRoute, /api\.openai\.com\/v1\/chat\/completions/);
+  assert.match(extractRoute, /image_url/);
+  assert.match(extractRoute, /gpt-4o/);
+  assert.match(extractRoute, /Room,Room Status,Guest Name,Room Type,LOS,Reserved/);
+});
+
+test("room-operations importer supports direct image upload and auto-import with ChatGPT", () => {
+  const importer = readFileSync(new URL("../src/app/engineering/room-operations/RoomOperationsImport.tsx", import.meta.url), "utf8");
+  assert.match(importer, /handleImageUpload/);
+  assert.match(importer, /\/api\/room-operations\/extract/);
+  assert.match(importer, /accept="\.csv,\.tsv,\.txt,image\/\*,\.pdf"/);
+  assert.match(importer, /Upload RoomStatus Images/);
+});
+

@@ -8,6 +8,7 @@ export type CmpriClientSession = {
     name: string | null;
     email: string | null;
     role: string;
+    secondary_roles?: string[];
   };
   hotelId: string;
   landing: "/work-orders" | "/technician" | "/engineering";

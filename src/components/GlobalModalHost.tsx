@@ -439,14 +439,14 @@ export default function GlobalModalHost() {
         const scale = 0.9 ** (index + 1);
         const panelStyle: ModalPanelStyle = {
           "--cmpri-modal-width": `min(${66 * scale}vw, ${72 * scale}rem)`,
-          "--cmpri-modal-height": `calc(${100 * scale}dvh - ${8 * scale}px)`,
-          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${8 * scale}px)`,
-          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${8 * scale}px)`,
+          "--cmpri-modal-height": `calc(${100 * scale}dvh - ${16 * scale}px)`,
+          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${16 * scale}px)`,
+          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${16 * scale}px)`,
         };
         return (
           <div
             key={entry.id}
-            className="cmpri-modal-backdrop pointer-events-auto absolute inset-0 flex items-center justify-center overscroll-contain bg-black/75 p-1 backdrop-blur-md"
+            className="cmpri-modal-backdrop pointer-events-auto absolute inset-0 flex items-center justify-center overscroll-contain bg-black/75 backdrop-blur-md"
             style={{ zIndex: 120 + index, pointerEvents: isTop ? "auto" : "none" }}
             inert={!isTop}
           >
@@ -455,7 +455,7 @@ export default function GlobalModalHost() {
               aria-modal={isTop}
               aria-label={entry.title}
               aria-hidden={!isTop}
-              className="cmpri-modal-shell cmpri-dashboard-overlay-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl"
+              className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
               style={panelStyle}
             >
               <iframe

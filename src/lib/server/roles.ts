@@ -17,6 +17,7 @@ export type CmpriRole =
   | "senior_management"
   | "technician"
   | "front_desk"
+  | "front_desk_manager"
   | "housekeeping"
   | "system_admin"
   | "unknown";
@@ -63,6 +64,7 @@ const aliases: Readonly<Record<string, CmpriRole>> = {
   assistantgeneralmanager: "front_desk",
   assistantmanager: "front_desk",
   salesmanager: "front_desk",
+  frontdeskmanager: "front_desk_manager",
 
   housekeeping: "housekeeping",
   leadhousekeeper: "housekeeping",
@@ -80,6 +82,13 @@ export function roleKey(value: unknown): CmpriRole {
   return Object.hasOwn(aliases, key) ? aliases[key] : "unknown";
 }
 
+export function profileHasRole(
+  profile: { role: unknown; secondary_roles?: readonly unknown[] },
+  role: CmpriRole,
+): boolean {
+  return roleKey(profile.role) === role || profile.secondary_roles?.some((secondaryRole) => roleKey(secondaryRole) === role) === true;
+}
+
 const TECHNICAL: readonly Capability[] = [
   "submit",
   "view_dashboard",
@@ -93,6 +102,7 @@ const TECHNICAL: readonly Capability[] = [
 const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   unknown: [],
   front_desk: ["submit", "submit_feedback", "view_profiles"],
+  front_desk_manager: ["submit", "submit_feedback", "view_profiles"],
   housekeeping: ["submit", "submit_feedback", "view_profiles"],
   technician: [...TECHNICAL, "submit_feedback"],
   engineer: [...TECHNICAL, "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
@@ -118,9 +128,9 @@ export function canEditEquipment(role: unknown): boolean {
   return ["engineer", "system_admin"].includes(roleKey(role));
 }
 
-export const isFrontDesk = (role: unknown) => roleKey(role) === "front_desk";
+export const isFrontDesk = (role: unknown) => ["front_desk", "front_desk_manager"].includes(roleKey(role));
 export const isSubmitOnlyRole = (role: unknown) =>
-  ["front_desk", "housekeeping"].includes(roleKey(role));
+  ["front_desk", "front_desk_manager", "housekeeping"].includes(roleKey(role));
 export const isReadOnlyRole = (role: unknown) => roleKey(role) === "senior_management";
 
 /**
@@ -133,8 +143,8 @@ export function canManageTargetRole(callerRole: unknown, targetRole: unknown): b
   const target = roleKey(targetRole);
   if (target === "unknown" || target === "system_admin") return false;
   if (caller === "system_admin") return true;
-  if (caller === "engineer") return ["technician", "front_desk", "housekeeping"].includes(target);
-  if (caller === "manager") return ["technician", "front_desk", "housekeeping"].includes(target);
+  if (caller === "engineer") return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
+  if (caller === "manager") return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
   return false;
 }
 
@@ -143,7 +153,7 @@ export function canSuperviseDraftRole(callerRole: unknown, targetRole: unknown):
   const target = roleKey(targetRole);
   if (caller === "system_admin") return target !== "system_admin" && target !== "unknown";
   if (caller === "engineer" || caller === "manager") {
-    return ["technician", "front_desk", "housekeeping"].includes(target);
+    return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
   }
   return false;
 }
@@ -163,8 +173,8 @@ export function canChangeAccount(
  *
  * Current list:
  * Chief Engineer, Engineering Manager, Regional Maintenance, General Manager,
- * Maintenance Technician, Front Desk, Assistant Manager, Sales Manager,
- * Lead Housekeeper.
+ * Maintenance Technician, Front Desk, Assistant Manager, Front Desk Manager,
+ * Sales Manager, Lead Housekeeper.
  *
  * Retired/hidden titles remain in aliases above so historical records continue
  * to resolve safely without making those titles assignable to new users.
@@ -177,6 +187,7 @@ export const ASSIGNABLE_ROLE_LABELS = [
   "Maintenance Technician",
   "Front Desk",
   "Assistant Manager",
+  "Front Desk Manager",
   "Sales Manager",
   "Lead Housekeeper",
 ] as const;
@@ -196,6 +207,7 @@ const TECHNICIAN_TITLES = ["Maintenance Technician"];
 const FRONT_DESK_TITLES = [
   "Front Desk",
   "Assistant Manager",
+  "Front Desk Manager",
   "Sales Manager",
 ];
 
@@ -242,5 +254,5 @@ export function landingPath(role: unknown): "/work-orders" | "/technician" | "/e
   const key = roleKey(role);
   if (key === "unknown") return null;
   if (key === "technician") return "/technician";
-  return ["front_desk", "housekeeping"].includes(key) ? "/work-orders" : "/engineering";
+  return ["front_desk", "front_desk_manager", "housekeeping"].includes(key) ? "/work-orders" : "/engineering";
 }

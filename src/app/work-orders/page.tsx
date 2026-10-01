@@ -13,7 +13,6 @@ import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import AccountSummary from "@/components/AccountSummary";
-import { dashboardTitleForRole } from "@/lib/account-display";
 
 import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
@@ -975,8 +974,8 @@ export default function WorkOrdersPage() {
     "engineer", "engineers", "engineering", "chiefengineer", "engineeringmanager", "regionalmaintenance", "regionalengineer",
     "technician", "maintenancetechnician",
   ].includes(currentRoleKey);
-  const isFrontDeskUser = currentRoleKey === "frontdesk";
-  const isSubmitOnlyUser = ["front desk", "frontdesk", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
+  const isFrontDeskUser = ["frontdesk", "frontdeskmanager"].includes(currentRoleKey);
+  const isSubmitOnlyUser = ["front desk", "front desk manager", "frontdesk", "frontdeskmanager", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
   const selectedCreateAssetId = selectedCreateAsset?.id;
   const selectedCreateDocumentationKey = selectedCreateAsset?.documentation_key;
@@ -2014,15 +2013,15 @@ export default function WorkOrdersPage() {
             onSubmit={createWorkOrder}
             className="mx-auto w-full space-y-1 rounded-xl border border-slate-800 bg-slate-900 p-2"
           >
-            <div className="flex flex-wrap items-center justify-between gap-1 pb-1">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950 px-3 py-2">
               {cmpriSession && !embedded && (
-                <div className="mr-auto min-w-0">
-                  {!isSubmitOnlyUser && <h1 className="text-sm font-bold text-slate-100">{dashboardTitleForRole(cmpriSession.user.role)}</h1>}
+                <div className="mr-auto flex min-w-0 flex-col items-start leading-tight">
+                  <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></p>
                   <AccountSummary user={cmpriSession.user} />
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-end gap-1">
-                <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Profile", "Perfil")}</ModalNavigationButton>
+                <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-[9pt] font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>
                 <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-8 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V3m0 0 4 4m-4-4-4 4" />
@@ -2184,13 +2183,13 @@ export default function WorkOrdersPage() {
         )}
 
         {showCancelConfirm && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-1" onKeyDown={(event) => {
+          <div className="cmpri-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-black/80" onKeyDown={(event) => {
             if (event.key !== "Escape" || event.defaultPrevented) return;
             event.preventDefault();
             event.stopPropagation();
             setShowCancelConfirm(false);
           }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
               <h2 id="create-cancel-title" className="text-xl font-bold">{tx("Cancel work-order creation?", "¿Cancelar la creación de la orden?")}</h2>
               <p className="mt-2 text-sm text-slate-400">{tx("Your unsaved work will be discarded. Any saved draft for this work will also be deleted.", "Se descartará el trabajo no guardado. También se eliminará cualquier borrador guardado de este trabajo.")}</p>
               <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -2202,14 +2201,14 @@ export default function WorkOrdersPage() {
         )}
 
         {showBatchCreateDialog && selectedLocation && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-1" onKeyDown={(event) => {
+          <div className="cmpri-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70" onKeyDown={(event) => {
             if (event.key !== "Escape" || event.defaultPrevented) return;
             event.preventDefault();
             event.stopPropagation();
             setShowBatchCreateDialog(false);
             setBatchCreateSuggestions([]);
           }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl">
+            <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
               <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} work orders detected</h2>
               <p className="mt-1 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
 
@@ -2284,7 +2283,7 @@ export default function WorkOrdersPage() {
 
         {showRelatedWorkOrderDialog &&
           selectedLocation && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-1" onKeyDown={(event) => {
+            <div className="cmpri-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70" onKeyDown={(event) => {
               if (event.key !== "Escape" || event.defaultPrevented) return;
               event.preventDefault();
               event.stopPropagation();
@@ -2294,7 +2293,7 @@ export default function WorkOrdersPage() {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="related-work-orders-title"
-                className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl"
+                className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl"
               >
                 <h2
                   id="related-work-orders-title"

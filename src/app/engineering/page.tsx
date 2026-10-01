@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
-import { dashboardTitleForRole, roleDisplayName } from "@/lib/account-display";
-import { BUILD_VERSION } from "@/lib/constants";
+import { roleDisplayName } from "@/lib/account-display";
 import {
   DASHBOARD_NOTIFICATION_POLL_MS,
   clearServerDashboardNotifications,
@@ -33,11 +32,13 @@ import {
 import { roleKey } from "@/lib/server/roles";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
+import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder } from "@/components/desktop/WorkOrderListWindow";
 import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWindow";
 
 const REFRESH_MS = 30_000;
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
+const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
 const APPROVALS_KEY = "work-order-approvals";
 const DEFAULT_WINDOW_SIZE: WindowSize = { width: 1040, height: 720 };
@@ -84,25 +85,6 @@ function writeSoundPreference(enabled: boolean) {
   } catch {}
 }
 
-function CmpriMark() {
-  // Do not fabricate the approved Hawk/feather logo. Replace this neutral mark
-  // only when the exact approved artwork is supplied to the project.
-  return (
-    <div aria-label="CMPRI" className="grid h-7 shrink-0 place-items-center rounded-md border border-amber-400/50 bg-slate-900 px-1.5 text-[10px] font-black tracking-tight text-amber-300">
-      CMPRI
-    </div>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 2.5a5 5 0 0 0-5 5v2.8L3.5 13.5h13L15 10.3V7.5a5 5 0 0 0-5-5Z" />
-      <path d="M8 16a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
-
 export default function EngineeringDashboardPage() {
   const router = useRouter();
   const refreshInFlightRef = useRef(false);
@@ -134,6 +116,7 @@ export default function EngineeringDashboardPage() {
   const [rects, setRects] = useState<Record<string, WindowRect>>({});
   const layoutsRef = useRef<Record<string, WindowRect>>({});
   const frameRefs = useRef(new Map<string, HTMLIFrameElement>());
+  const windowOpenedAtRef = useRef(new Map<string, number>());
   const pendingFocusRef = useRef("");
   const ordersRef = useRef<DesktopWorkOrder[]>([]);
 
@@ -386,6 +369,7 @@ export default function EngineeringDashboardPage() {
     const saved = layoutsRef.current[windowLayoutKey(entry.key)];
     const rect = saved || defaultWindowRect(boundsRef.current, entry.preferred, windowsRef.current.length);
     windowsRef.current = [...windowsRef.current, entry];
+    windowOpenedAtRef.current.set(entry.key, Date.now());
     setWindows(windowsRef.current);
     setRects((current) => ({ ...current, [entry.key]: rect }));
     raise(entry.key, true);
@@ -393,6 +377,7 @@ export default function EngineeringDashboardPage() {
 
   const closeWindow = useCallback((key: string) => {
     windowsRef.current = windowsRef.current.filter((entry) => entry.key !== key);
+    windowOpenedAtRef.current.delete(key);
     setWindows(windowsRef.current);
     setZOrder((current) => current.filter((entry) => entry !== key));
     frameRefs.current.delete(key);
@@ -562,32 +547,64 @@ export default function EngineeringDashboardPage() {
       ],
     },
   ];
+  function launchWindow(key: string, clickedAt: number, open: () => void) {
+    const openedAt = windowOpenedAtRef.current.get(key);
+    if (windowsRef.current.some((entry) => entry.key === key) && openedAt !== undefined && clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS) {
+      requestCloseWindow(key);
+      return;
+    }
+    open();
+  }
 
-  function launch(launcher: Launcher) {
-    if (launcher.action === "work-order-list") openWorkOrderList();
+  function launch(launcher: Launcher, clickedAt: number) {
+    if (launcher.action === "work-order-list") launchWindow(WORK_ORDER_LIST_KEY, clickedAt, openWorkOrderList);
     else if (launcher.action === "sign-out") void signOut();
-    else if (launcher.href) openRoute(launcher.href, launcher.label, { ...launcher, label: launcher.key === "/profile" ? "Manage Profile" : launcher.label.replace(/ \(\d+\)$/, "") });
+    else if (launcher.href) {
+      const href = launcher.href;
+      const key = desktopWindowKeyForHref(href, window.location.origin);
+      launchWindow(key, clickedAt, () => openRoute(href, launcher.label, { ...launcher, label: launcher.label.replace(/ \(\d+\)$/, "") }));
+    }
   }
 
   const openKeys = new Set(windows.map((entry) => entry.key));
   const activeKey = zOrder.at(-1) || "";
+  const notificationCount = inbox.length + awaitingApproval.length;
   const bellLabel = `Work order approvals for ${displayName} (${displayRole}): ${inbox.length} notification${inbox.length === 1 ? "" : "s"}, ${awaitingApproval.length} awaiting approval`;
 
   return (
     <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white">
-      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-800 bg-slate-950/95 px-2 py-1 shadow-lg shadow-black/30">
-        <div className="flex shrink-0 items-center gap-2">
-          <CmpriMark />
-          <div className="leading-tight">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400">{isHousekeepingDashboard ? "CMPRI Housekeeping" : "CMPRI Engineering"}</p>
-            <h1 className="cmpri-desktop-heading">{dashboardTitleForRole(session.user.role)} <span className="font-normal text-slate-500">v{BUILD_VERSION}</span></h1>
+      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-3 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-3 pt-[8pt] shadow-lg shadow-black/30 lg:flex-row lg:items-center">
+        <div className="flex w-full shrink-0 items-center gap-4 border-b border-slate-800 pb-2 lg:w-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
+          <div className="flex min-w-0 flex-col items-start leading-tight">
+            <p className="text-[14pt] font-bold leading-none tracking-tight">
+              <span className="text-amber-300">CMPRI</span>{" "}
+              <span className="text-amber-300">{isHousekeepingDashboard ? "Housekeeping" : "Engineering"}</span>
+            </p>
+            <div className="mt-2 text-left leading-tight">
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
+                <DashboardNotificationBell
+                  count={notificationCount}
+                  label={bellLabel}
+                  aria-label={bellLabel}
+                  title={`${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${inbox.length} notification(s) · ${awaitingApproval.length} awaiting approval`}
+                  onClick={openApprovals}
+                />
+              </div>
+              <p className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
+            </div>
           </div>
         </div>
 
-        <nav aria-label="Open dashboard windows" className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
           {launcherGroups.map((group) => (
-            <div key={group.label} role="group" aria-label={group.label} className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-800 bg-slate-900/60 p-0.5">
-              <span aria-hidden="true" className="hidden px-1 text-[9px] font-semibold uppercase tracking-wider text-slate-500 min-[1900px]:inline">{group.label}</span>
+            <div
+              key={group.label}
+              role="group"
+              aria-label={group.label}
+              className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5"
+            >
+              <span aria-hidden="true" className="hidden px-0.5 text-[9pt] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
               {group.items.filter((item): item is Launcher => Boolean(item)).map((launcher) => (
                 <button
                   key={`${launcher.key}:${launcher.label}`}
@@ -595,8 +612,8 @@ export default function EngineeringDashboardPage() {
                   data-cmpri-desktop-launch={launcher.key}
                   data-open={openKeys.has(launcher.key) ? "true" : "false"}
                   title={launcher.label}
-                  onClick={() => launch(launcher)}
-                  className={`cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-2 py-0.5 font-semibold ${launcher.tone}`}
+                  onClick={() => launch(launcher, Date.now())}
+                  className={`cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
                 >
                   {launcher.label}
                 </button>
@@ -604,29 +621,6 @@ export default function EngineeringDashboardPage() {
             </div>
           ))}
         </nav>
-
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          <div className="text-right leading-tight">
-            <p className="max-w-[14rem] truncate text-xs font-semibold text-slate-100">{displayName}</p>
-            <p className="text-[10px] font-semibold text-sky-300">{displayRole}</p>
-          </div>
-          <button
-            type="button"
-            onClick={openApprovals}
-            aria-label={bellLabel}
-            title={`${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${inbox.length} notification(s) · ${awaitingApproval.length} awaiting approval`}
-            data-open={openKeys.has(APPROVALS_KEY) ? "true" : "false"}
-            className="cmpri-desktop-launch relative grid size-8 place-items-center rounded-md border border-slate-700 bg-slate-900 text-slate-200 hover:border-amber-400/60 hover:text-amber-200"
-          >
-            <BellIcon />
-            {inbox.length > 0 && (
-              <span className="absolute -right-1.5 -top-1.5 min-w-[1.1rem] rounded-full bg-red-500 px-1 text-center text-[10px] font-bold leading-[1.1rem] text-white">{inbox.length > 99 ? "99+" : inbox.length}</span>
-            )}
-            {awaitingApproval.length > 0 && (
-              <span aria-hidden="true" className="absolute -bottom-1 -right-1 size-2.5 rounded-full border border-slate-950 bg-purple-400" />
-            )}
-          </button>
-        </div>
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">

@@ -1381,9 +1381,11 @@ export default function WorkOrderTicketPage() {
   if (!order) {
     return (
       <main className="min-h-screen bg-slate-950 p-6 text-white">
-        <Link href="/engineering" className="text-amber-400">
-          ← Engineering Dashboard
-        </Link>
+        {!embedded && (
+          <Link href="/engineering" className="text-amber-400">
+            ← Engineering Dashboard
+          </Link>
+        )}
         <div className="mt-6 rounded-xl border border-red-400/30 bg-red-950/20 p-4">
           {message || "Work order not found."}
         </div>
@@ -2169,13 +2171,13 @@ export default function WorkOrderTicketPage() {
       </div>
 
       {showCancelConfirm && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-1" onKeyDown={(event) => {
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-black/80" onKeyDown={(event) => {
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
           event.stopPropagation();
           setShowCancelConfirm(false);
         }}>
-          <div role="dialog" aria-modal="true" className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+          <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
             <h2 className="text-xl font-bold">Are you sure you want to cancel?</h2>
             <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be discarded.</p>
             <div className="mt-6 flex justify-end gap-3">
@@ -2200,13 +2202,13 @@ export default function WorkOrderTicketPage() {
       )}
 
       {showAddAsset && order && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-1" role="dialog" aria-modal="true" aria-label="Add New Asset" onKeyDown={(event) => {
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/75" role="dialog" aria-modal="true" aria-label="Add New Asset" onKeyDown={(event) => {
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
           event.stopPropagation();
           setShowAddAsset(false);
         }}>
-          <div className="cmpri-modal-shell rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-2xl">
+          <div className="cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div><h2 className="text-2xl font-bold text-white">Add New Equipment</h2><p className="mt-1 text-sm text-slate-400">Create the physical asset first, then link it to this work order.</p></div>
               <button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">Cancel</button>
@@ -2241,14 +2243,14 @@ export default function WorkOrderTicketPage() {
       )}
 
       {imagePreview && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/85 p-1" role="dialog" aria-modal="true" aria-label="Full-size work-order photo" onKeyDown={(event) => {
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[130] flex items-center justify-center bg-black/85" role="dialog" aria-modal="true" aria-label="Full-size work-order photo" onKeyDown={(event) => {
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
           event.stopPropagation();
           setImagePreview(null);
         }}>
           <button type="button" aria-label="Close photo" onClick={() => setImagePreview(null)} className="absolute inset-0 cursor-default" />
-          <div className="cmpri-modal-shell relative z-10 rounded-xl border border-slate-600 bg-slate-950 p-2 shadow-2xl">
+          <div className="cmpri-modal-shell relative z-10 border border-slate-600 bg-slate-950 shadow-2xl">
             <img src={imagePreview.url} alt="Full-size work-order attachment" className="max-h-[92vh] max-w-[92vw] object-contain" />
             <button type="button" onClick={() => setImagePreview(null)} className="absolute right-3 top-3 rounded-lg border border-slate-600 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-white">Close</button>
           </div>

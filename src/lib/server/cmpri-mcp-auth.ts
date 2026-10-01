@@ -56,7 +56,7 @@ export async function mcpIdentity(authorization: string | null): Promise<McpIden
   const [{ data: userResult, error: userError }, { data: profileRow, error: profileError }] = await Promise.all([
     admin.auth.admin.getUserById(token.user_id),
     admin.from("profiles")
-      .select("id, email, full_name, role, active, property_scope")
+      .select("id, email, full_name, role, secondary_roles, active, property_scope")
       .eq("id", token.user_id)
       .maybeSingle(),
   ]);

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { roleKey } from "@/lib/server/roles";
+import { profileHasRole } from "@/lib/server/roles";
 import {
   dashboardNotificationScanStart,
   engineerHistoryNotifications,
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
   if (!auth) return response;
   const admin = auth.admin;
   const userId = auth.principal.identity.id;
-  const isEngineer = roleKey(auth.principal.profile.role) === "engineer";
+  const isEngineer = profileHasRole(auth.principal.profile, "engineer");
   const checkedAt = new Date().toISOString();
 
   const { data: cursorRow, error: cursorError } = await admin

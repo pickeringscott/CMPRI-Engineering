@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
 
   const [{ data: profiles, error: profileError }, { data: allMemberships, error: allMembershipsError }] = await Promise.all([
     admin.from("profiles")
-      .select("id, email, full_name, role, active")
+      .select("id, email, full_name, role, secondary_roles, active")
       .in("id", memberIds)
       .order("full_name", { ascending: true }),
     admin.from("hotel_members")
@@ -211,7 +211,7 @@ export async function PATCH(request: NextRequest) {
 
   const { data: target, error: targetError } = await admin
     .from("profiles")
-    .select("id, email, full_name, role, active")
+    .select("id, email, full_name, role, secondary_roles, active")
     .eq("id", id)
     .maybeSingle();
   if (targetError) return NextResponse.json({ error: "Unable to verify this account." }, { status: 503 });
@@ -261,7 +261,7 @@ export async function PATCH(request: NextRequest) {
     .update(update)
     .eq("id", id)
     .eq("role", target.role)
-    .select("id, email, full_name, role, active")
+    .select("id, email, full_name, role, secondary_roles, active")
     .single();
   if (error) {
     return NextResponse.json({ error: "This account changed while you were editing it. Reload the user list and try again." }, { status: 409 });
@@ -353,4 +353,3 @@ export async function DELETE(request: NextRequest) {
 
   return NextResponse.json({ deleted: id, preserved_history: false });
 }
-

@@ -1031,8 +1031,8 @@ export default function PreventiveMaintenancePage() {
       </div>
 
       {activeForm && activeTemplate && (
-        <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/80 p-2 sm:p-5">
-          <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="my-3 w-full max-w-5xl rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/80">
+          <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 rounded-t-2xl border-b border-slate-800 bg-slate-950/95 p-4 backdrop-blur sm:p-5">
               <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{activeTemplate.cadence} PM form · {periodLabel(activeTemplate, activeForm.periodStart)}</p><h2 id="pm-form-title" className="mt-1 text-xl font-bold">{activeTemplate.title}{activeTemplate.scope === "room" ? ` · Room ${activeScopeKey.slice(5)}` : ""}</h2><SourceNote template={activeTemplate} /></div>
               <button type="button" onClick={() => { setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
@@ -1111,8 +1111,8 @@ export default function PreventiveMaintenancePage() {
         </div>
       )}
       {confirmingProposal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80 p-3 sm:p-6">
-          <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="my-6 w-full max-w-2xl rounded-2xl border border-emerald-500/30 bg-slate-950 p-5 shadow-2xl">
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80">
+          <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="cmpri-modal-shell border border-emerald-500/30 bg-slate-950 shadow-2xl">
             <p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">Explicit reviewer confirmation</p>
             <h2 id="pm-confirm-title" className="mt-1 text-xl font-bold text-white">Confirm live PM changes</h2>
             <p className="mt-2 text-sm text-slate-300">This applies the listed changes to the personal live PM workbook. The existing workbook sync remains responsible for corporate propagation.</p>
