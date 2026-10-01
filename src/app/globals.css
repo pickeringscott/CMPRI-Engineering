@@ -12,7 +12,8 @@
   --cmpri-control-height: 2.5rem;
   --cmpri-panel-radius: 0.75rem;
   --cmpri-panel-padding: 0.5rem;
-  --cmpri-modal-spacing: var(--cmpri-panel-padding);
+  --cmpri-modal-space-unit: 0.125rem;
+  --cmpri-modal-spacing: 0.25rem;
 }
 
 @theme inline {
@@ -179,57 +180,92 @@ section[class*="rounded"][class*="border"] {
 
 html[data-cmpri-embedded="true"] main,
 .cmpri-modal-shell {
+  --spacing: var(--cmpri-modal-space-unit);
+  --cmpri-modal-type-scale: 0.9;
+  --cmpri-modal-line-height: 1.3;
+  --text-xs: calc(0.75rem * var(--cmpri-modal-type-scale));
+  --text-xs--line-height: var(--cmpri-modal-line-height);
+  --text-sm: calc(0.875rem * var(--cmpri-modal-type-scale));
+  --text-sm--line-height: var(--cmpri-modal-line-height);
+  --text-base: calc(1rem * var(--cmpri-modal-type-scale));
+  --text-base--line-height: var(--cmpri-modal-line-height);
+  --text-lg: calc(1.125rem * var(--cmpri-modal-type-scale));
+  --text-lg--line-height: var(--cmpri-modal-line-height);
+  --text-xl: calc(1.25rem * var(--cmpri-modal-type-scale));
+  --text-xl--line-height: var(--cmpri-modal-line-height);
+  --text-2xl: calc(1.5rem * var(--cmpri-modal-type-scale));
+  --text-2xl--line-height: var(--cmpri-modal-line-height);
+  --text-3xl: calc(1.875rem * var(--cmpri-modal-type-scale));
+  --text-3xl--line-height: var(--cmpri-modal-line-height);
+  --text-4xl: calc(2.25rem * var(--cmpri-modal-type-scale));
+  --text-4xl--line-height: var(--cmpri-modal-line-height);
+  --text-5xl: calc(3rem * var(--cmpri-modal-type-scale));
+  --text-5xl--line-height: var(--cmpri-modal-line-height);
+  --text-6xl: calc(3.75rem * var(--cmpri-modal-type-scale));
+  --text-6xl--line-height: var(--cmpri-modal-line-height);
+  --text-7xl: calc(4.5rem * var(--cmpri-modal-type-scale));
+  --text-7xl--line-height: var(--cmpri-modal-line-height);
+  --text-8xl: calc(6rem * var(--cmpri-modal-type-scale));
+  --text-8xl--line-height: var(--cmpri-modal-line-height);
+  --text-9xl: calc(8rem * var(--cmpri-modal-type-scale));
+  --text-9xl--line-height: var(--cmpri-modal-line-height);
   padding: var(--cmpri-modal-spacing) !important;
-  font-size: var(--cmpri-text-body);
-  line-height: var(--cmpri-text-body-line-height);
+  font-size: calc(var(--cmpri-text-body) * var(--cmpri-modal-type-scale));
+  line-height: var(--cmpri-modal-line-height);
+}
+
+html[data-cmpri-embedded="true"] main :is(input, select),
+.cmpri-modal-shell :is(input, select) {
+  min-height: 1.875rem !important;
+}
+
+html[data-cmpri-embedded="true"] main *,
+.cmpri-modal-shell * {
+  line-height: var(--cmpri-modal-line-height) !important;
+}
+
+html[data-cmpri-embedded="true"] main :is(h1, h2, h3),
+.cmpri-modal-shell :is(h1, h2, h3) {
+  font-size: calc(var(--cmpri-text-title) * var(--cmpri-modal-type-scale)) !important;
+  line-height: var(--cmpri-modal-line-height) !important;
+}
+
+html[data-cmpri-embedded="true"] main h2,
+.cmpri-modal-shell h2 {
+  font-size: calc(var(--cmpri-text-section) * var(--cmpri-modal-type-scale)) !important;
+}
+
+html[data-cmpri-embedded="true"] main h3,
+.cmpri-modal-shell h3 {
+  font-size: calc(var(--cmpri-text-subsection) * var(--cmpri-modal-type-scale)) !important;
+}
+
+html[data-cmpri-embedded="true"] main label,
+.cmpri-modal-shell label {
+  font-size: calc(var(--cmpri-text-label) * var(--cmpri-modal-type-scale)) !important;
+  line-height: var(--cmpri-modal-line-height) !important;
+}
+
+html[data-cmpri-embedded="true"] main :is(input, select, textarea, button, [role="button"]),
+.cmpri-modal-shell :is(input, select, textarea, button, [role="button"]) {
+  font-size: calc(var(--cmpri-text-body) * var(--cmpri-modal-type-scale)) !important;
+  line-height: var(--cmpri-modal-line-height) !important;
+}
+
+html[data-cmpri-embedded="true"] main [class*="text-["],
+.cmpri-modal-shell [class*="text-["] {
+  font-size: calc(0.75rem * var(--cmpri-modal-type-scale)) !important;
+  line-height: var(--cmpri-modal-line-height) !important;
+}
+
+html[data-cmpri-embedded="true"] main .cmpri-modal-kpi-value,
+.cmpri-modal-shell .cmpri-modal-kpi-value {
+  font-size: calc(var(--text-xl) * 0.9) !important;
 }
 
 html[data-cmpri-embedded="true"] section[class*="rounded"][class*="border"],
 .cmpri-modal-shell section[class*="rounded"][class*="border"] {
-  padding: var(--cmpri-modal-spacing) !important;
-}
-
-html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-3"],
-html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-4"],
-html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-5"],
-html[data-cmpri-embedded="true"] main :is(div, section, form, article)[class~="p-6"],
-.cmpri-modal-shell :is(div, section, form, article)[class~="p-3"],
-.cmpri-modal-shell :is(div, section, form, article)[class~="p-4"],
-.cmpri-modal-shell :is(div, section, form, article)[class~="p-5"],
-.cmpri-modal-shell :is(div, section, form, article)[class~="p-6"] {
-  padding: var(--cmpri-modal-spacing) !important;
-}
-
-html[data-cmpri-embedded="true"] [class~="mt-4"],
-html[data-cmpri-embedded="true"] [class~="mt-5"],
-html[data-cmpri-embedded="true"] [class~="mt-6"],
-.cmpri-modal-shell [class~="mt-4"],
-.cmpri-modal-shell [class~="mt-5"],
-.cmpri-modal-shell [class~="mt-6"] {
-  margin-top: var(--cmpri-modal-spacing) !important;
-}
-
-html[data-cmpri-embedded="true"] [class~="mb-4"],
-html[data-cmpri-embedded="true"] [class~="mb-5"],
-.cmpri-modal-shell [class~="mb-4"],
-.cmpri-modal-shell [class~="mb-5"] {
-  margin-bottom: var(--cmpri-modal-spacing) !important;
-}
-
-html[data-cmpri-embedded="true"] [class~="gap-3"],
-html[data-cmpri-embedded="true"] [class~="gap-4"],
-html[data-cmpri-embedded="true"] [class~="gap-5"],
-.cmpri-modal-shell [class~="gap-3"],
-.cmpri-modal-shell [class~="gap-4"],
-.cmpri-modal-shell [class~="gap-5"] {
-  gap: var(--cmpri-modal-spacing) !important;
-}
-
-html[data-cmpri-embedded="true"] [class~="space-y-4"] > :not([hidden]) ~ :not([hidden]),
-html[data-cmpri-embedded="true"] [class~="space-y-5"] > :not([hidden]) ~ :not([hidden]),
-.cmpri-modal-shell [class~="space-y-4"] > :not([hidden]) ~ :not([hidden]),
-.cmpri-modal-shell [class~="space-y-5"] > :not([hidden]) ~ :not([hidden]) {
-  margin-top: var(--cmpri-modal-spacing) !important;
+  padding: calc(var(--spacing) * 2) !important;
 }
 
 @keyframes cmpri-modal-backdrop-in {

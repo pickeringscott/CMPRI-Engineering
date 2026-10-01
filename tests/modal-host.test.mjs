@@ -114,14 +114,39 @@ test('embedded and standalone modals share typography and compact spacing tokens
   assert.match(styles, /--cmpri-text-body:\s*0\.875rem/);
   assert.match(styles, /--cmpri-text-body-line-height:\s*1\.45/);
   assert.match(styles, /--cmpri-panel-padding:\s*0\.5rem/);
-  assert.match(styles, /--cmpri-modal-spacing:\s*var\(--cmpri-panel-padding\)/);
-  assert.match(styles, /html\[data-cmpri-embedded="true"\] main,\s*\.cmpri-modal-shell\s*\{\s*padding:\s*var\(--cmpri-modal-spacing\) !important/);
-  assert.match(styles, /font-size:\s*var\(--cmpri-text-body\);\s*line-height:\s*var\(--cmpri-text-body-line-height\)/);
+  assert.match(styles, /--cmpri-modal-space-unit:\s*0\.125rem/);
+  assert.match(styles, /--cmpri-modal-spacing:\s*0\.25rem/);
+  assert.match(styles, /--cmpri-modal-type-scale:\s*0\.9/);
+  assert.match(styles, /--cmpri-modal-line-height:\s*1\.3/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main,\s*\.cmpri-modal-shell\s*\{\s*--spacing:\s*var\(--cmpri-modal-space-unit\)/);
+  assert.match(styles, /--text-xs:\s*calc\(0\.75rem \* var\(--cmpri-modal-type-scale\)\)/);
+  assert.match(styles, /--text-4xl:\s*calc\(2\.25rem \* var\(--cmpri-modal-type-scale\)\)/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main,\s*\.cmpri-modal-shell\s*\{[\s\S]*?padding:\s*var\(--cmpri-modal-spacing\) !important/);
+  assert.match(styles, /font-size:\s*calc\(var\(--cmpri-text-body\) \* var\(--cmpri-modal-type-scale\)\);\s*line-height:\s*var\(--cmpri-modal-line-height\)/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main :is\(input, select\),\s*\.cmpri-modal-shell :is\(input, select\)\s*\{\s*min-height:\s*1\.875rem !important/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main \*,\s*\.cmpri-modal-shell \*\s*\{\s*line-height:\s*var\(--cmpri-modal-line-height\) !important/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main :is\(input, select, textarea, button, \[role="button"\]\),\s*\.cmpri-modal-shell :is\(input, select, textarea, button, \[role="button"\]\)/);
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main \[class\*="text-\["\],\s*\.cmpri-modal-shell \[class\*="text-\["\]/);
   assert.match(styles, /\.cmpri-modal-backdrop\s*\{\s*box-sizing:\s*border-box;\s*padding:\s*var\(--cmpri-modal-spacing\) !important/);
   assert.match(styles, /html\[data-cmpri-embedded="true"\] section\[class\*="rounded"\]\[class\*="border"\],\s*\.cmpri-modal-shell section\[class\*="rounded"\]\[class\*="border"\]/);
-  assert.match(styles, /html\[data-cmpri-embedded="true"\] main :is\(div, section, form, article\)\[class~="p-6"\]/);
-  assert.match(styles, /html\[data-cmpri-embedded="true"\] \[class~="gap-5"\],[\s\S]*?\.cmpri-modal-shell \[class~="gap-5"\][\s\S]*?margin-top:\s*var\(--cmpri-modal-spacing\) !important/);
+  assert.match(styles, /padding:\s*calc\(var\(--spacing\) \* 2\) !important/);
+  assert.doesNotMatch(styles, /class~="(?:p-3|p-4|p-5|p-6|mt-4|mt-5|mt-6|mb-4|mb-5|gap-3|gap-4|gap-5|space-y-4|space-y-5)"/);
   assert.match(styles, /\.cmpri-modal-shell\s*\{[\s\S]*?width:\s*min\(66vw,\s*72rem\) !important/);
+});
+
+test('embedded KPI cards use a shared compact metric size', () => {
+  const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  assert.match(styles, /html\[data-cmpri-embedded="true"\] main \.cmpri-modal-kpi-value,\s*\.cmpri-modal-shell \.cmpri-modal-kpi-value\s*\{\s*font-size:\s*calc\(var\(--text-xl\) \* 0\.9\) !important/);
+  for (const path of [
+    '../src/app/engineering/room-operations/page.tsx',
+    '../src/app/engineering/parts/page.tsx',
+    '../src/app/engineering/purchasing/page.tsx',
+    '../src/app/engineering/preventive-maintenance/page.tsx',
+    '../src/app/engineering/gss/page.tsx',
+  ]) {
+    const page = readFileSync(new URL(path, import.meta.url), 'utf8');
+    assert.match(page, /cmpri-modal-kpi-value/, `${path} KPI metrics must use shared modal sizing`);
+  }
 });
 
 test('sign out from an embedded modal clears modal state and redirects the host', () => {

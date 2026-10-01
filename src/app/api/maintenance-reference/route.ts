@@ -19,28 +19,6 @@ type AssetReference = {
   [key: string]: unknown;
 };
 
-function normalizedModelPattern(value: unknown) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[%*]/g, "")
-    .replace(/[^a-z0-9]+/g, "")
-    .trim();
-}
-
-function normalizedModel(value: unknown) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "")
-    .trim();
-}
-
-function modelMatchesPattern(modelValue: unknown, patternValue: unknown) {
-  const model = normalizedModel(modelValue);
-  const pattern = normalizedModelPattern(patternValue);
-  if (!model || !pattern) return false;
-  return model.includes(pattern) || pattern.includes(model);
-}
-
 function objectRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

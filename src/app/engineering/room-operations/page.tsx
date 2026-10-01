@@ -220,7 +220,7 @@ export default function RoomOperationsPage() {
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {summaryCards.map(([key, label, value]) => (
             <button key={key} type="button" onClick={() => setActiveSummary(key)} className="rounded-xl border border-slate-800 bg-slate-900/65 p-3 text-left hover:border-slate-600">
-              <div className="text-2xl font-black text-white">{value}</div>
+              <div className="cmpri-modal-kpi-value text-2xl font-black text-white">{value}</div>
               <div className="text-xs font-semibold text-slate-400">{label}</div>
             </button>
           ))}

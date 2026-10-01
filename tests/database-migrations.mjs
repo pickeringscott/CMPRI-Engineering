@@ -118,7 +118,8 @@ try {
       /profiles_role_check/,
     );
     const frontDeskManager = '00000000-0000-0000-0000-000000000009';
-    await db.exec(`insert into public.profiles(id, role, active, full_name) values (${quote(frontDeskManager)}, 'front_desk_manager', true, 'Test Front Desk Manager');
+    await db.exec(`insert into auth.users(id) values (${quote(frontDeskManager)});
+      insert into public.profiles(id, role, active, full_name) values (${quote(frontDeskManager)}, 'front_desk_manager', true, 'Test Front Desk Manager');
       insert into public.hotel_members(hotel_id, user_id, role, active) values (${quote(hotel)}, ${quote(frontDeskManager)}, 'viewer', true);
       select set_config('cmpri.test_uid', ${quote(frontDeskManager)}, false);`);
     const { rows: attributed } = await db.query(`insert into public.work_orders(hotel_id, display_id, room, issue, status, submitted_by_name)
@@ -132,18 +133,24 @@ try {
     });
     await db.exec(`select set_config('cmpri.test_uid', ${quote(actor)}, false);`);
   });
+  const secondaryProfileRolesMigration = readFileSync(new URL('../supabase/migrations/20261001022500_cmpri_secondary_profile_roles.sql', import.meta.url), 'utf8');
+  await check('secondary profile roles migration supports an empty shadow auth schema', async () => {
+    await db.exec(secondaryProfileRolesMigration);
+    const { rows } = await db.query("select column_name from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='secondary_roles'");
+    assert.equal(rows.length, 1);
+  });
   await check('secondary profile roles migration assigns engineer alongside system admin', async () => {
-    const target = '00000000-0000-0000-0000-000000000010';
+    const target = '00000000-0000-0000-0000-000000000011';
+    const targetHotel = 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6';
     await db.exec("alter table public.hotel_members add primary key (hotel_id, user_id)");
     await db.exec(`insert into auth.users(id, email) values (${quote(target)}, 'maint.cmpri@hawkeyehotels.com');
       insert into public.profiles(id, email, role, active, full_name) values (${quote(target)}, 'maint.cmpri@hawkeyehotels.com', 'engineer', true, 'CMPRI Maintenance');
-      insert into public.hotel_members(hotel_id, user_id, role, active) values (${quote(hotel)}, ${quote(target)}, 'viewer', true);`);
-    const migration = readFileSync(new URL('../supabase/migrations/20261001022500_cmpri_secondary_profile_roles.sql', import.meta.url), 'utf8');
-    await db.exec(migration);
-    await db.exec(migration);
+      insert into public.hotel_members(hotel_id, user_id, role, active) values (${quote(targetHotel)}, ${quote(target)}, 'viewer', true);`);
+    await db.exec(secondaryProfileRolesMigration);
+    await db.exec(secondaryProfileRolesMigration);
     const { rows } = await db.query(`select role, secondary_roles, active from public.profiles where id = ${quote(target)}`);
     assert.deepEqual(rows[0], { role: 'system_admin', secondary_roles: ['engineer'], active: true });
-    const { rows: memberships } = await db.query(`select role, active from public.hotel_members where hotel_id = ${quote(hotel)} and user_id = ${quote(target)}`);
+    const { rows: memberships } = await db.query(`select role, active from public.hotel_members where hotel_id = ${quote(targetHotel)} and user_id = ${quote(target)}`);
     assert.deepEqual(memberships[0], { role: 'admin', active: true });
     await assert.rejects(
       () => db.exec(`update public.profiles set secondary_roles = ARRAY['system_admin']::text[] where id = ${quote(target)}`),

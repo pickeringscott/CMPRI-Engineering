@@ -34,7 +34,8 @@ BEGIN
   LIMIT 1;
 
   IF target_user_id IS NULL THEN
-    RAISE EXCEPTION 'No auth user found for maint.cmpri@hawkeyehotels.com';
+    RAISE NOTICE 'Skipping account-specific role assignment because the target auth user is not present';
+    RETURN;
   END IF;
 
   UPDATE public.profiles

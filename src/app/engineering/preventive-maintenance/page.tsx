@@ -797,10 +797,10 @@ export default function PreventiveMaintenancePage() {
             <p className="text-sm font-semibold text-slate-300">{dateLabel(weekStart, { month: "long", day: "numeric", year: "numeric" })} – {dateLabel(weekEnd, { month: "long", day: "numeric", year: "numeric" })}</p>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Routine items checked</p><p className="mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Weekly progress</p><p className="mt-1 text-xl font-bold">{overallProgress.percent}%</p></div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Forms still open</p><p className="mt-1 text-xl font-bold">{openInspectionCount}</p></div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Needs follow-up</p><p className="mt-1 text-xl font-bold text-amber-200">{deficientCount}</p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Routine items checked</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Weekly progress</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.percent}%</p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Forms still open</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{openInspectionCount}</p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Needs follow-up</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold text-amber-200">{deficientCount}</p></div>
           </div>
         </section>
         <div role="note" className="mt-3 rounded-xl border border-sky-500/30 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
@@ -977,9 +977,9 @@ export default function PreventiveMaintenancePage() {
             <SectionHeading eyebrow="Weekly handoff" title="Corporate transfer review" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
             <p className="mt-2 max-w-4xl text-sm text-slate-400">This is a review/export only. It never changes the live corporate site or spreadsheet. The CSV includes the selected week’s daily and weekly checkboxes, that month’s checklist, scheduled inspection checklist responses, and the current quarter’s room dates.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Routine checkbox cells</p><p className="mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Source forms due</p><p className="mt-1 text-2xl font-bold">{formPeriods.length}</p></div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Room-quarter completions</p><p className="mt-1 text-2xl font-bold">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length}</p></div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Routine checkbox cells</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Source forms due</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{formPeriods.length}</p></div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Room-quarter completions</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length}</p></div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full min-w-[650px] text-left text-sm">

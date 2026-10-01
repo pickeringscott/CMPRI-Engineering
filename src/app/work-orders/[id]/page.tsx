@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { authorizationHeaders, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
@@ -10,7 +10,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
-import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge, type ManualSymptomRule } from "@/lib/manual-knowledge";
+import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roleKey } from "@/lib/server/roles";
 import { workOrderHistoryText } from "@/lib/work-order-history";
 
@@ -1118,7 +1118,7 @@ export default function WorkOrderTicketPage() {
   });
   const hasUnsavedChanges = !!initialFingerprint && currentFingerprint !== initialFingerprint;
   const roomRankerFlags = [roomOperationalContext.ranker?.check1, roomOperationalContext.ranker?.check2, roomOperationalContext.ranker?.check3, roomOperationalContext.ranker?.notes].map((value) => String(value || "").trim()).filter(Boolean);
-  function closeEmbeddedTicket() {
+  const closeEmbeddedTicket = useCallback(() => {
     if (embedded && window.parent !== window) {
       window.parent.postMessage(
         { type: "cmpri-work-order-cancelled", modalKind: "workOrder", workOrderId: order?.id, modalToken },
@@ -1127,7 +1127,7 @@ export default function WorkOrderTicketPage() {
       return;
     }
     router.push("/engineering");
-  }
+  }, [embedded, modalToken, order?.id, router]);
 
   async function addAssetFromTicket() {
     if (!order || !order.location_id || !newAssetType.trim()) {
@@ -1352,13 +1352,13 @@ export default function WorkOrderTicketPage() {
     }, 1250);
   }
 
-  function cancelTicket() {
+  const cancelTicket = useCallback(() => {
     if (hasUnsavedChanges) {
       setShowCancelConfirm(true);
       return;
     }
     closeEmbeddedTicket();
-  }
+  }, [closeEmbeddedTicket, hasUnsavedChanges]);
 
   useEffect(() => {
     if (!embedded) return;
@@ -1368,7 +1368,7 @@ export default function WorkOrderTicketPage() {
     };
     document.addEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
     return () => document.removeEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
-  }, [embedded, hasUnsavedChanges]);
+  }, [embedded, cancelTicket]);
 
   if (loading) {
     return (
