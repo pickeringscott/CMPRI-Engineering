@@ -186,10 +186,6 @@ export async function GET(request: NextRequest) {
   if (!validDate(date)) return NextResponse.json({ error: "Room-operations date is invalid." }, { status: 400 });
   const today = hotelDate();
   if (!isRetainedDate(date, today)) return NextResponse.json({ error: "Only today's and yesterday's room-operations snapshots are retained." }, { status: 400 });
-  const { error: pruneError } = await auth.admin.from("cmpri_room_operation_imports")
-    .delete().eq("hotel_id", HOTEL_ID).lt("report_date", yesterdayDate(today));
-  if (pruneError) return NextResponse.json({ error: "Expired room-operations snapshots could not be removed." }, { status: 503 });
-
   const { data, error } = await auth.admin.from("cmpri_room_operations")
     .select("room, checkout_date, checkout_time, room_status, arrival_date, arrival_time, move_from, move_to, guest_name, room_type, guest_code, guest_arrival_date, stay_nights, reserved, imported_at")
     .eq("hotel_id", HOTEL_ID).eq("report_date", date).order("room");

@@ -147,6 +147,7 @@ test("room-operations uploads are manual, limited to retained dates, and preserv
   assert.match(api, /"11:00 AM"/);
   assert.match(api, /if \(date !== today\)[\s\S]*move_from: "", move_to: ""/);
   assert.match(api, /detectRoomMoves\(yesterdayRows \|\| \[\], data \|\| \[\]\)/);
+  assert.doesNotMatch(api, /cmpri_room_operation_imports/);
   assert.match(api, /auth\.admin\.rpc\("cmpri_replace_room_operations"/);
   assert.match(api, /roomOperationsNotification/);
   assert.match(api, /guest_code: typeof row\.guest_code === "string" \? row\.guest_code : ""/);
@@ -221,4 +222,3 @@ test("room-operations importer supports direct image upload and auto-import with
   assert.match(importer, /accept="\.csv,\.tsv,\.txt,image\/\*,\.pdf"/);
   assert.match(importer, /Upload RoomStatus Images/);
 });
-
