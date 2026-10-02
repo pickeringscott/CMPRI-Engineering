@@ -6,6 +6,7 @@ import { getValidSession } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { togglePmRoutineResponse } from "@/lib/pm/routine-responses";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -372,13 +373,13 @@ export default function PreventiveMaintenancePage() {
     if (!canEdit || busyEntries.current.has(entryKey(template.id, periodStart))) return;
     const key = entryKey(template.id, periodStart);
     const existing = entryFor(template, periodStart);
-    const responses = Object.fromEntries(template.checklist.map((item) => [
+    const currentResponses = Object.fromEntries(template.checklist.map((item) => [
       item.id,
       existing?.status === "pending" && Object.hasOwn(existing.responses || {}, item.id)
         ? existing.responses[item.id] === true
         : routineStatus(template, periodStart, item.id),
-    ])) as Record<string, boolean>;
-    responses[itemId] = checked;
+    ]));
+    const responses = togglePmRoutineResponse(template.checklist, currentResponses, itemId, checked);
     const isComplete = template.checklist.every((item) => responses[item.id] === true);
     busyEntries.current.add(key);
     setSavingKey(key);
