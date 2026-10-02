@@ -71,6 +71,7 @@ const aliases: Readonly<Record<string, CmpriRole>> = {
   executivehousekeeper: "housekeeping",
 
   systemadmin: "system_admin",
+  sysadmin: "system_admin",
   systemadministrator: "system_admin",
   administrator: "system_admin",
   admin: "system_admin",

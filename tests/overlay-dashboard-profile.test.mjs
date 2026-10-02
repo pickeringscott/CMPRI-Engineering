@@ -70,6 +70,8 @@ test('dashboard titles and account labels match assigned roles', () => {
   assert.equal(profileHasRole({ role: 'system_admin', secondary_roles: ['engineer'] }, 'engineer'), true);
   assert.equal(profileHasRole({ role: 'system_admin' }, 'engineer'), false);
   assert.equal(profileHasRole({ role: 'system_admin/engineering' }, 'system_admin'), true);
+  assert.equal(profileHasRole({ role: 'Engineer', secondary_roles: ['sys_admin'] }, 'system_admin'), true);
+  assert.equal(roleAllows('sys_admin', 'view_dashboard'), true);
 });
 
 test('shared account summary shows only a large gold name for Front Desk and Housekeeping', () => {
