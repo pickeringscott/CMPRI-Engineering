@@ -240,7 +240,7 @@ export default function PreventiveMaintenancePage() {
       setLiveWorkbook(result.workbook as LivePmWorkbook);
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
       setLocations(Array.isArray(result.locations) ? result.locations as PmLocation[] : []);
-      setCanEdit(result.can_edit === true);
+      setCanEdit(result.can_edit === true || result.can_review === true);
       setCanReview(result.can_review === true);
       setCanWriteLivePm(result.can_write_live_pm === true);
     } catch (cause) {
@@ -1044,7 +1044,7 @@ export default function PreventiveMaintenancePage() {
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Source period</p><p className="mt-1 text-sm font-semibold">{periodLabel(activeTemplate, activeForm.periodStart)}</p></div>
-                {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? "Quarterly room PM completion date *" : "Completion date"}</span><input type="date" value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" /></label>}
+                {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? "Quarterly room PM completion date *" : "Completion date"}</span><input type="date" disabled={!canEdit || !!savingKey} value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white disabled:opacity-50" /></label>}
                 {activeTemplate.scope === "room" && <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Room</p><p className="mt-1 text-sm font-bold">{activeScopeKey.slice(5)}</p></div>}
                 {activeTemplate.fields.map((field) => (
                   <FieldInput key={field.id} field={field} value={formData[field.id] || ""} disabled={!canEdit || !!savingKey} onChange={(value) => setFormData((current) => ({ ...current, [field.id]: value }))} />
