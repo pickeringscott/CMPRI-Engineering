@@ -195,6 +195,7 @@ export default function PreventiveMaintenancePage() {
   const [liveWorkbook, setLiveWorkbook] = useState<LivePmWorkbook | null>(null);
   const [reviewQueue, setReviewQueue] = useState<PmReviewProposal[]>([]);
   const [locations, setLocations] = useState<PmLocation[]>([]);
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [canEdit, setCanEdit] = useState(false);
   const [canReview, setCanReview] = useState(false);
@@ -240,6 +241,7 @@ export default function PreventiveMaintenancePage() {
       setLiveWorkbook(result.workbook as LivePmWorkbook);
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
       setLocations(Array.isArray(result.locations) ? result.locations as PmLocation[] : []);
+      setAccessRoles(Array.isArray(result.access_roles) ? result.access_roles.filter((role: unknown): role is string => typeof role === "string") : []);
       setCanEdit(result.can_edit === true || result.can_review === true);
       setCanReview(result.can_review === true);
       setCanWriteLivePm(result.can_write_live_pm === true);
@@ -813,7 +815,7 @@ export default function PreventiveMaintenancePage() {
 
         {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
         {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
-        {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 text-sm text-sky-100">You have view-only PM access.</div>}
+        {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
 
         {tab === "week" && (
           <div className="mt-5 space-y-7">

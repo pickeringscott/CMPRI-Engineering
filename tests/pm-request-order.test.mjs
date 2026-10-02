@@ -26,6 +26,7 @@ test('PM is available to dashboard viewers and source forms can be opened read-o
   assert.match(page, /!canEdit \? "View PM form"/);
   assert.match(page, /disabled=\{!canEdit \|\| !!savingKey\}/);
   assert.match(page, /setCanEdit\(result\.can_edit === true \|\| result\.can_review === true\)/);
+  assert.match(page, /The PM service resolved this session as read-only/);
   assert.match(page, /type="date" disabled=\{!canEdit \|\| !!savingKey\}/);
 });
 

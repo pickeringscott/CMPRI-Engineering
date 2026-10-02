@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
     locations: locations.data || [],
     can_edit: isSystemAdmin || allows(auth.principal, "edit_tickets"),
     can_review: canReview,
+    access_roles: [auth.principal.profile.role, ...(auth.principal.profile.secondary_roles || [])],
     can_write_live_pm: livePmWritesEnabled(),
   }, { headers: { "Cache-Control": "no-store" } });
 }

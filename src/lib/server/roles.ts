@@ -86,7 +86,13 @@ export function profileHasRole(
   profile: { role: unknown; secondary_roles?: readonly unknown[] },
   role: CmpriRole,
 ): boolean {
-  return roleKey(profile.role) === role || profile.secondary_roles?.some((secondaryRole) => roleKey(secondaryRole) === role) === true;
+  const assignedRoles = [profile.role, ...(profile.secondary_roles || [])];
+  return assignedRoles.some((assignedRole) => {
+    if (typeof assignedRole !== "string") return false;
+    return assignedRole
+      .split(/\s*(?:\/|\+|,|&|\band\b)\s*/i)
+      .some((roleLabel) => roleKey(roleLabel) === role);
+  });
 }
 
 const TECHNICAL: readonly Capability[] = [
