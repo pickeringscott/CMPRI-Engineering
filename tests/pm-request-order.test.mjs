@@ -6,6 +6,7 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../src/', import.meta.url));
 const page = readFileSync(path.join(root, 'app/engineering/preventive-maintenance/page.tsx'), 'utf8');
+const dashboard = readFileSync(path.join(root, 'app/engineering/page.tsx'), 'utf8');
 const proposalRoute = readFileSync(path.join(root, 'app/api/preventive-maintenance/route.ts'), 'utf8');
 const reviewRoute = readFileSync(path.join(root, 'app/api/preventive-maintenance/review/route.ts'), 'utf8');
 const workOrderPmRoute = readFileSync(path.join(root, 'app/api/work-orders/[id]/preventive-maintenance/route.ts'), 'utf8');
@@ -17,6 +18,13 @@ test('PM workspace reads workbook data and stages technician saves', () => {
   assert.match(page, /Review &amp; confirm…/);
   assert.match(page, /has not changed the live workbook/);
   assert.doesNotMatch(page, /\/api\/corporate-pm/);
+});
+
+test('PM is available to dashboard viewers and source forms can be opened read-only', () => {
+  assert.match(dashboard, /hasCapability\(session, "view_dashboard"\) && \{ key: "\/engineering\/preventive-maintenance"/);
+  assert.match(page, /!canEdit \? "View form"/);
+  assert.match(page, /!canEdit \? "View PM form"/);
+  assert.match(page, /disabled=\{!canEdit \|\| !!savingKey\}/);
 });
 
 test('PM submission API persists proposals and never updates legacy native entries', () => {

@@ -701,7 +701,7 @@ export default function PreventiveMaintenancePage() {
               <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
             ))}
           </div>
-          <button type="button" disabled={!canEdit} onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950 disabled:opacity-40">{existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
+          <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
         </div>
       </article>
     );
@@ -729,7 +729,7 @@ export default function PreventiveMaintenancePage() {
                 <th scope="row" className="sticky left-0 bg-slate-950 px-3 py-2.5 text-sm font-medium text-slate-200">
                   {item.category && <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}
                   {item.label}
-                  {linkedReference?.(item.id) && <button type="button" disabled={!canEdit} onClick={() => openRoutineReference(linkedReference(item.id), periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
+                  {linkedReference?.(item.id) && <button type="button" onClick={() => openRoutineReference(linkedReference(item.id), periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
                 </th>
                 {periods.map((period) => {
                   const checked = routineStatus(template, period, item.id);
@@ -871,7 +871,7 @@ export default function PreventiveMaintenancePage() {
                     <article key={template.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div><p className="font-semibold">{template.title}</p><p className="mt-1 text-xs text-slate-500">{template.cadence} · {template.scope} · {template.checklist.length} items</p></div>
-                        <button type="button" disabled={!canEdit} onClick={() => openForm(template, period, template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property")} className="rounded-md border border-slate-700 px-2 py-1 text-xs font-bold text-emerald-200 disabled:opacity-40">New</button>
+                        <button type="button" onClick={() => openForm(template, period, template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property")} className="rounded-md border border-slate-700 px-2 py-1 text-xs font-bold text-emerald-200">{canEdit ? "New" : "View form"}</button>
                       </div>
                       <SourceNote template={template} />
                       {records.slice(-3).map((entry) => <button key={entry.id} type="button" onClick={() => openForm(template, entry.period_start, entry.scope_key)} className="mr-1 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200">{entry.scope_key.replace(/^[^:]+:/, "")} · {entry.is_complete ? "Complete" : "Draft"}</button>)}
@@ -902,7 +902,7 @@ export default function PreventiveMaintenancePage() {
                     <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
                     <td className="px-4 py-3 text-slate-300">{roomRank}</td>
                     <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${entry?.status === "pending" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : displayDate ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{entry?.status === "pending" ? "Pending review" : displayDate ? "Complete" : "Due"}</span></td>
-                    <td className="px-4 py-3 text-right"><button type="button" disabled={!canEdit} onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400 disabled:opacity-40">{entry ? "Open PM" : "Start PM"}</button></td>
+                    <td className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
                   </tr>;
                 })}</tbody>
               </table>
