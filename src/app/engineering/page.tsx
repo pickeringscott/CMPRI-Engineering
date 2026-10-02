@@ -570,6 +570,13 @@ export default function EngineeringDashboardPage() {
   const activeKey = zOrder.at(-1) || "";
   const notificationCount = inbox.length + awaitingApproval.length;
   const bellLabel = `Work order approvals for ${displayName} (${displayRole}): ${inbox.length} notification${inbox.length === 1 ? "" : "s"}, ${awaitingApproval.length} awaiting approval`;
+  const mobileLaunchers = launcherGroups
+    .flatMap((group) => group.items.filter((item): item is Launcher => Boolean(item)))
+    .filter((launcher) => launcher.key !== "/work-orders");
+  const createWorkOrderLauncher = launcherGroups
+    .flatMap((group) => group.items.filter((item): item is Launcher => Boolean(item)))
+    .find((launcher) => launcher.key === "/work-orders");
+  const showMobileLauncherDropdown = mobileLaunchers.length > 3;
   function renderLauncher(launcher: Launcher) {
     return (
       <button
@@ -611,31 +618,46 @@ export default function EngineeringDashboardPage() {
               </div>
               <p className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
+            {createWorkOrderLauncher && (
+              <button
+                type="button"
+                onClick={() => launch(createWorkOrderLauncher, Date.now())}
+                className="ml-auto min-h-10 shrink-0 rounded-lg border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm lg:hidden"
+              >
+                + Create Work Order
+              </button>
+            )}
           </div>
         </div>
 
         <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
-          {launcherGroups.map((group) => (
-            <div key={group.label} className="relative">
-              <details className="lg:hidden">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 lg:hidden">
+            {showMobileLauncherDropdown ? (
+              <details className="relative">
                 <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-semibold text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">
-                  {group.label}
+                  Navigation
                   <span aria-hidden="true" className="text-slate-400">⌄</span>
                 </summary>
-                <div role="group" aria-label={group.label} className="absolute left-0 top-full z-[210] mt-1 flex min-w-max flex-col gap-1 rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50">
-                  {group.items.filter((item): item is Launcher => Boolean(item)).map(renderLauncher)}
+                <div role="group" aria-label="Dashboard navigation" className="absolute left-0 top-full z-[210] mt-1 flex min-w-max flex-col gap-1 rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50">
+                  {mobileLaunchers.map(renderLauncher)}
                 </div>
               </details>
+            ) : mobileLaunchers.map(renderLauncher)}
+          </div>
+          <div className="hidden min-w-0 flex-wrap items-center gap-0.5 lg:flex">
+          {launcherGroups.map((group) => (
+            <div key={group.label} className="relative">
               <div
                 role="group"
                 aria-label={group.label}
-                className="hidden min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5 lg:flex"
+                className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5"
               >
                 <span aria-hidden="true" className="hidden px-0.5 text-[9pt] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
                 {group.items.filter((item): item is Launcher => Boolean(item)).map(renderLauncher)}
               </div>
             </div>
           ))}
+          </div>
         </nav>
       </header>
 
