@@ -161,7 +161,8 @@ export async function POST(request: NextRequest) {
     const createUser = adminAuth.createUser as
       | ((attrs: { email: string; password: string; email_confirm: boolean; user_metadata: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
       | undefined;
-    const { data: created, error: createError } = await createUser!({
+    if (!createUser) return NextResponse.json({ error: "Supabase Auth admin user creation is unavailable." }, { status: 500 });
+    const { data: created, error: createError } = await createUser.call(adminAuth, {
       email,
       password,
       email_confirm: true,
@@ -173,7 +174,8 @@ export async function POST(request: NextRequest) {
     const inviteUserByEmail = adminAuth.inviteUserByEmail as
       | ((email: string, options?: { data?: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
       | undefined;
-    const { data: invited, error: inviteError } = await inviteUserByEmail!(email, { data: { full_name: fullName } });
+    if (!inviteUserByEmail) return NextResponse.json({ error: "Supabase Auth email invitations are unavailable." }, { status: 500 });
+    const { data: invited, error: inviteError } = await inviteUserByEmail.call(adminAuth, email, { data: { full_name: fullName } });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
     id = invited.user?.id;
   }

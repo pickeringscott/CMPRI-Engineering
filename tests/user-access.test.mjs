@@ -58,13 +58,14 @@ function fixture(config={}) {
     },
   };
 
+  const adminAuth={
+    inviteUserByEmail:async function(){assert.strictEqual(this,adminAuth);writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
+    createUser:async function(){assert.strictEqual(this,adminAuth);writes.push('createUser');return {data:{user:{id:'created'}},error:null};},
+    deleteUser:async function(id){assert.strictEqual(this,adminAuth);writes.push('deleteUser');deletedAuthIds.push(id);return {error:config.authDeleteError?{message:'Auth cleanup failed'}:null};},
+  };
   const client={auth:{getUser:async()=>({data:{user:{id:'caller'}},error:config.authError?{message:'failed'}:null}),
     signUp:async()=>({data:{user:{id:'created-via-signup'}},error:null}),
-    admin:{
-      inviteUserByEmail:async()=>{writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
-      createUser:async()=>{writes.push('createUser');return {data:{user:{id:'created'}},error:null};},
-      deleteUser:async(id)=>{writes.push('deleteUser');deletedAuthIds.push(id);return {error:config.authDeleteError?{message:'Auth cleanup failed'}:null};},
-    },
+    admin:adminAuth,
   },
   rpc:async(name,args)=>{
     writes.push(`rpc:${name}:${args.target_id}`);
