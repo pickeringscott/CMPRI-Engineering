@@ -106,9 +106,11 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.ok(accountGroup.indexOf('label: "Manage Profile"') < accountGroup.indexOf('label: "Connect ChatGPT"'));
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineeringHeader, /nav aria-label="Open dashboard windows" className="[^"]*gap-0\.5/);
-  assert.match(engineeringHeader, /role="group"[\s\S]*?className="[^"]*gap-0\.5[^"]*p-0\.5/);
+  assert.match(engineeringHeader, /<details className="lg:hidden">[\s\S]*?absolute left-0 top-full z-\[210\]/);
+  assert.match(engineeringHeader, /role="group"[\s\S]*?className="hidden min-w-0 max-w-full flex-wrap items-center gap-0\.5[^"]*p-0\.5 lg:flex/);
   assert.match(engineeringHeader, /hidden px-0\.5 text-\[9pt\] font-bold uppercase/);
-  assert.match(engineeringHeader, /rounded border px-1 py-0\.5 font-semibold/);
+  assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
+  assert.match(engineering, /closest\("details"\)\?\.removeAttribute\("open"\)/);
   assert.match(engineering, /const LAUNCHER_CLOSE_WINDOW_MS = 5_000/);
   assert.match(engineering, /windowOpenedAtRef\.current\.set\(entry\.key, Date\.now\(\)\)/);
   assert.match(engineering, /clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS\)\s*\{\s*requestCloseWindow\(key\)/);
