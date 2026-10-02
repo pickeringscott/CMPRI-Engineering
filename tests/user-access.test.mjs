@@ -24,7 +24,7 @@ function fixture(config={}) {
       technician:'technician',maintenancetechnician:'technician',
       frontdesk:'front_desk',assistantgm:'front_desk',assistantgeneralmanager:'front_desk',assistantmanager:'front_desk',salesmanager:'front_desk',
       housekeeping:'housekeeping',leadhousekeeper:'housekeeping',executivehousekeeper:'housekeeping',
-      systemadmin:'system_admin',systemadministrator:'system_admin',administrator:'system_admin',admin:'system_admin',
+      sysadmin:'system_admin',systemadmin:'system_admin',systemadministrator:'system_admin',administrator:'system_admin',admin:'system_admin',
     };
     return m[k]||'unknown';
   };
@@ -35,6 +35,10 @@ function fixture(config={}) {
     if(ck==='engineer'||ck==='manager')return ['technician','front_desk','housekeeping'].includes(tk);
     return false;
   };
+  const profileHasRole=(profile,role)=>[profile?.role,...(profile?.secondary_roles||[])].some(assigned=>
+    typeof assigned==='string'&&assigned.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).some(label=>roleKey(label)===role));
+  const canManageTargetProfile=(profile,targetRole)=>['engineer','manager','system_admin']
+    .some(role=>profileHasRole(profile,role)&&canManageTargetRole(role,targetRole));
   const allLabels=['Engineer','Chief Engineer','General Manager','Senior Management','Maintenance Technician','Front Desk','Assistant GM','Sales Manager','Housekeeping','Lead Housekeeper'];
   const rolesModule={
     roleAllows:(r,c)=>c==='manage_users'&&['engineer','manager','system_admin'].includes(roleKey(r)),
@@ -43,6 +47,8 @@ function fixture(config={}) {
     assignableRoleLabels:(r)=>allLabels.filter(label=>canManageTargetRole(r,label)),
     canChangeAccount:(c,t)=>Boolean(c?.id&&t?.id&&c.id!==t.id&&canManageTargetRole(c.role,t.role)),
     canManageTargetRole,
+    canManageTargetProfile,
+    profileHasRole,
     membershipRole:(r)=>{
       const k=roleKey(r);
       if(k==='system_admin'||k==='engineer')return 'admin';
@@ -300,6 +306,16 @@ test('system_admin can create a manager profile when role label is Manager',asyn
   assert.equal(r.body.user.role,'manager');
   assert.deepEqual(f.writes,['invite','upsert','upsert']);
 });
+test('combined Chief Engineer and system administrator can invite elevated user roles',async()=>{
+  const f=fixture({
+    caller:{id:'caller',role:'Chief Engineer / System Administrator',active:true},
+    body:{email:'manager@example.invalid',full_name:'Test Manager',role:'General Manager'},
+  });
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,200);
+  assert.equal(r.body.user.role,'manager');
+  assert.deepEqual(f.writes,['invite','upsert','upsert']);
+});
 for(const [mode,password] of [['invite',undefined],['temporary password','temporary123']]){
   test(`POST rolls back the ${mode} Auth account when profile setup fails`,async()=>{
     const f=fixture({profileUpsertError:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk',...(password?{password}:{})}});
@@ -425,6 +441,16 @@ test('role policy gives General Manager manager permissions without granting the
   const technician = asRole('Maintenance Technician', grants('Maintenance Technician', ['manage_users', 'manage_work_orders']));
   const housekeeper = asRole('Lead Housekeeper', grants('Lead Housekeeper', ['manage_users', 'manage_work_orders']));
   const manager = asRole('General Manager', grants('General Manager', ['manage_users', 'approve_work_orders', 'review_work_orders']));
+  const dualRoleEngineer = {
+    ...base,
+    profile: { ...base.profile, role: 'Front Desk', secondary_roles: ['Chief Engineer'] },
+    permissions: grants('Chief Engineer', ['manage_users']),
+  };
+  const combinedSystemAdmin = {
+    ...base,
+    profile: { ...base.profile, role: 'Chief Engineer / System Administrator' },
+    permissions: [],
+  };
 
   assert.equal(accessExports.allows(frontDesk, 'submit'), true);
   assert.equal(accessExports.allows(frontDesk, 'manage_users'), false);
@@ -436,6 +462,8 @@ test('role policy gives General Manager manager permissions without granting the
   assert.equal(accessExports.allows(manager, 'review_tickets'), true);
   assert.equal(accessExports.allows(manager, 'manage_users'), true);
   assert.equal(accessExports.allows(manager, 'edit_tickets'), false);
+  assert.equal(accessExports.allows(dualRoleEngineer, 'manage_users'), true);
+  assert.equal(accessExports.allows(combinedSystemAdmin, 'manage_users'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Front Desk'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Chief Engineer'), false);
 });

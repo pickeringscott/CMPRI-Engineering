@@ -2,15 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
-import { ASSIGNABLE_ROLE_LABELS, canManageTargetRole, membershipRole, roleKey } from "@/lib/server/roles";
+import { ASSIGNABLE_ROLE_LABELS, canManageTargetProfile, membershipRole, roleKey } from "@/lib/server/roles";
 
-function callerCanChangeAccount(callerRole: unknown, callerId: string, target: { id: string; role: unknown }): boolean {
+function callerCanChangeAccount(
+  callerProfile: { role: unknown; secondary_roles?: readonly unknown[] },
+  callerId: string,
+  target: { id: string; role: unknown },
+): boolean {
   if (!callerId || !target.id || callerId === target.id) return false;
-  return canManageTargetRole(callerRole, target.role);
+  return canManageTargetProfile(callerProfile, target.role);
 }
 
-function callerCanAssignRole(callerRole: unknown, role: unknown): boolean {
-  return canManageTargetRole(callerRole, role);
+function callerCanAssignRole(callerProfile: { role: unknown; secondary_roles?: readonly unknown[] }, role: unknown): boolean {
+  return canManageTargetProfile(callerProfile, role);
 }
 
 async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {
@@ -105,7 +109,7 @@ export async function GET(request: NextRequest) {
   if (profileError) return NextResponse.json({ error: "Unable to read CMPRI user profiles." }, { status: 503 });
   if (allMembershipsError) return NextResponse.json({ error: "Unable to verify property account scope." }, { status: 503 });
 
-  const callerRole = principal.profile.role;
+  const callerProfile = principal.profile;
   const callerId = principal.identity?.id ?? principal.profile.id;
   const membershipsByUserId = new Map((propertyMemberships || []).map((membership) => [String(membership.user_id), membership]));
   const userIdsWithOtherPropertyMemberships = new Set((allMemberships || [])
@@ -115,12 +119,12 @@ export async function GET(request: NextRequest) {
     ...user,
     active: user.active === true && membershipsByUserId.get(user.id)?.active === true,
     can_manage: !userIdsWithOtherPropertyMemberships.has(user.id)
-      && callerCanChangeAccount(callerRole, callerId, { id: user.id, role: user.role }),
+      && callerCanChangeAccount(callerProfile, callerId, { id: user.id, role: user.role }),
   }));
 
   const managedRoles = new Set<string>();
   for (const label of ASSIGNABLE_ROLE_LABELS) {
-    if (callerCanAssignRole(callerRole, label)) managedRoles.add(label);
+    if (callerCanAssignRole(callerProfile, label)) managedRoles.add(label);
   }
   return NextResponse.json({ users, assignable_roles: Array.from(managedRoles) });
 }
@@ -137,7 +141,7 @@ export async function POST(request: NextRequest) {
   const role = typeof body.role === "string" ? body.role.trim() : "";
   const profileRole = roleKey(role);
   const password = typeof body.password === "string" ? body.password : "";
-  if (!role || profileRole === "unknown" || !callerCanAssignRole(principal.profile.role, role)) {
+  if (!role || profileRole === "unknown" || !callerCanAssignRole(principal.profile, role)) {
     return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !fullName || fullName.length > 200) {
@@ -228,9 +232,9 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "This account is shared with another property and must be managed centrally." }, { status: 409 });
   }
 
-  const callerRole = principal.profile.role;
+  const callerProfile = principal.profile;
   const callerId = principal.identity?.id ?? principal.profile.id;
-  if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
+  if (!callerCanChangeAccount(callerProfile, callerId, { id: target.id, role: target.role })) {
     return NextResponse.json({ error: "You cannot manage your own, an equal, or a superior CMPRI account." }, { status: 403 });
   }
 
@@ -238,7 +242,7 @@ export async function PATCH(request: NextRequest) {
   if (body.role !== undefined) {
     const raw = typeof body.role === "string" ? body.role.trim() : "";
     const isKnownLabel = raw && (ASSIGNABLE_ROLE_LABELS as readonly string[]).includes(raw);
-    if (!isKnownLabel || !callerCanAssignRole(callerRole, raw)) {
+    if (!isKnownLabel || !callerCanAssignRole(callerProfile, raw)) {
       return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
     }
     proposedRole = roleKey(raw);
@@ -283,7 +287,7 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({
     user: {
       ...data,
-      can_manage: callerCanChangeAccount(callerRole, callerId, { id: data.id, role: data.role }),
+      can_manage: callerCanChangeAccount(callerProfile, callerId, { id: data.id, role: data.role }),
     },
   });
 }
@@ -327,9 +331,9 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "This account is shared with another property and must be managed centrally." }, { status: 409 });
   }
 
-  const callerRole = principal.profile.role;
+  const callerProfile = principal.profile;
   const callerId = principal.identity?.id ?? principal.profile.id;
-  if (!callerCanChangeAccount(callerRole, callerId, { id: target.id, role: target.role })) {
+  if (!callerCanChangeAccount(callerProfile, callerId, { id: target.id, role: target.role })) {
     return NextResponse.json({ error: "You cannot permanently remove your own, an equal, or a superior CMPRI account." }, { status: 403 });
   }
 

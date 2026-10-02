@@ -1,4 +1,4 @@
-import { roleAllows, roleKey, type Capability } from "./roles";
+import { profileAllows, profileHasRole, roleKey, type Capability } from "./roles";
 export type { Capability } from "./roles";
 
 export type AccessIdentity = { id: string; email: string | null };
@@ -35,9 +35,13 @@ export type AuthSource = {
 };
 
 function matchingGrants(principal: Principal, names: readonly string[]) {
-  const role = roleKey(principal.profile.role);
   return principal.permissions.filter(
-    (row) => roleKey(row.role) === role && names.includes(String(row.permission || "")),
+    (row) => {
+      const role = roleKey(row.role);
+      return role !== "unknown"
+        && profileHasRole(principal.profile, role)
+        && names.includes(String(row.permission || ""));
+    },
   );
 }
 
@@ -77,11 +81,11 @@ const GRANTS: Partial<Record<Capability, readonly string[]>> = {
  */
 export function allows(principal: Principal, capability: Capability): boolean {
   if (principal.profile.active !== true || principal.membership.active !== true) return false;
-  if (!roleAllows(principal.profile.role, capability)) return false;
+  if (!profileAllows(principal.profile, capability)) return false;
 
   // The bootstrap system administrator is intentionally full-control and must not be
   // locked out by stale or missing permission rows in legacy databases.
-  if (roleKey(principal.profile.role) === "system_admin") return true;
+  if (profileHasRole(principal.profile, "system_admin")) return true;
 
   const required = GRANTS[capability];
   if (!required) return true;

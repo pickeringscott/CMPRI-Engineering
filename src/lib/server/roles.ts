@@ -88,12 +88,8 @@ export function profileHasRole(
   role: CmpriRole,
 ): boolean {
   const assignedRoles = [profile.role, ...(profile.secondary_roles || [])];
-  return assignedRoles.some((assignedRole) => {
-    if (typeof assignedRole !== "string") return false;
-    return assignedRole
-      .split(/\s*(?:\/|\+|,|&|\band\b)\s*/i)
-      .some((roleLabel) => roleKey(roleLabel) === role);
-  });
+  return assignedRoles.some((assignedRole) => typeof assignedRole === "string"
+    && assignedRole.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).some((roleLabel) => roleKey(roleLabel) === role));
 }
 
 const TECHNICAL: readonly Capability[] = [
@@ -127,6 +123,14 @@ export function roleAllows(role: unknown, capability: Capability): boolean {
   return CAPABILITIES[roleKey(role)].includes(capability);
 }
 
+export function profileAllows(
+  profile: { role: unknown; secondary_roles?: readonly unknown[] },
+  capability: Capability,
+): boolean {
+  return (Object.keys(CAPABILITIES) as CmpriRole[])
+    .some((role) => profileHasRole(profile, role) && roleAllows(role, capability));
+}
+
 export function canReadEquipment(role: unknown): boolean {
   return ["engineer", "technician", "system_admin"].includes(roleKey(role));
 }
@@ -153,6 +157,14 @@ export function canManageTargetRole(callerRole: unknown, targetRole: unknown): b
   if (caller === "engineer") return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
   if (caller === "manager") return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
   return false;
+}
+
+export function canManageTargetProfile(
+  callerProfile: { role: unknown; secondary_roles?: readonly unknown[] },
+  targetRole: unknown,
+): boolean {
+  return (Object.keys(CAPABILITIES) as CmpriRole[])
+    .some((role) => profileHasRole(callerProfile, role) && canManageTargetRole(role, targetRole));
 }
 
 export function canSuperviseDraftRole(callerRole: unknown, targetRole: unknown): boolean {

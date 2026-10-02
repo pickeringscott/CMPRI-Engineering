@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows, type AccessProfile, type Capability, type Membership, type Permission } from "./access";
-import { roleKey } from "./roles";
+import { profileHasRole } from "./roles";
 import { createSupabaseAdmin } from "./supabase-admin";
 import { isMutatingMethod, mcpIdentity } from "./cmpri-mcp-auth";
 
@@ -98,7 +98,7 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
     if (membership.active !== true) return { ok: false, reason: "membership-inactive" };
 
     let permissionRows: Permission[] = [];
-    if (roleKey(profile.role) !== "system_admin") {
+    if (!profileHasRole(profile, "system_admin")) {
       const { data, error: permissionError } = await lookup
         .from("role_permissions")
         .select("role, permission, allowed");
