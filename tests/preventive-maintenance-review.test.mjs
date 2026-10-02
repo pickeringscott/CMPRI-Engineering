@@ -66,11 +66,25 @@ function fixture(config = {}) {
       if (name === '@/lib/constants') return { HOTEL_ID: 'hotel-id' };
       if (name === '@/lib/server/auth') return {
         requireUser: async () => config.auth === null ? null : {
-          principal: { identity: { id: 'reviewer-id' }, profile: { role: config.role || 'System Administrator' } },
+          principal: {
+            identity: { id: 'reviewer-id' },
+            profile: { role: config.role || 'System Administrator', secondary_roles: config.secondaryRoles || [] },
+          },
           admin: database,
         },
       };
-      if (name === '@/lib/server/roles') return { roleKey: role => role === 'System Administrator' ? 'system_admin' : 'technician' };
+      if (name === '@/lib/server/roles') {
+        const roleKey = value => {
+          const normalized = String(value).trim().toLowerCase().replace(/[\s_-]+/g, '');
+          return ['systemadmin', 'systemadministrator', 'administrator', 'admin'].includes(normalized)
+            ? 'system_admin'
+            : normalized;
+        };
+        return {
+          profileHasRole: (profile, role) => [profile.role, ...(profile.secondary_roles || [])]
+            .some(value => roleKey(value) === role),
+        };
+      }
       if (name === '@/lib/server/integrations-safe-mode') return { integrationErrorStatus: () => 503 };
       if (name === '@/lib/server/live-pm') return {
         livePmWritesEnabled: () => config.writesEnabled === true,
@@ -95,6 +109,13 @@ test('only a System Administrator may review PM proposals', async () => {
   const response = await f.handler(f.request({ proposalId, decision: 'approve', expectedRevision: 1 }));
   assert.equal(response.status, 403);
   assert.equal(f.calls.length, 0);
+});
+
+test('a secondary System Administrator role can review PM proposals', async () => {
+  const f = fixture({ role: 'Engineer', secondaryRoles: ['system_admin'] });
+  const response = await f.handler(f.request({ proposalId, decision: 'reject', expectedRevision: 1 }));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.proposal.status, 'rejected');
 });
 
 test('review approval cannot write unless the independent live-PM gate is enabled', async () => {

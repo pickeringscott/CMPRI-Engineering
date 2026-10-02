@@ -32,12 +32,13 @@ test('PM is available to dashboard viewers and source forms can be opened read-o
 test('PM submission API persists proposals and never updates legacy native entries', () => {
   assert.match(proposalRoute, /cmpri_pm_proposals/);
   assert.match(proposalRoute, /resolveLivePmChanges/);
+  assert.match(proposalRoute, /profileHasRole\(auth\.principal\.profile, "system_admin"\)/);
   assert.doesNotMatch(proposalRoute, /cmpri_pm_entries/);
 });
 
 test('only reviewer approval invokes the live workbook apply path', () => {
   assert.match(reviewRoute, /applyLivePmChanges\(cells\)/);
-  assert.match(reviewRoute, /roleKey\(auth\.principal\.profile\.role\) !== "system_admin"/);
+  assert.match(reviewRoute, /profileHasRole\(auth\.principal\.profile, "system_admin"\)/);
   assert.match(workOrderPmRoute, /Direct PM spreadsheet edits from work orders are disabled/);
   assert.doesNotMatch(workOrderPmRoute, /setCorporatePmCheckbox/);
 });

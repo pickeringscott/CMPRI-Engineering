@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/server/auth";
 import { findPmTemplate, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
 import { integrationErrorStatus } from "@/lib/server/integrations-safe-mode";
 import { livePmWritesEnabled, readLivePmWeek, resolveLivePmChanges } from "@/lib/server/live-pm";
-import { roleKey } from "@/lib/server/roles";
+import { profileHasRole } from "@/lib/server/roles";
 
 function validDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -100,7 +100,8 @@ export async function GET(request: NextRequest) {
       });
     }
   }
-  const canReview = roleKey(auth.principal.profile.role) === "system_admin";
+  const isSystemAdmin = profileHasRole(auth.principal.profile, "system_admin");
+  const canReview = isSystemAdmin;
   const reviewQueue = canReview
     ? await auth.admin.from("cmpri_pm_proposals")
       .select("id, template_id, period_start, scope_key, payload, proposed_cells, status, submitted_by_name, revision, created_at")
@@ -133,7 +134,7 @@ export async function GET(request: NextRequest) {
     entries: [...latestByKey.values()],
     review_queue: reviewQueue?.data || [],
     locations: locations.data || [],
-    can_edit: allows(auth.principal, "edit_tickets"),
+    can_edit: isSystemAdmin || allows(auth.principal, "edit_tickets"),
     can_review: canReview,
     can_write_live_pm: livePmWritesEnabled(),
   }, { headers: { "Cache-Control": "no-store" } });
@@ -142,7 +143,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!allows(auth.principal, "edit_tickets")) {
+  if (!profileHasRole(auth.principal.profile, "system_admin") && !allows(auth.principal, "edit_tickets")) {
     return NextResponse.json({ error: "PM completion requires engineering or technician editing permission." }, { status: 403 });
   }
 

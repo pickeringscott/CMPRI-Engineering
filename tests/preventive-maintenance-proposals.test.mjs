@@ -81,7 +81,11 @@ function fixture(config = {}) {
         requireUser: async () => config.auth === null ? null : {
           principal: {
             identity: { id: 'actor-id', email: 'engineer@example.test' },
-            profile: { full_name: 'Engineer', role: 'Maintenance Technician' },
+            profile: {
+              full_name: 'Engineer',
+              role: config.role || 'Maintenance Technician',
+              secondary_roles: config.secondaryRoles || [],
+            },
           },
           admin: database,
         },
@@ -108,7 +112,19 @@ function fixture(config = {}) {
       if (name === '@/lib/server/live-pm') return {
         resolveLivePmChanges: async () => [{ sheet: 'JAN', row: 7, column: 10, expectedValue: 'FALSE', proposedValue: 'TRUE' }],
       };
-      if (name === '@/lib/server/roles') return { roleKey: value => String(value).toLowerCase() };
+      if (name === '@/lib/server/roles') {
+        const roleKey = value => {
+          const normalized = String(value).trim().toLowerCase().replace(/[\s_-]+/g, '');
+          return ['systemadmin', 'systemadministrator', 'administrator', 'admin'].includes(normalized)
+            ? 'system_admin'
+            : normalized;
+        };
+        return {
+          roleKey,
+          profileHasRole: (profile, role) => [profile.role, ...(profile.secondary_roles || [])]
+            .some(value => roleKey(value) === role),
+        };
+      }
       throw new Error(`Unexpected import ${name}`);
     },
   });
@@ -162,4 +178,11 @@ test('technician PM proposal creation rejects invalid checkbox responses before 
   const response = await f.handler(f.request);
   assert.equal(response.status, 400);
   assert.equal(f.calls.some(call => call.insert), false);
+});
+
+test('a secondary System Administrator role can submit PM proposals', async () => {
+  const f = fixture({ role: 'Engineer', secondaryRoles: ['system_admin'], canEdit: false });
+  const response = await f.handler(f.request);
+  assert.equal(response.status, 201);
+  assert.equal(response.body.entry.status, 'pending');
 });

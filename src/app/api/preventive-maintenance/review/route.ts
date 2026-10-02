@@ -3,7 +3,7 @@ import { HOTEL_ID } from "@/lib/constants";
 import { requireUser } from "@/lib/server/auth";
 import { integrationErrorStatus } from "@/lib/server/integrations-safe-mode";
 import { applyLivePmChanges, livePmWritesEnabled, type LivePmProposedCell } from "@/lib/server/live-pm";
-import { roleKey } from "@/lib/server/roles";
+import { profileHasRole } from "@/lib/server/roles";
 
 function objectBody(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -52,7 +52,7 @@ function dbError(error: { message?: string; code?: string } | null, fallback: st
 export async function PATCH(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (roleKey(auth.principal.profile.role) !== "system_admin") {
+  if (!profileHasRole(auth.principal.profile, "system_admin")) {
     return NextResponse.json({ error: "Only a System Administrator can review PM proposals." }, { status: 403 });
   }
 
