@@ -239,7 +239,6 @@ export default function TechnicianDashboard() {
             </div>
             </div>
             <Link href="/work-orders" className="ml-auto min-h-10 shrink-0 rounded-lg border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm sm:hidden">Create Work Order</Link>
-          </div>
           <div className="hidden flex-wrap items-center justify-end gap-2 sm:flex">
             <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-[9pt] font-bold text-slate-200 disabled:opacity-50">
               {loading ? "Refreshing…" : "Refresh"}

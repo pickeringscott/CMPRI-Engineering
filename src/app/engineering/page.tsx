@@ -64,6 +64,34 @@ type Launcher = {
 
 type LauncherGroup = { label: string; items: Array<Launcher | false> };
 
+function DashboardLauncherButton({
+  launcher,
+  open,
+  onLaunch,
+  className,
+}: {
+  launcher: Launcher;
+  open: boolean;
+  onLaunch: (launcher: Launcher, clickedAt: number) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-cmpri-desktop-launch={launcher.key}
+      data-open={open ? "true" : "false"}
+      title={launcher.label}
+      onClick={(event) => {
+        onLaunch(launcher, Date.now());
+        event.currentTarget.closest("details")?.removeAttribute("open");
+      }}
+      className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
+    >
+      {launcher.label}
+    </button>
+  );
+}
+
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
   "/profile": { title: "Manage Profile", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
@@ -577,24 +605,6 @@ export default function EngineeringDashboardPage() {
     .flatMap((group) => group.items.filter((item): item is Launcher => Boolean(item)))
     .find((launcher) => launcher.key === "/work-orders");
   const showMobileLauncherDropdown = mobileLaunchers.length > 3;
-  function renderLauncher(launcher: Launcher) {
-    return (
-      <button
-        key={`${launcher.key}:${launcher.label}`}
-        type="button"
-        data-cmpri-desktop-launch={launcher.key}
-        data-open={openKeys.has(launcher.key) ? "true" : "false"}
-        title={launcher.label}
-        onClick={(event) => {
-          launch(launcher, Date.now());
-          event.currentTarget.closest("details")?.removeAttribute("open");
-        }}
-        className={`cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
-      >
-        {launcher.label}
-      </button>
-    );
-  }
 
   return (
     <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white">
@@ -619,13 +629,12 @@ export default function EngineeringDashboardPage() {
               <p className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
             {createWorkOrderLauncher && (
-              <button
-                type="button"
-                onClick={() => launch(createWorkOrderLauncher, Date.now())}
+              <DashboardLauncherButton
+                launcher={createWorkOrderLauncher}
+                open={openKeys.has(createWorkOrderLauncher.key)}
+                onLaunch={launch}
                 className="ml-auto min-h-10 shrink-0 rounded-lg border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm lg:hidden"
-              >
-                + Create Work Order
-              </button>
+              />
             )}
           </div>
         </div>
@@ -639,10 +648,14 @@ export default function EngineeringDashboardPage() {
                   <span aria-hidden="true" className="text-slate-400">⌄</span>
                 </summary>
                 <div role="group" aria-label="Dashboard navigation" className="absolute left-0 top-full z-[210] mt-1 flex min-w-max flex-col gap-1 rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50">
-                  {mobileLaunchers.map(renderLauncher)}
+                  {mobileLaunchers.map((launcher) => (
+                    <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
+                  ))}
                 </div>
               </details>
-            ) : mobileLaunchers.map(renderLauncher)}
+            ) : mobileLaunchers.map((launcher) => (
+              <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
+            ))}
           </div>
           <div className="hidden min-w-0 flex-wrap items-center gap-0.5 lg:flex">
           {launcherGroups.map((group) => (
@@ -653,7 +666,9 @@ export default function EngineeringDashboardPage() {
                 className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5"
               >
                 <span aria-hidden="true" className="hidden px-0.5 text-[9pt] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
-                {group.items.filter((item): item is Launcher => Boolean(item)).map(renderLauncher)}
+                {group.items.filter((item): item is Launcher => Boolean(item)).map((launcher) => (
+                  <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
+                ))}
               </div>
             </div>
           ))}

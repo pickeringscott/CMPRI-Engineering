@@ -108,12 +108,12 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineeringHeader, /nav aria-label="Open dashboard windows" className="[^"]*gap-0\.5/);
   assert.match(engineeringHeader, /showMobileLauncherDropdown \? \([\s\S]*?<details className="relative">[\s\S]*?absolute left-0 top-full z-\[210\]/);
-  assert.match(engineeringHeader, /mobileLaunchers\.length > 3/);
+  assert.match(engineering, /mobileLaunchers\.length > 3/);
   assert.match(engineeringHeader, /className="hidden min-w-0 flex-wrap items-center gap-0\.5 lg:flex"/);
   assert.match(engineeringHeader, /hidden px-0\.5 text-\[9pt\] font-bold uppercase/);
   assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
   assert.match(engineering, /closest\("details"\)\?\.removeAttribute\("open"\)/);
-  assert.ok(engineeringHeader.indexOf("+ Create Work Order") < engineeringHeader.indexOf('<nav aria-label="Open dashboard windows"'));
+  assert.match(engineeringHeader, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0[\s\S]*?lg:hidden/);
   assert.match(engineering, /const LAUNCHER_CLOSE_WINDOW_MS = 5_000/);
   assert.match(engineering, /windowOpenedAtRef\.current\.set\(entry\.key, Date\.now\(\)\)/);
   assert.match(engineering, /clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS\)\s*\{\s*requestCloseWindow\(key\)/);
@@ -130,8 +130,9 @@ test('mobile dropdowns are limited to dashboards with more than three navigation
   const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
 
   assert.match(engineering, /mobileLaunchers\.length > 3/);
-  assert.match(engineering, /<details className="relative">[\s\S]*?mobileLaunchers\.map\(renderLauncher\)/);
-  assert.match(engineering, /ml-auto min-h-10 shrink-0[\s\S]*?\+ Create Work Order/);
+  assert.match(engineering, /<details className="relative">[\s\S]*?mobileLaunchers\.map\(\(launcher\)/);
+  assert.match(engineering, /label: "\+ Create Work Order"/);
+  assert.match(engineering, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0/);
   assert.doesNotMatch(technician, /<details/);
   assert.match(technician, /Create Work Order<\/Link>/);
   assert.match(technician, /sm:hidden">Create Work Order<\/Link>/);
@@ -139,7 +140,7 @@ test('mobile dropdowns are limited to dashboards with more than three navigation
   assert.doesNotMatch(workOrders, /<details/);
   assert.match(workOrders, /sm:hidden disabled:opacity-80/);
   assert.match(workOrders, /flex items-center gap-1 sm:hidden/);
-  assert.match(workOrders, /className="hidden rounded-lg border[\s\S]*?sm:inline-flex/);
+  assert.match(workOrders, /className=\{`hidden rounded-lg border[\s\S]*?sm:inline-flex/);
 });
 
 test('sign-in More toggle reveals password access without exposing test account data', () => {
