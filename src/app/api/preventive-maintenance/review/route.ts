@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireUser } from "@/lib/server/auth";
-import { integrationErrorStatus } from "@/lib/server/integrations-safe-mode";
-import { applyLivePmChanges, livePmWritesEnabled, type LivePmProposedCell } from "@/lib/server/live-pm";
 import { profileHasRole } from "@/lib/server/roles";
+
+type LivePmProposedCell = {
+  sheet: string;
+  row: number;
+  column: number;
+  label: string;
+  kind: "checkbox" | "completion-date";
+  expectedValue: string;
+  proposedValue: string;
+};
 
 function objectBody(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -106,8 +114,8 @@ export async function PATCH(request: NextRequest) {
 
   const cells = proposedCells(proposal.proposed_cells);
   if (!cells) return NextResponse.json({ error: "This PM proposal contains invalid workbook changes and cannot be approved." }, { status: 409 });
-  if (cells.length && !livePmWritesEnabled()) {
-    return NextResponse.json({ error: "Live PM approval writes are disabled until the development review is complete." }, { status: 409 });
+  if (cells.length) {
+    return NextResponse.json({ error: "Google Sheets sync is disabled. This proposal contains workbook changes and cannot be approved until sync is restored." }, { status: 409 });
   }
 
   let claimedRevision = Number(proposal.revision);
@@ -125,27 +133,6 @@ export async function PATCH(request: NextRequest) {
     claimedRevision = Number(claimed.data.revision);
   }
 
-  try {
-    await applyLivePmChanges(cells);
-  } catch (error) {
-    const released = await auth.admin.from("cmpri_pm_proposals")
-      .update({ status: "pending", reviewed_by: null, reviewed_at: null, review_note: null })
-      .eq("hotel_id", HOTEL_ID)
-      .eq("id", proposal.id)
-      .eq("status", "processing")
-      .eq("revision", claimedRevision)
-      .select("id")
-      .maybeSingle();
-    const message = error instanceof Error ? error.message : "Live PM workbook changes could not be applied.";
-    if (released.error || !released.data) {
-      return NextResponse.json(
-        { error: `${message} The proposal could not be returned to the review queue; an administrator must inspect its processing status.` },
-        { status: 503 },
-      );
-    }
-    return NextResponse.json({ error: message }, { status: integrationErrorStatus(error) });
-  }
-
   const approved = await auth.admin.from("cmpri_pm_proposals")
     .update({ status: "approved", reviewed_by: actor, reviewed_at: new Date().toISOString(), review_note: reviewNote })
     .eq("hotel_id", HOTEL_ID)
@@ -154,10 +141,10 @@ export async function PATCH(request: NextRequest) {
     .eq("revision", claimedRevision)
     .select("id, status, revision, reviewed_at")
     .maybeSingle();
-  if (approved.error) return dbError(approved.error, "The workbook was updated, but the PM approval status could not be recorded.");
+  if (approved.error) return dbError(approved.error, "The PM approval status could not be recorded.");
   if (!approved.data) {
     return NextResponse.json(
-      { error: "The workbook update was verified, but the proposal approval status could not be recorded. Refresh the review queue before retrying.", conflict: true },
+      { error: "The proposal approval status could not be recorded. Refresh the review queue before retrying.", conflict: true },
       { status: 409 },
     );
   }

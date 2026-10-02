@@ -11,12 +11,14 @@ const proposalRoute = readFileSync(path.join(root, 'app/api/preventive-maintenan
 const reviewRoute = readFileSync(path.join(root, 'app/api/preventive-maintenance/review/route.ts'), 'utf8');
 const workOrderPmRoute = readFileSync(path.join(root, 'app/api/work-orders/[id]/preventive-maintenance/route.ts'), 'utf8');
 
-test('PM workspace reads workbook data and stages technician saves', () => {
+test('PM workspace loads CMPRI records and stages technician saves', () => {
   assert.match(page, /fetch\("\/api\/preventive-maintenance"/);
   assert.match(page, /\/api\/preventive-maintenance\/review/);
   assert.match(page, /status === "pending"/);
   assert.match(page, /Review &amp; confirm…/);
-  assert.match(page, /has not changed the live workbook/);
+  assert.match(page, /Google Sheets sync is temporarily disabled/);
+  assert.match(proposalRoute, /workbook: emptyPmWorkbook\(week\)/);
+  assert.match(proposalRoute, /spreadsheet_sync_enabled: false/);
   assert.doesNotMatch(page, /\/api\/corporate-pm/);
 });
 
@@ -35,13 +37,16 @@ test('PM is available to dashboard viewers and source forms can be opened read-o
 
 test('PM submission API persists proposals and never updates legacy native entries', () => {
   assert.match(proposalRoute, /cmpri_pm_proposals/);
-  assert.match(proposalRoute, /resolveLivePmChanges/);
+  assert.doesNotMatch(proposalRoute, /readLivePmWeek|resolveLivePmChanges/);
+  assert.match(proposalRoute, /spreadsheet_sync_enabled: false/);
+  assert.match(proposalRoute, /const proposedCells: PmProposedCell\[\] = \[\]/);
   assert.match(proposalRoute, /profileHasRole\(auth\.principal\.profile, "system_admin"\)/);
   assert.doesNotMatch(proposalRoute, /cmpri_pm_entries/);
 });
 
-test('only reviewer approval invokes the live workbook apply path', () => {
-  assert.match(reviewRoute, /applyLivePmChanges\(cells\)/);
+test('PM reviewer approval never accesses Google Sheets while sync is disabled', () => {
+  assert.doesNotMatch(reviewRoute, /applyLivePmChanges|readLivePm/);
+  assert.match(reviewRoute, /Google Sheets sync is disabled/);
   assert.match(reviewRoute, /profileHasRole\(auth\.principal\.profile, "system_admin"\)/);
   assert.match(workOrderPmRoute, /Direct PM spreadsheet edits from work orders are disabled/);
   assert.doesNotMatch(workOrderPmRoute, /setCorporatePmCheckbox/);

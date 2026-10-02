@@ -31,7 +31,7 @@ function fixture(config = {}) {
     period_start: '2026-01-05',
     scope_key: 'property',
     payload,
-    proposed_cells: [{ sheet: 'JAN', row: 7, column: 10, expectedValue: 'FALSE', proposedValue: 'TRUE' }],
+    proposed_cells: [],
     status: 'pending',
     submitted_by_name: 'Engineer',
     revision: 1,
@@ -108,10 +108,6 @@ function fixture(config = {}) {
         }),
         validPmPeriod: () => true,
       };
-      if (name === '@/lib/server/integrations-safe-mode') return { integrationErrorStatus: () => 503 };
-      if (name === '@/lib/server/live-pm') return {
-        resolveLivePmChanges: async () => [{ sheet: 'JAN', row: 7, column: 10, expectedValue: 'FALSE', proposedValue: 'TRUE' }],
-      };
       if (name === '@/lib/server/roles') {
         const roleKey = value => {
           const normalized = String(value).trim().toLowerCase().replace(/[\s_-]+/g, '');
@@ -145,20 +141,21 @@ function fixture(config = {}) {
   return { handler: exports.POST, calls, request };
 }
 
-test('technician PM saves create pending workbook proposals and never update the live sheet', async () => {
+test('technician PM saves create CMPRI-only proposals without workbook cell changes', async () => {
   const f = fixture();
   const response = await f.handler(f.request);
   assert.equal(response.status, 201);
   assert.equal(response.body.entry.status, 'pending');
-  assert.deepEqual(JSON.parse(JSON.stringify(response.body.entry.proposed_cells)), [{
-    sheet: 'JAN',
-    row: 7,
-    column: 10,
-    expectedValue: 'FALSE',
-    proposedValue: 'TRUE',
-  }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.body.entry.proposed_cells)), []);
   assert.equal(f.calls.some(call => call.table === 'cmpri_pm_proposals'), true);
   assert.equal(f.calls.some(call => call.table === 'cmpri_pm_entries'), false);
+});
+
+test('PM proposal saves do not resolve or access Google Sheets', async () => {
+  const f = fixture();
+  const response = await f.handler(f.request);
+  assert.equal(response.status, 201);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.body.entry.proposed_cells)), []);
 });
 
 test('technician PM proposal creation rejects invalid checkbox responses before persistence', async () => {

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { integrationErrorStatus } from "@/lib/server/integrations-safe-mode";
-import { readLivePmWeek } from "@/lib/server/live-pm";
 
 function isMonday(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -24,13 +22,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Select a week beginning on Monday." }, { status: 400 });
   }
 
-  try {
-    const workbook = await readLivePmWeek(week);
-    return NextResponse.json(workbook, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Live PM workbook could not be loaded." },
-      { status: integrationErrorStatus(error) },
-    );
-  }
+  return NextResponse.json(
+    { error: "Google Sheets sync is temporarily disabled for Preventive Maintenance." },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
+  );
 }

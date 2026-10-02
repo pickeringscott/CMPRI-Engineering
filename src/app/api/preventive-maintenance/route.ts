@@ -3,9 +3,34 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { findPmTemplate, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
-import { integrationErrorStatus } from "@/lib/server/integrations-safe-mode";
-import { livePmWritesEnabled, readLivePmWeek, resolveLivePmChanges } from "@/lib/server/live-pm";
 import { profileHasRole } from "@/lib/server/roles";
+
+const PM_MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
+type PmProposedCell = {
+  sheet: string;
+  row: number;
+  column: number;
+  label: string;
+  kind: "checkbox" | "completion-date";
+  expectedValue: string;
+  proposedValue: string;
+};
+
+function emptyPmWorkbook(week: string) {
+  const weekDates = pmWeekDates(week);
+  const monthSheets = [...new Set(weekDates.map((date) => PM_MONTH_SHEETS[Number(date.slice(5, 7)) - 1]))];
+  return {
+    week,
+    year: Number(week.slice(0, 4)),
+    weekDates,
+    monthSheets,
+    daily: Object.fromEntries(weekDates.map((date) => [date, []])),
+    weekly: Object.fromEntries(monthSheets.map((month) => [month, []])),
+    monthly: Object.fromEntries(monthSheets.map((month) => [month, []])),
+    rooms: PM_ROOM_NUMBERS.map((room) => ({ room, quarters: { Q1: null, Q2: null, Q3: null, Q4: null } })),
+    fetchedAt: new Date().toISOString(),
+  };
+}
 
 function validDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -119,25 +144,17 @@ export async function GET(request: NextRequest) {
     .order("room_number", { ascending: true })
     .limit(2000);
   if (locations.error) return responseError(locations.error, "PM work-order locations could not be loaded.");
-  let workbook;
-  try {
-    workbook = await readLivePmWeek(week);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Live PM workbook could not be loaded." },
-      { status: integrationErrorStatus(error) },
-    );
-  }
   return NextResponse.json({
     week,
-    workbook,
+    workbook: emptyPmWorkbook(week),
     entries: [...latestByKey.values()],
     review_queue: reviewQueue?.data || [],
     locations: locations.data || [],
     can_edit: isSystemAdmin || allows(auth.principal, "edit_tickets"),
     can_review: canReview,
     access_roles: [auth.principal.profile.role, ...(auth.principal.profile.secondary_roles || [])],
-    can_write_live_pm: livePmWritesEnabled(),
+    spreadsheet_sync_enabled: false,
+    can_write_live_pm: false,
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -259,21 +276,7 @@ export async function POST(request: NextRequest) {
     || (existing.data && Number(existing.data.revision) !== expectedRevision)) {
     return NextResponse.json({ error: "This PM proposal changed in another session. Refresh it before saving again.", conflict: true }, { status: 409 });
   }
-  let proposedCells;
-  try {
-    proposedCells = await resolveLivePmChanges({
-      templateId,
-      periodStart,
-      scopeKey,
-      responses,
-      completedOn: body.isComplete ? completedOn : null,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "PM changes could not be matched to the live workbook." },
-      { status: integrationErrorStatus(error) },
-    );
-  }
+  const proposedCells: PmProposedCell[] = [];
   const payload = {
     responses,
     form_data: formData,

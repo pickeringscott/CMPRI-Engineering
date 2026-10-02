@@ -15,15 +15,7 @@ function fixture(config = {}) {
     id: proposalId,
     status: 'pending',
     revision: 1,
-    proposed_cells: [{
-      sheet: 'JAN',
-      row: 7,
-      column: 10,
-      label: 'Check Fire Panel for Troubles',
-      kind: 'checkbox',
-      expectedValue: 'FALSE',
-      proposedValue: 'TRUE',
-    }],
+    proposed_cells: config.proposedCells || [],
   };
   const database = {
     from(table) {
@@ -85,15 +77,6 @@ function fixture(config = {}) {
             .some(value => roleKey(value) === role),
         };
       }
-      if (name === '@/lib/server/integrations-safe-mode') return { integrationErrorStatus: () => 503 };
-      if (name === '@/lib/server/live-pm') return {
-        livePmWritesEnabled: () => config.writesEnabled === true,
-        applyLivePmChanges: async cells => {
-          calls.push({ apply: cells });
-          if (config.applyError) throw new Error(config.applyError);
-          return { written: cells.length };
-        },
-      };
       throw new Error(`Unexpected import ${name}`);
     },
   });
@@ -118,12 +101,28 @@ test('a secondary System Administrator role can review PM proposals', async () =
   assert.equal(response.body.proposal.status, 'rejected');
 });
 
-test('review approval cannot write unless the independent live-PM gate is enabled', async () => {
-  const f = fixture();
+test('legacy proposals containing sheet changes cannot be approved while sync is disabled', async () => {
+  const f = fixture({ proposedCells: [{
+    sheet: 'JAN',
+    row: 7,
+    column: 10,
+    label: 'Check Fire Panel for Troubles',
+    kind: 'checkbox',
+    expectedValue: 'FALSE',
+    proposedValue: 'TRUE',
+  }] });
   const response = await f.handler(f.request({ proposalId, decision: 'approve', expectedRevision: 1 }));
   assert.equal(response.status, 409);
+  assert.match(response.body.error, /Google Sheets sync is disabled/);
   assert.equal(f.calls.some(call => call.update), false);
-  assert.equal(f.calls.some(call => call.apply), false);
+});
+
+test('CMPRI-only proposals can be approved without a spreadsheet write', async () => {
+  const f = fixture();
+  const response = await f.handler(f.request({ proposalId, decision: 'approve', expectedRevision: 1 }));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.proposal.status, 'approved');
+  assert.deepEqual(f.calls.filter(call => call.update).map(call => call.update.status), ['processing', 'approved']);
 });
 
 test('rejecting a proposal records the decision without writing to the workbook', async () => {
@@ -131,14 +130,12 @@ test('rejecting a proposal records the decision without writing to the workbook'
   const response = await f.handler(f.request({ proposalId, decision: 'reject', expectedRevision: 1 }));
   assert.equal(response.status, 200);
   assert.equal(response.body.proposal.status, 'rejected');
-  assert.equal(f.calls.some(call => call.apply), false);
 });
 
-test('approval reserves, applies, and records a proposal only after explicit confirmation', async () => {
-  const f = fixture({ writesEnabled: true });
+test('approval reserves and records a CMPRI-only proposal after explicit confirmation', async () => {
+  const f = fixture();
   const response = await f.handler(f.request({ proposalId, decision: 'approve', expectedRevision: 1 }));
   assert.equal(response.status, 200);
   assert.equal(response.body.proposal.status, 'approved');
   assert.deepEqual(f.calls.filter(call => call.update).map(call => call.update.status), ['processing', 'approved']);
-  assert.equal(f.calls.filter(call => call.apply).length, 1);
 });

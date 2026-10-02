@@ -197,6 +197,7 @@ export default function PreventiveMaintenancePage() {
   const [locations, setLocations] = useState<PmLocation[]>([]);
   const [accessRoles, setAccessRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [spreadsheetSyncEnabled, setSpreadsheetSyncEnabled] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [canReview, setCanReview] = useState(false);
   const [canWriteLivePm, setCanWriteLivePm] = useState(false);
@@ -242,9 +243,10 @@ export default function PreventiveMaintenancePage() {
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
       setLocations(Array.isArray(result.locations) ? result.locations as PmLocation[] : []);
       setAccessRoles(Array.isArray(result.access_roles) ? result.access_roles.filter((role: unknown): role is string => typeof role === "string") : []);
+      setSpreadsheetSyncEnabled(result.spreadsheet_sync_enabled === true);
       setCanEdit(result.can_edit === true || result.can_review === true);
       setCanReview(result.can_review === true);
-      setCanWriteLivePm(result.can_write_live_pm === true);
+      setCanWriteLivePm(result.spreadsheet_sync_enabled === true && result.can_write_live_pm === true);
     } catch (cause) {
       if (sequence === requestSequence.current && isCurrent()) setError(cause instanceof Error ? cause.message : "PM records could not be loaded.");
     } finally {
@@ -295,13 +297,14 @@ export default function PreventiveMaintenancePage() {
         const entry = recordsByKey.get(entryKey(template.id, period));
         for (const item of template.checklist) {
           total += 1;
-          const pending = entry?.status === "pending" && Object.hasOwn(entry.responses || {}, item.id);
-          if (pending ? entry?.responses?.[item.id] === true : sourceRoutineStatus(template, period, item.id, liveWorkbook)) complete += 1;
+          const hasSavedResponse = Object.hasOwn(entry?.responses || {}, item.id);
+          const useSavedResponse = hasSavedResponse && (entry?.status === "pending" || !spreadsheetSyncEnabled);
+          if (useSavedResponse ? entry?.responses?.[item.id] === true : sourceRoutineStatus(template, period, item.id, liveWorkbook)) complete += 1;
         }
       }
     }
     return { complete, total, percent: total ? Math.round((complete / total) * 100) : 0 };
-  }, [liveWorkbook, monthTemplates, recordsByKey, weekStart]);
+  }, [liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart]);
 
   const deficientCount = useMemo(() => entries.reduce((count, entry) =>
     count + Object.values(entry.responses || {}).filter((value) => value === "follow-up").length,
@@ -314,6 +317,7 @@ export default function PreventiveMaintenancePage() {
   function roomCompleted(room: string) {
     const proposal = roomTemplate && entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
     if (proposal?.status === "pending" && proposal.completed_on) return true;
+    if (!spreadsheetSyncEnabled && proposal) return proposal.is_complete || Boolean(proposal.completed_on);
     const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
     return Boolean(liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value);
   }
@@ -352,8 +356,8 @@ export default function PreventiveMaintenancePage() {
       if (!response.ok || !result.proposal) throw new Error(result.error || "The PM proposal could not be reviewed.");
       setConfirmingProposal(null);
       setMessage(decision === "approve"
-        ? "PM proposal confirmed. Approved values were applied to the live PM workbook."
-        : "PM proposal rejected. The live PM workbook was not changed.");
+        ? "PM proposal approved in CMPRI. Google Sheets sync is disabled; no spreadsheet changes were made."
+        : "PM proposal rejected. No Google Sheets changes were made.");
       await loadWeek(weekStart);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "The PM proposal could not be reviewed.";
@@ -498,8 +502,8 @@ export default function PreventiveMaintenancePage() {
       const saved = await persistActive(isComplete);
       setActiveForm((current) => current ? { ...current, scopeKey: saved.scope_key } : current);
       setMessage(isComplete
-        ? `${activeTemplate?.title || "PM form"} submitted for review. It has not changed the live workbook.`
-        : "PM draft saved as pending review. It has not changed the live workbook.");
+        ? `${activeTemplate?.title || "PM form"} saved in CMPRI. Google Sheets sync is disabled.`
+        : "PM draft saved in CMPRI. Google Sheets sync is disabled.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PM form could not be saved.");
     } finally {
@@ -616,7 +620,7 @@ export default function PreventiveMaintenancePage() {
             entry?.completed_on || "",
             entry?.notes || "",
             item.source || template.sourceReference,
-            entry?.status === "pending" ? "Pending review; not yet applied" : "Current live workbook",
+            entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled",
           ]);
         }
       }
@@ -635,10 +639,10 @@ export default function PreventiveMaintenancePage() {
             entry?.completed_on || "",
             entry?.deficiency_notes || entry?.notes || "",
             item.source || template.sourceReference,
-            entry?.status === "pending" ? "Pending review; not yet applied" : entry?.status === "approved" ? "Approved" : "Open",
+            entry?.status === "pending" ? "Pending review" : entry?.status === "approved" ? "Approved in CMPRI" : "Open",
           ]);
         }
-        if (!template.checklist.length) rows.push([periodStart, template.cadence, template.title, entry?.scope_key || template.scope, entry?.is_complete ? "Complete" : "Open", entry?.completed_on || "", entry?.deficiency_notes || entry?.notes || "", template.sourceReference, entry?.status === "pending" ? "Pending review; not yet applied" : entry?.status === "approved" ? "Approved" : "Open"]);
+        if (!template.checklist.length) rows.push([periodStart, template.cadence, template.title, entry?.scope_key || template.scope, entry?.is_complete ? "Complete" : "Open", entry?.completed_on || "", entry?.deficiency_notes || entry?.notes || "", template.sourceReference, entry?.status === "pending" ? "Pending review" : entry?.status === "approved" ? "Approved in CMPRI" : "Open"]);
       }
     }
     if (roomTemplate) {
@@ -646,7 +650,7 @@ export default function PreventiveMaintenancePage() {
         const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
         const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
         const sourceDate = liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value || "";
-        rows.push([currentQuarterPeriod, "quarterly", roomTemplate.title, `Room ${room}`, roomCompleted(room) ? "Complete" : "Open", entry?.status === "pending" ? entry.completed_on || "" : sourceDateIso(sourceDate), entry?.deficiency_notes || entry?.notes || "", roomTemplate.sourceReference, entry?.status === "pending" ? "Pending review; not yet applied" : "Current live workbook"]);
+        rows.push([currentQuarterPeriod, "quarterly", roomTemplate.title, `Room ${room}`, roomCompleted(room) ? "Complete" : "Open", entry?.completed_on || (spreadsheetSyncEnabled ? sourceDateIso(sourceDate) : ""), entry?.deficiency_notes || entry?.notes || "", roomTemplate.sourceReference, entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled"]);
       }
     }
     const csv = rows.map((row) => row.map((cell) => `"${String(cell || "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
@@ -714,6 +718,9 @@ export default function PreventiveMaintenancePage() {
     if (proposal?.status === "pending" && Object.hasOwn(proposal.responses || {}, itemId)) {
       return proposal.responses[itemId] === true;
     }
+    if (!spreadsheetSyncEnabled && Object.hasOwn(proposal?.responses || {}, itemId)) {
+      return proposal?.responses[itemId] === true;
+    }
     return sourceRoutineStatus(template, period, itemId, liveWorkbook);
   }
 
@@ -775,7 +782,7 @@ export default function PreventiveMaintenancePage() {
       <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-300">CMPRI · Live PM workbook</p>
+            <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-300">CMPRI · Preventive Maintenance</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">Preventive Maintenance</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician changes remain pending until a reviewer explicitly confirms them.</p>
           </div>
@@ -806,7 +813,7 @@ export default function PreventiveMaintenancePage() {
           </div>
         </section>
         <div role="note" className="mt-3 rounded-xl border border-sky-500/30 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
-          This view reads the live personal PM workbook. Saving a technician change creates a CMPRI review proposal; the workbook is not changed until it is explicitly approved.
+          Google Sheets sync is temporarily disabled for troubleshooting. PM checklist and form changes are stored in CMPRI only; this workspace will not read from or write to Google Sheets.
         </div>
 
         <nav className="mt-4 flex gap-2 overflow-x-auto border-b border-slate-800 pb-2" aria-label="PM sections">
@@ -816,6 +823,7 @@ export default function PreventiveMaintenancePage() {
         {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
         {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
         {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
+        {!spreadsheetSyncEnabled && !loading && !error && <div role="status" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">Google Sheets integration is disconnected. Checklist states show CMPRI records only; edits and approvals will not be synchronized to the spreadsheet.</div>}
         {loading && liveWorkbook && <div role="status" className="mt-4 rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 text-sm text-sky-100">Refreshing PM records. You can continue using the last loaded checklist; saves are checked against the latest server revision.</div>}
 
         {tab === "week" && (
@@ -916,7 +924,7 @@ export default function PreventiveMaintenancePage() {
         {tab === "review" && canReview && (
           <section className="mt-5 space-y-4">
             <SectionHeading eyebrow="Reviewer-only · explicit approval" title="Pending PM changes" trailing={<span className="rounded-full border border-amber-500/40 bg-amber-950/30 px-3 py-1 text-xs text-amber-100">{reviewQueue.length} awaiting review</span>} />
-            <p className="max-w-4xl text-sm text-slate-400">Technician work is staged in CMPRI and has not changed the live workbook. Review the checklist values, notes, completion dates, and proposed cells before confirming.</p>
+            <p className="max-w-4xl text-sm text-slate-400">Technician work is staged in CMPRI. Spreadsheet sync is disabled, so approvals update CMPRI records only and do not change Google Sheets.</p>
             {reviewQueue.length === 0 ? (
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-400">There are no pending PM proposals.</div>
             ) : reviewQueue.map((proposal) => {
@@ -978,7 +986,7 @@ export default function PreventiveMaintenancePage() {
         {tab === "transfer" && (
           <section className="mt-5">
             <SectionHeading eyebrow="Weekly handoff" title="Corporate transfer review" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
-            <p className="mt-2 max-w-4xl text-sm text-slate-400">This is a review/export only. It never changes the live corporate site or spreadsheet. The CSV includes the selected week’s daily and weekly checkboxes, that month’s checklist, scheduled inspection checklist responses, and the current quarter’s room dates.</p>
+            <p className="mt-2 max-w-4xl text-sm text-slate-400">This is a CMPRI review/export only and does not change Google Sheets. The CSV includes CMPRI checklist responses, scheduled inspection forms, and room completion records.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Routine checkbox cells</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Source forms due</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{formPeriods.length}</p></div>
@@ -1029,7 +1037,7 @@ export default function PreventiveMaintenancePage() {
           </section>
         )}
 
-        {loading && <div role="status" className="mt-5 rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">Loading live PM workbook and review proposals…</div>}
+        {loading && <div role="status" className="mt-5 rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">Loading PM records…</div>}
         {savingKey && savingKey !== "active-form" && savingKey !== "work-order" && <p className="mt-3 text-right text-xs text-slate-500">Saving your PM entry…</p>}
       </div>
 
@@ -1117,8 +1125,8 @@ export default function PreventiveMaintenancePage() {
         <div className="cmpri-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80">
           <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="cmpri-modal-shell border border-emerald-500/30 bg-slate-950 shadow-2xl">
             <p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">Explicit reviewer confirmation</p>
-            <h2 id="pm-confirm-title" className="mt-1 text-xl font-bold text-white">Confirm live PM changes</h2>
-            <p className="mt-2 text-sm text-slate-300">This applies the listed changes to the personal live PM workbook. The existing workbook sync remains responsible for corporate propagation.</p>
+            <h2 id="pm-confirm-title" className="mt-1 text-xl font-bold text-white">Confirm PM proposal</h2>
+            <p className="mt-2 text-sm text-slate-300">This records the approval in CMPRI only. Google Sheets sync is disabled, so no spreadsheet changes will be made.</p>
             {confirmingProposal.proposed_cells.length > 0 ? (
               <ul className="mt-4 max-h-64 space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm">
                 {confirmingProposal.proposed_cells.map((cell, index) => <li key={`${cell.sheet}-${cell.row}-${cell.column}-${index}`} className="flex flex-wrap justify-between gap-2 border-b border-slate-800 pb-2 last:border-0 last:pb-0">
@@ -1127,7 +1135,7 @@ export default function PreventiveMaintenancePage() {
                 </li>)}
               </ul>
             ) : <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">This proposal contains PDF checklist notes and measurements but no mapped workbook cells.</p>}
-            {confirmingProposal.proposed_cells.length > 0 && !canWriteLivePm && <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">Workbook writes are disabled in this environment. No changes can be applied until the dev review is complete and CMPRI_LIVE_PM_WRITES_ENABLED is enabled.</p>}
+            {confirmingProposal.proposed_cells.length > 0 && !canWriteLivePm && <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">This proposal contains spreadsheet changes and cannot be approved while Google Sheets sync is disabled.</p>}
             <footer className="mt-5 flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => setConfirmingProposal(null)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-900">Cancel</button>
               <button type="button" disabled={reviewBusyId === confirmingProposal.id || (confirmingProposal.proposed_cells.length > 0 && !canWriteLivePm)} onClick={() => void reviewProposal(confirmingProposal, "approve")} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{reviewBusyId === confirmingProposal.id ? "Applying…" : "Confirm & approve"}</button>

@@ -29,13 +29,6 @@ function fixture(config = {}) {
         requireUser: async () => Object.hasOwn(config, 'auth') ? config.auth : { principal: { id: 'engineer' } },
       };
       if (name === '@/lib/server/access') return { allows: () => config.canView !== false };
-      if (name === '@/lib/server/integrations-safe-mode') return { integrationErrorStatus: () => 503 };
-      if (name === '@/lib/server/live-pm') return {
-        readLivePmWeek: async (week) => {
-          calls.push(week);
-          return { week, daily: {}, weekly: {}, monthly: {}, rooms: [] };
-        },
-      };
       throw new Error(`Unexpected import ${name}`);
     },
   });
@@ -56,10 +49,10 @@ test('Live PM route rejects a non-Monday week without reading the workbook', asy
   assert.equal(f.calls.length, 0);
 });
 
-test('Live PM route reads the selected week without exposing spreadsheet credentials', async () => {
+test('Live PM route is disabled without reading Google Sheets', async () => {
   const f = fixture();
   const response = await f.handler({ nextUrl: new URL('https://cmpri.invalid/api/preventive-maintenance/live?week=2026-01-05') });
-  assert.equal(response.status, 200);
-  assert.equal(response.body.week, '2026-01-05');
-  assert.deepEqual(f.calls, ['2026-01-05']);
+  assert.equal(response.status, 503);
+  assert.match(response.body.error, /Google Sheets sync is temporarily disabled/);
+  assert.deepEqual(f.calls, []);
 });
