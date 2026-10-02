@@ -253,9 +253,10 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
   for (const route of routes) {
     assert.match(launchers, new RegExp(`href: "${route.replaceAll('/', '\\/')}"`));
   }
-  assert.match(navigation, /<button\s+key=[\s\S]*?type="button"\s+data-cmpri-desktop-launch=\{launcher\.key\}/);
+  assert.match(dashboard, /function DashboardLauncherButton[\s\S]*?<button[\s\S]*?data-cmpri-desktop-launch=\{launcher\.key\}/);
+  assert.match(navigation, /group\.items\.filter\(\(item\): item is Launcher => Boolean\(item\)\)\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
-  assert.match(dashboard, /onClick=\{\(\) => launch\(launcher/);
+  assert.match(dashboard, /onClick=\{\(event\) => \{\s*onLaunch\(launcher, Date\.now\(\)\)/);
 });
 
 test('shared modal navigation controls render buttons instead of links', () => {

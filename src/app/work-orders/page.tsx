@@ -2025,8 +2025,18 @@ export default function WorkOrdersPage() {
                   <AccountSummary user={cmpriSession.user} />
                 </div>
               )}
+              <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold sm:hidden disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white" : "border-blue-500 bg-blue-700 text-white"}`}>
+                {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
+              </button>
               <div className="flex flex-wrap items-center justify-end gap-1">
-                <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-[9pt] font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>
+                <div className="hidden items-center gap-1 sm:flex">
+                  <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-[9pt] font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>
+                  {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
+                </div>
+                <div className="flex items-center gap-1 sm:hidden">
+                  <ModalNavigationButton href="/profile" className="min-h-8 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>
+                  {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="min-h-8 rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
+                </div>
                 <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-8 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V3m0 0 4 4m-4-4-4 4" />
@@ -2041,10 +2051,9 @@ export default function WorkOrdersPage() {
                   </svg>
                 </label>
                 <input id="work-order-photo-camera" type="file" accept="image/*" capture="environment" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
-                {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
-                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
+                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`hidden rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 sm:inline-flex ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>

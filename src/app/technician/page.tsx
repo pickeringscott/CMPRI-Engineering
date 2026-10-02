@@ -216,8 +216,8 @@ export default function TechnicianDashboard() {
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
         <div className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <div>
+          <div className="flex w-full min-w-0 items-center gap-3">
+            <div className="min-w-0 flex-1">
               <h1 className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></h1>
               <div className="mt-2 flex items-center gap-2">
                 <p className="text-[14pt] font-semibold tracking-tight text-slate-100">{account?.name?.trim() || account?.role || "Maintenance Technician"}</p>
@@ -237,14 +237,22 @@ export default function TechnicianDashboard() {
               <span className="text-slate-500">•</span>
               <span>Unassigned Work Available for Coverage</span>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+            </div>
+            <Link href="/work-orders" className="ml-auto min-h-10 shrink-0 rounded-lg border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm sm:hidden">Create Work Order</Link>
+          <div className="hidden flex-wrap items-center justify-end gap-2 sm:flex">
             <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-[9pt] font-bold text-slate-200 disabled:opacity-50">
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
             <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:hidden">
+            <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 disabled:opacity-50">
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-3 py-2 text-xs font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </div>
 

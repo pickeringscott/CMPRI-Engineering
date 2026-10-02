@@ -43,6 +43,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(landingPath('Front Desk'), '/work-orders');
   assert.equal(landingPath('Front Desk Manager'), '/work-orders');
   assert.equal(landingPath('Lead Housekeeper'), '/work-orders');
+  assert.equal(landingPath('system_admin'), '/engineering');
   assert.equal(roleAllows('Front Desk Manager', 'submit'), true);
   assert.equal(roleAllows('Front Desk Manager', 'view_dashboard'), false);
   assert.equal(roleAllows('Front Desk Manager', 'manage_users'), false);
@@ -106,9 +107,13 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.ok(accountGroup.indexOf('label: "Manage Profile"') < accountGroup.indexOf('label: "Connect ChatGPT"'));
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineeringHeader, /nav aria-label="Open dashboard windows" className="[^"]*gap-0\.5/);
-  assert.match(engineeringHeader, /role="group"[\s\S]*?className="[^"]*gap-0\.5[^"]*p-0\.5/);
+  assert.match(engineeringHeader, /showMobileLauncherDropdown \? \([\s\S]*?<details className="relative">[\s\S]*?absolute left-0 top-full z-\[210\]/);
+  assert.match(engineering, /mobileLaunchers\.length > 3/);
+  assert.match(engineeringHeader, /className="hidden min-w-0 flex-wrap items-center gap-0\.5 lg:flex"/);
   assert.match(engineeringHeader, /hidden px-0\.5 text-\[9pt\] font-bold uppercase/);
-  assert.match(engineeringHeader, /rounded border px-1 py-0\.5 font-semibold/);
+  assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
+  assert.match(engineering, /closest\("details"\)\?\.removeAttribute\("open"\)/);
+  assert.match(engineeringHeader, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0[\s\S]*?lg:hidden/);
   assert.match(engineering, /const LAUNCHER_CLOSE_WINDOW_MS = 5_000/);
   assert.match(engineering, /windowOpenedAtRef\.current\.set\(entry\.key, Date\.now\(\)\)/);
   assert.match(engineering, /clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS\)\s*\{\s*requestCloseWindow\(key\)/);
@@ -117,6 +122,25 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.doesNotMatch(engineering, /dashboardTitleForRole\(session\.user\.role\)/);
   assert.match(workOrders, /text-\[14pt\] font-bold leading-none tracking-tight/);
   assert.doesNotMatch(workOrders, /dashboardTitleForRole\(cmpriSession\.user\.role\)/);
+});
+
+test('mobile dropdowns are limited to dashboards with more than three navigation actions', () => {
+  const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
+  const technician = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
+  const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
+
+  assert.match(engineering, /mobileLaunchers\.length > 3/);
+  assert.match(engineering, /<details className="relative">[\s\S]*?mobileLaunchers\.map\(\(launcher\)/);
+  assert.match(engineering, /label: "\+ Create Work Order"/);
+  assert.match(engineering, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0/);
+  assert.doesNotMatch(technician, /<details/);
+  assert.match(technician, /Create Work Order<\/Link>/);
+  assert.match(technician, /sm:hidden">Create Work Order<\/Link>/);
+  assert.match(technician, /sm:hidden">[\s\S]*?Pool Log[\s\S]*?Sign Out/);
+  assert.doesNotMatch(workOrders, /<details/);
+  assert.match(workOrders, /sm:hidden disabled:opacity-80/);
+  assert.match(workOrders, /flex items-center gap-1 sm:hidden/);
+  assert.match(workOrders, /className=\{`hidden rounded-lg border[\s\S]*?sm:inline-flex/);
 });
 
 test('sign-in More toggle reveals password access without exposing test account data', () => {
