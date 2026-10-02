@@ -744,7 +744,7 @@ export default function PreventiveMaintenancePage() {
                         role="checkbox"
                         aria-checked={checked}
                         aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${hasPending ? " · pending review" : ""}`}
-                        disabled={!canEdit || loading || savingFor(period)}
+                        disabled={!canEdit || !liveWorkbook || savingFor(period)}
                         onClick={() => void updateRoutine(template, period, item.id, !checked)}
                         className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : checked ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
                         title={hasPending ? "Pending reviewer confirmation" : undefined}
@@ -816,6 +816,7 @@ export default function PreventiveMaintenancePage() {
         {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
         {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
         {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
+        {loading && liveWorkbook && <div role="status" className="mt-4 rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 text-sm text-sky-100">Refreshing PM records. You can continue using the last loaded checklist; saves are checked against the latest server revision.</div>}
 
         {tab === "week" && (
           <div className="mt-5 space-y-7">

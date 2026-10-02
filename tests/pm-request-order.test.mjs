@@ -27,6 +27,9 @@ test('PM is available to dashboard viewers and source forms can be opened read-o
   assert.match(page, /disabled=\{!canEdit \|\| !!savingKey\}/);
   assert.match(page, /setCanEdit\(result\.can_edit === true \|\| result\.can_review === true\)/);
   assert.match(page, /The PM service resolved this session as read-only/);
+  assert.match(page, /disabled=\{!canEdit \|\| !liveWorkbook \|\| savingFor\(period\)\}/);
+  assert.doesNotMatch(page, /disabled=\{!canEdit \|\| loading \|\| savingFor\(period\)\}/);
+  assert.match(page, /Refreshing PM records\. You can continue using the last loaded checklist/);
   assert.match(page, /type="date" disabled=\{!canEdit \|\| !!savingKey\}/);
 });
 
