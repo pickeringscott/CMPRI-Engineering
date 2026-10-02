@@ -43,6 +43,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(landingPath('Front Desk'), '/work-orders');
   assert.equal(landingPath('Front Desk Manager'), '/work-orders');
   assert.equal(landingPath('Lead Housekeeper'), '/work-orders');
+  assert.equal(landingPath('system_admin'), '/engineering');
   assert.equal(roleAllows('Front Desk Manager', 'submit'), true);
   assert.equal(roleAllows('Front Desk Manager', 'view_dashboard'), false);
   assert.equal(roleAllows('Front Desk Manager', 'manage_users'), false);
@@ -119,6 +120,18 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.doesNotMatch(engineering, /dashboardTitleForRole\(session\.user\.role\)/);
   assert.match(workOrders, /text-\[14pt\] font-bold leading-none tracking-tight/);
   assert.doesNotMatch(workOrders, /dashboardTitleForRole\(cmpriSession\.user\.role\)/);
+});
+
+test('mobile navigation dropdowns are available across every dashboard landing', () => {
+  const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
+  const technician = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
+  const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
+
+  assert.match(engineering, /<details className="lg:hidden">[\s\S]*?group\.items\.filter/);
+  assert.match(technician, /<details className="relative ml-auto sm:hidden">[\s\S]*?aria-label="Technician dashboard actions"/);
+  assert.match(workOrders, /className="relative sm:hidden"[\s\S]*?aria-label="Account navigation"/);
+  assert.match(technician, /className="hidden flex-wrap items-center justify-end gap-2 sm:flex"/);
+  assert.match(workOrders, /className="hidden items-center gap-1 sm:flex"/);
 });
 
 test('sign-in More toggle reveals password access without exposing test account data', () => {

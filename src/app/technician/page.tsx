@@ -238,7 +238,7 @@ export default function TechnicianDashboard() {
               <span>Unassigned Work Available for Coverage</span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="hidden flex-wrap items-center justify-end gap-2 sm:flex">
             <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-[9pt] font-bold text-slate-200 disabled:opacity-50">
               {loading ? "Refreshing…" : "Refresh"}
             </button>
@@ -246,6 +246,19 @@ export default function TechnicianDashboard() {
             <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
+          <details className="relative ml-auto sm:hidden">
+            <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">
+              Actions <span aria-hidden="true" className="text-slate-400">⌄</span>
+            </summary>
+            <div role="group" aria-label="Technician dashboard actions" className="absolute right-0 top-full z-50 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50">
+              <button type="button" onClick={(event) => { void loadAssignedWork(); event.currentTarget.closest("details")?.removeAttribute("open"); }} disabled={loading} className="rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50">
+                {loading ? "Refreshing…" : "Refresh"}
+              </button>
+              <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")} className="rounded-md px-3 py-2 text-left text-sm font-semibold text-cyan-100 hover:bg-slate-800">Pool Log</button>
+              <Link href="/work-orders" onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")} className="rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-100 hover:bg-slate-800">Create a Work Order</Link>
+              <button type="button" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); void signOut(); }} className="rounded-md px-3 py-2 text-left text-sm font-semibold text-red-200 hover:bg-slate-800">Sign Out</button>
+            </div>
+          </details>
         </div>
 
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
