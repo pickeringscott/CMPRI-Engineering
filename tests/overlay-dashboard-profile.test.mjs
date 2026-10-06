@@ -224,10 +224,11 @@ test('profile save reports a blank display name instead of retaining stale succe
 test('profile preferences use the same layout and submit-only users do not see ChatGPT connection controls', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /const isSubmitOnlyProfile = \["Front Desk", "Front Desk Manager", "Lead Housekeeper"\]/);
+  assert.match(source, /const canManageChatgptConnection = !isSubmitOnlyRole\(data\?\.profile\.role\)/);
+  assert.match(source, /\{canManageChatgptConnection && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection[\s\S]*?<\/section>\}/);
   assert.match(source, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">\s*<h2 className="text-xl font-bold">\{tx\("Personal Preferences"/);
   assert.match(source, /<label className="grid gap-1 text-sm text-slate-300">\{tx\("Language"/);
   assert.match(source, /<label className="grid gap-1 text-sm text-slate-300">\{tx\("Appearance"/);
-  assert.match(source, /\{!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection[\s\S]*?<\/section>\}/);
   assert.match(source, /!isSubmitOnlyProfile && <label[\s\S]*?Sign-in email/);
   assert.match(source, /href="\/profile\/ai-connection"/);
   assert.doesNotMatch(source, /setPersonalAiConnection|Disconnect AI|Connect AI/);

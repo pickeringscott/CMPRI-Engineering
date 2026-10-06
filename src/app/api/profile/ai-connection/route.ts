@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/auth";
 import { allows } from "@/lib/server/access";
+import { isSubmitOnlyRole } from "@/lib/server/roles";
 import { connectionFromActiveTokens } from "@/lib/server/cmpri-mcp";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,9 @@ const NO_STORE = { "Cache-Control": "private, no-store, max-age=0", Vary: "Autho
 async function authorized(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return { response: NextResponse.json({ error: "Sign in to manage your ChatGPT connection." }, { status: 401, headers: NO_STORE }) };
+  if (isSubmitOnlyRole(auth.principal.profile.role)) {
+    return { response: NextResponse.json({ error: "ChatGPT connections are unavailable to submit-only CMPRI roles." }, { status: 403, headers: NO_STORE }) };
+  }
   if (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "submit")) {
     return { response: NextResponse.json({ error: "External AI tools are unavailable to this CMPRI role." }, { status: 403, headers: NO_STORE }) };
   }

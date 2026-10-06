@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { resolveMcpWorkOrderLocation } from "../src/lib/ai/mcp-work-order-location.ts";
+import { isSubmitOnlyRole } from "../src/lib/server/roles.ts";
 
 const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -11,6 +12,7 @@ test("profile connection UI explains per-user ChatGPT OAuth and connection revoc
   const profile = source("../src/app/profile/page.tsx");
   const dashboard = source("../src/app/engineering/page.tsx");
   const route = source("../src/app/api/profile/ai-connection/route.ts");
+  const mcpAuth = source("../src/lib/server/cmpri-mcp-auth.ts");
   assert.match(page, /Connect ChatGPT/);
   assert.match(page, /Connect with secure OAuth/);
   assert.match(page, /Each user authorizes their own CMPRI account/);
@@ -32,11 +34,22 @@ test("profile connection UI explains per-user ChatGPT OAuth and connection revoc
   assert.match(dashboard, /Connect ChatGPT/);
   assert.doesNotMatch(dashboard, /personalAiConnected|Connect OpenAI/);
   assert.match(route, /requireUser\(request\)/);
+  assert.match(route, /isSubmitOnlyRole\(auth\.principal\.profile\.role\)/);
   assert.match(route, /allows\(auth\.principal, "submit"\)/);
   assert.match(route, /cmpri_personal_mcp_links/);
   assert.match(route, /revoked_at/);
   assert.match(route, /Private-link connections are retired/);
   assert.match(route, /status: 410/);
+  assert.match(mcpAuth, /isSubmitOnlyRole\(profileRow\.role\)/);
+});
+
+test("submit-only roles cannot use ChatGPT while other connected roles remain eligible", () => {
+  for (const role of ["Front Desk", "Housekeeping", "Lead Housekeeper"]) {
+    assert.equal(isSubmitOnlyRole(role), true, `${role} should be submit-only`);
+  }
+  for (const role of ["Engineer", "Manager", "Technician", "Senior Management", "Front Desk Manager"]) {
+    assert.equal(isSubmitOnlyRole(role), false, `${role} should retain ChatGPT eligibility`);
+  }
 });
 
 test("legacy personal MCP links remain valid but new profile links are disabled in favor of OAuth", () => {

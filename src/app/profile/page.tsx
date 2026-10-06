@@ -7,6 +7,7 @@ import { signOutDevice } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { isSubmitOnlyRole } from "@/lib/server/roles";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
 type Preferences = {
@@ -88,6 +89,7 @@ export default function ProfilePage() {
   const displayedRole = roleDisplayName([data?.profile.role || "", ...(data?.profile.secondary_roles || [])]);
   const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
   const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
+  const canManageChatgptConnection = !isSubmitOnlyRole(data?.profile.role);
   const profileDashboardHref = isSubmitOnlyProfile
     ? "/work-orders"
     : "/engineering";
@@ -327,7 +329,7 @@ export default function ProfilePage() {
 
         {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
 
-        {!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        {canManageChatgptConnection && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">{tx("ChatGPT Connection", "Conexión de ChatGPT")}</h2>
