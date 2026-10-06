@@ -194,7 +194,14 @@ async function dispatch(admin: SupabaseClient) {
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  const authorization = request.headers.get("authorization");
+  if (!secret || authorization !== `Bearer ${secret}`) {
+    console.warn("Scheduled phone notification dispatch authorization failed.", {
+      cronSecretConfigured: Boolean(secret),
+      authorizationPresent: Boolean(authorization),
+      bearerAuthorization: authorization?.startsWith("Bearer ") ?? false,
+      cronSchedulePresent: Boolean(request.headers.get("x-vercel-cron-schedule")),
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const admin = createSupabaseAdmin();
