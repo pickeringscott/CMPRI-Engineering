@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
 			{
 				source: "/:path*",
 				has: [{ type: "host", value: ".*\\.vercel\\.app" }],
+				missing: [{ type: "header", key: "x-vercel-cron-schedule" }],
 				destination: `${CANONICAL_APP_URL}/:path*`,
 				permanent: true,
 			},

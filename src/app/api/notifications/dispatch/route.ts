@@ -18,6 +18,8 @@ import {
   type WorkOrderTechnicianView,
 } from "@/lib/dashboard/work-order-notifications";
 
+export const dynamic = "force-dynamic";
+
 const PAGE_SIZE = 500;
 const MAX_SCAN = 10_000;
 
