@@ -242,7 +242,7 @@ test('dashboard action pages render without duplicate outer headers when embedde
   assert.match(equipment, /\{!embedded && <header/);
   const profile = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
   assert.match(profile, /<ModalDashboardLink href=\{profileDashboardHref\}/);
-  assert.match(profile, /<section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection/);
+  assert.match(profile, /\{!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection/);
   assert.match(profile, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">/);
 });
 

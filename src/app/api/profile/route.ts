@@ -48,6 +48,14 @@ async function chatgptConnectionForUser(admin: NonNullable<Awaited<ReturnType<ty
   };
 }
 
+async function profileChatgptConnection(
+  admin: NonNullable<Awaited<ReturnType<typeof requireUser>>>["admin"],
+  userId: string,
+  role: unknown,
+) {
+  return isSubmitOnlyRole(role) ? null : chatgptConnectionForUser(admin, userId);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -64,7 +72,7 @@ export async function GET(request: NextRequest) {
     if (!legacyProfile) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
     let chatgptConnection;
     try {
-      chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+      chatgptConnection = await profileChatgptConnection(auth.admin, auth.principal.identity.id, auth.principal.profile.role);
     } catch {
       return NextResponse.json({ error: "ChatGPT connection status could not be loaded. Apply the CMPRI MCP authorization migration." }, { status: 503 });
     }
@@ -74,13 +82,15 @@ export async function GET(request: NextRequest) {
       profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
       chatgpt_connection: chatgptConnection,
-      warning: "Profile preferences are available, but ChatGPT connections require the CMPRI MCP authorization migration.",
+      warning: isSubmitOnlyRole(auth.principal.profile.role)
+        ? undefined
+        : "Profile preferences are available, but ChatGPT connections require the CMPRI MCP authorization migration.",
     });
   }
   if (!data) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
   let chatgptConnection;
   try {
-    chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+    chatgptConnection = await profileChatgptConnection(auth.admin, auth.principal.identity.id, auth.principal.profile.role);
   } catch {
     return NextResponse.json({ error: "ChatGPT connection status could not be loaded. Apply the CMPRI MCP authorization migration." }, { status: 503 });
   }
@@ -125,7 +135,7 @@ export async function PATCH(request: NextRequest) {
     if (legacyError || !legacyProfile) return NextResponse.json({ error: "Profile could not be saved." }, { status: 400 });
     let chatgptConnection;
     try {
-      chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+      chatgptConnection = await profileChatgptConnection(auth.admin, auth.principal.identity.id, auth.principal.profile.role);
     } catch {
       return NextResponse.json({ error: "Profile was saved, but ChatGPT connection status could not be loaded." }, { status: 503 });
     }
@@ -135,12 +145,14 @@ export async function PATCH(request: NextRequest) {
       profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
       chatgpt_connection: chatgptConnection,
-      warning: "Profile changes were saved, but ChatGPT connections require the CMPRI MCP authorization migration.",
+      warning: isSubmitOnlyRole(auth.principal.profile.role)
+        ? undefined
+        : "Profile changes were saved, but ChatGPT connections require the CMPRI MCP authorization migration.",
     });
   }
   let chatgptConnection;
   try {
-    chatgptConnection = await chatgptConnectionForUser(auth.admin, auth.principal.identity.id);
+    chatgptConnection = await profileChatgptConnection(auth.admin, auth.principal.identity.id, auth.principal.profile.role);
   } catch {
     return NextResponse.json({ error: "Profile was saved, but ChatGPT connection status could not be loaded." }, { status: 503 });
   }

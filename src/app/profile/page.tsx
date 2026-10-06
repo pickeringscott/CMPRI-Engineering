@@ -93,6 +93,28 @@ export default function ProfilePage() {
     : "/engineering";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
 
+  function closeProfileModal() {
+    if (embedded && window.parent !== window) {
+      const modalToken = new URLSearchParams(window.location.search).get("modalToken") || "";
+      window.parent.postMessage({ type: "cmpri-modal-close", modalToken }, window.location.origin);
+    }
+  }
+
+  const profileHeader = (
+    <header className="mb-5 flex items-center justify-between gap-4 border-b border-slate-800 pb-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">{tx("CMPRI Account", "Cuenta CMPRI")}</p>
+        <h1 className="mt-1 text-2xl font-bold">{tx("Manage Profile", "Administrar perfil")}</h1>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {!embedded && <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>}
+        {embedded && <button type="button" onClick={closeProfileModal} aria-label={tx("Close Manage Profile", "Cerrar Administrar perfil")} title={tx("Close", "Cerrar")} className="grid size-10 place-items-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">
+          <svg aria-hidden="true" viewBox="0 0 10 10" className="size-3"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
+        </button>}
+      </div>
+    </header>
+  );
+
   async function signOut() {
     try {
       await signOutDevice();
@@ -287,11 +309,13 @@ export default function ProfilePage() {
 
   if (!data || !preferences) return (
     <main className="min-h-screen bg-slate-950 p-6 text-white">
-      <div className="mx-auto max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
-        {embedded && <ModalDashboardLink href={profileDashboardHref} className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}
-        {!embedded && <h1 className="text-xl font-bold">{message ? "Manage Profile" : "Loading profile…"}</h1>}
-        {message && <p className="mt-2 text-sm text-slate-300">{message}</p>}
-        {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? "Retrying…" : "Retry"}</button>}
+      <div className="mx-auto max-w-xl">
+        {profileHeader}
+        <div className="rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
+          {!message && <h2 className="text-xl font-bold">Loading profile…</h2>}
+          {message && <p className="text-sm text-slate-300">{message}</p>}
+          {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? "Retrying…" : "Retry"}</button>}
+        </div>
       </div>
     </main>
   );
@@ -299,18 +323,11 @@ export default function ProfilePage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        {!embedded && <div className="flex items-center justify-between gap-4 border-b border-slate-800 pb-5">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">{tx("CMPRI Account", "Cuenta CMPRI")}</p>
-            <h1 className="mt-1 text-3xl font-bold">{tx("Manage Profile", "Administrar perfil")}</h1>
-          </div>
-          <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>
-        </div>}
-        {embedded && <div className="mb-5"><ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink></div>}
+        {profileHeader}
 
         {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        {!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">{tx("ChatGPT Connection", "Conexión de ChatGPT")}</h2>
@@ -319,7 +336,7 @@ export default function ProfilePage() {
             </div>
             <ModalNavigationButton href="/profile/ai-connection" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("Connect ChatGPT", "Conectar ChatGPT")}</ModalNavigationButton>
           </div>
-        </section>
+        </section>}
 
         {phoneSettings && <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
@@ -418,10 +435,11 @@ export default function ProfilePage() {
         <div className="mt-5 flex flex-wrap justify-end gap-3">
           <ModalNavigationButton href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">Report a Problem / Suggestion</ModalNavigationButton>
           {data.can_manage_users && <ModalNavigationButton href="/management/users" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("User Management", "Administración de usuarios")}</ModalNavigationButton>}
-          {isSubmitOnlyProfile && <button type="button" onClick={() => void signOut()} aria-label={tx("Sign Out", "Cerrar sesión")} title={tx("Sign Out", "Cerrar sesión")} className="grid size-8 place-items-center rounded-lg border border-red-400/50 bg-red-950/30 text-red-100 hover:bg-red-900/40">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
+          {isSubmitOnlyProfile && <button type="button" onClick={() => void signOut()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4 shrink-0">
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 17l5-5-5-5M15 12H3m9-7h5a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
             </svg>
+            {tx("Sign Out", "Cerrar sesión")}
           </button>}
           <button type="button" disabled={busy} onClick={() => void save()} className="rounded-lg bg-blue-700 px-5 py-2 font-bold text-white hover:bg-blue-600 disabled:opacity-50">{busy ? tx("Saving…", "Guardando…") : tx("Save Profile", "Guardar perfil")}</button>
         </div>

@@ -221,29 +221,32 @@ test('profile save reports a blank display name instead of retaining stale succe
   assert.match(source, /if \(!preferences\) return;\s*if \(!name\.trim\(\)\) \{\s*setMessage\(tx\("Enter a display name before saving\.", "Ingrese un nombre para mostrar antes de guardar\."\)\);\s*return;\s*\}/);
 });
 
-test('profile preferences use the same layout and submit-only users can manage their ChatGPT connection', () => {
+test('profile preferences use the same layout and submit-only users do not see ChatGPT connection controls', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /const isSubmitOnlyProfile = \["Front Desk", "Front Desk Manager", "Lead Housekeeper"\]/);
   assert.match(source, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">\s*<h2 className="text-xl font-bold">\{tx\("Personal Preferences"/);
   assert.match(source, /<label className="grid gap-1 text-sm text-slate-300">\{tx\("Language"/);
   assert.match(source, /<label className="grid gap-1 text-sm text-slate-300">\{tx\("Appearance"/);
-  assert.match(source, /<section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection/);
+  assert.match(source, /\{!isSubmitOnlyProfile && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">[\s\S]*?ChatGPT Connection[\s\S]*?<\/section>\}/);
   assert.match(source, /!isSubmitOnlyProfile && <label[\s\S]*?Sign-in email/);
   assert.match(source, /href="\/profile\/ai-connection"/);
   assert.doesNotMatch(source, /setPersonalAiConnection|Disconnect AI|Connect AI/);
 });
 
-test('Front Desk and Housekeeping get profile sign-out and ChatGPT connection status', () => {
+test('submit-only users get a modal close control and a full-size profile sign-out button', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /isSubmitOnlyProfile && <button type="button" onClick=\{\(\) => void signOut\(\)\} aria-label=/);
-  assert.match(source, /className="grid size-8 place-items-center rounded-lg border border-red-400/);
+  assert.match(source, /embedded && <button type="button" onClick=\{closeProfileModal\} aria-label=\{tx\("Close Manage Profile"/);
+  assert.match(source, /type: "cmpri-modal-close"/);
+  assert.match(source, /isSubmitOnlyProfile && <button type="button" onClick=\{\(\) => void signOut\(\)\} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-400\//);
+  assert.match(source, /\{tx\("Sign Out", "Cerrar sesión"\)\}/);
   assert.match(source, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">/);
   assert.match(source, /!isSubmitOnlyProfile && <div/);
   assert.match(source, /!isSubmitOnlyProfile && <fieldset/);
   assert.match(source, /isHousekeeping \? "Housekeeping" : displayedRole \|\| "Unknown"/);
   const profileApi = readFileSync(new URL('../src/app/api/profile/route.ts', import.meta.url), 'utf8');
   assert.match(profileApi, /preferencesForRole\(auth\.principal\.profile\.role/);
-  assert.match(profileApi, /chatgptConnectionForUser\(auth\.admin, auth\.principal\.identity\.id\)/);
+  assert.match(profileApi, /return isSubmitOnlyRole\(role\) \? null : chatgptConnectionForUser\(admin, userId\)/);
+  assert.match(profileApi, /profileChatgptConnection\(auth\.admin, auth\.principal\.identity\.id, auth\.principal\.profile\.role\)/);
   assert.match(profileApi, /preferencesForRole\(auth\.principal\.profile\.role/);
 });
 
