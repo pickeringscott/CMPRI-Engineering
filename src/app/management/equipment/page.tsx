@@ -17,6 +17,7 @@ type Asset = {
   active: boolean;
   status: string;
   manufacturer: string | null;
+  model_family: string | null;
   model_number: string | null;
   serial_number: string | null;
   generation: string | null;
@@ -35,12 +36,12 @@ type Doc = {
   url?: string | null;
 };
 
-type Suggestions = Partial<Pick<Asset, "asset_type" | "manufacturer" | "model_number" | "serial_number" | "generation" | "install_year">>;
+type Suggestions = Partial<Pick<Asset, "asset_type" | "manufacturer" | "model_family" | "model_number" | "serial_number" | "generation" | "install_year">>;
 type DocStatus = { state: "ready" | "reading" | "processed" | "failed"; message?: string };
 
 const blankAsset: Asset = {
   id: "", location_id: null, asset_type: "", name: "", asset_tag: null, active: true, status: "Active",
-  manufacturer: null, model_number: null, serial_number: null, generation: null, install_year: null, documentation_key: null,
+  manufacturer: null, model_family: null, model_number: null, serial_number: null, generation: null, install_year: null, documentation_key: null,
   documentation_verified: false, documentation_count: 0,
 };
 
@@ -175,6 +176,7 @@ export default function ManageEquipmentPage() {
         asset_type: draft.asset_type,
         asset_tag: draft.asset_tag,
         manufacturer: draft.manufacturer,
+        model_family: draft.model_family,
         model_number: draft.model_number,
         serial_number: draft.serial_number,
         generation: draft.generation,
@@ -199,6 +201,7 @@ export default function ManageEquipmentPage() {
       ...current,
       asset_type: suggestions.asset_type || current.asset_type,
       manufacturer: suggestions.manufacturer || current.manufacturer,
+      model_family: suggestions.model_family || current.model_family,
       model_number: suggestions.model_number || current.model_number,
       serial_number: suggestions.serial_number || current.serial_number,
       generation: suggestions.generation || current.generation,
@@ -277,6 +280,7 @@ export default function ManageEquipmentPage() {
   const extractedFields = [
     ["asset_type", "Equipment type"],
     ["manufacturer", "Manufacturer"],
+    ["model_family", "Exact model family"],
     ["model_number", "Model number"],
     ["serial_number", "Serial number"],
     ["generation", "Generation"],
@@ -343,7 +347,7 @@ export default function ManageEquipmentPage() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
+                {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
                   <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
                 ))}
                 <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>

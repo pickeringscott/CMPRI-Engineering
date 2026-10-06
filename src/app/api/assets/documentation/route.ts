@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { canEditEquipment } from "@/lib/server/roles";
+import { extractManualPdfText } from "@/lib/manual-pdf-knowledge";
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -11,6 +12,7 @@ const MAX_PDF_BYTES = 50 * 1024 * 1024;
 type Suggestions = {
   asset_type?: string;
   manufacturer?: string;
+  model_family?: string;
   model_number?: string;
   serial_number?: string;
   generation?: string;
@@ -58,6 +60,9 @@ function extractEquipmentSuggestions(text: string): Suggestions | null {
     /\bmanufacturer(?:\s+name)?\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|s\/n|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
     /\bmanufactured\s+by\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|s\/n|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
   ]);
+  const modelFamily = firstCapture(flattened, [
+    /\b(?:model|equipment)\s+family\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9&.'()\/ -]{1,100}?)(?=\s+(?:model|serial|s\/n|manufacturer|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
+  ]);
   const generation = firstCapture(flattened, [
     /\bgeneration\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{0,30})/i,
     /\bgen(?:eration)?\.?\s*[:#=-]?\s*(\d+[A-Za-z]?)/i,
@@ -72,6 +77,7 @@ function extractEquipmentSuggestions(text: string): Suggestions | null {
   const result: Suggestions = {};
   if (assetType) result.asset_type = assetType;
   if (manufacturer) result.manufacturer = manufacturer;
+  if (modelFamily) result.model_family = modelFamily;
   if (model) result.model_number = model;
   if (serial) result.serial_number = serial;
   if (generation) result.generation = generation;
@@ -81,27 +87,7 @@ function extractEquipmentSuggestions(text: string): Suggestions | null {
 
 async function extractPdfText(bytes: Uint8Array) {
   try {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-    const pageCount = Math.min(pdf.numPages, 40);
-    const parts: string[] = [];
-    let totalLength = 0;
-    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((item) => ("str" in item ? String(item.str || "") : ""))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (text) {
-        const piece = `PAGE ${pageNumber}\n${text}`;
-        parts.push(piece);
-        totalLength += piece.length;
-      }
-      if (totalLength > 110_000) break;
-    }
-    return parts.join("\n\n").slice(0, 110_000);
+    return await extractManualPdfText(bytes);
   } catch {
     return "";
   }

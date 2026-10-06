@@ -3,11 +3,23 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireCapability } from "@/lib/server/auth";
 import { roleAllows } from "@/lib/server/roles";
+import { manualMatchesEquipment } from "@/lib/manual-document-match";
+import {
+  extractManualPdfText,
+  manualPdfMatchesEquipment,
+  manualPdfSha256,
+  structureVerifiedManual,
+} from "@/lib/manual-pdf-knowledge";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type KnowledgePayload = Record<string, unknown> & {
+  manufacturer?: string;
+  model_family?: string;
+  model_number?: string;
   source?: Record<string, unknown>;
 };
 
@@ -15,6 +27,9 @@ type AssetReference = {
   id: string;
   location_id: string | null;
   active: boolean | null;
+  manufacturer: string | null;
+  model_family: string | null;
+  model_number: string | null;
   documentation_key: string | null;
   [key: string]: unknown;
 };
@@ -31,13 +46,6 @@ function stringList(value: unknown) {
 function pageList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.map(Number).filter((page) => Number.isInteger(page) && page > 0);
-}
-
-function documentationFileMatches(file: { name?: string; metadata?: Record<string, unknown> | null }, sourceFileName: string) {
-  const expected = sourceFileName.trim().toLowerCase();
-  if (!expected) return false;
-  return String(file.name || "").toLowerCase() === expected ||
-    String(file.metadata?.original_name || "").trim().toLowerCase() === expected;
 }
 
 function manualTestMatches(titleValue: unknown, testValue: unknown) {
@@ -170,10 +178,14 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
   return {
     manufacturer: String(sourcePayload.manufacturer ?? ""),
     equipment: String(sourcePayload.equipment ?? sourcePayload.asset ?? ""),
+    model_family: String(sourcePayload.model_family ?? source.model_family ?? ""),
+    model_number: String(sourcePayload.model_number ?? source.model_number ?? ""),
     source: {
       type: String(source.type ?? sourcePayload.document_type ?? ""),
       title: String(source.title ?? sourcePayload.title ?? sourcePayload.document_title ?? ""),
       verified: (source.verified ?? sourcePayload.verified) === true,
+      manufacturer: String(source.manufacturer ?? sourcePayload.manufacturer ?? ""),
+      model_family: String(source.model_family ?? sourcePayload.model_family ?? ""),
       source_file_name: String(source.source_file_name ?? sourcePayload.source_file_name ?? ""),
       file_url: String(source.file_url ?? sourcePayload.file_url ?? ""),
       pdf_url: String(source.pdf_url ?? sourcePayload.pdf_url ?? ""),
@@ -189,7 +201,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
   const dataClient = auth.admin;
-  const assetFields = "id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_number, serial_number, generation, install_year, documentation_key";
+  const assetFields = "id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key";
   const assetId = request.nextUrl.searchParams.get("assetId")?.trim() || "";
 
   const [{ data: memberships, error: membershipError }, assetResult] = await Promise.all([
@@ -274,69 +286,142 @@ export async function GET(request: NextRequest) {
   }
 
   if (selectedAsset) {
-    async function readCache(cacheKey?: string | null) {
-      const key = String(cacheKey || "").trim();
-      if (!key) return { payload: null, failed: false };
-      const { data, error } = await dataClient
-        .from("troubleshooting_cache")
-        .select("payload")
-        .eq("hotel_id", HOTEL_ID)
-        .eq("cache_key", key)
-        .maybeSingle();
-      if (error) return { payload: null, failed: true };
-      return { payload: (data?.payload || null) as KnowledgePayload | null, failed: false };
-    }
-
-    const documentationKey = typeof selectedAsset.documentation_key === "string" ? selectedAsset.documentation_key.trim() : "";
-    const cacheResult = await readCache(documentationKey);
-    manualKnowledge = cacheResult.payload;
-    documentationStatus = !documentationKey
-      ? "unassigned"
-      : cacheResult.failed
-        ? "lookup_unavailable"
-        : manualKnowledge
-          ? "unverified"
-          : "not_found";
-
-    // A storage upload is attached only when the keyed knowledge record names
-    // that exact PDF. The asset-level verification marker alone cannot identify
-    // which of several uploaded files is the source for this guide.
     const prefix = `${HOTEL_ID}/${assetId}`;
-    const source = objectRecord(manualKnowledge?.source);
-    const sourceFileName = String(source.source_file_name || "").trim();
-    if (manualKnowledge && sourceFileName) {
-      const { data: storedDocs, error: storageError } = await dataClient.storage
-        .from(DOCUMENTATION_BUCKET)
-        .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+    const { data: storedDocs, error: storageError } = await dataClient.storage
+      .from(DOCUMENTATION_BUCKET)
+      .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+    if (storageError) {
+      documentationStatus = "lookup_unavailable";
+    } else {
       const files = storedDocs || [];
-      const verified = !storageError && files.some((file) => String(file.name || "") === VERIFY_MARKER);
-      const sourcePdf = !storageError && files.find((file) =>
-        String(file.name || "").toLowerCase().endsWith(".pdf") && documentationFileMatches(file, sourceFileName),
-      );
-      if (sourcePdf && verified) {
-        const storagePath = `${prefix}/${sourcePdf.name}`;
-        const { data: signed } = await dataClient.storage
-          .from(DOCUMENTATION_BUCKET)
-          .createSignedUrl(storagePath, 60 * 60);
-        if (signed?.signedUrl) {
-          const sourceRecord = objectRecord(manualKnowledge.source);
-          manualKnowledge = {
-            ...manualKnowledge,
-            source: {
-              ...sourceRecord,
-              type: sourceRecord.type || "Equipment Documentation",
-              title: sourceRecord.title || sourceFileName,
-              file_url: signed.signedUrl,
-            },
-          };
+      const verified = files.some((file) => String(file.name || "") === VERIFY_MARKER);
+      const pdfFiles = files.filter((file) => String(file.name || "").toLowerCase().endsWith(".pdf"));
+      if (!verified) {
+        documentationStatus = "unverified";
+      } else if (!selectedAsset.manufacturer || (!selectedAsset.model_family && !selectedAsset.model_number)) {
+        documentationStatus = "identity_incomplete";
+      } else {
+        const matchingDocuments: Array<{ name: string; text: string; sha256: string }> = [];
+        for (const file of pdfFiles) {
+          const storagePath = `${prefix}/${file.name}`;
+          const { data: stored, error: downloadError } = await dataClient.storage
+            .from(DOCUMENTATION_BUCKET)
+            .download(storagePath);
+          if (downloadError || !stored) {
+            return NextResponse.json({ error: `Verified PDF ${file.name} could not be read.` }, { status: 503 });
+          }
+          const bytes = new Uint8Array(await stored.arrayBuffer());
+          let text: string;
+          try {
+            text = await extractManualPdfText(bytes);
+          } catch {
+            return NextResponse.json({ error: `Verified PDF ${file.name} could not be read as a PDF.` }, { status: 503 });
+          }
+          if (text && manualPdfMatchesEquipment(text, selectedAsset)) {
+            matchingDocuments.push({ name: file.name, text, sha256: manualPdfSha256(bytes) });
+          }
+        }
+
+        if (!matchingDocuments.length) {
+          documentationStatus = "no_exact_match";
+        } else {
+          const cacheKey = `verified-manual:${assetId}`;
+          const { data: cached, error: cacheReadError } = await dataClient
+            .from("troubleshooting_cache")
+            .select("payload")
+            .eq("hotel_id", HOTEL_ID)
+            .eq("cache_type", "verified_asset_manual")
+            .eq("cache_key", cacheKey)
+            .maybeSingle();
+          if (cacheReadError) {
+            return NextResponse.json({ error: "Verified manual knowledge could not be checked." }, { status: 503 });
+          }
+
+          const documentDigest = matchingDocuments.map((document) => `${document.name}:${document.sha256}`).join("\n");
+          const identityDigest = JSON.stringify({
+            manufacturer: selectedAsset.manufacturer,
+            model_family: selectedAsset.model_family,
+            model_number: selectedAsset.model_number,
+          });
+          const cachedKnowledge = cached?.payload as KnowledgePayload | null;
+          const cachedSource = objectRecord(cachedKnowledge?.source);
+          if (
+            cachedSource.document_digest === documentDigest &&
+            cachedSource.identity_digest === identityDigest &&
+            cachedKnowledge &&
+            cachedSource.verified === true &&
+            manualMatchesEquipment(selectedAsset, cachedKnowledge)
+          ) {
+            manualKnowledge = cachedKnowledge;
+          } else {
+            try {
+              const generated = await Promise.all(matchingDocuments.map((document) =>
+                structureVerifiedManual(document.text, selectedAsset, document.name),
+              ));
+              const error_codes = generated.flatMap((knowledge) => knowledge.error_codes || []);
+              const symptom_rules = generated.flatMap((knowledge) => knowledge.symptom_rules || []);
+              const manual_tests = generated.flatMap((knowledge) => knowledge.manual_tests || []);
+              const general_checks = Array.from(new Set(generated.flatMap((knowledge) => knowledge.general_checks || [])));
+              if (!error_codes.length && !symptom_rules.length && !manual_tests.length && !general_checks.length) {
+                documentationStatus = "no_guidance";
+              } else {
+                const primaryDocument = matchingDocuments[0];
+                manualKnowledge = {
+                  manufacturer: selectedAsset.manufacturer,
+                  model_family: selectedAsset.model_family || "",
+                  model_number: selectedAsset.model_number || "",
+                  source: {
+                    title: primaryDocument.name,
+                    type: "Verified Manufacturer Manual",
+                    source_file_name: primaryDocument.name,
+                    source_files: matchingDocuments.map((document) => document.name),
+                    document_digest: documentDigest,
+                    identity_digest: identityDigest,
+                    verified: true,
+                  },
+                  error_codes,
+                  symptom_rules,
+                  manual_tests,
+                  general_checks,
+                };
+                const { error: cacheWriteError } = await dataClient.from("troubleshooting_cache").upsert({
+                  hotel_id: HOTEL_ID,
+                  work_order_id: null,
+                  cache_type: "verified_asset_manual",
+                  cache_key: cacheKey,
+                  payload: manualKnowledge,
+                  expires_at: null,
+                }, { onConflict: "hotel_id,cache_type,cache_key" });
+                if (cacheWriteError) {
+                  return NextResponse.json({ error: "Structured guidance from the verified PDF could not be refreshed." }, { status: 503 });
+                }
+              }
+            } catch (error) {
+              return NextResponse.json({
+                error: error instanceof Error ? error.message : "Verified documentation could not be structured.",
+              }, { status: 503 });
+            }
+          }
+          if (manualKnowledge) {
+            const primaryFile = String(objectRecord(manualKnowledge.source).source_file_name || "");
+            const primaryDoc = matchingDocuments.find((document) => document.name === primaryFile) || matchingDocuments[0];
+            const { data: signed, error: signedError } = await dataClient.storage
+              .from(DOCUMENTATION_BUCKET)
+              .createSignedUrl(`${prefix}/${primaryDoc.name}`, 60 * 60);
+            if (signedError || !signed?.signedUrl) {
+              return NextResponse.json({ error: "Verified PDF preview could not be created." }, { status: 503 });
+            }
+            manualKnowledge = {
+              ...manualKnowledge,
+              source: { ...objectRecord(manualKnowledge.source), file_url: signed.signedUrl },
+            };
+            documentationStatus = "verified";
+          }
         }
       }
     }
 
     manualKnowledge = enrichManualKnowledge(manualKnowledge);
-    if (manualKnowledge) {
-      documentationStatus = objectRecord(manualKnowledge.source).verified === true ? "verified" : "unverified";
-    }
   }
 
   return NextResponse.json({

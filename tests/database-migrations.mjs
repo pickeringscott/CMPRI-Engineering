@@ -62,6 +62,14 @@ try {
       updated_at timestamptz not null default now(),
       constraint room_operations_hotel_id_room_key unique (hotel_id, room)
     );`);
+  const assetModelFamilyMigration = readFileSync(new URL('../supabase/migrations/20261006160000_cmpri_asset_model_family.sql', import.meta.url), 'utf8');
+  await check('asset model-family migration', async () => db.exec(assetModelFamilyMigration));
+  await check('asset model-family migration is idempotent', async () => db.exec(assetModelFamilyMigration));
+  await check('asset model-family field is stored on equipment', async () => {
+    const { rows } = await db.query(`select column_name from information_schema.columns
+      where table_schema='public' and table_name='assets' and column_name='model_family'`);
+    assert.deepEqual(rows, [{ column_name: 'model_family' }]);
+  });
   await db.exec(`create table public.cmpri_dashboard_notifications (
       id uuid primary key,
       hotel_id uuid not null,

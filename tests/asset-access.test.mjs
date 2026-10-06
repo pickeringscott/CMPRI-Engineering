@@ -76,6 +76,7 @@ function fixture(route, config={}) {
       if(name==='@/lib/engineering-access')return {canEditEngineeringData};
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
       if(name==='@/lib/asset-install-year')return {maximumAssetInstallYear,parseAssetInstallYear};
+      if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async()=>''};
       if(name==='@/lib/server/auth')return {
         requireUser: async (req) => {
           if (!req.headers.get('authorization')) return null;
@@ -278,6 +279,12 @@ test('equipment PDF extractor supports S/N and manufactured-by labels',()=>{
   assert.equal(result.manufacturer,'Friedrich Air Conditioning');
   assert.equal(result.model_number,'VEA12K34-RTL-B');
   assert.equal(result.serial_number,'ABC12345');
+});
+
+test('equipment PDF extractor accepts an explicitly labelled model family',()=>{
+  const result=extractEquipmentSuggestions('Manufacturer: Friedrich Model Family: Verdepac VTAC');
+  assert.equal(result.manufacturer,'Friedrich');
+  assert.equal(result.model_family,'Verdepac VTAC');
 });
 
 test('equipment PDF extractor does not guess identifiers from unlabeled manual numbers',()=>{

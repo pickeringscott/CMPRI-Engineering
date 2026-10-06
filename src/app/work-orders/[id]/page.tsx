@@ -31,6 +31,7 @@ type Asset = {
   active: boolean;
   status: string;
   manufacturer: string | null;
+  model_family: string | null;
   model_number: string | null;
   serial_number: string | null;
   generation: string | null;
@@ -496,6 +497,8 @@ function symptomRouteTroubleshooting(
   );
 }
 
+// Retained as a type source only; generic guidance is never invoked on this page.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generalTroubleshootingFor(
   asset: Asset | undefined,
   category: string,
@@ -651,7 +654,7 @@ export default function WorkOrderTicketPage() {
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
+  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; manufacturer: string | null; modelFamily: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
   const [manualPagePreview, setManualPagePreview] = useState<number | null>(null);
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
@@ -698,7 +701,10 @@ export default function WorkOrderTicketPage() {
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
 
   const selectedAsset = assets.find((asset) => asset.id === assetId);
-  const manualCurrent = manualResult?.assetId === assetId && manualResult?.documentationKey === selectedAsset?.documentation_key;
+  const manualCurrent = manualResult?.assetId === assetId &&
+    manualResult?.documentationKey === selectedAsset?.documentation_key &&
+    manualResult?.manufacturer === selectedAsset?.manufacturer &&
+    manualResult?.modelFamily === selectedAsset?.model_family;
   const manualKnowledge = manualCurrent ? manualResult?.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
@@ -975,7 +981,14 @@ export default function WorkOrderTicketPage() {
     } catch {
       knowledge = null;
     } finally {
-      if (isCurrent()) setManualResult({ assetId: asset.id, documentationKey: asset.documentation_key, knowledge, status: documentationStatus });
+      if (isCurrent()) setManualResult({
+        assetId: asset.id,
+        documentationKey: asset.documentation_key,
+        manufacturer: asset.manufacturer,
+        modelFamily: asset.model_family,
+        knowledge,
+        status: documentationStatus,
+      });
     }
   }
 
@@ -1032,10 +1045,25 @@ export default function WorkOrderTicketPage() {
     // set before assets finished loading, so existing tickets never loaded
     // their model-specific troubleshooting until the asset was changed.
     let current = true;
-    void loadManualForAsset(selectedAsset, () => current);
-    return () => { current = false; };
+    let refreshing = false;
+    const refresh = () => {
+      if (refreshing) return;
+      refreshing = true;
+      void loadManualForAsset(selectedAsset, () => current).finally(() => { refreshing = false; });
+    };
+    refresh();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 30_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      current = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key]);
+  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family]);
 
   function handleAssetChange(newAssetId: string) {
     setAssetId(newAssetId);
@@ -1051,14 +1079,6 @@ export default function WorkOrderTicketPage() {
 
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""} ${notes} ${actionRootCause}`.trim();
   const completedWorkNotes = `${notes} ${actionRootCause}`.trim();
-
-  const generalTroubleshooting = generalTroubleshootingFor(
-    selectedAsset,
-    category,
-    issue,
-    completedWorkNotes,
-    []
-  );
 
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true;
   const matchingSymptomRules = trustedManualKnowledge
@@ -1119,7 +1139,7 @@ export default function WorkOrderTicketPage() {
     .slice(0, 6)
     .map(({ item }) => item);
 
-  const displayedSteps = generalTroubleshooting.slice(0, 10);
+  const displayedSteps: ReturnType<typeof generalTroubleshootingFor> = [];
 
   const currentFingerprint = JSON.stringify({
     issue,
@@ -1927,24 +1947,28 @@ export default function WorkOrderTicketPage() {
                       ? "Loading equipment documentation..."
                       : manualSteps.length
                         ? "Verified manufacturer guidance"
-                        : "Issue-based guide"}
+                        : "No exact verified manual match"}
                   </span>
                 )}
               </div>
 
               {!selectedAsset && (
                 <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-300">
-                  General issue-based guidance only. No asset is selected, so no equipment manual or error-code table is used.
+                  Select equipment to check for an exact verified manufacturer and model match. No generic troubleshooting fallback is shown.
                 </div>
               )}
 
               {selectedAsset && !manualLoading && !trustedManualKnowledge && (
                 <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3 text-sm text-amber-100">
                   {manualStatus === "lookup_unavailable"
-                    ? "The assigned troubleshooting guide could not be checked. General issue-based guidance remains available; no other asset's guide was substituted."
-                    : selectedAsset.documentation_key
-                      ? `No verified guide could be resolved for documentation key ${selectedAsset.documentation_key}. General issue-based guidance is shown without borrowing another manual.`
-                      : "No verified guide is assigned to this asset. General issue-based guidance is shown without guessing a manual."}
+                    ? "The exact manufacturer and model-family match could not be checked. No manual or generic troubleshooting fallback is shown."
+                    : manualStatus === "identity_incomplete"
+                      ? "A manufacturer and an exact model family or model number are required to select verified documentation. No manual or generic troubleshooting fallback is shown."
+                      : manualStatus === "no_guidance"
+                        ? "Verified documentation matches this equipment, but no troubleshooting guidance could be extracted from the PDF."
+                      : manualStatus === "ambiguous"
+                        ? "More than one verified manual matches this equipment. No guide was selected."
+                        : "No verified PDF exactly matches this manufacturer's model family or model number. No manual or generic troubleshooting fallback is shown."}
                 </div>
               )}
 

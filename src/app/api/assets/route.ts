@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
   const assets: Array<Record<string, unknown> & { id: string }> = [];
   for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
     const { data, error } = await auth.admin.from("assets")
-      .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_number, serial_number, generation, install_year, documentation_key")
+      .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key")
       .eq("hotel_id", HOTEL_ID)
       .range(offset, offset + ASSET_PAGE_SIZE - 1)
       .order("name", { ascending: true });
@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
       name: `${assetType}${EN_DASH}${location.name}`,
       asset_tag: optionalText(body.asset_tag, "asset tag", 200),
       manufacturer: optionalText(body.manufacturer, "manufacturer", 200) ?? "",
+      model_family: optionalText(body.model_family, "model family", 200),
       model_number: optionalText(body.model_number, "model number", 200),
       serial_number: optionalText(body.serial_number, "serial number", 300) ?? "",
       generation: optionalText(body.generation, "generation", 200),
@@ -182,7 +183,7 @@ export async function PATCH(request: NextRequest) {
   try {
     const update: Record<string, unknown> = {};
     if (Object.prototype.hasOwnProperty.call(body, "location_id")) update.location_id = (await locationName(auth.admin, body.location_id)).id;
-    for (const [field, maximum] of [["asset_type", 200], ["name", 500], ["asset_tag", 200], ["manufacturer", 200], ["model_number", 200], ["serial_number", 300], ["generation", 200], ["documentation_key", 300]] as const) {
+    for (const [field, maximum] of [["asset_type", 200], ["name", 500], ["asset_tag", 200], ["manufacturer", 200], ["model_family", 200], ["model_number", 200], ["serial_number", 300], ["generation", 200], ["documentation_key", 300]] as const) {
       if (Object.prototype.hasOwnProperty.call(body, field)) {
         const value = optionalText(body[field], field, maximum);
         update[field] = field === "manufacturer" || field === "serial_number" ? value ?? "" : value;

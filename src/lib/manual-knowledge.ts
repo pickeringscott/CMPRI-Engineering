@@ -23,10 +23,14 @@ export type ManualTestEntry = {
 export type ManualKnowledge = {
   manufacturer?: string;
   equipment?: string;
+  model_family?: string;
+  model_number?: string;
   source?: {
     type?: string;
     title?: string;
     verified?: boolean;
+    manufacturer?: string;
+    model_family?: string;
     source_file_name?: string;
     file_url?: string;
     pdf_url?: string;
@@ -130,10 +134,14 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
   return {
     manufacturer: String(payload.manufacturer ?? ""),
     equipment: String(payload.equipment ?? payload.asset ?? ""),
+    model_family: String(payload.model_family ?? source.model_family ?? ""),
+    model_number: String(payload.model_number ?? source.model_number ?? ""),
     source: {
       type: String(source.type ?? payload.document_type ?? ""),
       title: String(source.title ?? payload.title ?? payload.document_title ?? ""),
       verified: (source.verified ?? payload.verified) === true,
+      manufacturer: String(source.manufacturer ?? payload.manufacturer ?? ""),
+      model_family: String(source.model_family ?? payload.model_family ?? ""),
       source_file_name: String(source.source_file_name ?? payload.source_file_name ?? ""),
       file_url: String(source.file_url ?? payload.file_url ?? ""),
       pdf_url: String(source.pdf_url ?? payload.pdf_url ?? ""),

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { manualMatchesEquipment } from '../src/lib/manual-document-match.ts';
 
 // Execute the shared manual normalizer used by the ticket page.
 const source=readFileSync(new URL('../src/lib/manual-knowledge.ts',import.meta.url),'utf8');
@@ -25,6 +26,43 @@ test('retains explicit verification and legacy code field names',()=>{
   assert.equal(result.source.verified,true);assert.equal(result.source.title,'Test manual');
   assert.equal(JSON.stringify(result.error_codes),JSON.stringify([{code:'3',problem:'Test fault',action:'Test action',source_pages:[2,4]}]));
 });
+test('manufacturer documentation requires an exact manufacturer and model-family match',()=>{
+  const asset={manufacturer:'Friedrich',model_family:'Verdepac VTAC'};
+  assert.equal(manualMatchesEquipment(asset,{manufacturer:'Friedrich',model_family:'Verdepac VTAC'}),true);
+  assert.equal(manualMatchesEquipment(asset,{manufacturer:'Friedrich',model_family:'Vert-I-Pak'}),false);
+  assert.equal(manualMatchesEquipment(asset,{manufacturer:'Freedom',model_family:'Verdepac VTAC'}),false);
+  assert.equal(manualMatchesEquipment(asset,{manufacturer:'Friedrich',equipment:'Verdepac VTAC'}),true);
+  assert.equal(manualMatchesEquipment(asset,{manufacturer:'Friedrich',equipment:'Friedrich Verdepac VTAC'}),false);
+  assert.equal(manualMatchesEquipment({manufacturer:'Friedrich',model_family:null},{manufacturer:'Friedrich',model_family:'Verdepac VTAC'}),false);
+  assert.equal(manualMatchesEquipment(asset,{source:{manufacturer:' Friedrich ',model_family:'  Verdepac   VTAC '}}),true);
+  assert.equal(manualMatchesEquipment(asset,{document:{manufacturer:'Friedrich',model_family:'Verdepac VTAC'}}),true);
+  assert.equal(manualMatchesEquipment({manufacturer:'Friedrich',model_number:'VPAK-A'}, {manufacturer:'Friedrich',model_number:'VPAK-A'}),true);
+  assert.equal(manualMatchesEquipment({manufacturer:'Friedrich',model_number:'VPAK-A'}, {manufacturer:'Friedrich',model_number:'VPAK-B'}),false);
+});
+
+test('verified PDFs must contain the exact manufacturer and family or model identifier',()=>{
+  const source=readFileSync(new URL('../src/lib/manual-pdf-knowledge.ts',import.meta.url),'utf8');
+  const ast=ts.createSourceFile('manual-pdf-knowledge.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+  const names=new Set(['identityPhraseMatches','manualPdfMatchesEquipment']);
+  const functions=ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)).map(node=>node.getText(ast)).join('\n');
+  const exports={};
+  vm.runInNewContext(ts.transpileModule(`${functions}\nexports.matches=manualPdfMatchesEquipment;`,{
+    compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
+  }).outputText,{exports});
+  const matches=exports.matches;
+  assert.equal(matches('Friedrich Verdepac VTAC Service Manual',{manufacturer:'Friedrich',model_family:'Verdepac VTAC',model_number:null}),true);
+  assert.equal(matches('Freedom Verdepac VTAC Service Manual',{manufacturer:'Friedrich',model_family:'Verdepac VTAC',model_number:null}),false);
+  assert.equal(matches('Friedrich Vert-I-Pak Service Manual',{manufacturer:'Friedrich',model_family:'Verdepac VTAC',model_number:null}),false);
+  assert.equal(matches('Friedrich VPAK-A Service Manual',{manufacturer:'Friedrich',model_family:null,model_number:'VPAK-A'}),true);
+  assert.equal(matches('Friedrich VPAK-AB Service Manual',{manufacturer:'Friedrich',model_family:null,model_number:'VPAK-A'}),false);
+});
+test('exact PDF matches refresh structure without relying on a pre-existing cache entry',()=>{
+  const route=readFileSync(new URL('../src/app/api/maintenance-reference/route.ts',import.meta.url),'utf8');
+  assert.match(route,/if \(!matchingDocuments\.length\)/);
+  assert.match(route,/\.from\("troubleshooting_cache"\)[\s\S]*?\.maybeSingle\(\)/);
+  assert.match(route,/\.from\("troubleshooting_cache"\)\.upsert\(/);
+  assert.match(route,/document_digest === documentDigest/);
+});
 test('null code and rule entries do not crash the ticket',()=>{
   const result=normalize({error_codes:[null,{},7],symptom_rules:[null,{},'Inspect model label']});
   assert.equal(result.error_codes.length,0);assert.equal(result.symptom_rules.length,1);
@@ -35,18 +73,17 @@ test('null code and rule entries do not crash the ticket',()=>{
 // into an always-visible troubleshooting rule.
 const apiSource=readFileSync(new URL('../src/app/api/maintenance-reference/route.ts',import.meta.url),'utf8');
 const apiAst=ts.createSourceFile('route.ts',apiSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
-const enrichmentNames=new Set(['stringList','pageList','manualTestMatches','documentationFileMatches','enrichManualKnowledge']);
+const enrichmentNames=new Set(['stringList','pageList','manualTestMatches','enrichManualKnowledge']);
 const enrichmentFunctions=apiAst.statements
   .filter(node=>ts.isFunctionDeclaration(node)&&enrichmentNames.has(node.name?.text))
   .map(node=>node.getText(apiAst)).join('\n');
-assert.equal(apiAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&enrichmentNames.has(node.name?.text)).length,5);
+assert.equal(apiAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&enrichmentNames.has(node.name?.text)).length,4);
 const guidanceExports={};
-vm.runInNewContext(ts.transpileModule(enrichmentFunctions+'\nexports.enrich=enrichManualKnowledge;exports.matches=manualTestMatches;exports.documentationFileMatches=documentationFileMatches;',{
+vm.runInNewContext(ts.transpileModule(enrichmentFunctions+'\nexports.enrich=enrichManualKnowledge;exports.matches=manualTestMatches;',{
   compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
 }).outputText,{exports:guidanceExports});
 const enrich=guidanceExports.enrich;
 const manualMatches=guidanceExports.matches;
-const documentationFileMatches=guidanceExports.documentationFileMatches;
 
 test('general checks remain verified equipment guidance without inventing source verification',()=>{
   const result=enrich({source:{verified:true},symptom_rules:[],general_checks:['Verify power.','Inspect filter.']});
@@ -69,20 +106,10 @@ test('unclassified technical tests are not forced onto every ticket',()=>{
   assert.equal(result.symptom_rules.length,0);
 });
 
-test('generic troubleshooting is not invented when no verified equipment guide exists',()=>{
+test('work-order guide has no generic fallback when no verified manual is matched',()=>{
   const pageSource=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  const pageAst=ts.createSourceFile('page.tsx',pageSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-  const names=new Set(['troubleshootingStepAlreadyDone','symptomRouteTroubleshooting','generalTroubleshootingFor']);
-  const functions=pageAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)).map(node=>node.getText(pageAst)).join('\n');
-  const exports={};
-  vm.runInNewContext(ts.transpileModule(functions+'\nexports.fallback=generalTroubleshootingFor;',{
-    compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
-  }).outputText,{exports,SYMPTOM_ROUTES:[]});
-  const fallback=exports.fallback;
-  const steps=fallback(undefined,'HVAC','Room 409 AC is not cooling','',[]);
-  assert.equal(Array.isArray(steps),true);
-  assert.ok(steps.length > 0);
-  assert.ok(steps.every((step) => !/\b\d+(?:\.\d+)?\s?(?:v|psi|°f|ohm|cfm)\b/i.test(step)));
+  assert.match(pageSource,/const displayedSteps: ReturnType<typeof generalTroubleshootingFor> = \[\]/);
+  assert.match(pageSource,/No generic troubleshooting fallback is shown/);
 });
 
 test('known manual-test topics map to expected issue language',()=>{
@@ -91,25 +118,11 @@ test('known manual-test topics map to expected issue language',()=>{
   assert.ok(manualMatches('No motor rotation','Check drive wiring.').includes('drive fault'));
 });
 
-test('only the explicitly named asset PDF can be attached to the guide',()=>{
-  assert.equal(documentationFileMatches({name:'124-manual.pdf'},'manual.pdf'),false);
-  assert.equal(documentationFileMatches({name:'stored-name.pdf',metadata:{original_name:'manual.pdf'}},'manual.pdf'),true);
-  assert.equal(documentationFileMatches({name:'manual.pdf'},'other-model.pdf'),false);
-  assert.equal(documentationFileMatches({name:'manual.pdf'},''),false);
-});
-
-test('a stale category does not suppress selected-asset issue troubleshooting',()=>{
+test('the work-order manual guide is driven only by verified manual knowledge',()=>{
   const pageSource=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  const pageAst=ts.createSourceFile('page.tsx',pageSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-  const table=pageAst.statements.find(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(declaration=>declaration.name.getText(pageAst)==='SYMPTOM_ROUTES'));
-  const functions=pageAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&['stepWords','troubleshootingStepAlreadyDone','symptomRouteTroubleshooting','generalTroubleshootingFor'].includes(node.name?.text));
-  assert.ok(table);
-  const exports={};
-  vm.runInNewContext(ts.transpileModule(`${table.getText(pageAst)}\n${functions.map(node=>node.getText(pageAst)).join('\n')}\nexports.guide=generalTroubleshootingFor;`,{
-    compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
-  }).outputText,{exports});
-  const steps=exports.guide({name:'Garbage Disposal',asset_type:'Garbage Disposal'},'Electrical','Garbage disposal is humming and jammed','',[]);
-  assert.ok(steps.some(step=>step.includes('jam-clearing')));
+  assert.match(pageSource,/const matchingSymptomRules = trustedManualKnowledge/);
+  assert.match(pageSource,/const manualSteps = Array\.from\(/);
+  assert.match(pageSource,/const displayedSteps: ReturnType<typeof generalTroubleshootingFor> = \[\]/);
 });
 
 test('reported manufacturer code prefixes are preserved exactly',()=>{

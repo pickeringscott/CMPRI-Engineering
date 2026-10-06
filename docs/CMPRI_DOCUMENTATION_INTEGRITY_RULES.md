@@ -24,12 +24,11 @@ Before a document can supply verified troubleshooting, all applicable identities
    - equipment family named in the document
    - listed applicable models
 
-4. **Structured troubleshooting cache**
-   - manufacturer
-   - equipment
-   - source title/type
-   - cache key
-   - any model-family restriction
+4. **Structured troubleshooting**
+   - extract it from the verified PDF itself,
+   - retain the source PDF and page references,
+   - refresh the stored structure when the source PDF or equipment identity changes.
+   - A pre-existing cache entry is not required.
 
 5. **Verification state**
    - verification must be explicit after the identities above are checked.
@@ -90,11 +89,20 @@ On mismatch:
 - do not silently select the document,
 - do not mark it verified,
 - do not use its codes/specifications in the troubleshooting panel,
-- keep issue-based general guidance available,
+- do not generate or show generic troubleshooting or substitute an unrelated manual,
 - display an Engineering-only documentation mismatch notice.
+
+### Exact-match refresh
+- A verified PDF is eligible only when its text contains the equipment's exact manufacturer and either its exact model family or exact model number.
+- On an exact match, automatically extract/update structured troubleshooting from that PDF; the PDF remains the sole source of truth.
+- Do not use an existing troubleshooting-cache entry to establish a match. Cache entries may only store a structure generated from the currently matched verified PDF.
+- When no verified PDF matches exactly, show no documentation or troubleshooting guidance for that equipment.
 
 ## Go-live acceptance additions
 - A deliberately mislabeled PDF must be rejected as verified guidance.
 - Model-specific troubleshooting must not activate for an asset with an unknown model unless the document explicitly covers the broader verified family.
 - Duplicate Drive files with the same title must not be assumed identical or correct based on title alone.
 - A document title/index row alone is never sufficient evidence of equipment identity.
+- Friedrich Verdepac documentation must match Friedrich + Verdepac VTAC; it must not match another Friedrich family.
+- Adding or updating a verified exact-match PDF must create or refresh its structured troubleshooting without requiring a prior cache entry.
+- If no verified exact-match PDF exists, no generic troubleshooting or unrelated documentation is shown.

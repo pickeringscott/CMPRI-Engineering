@@ -2,7 +2,7 @@
 Version: Go-Live Working Revision — 2026-09-16
 
 ## Purpose
-CMPRI troubleshooting must give the technician useful, issue-specific next steps immediately. Manufacturer documentation enriches the result, but the app must never depend on a PDF/manual lookup before showing usable guidance.
+CMPRI may show manufacturer troubleshooting only from a verified PDF whose manufacturer and exact model family or model number match the selected equipment. The verified PDF is the source of truth: extract or refresh structured guidance from it automatically. If there is no exact verified match, show no troubleshooting fallback or unrelated manual.
 
 ## 1. Troubleshooting order
 1. Start with the reported issue, not just the selected category.
@@ -11,10 +11,10 @@ CMPRI troubleshooting must give the technician useful, issue-specific next steps
 4. Read Actions Taken / technician notes before suggesting anything.
 5. Remove checks that are already documented as completed or ruled out.
 6. If a diagnostic/error code is reported, surface that code immediately.
-7. Match the equipment's verified documentation by `documentation_key` first.
-8. Enrich the issue-specific guidance with verified manufacturer tests, expected results, corrective actions, and PDF reference.
-9. If no verified manual match exists, keep the useful issue-based troubleshooting visible and label it as general guidance.
-10. Do not invent a manufacturer procedure, code meaning, measurement, or part specification.
+7. Match the verified PDF against both manufacturer and exact model family or exact model number; do not use `documentation_key` as a substitute for identity matching.
+8. On an exact match, automatically extract or refresh structured guidance from that PDF, preserving source pages and PDF reference.
+9. If no verified manual match exists, show no generic troubleshooting and do not borrow another equipment guide.
+10. Do not invent a manufacturer procedure, code meaning, measurement, or part specification beyond the verified PDF.
 
 ## 2. Issue-first logic
 The issue description wins over a bad or overly broad category assignment.
@@ -287,9 +287,9 @@ Where the source provides enough information, render:
 
 If the manual does not provide one of those fields, leave it absent rather than inventing it.
 
-### General guidance must stay visible during manual lookup
-Selecting or changing an asset must immediately keep issue-based guidance visible.
-Manual loading may add/replace higher-confidence guidance after it resolves, but may not blank the panel.
+### Verified-document gate
+Selecting or changing an asset clears prior equipment guidance while its PDF match is checked.
+Show troubleshooting only after the verified PDF matches the manufacturer and exact model family or model number. If no exact match is available, keep the guide empty rather than showing generic or unrelated steps.
 
 ### Explicitly ruled-out diagnostic codes
 If technician context clearly states a code is not present or has been ruled out, that code must not appear in the "potentially relevant" list simply because its keywords resemble the complaint.
