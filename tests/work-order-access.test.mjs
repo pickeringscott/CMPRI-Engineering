@@ -135,6 +135,10 @@ function fixture(config={}){
         },
         roleAllows:(role,capability)=>capability==='edit_tickets'&&['Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role),
       };
+      if(name==='@/lib/server/work-order-notification-resolution')return {
+        isEngineeringWorkOrderActor:profile=>['Engineer','Chief Engineer','system_admin'].includes(profile?.role),
+        recordEngineeringWorkOrderView:async()=>{},
+      };
       if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment};
       if(name==='@/lib/work-order-edit-policy')return editPolicyExports;
       if(name==='@/lib/uuid')return {isUuid:value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)};
