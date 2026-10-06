@@ -257,6 +257,24 @@ where status in ('Open', 'In Progress');
 commit;
 
 
+-- SECTION: work_order_imports
+-- Keep import-source deduplication available in the release schema.
+begin;
+alter table public.work_orders add column if not exists import_source text;
+alter table public.work_orders add column if not exists import_external_id text;
+alter table public.work_orders add column if not exists import_reported_at timestamptz;
+alter table public.work_orders add column if not exists imported_at timestamptz;
+alter table public.work_orders add column if not exists imported_by_user_id uuid references auth.users(id) on delete set null;
+create unique index if not exists cmpri_work_orders_import_identity_unique
+  on public.work_orders (hotel_id, import_source, import_external_id)
+  where import_source is not null and btrim(import_source) <> ''
+    and import_external_id is not null and btrim(import_external_id) <> '';
+create index if not exists cmpri_work_orders_import_source_idx
+  on public.work_orders (hotel_id, import_source, imported_at desc)
+  where import_source is not null;
+commit;
+
+
 -- SECTION: pool_log_guard
 -- Validate against the observed pool_daily_logs schema in an isolated database.
 begin;
@@ -296,7 +314,7 @@ begin
   where p.id=actor and p.active=true and m.active=true and m.hotel_id=new.hotel_id;
   if actor_role is null or actor_role not in
     ('admin','administrator','systemadmin','chiefengineer','engineer','engineering',
-     'technician','maintenancetechnician','regionalmaintenance','generalmanager','gm',
+     'technician','maintenancetechnician','regionalmaintenance','frontdeskmanager','generalmanager','gm',
      'assistantmanager','assistantgeneralmanager','assistantgm') then
     raise exception 'An active engineering account assigned to this property is required';
   end if;

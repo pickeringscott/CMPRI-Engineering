@@ -44,7 +44,8 @@ begin
 
   if actor_role is null or actor_role not in
     ('admin','administrator','systemadmin','systemadministrator','chiefengineer',
-     'engineer','engineering','technician','maintenancetechnician','regionalmaintenance') then
+     'engineer','engineering','technician','maintenancetechnician','regionalmaintenance',
+     'frontdeskmanager','generalmanager','gm','assistantmanager','assistantgeneralmanager','assistantgm') THEN
     raise exception 'An active CMPRI engineering account is required';
   end if;
 

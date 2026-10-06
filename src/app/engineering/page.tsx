@@ -13,6 +13,8 @@ import {
   forgetLocalDashboardInbox,
   importServerDashboardNotifications,
   readDashboardInbox,
+  markServerDashboardNotificationsRead,
+  unreadWorkOrderNotificationCount,
   type WorkOrderNotification,
 } from "@/lib/dashboard/work-order-notifications";
 import {
@@ -81,10 +83,7 @@ function DashboardLauncherButton({
       data-cmpri-desktop-launch={launcher.key}
       data-open={open ? "true" : "false"}
       title={launcher.label}
-      onClick={(event) => {
-        onLaunch(launcher, Date.now());
-        event.currentTarget.closest("details")?.removeAttribute("open");
-      }}
+      onClick={() => onLaunch(launcher, Date.now())}
       className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
     >
       {launcher.label}
@@ -127,9 +126,11 @@ export default function EngineeringDashboardPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const soundEnabledRef = useRef(true);
   const userIdRef = useRef("");
+  const userRoleRef = useRef("");
   const notificationPollInFlightRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
   const pendingClearIdsRef = useRef<Set<string>>(new Set());
+  const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const clearGenerationRef = useRef(0);
   const ordersVersionRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -180,7 +181,9 @@ export default function EngineeringDashboardPage() {
 
   // The server inbox is the source of truth, so every computer shows the same list.
   const applyServerInbox = useCallback((notifications: WorkOrderNotification[]) => {
-    const visible = notifications.filter((notification) => !pendingClearIdsRef.current.has(notification.id));
+    const visible = notifications
+      .filter((notification) => !pendingClearIdsRef.current.has(notification.id))
+      .map((notification) => pendingReadIdsRef.current.has(notification.id) ? { ...notification, is_read: true } : notification);
     const seen = seenNotificationIdsRef.current;
     const arrived = seen !== null && visible.some((notification) => !seen.has(notification.id));
     seenNotificationIdsRef.current = new Set([...(seen || []), ...visible.map((notification) => notification.id)]);
@@ -208,6 +211,25 @@ export default function EngineeringDashboardPage() {
     }
   }
 
+  async function markNotificationRead(notification: WorkOrderNotification) {
+    if (notification.is_read || pendingReadIdsRef.current.has(notification.id)) return;
+    pendingReadIdsRef.current.add(notification.id);
+    clearGenerationRef.current += 1;
+    setInbox((current) => current.map((item) => item.id === notification.id ? { ...item, is_read: true } : item));
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Sign in again to update notifications.");
+      await markServerDashboardNotificationsRead(session.access_token, [notification.id]);
+      setNotificationError("");
+    } catch (error) {
+      setInbox((current) => current.map((item) => item.id === notification.id ? { ...item, is_read: false } : item));
+      setNotificationError(error instanceof Error ? error.message : "Notification could not be marked read.");
+    } finally {
+      pendingReadIdsRef.current.delete(notification.id);
+      clearGenerationRef.current += 1;
+    }
+  }
+
   function toggleSound() {
     const next = !soundEnabledRef.current;
     soundEnabledRef.current = next;
@@ -218,7 +240,7 @@ export default function EngineeringDashboardPage() {
 
   // ---------- Data loading ----------
 
-  const loadDashboard = useCallback(async (silent = false) => {
+  const loadDashboard = useCallback(async (silent = false, role?: string) => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     if (!silent) setLoading(true);
@@ -226,7 +248,8 @@ export default function EngineeringDashboardPage() {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) throw new Error("Sign in again to load the dashboard.");
-      const response = await fetch("/api/work-orders", {
+      const technicianDashboard = roleKey(role || userRoleRef.current) === "technician";
+      const response = await fetch(technicianDashboard ? "/api/work-orders?mode=technician" : "/api/work-orders", {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
@@ -261,13 +284,18 @@ export default function EngineeringDashboardPage() {
         window.location.replace("/");
         return;
       }
+      let session: CmpriClientSession;
       try {
-        const session = await loadCmpriSession();
-        if (!hasCapability(session, "view_dashboard")) {
+        session = await loadCmpriSession();
+        if (!hasCapability(session, "view_dashboard")
+          && !hasCapability(session, "view_work_orders")
+          && !hasCapability(session, "view_pm")
+          && !hasCapability(session, "receive_pool_closed_notifications")) {
           window.location.replace(session.landing);
           return;
         }
         userIdRef.current = session.user.id;
+        userRoleRef.current = session.user.role;
         layoutsRef.current = readDesktopLayouts(window.localStorage, session.user.id);
         const soundPreference = readSoundPreference();
         soundEnabledRef.current = soundPreference;
@@ -277,7 +305,7 @@ export default function EngineeringDashboardPage() {
         window.location.replace("/");
         return;
       }
-      await Promise.all([loadDashboard(), refreshChatgptConnection()]);
+      await Promise.all([loadDashboard(false, session.user.role), refreshChatgptConnection()]);
     })();
   }, [loadDashboard, refreshChatgptConnection]);
 
@@ -287,7 +315,8 @@ export default function EngineeringDashboardPage() {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (!cmpriSession) return;
+    if (!cmpriSession || (!hasCapability(cmpriSession, "view_dashboard")
+      && !hasCapability(cmpriSession, "receive_pool_closed_notifications"))) return;
     const userId = cmpriSession.user.id;
     let current = true;
     let imported = false;
@@ -508,6 +537,7 @@ export default function EngineeringDashboardPage() {
   const session = cmpriSession;
   const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
   const isSystemAdmin = roleKey(session.user.role) === "system_admin";
+  const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
   const displayName = session.user.name?.trim() || "Name not set";
   const displayRole = roleDisplayName(session.user.role);
@@ -522,10 +552,22 @@ export default function EngineeringDashboardPage() {
   }
 
   function openApprovals() {
-    openWindow({ key: APPROVALS_KEY, title: "Work Order Approvals", kind: "approvals", accent: "bg-purple-400", preferred: { width: 780, height: 540 } });
+    const canReviewTickets = hasCapability(cmpriSession, "review_tickets");
+    if (!canReviewTickets && inbox.length === 0) return;
+    inbox.forEach((notification) => {
+      if (!notification.is_read) void markNotificationRead(notification);
+    });
+    openWindow({
+      key: APPROVALS_KEY,
+      title: canReviewTickets ? "Work Order Approvals" : "Work Order Notifications",
+      kind: "approvals",
+      accent: canReviewTickets ? "bg-purple-400" : "bg-sky-400",
+      preferred: { width: 780, height: 540 },
+    });
   }
 
   function openNotification(notification: WorkOrderNotification) {
+    void markNotificationRead(notification);
     if (notification.target_path) openRoute(notification.target_path, "Daily Room Ops");
     else if (notification.work_order_id) openWorkOrder(notification.work_order_id);
   }
@@ -534,43 +576,44 @@ export default function EngineeringDashboardPage() {
     {
       label: "Work Orders",
       items: [
-        { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
-        { key: "/work-orders", label: "+ Create Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
-        { key: "/engineering/import-work-orders", label: "Import Existing WOs", href: "/engineering/import-work-orders", tone: "border-fuchsia-400/50 bg-fuchsia-950/30 text-fuchsia-100", accent: "bg-fuchsia-400" },
+        hasCapability(session, "view_work_orders") && roleKey(session.user.role) !== "technician" && { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
+        roleKey(session.user.role) === "technician" && { key: "/technician", label: "Technician Dashboard", href: "/technician", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+        hasCapability(session, "submit") && { key: "/work-orders", label: "+ Create Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
+        canUseEngineeringAdminTools && { key: "/engineering/import-work-orders", label: "Import Existing WOs", href: "/engineering/import-work-orders", tone: "border-fuchsia-400/50 bg-fuchsia-950/30 text-fuchsia-100", accent: "bg-fuchsia-400" },
       ],
     },
     {
       label: "Operations",
       items: [
-        { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
-        { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
-        { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+        (hasCapability(session, "view_dashboard") || hasCapability(session, "view_pool_log")) && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
+        canUseEngineeringAdminTools && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+        canUseEngineeringAdminTools && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
+        canUseEngineeringAdminTools && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         isSystemAdmin && { key: "/engineering/room-ranker", label: "Room Ranker", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
-        hasCapability(session, "view_dashboard") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
+        hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
       ],
     },
     {
       label: "Assets & Supply",
       items: [
-        { key: "/management/equipment", label: "Manage Equipment", href: "/management/equipment", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
-        { key: "/engineering/parts", label: "Parts & Vendors", href: "/engineering/parts", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
-        { key: "/engineering/purchasing", label: "Purchasing & Email", href: "/engineering/purchasing", tone: "border-orange-400/50 bg-orange-950/30 text-orange-100", accent: "bg-orange-400" },
+        hasCapability(session, "manage_assets") && { key: "/management/equipment", label: "Manage Equipment", href: "/management/equipment", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
+        hasCapability(session, "manage_assets") && { key: "/engineering/parts", label: "Parts & Vendors", href: "/engineering/parts", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
+        canUseEngineeringAdminTools && { key: "/engineering/purchasing", label: "Purchasing & Email", href: "/engineering/purchasing", tone: "border-orange-400/50 bg-orange-950/30 text-orange-100", accent: "bg-orange-400" },
       ],
     },
     {
       label: "Admin",
       items: [
-        { key: "/management/rooms", label: "Manage Rooms", href: "/management/rooms", tone: "border-indigo-400/50 bg-indigo-950/30 text-indigo-100", accent: "bg-indigo-400" },
-        { key: "/management/users", label: "Manage Users", href: "/management/users", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+        hasCapability(session, "manage_rooms") && { key: "/management/rooms", label: "Manage Rooms", href: "/management/rooms", tone: "border-indigo-400/50 bg-indigo-950/30 text-indigo-100", accent: "bg-indigo-400" },
+        hasCapability(session, "manage_users") && { key: "/management/users", label: "Manage Users", href: "/management/users", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         hasCapability(session, "review_feedback") && { key: "/feedback", label: `Feedback${newFeedbackCount > 0 ? ` (${newFeedbackCount})` : ""}`, href: `/feedback?route=${encodeURIComponent("/engineering")}`, tone: "border-amber-500/50 bg-amber-950/20 text-amber-100", accent: "bg-amber-500" },
       ],
     },
     {
       label: "Account",
       items: [
-        { key: "/profile", label: "Manage Profile", href: "/profile", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
-        !chatgptConnected && { key: "/profile", label: "Connect ChatGPT", href: "/profile", tone: "border-sky-500/50 bg-sky-950/30 text-sky-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
+        hasCapability(session, "view_profiles") && { key: "/profile", label: "Manage Profile", href: "/profile", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
+        hasCapability(session, "view_profiles") && !chatgptConnected && { key: "/profile", label: "Connect ChatGPT", href: "/profile", tone: "border-sky-500/50 bg-sky-950/30 text-sky-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
         { key: "sign-out", label: "Sign Out", action: "sign-out", tone: "border-red-400/50 bg-red-950/30 text-red-100", accent: "bg-red-400" },
       ],
     },
@@ -594,17 +637,26 @@ export default function EngineeringDashboardPage() {
     }
   }
 
+  const visibleLauncherGroups = launcherGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item): item is Launcher => Boolean(item)),
+    }))
+    .filter((group) => group.items.length > 0);
   const openKeys = new Set(windows.map((entry) => entry.key));
   const activeKey = zOrder.at(-1) || "";
-  const notificationCount = inbox.length + awaitingApproval.length;
-  const bellLabel = `Work order approvals for ${displayName} (${displayRole}): ${inbox.length} notification${inbox.length === 1 ? "" : "s"}, ${awaitingApproval.length} awaiting approval`;
-  const mobileLaunchers = launcherGroups
-    .flatMap((group) => group.items.filter((item): item is Launcher => Boolean(item)))
+  const canReviewTickets = hasCapability(session, "review_tickets");
+  const unreadCount = unreadWorkOrderNotificationCount(inbox);
+  const notificationCount = unreadCount + (canReviewTickets ? awaitingApproval.length : 0);
+  const bellLabel = canReviewTickets
+    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${awaitingApproval.length} awaiting approval`
+    : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
+  const mobileLaunchers = visibleLauncherGroups
+    .flatMap((group) => group.items)
     .filter((launcher) => launcher.key !== "/work-orders");
-  const createWorkOrderLauncher = launcherGroups
-    .flatMap((group) => group.items.filter((item): item is Launcher => Boolean(item)))
+  const createWorkOrderLauncher = visibleLauncherGroups
+    .flatMap((group) => group.items)
     .find((launcher) => launcher.key === "/work-orders");
-  const showMobileLauncherDropdown = mobileLaunchers.length > 3;
 
   return (
     <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white">
@@ -618,13 +670,17 @@ export default function EngineeringDashboardPage() {
             <div className="mt-2 text-left leading-tight">
               <div className="flex min-w-0 items-center gap-2">
                 <p className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
-                <DashboardNotificationBell
-                  count={notificationCount}
-                  label={bellLabel}
-                  aria-label={bellLabel}
-                  title={`${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${inbox.length} notification(s) · ${awaitingApproval.length} awaiting approval`}
-                  onClick={openApprovals}
-                />
+                {(canReviewTickets || inbox.length > 0) && (
+                  <DashboardNotificationBell
+                    count={notificationCount}
+                    label={bellLabel}
+                    aria-label={bellLabel}
+                    title={canReviewTickets
+                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${awaitingApproval.length} awaiting approval`
+                      : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
+                    onClick={openApprovals}
+                  />
+                )}
               </div>
               <p className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
@@ -641,24 +697,12 @@ export default function EngineeringDashboardPage() {
 
         <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
           <div className="flex min-w-0 flex-wrap items-center gap-1 lg:hidden">
-            {showMobileLauncherDropdown ? (
-              <details className="relative">
-                <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-semibold text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">
-                  Navigation
-                  <span aria-hidden="true" className="text-slate-400">⌄</span>
-                </summary>
-                <div role="group" aria-label="Dashboard navigation" className="absolute left-0 top-full z-[210] mt-1 flex min-w-max flex-col gap-1 rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50">
-                  {mobileLaunchers.map((launcher) => (
-                    <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
-                  ))}
-                </div>
-              </details>
-            ) : mobileLaunchers.map((launcher) => (
+            {mobileLaunchers.map((launcher) => (
               <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
             ))}
           </div>
           <div className="hidden min-w-0 flex-wrap items-center gap-0.5 lg:flex">
-          {launcherGroups.map((group) => (
+          {visibleLauncherGroups.map((group) => (
             <div key={group.label} className="relative">
               <div
                 role="group"
@@ -666,7 +710,7 @@ export default function EngineeringDashboardPage() {
                 className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5"
               >
                 <span aria-hidden="true" className="hidden px-0.5 text-[9pt] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
-                {group.items.filter((item): item is Launcher => Boolean(item)).map((launcher) => (
+                {group.items.map((launcher) => (
                   <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
                 ))}
               </div>
@@ -724,6 +768,7 @@ export default function EngineeringDashboardPage() {
                   user={session.user}
                   notifications={inbox}
                   awaitingApproval={awaitingApproval}
+                  canReview={canReviewTickets}
                   notificationError={notificationError}
                   soundEnabled={soundEnabled}
                   onToggleSound={toggleSound}

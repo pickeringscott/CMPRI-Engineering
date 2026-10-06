@@ -160,12 +160,12 @@ export default function FeedbackPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("embedded") === "1" && window.parent !== window) {
       event.preventDefault();
-      window.parent.postMessage({ type: "cmpri-modal-dashboard", modalToken: params.get("modalToken") || "" }, window.location.origin);
+      window.parent.postMessage({ type: "cmpri-modal-close", modalToken: params.get("modalToken") || "" }, window.location.origin);
       return;
     }
     if (window.parent !== window) {
       event.preventDefault();
-      window.parent.postMessage({ type: "cmpri-modal-dashboard", modalToken: "" }, window.location.origin);
+      window.parent.postMessage({ type: "cmpri-modal-close", modalToken: "" }, window.location.origin);
       return;
     }
     event.preventDefault();

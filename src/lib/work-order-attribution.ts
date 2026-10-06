@@ -21,7 +21,11 @@ export function workOrderAttribution(
     creator_account_user_id: user.id,
     creator_name: frontDesk ? name : profile.full_name?.trim() || user.email || "Unknown User",
     submitted_by_name: frontDesk ? name : null,
-    creator_source: submitOnly ? "department_pending_verification" : "signed_in_user",
+    creator_source: frontDesk
+      ? "front_desk_pending_verification"
+      : submitOnly
+        ? "department_pending_verification"
+        : "signed_in_user",
     status: submitOnly ? "Pending Verification" : "Open",
   };
 }

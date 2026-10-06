@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
+import { parseAssetInstallYear } from "@/lib/asset-install-year";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
@@ -117,12 +118,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "A location is required for every new CMPRI asset." }, { status: 400 });
     }
     const location = await locationName(auth.admin, body.location_id);
-    const installYear = body.install_year === undefined || body.install_year === null || body.install_year === ""
-      ? null : Number(body.install_year);
-    const currentYear = new Date().getUTCFullYear();
-    if (installYear !== null && (!Number.isInteger(installYear) || installYear < 1900 || installYear > currentYear + 1)) {
-      return NextResponse.json({ error: "Install year is invalid." }, { status: 400 });
-    }
+    const installYear = parseAssetInstallYear(body.install_year);
     const row = {
       hotel_id: HOTEL_ID,
       location_id: location.id,
@@ -130,9 +126,9 @@ export async function POST(request: NextRequest) {
       // Naming is enforced for NEW assets only. Existing legacy names are not retro-converted.
       name: `${assetType}${EN_DASH}${location.name}`,
       asset_tag: optionalText(body.asset_tag, "asset tag", 200),
-      manufacturer: optionalText(body.manufacturer, "manufacturer", 200),
+      manufacturer: optionalText(body.manufacturer, "manufacturer", 200) ?? "",
       model_number: optionalText(body.model_number, "model number", 200),
-      serial_number: optionalText(body.serial_number, "serial number", 300),
+      serial_number: optionalText(body.serial_number, "serial number", 300) ?? "",
       generation: optionalText(body.generation, "generation", 200),
       install_year: installYear,
       documentation_key: optionalText(body.documentation_key, "documentation key", 300),
@@ -187,13 +183,13 @@ export async function PATCH(request: NextRequest) {
     const update: Record<string, unknown> = {};
     if (Object.prototype.hasOwnProperty.call(body, "location_id")) update.location_id = (await locationName(auth.admin, body.location_id)).id;
     for (const [field, maximum] of [["asset_type", 200], ["name", 500], ["asset_tag", 200], ["manufacturer", 200], ["model_number", 200], ["serial_number", 300], ["generation", 200], ["documentation_key", 300]] as const) {
-      if (Object.prototype.hasOwnProperty.call(body, field)) update[field] = optionalText(body[field], field, maximum);
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
+        const value = optionalText(body[field], field, maximum);
+        update[field] = field === "manufacturer" || field === "serial_number" ? value ?? "" : value;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(body, "install_year")) {
-      const year = body.install_year === null || body.install_year === "" ? null : Number(body.install_year);
-      const currentYear = new Date().getUTCFullYear();
-      if (year !== null && (!Number.isInteger(year) || year < 1900 || year > currentYear + 1)) throw new Error("Install year is invalid.");
-      update.install_year = year;
+      update.install_year = parseAssetInstallYear(body.install_year);
     }
     if (Object.prototype.hasOwnProperty.call(body, "active")) {
       if (typeof body.active !== "boolean") throw new Error("Active must be true or false.");

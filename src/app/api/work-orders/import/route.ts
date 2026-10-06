@@ -60,7 +60,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "A valid import request is required." }, { status: 400 });
   }
 
-  const source = clean(body.source, 50, "Import source", true);
+  let source: string;
+  try {
+    source = clean(body.source, 50, "Import source", true);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Import source is invalid." }, { status: 400 });
+  }
   if (!SOURCE_NAMES.has(source)) return NextResponse.json({ error: "Import source must be SafetyCulture or Spreadsheet." }, { status: 400 });
   if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > IMPORT_LIMIT) {
     return NextResponse.json({ error: `Import between 1 and ${IMPORT_LIMIT} rows at a time.` }, { status: 400 });

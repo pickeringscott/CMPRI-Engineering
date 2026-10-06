@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { poolLogInput, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, sampleLocations } from '../src/lib/pool-log.ts';
+import { poolLogInput, poolLogTodayDate, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, sampleLocations } from '../src/lib/pool-log.ts';
 import { fetchAllPages } from '../src/lib/server/paginated-query.ts';
 const facilityId='00000000-0000-0000-0000-000000000001';
 const input={pool_facility_id:facilityId,log_date:'2026-09-15',ph_am:7.4,sanitizer_am:4,sample_location_am:'shallow',temperature_f:84,flow_rate_gpm:60,main_drain_visible:true,filter_backwashed:false,requires_attention:false,closure_condition:false,closure_reason:'',remarks:''};
@@ -99,7 +99,16 @@ test('only System Administrators can change a saved value',()=>{
  assert.equal(remarks.remarks,'AM ok\nPM ok');
 });
 for(const change of [{log_date:'2026-02-30'},{ph_am:15},{sanitizer_am:-1},{ph_am:'7.4'},{flow_rate_gpm:Infinity},{main_drain_visible:'yes'},{remarks:{}},{requires_attention:'false'}])test(`invalid pool input rejected: ${JSON.stringify(change)}`,()=>assert.throws(()=>poolLogInput({...input,...change})));
-test('date validation rejects impossible dates and retains leap days',()=>{assert.equal(validLogDate('2028-02-29'),true);assert.equal(validLogDate('2026-02-29'),false);});
+test('date validation rejects impossible and future dates while retaining leap days',()=>{
+ assert.equal(validLogDate('2028-02-29','2028-02-29'),true);
+ assert.equal(validLogDate('2026-02-29','2026-10-03'),false);
+ assert.equal(validLogDate('2026-10-03','2026-10-03'),true);
+ assert.equal(validLogDate('2026-10-04','2026-10-03'),false);
+});
+test('pool log dates follow the property timezone at midnight boundaries',()=>{
+ assert.equal(poolLogTodayDate(new Date('2026-10-03T04:59:59.999Z')),'2026-10-02');
+ assert.equal(poolLogTodayDate(new Date('2026-10-03T05:00:00.000Z')),'2026-10-03');
+});
 test('MCP pool save maps read date and pool name to the existing API fields',()=>{
  const facilities=[{id:facilityId,pool_name:'Indoor Pool',facility_name:'Residence Inn Indoor Pool'}];
  const payload=prepareMcpPoolLogInput({date:'2026-09-29',pool:'indoor pool',ph_am:7.4,main_drain_visible:true,filter_backwashed:false,requires_attention:false,closure_condition:false},facilities);
@@ -152,11 +161,18 @@ test('MCP pool save rejects ambiguous pool names and non-ISO dates before saving
 });
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 function fixture(config={}) {
- const calls=[],writes=[];
+ const calls=[],writes=[],notifications=[];
  const db={from(table){const filters=[];let changed;
-  const q={select(){return q;},eq(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
+  const q={select(){return q;},eq(key,value){filters.push([key,value]);return q;},in(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
    range(from,to){q.from=from;q.to=to;return q;},
    then(resolve,reject){
+    if(table==='profiles')return Promise.resolve({data:config.profiles||[],error:config.profileListError?new Error('Unavailable'):null}).then(resolve,reject);
+    if(table==='hotel_members'){
+     const eligible=filters.find(([key])=>key==='user_id')?.[1]||[];
+     const memberships=config.memberships||[];
+     return Promise.resolve({data:memberships.filter(({user_id})=>eligible.includes(user_id)),error:config.membershipError?new Error('Unavailable'):null}).then(resolve,reject);
+    }
+    if(table==='cmpri_dashboard_notifications')return Promise.resolve({error:config.notificationError?new Error('Unavailable'):null}).then(resolve,reject);
     if(table!=='pool_daily_logs')return Promise.resolve({data:[],error:null}).then(resolve,reject);
     calls.push({table,filters});
     if(config.historyError&&q.from>=1000)return Promise.resolve({data:null,error:new Error('Unavailable')}).then(resolve,reject);
@@ -165,6 +181,7 @@ function fixture(config={}) {
    },
    maybeSingle:async()=>{calls.push({table,filters});return table==='pool_facilities'?{data:config.noFacility?null:{id:facilityId},error:config.lookupError?{message:'Unavailable'}:null}:{data:config.existing||null,error:config.readError?{message:'Unavailable'}:null};},
    insert(row){writes.push(row);changed=row;return q;},update(row){writes.push(row);changed=row;return q;},
+   upsert(rows){notifications.push(...rows);return q;},
    single:async()=>config.dbError?{data:null,error:config.dbError}:config.saveError||config.concurrent?{data:null,error:{code:config.concurrent?'PGRST116':'23505'}}:{data:{...changed,id:'saved',revision:2},error:null}};
   return q;
  }};
@@ -173,12 +190,13 @@ function fixture(config={}) {
    if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
    if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'actor'},profile:{role:config.role||'system_admin',full_name:'Scott Pickering'},admin:db}};
    if(name==='@/lib/server/paginated-query')return {fetchAllPages};
+   if(name==='@/lib/notifications/web-push')return {dispatchWebPushNotifications:async()=>undefined};
    if(name==='server-only')return {};
    if(name==='@supabase/supabase-js')return {createClient:function(){return {auth:{getUser:function(){return {data:{user:{id:'actor'}},error:null}}}}}};
    let target=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(file),name);if(!existsSync(target))target+='.ts';return load(target);
   }});return exports;
  }
- return {handlers:load(path.join(root,'app/api/pool-log/route.ts')),calls,writes,request:{nextUrl:new URL('https://test.invalid/api/pool-log?date=2026-09-15'),headers:new Headers({authorization:'Bearer fake'}),json:async()=>({...input,...config.body})}};
+ return {handlers:load(path.join(root,'app/api/pool-log/route.ts')),calls,writes,notifications,request:{nextUrl:new URL('https://test.invalid/api/pool-log?date=2026-09-15'),headers:new Headers({authorization:'Bearer fake'}),json:async()=>({...input,...config.body})}};
 }
 for(const config of [{unauthorized:true},{role:'Front Desk'},{role:'Housekeeping'}])test(`pool writes reject unavailable authority ${JSON.stringify(config)}`,async()=>{
  const f=fixture(config);assert.equal((await f.handlers.POST(f.request)).status,config.unauthorized?401:403);assert.equal(f.writes.length,0);
@@ -196,6 +214,37 @@ test('pool API persists selected bromine ranges and forces closure for unsafe re
  assert.equal(result.body.closure_required,true);
  assert.match(result.body.closure_reasons.join(),/AM bromine/);
  assert.equal(f.writes[0].closure_condition,true);
+});
+test('a new pool closure notifies only active CMPRI recipients from the five authorized roles',async()=>{
+ const profiles=[
+  {id:'housekeeping',role:'Housekeeping',active:true},
+  {id:'front-desk',role:'Front Desk',active:true},
+  {id:'front-desk-manager',role:'Front Desk Manager',active:true},
+  {id:'assistant-manager',role:'Assistant General Manager',active:true},
+  {id:'general-manager',role:'General Manager',active:true},
+  {id:'technician',role:'Maintenance Technician',active:true},
+  {id:'chief-engineer',role:'Chief Engineer',active:true},
+  {id:'system-admin',role:'System Administrator',active:true},
+  {id:'inactive-chief',role:'Chief Engineer',active:false},
+ ];
+ const memberships=profiles.filter(({active})=>active).map(({id})=>({user_id:id}));
+ const f=fixture({profiles:profiles.filter(({active})=>active),memberships,body:{temperature_f:105,closure_reason:'Water temperature exceeded the operating limit.'}});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);
+ assert.equal(result.body.notifications_recorded,true);
+ assert.deepEqual(f.notifications.map(({recipient_user_id})=>recipient_user_id).sort(),[
+  'assistant-manager','chief-engineer','front-desk-manager','general-manager','technician',
+ ]);
+ assert.ok(f.notifications.every(({work_order_id,target_path,notification_key})=>
+  work_order_id===null&&target_path==='/engineering/pool-log'&&notification_key.startsWith('pool-closed:')));
+});
+test('an already-closed pool log does not create duplicate closure notifications',async()=>{
+ const closed=poolLogInput({...input,temperature_f:105,closure_reason:'Water temperature exceeded the operating limit.'});
+ const f=fixture({existing:{...closed,id:'saved',revision:2},body:closed});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);
+ assert.equal(result.body.unchanged,true);
+ assert.equal(f.notifications.length,0);
 });
 test('pool history returns every saved entry across database pages',async()=>{
  const history=Array.from({length:1001},(_,index)=>({id:`log-${index}`,log_date:'2026-09-15'}));
@@ -272,11 +321,31 @@ test('pool log read identifies System Administrator saved-log edit access',async
  assert.equal((await admin.handlers.GET(admin.request)).body.can_edit_saved,true);
  assert.equal((await operator.handlers.GET(operator.request)).body.can_edit_saved,false);
 });
+test('General Managers can operate the pool log without saved-record correction authority',async()=>{
+ const manager=fixture({role:'General Manager'});
+ assert.equal((await manager.handlers.GET(manager.request)).status,200);
+ assert.equal((await manager.handlers.GET(manager.request)).body.can_edit,true);
+ assert.equal((await manager.handlers.GET(manager.request)).body.can_edit_saved,false);
+ assert.equal((await manager.handlers.POST(manager.request)).status,200);
+ assert.equal(manager.writes.length,1);
+});
 for(const config of [{saveError:true},{concurrent:true,existing:{id:'saved',revision:2},body:{expected_revision:2}}])test('conflicting pool saves report a conflict',async()=>{
  const f=fixture(config);assert.equal((await f.handlers.POST(f.request)).status,409);
 });
 test('housekeeping cannot access pool logs (dashboard access required)',async()=>{
  const f=fixture({role:'Housekeeping'});const result=await f.handlers.GET(f.request);assert.equal(result.status,403);assert.equal(f.writes.length,0);
+});
+test('pool API rejects future dates before reading or writing a daily log',async()=>{
+ const f=fixture();
+ f.request.nextUrl=new URL('https://test.invalid/api/pool-log?date=9999-12-31');
+ const read=await f.handlers.GET(f.request);
+ assert.equal(read.status,400);
+ assert.equal(f.calls.filter(call=>call.table==='pool_daily_logs').length,0);
+ f.request.json=async()=>({...input,log_date:'9999-12-31'});
+ const write=await f.handlers.POST(f.request);
+ assert.equal(write.status,400);
+ assert.equal(f.calls.filter(call=>call.table==='pool_daily_logs').length,0);
+ assert.equal(f.writes.length,0);
 });
 test('pool API blocks saves missing required checks or a closure reason',async()=>{
  for(const body of [{main_drain_visible:null},{filter_backwashed:null},{ph_am:8.0}]){
@@ -295,6 +364,7 @@ test('pool-log UI flags closures, requires daily checks, and offers only shallow
  assert.match(page,/Still needed before saving/);
  assert.match(page,/Daily checks/);
  assert.match(page,/Reason pool is closed \(required\)/);
+ assert.match(page,/type="date" max=\{poolLogTodayDate\(\)\}/);
  assert.doesNotMatch(page,/Combined chlorine|Cyanuric acid/i);
 });
 test('daily pool form has exactly one pH and sanitizer result for AM and PM',()=>{

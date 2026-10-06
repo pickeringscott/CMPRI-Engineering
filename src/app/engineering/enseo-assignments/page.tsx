@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { authorizationHeaders, loadCmpriSession } from "@/lib/auth/client-session";
+import { authorizationHeaders, hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
+import { enseoSaveSuccessMessage, resolveEnseoPageResponse } from "@/lib/enseo-page-state";
 
 type Asset = { id: string; name: string; asset_type?: string | null; asset_tag?: string | null; location_id?: string | null; manufacturer?: string | null; model_number?: string | null; serial_number?: string | null };
 type Location = { id: string; name: string; room_number?: string | null; location_type?: string | null; area?: string | null };
 type Assignment = { id: string; asset_id: string; device_type: "TV" | "STB"; location_id: string; room_number?: string | null; sub_location: string; endpoint_code?: string | null; paired_asset_id?: string | null; revision: number; updated_at?: string | null };
 type History = { id: string; batch_id: string; asset_id: string; reason?: string | null; from_room_number?: string | null; from_sub_location?: string | null; from_endpoint_code?: string | null; to_room_number?: string | null; to_sub_location: string; to_endpoint_code?: string | null; moved_at: string };
-type Payload = { configured: boolean; can_manage: boolean; assignments: Assignment[]; assets: Asset[]; locations: Location[]; history: History[]; error?: string };
+type Payload = { configured: boolean; can_manage?: boolean; assignments: Assignment[]; assets: Asset[]; locations: Location[]; history: History[]; error?: string };
 type MoveDraft = { key: string; asset_id: string; device_type: "TV" | "STB"; location_id: string; room_number: string; sub_location: string; endpoint_code: string; paired_asset_id: string };
 
 function newMove(): MoveDraft {
@@ -23,27 +24,36 @@ export default function EnseoAssignmentsPage() {
   const router = useRouter();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pageAllowed, setPageAllowed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [reason, setReason] = useState("");
   const [moves, setMoves] = useState<MoveDraft[]>([newMove()]);
 
-  async function load() {
+  const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     try {
-      await loadCmpriSession();
+      const session = await loadCmpriSession();
+      if (!hasCapability(session, "view_engineering_operations")) {
+        router.replace(session.landing);
+        return false;
+      }
+      setPageAllowed(true);
       const response = await fetch("/api/enseo/assignments", { headers: await authorizationHeaders(), cache: "no-store" });
-      const payload = await response.json() as Payload;
-      setData(payload);
-      if (!response.ok) setMessage(payload.error || "Enseo assignments could not be loaded.");
-    } catch {
-      setMessage("Enseo assignments could not be loaded.");
+      const result = resolveEnseoPageResponse<Payload>(response.ok, await response.json());
+      setData(result.data);
+      setMessage(result.message || "");
+      return response.ok && result.data !== null && !result.message;
+    } catch (error) {
+      setData(null);
+      setMessage(error instanceof Error ? error.message : "Enseo assignments could not be loaded.");
+      return false;
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
 
-  useEffect(() => { void Promise.resolve().then(load).catch(() => router.replace("/")); }, [router]);
+  useEffect(() => { void Promise.resolve().then(load).catch(() => router.replace("/")); }, [load, router]);
 
   const assetById = useMemo(() => new Map((data?.assets || []).map((asset) => [asset.id, asset])), [data?.assets]);
   const locationById = useMemo(() => new Map((data?.locations || []).map((location) => [location.id, location])), [data?.locations]);
@@ -102,9 +112,8 @@ export default function EnseoAssignmentsPage() {
       });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Enseo assignments could not be saved.");
-      setMessage(`Saved ${moves.length} device assignment${moves.length === 1 ? "" : "s"} as one atomic move batch.`);
       setReason(""); setMoves([newMove()]);
-      await load();
+      if (await load()) setMessage(enseoSaveSuccessMessage(moves.length));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Enseo assignments could not be saved.");
     } finally {
@@ -112,7 +121,9 @@ export default function EnseoAssignmentsPage() {
     }
   }
 
+  if (!pageAllowed) return null;
   if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100">{embedded && <ModalDashboardLink className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}<p>Loading Enseo assignments…</p></main>;
+  if (!data) return <main className="min-h-screen bg-slate-950 p-4 text-slate-100 sm:p-6">{!embedded && <header className="flex justify-end"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></header>}{embedded && <div className="mb-4"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></div>}<p role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">{message || "Enseo assignments could not be loaded."}</p></main>;
 
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-slate-100 sm:p-6">

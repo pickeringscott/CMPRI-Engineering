@@ -41,6 +41,10 @@ function fixture(config={}) {
         if(name==='openai')return {default:class {constructor(){throw new Error('Unexpected AI provider access');}}};
         if(name==='server-only')return {};
         if(name==='@/lib/server/room-ranker')return {callRoomRanker:async()=>({ok:true,rooms:[]})};
+        if(name==='@/lib/server/integrations-safe-mode')return {isIntegrationsSafeMode:()=>config.safeMode!==false};
+        if(name==='@/lib/integrations/email-provider')return {fetchOperationalMessages:async()=>{calls.push('email-provider');return {provider:null,messages:[],truncated:false};}};
+        if(name==='@/lib/integrations/email-parser')return {parseOperationalEmail:()=>({})};
+        if(name==='@/lib/integrations/operations')return {mergedPurchaseStatus:()=>'',parentStatusFromShipments:()=>'',matchEnseoWorkOrder:()=>null};
         if(name==='@/lib/server/corporate-pm')return {
           CORPORATE_PM_MONTHS:['JAN','FEB','MAR','APR','MAY','JUNE','JULY','AUG','SEPT','OCT','NOV','DEC'],
           readCorporatePmSheet:async sheet=>({ok:true,sheet,values:[],formulas:[],lastRow:0,lastColumn:0,timestamp:new Date().toISOString()}),
@@ -70,6 +74,15 @@ test('same bearer token is rechecked and denied immediately after profile deacti
   assert.equal(await auth.authenticatedUser(f.request),null);
   assert.equal(f.calls.filter(v=>v==='profiles').length,2);
 });
+test('safe-mode email scan is blocked before invoking the mailbox provider',async()=>{
+  const f=fixture({role:'Chief Engineer',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]});
+  const response=await f.load('api/integrations/email/scan/route.ts').POST(f.request);
+  assert.equal(response.status,503);
+  assert.equal(response.body.safeMode,true);
+  assert.equal(response.body.blocked,true);
+  assert.match(response.body.error,/NOT sent to an external provider/);
+  assert.equal(f.calls.includes('email-provider'),false);
+});
 const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/work-orders/[id]/preventive-maintenance/route.ts','PATCH'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
 for(const [route,method] of routes)for(const config of [{active:false},{profileError:true}])test(`${route} ${method} blocks revoked/unverifiable session ${JSON.stringify(config)}`,async()=>{
   const f=fixture(config);const r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
@@ -82,7 +95,7 @@ for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test
 });
 for(const [route,method] of routes.filter(([route,method])=>method==='PATCH'||route.includes('/email/')))for(const role of ['Front Desk','Housekeeping','unknown-admin'])test(`${route} denies integration writes by ${role}`,async()=>{
   const f=fixture({role}),r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
-  assert.equal(r.status,route.includes('/email/')?401:403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
+  assert.equal(r.status,403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} denies housekeeping read access (dashboard required)`,async()=>{
   const f=fixture({role:'Housekeeping'});const r=await f.load(route).GET(f.request);assert.equal(r.status,403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));

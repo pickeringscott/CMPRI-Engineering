@@ -1,13 +1,9 @@
 // Real PostgreSQL execution in PGlite, isolated from Supabase production.
 // CMPRI_PGLITE_ROOT points to an installation of @electric-sql/pglite 0.5.8.
 import { readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
-import path from 'node:path';
 import assert from 'node:assert/strict';
-const root = process.env.CMPRI_PGLITE_ROOT;
-if (!root) throw new Error('Set CMPRI_PGLITE_ROOT to an isolated @electric-sql/pglite installation.');
-const { PGlite } = await import(pathToFileURL(path.join(root, 'dist/index.js')).href);
-const { pgcrypto } = await import(pathToFileURL(path.join(root, 'dist/contrib/pgcrypto.js')).href);
+import { PGlite } from '@electric-sql/pglite';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 const db = new PGlite({ extensions: { pgcrypto } });
 let passed = 0;
 async function check(name, run) { await run(); passed++; console.log(`PASS ${name}`); }
@@ -37,16 +33,145 @@ try {
     });
     await db.exec(`create table public.${name} (${columns.join(',')});`);
   }
+  await db.exec(`create table public.cmpri_vendors (id uuid primary key, company_name text not null);
+    create table if not exists public.assets (id uuid primary key);
+    create table public.cmpri_inventory_items (id uuid primary key, item_name text not null);
+    create table public.cmpri_order_ideas (id uuid primary key);
+    create table public.cmpri_vendor_proposals (id uuid primary key);
+    create table public.room_operations (
+      id uuid primary key default gen_random_uuid(),
+      hotel_id uuid not null,
+      room text not null,
+      reserved boolean not null default false,
+      room_status text not null default '',
+      departure_date date,
+      checkout_time time,
+      default_checkout_time boolean not null default true,
+      deadline timestamptz,
+      arrival_date date,
+      checkin_time time,
+      default_checkin_time boolean not null default true,
+      guest_name text not null default '',
+      guest_arrival_date date,
+      stay_nights integer not null default 0,
+      report_date date,
+      moved_from_room text not null default '',
+      moved_rooms boolean not null default false,
+      room_type text not null default '',
+      guest_code text not null default '',
+      updated_at timestamptz not null default now(),
+      constraint room_operations_hotel_id_room_key unique (hotel_id, room)
+    );`);
+  await db.exec(`create table public.cmpri_dashboard_notifications (
+      id uuid primary key,
+      hotel_id uuid not null,
+      recipient_user_id uuid not null,
+      notification_key text not null,
+      work_order_id uuid,
+      target_path text,
+      message text not null,
+      recorded_at timestamptz not null default now(),
+      cleared_at timestamptz
+    );`);
+  await db.exec(`create table public.cmpri_work_order_history (
+      id uuid primary key default gen_random_uuid(),
+      hotel_id uuid not null,
+      work_order_id uuid not null,
+      actor_user_id uuid,
+      event_type text not null,
+      recorded_at timestamptz not null default now(),
+      snapshot jsonb not null default '{}'::jsonb
+    );`);
+  const vendorWebsiteMigration = readFileSync(new URL('../supabase/migrations/20261004090000_cmpri_vendors_website.sql', import.meta.url), 'utf8');
+  await check('vendor website migration', async () => db.exec(vendorWebsiteMigration));
+  await check('vendor website migration is idempotent', async () => db.exec(vendorWebsiteMigration));
+  await check('vendor website is optional and persists values', async () => {
+    await db.exec(`insert into public.cmpri_vendors (id, company_name) values (${quote('00000000-0000-0000-0000-000000000004')}, 'Audit Vendor')`);
+    const { rows } = await db.query(`select website from public.cmpri_vendors where id=${quote('00000000-0000-0000-0000-000000000004')}`);
+    assert.equal(rows[0].website, '');
+    await db.exec(`update public.cmpri_vendors set website='https://vendor.example.invalid' where id=${quote('00000000-0000-0000-0000-000000000004')}`);
+    const { rows: updated } = await db.query(`select website from public.cmpri_vendors where id=${quote('00000000-0000-0000-0000-000000000004')}`);
+    assert.equal(updated[0].website, 'https://vendor.example.invalid');
+  });
+  const goLiveNotificationMigration = readFileSync(new URL('../supabase/migrations/20261005170000_cmpri_go_live_permissions_and_notifications.sql', import.meta.url), 'utf8');
+  await check('CMPRI go-live notification migration', async () => db.exec(goLiveNotificationMigration));
+  await check('CMPRI go-live notification migration is idempotent', async () => db.exec(goLiveNotificationMigration));
+  const webPushMigration = readFileSync(new URL('../supabase/migrations/20261006140000_cmpri_web_push_and_engineering_views.sql', import.meta.url), 'utf8');
+  await check('CMPRI Web Push and Engineering-view migration', async () => db.exec(webPushMigration));
+  await check('CMPRI Web Push and Engineering-view migration is idempotent', async () => db.exec(webPushMigration));
+  await check('Engineering status changes resolve only technician new-order rows', async () => {
+    const engineer = '00000000-0000-0000-0000-000000000901';
+    const technician = '00000000-0000-0000-0000-000000000902';
+    const order = '00000000-0000-0000-0000-000000000903';
+    const engineerNotification = '00000000-0000-0000-0000-000000000904';
+    const technicianNotification = '00000000-0000-0000-0000-000000000905';
+    const frontDesk = '00000000-0000-0000-0000-000000000906';
+    const unrelatedOrder = '00000000-0000-0000-0000-000000000907';
+    const unrelatedNotification = '00000000-0000-0000-0000-000000000908';
+    await db.exec(`insert into public.profiles(id,role,active,full_name) values
+        (${quote(engineer)},'engineer',true,'Test Engineer'),
+        (${quote(technician)},'technician',true,'Test Technician'),
+        (${quote(frontDesk)},'front_desk',true,'Test Front Desk');
+      insert into public.hotel_members(hotel_id,user_id,role,active) values
+        (${quote(hotel)},${quote(engineer)},'admin',true),
+        (${quote(hotel)},${quote(technician)},'admin',true),
+        (${quote(hotel)},${quote(frontDesk)},'viewer',true);
+      insert into public.work_orders(id,hotel_id,display_id,room,issue,status)
+        values
+          (${quote(order)},${quote(hotel)},'WO-TEST','Room 1','Test issue','Open'),
+          (${quote(unrelatedOrder)},${quote(hotel)},'WO-OTHER','Room 2','Other issue','Open');
+      insert into public.cmpri_dashboard_notifications(id,hotel_id,recipient_user_id,notification_key,work_order_id,message)
+        values
+          (${quote(engineerNotification)},${quote(hotel)},${quote(engineer)},'new-order:${order}',${quote(order)},'Chief Engineer item'),
+          (${quote(technicianNotification)},${quote(hotel)},${quote(technician)},'new-order:${order}',${quote(order)},'Technician item'),
+          (${quote(unrelatedNotification)},${quote(hotel)},${quote(technician)},'new-order:${unrelatedOrder}',${quote(unrelatedOrder)},'Technician item');
+      insert into public.cmpri_work_order_history(hotel_id,work_order_id,actor_user_id,event_type,snapshot)
+        values
+          (${quote(hotel)},${quote(order)},${quote(engineer)},'status_changed','{"display_id":"WO-TEST"}'::jsonb),
+          (${quote(hotel)},${quote(unrelatedOrder)},${quote(frontDesk)},'status_changed','{"display_id":"WO-OTHER"}'::jsonb);`);
+    const { rows } = await db.query(`select recipient_user_id, cleared_at from public.cmpri_dashboard_notifications
+      where work_order_id=${quote(order)} order by recipient_user_id`);
+    assert.equal(rows.find((row) => row.recipient_user_id === engineer).cleared_at, null);
+    assert.ok(rows.find((row) => row.recipient_user_id === technician).cleared_at);
+    const { rows: unrelatedRows } = await db.query(`select cleared_at from public.cmpri_dashboard_notifications
+      where id=${quote(unrelatedNotification)}`);
+    assert.equal(unrelatedRows[0].cleared_at, null);
+  });
+  await check('notification read receipts and pool-log targets are constrained and indexed', async () => {
+    const { rows: columns } = await db.query(`select column_name from information_schema.columns
+      where table_schema='public' and table_name='cmpri_dashboard_notifications' and column_name='read_at'`);
+    const { rows: indexes } = await db.query(`select indexname from pg_indexes
+      where schemaname='public' and tablename='cmpri_dashboard_notifications' and indexname='cmpri_dashboard_notifications_unread_idx'`);
+    const { rows: constraints } = await db.query(`select conname from pg_constraint
+      where conrelid='public.cmpri_dashboard_notifications'::regclass and conname='cmpri_dashboard_notifications_target'`);
+    assert.equal(columns.length, 1);
+    assert.equal(indexes.length, 1);
+    assert.equal(constraints.length, 1);
+  });
+  await check('catalog schema fields exist for inventory notes and proposal links', async () => {
+    const { rows } = await db.query(`select table_name, column_name from information_schema.columns
+      where table_schema='public' and table_name in ('cmpri_inventory_items','cmpri_vendor_proposals','cmpri_order_ideas')
+        and column_name in ('notes','asset_id','work_order_id')
+      order by table_name, column_name`);
+    assert.deepEqual(rows, [
+      { table_name: 'cmpri_inventory_items', column_name: 'notes' },
+      { table_name: 'cmpri_order_ideas', column_name: 'work_order_id' },
+      { table_name: 'cmpri_vendor_proposals', column_name: 'asset_id' },
+      { table_name: 'cmpri_vendor_proposals', column_name: 'work_order_id' },
+    ]);
+  });
   // Synthetic record checks that a migration does not rewrite historical status.
   await db.exec(`insert into auth.users(id) values (${quote(actor)});
     insert into public.work_orders(hotel_id,display_id,room,issue,status) values (${quote(hotel)},'legacy','Room 409','Legacy task','Done');
     insert into public.profiles(id,role,active,full_name) values (${quote(actor)},'front_desk',true,'Shared Front Desk');
     insert into public.hotel_members(hotel_id,user_id,role,active) values (${quote(hotel)},${quote(actor)},'admin',true);
     select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false);`);
-  const files = ['status_values', 'integrations', 'submitter_attribution', 'work_order_revision', 'exact_duplicate_guard', 'pool_log_guard', 'room_operations'];
+  const files = ['status_values', 'integrations', 'submitter_attribution', 'work_order_revision', 'exact_duplicate_guard', 'work_order_imports', 'pool_log_guard', 'room_operations'];
   for (const file of files) await check(`migration ${file}`, async () => {
     await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
   });
+  const workOrderImportsMigration = readFileSync(new URL('../supabase/migrations/20261004120000_cmpri_work_order_imports.sql', import.meta.url), 'utf8');
+  await check('work-order imports migration is idempotent', async () => db.exec(workOrderImportsMigration));
   const bromineBandMigration = readFileSync(new URL('../supabase/migrations_archive/20260930030000_cmpri_pool_log_bromine_bands.sql', import.meta.url), 'utf8');
   await check('pool-log bromine-band migration', async () => db.exec(bromineBandMigration));
   await check('pool-log bromine-band migration is idempotent', async () => db.exec(bromineBandMigration));
@@ -82,6 +207,9 @@ try {
     for (const file of files) await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
     // The dated pool-log migration supersedes the v1.0 pool trigger and must follow it.
     await db.exec(poolLogDailySamplesMigration);
+    const frontDeskManagerPoolLogMigration = readFileSync(new URL('../supabase/migrations/20261006110000_cmpri_front_desk_manager_pool_logs.sql', import.meta.url), 'utf8');
+    await db.exec(frontDeskManagerPoolLogMigration);
+    await db.exec(frontDeskManagerPoolLogMigration);
   });
   await check('user-management grants are restored for account managers', async () => {
     const migration = readFileSync(new URL('../supabase/migrations_archive/20260926101000_cmpri_manage_users_grants.sql', import.meta.url), 'utf8');
@@ -348,10 +476,409 @@ try {
   });
   await check('pool database trigger rejects front desk, deactivated and unassigned operators', async () => {
     const insert=()=>db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,updated_by) values ($1,$1,'2026-09-16',$2)",[hotel,actor]);
+    await db.query("update public.profiles set role='front_desk_manager',active=true where id=$1",[actor]);
+    const operationalLog=await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed) values ($1,$1,'2026-09-26',$2,$2,7.4,'3-6','shallow',82,80,true,false) returning id,revision",[hotel,actor]);
+    assert.equal(Number(operationalLog.rows[0].revision),1);
+    await assert.rejects(()=>db.query("update public.pool_daily_logs set ph_am=7.6 where id=$1",[operationalLog.rows[0].id]),/Only System Administrators can change saved pool readings/);
     await db.query("update public.profiles set role='front_desk' where id=$1",[actor]);await assert.rejects(insert,/active CMPRI engineering account/);
     await db.query("update public.profiles set role='system_admin',active=false where id=$1",[actor]);await assert.rejects(insert,/active CMPRI engineering account/);
     await db.query('update public.profiles set active=true where id=$1',[actor]);
     await db.query('update public.hotel_members set active=false where user_id=$1',[actor]);await assert.rejects(insert,/active CMPRI engineering account/);
+  });
+  const rlsLeastPrivilegeMigration = readFileSync(new URL('../supabase/migrations/20261002214500_cmpri_rls_least_privilege.sql', import.meta.url), 'utf8');
+  const membershipIntersectionMigration = readFileSync(new URL('../supabase/migrations/20261002220000_cmpri_membership_capability_intersection.sql', import.meta.url), 'utf8');
+  const revokeDirectWritesMigration = readFileSync(new URL('../supabase/migrations/20261002221500_cmpri_revoke_direct_client_writes.sql', import.meta.url), 'utf8');
+  const revokeWorkOrderInsertMigration = readFileSync(new URL('../supabase/migrations/20261002223000_cmpri_revoke_direct_work_order_insert.sql', import.meta.url), 'utf8');
+  const draftHotelIsolationMigration = readFileSync(new URL('../supabase/migrations/20261005150000_cmpri_work_order_drafts_hotel_isolation.sql', import.meta.url), 'utf8');
+  const managerRolePermissionsMigration = readFileSync(new URL('../supabase/migrations/20261006100000_cmpri_manager_role_database_permissions.sql', import.meta.url), 'utf8');
+  const workOrderReadCapabilityMigration = readFileSync(new URL('../supabase/migrations/20261006120000_cmpri_work_order_read_capability.sql', import.meta.url), 'utf8');
+  await check('least-privilege RLS migration is idempotent and blocks direct role bypasses', async () => {
+    const frontDesk = '00000000-0000-0000-0000-000000000013';
+    const administrator = '00000000-0000-0000-0000-000000000014';
+    const seniorManager = '00000000-0000-0000-0000-000000000015';
+    const engineerWithViewerMembership = '00000000-0000-0000-0000-000000000016';
+    const secondHotel = '00000000-0000-0000-0000-000000000017';
+    const generalManager = '00000000-0000-0000-0000-000000000030';
+    const assistantGeneralManager = '00000000-0000-0000-0000-000000000031';
+    const frontDeskManager = '00000000-0000-0000-0000-000000000032';
+    const cmpriHotel = 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6';
+    await db.exec(`alter table public.profiles drop constraint profiles_role_check;
+      alter table public.profiles add constraint profiles_role_check
+        check (role in ('engineer', 'technician', 'front_desk', 'housekeeping', 'system_admin', 'manager', 'front_desk_manager', 'senior_management'));`);
+    await db.exec(`create table public.cmpri_rls_policy_probe (hotel_id uuid not null, content text not null);
+      alter table public.cmpri_rls_policy_probe enable row level security;
+      grant all on public.cmpri_rls_policy_probe to anon, authenticated;
+      create policy cmpri_rls_probe_member_access on public.cmpri_rls_policy_probe
+        using (hotel_id is not null) with check (hotel_id is not null);
+      insert into auth.users(id) values
+        (${quote(frontDesk)}), (${quote(administrator)}), (${quote(seniorManager)}),
+        (${quote(engineerWithViewerMembership)}), (${quote(generalManager)}), (${quote(frontDeskManager)});
+      insert into public.profiles(id, role, active, full_name) values
+        (${quote(frontDesk)}, 'front_desk', true, 'Test Front Desk'),
+        (${quote(administrator)}, 'system_admin', true, 'Test System Administrator'),
+        (${quote(seniorManager)}, 'senior_management', true, 'Test Senior Manager'),
+        (${quote(engineerWithViewerMembership)}, 'engineer', true, 'Engineer With Viewer Membership'),
+        (${quote(generalManager)}, 'manager', true, 'Test General Manager'),
+        (${quote(frontDeskManager)}, 'front_desk_manager', true, 'Test Front Desk Manager');
+      insert into public.hotel_members(hotel_id, user_id, role, active) values
+        (${quote(hotel)}, ${quote(frontDesk)}, 'viewer', true),
+        (${quote(hotel)}, ${quote(administrator)}, 'admin', true),
+        (${quote(hotel)}, ${quote(seniorManager)}, 'viewer', true),
+        (${quote(hotel)}, ${quote(engineerWithViewerMembership)}, 'viewer', true),
+        (${quote(hotel)}, ${quote(generalManager)}, 'manager', true),
+        (${quote(hotel)}, ${quote(frontDeskManager)}, 'technician', true),
+        (${quote(cmpriHotel)}, ${quote(generalManager)}, 'manager', true),
+        (${quote(cmpriHotel)}, ${quote(frontDeskManager)}, 'technician', true);
+      select set_config('cmpri.test_uid', '', false), set_config('cmpri.test_role', 'service_role', false);
+      insert into public.work_orders(hotel_id, display_id, room, issue, status, created_by) values
+        (${quote(hotel)}, 'rls-own-order', 'Room 901', 'Own order', 'Open', ${quote(frontDesk)}),
+        (${quote(hotel)}, 'rls-other-order', 'Room 902', 'Other order', 'Open', ${quote(administrator)}),
+        (${quote(hotel)}, 'rls-viewer-visible-order', 'Room 904', 'Viewer role may read', 'Open', ${quote(administrator)}),
+        (${quote(hotel)}, 'manager-open-order', 'Room 908', 'Open manager-visible order', 'Open', ${quote(administrator)}),
+        (${quote(hotel)}, 'manager-owned-open-order', 'Room 913', 'Open manager-owned order', 'Open', ${quote(generalManager)}),
+        (${quote(hotel)}, 'manager-progress-order', 'Room 909', 'In Progress manager-visible order', 'In Progress', ${quote(administrator)}),
+        (${quote(hotel)}, 'manager-closed-order', 'Room 910', 'Closed manager-hidden order', 'Completed', ${quote(administrator)}),
+        (${quote(secondHotel)}, 'rls-cross-property-order', 'Room 905', 'Other property', 'Open', ${quote(administrator)});
+      create table public.cmpri_pm_proposals (id uuid primary key, hotel_id uuid not null, status text not null, submitted_by uuid);
+      alter table public.cmpri_pm_proposals enable row level security;
+      grant select on public.cmpri_pm_proposals to authenticated;
+      create policy cmpri_pm_proposals_member_read on public.cmpri_pm_proposals
+        for select to authenticated using (
+          hotel_id = ${quote(cmpriHotel)}::uuid
+          and exists (
+            select 1 from public.hotel_members membership
+            where membership.user_id = auth.uid()
+              and membership.hotel_id = cmpri_pm_proposals.hotel_id
+              and membership.active = true
+          )
+        );
+      insert into public.cmpri_pm_proposals(id, hotel_id, status, submitted_by)
+          values ('00000000-0000-0000-0000-000000000111', ${quote(cmpriHotel)}, 'pending', ${quote(administrator)});
+      select set_config('cmpri.test_uid', ${quote(frontDesk)}, false);`);
+    await db.exec(rlsLeastPrivilegeMigration);
+    await db.exec(rlsLeastPrivilegeMigration);
+    await db.exec(membershipIntersectionMigration);
+    await db.exec(membershipIntersectionMigration);
+    await db.exec(revokeDirectWritesMigration);
+    await db.exec(revokeDirectWritesMigration);
+    await db.exec(revokeWorkOrderInsertMigration);
+    await db.exec(revokeWorkOrderInsertMigration);
+    await check('management-role database permissions migration is idempotent', async () => {
+      await db.exec(managerRolePermissionsMigration);
+      await db.exec(managerRolePermissionsMigration);
+    });
+    await check('work-order SELECT requires explicit view capability and preserves manager status scope', async () => {
+      await db.exec(workOrderReadCapabilityMigration);
+      await db.exec(workOrderReadCapabilityMigration);
+    });
+
+    await db.exec(`insert into auth.users(id) values (${quote(assistantGeneralManager)});
+      insert into public.profiles(id, role, active, full_name) values
+        (${quote(assistantGeneralManager)}, 'assistant_manager', true, 'Test Assistant General Manager');
+      insert into public.hotel_members(hotel_id, user_id, role, active) values
+        (${quote(hotel)}, ${quote(assistantGeneralManager)}, 'technician', true),
+        (${quote(cmpriHotel)}, ${quote(assistantGeneralManager)}, 'technician', true);
+      select set_config('cmpri.test_uid', '', false), set_config('cmpri.test_role', 'service_role', false);
+      insert into public.work_orders(hotel_id, display_id, room, issue, status, created_by) values
+        (${quote(hotel)}, 'assistant-open-order', 'Room 911', 'Open assistant-visible order', 'Open', ${quote(administrator)}),
+        (${quote(hotel)}, 'assistant-closed-order', 'Room 912', 'Closed assistant-hidden order', 'Completed', ${quote(administrator)});
+      select set_config('cmpri.test_uid', ${quote(frontDesk)}, false), set_config('cmpri.test_role', 'authenticated', false);`);
+
+    await db.exec(`ALTER TABLE public.cmpri_work_order_drafts ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON public.cmpri_work_order_drafts FROM anon, authenticated;
+      GRANT SELECT ON public.cmpri_work_order_drafts TO authenticated;
+      DROP POLICY IF EXISTS cmpri_work_order_drafts_owner_select ON public.cmpri_work_order_drafts;
+      DROP POLICY IF EXISTS cmpri_work_order_drafts_owner_write ON public.cmpri_work_order_drafts;
+      CREATE POLICY cmpri_work_order_drafts_owner_select ON public.cmpri_work_order_drafts
+        FOR SELECT TO authenticated USING (
+          created_by = auth.uid() AND EXISTS (
+            SELECT 1 FROM public.hotel_members m
+            WHERE m.user_id = auth.uid() AND m.hotel_id = m.hotel_id AND m.active = true
+          )
+        );
+      CREATE POLICY cmpri_work_order_drafts_owner_write ON public.cmpri_work_order_drafts
+        FOR ALL TO authenticated USING (
+          created_by = auth.uid() AND EXISTS (
+            SELECT 1 FROM public.hotel_members m
+            WHERE m.user_id = auth.uid() AND m.hotel_id = m.hotel_id AND m.active = true
+          )
+        ) WITH CHECK (
+          created_by = auth.uid() AND EXISTS (
+            SELECT 1 FROM public.hotel_members m
+            WHERE m.user_id = auth.uid() AND m.hotel_id = m.hotel_id AND m.active = true
+          )
+        );
+      INSERT INTO public.cmpri_work_order_drafts(id, hotel_id, created_by) VALUES
+        ('00000000-0000-0000-0000-000000000101', ${quote(hotel)}, ${quote(frontDesk)}),
+        ('00000000-0000-0000-0000-000000000102', ${quote(secondHotel)}, ${quote(frontDesk)});`);
+    await db.exec('SET ROLE authenticated');
+    assert.deepEqual(
+      (await db.query('SELECT id FROM public.cmpri_work_order_drafts ORDER BY id')).rows,
+      [
+        { id: '00000000-0000-0000-0000-000000000101' },
+        { id: '00000000-0000-0000-0000-000000000102' },
+      ],
+      'the baseline predicate exposes a creator draft in a property without membership',
+    );
+    await db.exec('RESET ROLE');
+    await check('work-order draft property isolation migration is idempotent', async () => {
+      await db.exec(draftHotelIsolationMigration);
+      await db.exec(draftHotelIsolationMigration);
+    });
+    await db.exec('SET ROLE authenticated');
+    assert.deepEqual(
+      (await db.query('SELECT id FROM public.cmpri_work_order_drafts ORDER BY id')).rows,
+      [{ id: '00000000-0000-0000-0000-000000000101' }],
+      'draft RLS must exclude another property even when the same user created the row',
+    );
+    await db.exec('RESET ROLE');
+
+    const { rows: policyRows } = await db.query("select cmd from pg_policies where schemaname='public' and tablename='cmpri_rls_policy_probe' and policyname='cmpri_rls_probe_member_access'");
+    assert.deepEqual(policyRows, [{ cmd: 'SELECT' }]);
+    const { rows: grants } = await db.query(`select
+      has_table_privilege('authenticated', 'public.cmpri_rls_policy_probe', 'SELECT') as can_read_probe,
+      has_table_privilege('authenticated', 'public.cmpri_rls_policy_probe', 'UPDATE') as can_update_probe,
+      has_table_privilege('authenticated', 'public.work_orders', 'INSERT') as can_insert_work_orders,
+      has_table_privilege('authenticated', 'public.work_orders', 'UPDATE') as can_update_work_orders,
+      has_table_privilege('authenticated', 'public.work_orders', 'DELETE') as can_delete_work_orders,
+      has_table_privilege('authenticated', 'public.cmpri_work_order_drafts', 'INSERT') as can_insert_drafts,
+      has_table_privilege('anon', 'public.profiles', 'SELECT') as anon_can_read_profiles,
+      has_table_privilege('anon', 'public.work_orders', 'SELECT') as anon_can_read_work_orders`);
+    assert.deepEqual(grants[0], {
+      can_read_probe: true,
+      can_update_probe: false,
+      can_insert_work_orders: false,
+      can_update_work_orders: false,
+      can_delete_work_orders: false,
+      can_insert_drafts: false,
+      anon_can_read_profiles: false,
+      anon_can_read_work_orders: false,
+    });
+    assert.equal((await db.query('select public.cmpri_can_view_work_orders($1) as allowed', [hotel])).rows[0].allowed, false);
+    assert.equal((await db.query('select public.cmpri_can_submit_work_orders($1) as allowed', [hotel])).rows[0].allowed, true);
+    assert.equal((await db.query('select public.cmpri_can_view_open_work_orders_only($1) as limited', [hotel])).rows[0].limited, false);
+    assert.equal((await db.query("select role from public.hotel_members where user_id=$1", [frontDesk])).rows[0].role, 'technician');
+
+    for (const [id, role] of [
+      [generalManager, 'manager'],
+      [assistantGeneralManager, 'assistant_manager'],
+      [frontDeskManager, 'front_desk_manager'],
+    ]) {
+      await db.exec(`select set_config('cmpri.test_uid', ${quote(id)}, false);`);
+      assert.equal((await db.query('select public.cmpri_can_view_work_orders($1) as allowed', [hotel])).rows[0].allowed, true, `${role} work-order visibility`);
+      assert.equal((await db.query('select public.cmpri_can_view_open_work_orders_only($1) as limited', [hotel])).rows[0].limited, true, `${role} active-order-only scope`);
+      await db.exec('set role authenticated');
+      assert.deepEqual(
+        (await db.query(`select display_id from public.work_orders
+          where display_id in ('manager-open-order','manager-owned-open-order','manager-progress-order','manager-closed-order','assistant-open-order','assistant-closed-order')
+          order by display_id`)).rows,
+        [
+          { display_id: 'assistant-open-order' },
+          { display_id: 'manager-open-order' },
+          { display_id: 'manager-owned-open-order' },
+          { display_id: 'manager-progress-order' },
+        ],
+        `${role} direct Supabase reads include active orders only`,
+      );
+      assert.equal((await db.query('select id from public.cmpri_pm_proposals')).rows.length, role === 'manager' ? 1 : 0,
+        `${role} direct PM visibility`);
+      await db.exec('reset role');
+    }
+
+    assert.deepEqual((await db.query(`select
+      has_table_privilege('authenticated', 'public.cmpri_pm_proposals', 'INSERT') as can_insert,
+      has_table_privilege('authenticated', 'public.cmpri_pm_proposals', 'UPDATE') as can_update,
+      has_table_privilege('authenticated', 'public.cmpri_pm_proposals', 'DELETE') as can_delete`)).rows[0], {
+      can_insert: false,
+      can_update: false,
+      can_delete: false,
+    });
+
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(frontDesk)}, false);`);
+    await db.query("update public.profiles set secondary_roles=ARRAY['engineer']::text[] where id=$1", [frontDesk]);
+    assert.equal((await db.query('select public.cmpri_can_view_work_orders($1) as allowed', [hotel])).rows[0].allowed, true);
+    assert.equal((await db.query('select public.cmpri_can_view_open_work_orders_only($1) as limited', [hotel])).rows[0].limited, false);
+    await db.exec('set role authenticated');
+    assert.deepEqual(
+      (await db.query("select display_id from public.work_orders where display_id='rls-own-order'")).rows,
+      [{ display_id: 'rls-own-order' }],
+      'view-capable users retain direct reads of their own work orders',
+    );
+    await db.exec('reset role');
+    await db.query("update public.profiles set secondary_roles=ARRAY[]::text[] where id=$1", [frontDesk]);
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(seniorManager)}, false);`);
+    assert.equal((await db.query('select public.cmpri_can_view_work_orders($1) as allowed', [hotel])).rows[0].allowed, true);
+    assert.equal((await db.query('select public.cmpri_can_submit_work_orders($1) as allowed', [hotel])).rows[0].allowed, false);
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(engineerWithViewerMembership)}, false);`);
+    assert.equal((await db.query('select public.cmpri_can_view_work_orders($1) as allowed', [hotel])).rows[0].allowed, true);
+    assert.equal((await db.query('select public.cmpri_can_submit_work_orders($1) as allowed', [hotel])).rows[0].allowed, false);
+    assert.equal((await db.query('select public.is_hotel_member($1) as allowed', [secondHotel])).rows[0].allowed, false);
+
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(frontDesk)}, false);
+      set role authenticated;`);
+    assert.deepEqual((await db.query('select id from public.profiles')).rows, [{ id: frontDesk }]);
+    await assert.rejects(
+      () => db.query(`insert into public.work_orders(hotel_id, display_id, room, issue, status, created_by, submitted_by_name)
+        values (${quote(hotel)}, 'rls-frontdesk-direct', 'Room 907', 'Forged direct submission', 'Closed', ${quote(frontDesk)}, 'Test Front Desk')`),
+      /permission denied/,
+    );
+    const ownOrders = await db.query('select display_id from public.work_orders order by display_id');
+    assert.deepEqual(ownOrders.rows, [], 'submit-only users cannot read even their own work orders directly');
+    await assert.rejects(
+      () => db.query("update public.cmpri_rls_policy_probe set content='forged'"),
+      /permission denied/,
+    );
+    await assert.rejects(
+      () => db.query("update public.work_orders set issue='forged' where display_id='rls-own-order'"),
+      /permission denied/,
+    );
+    await assert.rejects(
+      () => db.query("delete from public.work_orders where display_id='rls-own-order'"),
+      /permission denied/,
+    );
+    await assert.rejects(
+      () => db.query(`insert into public.cmpri_work_order_drafts(id, hotel_id, created_by)
+        values ('00000000-0000-0000-0000-000000000031', ${quote(hotel)}, ${quote(frontDesk)})`),
+      /permission denied/,
+    );
+    await db.exec('reset role');
+
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(seniorManager)}, false);
+      set role authenticated;`);
+    await assert.rejects(
+      () => db.query(`insert into public.work_orders(hotel_id, display_id, room, issue, status, created_by)
+        values (${quote(hotel)}, 'rls-senior-submit', 'Room 903', 'Should be denied', 'Open', ${quote(seniorManager)})`),
+      /permission denied/,
+    );
+    await db.exec('reset role');
+
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(engineerWithViewerMembership)}, false);
+      set role authenticated;`);
+    assert.deepEqual(
+      (await db.query("select display_id from public.work_orders where display_id='rls-viewer-visible-order'")).rows,
+      [{ display_id: 'rls-viewer-visible-order' }],
+    );
+    await assert.rejects(
+      () => db.query(`insert into public.work_orders(hotel_id, display_id, room, issue, status, created_by)
+        values (${quote(hotel)}, 'rls-viewer-insert', 'Room 906', 'Should be denied', 'Open', ${quote(engineerWithViewerMembership)})`),
+      /permission denied/,
+    );
+    assert.equal((await db.query("select id from public.work_orders where display_id='rls-cross-property-order'")).rows.length, 0);
+    await db.exec('reset role');
+    await db.exec(`create table public.cmpri_future_acl_probe (value text);
+      select set_config('cmpri.test_uid', ${quote(frontDesk)}, false);
+      set role authenticated;`);
+    const futureGrants = await db.query(`select
+      has_table_privilege('anon', 'public.cmpri_future_acl_probe', 'SELECT') as anon_can_read,
+      has_table_privilege('authenticated', 'public.cmpri_future_acl_probe', 'SELECT') as authenticated_can_read,
+      has_table_privilege('authenticated', 'public.cmpri_future_acl_probe', 'INSERT') as authenticated_can_insert`);
+    assert.deepEqual(futureGrants.rows[0], {
+      anon_can_read: false,
+      authenticated_can_read: false,
+      authenticated_can_insert: false,
+    });
+    await db.exec('reset role; drop table public.cmpri_future_acl_probe');
+
+    await db.exec(`select set_config('cmpri.test_uid', ${quote(administrator)}, false);
+      set role authenticated;`);
+    assert.equal((await db.query("select display_id from public.work_orders where display_id like 'rls-%'")).rows.length, 3);
+    await assert.rejects(
+      () => db.query("update public.work_orders set issue='forged' where display_id='rls-own-order'"),
+      /permission denied/,
+    );
+    await db.exec('reset role');
+    await db.exec('drop table public.cmpri_rls_policy_probe');
+  });
+  await check('room-operations snapshots retain dates and enforce dashboard RLS', async () => {
+    const roomOpsFrontDesk = '00000000-0000-0000-0000-000000000018';
+    const roomOpsEngineer = '00000000-0000-0000-0000-000000000019';
+    const todayParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date()).map(part => [part.type, part.value]));
+    const today = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
+    const yesterday = new Date(`${today}T12:00:00Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const yesterdayDate = yesterday.toISOString().slice(0, 10);
+    await db.exec(`insert into public.hotels(id,code,name)
+      values (${quote(hotel)},'audit-room-ops','Audit Room Ops')
+      on conflict (id) do nothing;
+      insert into auth.users(id) values (${quote(roomOpsFrontDesk)}),(${quote(roomOpsEngineer)});
+      insert into public.profiles(id,role,active,full_name) values
+        (${quote(roomOpsFrontDesk)},'front_desk',true,'Audit Front Desk'),
+        (${quote(roomOpsEngineer)},'engineer',true,'Audit Engineer');
+      insert into public.hotel_members(hotel_id,user_id,role,active) values
+        (${quote(hotel)},${quote(roomOpsFrontDesk)},'technician',true),
+        (${quote(hotel)},${quote(roomOpsEngineer)},'admin',true);
+      insert into public.room_operations(hotel_id,room,room_status,guest_name,report_date) values
+        (${quote(hotel)},'101','Occupied','Audit Guest',${quote(today)}),
+        (${quote(hotel)},'102','Vacant Ready','',null);
+      alter table public.room_operations enable row level security;
+      grant all on public.room_operations to anon,authenticated;
+      create policy room_operations_member_access on public.room_operations
+        for select to authenticated using (public.is_hotel_member(hotel_id));`);
+
+    const roomOperationsSnapshotsMigration = readFileSync(new URL('../supabase/migrations/20261004133000_cmpri_room_operations_daily_snapshots.sql', import.meta.url), 'utf8');
+    await check('room-operations snapshot/RLS migration', async () => db.exec(roomOperationsSnapshotsMigration));
+    await check('room-operations snapshot/RLS migration is idempotent', async () => db.exec(roomOperationsSnapshotsMigration));
+
+    const { rows: backfilled } = await db.query(`select report_date::text from public.room_operations
+      where hotel_id=$1 and room='102'`, [hotel]);
+    assert.deepEqual(backfilled, [{ report_date: today }]);
+
+    await db.exec(`select set_config('cmpri.test_uid',${quote(roomOpsFrontDesk)},false),set_config('cmpri.test_role','authenticated',false);
+      set role authenticated;`);
+    assert.deepEqual((await db.query(`select room from public.room_operations where hotel_id=$1`, [hotel])).rows, []);
+    await assert.rejects(
+      () => db.query(`update public.room_operations set room_status='Forged' where hotel_id=$1`, [hotel]),
+      /permission denied/,
+    );
+    await db.exec('reset role');
+
+    await db.exec(`select set_config('cmpri.test_uid',${quote(roomOpsEngineer)},false),set_config('cmpri.test_role','authenticated',false);
+      set role authenticated;`);
+    assert.equal((await db.query(`select room from public.room_operations where hotel_id=$1`, [hotel])).rows.length, 2);
+    await db.exec('reset role');
+
+    const importRows = status => JSON.stringify([{
+      room: '101', room_status: status, guest_name: 'Audit Guest', checkout_date: '',
+      checkout_time: '', arrival_date: '', arrival_time: '', guest_arrival_date: '',
+      stay_nights: 1, reserved: false, room_type: 'KING', guest_code: '', move_from: '', move_to: '',
+    }]);
+    await db.exec("select set_config('cmpri.test_role','service_role',false)");
+    await db.query(`select public.cmpri_replace_room_operations($1,$2,$3,$4,$5,$6::jsonb)`, [
+      hotel, yesterdayDate, actor, 'Local Audit', 'paste', importRows('Vacant Dirty'),
+    ]);
+    let rows = await db.query(`select report_date::text,room_status from public.room_operations
+      where hotel_id=$1 and room='101' order by report_date`, [hotel]);
+    assert.deepEqual(rows.rows, [
+      { report_date: yesterdayDate, room_status: 'Vacant Dirty' },
+      { report_date: today, room_status: 'Occupied' },
+    ]);
+    await db.query(`select public.cmpri_replace_room_operations($1,$2,$3,$4,$5,$6::jsonb)`, [
+      hotel, yesterdayDate, actor, 'Local Audit', 'file', importRows('Vacant Ready'),
+    ]);
+    rows = await db.query(`select report_date::text,room_status from public.room_operations
+      where hotel_id=$1 and room='101' order by report_date`, [hotel]);
+    assert.deepEqual(rows.rows, [
+      { report_date: yesterdayDate, room_status: 'Vacant Ready' },
+      { report_date: today, room_status: 'Occupied' },
+    ]);
+
+    await db.exec(`select set_config('cmpri.test_role','authenticated',false);
+      set role authenticated;`);
+    await assert.rejects(
+      () => db.query(`select public.cmpri_replace_room_operations($1,$2,$3,$4,$5,$6::jsonb)`, [
+        hotel, today, actor, 'Local Audit', 'paste', importRows('Closed'),
+      ]),
+      /permission denied/,
+    );
+    await db.exec('reset role; select set_config(\'cmpri.test_role\',\'service_role\',false)');
+    rows = await db.query(`select report_date::text,room_status from public.room_operations
+      where hotel_id=$1 and room='101' order by report_date`, [hotel]);
+    assert.deepEqual(rows.rows, [
+      { report_date: yesterdayDate, room_status: 'Vacant Ready' },
+      { report_date: today, room_status: 'Occupied' },
+    ]);
   });
   console.log(`${passed} PostgreSQL migration/behavior checks passed. Supabase RLS policies and concurrent sessions are not reproduced.`);
 } finally { await db.close(); }

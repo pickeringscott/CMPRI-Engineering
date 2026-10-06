@@ -1,5 +1,9 @@
 type RoutineChecklistItem = { id: string };
 
+export function isPmRoutineCellChecked(targets: readonly { value: string }[]): boolean {
+  return targets[0]?.value === "TRUE";
+}
+
 export function togglePmRoutineResponse(
   checklist: readonly RoutineChecklistItem[],
   currentResponses: Readonly<Record<string, unknown>>,

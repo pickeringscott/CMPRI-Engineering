@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
-import { canSuperviseDraftRole } from "@/lib/server/roles";
+import { roleAllows } from "@/lib/server/roles";
 
 const MAX_DRAFTS = 100;
 type Authorized = NonNullable<Awaited<ReturnType<typeof requireCapability>>>;
@@ -47,16 +47,6 @@ async function draftById(auth: Authorized, id: string) {
   return data;
 }
 
-async function canManageDraft(
-  auth: Authorized,
-  draft: { created_by: string },
-) {
-  if (draft.created_by === auth.principal.identity.id) return true;
-  const profiles = await creatorProfiles(auth.admin, [draft.created_by]);
-  const target = profiles.get(draft.created_by);
-  return Boolean(target && canSuperviseDraftRole(auth.principal.profile.role, target.role));
-}
-
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "submit");
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -71,18 +61,36 @@ export async function GET(request: NextRequest) {
 
   const rows = data || [];
   const profiles = await creatorProfiles(auth.admin, Array.from(new Set(rows.map((row) => String(row.created_by || "")).filter(Boolean))));
+  const canReviewDrafts = roleAllows(auth.principal.profile.role, "review_tickets");
+  const canViewDashboard = roleAllows(auth.principal.profile.role, "view_dashboard");
+  const canViewWorkOrders = roleAllows(auth.principal.profile.role, "view_work_orders");
   const visible = rows.filter((row) => {
     if (row.created_by === auth.principal.identity.id) return true;
-    const target = profiles.get(String(row.created_by));
-    return Boolean(target && canSuperviseDraftRole(auth.principal.profile.role, target.role));
-  }).map((row) => ({
-    ...row,
-    creator_name: profiles.get(String(row.created_by))?.full_name || "Unknown User",
-    creator_role: profiles.get(String(row.created_by))?.role || "",
-    can_delete: row.created_by === auth.principal.identity.id || Boolean(
-      profiles.get(String(row.created_by)) && canSuperviseDraftRole(auth.principal.profile.role, profiles.get(String(row.created_by))?.role),
-    ),
-  }));
+    return profiles.has(String(row.created_by)) && (canViewDashboard || canViewWorkOrders || canReviewDrafts);
+  }).map((row) => {
+    const isOwner = row.created_by === auth.principal.identity.id;
+    const canReview = canReviewDrafts;
+    const draft = isOwner || canReview
+      ? row
+      : {
+        ...row,
+        staff_first_name: null,
+        location_id: null,
+        notes: "",
+        asset_id: null,
+        asset_name: "",
+        category: "General",
+        priority: "Medium",
+      };
+    const creator = profiles.get(String(row.created_by));
+    return {
+      ...draft,
+      creator_name: creator?.full_name || "Unknown User",
+      creator_role: canReview ? creator?.role || "" : "",
+      can_edit: isOwner || canReview,
+      can_delete: isOwner || canReview,
+    };
+  });
 
   return NextResponse.json({ drafts: visible });
 }
@@ -109,6 +117,8 @@ export async function POST(request: NextRequest) {
   if (locationError) return NextResponse.json({ error: "Location could not be verified." }, { status: 503 });
   if (!location || location.active === false) return NextResponse.json({ error: "Select an active CMPRI location." }, { status: 400 });
 
+  const canSetEngineeringFields = roleAllows(auth.principal.profile.role, "edit_tickets")
+    || roleAllows(auth.principal.profile.role, "review_tickets");
   const row = {
     hotel_id: HOTEL_ID,
     created_by: auth.principal.identity.id,
@@ -117,10 +127,10 @@ export async function POST(request: NextRequest) {
     room: location.name,
     issue,
     notes,
-    asset_id: text(body.asset_id, 100) || null,
-    asset_name: text(body.asset_name, 500) || "",
-    category: text(body.category, 500) || "General",
-    priority: text(body.priority, 100) || "Medium",
+    asset_id: canSetEngineeringFields ? text(body.asset_id, 100) || null : null,
+    asset_name: canSetEngineeringFields ? text(body.asset_name, 500) || "" : "",
+    category: canSetEngineeringFields ? text(body.category, 500) || "General" : "General",
+    priority: canSetEngineeringFields ? text(body.priority, 100) || "Medium" : "Medium",
   };
 
   const { data, error } = await auth.admin
@@ -141,8 +151,9 @@ export async function PATCH(request: NextRequest) {
   }
   const existing = await draftById(auth, body.id.trim());
   if (!existing) return NextResponse.json({ error: "Draft not found." }, { status: 404 });
-  if (existing.created_by !== auth.principal.identity.id) {
-    return NextResponse.json({ error: "Only the draft creator can edit a draft." }, { status: 403 });
+  if (existing.created_by !== auth.principal.identity.id
+    && !roleAllows(auth.principal.profile.role, "review_tickets")) {
+    return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can edit this draft." }, { status: 403 });
   }
   if (typeof body.expected_revision !== "number" || body.expected_revision !== existing.revision) {
     return NextResponse.json({ error: "This draft changed. Reload it before saving." }, { status: 409 });
@@ -154,6 +165,11 @@ export async function PATCH(request: NextRequest) {
     const parsed = text(body[field], max, field === "issue");
     if (parsed === null) return NextResponse.json({ error: `Invalid ${field}.` }, { status: 400 });
     update[field] = parsed || (field === "asset_id" || field === "staff_first_name" ? null : "");
+  }
+  const canSetEngineeringFields = roleAllows(auth.principal.profile.role, "edit_tickets")
+    || roleAllows(auth.principal.profile.role, "review_tickets");
+  if (Object.keys(update).length && !canSetEngineeringFields) {
+    Object.assign(update, { asset_id: null, asset_name: "", category: "General", priority: "Medium" });
   }
   if (Object.prototype.hasOwnProperty.call(body, "location_id")) {
     const locationId = text(body.location_id, 100, true);
@@ -186,8 +202,9 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "Draft id is required." }, { status: 400 });
   const existing = await draftById(auth, id);
   if (!existing) return NextResponse.json({ ok: true });
-  if (!(await canManageDraft(auth, existing))) {
-    return NextResponse.json({ error: "You cannot delete this draft." }, { status: 403 });
+  if (existing.created_by !== auth.principal.identity.id
+    && !roleAllows(auth.principal.profile.role, "review_tickets")) {
+    return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can delete this draft." }, { status: 403 });
   }
   const { error } = await auth.admin.from("cmpri_work_order_drafts")
     .delete().eq("hotel_id", HOTEL_ID).eq("id", id);

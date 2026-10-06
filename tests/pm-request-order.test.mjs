@@ -22,17 +22,19 @@ test('PM workspace loads CMPRI records and stages technician saves', () => {
   assert.doesNotMatch(page, /\/api\/corporate-pm/);
 });
 
-test('PM is available to dashboard viewers and source forms can be opened read-only', () => {
-  assert.match(dashboard, /hasCapability\(session, "view_dashboard"\) && \{ key: "\/engineering\/preventive-maintenance"/);
-  assert.match(page, /!canEdit \? "View form"/);
-  assert.match(page, /!canEdit \? "View PM form"/);
-  assert.match(page, /disabled=\{!canEdit \|\| !!savingKey\}/);
+test('PM visibility is capability-gated and source forms can be opened read-only', () => {
+  assert.match(dashboard, /hasCapability\(session, "view_pm"\) && \{ key: "\/engineering\/preventive-maintenance"/);
+  assert.match(page, /\["pending", "processing"\]\.includes\(existingSingle\?\.status \|\| ""\) && !existingSingle\?\.can_edit_entry/);
+  assert.match(page, /\["pending", "processing"\]\.includes\(entry\?\.status \|\| ""\) && !entry\?\.can_edit_entry/);
+  assert.match(page, /disabled=\{!activeCanEdit \|\| !!savingKey\}/);
   assert.match(page, /setCanEdit\(result\.can_edit === true \|\| result\.can_review === true\)/);
+  assert.match(page, /can_edit_entry/);
+  assert.match(page, /canEditPeriod\(template, period\)/);
   assert.match(page, /The PM service resolved this session as read-only/);
-  assert.match(page, /disabled=\{!canEdit \|\| !liveWorkbook \|\| savingFor\(period\)\}/);
+  assert.match(page, /disabled=\{!canEditPeriod\(template, period\) \|\| !liveWorkbook \|\| savingFor\(period\)\}/);
   assert.doesNotMatch(page, /disabled=\{!canEdit \|\| loading \|\| savingFor\(period\)\}/);
   assert.match(page, /Refreshing PM records\. You can continue using the last loaded checklist/);
-  assert.match(page, /type="date" disabled=\{!canEdit \|\| !!savingKey\}/);
+  assert.match(page, /type="date" disabled=\{!activeCanEdit \|\| !!savingKey\}/);
 });
 
 test('PM submission API persists proposals and never updates legacy native entries', () => {
@@ -48,6 +50,7 @@ test('PM reviewer approval never accesses Google Sheets while sync is disabled',
   assert.doesNotMatch(reviewRoute, /applyLivePmChanges|readLivePm/);
   assert.match(reviewRoute, /Google Sheets sync is disabled/);
   assert.match(reviewRoute, /profileHasRole\(auth\.principal\.profile, "system_admin"\)/);
+  assert.match(reviewRoute, /profileHasRole\(auth\.principal\.profile, "engineer"\)/);
   assert.match(workOrderPmRoute, /Direct PM spreadsheet edits from work orders are disabled/);
   assert.doesNotMatch(workOrderPmRoute, /setCorporatePmCheckbox/);
 });

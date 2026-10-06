@@ -85,8 +85,8 @@ async function responseError(error: { message?: string; code?: string } | null, 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!allows(auth.principal, "view_dashboard")) {
-    return NextResponse.json({ error: "Engineering dashboard access is required." }, { status: 403 });
+  if (!allows(auth.principal, "view_pm")) {
+    return NextResponse.json({ error: "Preventive Maintenance access is required." }, { status: 403 });
   }
   const week = request.nextUrl.searchParams.get("week") || "";
   if (!validWeek(week)) return NextResponse.json({ error: "Select a week beginning on Monday." }, { status: 400 });
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
   const from = new Date(`${week}T12:00:00Z`);
   from.setUTCDate(from.getUTCDate() - 100);
   const proposals = await auth.admin.from("cmpri_pm_proposals")
-    .select("id, template_id, period_start, scope_key, payload, proposed_cells, status, submitted_by_name, reviewed_by, reviewed_at, review_note, revision, updated_at")
+    .select("id, template_id, period_start, scope_key, payload, proposed_cells, status, submitted_by, submitted_by_name, reviewed_by, reviewed_at, review_note, revision, updated_at")
     .eq("hotel_id", HOTEL_ID)
     .gte("period_start", from.toISOString().slice(0, 10))
     .lte("period_start", pmWeekDates(week)[6])
@@ -102,13 +102,19 @@ export async function GET(request: NextRequest) {
     .limit(5000);
   if (proposals.error) return responseError(proposals.error, "PM review records could not be loaded.");
   const latestByKey = new Map<string, Record<string, unknown>>();
+  const proposalPriorityByKey = new Map<string, number>();
   for (const proposal of proposals.data || []) {
     if (proposal.status === "rejected") continue;
     const key = `${proposal.template_id}|${proposal.period_start}|${proposal.scope_key}`;
     const payload = proposal.payload && typeof proposal.payload === "object" ? proposal.payload as Record<string, unknown> : {};
-    const pending = proposal.status === "pending";
+    const pending = proposal.status === "pending" || proposal.status === "processing";
+    const ownedPending = proposal.status === "pending" && proposal.submitted_by === auth.principal.identity.id;
+    const priority = ownedPending ? 3 : pending ? 2 : 1;
     const current = latestByKey.get(key);
-    if (pending || !current || String(proposal.updated_at || "") >= String(current.updated_at || "")) {
+    const currentPriority = proposalPriorityByKey.get(key) || 0;
+    if (!current || priority > currentPriority
+      || (priority === currentPriority && String(proposal.updated_at || "") >= String(current.updated_at || ""))) {
+      proposalPriorityByKey.set(key, priority);
       latestByKey.set(key, {
         ...payload,
         id: proposal.id,
@@ -120,13 +126,15 @@ export async function GET(request: NextRequest) {
         reviewed_by: proposal.reviewed_by,
         reviewed_at: proposal.reviewed_at,
         review_note: proposal.review_note,
-        revision: pending ? proposal.revision : 0,
+        revision: proposal.status === "pending" ? proposal.revision : 0,
+        can_edit_entry: ownedPending,
         updated_at: proposal.updated_at,
       });
     }
   }
   const isSystemAdmin = profileHasRole(auth.principal.profile, "system_admin");
-  const canReview = isSystemAdmin;
+  const isEngineer = profileHasRole(auth.principal.profile, "engineer");
+  const canReview = isSystemAdmin || isEngineer;
   const reviewQueue = canReview
     ? await auth.admin.from("cmpri_pm_proposals")
       .select("id, template_id, period_start, scope_key, payload, proposed_cells, status, submitted_by_name, revision, created_at")
@@ -198,6 +206,9 @@ export async function POST(request: NextRequest) {
   if (Object.keys(responses).length > 1200 || Object.keys(formData).length > 100) {
     return NextResponse.json({ error: "PM form data contains too many fields." }, { status: 400 });
   }
+  if (template.kind === "routine" && Object.keys(responses).length !== 1) {
+    return NextResponse.json({ error: "Save exactly one routine checklist item per action." }, { status: 400 });
+  }
   const checklistIds = new Set(template.checklist.map((item) => item.id));
   const validResponse = (value: unknown) => template.kind === "routine"
     ? typeof value === "boolean"
@@ -236,11 +247,35 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "PM notes are invalid." }, { status: 400 });
   }
+  const key = { hotel_id: HOTEL_ID, template_id: template.id, period_start: periodStart, scope_key: scopeKey };
+  const actor = auth.principal.identity.id;
+  const existing = await auth.admin.from("cmpri_pm_proposals")
+    .select("id, revision, payload")
+    .match(key)
+    .eq("status", "pending")
+    .eq("submitted_by", actor)
+    .maybeSingle();
+  if (existing.error) return responseError(existing.error, "The pending PM proposal could not be checked.");
+  const expectedRevision = Number(body.expectedRevision);
+  if ((!existing.data && expectedRevision !== 0)
+    || (existing.data && Number(existing.data.revision) !== expectedRevision)) {
+    return NextResponse.json({ error: "This PM proposal changed in another session. Refresh it before saving again.", conflict: true }, { status: 409 });
+  }
+  const priorPayload = existing.data?.payload;
+  const priorResponses = priorPayload && typeof priorPayload === "object" && !Array.isArray(priorPayload)
+    ? (priorPayload as Record<string, unknown>).responses
+    : null;
+  const savedRoutineResponses = priorResponses && typeof priorResponses === "object" && !Array.isArray(priorResponses)
+    ? priorResponses as Record<string, unknown>
+    : {};
+  const persistedResponses = template.kind === "routine"
+    ? { ...savedRoutineResponses, ...responses }
+    : responses;
   if (body.isComplete) {
-    if (template.checklist.some((item) => !validResponse(responses[item.id]))) {
+    if (template.checklist.some((item) => !validResponse(persistedResponses[item.id]))) {
       return NextResponse.json({ error: "Review every checklist item before completing this PM form." }, { status: 400 });
     }
-    if (template.kind === "routine" && template.checklist.some((item) => responses[item.id] !== true)) {
+    if (template.kind === "routine" && template.checklist.some((item) => persistedResponses[item.id] !== true)) {
       return NextResponse.json({ error: "All routine checklist items must be checked before completing this PM period." }, { status: 400 });
     }
     const missingField = template.fields.find((field) => field.required && !String(formData[field.id] || "").trim());
@@ -248,7 +283,7 @@ export async function POST(request: NextRequest) {
     if (template.kind === "room" && !completedOn) {
       return NextResponse.json({ error: "Enter the quarterly room PM completion date." }, { status: 400 });
     }
-    if (Object.values(responses).includes("follow-up") && !deficiencyNotes.trim()) {
+    if (Object.values(persistedResponses).includes("follow-up") && !deficiencyNotes.trim()) {
       return NextResponse.json({ error: "Describe the deficiencies and follow-up plan before completing this PM form." }, { status: 400 });
     }
     if (template.repeatableFields?.length) {
@@ -261,24 +296,9 @@ export async function POST(request: NextRequest) {
       }
     }
   }
-
-  const key = { hotel_id: HOTEL_ID, template_id: template.id, period_start: periodStart, scope_key: scopeKey };
-  const actor = auth.principal.identity.id;
-  const existing = await auth.admin.from("cmpri_pm_proposals")
-    .select("id, revision")
-    .match(key)
-    .eq("status", "pending")
-    .eq("submitted_by", actor)
-    .maybeSingle();
-  if (existing.error) return responseError(existing.error, "The pending PM proposal could not be checked.");
-  const expectedRevision = Number(body.expectedRevision);
-  if ((!existing.data && expectedRevision !== 0)
-    || (existing.data && Number(existing.data.revision) !== expectedRevision)) {
-    return NextResponse.json({ error: "This PM proposal changed in another session. Refresh it before saving again.", conflict: true }, { status: 409 });
-  }
   const proposedCells: PmProposedCell[] = [];
   const payload = {
-    responses,
+    responses: persistedResponses,
     form_data: formData,
     notes,
     deficiency_notes: deficiencyNotes,
@@ -307,6 +327,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       entry: { ...inserted.data.payload, id: inserted.data.id, template_id: inserted.data.template_id,
         period_start: inserted.data.period_start, scope_key: inserted.data.scope_key, status: inserted.data.status,
+        can_edit_entry: true,
         submitted_by_name: inserted.data.submitted_by_name, proposed_cells: inserted.data.proposed_cells,
         revision: inserted.data.revision, updated_at: inserted.data.updated_at },
     }, { status: 201 });
@@ -328,6 +349,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     entry: { ...updated.data.payload, id: updated.data.id, template_id: updated.data.template_id,
       period_start: updated.data.period_start, scope_key: updated.data.scope_key, status: updated.data.status,
+      can_edit_entry: true,
       submitted_by_name: updated.data.submitted_by_name, proposed_cells: updated.data.proposed_cells,
       revision: updated.data.revision, updated_at: updated.data.updated_at },
   });

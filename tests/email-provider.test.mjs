@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { configuredEmailProvider, gmailText, htmlToText, messageDirection, fetchOperationalMessages } from "../src/lib/integrations/email-provider.ts";
+
+test("email scan distinguishes missing authentication from denied integration permission", () => {
+  const route = readFileSync(new URL("../src/app/api/integrations/email/scan/route.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(!auth\) return NextResponse\.json\(\{ error: "Sign in is required\." \}, \{ status: 401 \}\)/);
+  assert.match(route, /Email integration access is required\.[\s\S]*?status: 403/);
+});
 
 test("MIME prefers plain text instead of duplicating HTML alternative", () => {
   const part = {parts:[{mimeType:"text/plain",body:{data:Buffer.from("Plain message").toString("base64url")}},{mimeType:"text/html",body:{data:Buffer.from("<p>HTML message</p>").toString("base64url")}}]};

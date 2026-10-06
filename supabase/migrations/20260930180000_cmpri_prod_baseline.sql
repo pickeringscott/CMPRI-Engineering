@@ -442,6 +442,7 @@ BEGIN
   IF actor_role IS NULL OR actor_role NOT IN
     ('admin','administrator','systemadmin','systemadministrator','chiefengineer',
      'engineer','engineering','technician','maintenancetechnician','regionalmaintenance',
+     'frontdeskmanager',
      'generalmanager','gm','assistantmanager','assistantgeneralmanager','assistantgm') THEN
     RAISE EXCEPTION 'An active CMPRI engineering account is required';
   END IF;

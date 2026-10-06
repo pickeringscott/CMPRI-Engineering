@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { togglePmRoutineResponse } from '../src/lib/pm/routine-responses.ts';
+import { isPmRoutineCellChecked, togglePmRoutineResponse } from '../src/lib/pm/routine-responses.ts';
 
 const root = fileURLToPath(new URL('../src/lib/pm/', import.meta.url));
 const sourceCatalog = JSON.parse(readFileSync(path.join(root, 'source-catalog.json'), 'utf8'));
@@ -27,6 +27,11 @@ test('every PM routine checkbox toggles only its own checklist item', () => {
         Object.keys(responses).filter((responseId) => responses[responseId]),
         [id],
         `${group} checkbox ${id} changed another item`,
+      );
+      assert.deepEqual(
+        checklist.filter(({ id: responseId }) => emptyResponses[responseId] !== responses[responseId]).map(({ id: responseId }) => responseId),
+        [id],
+        `${group} checkbox ${id} changed more than one response`,
       );
     }
   }
@@ -53,4 +58,10 @@ test('routine checkbox toggles reject missing or duplicate item identifiers', ()
     () => togglePmRoutineResponse([{ id: 'same' }, { id: 'same' }], {}, 'same', true),
     /must be unique/,
   );
+});
+
+test('a PM routine checkbox reads only its own target, never another cell in the same task row', () => {
+  assert.equal(isPmRoutineCellChecked([{ value: 'FALSE' }, { value: 'TRUE' }]), false);
+  assert.equal(isPmRoutineCellChecked([{ value: 'TRUE' }, { value: 'FALSE' }]), true);
+  assert.equal(isPmRoutineCellChecked([]), false);
 });

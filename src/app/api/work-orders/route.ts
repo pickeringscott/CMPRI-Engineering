@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { authenticatedUser } from "@/lib/server/request-auth";
-import { canSuperviseDraftRole, isFrontDesk, isSubmitOnlyRole, roleAllows } from "@/lib/server/roles";
+import { isFrontDesk, isSubmitOnlyRole, roleAllows, roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
+import { fetchAllPages } from "@/lib/server/paginated-query";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { validFirstName, workOrderAttribution } from "@/lib/work-order-attribution";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
@@ -27,6 +26,32 @@ async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: Su
     ...order,
     room_status: currentRoomStatus(statuses, order.room),
   }));
+}
+
+async function fetchTechnicianWorkOrders(admin: SupabaseClient, technicianName: string | undefined) {
+  const query = () => admin
+    .from("work_orders")
+    .select("id, display_id, room, location_id, asset_id, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
+    .eq("hotel_id", HOTEL_ID)
+    .in("status", ["Open", "In Progress"])
+    .order("due_by", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  const unassignedQuery = query().or("technician_name.is.null,technician_name.eq.");
+  const assignedQuery = technicianName ? query().eq("technician_name", technicianName) : null;
+  const [unassigned, assigned] = await Promise.all([
+    unassignedQuery,
+    assignedQuery ?? Promise.resolve({ data: [], error: null }),
+  ]);
+  if (unassigned.error || assigned.error) return { data: null, error: unassigned.error || assigned.error };
+
+  const data = Array.from(new Map(
+    [...(assigned.data || []), ...(unassigned.data || [])].map((order) => [order.id, order]),
+  ).values()).sort((a, b) => {
+    const dueA = a.due_by ? Date.parse(a.due_by) : Number.POSITIVE_INFINITY;
+    const dueB = b.due_by ? Date.parse(b.due_by) : Number.POSITIVE_INFINITY;
+    return dueA - dueB || Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
+  });
+  return { data, error: null };
 }
 
 async function fetchAllAssetsForLocations(
@@ -58,20 +83,6 @@ async function fetchAllAssetsForLocations(
   return rows;
 }
 
-function callerDatabase(request: NextRequest, admin: SupabaseClient | null) {
-  if (/^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "")) {
-    return admin;
-  }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
-  const authorization = request.headers.get("authorization") || "";
-  if (!url || !key || !authorization) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { headers: { Authorization: authorization } },
-  });
-}
-
 function stringField(value: unknown, field: string, maximum: number, required = false) {
   if (value === undefined && !required) return undefined;
   if (typeof value !== "string") throw new Error(`Invalid ${field}.`);
@@ -91,70 +102,73 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Technician dashboard access is required." }, { status: 403 });
     }
     const technicianName = auth.principal.profile.full_name?.trim();
-    const unassignedQuery = auth.admin
-      .from("work_orders")
-      .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
-      .eq("hotel_id", HOTEL_ID)
-      .or("technician_name.is.null,technician_name.eq.")
-      .neq("status", "Closed")
-      .order("due_by", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false });
-    const assignedQuery = technicianName
-      ? auth.admin
-        .from("work_orders")
-        .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
-        .eq("hotel_id", HOTEL_ID)
-        .eq("technician_name", technicianName)
-        .neq("status", "Closed")
-        .order("due_by", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false })
-      : null;
-    const [unassigned, assigned] = await Promise.all([
-      unassignedQuery,
-      assignedQuery ?? Promise.resolve({ data: [], error: null }),
-    ]);
-    if (unassigned.error || assigned.error) {
+    const { data: workOrders, error } = await fetchTechnicianWorkOrders(
+      auth.admin,
+      technicianName,
+    );
+    if (error || !workOrders) {
       return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
     }
-    const workOrders = Array.from(new Map(
-      [...(assigned.data || []), ...(unassigned.data || [])].map((order) => [order.id, order]),
-    ).values()).sort((a, b) => {
-      const dueA = a.due_by ? Date.parse(a.due_by) : Number.POSITIVE_INFINITY;
-      const dueB = b.due_by ? Date.parse(b.due_by) : Number.POSITIVE_INFINITY;
-      return dueA - dueB || Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
-    });
     const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, workOrders);
     if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
     return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (mode === "duplicate-candidates") {
-    if (!allows(auth.principal, "view_dashboard")) return NextResponse.json({ error: "Dashboard access is required to inspect existing work orders." }, { status: 403 });
-    const { data, error } = await auth.admin
+    const canViewDashboard = allows(auth.principal, "view_dashboard");
+    const canViewWorkOrders = allows(auth.principal, "view_work_orders");
+    if (!canViewDashboard && !canViewWorkOrders) return NextResponse.json({ error: "Work-order access is required to inspect existing work orders." }, { status: 403 });
+    if (roleKey(auth.principal.profile.role) === "technician") {
+      const { data, error } = await fetchTechnicianWorkOrders(
+        auth.admin,
+        auth.principal.profile.full_name?.trim(),
+      );
+      if (error || !data) return NextResponse.json({ error: "Existing work orders could not be checked for duplicates." }, { status: 503 });
+      const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data);
+      if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+      return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+    const canViewAllStatuses = canViewDashboard && !allows(auth.principal, "add_work_order_notes");
+    let query = auth.admin
       .from("work_orders")
       .select("id, display_id, room, location_id, asset_id, asset_name, category, issue, priority, status")
       .eq("hotel_id", HOTEL_ID)
       .order("created_at", { ascending: false })
       .limit(500);
+    if (!canViewAllStatuses) query = query.in("status", ["Open", "In Progress"]);
+    const { data, error } = await query;
     if (error) return NextResponse.json({ error: "Existing work orders could not be checked for duplicates." }, { status: 503 });
     const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
     if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
     return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
-  if (mode !== "dashboard" || !allows(auth.principal, "view_dashboard")) {
-    return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
+  const canViewDashboard = allows(auth.principal, "view_dashboard");
+  if (mode !== "dashboard" || (!canViewDashboard && !allows(auth.principal, "view_work_orders"))) {
+    return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   }
-  const { data, error } = await auth.admin
+  if (roleKey(auth.principal.profile.role) === "technician") {
+    const { data, error } = await fetchTechnicianWorkOrders(
+      auth.admin,
+      auth.principal.profile.full_name?.trim(),
+    );
+    if (error || !data) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
+    const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data);
+    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+    return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
+  }
+  const canViewAllStatuses = canViewDashboard && !allows(auth.principal, "add_work_order_notes");
+  const { data, error } = await fetchAllPages((from, to) => {
+    let query = auth.admin
     .from("work_orders")
     .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
     .eq("hotel_id", HOTEL_ID)
     .order("created_at", { ascending: false })
-    .limit(2000);
+    .range(from, to);
+    if (!canViewAllStatuses) query = query.in("status", ["Open", "In Progress"]);
+    return query;
+  });
   if (error) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
-  if ((data || []).length >= 2000) {
-    return NextResponse.json({ error: "The dashboard result reached its safety limit. Narrow or archive old records before relying on this view." }, { status: 503 });
-  }
   const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
   if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
   return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
@@ -173,11 +187,12 @@ export async function POST(request: NextRequest) {
   const sourceDraftRevision = typeof body.source_draft_revision === "number" ? body.source_draft_revision : null;
   let sourceDraft: Record<string, unknown> | null = null;
   let attribution: ReturnType<typeof workOrderAttribution> & Record<string, unknown>;
-  let submitOnly = isSubmitOnlyRole(auth.profile.role);
-  const admin = auth.admin ?? createSupabaseAdmin();
+  const canSetEngineeringFields = roleAllows(auth.profile.role, "edit_tickets")
+    || roleAllows(auth.profile.role, "review_tickets");
+  const admin = createSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
   if (sourceDraftId) {
-    if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
     const { data: draft, error: draftError } = await admin
       .from("cmpri_work_order_drafts")
       .select("*")
@@ -199,8 +214,8 @@ export async function POST(request: NextRequest) {
     if (!draftCreator) return NextResponse.json({ error: "The draft creator no longer has a profile." }, { status: 409 });
 
     const ownDraft = String(draft.created_by) === auth.user.id;
-    if (!ownDraft && !canSuperviseDraftRole(auth.profile.role, draftCreator.role)) {
-      return NextResponse.json({ error: "You cannot submit this employee's draft." }, { status: 403 });
+    if (!ownDraft && !roleAllows(auth.profile.role, "review_tickets")) {
+      return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can submit this draft." }, { status: 403 });
     }
 
     const draftFrontDesk = isFrontDesk(draftCreator.role);
@@ -209,7 +224,6 @@ export async function POST(request: NextRequest) {
     if (draftFrontDesk && !validFirstName(firstName)) {
       return NextResponse.json({ error: "This front-desk draft is missing the required first name." }, { status: 400 });
     }
-    submitOnly = draftSubmitOnly;
     attribution = {
       created_by: draftCreator.id,
       creator_account_user_id: draftCreator.id,
@@ -248,7 +262,7 @@ export async function POST(request: NextRequest) {
       const source = value as Record<string, unknown>;
       const row: Record<string, unknown> = {};
       for (const field of USER_FIELDS) {
-        if (submitOnly && ["asset_id", "asset_name", "category", "priority"].includes(field)) continue;
+        if (!canSetEngineeringFields && ["asset_id", "asset_name", "category", "priority"].includes(field)) continue;
         const item = source[field];
         if (field === "asset_id" && item === null) { row[field] = null; continue; }
         const maximum = field === "notes" ? 20000 : field === "issue" ? 4000 : 500;
@@ -263,7 +277,7 @@ export async function POST(request: NextRequest) {
         const existingNotes = typeof row.notes === "string" && row.notes.trim() ? `${row.notes.trim()}\n` : "";
         row.reporter_notes = `${existingNotes}${reporterNotes}`;
       }
-      if (!submitOnly && row.category !== undefined) {
+      if (canSetEngineeringFields && row.category !== undefined) {
         const normalizedCategory = normalizeWorkOrderCategory(row.category);
         if (!normalizedCategory) throw new Error("Select a valid work-order category.");
         row.category = normalizedCategory;
@@ -286,8 +300,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid work-order details." }, { status: 400 });
   }
 
-  const db = sourceDraft ? admin : callerDatabase(request, admin);
-  if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
+  const db = admin;
   const uniqueLocationIds = Array.from(new Set(rows.map((row) => String(row.location_id))));
   const { data: locations, error: locationError } = await db.from("locations")
     .select("id, name, active")
@@ -300,7 +313,7 @@ export async function POST(request: NextRequest) {
     row.room = location.name;
   }
 
-  if (submitOnly) {
+  if (!canSetEngineeringFields) {
     try {
       const availableAssets = await fetchAllAssetsForLocations(db, uniqueLocationIds);
       for (const row of rows) {
@@ -373,7 +386,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Work orders could not be saved. Refresh the list before retrying." }, { status: 409 });
   }
 
-  if (saved?.length && admin) {
+
+  if (saved?.length) {
     await Promise.allSettled(saved.map((item) => processRoomRankerSyncForWorkOrder(admin, String(item.id))));
   }
 

@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { authorizationHeaders } from "@/lib/auth/client-session";
+import { formatCheckoutRoomWorkOrders, summarizeRoomOperations, type CheckoutRoomWorkOrder } from "@/lib/room-operations";
 
 type ImportSource = "paste" | "file";
 type RoomStatusRow = {
   room: string;
   roomStatus: string;
+  departureDate: string;
+  departureTime: string;
   arrivalDate: string;
   arrivalTime: string;
   guestName: string;
@@ -16,6 +19,8 @@ type RoomStatusRow = {
   guestArrivalDate: string;
   stayNights: number;
   reserved: boolean;
+  moveFrom: string;
+  moveTo: string;
 };
 type DepartureRow = {
   room: string;
@@ -40,6 +45,39 @@ type ValidatedRow = {
 };
 type SnapshotRow = ValidatedRow & { imported_at: string | null };
 type ImportPreview = { date: string; source: ImportSource; rows: ValidatedRow[] };
+
+function missingCurrentGuestNames(rows: ValidatedRow[]) {
+  return rows
+    .filter((row) =>
+      /\boccupied\b/i.test(row.room_status)
+      && Boolean(row.guest_code || row.guest_arrival_date || row.checkout_date)
+      && !row.guest_name.trim()
+    )
+    .map((row) => row.room);
+}
+
+function normalizeSnapshotTime(value: string | null | undefined) {
+  const text = value?.trim() || "";
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return text.toLowerCase();
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] || "0");
+  const meridiem = match[4]?.toUpperCase();
+  if (
+    minutes > 59
+    || seconds > 59
+    || (meridiem ? hours < 1 || hours > 12 : hours > 23)
+  ) return text.toLowerCase();
+
+  if (meridiem) hours = (hours % 12) + (meridiem === "PM" ? 12 : 0);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function normalizeSnapshotValue(value: string | null | undefined) {
+  return value?.trim() || "";
+}
 
 function hotelDate() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -93,7 +131,7 @@ function parseReport(raw: string, label: string) {
     if (exact >= 0) return exact;
     return headers.findIndex((header) => normalized.some((name) => name.length >= 4 && header.includes(name)));
   };
-  const roomIndex = findIndex("ROOM", "ROOM #", "ROOM NUMBER", "RM");
+  const roomIndex = findIndex("ROOM", "ROOM #", "ROOM NUMBER", "RM #", "RM");
   if (roomIndex < 0) throw new Error(`${label} is missing a Room column.`);
   return { rows: rows.slice(1), roomIndex, findIndex };
 }
@@ -106,14 +144,18 @@ function normalizeRoom(value: string) {
 function parseRoomStatusReport(raw: string): RoomStatusRow[] {
   const { rows, roomIndex, findIndex } = parseReport(raw, "Room Status Report");
   const statusIndex = findIndex("ROOM STATUS", "HOUSEKEEPING STATUS", "HK STATUS", "STATUS");
-  const arrivalDateIndex = findIndex("INCOMING ARRIVAL DATE", "CHECKIN DATE", "CHECK-IN DATE", "CHECK IN DATE");
+  const arrivalDateIndex = findIndex("INCOMING ARRIVAL DATE", "DUE IN", "CHECKIN DATE", "CHECK-IN DATE", "CHECK IN DATE", "ARRIVAL DATE");
   const arrivalTimeIndex = findIndex("INCOMING ARRIVAL TIME", "CHECKIN TIME", "CHECK-IN TIME", "CHECK IN TIME");
   const guestNameIndex = findIndex("GUEST NAME", "GUEST / NAME", "GUEST", "NAME");
   const roomTypeIndex = findIndex("ROOM TYPE", "RM TYPE", "ROOM TYPE CODE", "TYPE");
   const guestCodeIndex = findIndex("GUEST CODE", "GUEST TYPE CODE", "RATE CODE", "MEMBER CODE", "CODE");
-  const guestArrivalIndex = findIndex("GUEST ARRIVAL", "ARV", "ARV DATE");
+  const guestArrivalIndex = findIndex("CURRENT GUEST ARRIVAL DATE", "GUEST ARRIVAL DATE", "GUEST ARRIVAL", "ARV DATE", "ARV");
   const stayNightsIndex = findIndex("LOS", "LENGTH OF STAY", "NIGHTS");
-  const reservedIndex = findIndex("RESERVED", "BLOCKED", "BLK");
+  const reservedIndex = findIndex("RESERVED", "BLOCKED", "BLK", "BLK'D", "BLK’D", "BLKD");
+  const checkoutDateIndex = findIndex("DEPARTURE DATE", "CHECKOUT DATE", "CHECK OUT DATE", "DEP DATE", "DEP");
+  const checkoutTimeIndex = findIndex("DEPARTURE TIME", "CHECKOUT TIME", "CHECK OUT TIME", "DEP TIME", "DPLM");
+  const moveFromIndex = findIndex("MOVE FROM", "MOVED FROM", "FROM ROOM");
+  const moveToIndex = findIndex("MOVE TO", "MOVED TO", "TO ROOM");
   const seenRooms = new Set<string>();
 
   return rows.map((row, index) => {
@@ -128,12 +170,14 @@ function parseRoomStatusReport(raw: string): RoomStatusRow[] {
       throw new Error(`Room Status Report line ${line}: LOS must be a whole number from 0 to 3650.`);
     }
     const reservedText = reservedIndex >= 0 ? String(row[reservedIndex] || "").trim().toLowerCase() : "";
-    if (reservedText && !["true", "yes", "y", "1", "reserved", "blk", "false", "no", "n", "0", "not reserved"].includes(reservedText)) {
+    if (reservedText && !["true", "yes", "y", "1", "reserved", "blk", "blocked", "x", "✓", "✔", "false", "no", "n", "0", "not reserved", "unblocked"].includes(reservedText) && !/^\d+$/.test(reservedText)) {
       throw new Error(`Room Status Report line ${line}: reserved value '${reservedText}' is not recognized.`);
     }
     return {
       room,
       roomStatus: statusIndex >= 0 ? String(row[statusIndex] || "").trim() : "",
+      departureDate: checkoutDateIndex >= 0 ? String(row[checkoutDateIndex] || "").trim() : "",
+      departureTime: checkoutTimeIndex >= 0 ? String(row[checkoutTimeIndex] || "").trim() : "",
       arrivalDate: arrivalDateIndex >= 0 ? String(row[arrivalDateIndex] || "").trim() : "",
       arrivalTime: arrivalTimeIndex >= 0 ? String(row[arrivalTimeIndex] || "").trim() : "",
       guestName: guestNameIndex >= 0 ? String(row[guestNameIndex] || "").trim() : "",
@@ -141,7 +185,10 @@ function parseRoomStatusReport(raw: string): RoomStatusRow[] {
       guestCode: guestCodeIndex >= 0 ? String(row[guestCodeIndex] || "").trim() : "",
       guestArrivalDate: guestArrivalIndex >= 0 ? String(row[guestArrivalIndex] || "").trim() : "",
       stayNights: nights,
-      reserved: ["true", "yes", "y", "1", "reserved", "blk"].includes(reservedText),
+      reserved: ["true", "yes", "y", "1", "reserved", "blk", "blocked", "x", "✓", "✔"].includes(reservedText)
+        || (/^\d+$/.test(reservedText) && Number(reservedText) > 0),
+      moveFrom: moveFromIndex >= 0 ? normalizeRoom(String(row[moveFromIndex] || "")) : "",
+      moveTo: moveToIndex >= 0 ? normalizeRoom(String(row[moveToIndex] || "")) : "",
     };
   });
 }
@@ -149,7 +196,7 @@ function parseRoomStatusReport(raw: string): RoomStatusRow[] {
 function parseExpectedDepartures(raw: string): DepartureRow[] {
   const { rows, roomIndex, findIndex } = parseReport(raw, "Expected Departures");
   const checkoutDateIndex = findIndex("CHECKOUT DATE", "CHECK OUT DATE", "DEPARTURE DATE", "DEP DATE", "DATE");
-  const checkoutTimeIndex = findIndex("CHECKOUT TIME", "CHECK OUT TIME", "DEPARTURE TIME", "DEP TIME", "TIME");
+  const checkoutTimeIndex = findIndex("CHECKOUT TIME", "CHECK OUT TIME", "DEPARTURE TIME", "DEP TIME", "DPLM", "TIME");
   const seenRooms = new Set<string>();
 
   return rows.map((row, index) => {
@@ -175,13 +222,13 @@ function mergeRoomOperations(
   for (const row of statusRows) {
     merged.set(row.room, {
       room: row.room,
-      checkout_date: "",
-      checkout_time: "",
+      checkout_date: row.departureDate,
+      checkout_time: row.departureDate ? row.departureTime || "11:00 AM" : "",
       room_status: row.roomStatus,
       arrival_date: row.arrivalDate,
       arrival_time: row.arrivalTime,
-      move_from: "",
-      move_to: "",
+      move_from: row.moveFrom,
+      move_to: row.moveTo,
       guest_name: row.guestName,
       room_type: row.roomType,
       guest_code: row.guestCode,
@@ -207,8 +254,8 @@ function mergeRoomOperations(
       stay_nights: 0,
       reserved: false,
     };
-    room.checkout_date = departure.checkoutDate || reportDate;
-    room.checkout_time = departure.checkoutTime || "11:00 AM";
+    room.checkout_date = departure.checkoutDate || room.checkout_date || reportDate;
+    room.checkout_time = departure.checkoutTime || room.checkout_time || "11:00 AM";
     merged.set(departure.room, room);
   }
   return [...merged.values()];
@@ -219,17 +266,19 @@ function snapshotMatches(expected: ValidatedRow[], actual: SnapshotRow[]) {
   return actual.length === expected.length && expected.every((row) => {
     const saved = savedByRoom.get(row.room);
     return !!saved
-      && saved.checkout_date === row.checkout_date
-      && saved.checkout_time === row.checkout_time
-      && saved.room_status === row.room_status
-      && saved.arrival_date === row.arrival_date
-      && saved.arrival_time === row.arrival_time
-      && saved.guest_name === row.guest_name
-      && saved.room_type === row.room_type
-      && saved.guest_code === row.guest_code
-      && saved.guest_arrival_date === row.guest_arrival_date
+      && normalizeSnapshotValue(saved.checkout_date) === normalizeSnapshotValue(row.checkout_date)
+      && normalizeSnapshotTime(saved.checkout_time) === normalizeSnapshotTime(row.checkout_time)
+      && normalizeSnapshotValue(saved.room_status) === normalizeSnapshotValue(row.room_status)
+      && normalizeSnapshotValue(saved.arrival_date) === normalizeSnapshotValue(row.arrival_date)
+      && normalizeSnapshotTime(saved.arrival_time) === normalizeSnapshotTime(row.arrival_time)
+      && normalizeSnapshotValue(saved.guest_name) === normalizeSnapshotValue(row.guest_name)
+      && normalizeSnapshotValue(saved.room_type) === normalizeSnapshotValue(row.room_type)
+      && normalizeSnapshotValue(saved.guest_code) === normalizeSnapshotValue(row.guest_code)
+      && normalizeSnapshotValue(saved.guest_arrival_date) === normalizeSnapshotValue(row.guest_arrival_date)
       && saved.stay_nights === row.stay_nights
-      && saved.reserved === row.reserved;
+      && saved.reserved === row.reserved
+      && (!row.move_from || saved.move_from === row.move_from)
+      && (!row.move_to || saved.move_to === row.move_to);
   });
 }
 
@@ -295,6 +344,12 @@ export default function RoomOperationsImport({
       if (!validationRes.ok || validationPayload.ok !== true || !Array.isArray(validationPayload.rows)) {
         throw new Error(validationPayload.error || "Extracted room data failed validation.");
       }
+      const missingNames = missingCurrentGuestNames(validationPayload.rows);
+      if (missingNames.length) {
+        throw new Error(
+          `ChatGPT did not extract current guest names for occupied rooms ${missingNames.slice(0, 20).join(", ")}${missingNames.length > 20 ? ` and ${missingNames.length - 20} more` : ""}. Nothing was saved. Use clearer Room Status images or paste the report data and retry.`,
+        );
+      }
       setMessage(`Validated ${validationPayload.count || validationPayload.rows.length} rooms and their status values. Saving the daily snapshot…`);
 
       const importRes = await fetch("/api/room-operations", {
@@ -308,6 +363,7 @@ export default function RoomOperationsImport({
         date?: string;
         count?: number;
         notifications_recorded?: boolean;
+        checkout_work_orders?: CheckoutRoomWorkOrder[] | null;
         error?: string;
       };
       if (!importRes.ok || importPayload.ok !== true || !importPayload.import_id) {
@@ -324,10 +380,18 @@ export default function RoomOperationsImport({
       }
 
       const count = result.rows.length;
+      const summary = summarizeRoomOperations(result.rows, result.date);
+      const checkoutSummary = result.date === today
+        ? `Checkouts today: ${summary.checkoutCount}.`
+        : `Checkouts on report date: ${summary.checkoutCount}.`;
+      const outOfOrderSummary = summary.outOfOrderRooms.length
+        ? `Out of order: ${summary.outOfOrderRooms.map(({ room, status }) => `${room} (${status})`).join(", ")}.`
+        : "Out of order: none.";
+      const checkoutWorkOrderSummary = formatCheckoutRoomWorkOrders(importPayload.checkout_work_orders ?? null);
       setMessage(
         importPayload.notifications_recorded === false
-          ? `ChatGPT successfully extracted and imported ${count} room rows for ${result.date} (import ${importPayload.import_id}), but notifications could not be saved.`
-          : `ChatGPT successfully extracted, validated, and imported ${count} room rows for ${result.date} (import ${importPayload.import_id})! Out of Order status and room moves are active.`
+          ? `ChatGPT successfully extracted and imported ${count} room rows for ${result.date} (import ${importPayload.import_id}), but notifications could not be saved. ${checkoutSummary} ${outOfOrderSummary} ${checkoutWorkOrderSummary}`
+          : `ChatGPT successfully extracted, validated, and imported ${count} room rows for ${result.date} (import ${importPayload.import_id})! ${checkoutSummary} ${outOfOrderSummary} ${checkoutWorkOrderSummary} Room moves are active.`
       );
       setPreview(null);
       onCommitted(result.date);

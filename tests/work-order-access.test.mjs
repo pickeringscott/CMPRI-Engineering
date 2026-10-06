@@ -8,15 +8,53 @@ const roleExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/roles.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText,{exports:roleExports});
+const editPolicyExports={};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-edit-policy.ts',import.meta.url),'utf8'),{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText,{exports:editPolicyExports,require(name){if(name==='./server/roles')return roleExports;throw new Error(name);}});
+const { canSubmitWorkOrderNote, workOrderEditableFields }=editPolicyExports;
 const assignmentExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/work-order-assignment.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText,{exports:assignmentExports,require(name){if(name==='./roles')return roleExports;throw new Error(name);}});
 const { canAccessWorkOrderByAssignment }=assignmentExports;
+const activitySource=readFileSync(new URL('../src/app/api/work-orders/[id]/activity/route.ts',import.meta.url),'utf8');
+const activityCode=ts.transpileModule(activitySource,{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText;
+
+test('work-order reviewers can stage notes only while a request is pending review',()=>{
+  assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:true,status:'Pending Verification'}),true);
+  for(const status of ['Open','In Progress','Completed','Closed','Will Not Do']){
+    assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:true,status}),false,status);
+  }
+  assert.equal(canSubmitWorkOrderNote({canEdit:true,canReview:false,status:'Open'}),true);
+  assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,status:'Pending Verification'}),false);
+  assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: cmpriSession\?\.user\.role,[\s\S]*canEdit: canEditTicket,[\s\S]*canReview: canReviewCurrentTicket,[\s\S]*status: order\.status/);
+  assert.match(detailPage,/disabled=\{!canSubmitTicketNote\}/);
+  assert.match(detailPage,/!noteDraft\.trim\(\) \|\| !canSubmitTicketNote/);
+});
+
+test('technicians can stage notes only when their work-order edit policy permits notes',()=>{
+  const common={role:'Maintenance Technician',canEdit:true,canReview:false,canAddNotes:false};
+  assert.equal(canSubmitWorkOrderNote({...common,status:'Open',unassigned:false}),true);
+  assert.equal(canSubmitWorkOrderNote({...common,status:'Pending Verification',unassigned:true}),false);
+  assert.equal(canSubmitWorkOrderNote({...common,status:'Open',unassigned:true,canClaimUnassigned:true}),false);
+});
+
+test('work-order note-only roles can stage notes only on open work orders',()=>{
+  for(const status of ['Open','In Progress']){
+    assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,canAddNotes:true,status}),true,status);
+  }
+  for(const status of ['Pending Verification','Completed','Closed','Will Not Do']){
+    assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,canAddNotes:true,status}),false,status);
+  }
+});
 
 const code=ts.transpileModule(readFileSync(new URL('../src/app/api/work-orders/[id]/route.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText;
+const detailPage=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
 
 function fixture(config={}){
   let writes=0;let saved;
@@ -28,7 +66,7 @@ function fixture(config={}){
   const db={auth:{getUser:async()=>({data:{user:{id:'actor'}},error:null})},from(table){
     const filters=[];
     const q={
-      select(){return q;},eq(k,v){filters.push([k,v]);return q;},is(k,v){filters.push([k,v]);return q;},in(){return q;},limit(){return q;},
+      select(){return q;},eq(k,v){filters.push([k,v]);return q;},is(k,v){filters.push([k,v]);return q;},in(){return q;},limit(){return q;},order(){return q;},neq(){return q;},
       async maybeSingle(){
         calls.push({table,filters});
         if(table==='work_orders')return {data:config.missing?null:{id:'order',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
@@ -36,6 +74,8 @@ function fixture(config={}){
         return {data:null,error:null};
       },
       update(value){writes++;saved=value;return q;},
+      delete(){writes++;return q;},
+      then(onFulfilled,onRejected){return Promise.resolve({error:config.deleteError?{message:'delete failed'}:null}).then(onFulfilled,onRejected);},
       single:async()=>(config.concurrentStatus || config.concurrentRevision) && filters.some(([key,value])=>key==='revision'&&value!==(config.concurrentRevision??2))
         ? {data:null,error:{code:'PGRST116',message:'No matching row'}}
         : {data:{id:'order',status:String(saved?.status??existingStatus)},error:null},
@@ -55,9 +95,13 @@ function fixture(config={}){
     if(!p||p.profile?.active!==true||config.permissionError||config.denied)return false;
     const role=p.profile.role;
     if(c==='view_dashboard')return ['Engineer','Chief Engineer','General Manager','Senior Management','system_admin'].includes(role);
+    if(c==='view_work_orders')return ['Engineer','Chief Engineer','General Manager','Assistant General Manager','Front Desk Manager','Senior Management','system_admin'].includes(role);
+    if(c==='add_work_order_notes')return ['General Manager','Assistant General Manager','Front Desk Manager'].includes(role);
+    if(c==='view_pm')return ['Engineer','Chief Engineer','General Manager','Maintenance Technician','Senior Management','system_admin'].includes(role);
     if(c==='edit_tickets')return ['Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role);
-    if(c==='review_tickets')return ['Chief Engineer','General Manager','system_admin'].includes(role);
+    if(c==='review_tickets')return ['Engineer','Chief Engineer','system_admin'].includes(role);
     if(c==='reopen'||c==='close_tickets')return ['Engineer','Chief Engineer','system_admin'].includes(role);
+    if(c==='manage_users')return ['General Manager','Chief Engineer','system_admin'].includes(role);
     return false;
   };
 
@@ -92,6 +136,8 @@ function fixture(config={}){
         roleAllows:(role,capability)=>capability==='edit_tickets'&&['Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role),
       };
       if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment};
+      if(name==='@/lib/work-order-edit-policy')return editPolicyExports;
+      if(name==='@/lib/uuid')return {isUuid:value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)};
       if(name==='@/lib/work-order-categories')return {normalizeWorkOrderCategory:(value)=>typeof value==='string'&&value.trim()?value.trim():null};
       if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>{}};
       if(name==='@/lib/server/room-availability')return {
@@ -106,7 +152,12 @@ function fixture(config={}){
     if(config.badJson)throw Error('bad json');
     return config.nullBody?null:{expected_revision:1,...(config.body??{status:config.status||'In Progress'})};
   }};
-  return {run:()=>exports.PATCH(req,{params:Promise.resolve({id:'order'})}),writes:()=>writes,saved:()=>saved,calls};
+  req.nextUrl={searchParams:new URLSearchParams()};
+  return {
+    run:(method='PATCH')=>exports[method](req,{params:Promise.resolve({id:config.id??'00000000-0000-0000-0000-000000000018'})}),
+    get:()=>exports.GET(req,{params:Promise.resolve({id:config.id??'00000000-0000-0000-0000-000000000018'})}),
+    writes:()=>writes,saved:()=>saved,calls,
+  };
 }
 
 for(const config of [{profile:null},{profile:{active:false,role:'Engineer'}},{profile:{active:null,role:'Engineer'}},{profileError:true},{permissionError:true},{denied:true},{profile:{active:true,role:'Front Desk'}},{profile:{active:true,role:'Housekeeping'}}])test(`rejects unauthorized edit ${JSON.stringify(config)}`,async()=>{
@@ -120,6 +171,115 @@ for(const config of [{badJson:true},{nullBody:true},{status:'Duplicate'},{status
 test('front desk cannot reopen a closed ticket',async()=>{const f=fixture({closed:true,profile:{active:true,role:'Front Desk'}});assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);});
 test('Engineer with edit permission can reopen',async()=>{const f=fixture({closed:true,profile:{active:true,role:'Engineer'}});assert.equal((await f.run()).status,200);assert.equal(f.writes(),1);});
 test('permitted engineer can update an active ticket with hotel scope',async()=>{const f=fixture();assert.equal((await f.run()).status,200);assert.equal(f.writes(),1);assert.ok(f.calls.find(c=>c.table==='work_orders').filters.some(([k,v])=>k==='hotel_id'&&v==='c81ad01a-7a9f-4880-ac1c-5e849f30bad6'));});
+
+test('shared work-order field policy matches role-specific API and UI permissions',()=>{
+  const fields=(input)=>workOrderEditableFields(input);
+  assert.deepEqual(Array.from(fields({role:'Maintenance Technician',canEdit:true,canReview:false,unassigned:false,canClaimUnassigned:false})),['asset_id','category','status','notes']);
+  assert.deepEqual(Array.from(fields({role:'Maintenance Technician',canEdit:true,canReview:false,unassigned:true,canClaimUnassigned:true})),['technician_name']);
+  assert.deepEqual(Array.from(fields({role:'Maintenance Technician',canEdit:true,canReview:false,unassigned:true,canClaimUnassigned:false})),[]);
+  assert.deepEqual(Array.from(fields({role:'Maintenance Technician',canEdit:false,canReview:false,unassigned:false,canClaimUnassigned:false})),[]);
+  assert.deepEqual(Array.from(fields({role:'Engineer',canEdit:true,canReview:false,unassigned:false,canClaimUnassigned:false})),Array.from(editPolicyExports.TECHNICAL_WORK_ORDER_FIELDS));
+  assert.deepEqual(Array.from(fields({role:'General Manager',canEdit:false,canReview:true,unassigned:false,canClaimUnassigned:false})),['status','notes']);
+  assert.deepEqual(Array.from(fields({role:'General Manager',canEdit:false,canReview:false,canAddNotes:true,unassigned:false,canClaimUnassigned:false})),['notes']);
+  assert.deepEqual(Array.from(fields({role:'Assistant General Manager',canEdit:false,canReview:false,canAddNotes:true,unassigned:false,canClaimUnassigned:false})),['notes']);
+  assert.deepEqual(Array.from(fields({role:'Senior Management',canEdit:false,canReview:false,unassigned:false,canClaimUnassigned:false})),[]);
+  assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: cmpriSession\?\.user\.role,[\s\S]*unassigned: !String\(order\.technician_name \|\| ""\)\.trim\(\),[\s\S]*canClaimUnassigned: canClaimWorkOrder/);
+});
+
+test('GM/assistant-GM/front-desk-manager note saves update only notes on open tickets',async()=>{
+  for(const role of ['General Manager','Assistant General Manager','Front Desk Manager']){
+    const f=fixture({profile:{id:'actor',active:true,role},body:{notes:'A permitted operational note'}});
+    assert.equal((await f.run()).status,200,role);
+    assert.deepEqual(Object.keys(f.saved()).sort(),['history_actor_user_id','history_source','notes'],role);
+    assert.equal(f.saved().notes,'A permitted operational note',role);
+  }
+});
+
+test('all note-only roles cannot change status, assignments, or engineering-owned fields',async()=>{
+  for(const role of ['General Manager','Assistant General Manager','Front Desk Manager']){
+    const profile={id:'actor',active:true,role};
+    for(const field of ['status','technician_name','issue','asset_id','asset_name','category','priority','action_root_cause','parts','cost','hours','due_by']){
+      const f=fixture({profile,body:{[field]:field==='cost'||field==='hours'?1:'unauthorized'}});
+      assert.equal((await f.run()).status,403,`${role}/${field}`);
+      assert.equal(f.writes(),0,`${role}/${field}`);
+    }
+    const combined=fixture({profile,body:{notes:'Must not partially save',status:'Completed'}});
+    assert.equal((await combined.run()).status,403,`${role}/combined`);
+    assert.equal(combined.writes(),0,`${role}/combined`);
+  }
+});
+
+test('note-only roles can open active tickets but cannot read completed or closed tickets',async()=>{
+  for(const role of ['General Manager','Assistant General Manager','Front Desk Manager']){
+    const active=fixture({profile:{id:'actor',active:true,role},existingStatus:'Open'});
+    assert.equal((await active.get()).status,200,`${role}/open`);
+    for(const existingStatus of ['Completed','Closed','Will Not Do','Pending Verification']){
+      const blocked=fixture({profile:{id:'actor',active:true,role},existingStatus});
+      assert.equal((await blocked.get()).status,403,`${role}/${existingStatus}`);
+    }
+  }
+});
+
+test('note-only roles cannot add notes to pending, completed, or closed work orders',async()=>{
+  const profile={id:'actor',active:true,role:'General Manager'};
+  for(const status of ['Pending Verification','Completed','Closed','Will Not Do']){
+    const f=fixture({profile,existingStatus:status,body:{notes:'Should not be saved'}});
+    assert.equal((await f.run()).status,403,status);
+    assert.equal(f.writes(),0,status);
+  }
+});
+
+test('limited work-order readers receive ticket history but not purchasing or Enseo activity',async()=>{
+  const tables=[];
+  const admin={from(table){
+    tables.push(table);
+    const query={
+      select(){return query;},
+      eq(){return query;},
+      order(){return query;},
+      limit(){return query;},
+      maybeSingle:async()=>({data:{id:'order',status:'Open',technician_name:null},error:null}),
+      then(resolve,reject){return Promise.resolve({data:[{id:'history-entry'}],error:null}).then(resolve,reject);},
+    };
+    return query;
+  }};
+  const principal={identity:{id:'manager'},profile:{id:'manager',role:'General Manager',full_name:'Audit Manager',active:true}};
+  const exports={};
+  vm.runInNewContext(activityCode,{
+    exports,
+    require(name){
+      if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
+      if(name==='@/lib/constants')return {HOTEL_ID:'hotel'};
+      if(name==='@/lib/server/access')return {allows:(_principal,capability)=>capability==='view_work_orders'};
+      if(name==='@/lib/server/auth')return {requireUser:async()=>({principal,admin})};
+      if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment:()=>true};
+      if(name==='@/lib/uuid')return {isUuid:()=>true};
+      throw new Error(name);
+    },
+  });
+  const response=await exports.GET({}, {params:Promise.resolve({id:'order'})});
+  assert.equal(response.status,200);
+  assert.deepEqual(Array.from(tables),['work_orders','cmpri_work_order_history']);
+  assert.equal(response.body.purchases.length,0);
+  assert.equal(response.body.enseo.length,0);
+  assert.equal(response.body.history[0].id,'history-entry');
+
+  assert.match(detailPage,/cmpriSession\?\.capabilities\.includes\("view_dashboard"\) && \(roomOperationalContext\.loading/);
+  assert.match(detailPage,/editableFields\.length > 0 \|\| canReviewCurrentTicket/);
+});
+
+test('assigned technician can save allowed fields but cannot send technical-only fields',async()=>{
+  const profile={id:'actor',active:true,role:'Maintenance Technician',full_name:'Morgan Lee'};
+  const allowed=fixture({profile,existingTechnician:'Morgan Lee',body:{expected_revision:1,asset_id:'new-asset',category:'HVAC',status:'In Progress',notes:'Diagnosed locally'}});
+  assert.equal((await allowed.run()).status,200);
+  assert.equal(allowed.writes(),1);
+  assert.equal(allowed.saved().category,'HVAC');
+  for(const field of ['issue','asset_name','priority','technician_name','action_root_cause','parts','cost','hours','due_by']){
+    const denied=fixture({profile,existingTechnician:'Morgan Lee',body:{expected_revision:1,[field]:field==='cost'||field==='hours'?1:'unauthorized'}});
+    assert.equal((await denied.run()).status,403,field);
+    assert.equal(denied.writes(),0,field);
+  }
+});
 
 for(const [config,status]of [[{lookupError:true},503],[{missing:true},404]])test(`lookup failure returns ${status} without writes`,async()=>{const f=fixture(config);assert.equal((await f.run()).status,status);assert.equal(f.writes(),0);});
 
@@ -181,21 +341,36 @@ test('current revision permits a save without writing client revision into the r
   const f=fixture({currentRevision:3,body:{notes:'New notes',expected_revision:3,revision:999}});assert.equal((await f.run()).status,200);assert.equal(f.saved().revision,undefined);assert.equal(f.saved().expected_revision,undefined);
 });
 
+test('work-order labor and parts inputs use field-level permissions',()=>{
+  const source=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
+  const section=source.slice(source.indexOf('<h2 className="text-lg font-semibold">Labor & Parts</h2>'),source.indexOf('</section>',source.indexOf('<h2 className="text-lg font-semibold">Labor & Parts</h2>')));
+  assert.match(section,/disabled=\{!canEditField\("parts"\) \|\| saving\}/);
+  assert.match(section,/disabled=\{!canEditField\("hours"\) \|\| saving\}/);
+  assert.match(section,/disabled=\{!canEditField\("cost"\) \|\| saving\}/);
+  assert.match(source,/workOrderEditableFields\(/);
+  for(const field of ['issue','asset_id','category','priority','technician_name','status','due_by']){
+    assert.ok(source.includes(`canEditField("${field}")`),`${field} control must follow the shared edit policy`);
+  }
+  assert.match(source,/disabled=\{!canEditField\("action_root_cause"\) \|\| saving\}/);
+  assert.match(source,/const values = \["Open", "In Progress", "Completed"\]/);
+  assert.match(source,/else if \(canEditField\("asset_id"\)\) \{\s*Object\.assign\(updatePayload, \{\s*asset_id: asset\?\.id \?\? null,\s*category,\s*status,\s*notes: notesWithChanges,/);
+});
+
 test('the observed system_admin role can reopen with explicit editing permission',async()=>{
   const f=fixture({closed:true,profile:{active:true,role:'system_admin'}});assert.equal((await f.run()).status,200);
 });
 
-test('general manager can approve a pending request without technical edit rights',async()=>{
+test('general manager cannot review or change another user’s pending request',async()=>{
   const f=fixture({profile:{active:true,role:'General Manager'},existingStatus:'Pending Verification',body:{status:'Open',notes:'Approved',expected_revision:1}});
-  const r=await f.run();assert.equal(r.status,200);assert.equal(f.saved().status,'Open');assert.equal(f.saved().notes,'Approved');
+  const r=await f.run();assert.equal(r.status,403);assert.equal(f.writes(),0);
 });
 
-test('general manager cannot change technical fields during review',async()=>{
+test('general manager cannot change technical fields on another user’s pending request',async()=>{
   const f=fixture({profile:{active:true,role:'General Manager'},existingStatus:'Pending Verification',body:{status:'Open',priority:'Urgent',expected_revision:1}});
   assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
 });
 
-test('general manager review is limited to pending requests',async()=>{
+test('general manager cannot review another user’s open request',async()=>{
   const f=fixture({profile:{active:true,role:'General Manager'},existingStatus:'Open',body:{status:'Will Not Do',expected_revision:1}});
   assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
 });
@@ -237,6 +412,28 @@ test('technician cannot edit a closed unassigned order, assign it to another per
   }
 });
 
+test('malformed work-order identifiers return client errors before detail reads or writes',async()=>{
+  for(const method of ['GET','PATCH','DELETE']){
+    const f=fixture({id:'test-id'});
+    assert.equal((await f.run(method)).status,400,method);
+    assert.equal(f.calls.length,0,method);
+    assert.equal(f.writes(),0,method);
+  }
+});
+
+test('only engineer reviewers and system administrators may delete work orders',async()=>{
+  for(const role of ['General Manager','Maintenance Technician','Senior Management']){
+    const f=fixture({profile:{id:'actor',active:true,role,full_name:'Audit Actor'}});
+    assert.equal((await f.run('DELETE')).status,403,role);
+    assert.equal(f.writes(),0,role);
+  }
+  for(const role of ['Engineer','Chief Engineer','system_admin']){
+    const f=fixture({profile:{id:'actor',active:true,role,full_name:'Audit Actor'}});
+    assert.equal((await f.run('DELETE')).status,200,role);
+    assert.equal(f.writes(),1,role);
+  }
+});
+
 test('detail, activity, and attachment routes all share the technician assignment guard',()=>{
   const routePaths=[
     '../src/app/api/work-orders/[id]/route.ts',
@@ -247,4 +444,12 @@ test('detail, activity, and attachment routes all share the technician assignmen
     const source=readFileSync(new URL(routePath,import.meta.url),'utf8');
     assert.match(source,/canAccessWorkOrderByAssignment\(/,`${routePath} must enforce technician assignment`);
   }
+});
+
+test('work-order detail does not request restricted maintenance reference for limited readers',()=>{
+  const page=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
+  assert.match(page,/loadTicket\(showLoading = true, canLoadMaintenanceReference = true\)/);
+  assert.match(page,/if \(canLoadMaintenanceReference\) void loadMaintenanceReference\(\)/);
+  assert.match(page,/canLoadMaintenanceReference = session\.capabilities\.includes\("view_dashboard"\)/);
+  assert.match(page,/await loadTicket\(!hadPreview, canLoadMaintenanceReference\)/);
 });

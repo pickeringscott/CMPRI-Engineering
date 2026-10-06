@@ -3,11 +3,26 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
-import { detectRoomMoves } from "../src/lib/room-operations.ts";
+import sharp from "sharp";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { detectRoomMoves, formatCheckoutRoomWorkOrders, isRailwayCnGuestName, summarizeRoomOperations } from "../src/lib/room-operations.ts";
+import { createRoomOperationsOcrCrops } from "../src/lib/room-operations-report-images.ts";
 import { roomKey, roomStatusBadge } from "../src/lib/room-availability.ts";
 
 const importerSource = readFileSync(new URL("../src/app/engineering/room-operations/RoomOperationsImport.tsx", import.meta.url), "utf8");
 const importerAst = ts.createSourceFile("room-operations-importer.tsx", importerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const snapshotTimeNode = importerAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "normalizeSnapshotTime");
+const snapshotValueNode = importerAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "normalizeSnapshotValue");
+const snapshotMatchesNode = importerAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "snapshotMatches");
+assert.ok(snapshotTimeNode, "normalizeSnapshotTime must be declared");
+assert.ok(snapshotValueNode, "normalizeSnapshotValue must be declared");
+assert.ok(snapshotMatchesNode, "snapshotMatches must be declared");
+const snapshotTimeExports = {};
+vm.runInNewContext(ts.transpileModule(
+  `${snapshotTimeNode.getText(importerAst)}\n${snapshotValueNode.getText(importerAst)}\n${snapshotMatchesNode.getText(importerAst)}\nexports.normalizeSnapshotTime = normalizeSnapshotTime; exports.normalizeSnapshotValue = normalizeSnapshotValue; exports.snapshotMatches = snapshotMatches;`,
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+).outputText, { exports: snapshotTimeExports });
 const parserFunctions = [
   "normalizeHeader",
   "parseDelimitedLine",
@@ -16,6 +31,7 @@ const parserFunctions = [
   "parseRoomStatusReport",
   "parseExpectedDepartures",
   "mergeRoomOperations",
+  "missingCurrentGuestNames",
 ].map((name) => {
   const node = importerAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
   assert.ok(node, `${name} must be declared`);
@@ -23,7 +39,7 @@ const parserFunctions = [
 });
 const parserExports = {};
 vm.runInNewContext(ts.transpileModule(
-  `${parserFunctions.join("\n")}\nexports.parseRoomStatusReport = parseRoomStatusReport; exports.parseExpectedDepartures = parseExpectedDepartures; exports.mergeRoomOperations = mergeRoomOperations;`,
+  `${parserFunctions.join("\n")}\nexports.parseRoomStatusReport = parseRoomStatusReport; exports.parseExpectedDepartures = parseExpectedDepartures; exports.mergeRoomOperations = mergeRoomOperations; exports.missingCurrentGuestNames = missingCurrentGuestNames;`,
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText, { exports: parserExports });
 
@@ -71,6 +87,50 @@ test("report parsers fail instead of dropping unknown or duplicate rooms", () =>
   assert.throws(() => parserExports.parseExpectedDepartures("Guest\tCheckout Time\nCasey\t11 AM"), /missing a Room column/);
 });
 
+test("room-operation snapshot verification compares equivalent database and preview times", () => {
+  const normalizeTime = snapshotTimeExports.normalizeSnapshotTime;
+  const normalizeValue = snapshotTimeExports.normalizeSnapshotValue;
+  const snapshotMatches = snapshotTimeExports.snapshotMatches;
+  assert.equal(normalizeTime("11:00 AM"), "11:00:00");
+  assert.equal(normalizeTime("11:00:00"), "11:00:00");
+  assert.equal(normalizeTime("12:00 AM"), "00:00:00");
+  assert.equal(normalizeTime("12:00 PM"), "12:00:00");
+  assert.equal(normalizeTime("1:05:09 PM"), "13:05:09");
+  assert.equal(normalizeTime("13:05"), "13:05:00");
+  assert.equal(normalizeTime("25:00"), "25:00");
+  assert.equal(normalizeTime(""), "");
+  assert.equal(normalizeValue(null), "");
+  assert.equal(normalizeValue("  "), "");
+
+  const expected = [{
+    room: "102", checkout_date: "2026-10-04", checkout_time: "11:00 AM", room_status: "Occupied",
+    arrival_date: "", arrival_time: "", move_from: "", move_to: "", guest_name: "Audit Guest Two",
+    room_type: "KING", guest_code: "", guest_arrival_date: "", stay_nights: 0, reserved: false,
+  }];
+  const persisted = [{ ...expected[0], checkout_time: "11:00:00", imported_at: "2026-10-04T10:47:54.701152+00:00" }];
+  assert.equal(snapshotMatches(expected, persisted), true);
+  assert.equal(snapshotMatches(expected, [{ ...persisted[0], checkout_time: "12:00:00" }]), false);
+
+  const optionalFieldsExpected = [{
+    room: "MGR", checkout_date: "", checkout_time: "", room_status: "Out of Order",
+    arrival_date: "", arrival_time: "", move_from: "", move_to: "", guest_name: "",
+    room_type: "", guest_code: "", guest_arrival_date: "", stay_nights: 0, reserved: false,
+  }];
+  const optionalFieldsPersisted = [{
+    ...optionalFieldsExpected[0],
+    checkout_date: null,
+    arrival_date: null,
+    arrival_time: null,
+    guest_name: null,
+    room_type: null,
+    guest_code: null,
+    guest_arrival_date: null,
+    imported_at: "2026-10-04T11:15:35.230025+00:00",
+  }];
+  assert.equal(snapshotMatches(optionalFieldsExpected, optionalFieldsPersisted), true);
+  assert.equal(snapshotMatches(optionalFieldsExpected, [{ ...optionalFieldsPersisted[0], guest_name: "Unexpected" }]), false);
+});
+
 test("room moves are detected from unique guest names across the two snapshots", () => {
   const yesterday = [
     { room: "316", guest_name: "  Casey   Guest " },
@@ -87,6 +147,9 @@ test("room moves are detected from unique guest names across the two snapshots",
     { room: "507", move_from: "412", move_to: "507" },
     { room: "MGR", move_from: "", move_to: "" },
   ]);
+  const reportedMove = detectRoomMoves([], [{ room: "509", guest_name: "Guest", move_from: "412", move_to: "509" }]);
+  assert.equal(reportedMove[0].move_from, "412", "reported or previously persisted moves are retained without a prior snapshot match");
+  assert.equal(reportedMove[0].move_to, "509");
   const ambiguous = detectRoomMoves(
     [{ room: "316", guest_name: "Same Name" }, { room: "317", guest_name: "Same Name" }],
     [{ room: "412", guest_name: "Same Name" }],
@@ -136,6 +199,28 @@ test("room-operations notifications report out-of-order and move room numbers, e
   ]), null);
 });
 
+test("room-operations import summary reports today's checkouts, OOO rooms, and active work orders in checkout rooms", () => {
+  const summary = summarizeRoomOperations([
+    { room: "101", checkout_date: "2026-10-05", room_status: "Occupied" },
+    { room: "102", checkout_date: "2026-10-06", room_status: "Out of Order" },
+    { room: "103", checkout_date: "", room_status: "OOO" },
+  ], "2026-10-05");
+  assert.equal(summary.checkoutCount, 1);
+  assert.deepEqual(summary.outOfOrderRooms, [
+    { room: "102", status: "Out of Order" },
+    { room: "103", status: "OOO" },
+  ]);
+  assert.equal(formatCheckoutRoomWorkOrders([]), "Open work orders in checkout rooms: none.");
+  assert.equal(formatCheckoutRoomWorkOrders(null), "Open work orders in checkout rooms: unable to check.");
+  assert.equal(formatCheckoutRoomWorkOrders([
+    { room: "101", display_id: "WO-123", issue: "Leaking faucet", status: "In Progress" },
+  ]), "Open work orders in checkout rooms: Room 101 — WO-123 (In Progress): Leaking faucet.");
+
+  const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
+  assert.match(api, /\.from\("work_orders"\)[\s\S]*\.in\("room", checkoutRooms\)[\s\S]*\.in\("status", \["Open", "In Progress"\]\)/);
+  assert.match(api, /checkout_work_orders: checkoutWorkOrders/);
+});
+
 test("room-operations uploads are manual, limited to retained dates, and preserve MGR", () => {
   const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
   const sql = readFileSync(new URL("../supabase/cmpri_v1_0_room_operations.sql", import.meta.url), "utf8");
@@ -150,6 +235,7 @@ test("room-operations uploads are manual, limited to retained dates, and preserv
   assert.match(api, /detectRoomMoves\(yesterdayRows \|\| \[\], data \|\| \[\]\)/);
   assert.doesNotMatch(api, /cmpri_room_operation_imports/);
   assert.match(api, /auth\.admin\.rpc\("cmpri_replace_room_operations"/);
+  assert.match(api, /p_rows: rowsWithMoves/);
   assert.match(api, /roomOperationsNotification/);
   assert.match(api, /guest_code: typeof row\.guest_code === "string" \? row\.guest_code : ""/);
   assert.match(api, /\.select\("room, guest_name, guest_code, move_from, move_to"\)/);
@@ -157,6 +243,7 @@ test("room-operations uploads are manual, limited to retained dates, and preserv
   assert.match(api, /target_path: notification\.target_path/);
   assert.match(sql, /report_date < timezone\('America\/Chicago', now\(\)\)::date - 1/);
   assert.match(sql, /report_date = p_report_date/);
+  assert.match(sql, /room_status, arrival_date, arrival_time, move_from, move_to/);
   assert.match(sql, /p_source_type not in \('paste', 'file'\)/);
   assert.match(migration, /p_source_type not in \('paste', 'file'\)/);
   assert.match(migration, /delete from public\.cmpri_room_operation_imports[\s\S]*report_date < timezone\('America\/Chicago', now\(\)\)::date - 1/);
@@ -204,6 +291,143 @@ test("server CSV parser preserves room status aliases and all room rows", () => 
   assert.equal(rows.length, 3);
   assert.deepEqual(Array.from(rows, (row) => row.room_status), ["VR", "VD", "Out of Order"]);
   assert.deepEqual(Array.from(rows, (row) => row.room), ["316", "317", "318"]);
+
+  const reportRows = parserExports.parseCsvToRows(
+    readFileSync(new URL("./fixtures/daily-room-ops-report.csv", import.meta.url), "utf8"),
+  );
+  const room103 = reportRows.find((row) => row.room === "103");
+  const room411 = reportRows.find((row) => row.room === "411");
+  const room421 = reportRows.find((row) => row.room === "421");
+  assert.equal(room103.checkout_date, "01Dec");
+  assert.equal(room103.guest_arrival_date, "13Apr");
+  assert.equal(room103.guest_code, "RCNA");
+  assert.equal(room103.guest_name, "RAILWAY/CN-NJ8");
+  assert.equal(room411.arrival_date, "05Oct");
+  assert.equal(room411.reserved, "64827");
+  assert.equal(room421.room_status, "OOO");
+});
+
+test("server import rejects occupied rows missing any current guest field", () => {
+  const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
+  const apiAst = ts.createSourceFile("room-operations-route.ts", api, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const node = apiAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "missingCurrentGuestFields");
+  assert.ok(node, "missingCurrentGuestFields must be declared");
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule(
+    `${node.getText(apiAst)}\nexports.missingCurrentGuestFields = missingCurrentGuestFields;`,
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+  ).outputText, { exports });
+  const missing = exports.missingCurrentGuestFields([
+    { room: "103", room_status: "OCCUPIED DIRTY", guest_name: "", guest_code: "RCNA", guest_arrival_date: "2026-04-13", checkout_date: "2026-12-01" },
+    { room: "104", room_status: "Occupied", guest_name: "Railway/CN", guest_code: "", guest_arrival_date: "2026-04-13", checkout_date: "2026-12-01" },
+    { room: "105", room_status: "Occupied Clean", guest_name: "Guest", guest_code: "RCNA", guest_arrival_date: "", checkout_date: "2026-12-01" },
+    { room: "106", room_status: "Occupied Clean", guest_name: "Guest", guest_code: "RCNA", guest_arrival_date: "2026-04-13", checkout_date: "" },
+    { room: "421", room_status: "OOO", guest_name: "", guest_code: "", guest_arrival_date: "", checkout_date: "" },
+  ]);
+  assert.deepEqual(Array.from(missing), [
+    "103 (guest name)",
+    "104 (guest code)",
+    "105 (current guest arrival date)",
+    "106 (current guest departure date)",
+  ]);
+  assert.deepEqual(Array.from(exports.missingCurrentGuestFields([
+    { room: "103", room_status: "Occupied", guest_name: "Guest", guest_code: "RCNA", guest_arrival_date: "2026-04-13", checkout_date: "2026-12-01" },
+    { room: "421", room_status: "OOO", guest_name: "", guest_code: "", guest_arrival_date: "", checkout_date: "" },
+  ])), []);
+  assert.ok(api.indexOf("if (missingGuestFields.length)") < api.indexOf('auth.admin.rpc("cmpri_replace_room_operations"'));
+});
+
+test("image extraction magnifies table crops from the uploaded report page", async () => {
+  const image = await sharp({
+    create: { width: 768, height: 1024, channels: 3, background: "#ffffff" },
+  }).jpeg().toBuffer();
+  const crops = await createRoomOperationsOcrCrops(image);
+  assert.equal(crops.length, 2);
+  for (const crop of crops) {
+    const metadata = await sharp(crop).metadata();
+    assert.equal(metadata.width, 1800);
+    assert.ok(metadata.height > 700);
+    assert.equal(metadata.format, "jpeg");
+  }
+  const smallImage = await sharp({
+    create: { width: 200, height: 200, channels: 3, background: "#ffffff" },
+  }).jpeg().toBuffer();
+  await assert.rejects(createRoomOperationsOcrCrops(smallImage), /too small to read/);
+});
+
+test("daily room-operations report import preserves current guest dates, codes, names, blocked arrivals, and OOO rooms", () => {
+  const fixture = readFileSync(new URL("./fixtures/daily-room-ops-report.csv", import.meta.url), "utf8").trim();
+  const statusRows = parserExports.parseRoomStatusReport(fixture);
+  const departures = parserExports.parseExpectedDepartures([
+    "Lvl\tName\tFolio\tRm #\tType Code\tBill Type\tGroup",
+    "MRD\tCLINE, ANTHONY\t64928\t103\tSTDO\tB\tDS",
+  ].join("\n"));
+  assert.equal(departures[0].room, "103", "Expected Departures uses the Marriott 'Rm #' header");
+
+  const rows = parserExports.mergeRoomOperations(statusRows, departures, "2026-10-05");
+  const room103 = rows.find((row) => row.room === "103");
+  const room411 = rows.find((row) => row.room === "411");
+  const room421 = rows.find((row) => row.room === "421");
+  assert.equal(room103.guest_arrival_date, "13Apr", "Arv is the current guest arrival date");
+  assert.equal(room103.checkout_date, "01Dec", "Dep is the current guest departure date, not the report date");
+  assert.equal(room103.guest_code, "RCNA");
+  assert.equal(room103.guest_name, "RAILWAY/CN-NJ8");
+  assert.equal(room103.reserved, false);
+  assert.equal(room411.arrival_date, "05Oct", "Due In is kept separate as the incoming guest's arrival");
+  assert.equal(room411.reserved, true, "a numeric Blk'd value indicates a blocked incoming guest");
+  assert.equal(room421.room_status, "OOO");
+});
+
+test("Railway/CN badge matches its stable core when the guest suffix changes", () => {
+  assert.equal(isRailwayCnGuestName("RAILWAY/CN-NJ8"), true);
+  assert.equal(isRailwayCnGuestName("RAILWAY/CN-CHANGED"), true);
+  assert.equal(isRailwayCnGuestName("railway / cn anything"), true);
+  assert.equal(isRailwayCnGuestName("Different Guest"), false);
+});
+
+test("image import rejects occupied rows whose extracted current guest name is missing", () => {
+  const rows = [
+    { room: "103", room_status: "OCCUPIED DIRTY", guest_code: "RCNA", guest_arrival_date: "2026-04-13", checkout_date: "2026-12-01", guest_name: "" },
+    { room: "104", room_status: "OCCUPIED DIRTY", guest_code: "RCNA", guest_arrival_date: "2026-04-13", checkout_date: "2026-12-01", guest_name: "RAILWAY/CN-CHANGED" },
+    { room: "421", room_status: "OOO", guest_code: "", guest_arrival_date: "", checkout_date: "", guest_name: "" },
+  ];
+  assert.deepEqual(parserExports.missingCurrentGuestNames(rows), ["103"]);
+});
+
+test("Marriott departures report Dplm time is imported and missing time defaults to 11 AM", () => {
+  const departures = parserExports.parseExpectedDepartures([
+    "Lvl\tName\tFolio\tRm #\tType Code\tBill Type\tGroup\tDplm",
+    "MRD\tCLINE, ANTHONY\t64928\t103\tSTDO\tB\tDS\t10:30AM",
+    "MRD\tCOX, CLEOPHUS\t16293\t212\tSTDO\tNBNT\tDB\t",
+  ].join("\n"));
+  const rows = parserExports.mergeRoomOperations([], departures, "2026-10-05");
+  assert.equal(rows.find((row) => row.room === "103").checkout_date, "2026-10-05");
+  assert.equal(rows.find((row) => row.room === "103").checkout_time, "10:30AM");
+  assert.equal(rows.find((row) => row.room === "212").checkout_time, "11:00 AM");
+});
+
+test("room-operation checkout dates preserve four-digit US years", () => {
+  const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
+  const apiAst = ts.createSourceFile("room-operations-route.ts", api, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const functions = ["validDate", "normalizedDate", "reserved"].map((name) => {
+    const node = apiAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+    assert.ok(node, `${name} must be declared`);
+    return node.getText(apiAst);
+  });
+  const dateExports = {};
+  vm.runInNewContext(ts.transpileModule(
+    `${functions.join("\n")}\nexports.normalizedDate = normalizedDate; exports.reserved = reserved;`,
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+  ).outputText, { exports: dateExports, hotelDate: () => "2026-10-05" });
+  assert.equal(dateExports.normalizedDate("10/4/2026"), "2026-10-04");
+  assert.equal(dateExports.normalizedDate("10/4/26"), "2026-10-04");
+  assert.equal(dateExports.normalizedDate("2026-10-04"), "2026-10-04");
+  assert.equal(dateExports.normalizedDate("2/30/2026"), "");
+  assert.equal(dateExports.normalizedDate("13Apr", "2026-10-05"), "2026-04-13");
+  assert.equal(dateExports.normalizedDate("01Dec", "2026-10-05"), "2026-12-01");
+  assert.equal(dateExports.reserved("64827"), true);
+  assert.equal(dateExports.reserved("0"), false);
+  assert.equal(dateExports.normalizedDate("2026-02-30"), "");
 });
 
 test("room imports reject incomplete room/status snapshots and image uploads preflight before saving", () => {
@@ -233,15 +457,105 @@ test("room availability bubbles normalize room identifiers and mark only vacant-
   assert.match(selector, /roomStatusBadge\(order\.room_status\)/);
 });
 
+test("technician room data is scoped to assigned and unassigned active work", () => {
+  const api = readFileSync(new URL("../src/app/api/rooms/route.ts", import.meta.url), "utf8");
+  const dashboard = readFileSync(new URL("../src/app/technician/page.tsx", import.meta.url), "utf8");
+  assert.match(api, /roleKey\(principal\.profile\.role\) === "technician"/);
+  assert.match(api, /!allows\(principal, "view_engineering_operations"\) && !\(isTechnician && allows\(principal, "view_pm"\)\)/);
+  assert.match(api, /can_edit: allows\(principal, "manage_rooms"\)/);
+  assert.match(api, /\.in\("status", \["Open", "In Progress"\]\)/);
+  assert.match(api, /\.or\("technician_name\.is\.null,technician_name\.eq\."\)/);
+  assert.match(api, /\.eq\("technician_name", technicianName\)/);
+  assert.match(dashboard, /data-cmpri-modal-href="\/engineering\/preventive-maintenance"[^>]*>Preventive Maintenance/);
+});
+
 test("room operations do not show move or out-of-order event bubbles", () => {
   const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(page, /Moves: \{summary\.moves\}/);
   assert.doesNotMatch(page, /\["moves", "Moves"/);
   assert.doesNotMatch(page, /\["outOfOrder", "Out of Order"/);
-  assert.doesNotMatch(page, /rounded-full[^>]*>Move \{/);
   assert.match(page, /isOutOfOrder\(row\.room_status\)[\s\S]*text-red-200/);
+  assert.match(page, /function CheckoutPill/);
+  assert.match(page, /function MovePill/);
+  assert.match(page, /border-yellow-400\/45 bg-yellow-950\/35 text-yellow-200/);
+  assert.match(page, /rounded-full border border-red-400\/60 bg-red-950\/70 px-2 py-0\.5 text-xs font-bold/);
+  assert.doesNotMatch(page, /<div className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300"><div className="font-semibold text-slate-500">Move/);
+  assert.doesNotMatch(page, /Incoming<\/div>|<strong className="text-slate-400">Incoming:/);
+  assert.match(page, /function RoomIdentity/);
+  assert.match(page, /isRailwayCnGuestName\(row\.guest_name\)/);
+  assert.match(page, /src="\/railway-cn-logo\.png"/);
+  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">\{row\.guest_name\}<\/div>/);
 });
 
+test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
+  const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
+  const ast = ts.createSourceFile("room-operations-page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const functions = ["daysUntilCheckout", "checkoutLabel", "checkoutClass"].map((name) => {
+    const node = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+    assert.ok(node, `${name} must be declared`);
+    return node.getText(ast);
+  });
+  const checkoutExports = {};
+  vm.runInNewContext(
+    ts.transpileModule(
+      `${functions.join("\n")}\nexports.daysUntilCheckout = daysUntilCheckout; exports.checkoutLabel = checkoutLabel; exports.checkoutClass = checkoutClass;`,
+      { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+    ).outputText,
+    {
+      exports: checkoutExports,
+      hotelDate: () => "2026-10-05",
+      displayDate: (value) => value,
+    },
+  );
+  assert.equal(checkoutExports.daysUntilCheckout("2026-10-06", "2026-10-05"), 1);
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-05", checkout_time: "10:00 AM" }), "Checkout today · 10:00 AM");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-06", checkout_time: "10:30 AM" }), "Checkout tomorrow · 10:30 AM");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-08", checkout_time: "" }), "2026-10-08 · 11:00 AM");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-07", checkout_time: "11:00 AM" }), "2026-10-07 · 11:00 AM");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-04", checkout_time: "9:00 AM" }), "Overdue · 2026-10-04 · 9:00 AM");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: null, checkout_time: null }), "");
+  assert.equal(checkoutExports.daysUntilCheckout("2027-01-01", "2026-12-31"), 1);
+  assert.match(checkoutExports.checkoutClass(0), /text-green-200/);
+  assert.match(checkoutExports.checkoutClass(1), /text-yellow-200/);
+  assert.match(checkoutExports.checkoutClass(-1), /text-red-200/);
+  for (const days of [2, 3, 90, null]) {
+    assert.equal(checkoutExports.checkoutClass(days), "text-xs text-slate-400");
+  }
+});
+
+test("room cards and summary modal share a soft guest layout and compact OOO pill", () => {
+  const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
+  const ast = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const names = ["daysUntilCheckout", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
+  const functions = names.map(name => {
+    const node = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+    assert.ok(node, `${name} must be declared`);
+    return node.getText(ast);
+  });
+  const components = {};
+  vm.runInNewContext(ts.transpileModule(
+    `${functions.join("\n")}\nexports.RoomDetails = RoomDetails;`,
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
+  ).outputText, {
+    exports: components, React, Image: props => React.createElement("img", props),
+    isRailwayCnGuestName, hotelDate: () => "2026-10-05", displayDate: value => value,
+  });
+  const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
+    room: "103", guest_name: "RAILWAY/CN-NJ8", room_status: "OOO",
+    guest_arrival_date: "2026-10-01", stay_nights: 4, room_type: "Hidden type", guest_code: "Hidden code",
+    checkout_date: "2026-10-07", checkout_time: "10:30 AM",
+  } }));
+  assert.match(html, /text-lg font-black text-white">Room 103/);
+  assert.match(html, /h-\[1\.5em\] w-auto[^"]*text-lg/);
+  assert.match(html, /<div class="mt-1 break-words text-lg font-normal text-slate-400">RAILWAY\/CN-NJ8<\/div>/);
+  assert.match(html, /text-sm text-slate-400/);
+  assert.doesNotMatch(html, /Current arrival|2026-10-01/);
+  assert.match(html, /LOS: 4 nights/);
+  assert.match(html, /rounded-full border border-red-400\/45 bg-red-950\/35 px-2 py-0\.5 text-xs font-semibold text-red-200">Out of Order/);
+  assert.match(html, /class="text-xs text-slate-400">2026-10-07 · 10:30 AM/);
+  assert.doesNotMatch(html, /Hidden type|Hidden code|>OOO<|<strong/);
+  assert.equal((page.match(/<RoomDetails row=\{row\} \/>/g) || []).length, 2);
+});
 test("work-order room context reads today's checkout time from the room snapshot", () => {
   const page = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
   assert.match(page, /fetch\("\/api\/room-operations", \{ headers, cache: "no-store" \}\)/);
@@ -264,8 +578,14 @@ test("room-operations image extraction endpoint sends image parts to ChatGPT vis
   assert.match(extractRoute, /OPENAI_API_KEY/);
   assert.match(extractRoute, /api\.openai\.com\/v1\/chat\/completions/);
   assert.match(extractRoute, /image_url/);
+  assert.match(extractRoute, /createRoomOperationsOcrCrops/);
+  assert.match(extractRoute, /two enlarged, slightly overlapping table crops/);
   assert.match(extractRoute, /gpt-4o/);
-  assert.match(extractRoute, /Room,Room Status,Guest Name,Room Type,LOS,Reserved/);
+  assert.match(extractRoute, /Room,Room Status,Guest Name,Room Type,LOS,Blocked,Departure Date/);
+  assert.match(extractRoute, /Arv → Guest Arrival Date \(current guest\); Dep → Departure Date \(current guest\)/);
+  assert.match(extractRoute, /first Name column immediately after PP Code\/Code → Guest Name/);
+  assert.match(extractRoute, /Ignore the second Type and second Name columns to the right of Due In/);
+  assert.match(extractRoute, /Expected Departures report's Rm # column and copy its Dplm time/);
 });
 
 test("room-operations importer supports direct image upload and auto-import with ChatGPT", () => {

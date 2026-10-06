@@ -11,6 +11,9 @@ import {
   fetchWorkOrderNotifications,
   mergeWorkOrderNotifications,
   readWorkOrderNotificationCursor,
+  fetchDashboardInbox,
+  markServerDashboardNotificationsRead,
+  unreadWorkOrderNotificationCount,
   saveWorkOrderNotificationCursor,
   unseenWorkOrderNotifications,
   type WorkOrderNotification,
@@ -47,19 +50,21 @@ export default function TechnicianDashboard() {
   const [orders, setOrders] = useState<AssignedWorkOrder[]>([]);
   const [newWorkQueue, setNewWorkQueue] = useState<AssignedWorkOrder[]>([]);
   const [account, setAccount] = useState<CmpriClientSession["user"] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
   const [notificationError, setNotificationError] = useState("");
   const [notifications, setNotifications] = useState<WorkOrderNotification[]>([]);
+  const [dashboardInbox, setDashboardInbox] = useState<WorkOrderNotification[]>([]);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const loadingRef = useRef(false);
   const knownOrdersRef = useRef<Map<string, string> | null>(null);
-  const soundEnabledRef = useRef(true);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const notificationCursorRef = useRef<string | null>(null);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
-  const notificationCount = notifications.length;
+  const dashboardTokenRef = useRef("");
+  const soundEnabledRef = useRef(true);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const playAlertTone = useCallback(() => {
     if (!soundEnabledRef.current) return;
@@ -84,11 +89,6 @@ export default function TechnicianDashboard() {
     } catch {}
   }, []);
 
-  async function signOut() {
-    await signOutDevice();
-    router.replace("/");
-  }
-
   const refreshNotifications = useCallback(async (accessToken: string, userId: string) => {
     try {
       const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId, "technician");
@@ -109,6 +109,21 @@ export default function TechnicianDashboard() {
     }
   }, [playAlertTone]);
 
+  const refreshDashboardInbox = useCallback(async (accessToken: string) => {
+    try {
+      const result = await fetchDashboardInbox(accessToken);
+      dashboardTokenRef.current = accessToken;
+      setDashboardInbox(result.notifications);
+    } catch (error) {
+      setNotificationError(error instanceof Error ? error.message : "Dashboard notifications could not be loaded.");
+    }
+  }, []);
+
+  async function signOut() {
+    await signOutDevice();
+    router.replace("/");
+  }
+
   const loadAssignedWork = useCallback(async (silent = false) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -126,6 +141,7 @@ export default function TechnicianDashboard() {
       const currentAccount = accountPayload.user as CmpriClientSession["user"];
       setAccount(currentAccount);
       void refreshNotifications(session.access_token, currentAccount.id);
+      void refreshDashboardInbox(session.access_token);
       const response = await fetch("/api/work-orders?mode=technician", {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
@@ -148,7 +164,7 @@ export default function TechnicianDashboard() {
       if (!silent) setLoading(false);
       loadingRef.current = false;
     }
-  }, [playAlertTone, refreshNotifications]);
+  }, [playAlertTone, refreshDashboardInbox, refreshNotifications]);
 
   useEffect(() => {
     soundEnabledRef.current = readSoundPreference();
@@ -183,8 +199,23 @@ export default function TechnicianDashboard() {
     }
   }
 
+  async function toggleInbox() {
+    const opening = !inboxOpen;
+    setInboxOpen(opening);
+    if (!opening) return;
+    const unreadIds = dashboardInbox.filter((item) => item.is_read !== true).map((item) => item.id);
+    if (!unreadIds.length || !dashboardTokenRef.current) return;
+    try {
+      await markServerDashboardNotificationsRead(dashboardTokenRef.current, unreadIds);
+      setDashboardInbox((current) => current.map((item) => unreadIds.includes(item.id) ? { ...item, is_read: true } : item));
+    } catch (error) {
+      setNotificationError(error instanceof Error ? error.message : "Notifications could not be marked read.");
+    }
+  }
+
   const assignedOrders = orders.filter((order) => !!order.technician_name?.trim());
   const unassignedOrders = orders.filter((order) => !order.technician_name?.trim());
+  const unreadCount = unreadWorkOrderNotificationCount(dashboardInbox);
 
   function renderWorkOrder(order: AssignedWorkOrder) {
     const roomTitle = order.room || "No location";
@@ -221,14 +252,18 @@ export default function TechnicianDashboard() {
               <h1 className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></h1>
               <div className="mt-2 flex items-center gap-2">
                 <p className="text-[14pt] font-semibold tracking-tight text-slate-100">{account?.name?.trim() || account?.role || "Maintenance Technician"}</p>
-                {notificationCount > 0 && (
-                  <DashboardNotificationBell
-                    count={notificationCount}
-                    label={`${notificationCount} work-order notification${notificationCount === 1 ? "" : "s"}`}
-                    title="Go to work-order notifications"
-                    onClick={() => document.getElementById("technician-notifications")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
-                  />
-                )}
+                {notifications.length > 0 && <DashboardNotificationBell
+                  count={notifications.length}
+                  label={`${notifications.length} work-order update${notifications.length === 1 ? "" : "s"}`}
+                  title="Go to work-order updates"
+                  onClick={() => document.getElementById("technician-notifications")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+                />}
+                {dashboardInbox.length > 0 && <DashboardNotificationBell
+                  count={unreadCount}
+                  label={`${unreadCount} unread active notification${unreadCount === 1 ? "" : "s"}`}
+                  title="Open active work-order notifications"
+                  onClick={() => void toggleInbox()}
+                />}
               </div>
               <p className="mt-1 text-[9pt] font-medium text-sky-200/90">Maintenance Technician</p>
             </div>
@@ -244,6 +279,7 @@ export default function TechnicianDashboard() {
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-[9pt] font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
             <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
@@ -252,11 +288,29 @@ export default function TechnicianDashboard() {
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-3 py-2 text-xs font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
         </div>
 
+        {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
+        {inboxOpen && <section aria-label="Work-order notifications" className="mt-3 rounded-lg border border-sky-400/40 bg-sky-950/25 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-sky-100">Active notifications · {dashboardInbox.length}</h2>
+            <button type="button" onClick={() => setInboxOpen(false)} className="rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-semibold text-sky-100">Close</button>
+          </div>
+          {dashboardInbox.length ? <ul className="mt-2 divide-y divide-sky-400/20">
+            {dashboardInbox.map((notification) => (
+              <li key={notification.id}>
+                <Link href={notification.target_path || (notification.work_order_id ? `/work-orders/${encodeURIComponent(notification.work_order_id)}` : "/technician")} className="block py-2 text-sm text-sky-100 hover:underline">
+                  {notification.message}
+                  {notification.is_read === true && <span className="ml-2 text-xs text-slate-400">Read</span>}
+                </Link>
+              </li>
+            ))}
+          </ul> : <p className="mt-2 text-sm text-slate-300">No active notifications.</p>}
+        </section>}
         <div id="technician-notifications">
           <WorkOrderNotificationBanner
             notifications={notifications}
@@ -264,7 +318,6 @@ export default function TechnicianDashboard() {
             dismissLabel="Dismiss my alerts"
           />
         </div>
-        {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
 
         {newWorkQueue.length > 0 && (
           <section role="alert" aria-live="assertive" className="mt-4 rounded-lg border border-emerald-400/50 bg-emerald-950/25 p-3">

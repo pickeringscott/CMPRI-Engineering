@@ -7,6 +7,7 @@ const required = {
     'id', 'hotel_id', 'status', 'submitted_by_name', 'submitted_by_user_id',
     'creator_account_user_id', 'revision', 'reporter_notes', 'source_draft_id',
     'source_draft_created_by', 'source_draft_creator_name', 'last_assigned_technician_name',
+    'import_source', 'import_external_id', 'import_reported_at', 'imported_at', 'imported_by_user_id',
   ],
   cmpri_work_order_drafts: [
     'id', 'hotel_id', 'created_by', 'location_id', 'issue', 'notes',
@@ -32,6 +33,14 @@ const required = {
   cmpri_warranty_cases: ['id', 'hotel_id'],
   cmpri_supplier_followups: ['id', 'hotel_id'],
   cmpri_gss_reports: ['id', 'hotel_id'],
+  cmpri_room_ranker_sync_queue: [
+    'id', 'hotel_id', 'work_order_id', 'attempts', 'next_attempt_at',
+    'processed_at', 'last_error', 'created_at', 'updated_at',
+  ],
+  cmpri_dashboard_notifications: [
+    'id', 'hotel_id', 'recipient_user_id', 'notification_key', 'work_order_id',
+    'target_path', 'message', 'recorded_at', 'read_at', 'cleared_at',
+  ],
 };
 try {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

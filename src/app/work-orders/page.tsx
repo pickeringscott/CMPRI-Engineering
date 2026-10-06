@@ -16,28 +16,28 @@ import AccountSummary from "@/components/AccountSummary";
 
 import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
-import { priorityForCategory, categoryFromIssue, inferWorkOrder, assetTermsForPlumbingIssue } from "@/lib/work-order-suggestions";
+import { priorityForCategory, inferWorkOrder } from "@/lib/work-order-suggestions";
 import { categoryOptions } from "@/lib/work-order-categories";
 import { validFirstName } from "@/lib/work-order-attribution";
+import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
+import {
+  cleanIssueLocationPrefix,
+  createSuggestionFromIssueClause,
+  detectMultipleCreateIssues,
+  findLocationFromText,
+  type RelatedIssueSuggestion,
+  type WorkOrderLocation as Location,
+} from "@/lib/work-order-creation";
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
-
-type Location = {
-  id: string;
-  area: string;
-  name: string;
-  room_number: string | null;
-  location_type: string;
-  room_status?: string | null;
-};
-
 
 type WorkOrderDraft = {
   id: string;
   created_by: string;
   creator_name?: string | null;
   creator_role?: string | null;
+  can_edit?: boolean;
   can_delete?: boolean;
   staff_first_name?: string | null;
   location_id: string;
@@ -93,6 +93,7 @@ type WorkOrder = {
   due_by: string | null;
   creator_name: string;
 };
+type CreatedWorkOrder = { id: string; display_id: string; status: string };
 
 
 
@@ -100,18 +101,6 @@ type WorkOrder = {
 
 
 
-
-type RelatedIssueSuggestion = {
-  key: string;
-  title: string;
-  issue: string;
-  assetName: string;
-  assetTerms: string[];
-  category: string;
-  priority: string;
-  locationId?: string | null;
-  locationName?: string;
-};
 
 type NotesAnalysis = {
   detectedCode: string | null;
@@ -284,112 +273,6 @@ function assetsForLocation(
   return assets.filter((asset) => asset.location_id === location.id);
 }
 
-function findLocationFromText(
-  text: string,
-  locations: Location[]
-) {
-  const value = text.toLowerCase().trim();
-
-  const explicitRoom =
-    value.match(/\b(?:room|rm)\s*#?\s*(\d{3})\b/i);
-
-  const leadingRoom =
-    value.match(/^\s*#?(\d{3})\b/);
-
-  const inRoom =
-    value.match(/\bin\s+(?:room\s*)?#?(\d{3})\b/i);
-
-  const roomNumber =
-    explicitRoom?.[1] ||
-    leadingRoom?.[1] ||
-    inRoom?.[1];
-
-  if (roomNumber) {
-    const room =
-      locations.find(
-        (location) =>
-          location.room_number === roomNumber ||
-          location.name.toLowerCase() ===
-            `room ${roomNumber}`
-      );
-
-    if (room) {
-      return room;
-    }
-  }
-
-  const namedLocations = [
-    ["pool pump room", "Pool Pump Room"],
-    ["pool area", "Pool Area"],
-    ["pool", "Pool Area"],
-    ["guest laundry", "Guest Laundry"],
-    ["boh laundry", "BoH Laundry"],
-    ["back of house laundry", "BoH Laundry"],
-    ["fitness area", "Fitness Area"],
-    ["fitness room", "Fitness Area"],
-    ["maintenance shop", "Maintenance Shop"],
-    ["conference room", "Conference Room"],
-    ["fire pump", "Fire Pump"],
-    ["pbx", "PBX"],
-    ["lobby", "Lobby / General"],
-  ];
-
-  for (const [phrase, locationName] of namedLocations) {
-    if (value.includes(phrase)) {
-      const location =
-        locations.find(
-          (item) =>
-            item.name.toLowerCase() ===
-            locationName.toLowerCase()
-        );
-
-      if (location) {
-        return location;
-      }
-    }
-  }
-
-  return undefined;
-}
-
-
-function capitalizeIssue(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-  return trimmed.replace(/[A-Za-z]/, (letter) => letter.toUpperCase());
-}
-
-function capitalizeIssuePreservingWhitespace(text: string) {
-  return text.replace(/[A-Za-z]/, (letter) => letter.toUpperCase());
-}
-
-function cleanIssueLocationPrefix(text: string, locations: Location[], selectedLocation?: Location | null) {
-  const detectedLocation = findLocationFromText(text, locations);
-  const location = detectedLocation || selectedLocation || null;
-
-  const leadingRoom = text.match(/^\s*(?:room|rm)?\s*#?\s*(\d{3})\b\s*[-:,.]?\s*/i)?.[1] || "";
-  const room =
-    detectedLocation?.room_number ||
-    detectedLocation?.name.match(/\b(\d{3})\b/)?.[1] ||
-    selectedLocation?.room_number ||
-    selectedLocation?.name.match(/\b(\d{3})\b/)?.[1] ||
-    leadingRoom;
-
-  let cleaned = text;
-  if (room) {
-    const prefix = new RegExp(`^\\s*(?:room|rm)?\\s*#?\\s*${room}\\b\\s*[-:,.]?\\s*`, "i");
-    const suffix = new RegExp(`\\s+\\bin\\s+(?:room\\s*)?#?${room}\\b\\s*$`, "i");
-    cleaned = cleaned.replace(prefix, "").replace(suffix, "").trim();
-  }
-
-  if (!cleaned && /^\s*(?:room|rm)?\s*#?\s*\d{3}\s*$/i.test(text)) {
-    cleaned = text.trim();
-  }
-
-  return { location, issue: capitalizeIssue(cleaned || text) };
-}
-
-
 function analyzeTechnicianNotes(
   notes: string
 ): NotesAnalysis {
@@ -536,119 +419,6 @@ function analyzeTechnicianNotes(
 
 
 
-function createSuggestionFromIssueClause(
-  clause: string,
-  index: number,
-  locations: Location[] = [],
-  fallbackLocation?: Location | null
-): RelatedIssueSuggestion {
-  const { location: detectedLocation, issue: strippedPrefix } = cleanIssueLocationPrefix(clause.trim().replace(/^[-,:.\s]+/, ""), locations);
-  const resolvedLocation = detectedLocation || fallbackLocation || null;
-  const cleaned = capitalizeIssuePreservingWhitespace(strippedPrefix);
-  const category = categoryFromIssue(cleaned) || "General";
-  const lower = cleaned.toLowerCase();
-
-  let assetName = "General Maintenance";
-  let assetTerms: string[] = [];
-
-  if (/\b(tv|television|screen|no signal|black screen)\b/.test(lower)) {
-    assetName = "TV";
-    assetTerms = ["tv", "television", "enseo"];
-  } else if (/\b(cool|cooling|heat|heating|hvac|thermostat|air conditioner|ac|vtac|ptac)\b/.test(lower)) {
-    assetName = "Room HVAC";
-    assetTerms = ["vtac", "ptac", "hvac", "friedrich", "zoneline", "air conditioner"];
-  } else if (/\b(toilet|sink|faucet|shower|drain|pipe|leak|plumbing)\b/.test(lower)) {
-    assetName = "Plumbing Fixture";
-    assetTerms = assetTermsForPlumbingIssue(cleaned);
-  } else if (/\b(light|bulb|lamp|outlet|switch|electrical)\b/.test(lower)) {
-    assetName = "Electrical / Lighting";
-    assetTerms = ["light", "lighting", "fixture", "outlet", "switch"];
-  } else if (/\b(pool|humidity|humid|dehumid|ventilation|exhaust)\b/.test(lower)) {
-    assetName = "Pool HVAC / Ventilation";
-    assetTerms = ["dehumid", "ventilation", "exhaust", "hvac", "pool"];
-  } else if (/\b(fridge|refrigerator)\b/.test(lower)) {
-    assetName = "Refrigerator";
-    assetTerms = ["refrigerator", "fridge"];
-  } else if (/\b(lock|keycard|key card|saflok)\b/.test(lower)) {
-    assetName = "Door Lock";
-    assetTerms = ["lock", "saflok", "dormakaba"];
-  }
-
-  return {
-    key: `create-${index}-${cleaned.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
-    title: cleaned,
-    issue: cleaned,
-    assetName,
-    assetTerms,
-    category,
-    priority: priorityForCategory(category),
-    locationId: resolvedLocation?.id ?? null,
-    locationName: resolvedLocation?.name ?? "",
-  };
-}
-
-export function splitMaintenanceIssueClauses(value: string) {
-  const hasExplicitSeparator = /(?:\n+|;|\s*\|\s*|,\s+|\s+\band\s+)/i.test(value);
-  const explicit = value
-    .split(/(?:\n+|;|\s*\|\s*|,\s+|\s+\band\b\s+)/i)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 3);
-
-  const starter = /\b(?:not\s+cooling|not\s+heating|no\s+cooling|no\s+heat|too\s+humid|humidity|(?:bathroom\s+)?sink\s+leak(?:ing)?|bathroom\s+sink|kitchen\s+sink|sink|toilet|faucet|shower|drain|leak(?:ing)?|bedroom\s+tv|living\s+room\s+tv|tv|television|light(?:ing)?|outlet|door\s+lock|keycard|refrigerator|fridge|pool\s+pump|pool\s+filter)\b/gi;
-
-  const output: string[] = [];
-  for (const piece of explicit) {
-    const starts: number[] = [];
-    starter.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = starter.exec(piece))) {
-      if (!starts.length || (!hasExplicitSeparator && match.index > starts[starts.length - 1])) {
-        starts.push(match.index);
-      }
-    }
-
-    if (starts.length < 2) {
-      output.push(piece);
-      continue;
-    }
-
-    // Preserve a leading room/location token with the first detected issue.
-    const firstStart = starts[0];
-    const boundaries = [0, ...starts.slice(1)];
-    for (let i = 0; i < boundaries.length; i += 1) {
-      const start = boundaries[i];
-      const end = i + 1 < boundaries.length ? boundaries[i + 1] : piece.length;
-      const clause = piece.slice(start, end).trim().replace(/^[,;:\-]+|[,;:\-]+$/g, "").trim();
-      if (clause.length >= 3) output.push(clause);
-    }
-
-    if (firstStart > 0 && output.length) {
-      const prefix = piece.slice(0, firstStart).trim();
-      if (prefix && !output[output.length - boundaries.length].startsWith(prefix)) {
-        output[output.length - boundaries.length] = `${prefix} ${output[output.length - boundaries.length]}`.trim();
-      }
-    }
-  }
-  return output;
-}
-
-export function detectMultipleCreateIssues(issue: string, locations: Location[] = [], fallbackLocation?: Location | null): RelatedIssueSuggestion[] {
-  const source = issue.trim();
-  if (!source) return [];
-
-  const pieces = splitMaintenanceIssueClauses(source);
-  if (pieces.length < 2) return [];
-
-  const suggestions = pieces.map((piece, index) => createSuggestionFromIssueClause(piece, index, locations, fallbackLocation));
-  const meaningful = suggestions.filter((item) => item.category !== "General").length;
-
-  // Multiple independent maintenance signatures are required, but punctuation
-  // is not. This lets natural front-desk reports such as "not cooling bathroom
-  // sink leaking bedroom TV fucked" become three reviewable work orders.
-  if (meaningful < 2) return [];
-  return suggestions;
-}
-
 function categoryForAsset(asset: Asset) { return classifyAsset(asset); }
 
 function extractReportedErrorCode(
@@ -728,6 +498,12 @@ export default function WorkOrdersPage() {
 
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState("");
+  const [photoUploadId, setPhotoUploadId] = useState("");
+  const [canReplacePhoto, setCanReplacePhoto] = useState(false);
+  const [pendingPhotoUploads, setPendingPhotoUploads] = useState<Array<Pick<CreatedWorkOrder, "id" | "display_id">>>([]);
+  const [retryingPhotoUpload, setRetryingPhotoUpload] = useState(false);
+  const photoFileInputRef = useRef<HTMLInputElement>(null);
+  const photoCameraInputRef = useRef<HTMLInputElement>(null);
 
   const [
     manualLocation,
@@ -944,7 +720,7 @@ export default function WorkOrdersPage() {
         await Promise.all([
           loadLocations(),
           loadAssets(),
-          loadWorkOrders(session.capabilities.includes("view_dashboard")),
+          loadWorkOrders(session.capabilities.includes("view_work_orders")),
           loadDrafts(),
           loadProfilePreference(),
         ]);
@@ -977,8 +753,10 @@ export default function WorkOrdersPage() {
     "engineer", "engineers", "engineering", "chiefengineer", "engineeringmanager", "regionalmaintenance", "regionalengineer",
     "technician", "maintenancetechnician",
   ].includes(currentRoleKey);
-  const isFrontDeskUser = ["frontdesk", "frontdeskmanager"].includes(currentRoleKey);
-  const isSubmitOnlyUser = ["front desk", "front desk manager", "frontdesk", "frontdeskmanager", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
+  const isFrontDeskUser = ["frontdesk", "frontdeskmanager", "assistantgm", "assistantgeneralmanager", "assistantmanager"].includes(currentRoleKey);
+  const isSubmitOnlyUser = ["front desk", "front desk manager", "frontdesk", "frontdeskmanager", "assistant general manager", "assistant manager", "assistantgm", "assistantgeneralmanager", "assistantmanager", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["assistantgm", "assistantgeneralmanager", "assistantmanager", "leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
+  const canSetEngineeringFields = Boolean(cmpriSession?.capabilities.includes("edit_tickets") || cmpriSession?.capabilities.includes("review_tickets"));
+  const systemAssignedTechnicalFields = isSubmitOnlyUser || !canSetEngineeringFields;
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
   const selectedCreateAssetId = selectedCreateAsset?.id;
   const selectedCreateDocumentationKey = selectedCreateAsset?.documentation_key;
@@ -1074,7 +852,7 @@ export default function WorkOrdersPage() {
       combinedText,
       workingAssets,
     );
-    const shouldAutoSelectAsset = !manualAsset || Boolean(locationOverride) || isSubmitOnlyUser;
+    const shouldAutoSelectAsset = !manualAsset || Boolean(locationOverride) || systemAssignedTechnicalFields;
     if (shouldAutoSelectAsset) setAssetId(suggestion.assetId || "");
     const effectiveAssetId = shouldAutoSelectAsset ? suggestion.assetId : assetId;
     const matchedAsset = workingAssets.find(item => item.id === effectiveAssetId);
@@ -1088,7 +866,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualCategory || locationOverride || isSubmitOnlyUser)
+      (!manualCategory || locationOverride || systemAssignedTechnicalFields)
     ) {
       setCategory(
         smartCategory
@@ -1097,7 +875,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualPriority || locationOverride || isSubmitOnlyUser)
+      (!manualPriority || locationOverride || systemAssignedTechnicalFields)
     ) {
       setPriority(
         priorityForCategory(
@@ -1273,6 +1051,7 @@ export default function WorkOrdersPage() {
     );
 
   function restoreDraft(draft: WorkOrderDraft) {
+    if (draft.created_by !== cmpriSession?.user.id && !draft.can_edit) return;
     setActiveDraftId(draft.id);
     setActiveDraftRevision(draft.revision);
     setStaffFirstName(draft.staff_first_name || "");
@@ -1305,10 +1084,10 @@ export default function WorkOrdersPage() {
         location_id: locationId,
         issue: cleanIssueLocationPrefix(issue, locations, selected).issue,
         notes,
-        asset_id: isSubmitOnlyUser ? null : (asset?.id || null),
-        asset_name: isSubmitOnlyUser ? "" : (asset?.name || ""),
-        category: isSubmitOnlyUser ? "General" : category,
-        priority: isSubmitOnlyUser ? "Medium" : priority,
+        asset_id: systemAssignedTechnicalFields ? null : (asset?.id || null),
+        asset_name: systemAssignedTechnicalFields ? "" : (asset?.name || ""),
+        category: systemAssignedTechnicalFields ? "General" : category,
+        priority: systemAssignedTechnicalFields ? "Medium" : priority,
       };
       const response = await fetch("/api/work-orders/drafts", {
         method: activeDraftId ? "PATCH" : "POST",
@@ -1368,7 +1147,11 @@ export default function WorkOrdersPage() {
     }
   }
 
-  function resetWorkOrderForm() {
+  function resetWorkOrderForm(force = false) {
+    if (pendingPhotoUploads.length > 0 && !force) {
+      setMessage("Retry the pending photo upload before discarding this created work order.");
+      return;
+    }
     setActiveDraftId("");
     setActiveDraftRevision(null);
     setStaffFirstName("");
@@ -1380,6 +1163,12 @@ export default function WorkOrdersPage() {
     setNotes("");
     setPhoto(null);
     setPhotoUploadError("");
+    setPhotoUploadId("");
+    setCanReplacePhoto(false);
+    setPendingPhotoUploads([]);
+    setRetryingPhotoUpload(false);
+    if (photoFileInputRef.current) photoFileInputRef.current.value = "";
+    if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
 
     setManualLocation(false);
     setManualAsset(false);
@@ -1400,6 +1189,11 @@ export default function WorkOrdersPage() {
   }
 
   function finishCancelCreateForm() {
+    if (pendingPhotoUploads.length > 0) {
+      setMessage("Retry the pending photo upload before discarding this created work order.");
+      setShowCancelConfirm(false);
+      return;
+    }
     resetWorkOrderForm();
     setBatchCreateSuggestions([]);
     setShowBatchCreateDialog(false);
@@ -1414,6 +1208,10 @@ export default function WorkOrdersPage() {
   }
 
   function requestCancelCreateForm() {
+    if (pendingPhotoUploads.length > 0) {
+      setMessage("Retry the pending photo upload before discarding this created work order.");
+      return;
+    }
     if (createHasUnsavedChanges || activeDraftId) {
       setShowCancelConfirm(true);
       return;
@@ -1548,12 +1346,20 @@ export default function WorkOrdersPage() {
     setShowRelatedWorkOrderDialog(false);
 
     if (mainWorkOrderCreated) {
+      if (pendingPhotoUploads.length > 0) {
+        setMessage("The work order was created. Retry its pending photo upload before continuing.");
+        return;
+      }
       resetWorkOrderForm();
       notifyCreateModal("cmpri-work-order-created");
     }
   }
 
   async function createRelatedWorkOrders() {
+    if (pendingPhotoUploads.length > 0) {
+      setMessage("Retry the pending photo upload before creating related work orders.");
+      return;
+    }
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
       setMessage("Enter your first name before submitting.");
       return;
@@ -1592,10 +1398,16 @@ export default function WorkOrdersPage() {
 
     const displayIds = result.workOrders.map((item) => item.display_id).filter(Boolean);
     setShowRelatedWorkOrderDialog(false);
+    if (result.photoUploadPending) {
+      setMessage("Related work orders were created, but their photo upload is pending. Retry the photo upload to finish.");
+      setCreatingRelatedWorkOrders(false);
+      setCreateState("created");
+      return;
+    }
     setMessage(isSubmitOnlyUser
       ? `${rows.length} related request${rows.length === 1 ? "" : "s"} submitted for Engineering verification${displayIds.length ? `: ${displayIds.join(", ")}` : "."}`
       : `${rows.length} related work order${rows.length === 1 ? "" : "s"} created${displayIds.length ? `: ${displayIds.join(", ")}` : "."}`);
-    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_dashboard")));
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
     setCreatingRelatedWorkOrders(false);
 
     if (mainWorkOrderCreated) {
@@ -1660,9 +1472,16 @@ export default function WorkOrdersPage() {
     }
 
     const remaining = batchCreateSuggestions.filter((item) => item.key !== suggestion.key);
+    if (result.photoUploadPending) {
+      setBatchCreateSuggestions(remaining);
+      setShowBatchCreateDialog(false);
+      setCreateState("created");
+      setMessage("The work order was created, but its photo upload is pending. Retry the photo upload to finish.");
+      return;
+    }
     if (remaining.length === 0) {
       await clearSubmittedDraft();
-      await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_dashboard")));
+      await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
       setShowBatchCreateDialog(false);
       setBatchCreateSuggestions([]);
       setCreateState("created");
@@ -1735,10 +1554,15 @@ export default function WorkOrdersPage() {
     }
 
     await clearSubmittedDraft();
-    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_dashboard")));
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
     setCreatingBatchWorkOrders(false);
     setShowBatchCreateDialog(false);
     setCreateState("created");
+    if (result.photoUploadPending) {
+      setBatchCreateSuggestions([]);
+      setMessage("Work orders were created, but their photo upload is pending. Retry the photo upload to finish.");
+      return;
+    }
     setMessage(isSubmitOnlyUser
       ? `${rows.length} requests submitted for Engineering verification.`
       : `${rows.length} work orders created.`);
@@ -1751,11 +1575,22 @@ export default function WorkOrdersPage() {
     }, 900);
   }
 
-  async function submitWorkOrders(orders: Record<string, unknown> | Record<string, unknown>[]) {
+  async function submitWorkOrders(orders: Record<string, unknown> | Record<string, unknown>[]): Promise<{
+    error: { message: string } | null;
+    workOrders: CreatedWorkOrder[];
+    photoUploadPending: boolean;
+  }> {
+    if (pendingPhotoUploads.length > 0) {
+      return {
+        error: { message: "Retry the pending photo upload before creating more work orders." },
+        workOrders: [],
+        photoUploadPending: true,
+      };
+    }
     try {
       const session = await getValidSession();
       if (!session) {
-        return { error: { message: "Sign in again before submitting." }, workOrders: [] as Array<{ id: string; display_id: string; status: string }> };
+        return { error: { message: "Sign in again before submitting." }, workOrders: [], photoUploadPending: false };
       }
       const response = await fetch("/api/work-orders", {
         method: "POST",
@@ -1770,22 +1605,24 @@ export default function WorkOrdersPage() {
       if (!response.ok || result.ok !== true) {
         return {
           error: { message: result.error || "Unable to confirm work-order submission. Check the list before retrying." },
-          workOrders: [] as Array<{ id: string; display_id: string; status: string }>,
+          workOrders: [],
+          photoUploadPending: false,
         };
       }
-      const workOrders = Array.isArray(result.work_orders) ? result.work_orders as Array<{ id: string; display_id: string; status: string }> : [];
+      const workOrders = Array.isArray(result.work_orders) ? result.work_orders as CreatedWorkOrder[] : [];
+      let photoUploadPending = false;
       if (photo && workOrders.length) {
-        for (const workOrder of workOrders) {
-          const form = new FormData();
-          form.append("photo", photo);
-          const uploadResponse = await fetch(`/api/work-orders/${encodeURIComponent(workOrder.id)}/attachments`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: form,
-          });
-          if (!uploadResponse.ok) {
-            const uploadPayload = await uploadResponse.json().catch(() => ({}));
-            setPhotoUploadError(uploadPayload.error || "The work order was created, but its photo could not be uploaded.");
+        const uploadId = photoUploadId || crypto.randomUUID();
+        if (!photoUploadId) setPhotoUploadId(uploadId);
+        for (let index = 0; index < workOrders.length; index += 1) {
+          const workOrder = workOrders[index];
+          const upload = await uploadWorkOrderAttachment(workOrder.id, photo, session.access_token, uploadId);
+          if (!upload.ok) {
+            const failedUploads = workOrders.slice(index).map(({ id, display_id }) => ({ id, display_id }));
+            setPendingPhotoUploads(failedUploads);
+            setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
+            setCanReplacePhoto(upload.canReplace);
+            photoUploadPending = true;
             break;
           }
         }
@@ -1793,13 +1630,90 @@ export default function WorkOrdersPage() {
       return {
         error: null,
         workOrders,
+        photoUploadPending,
       };
     } catch {
       return {
         error: { message: "Submission could not be confirmed. Check the work-order list before retrying." },
-        workOrders: [] as Array<{ id: string; display_id: string; status: string }>,
+        workOrders: [],
+        photoUploadPending: false,
       };
     }
+  }
+
+  async function retryPendingPhotoUploads() {
+    if (retryingPhotoUpload || !photo || !photoUploadId || pendingPhotoUploads.length === 0) return;
+    let session;
+    try {
+      session = await getValidSession();
+    } catch {
+      setPhotoUploadError("Your sign-in could not be verified. Retry after reconnecting.");
+      return;
+    }
+    if (!session) {
+      setPhotoUploadError("Sign in again before retrying the photo upload.");
+      return;
+    }
+
+    setRetryingPhotoUpload(true);
+    try {
+      const pending = pendingPhotoUploads;
+      let failedUploads: typeof pending = [];
+      for (let index = 0; index < pending.length; index += 1) {
+        const workOrder = pending[index];
+        const upload = await uploadWorkOrderAttachment(workOrder.id, photo, session.access_token, photoUploadId);
+        if (!upload.ok) {
+          failedUploads = pending.slice(index);
+          setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
+          setCanReplacePhoto(upload.canReplace);
+          break;
+        }
+      }
+      setPendingPhotoUploads(failedUploads);
+      if (failedUploads.length === 0) {
+        setPhotoUploadError("");
+        setCanReplacePhoto(false);
+        setMessage("Photo upload completed successfully.");
+        setBatchCreateSuggestions([]);
+        window.setTimeout(() => {
+          if (notifyCreateModal("cmpri-work-order-created", pending[0]?.display_id)) return;
+          resetWorkOrderForm(true);
+          setCreateState("idle");
+        }, 900);
+      }
+    } finally {
+      setRetryingPhotoUpload(false);
+    }
+  }
+
+  function chooseReplacementPhoto() {
+    if (!canReplacePhoto) return;
+    setPhoto(null);
+    setPhotoUploadId("");
+    setPhotoUploadError("");
+    if (photoFileInputRef.current) photoFileInputRef.current.value = "";
+    if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
+  }
+
+  function continueWithoutPhoto() {
+    if (!canReplacePhoto || retryingPhotoUpload || pendingPhotoUploads.length === 0) return;
+    const skippedUploads = pendingPhotoUploads;
+    setPendingPhotoUploads([]);
+    setPhoto(null);
+    setPhotoUploadError("");
+    setPhotoUploadId("");
+    setCanReplacePhoto(false);
+    setBatchCreateSuggestions([]);
+    if (photoFileInputRef.current) photoFileInputRef.current.value = "";
+    if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
+    setMessage(skippedUploads.length === 1
+      ? "Photo upload was skipped. The created work order remains saved."
+      : `Photo upload was skipped. The ${skippedUploads.length} created work orders remain saved.`);
+    window.setTimeout(() => {
+      if (notifyCreateModal("cmpri-work-order-created", skippedUploads[0]?.display_id)) return;
+      resetWorkOrderForm(true);
+      setCreateState("idle");
+    }, 900);
   }
 
   async function createWorkOrder(event: FormEvent<HTMLFormElement>) {
@@ -1867,7 +1781,14 @@ export default function WorkOrdersPage() {
 
     const displayId = result.workOrders[0]?.display_id || "Work order";
     await clearSubmittedDraft();
-    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_dashboard")));
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
+
+    if (result.photoUploadPending) {
+      setMessage(`Work order ${displayId} created. Its photo upload failed; retry the photo upload to finish.`);
+      setLoading(false);
+      setCreateState("created");
+      return;
+    }
 
     if (relatedIssueSuggestions.length > 0) {
       setMainWorkOrderCreated(true);
@@ -1986,13 +1907,14 @@ export default function WorkOrdersPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-white">Saved Drafts</h2>
-                <p className="text-xs text-slate-400">Your drafts are editable. Authorized supervisors can load, submit, or delete subordinate drafts without changing who originally created the report.</p>
+                <p className="text-xs text-slate-400">You can edit your own drafts. Engineers and System Administrators may review other pending drafts; other users see a read-only summary.</p>
               </div>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300">{drafts.length}</span>
             </div>
             <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
               {drafts.map((draft) => {
                 const ownDraft = draft.created_by === cmpriSession?.user.id;
+                const canEditDraft = ownDraft || Boolean(draft.can_edit);
                 const active = activeDraftId === draft.id;
                 return (
                   <div key={draft.id} className={`rounded-xl border p-3 ${active ? "border-sky-500 bg-sky-950/25" : "border-slate-800 bg-slate-950/55"}`}>
@@ -2002,7 +1924,9 @@ export default function WorkOrdersPage() {
                         <p className="mt-1 text-xs text-slate-500">{ownDraft ? "Your draft" : `Created by ${draft.creator_name || "another employee"}${draft.creator_role ? ` · ${draft.creator_role}` : ""}`}{draft.updated_at ? ` · Updated ${new Date(draft.updated_at).toLocaleString()}` : ""}</p>
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? "Load" : "Load to Submit"}</button>
+                        {canEditDraft
+                          ? <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? "Load" : "Review / Edit"}</button>
+                          : <span className="px-3 py-1.5 text-xs font-semibold text-slate-500">Read-only</span>}
                         {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-red-700/60 px-3 py-1.5 text-xs font-bold text-red-300 hover:bg-red-950/40 disabled:opacity-50">Delete</button>}
                       </div>
                     </div>
@@ -2043,15 +1967,15 @@ export default function WorkOrdersPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
                   </svg>
                 </label>
-                <input id="work-order-photo-file" type="file" accept="image/*" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
+                <input ref={photoFileInputRef} id="work-order-photo-file" type="file" accept="image/*" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => { const selectedPhoto = event.target.files?.[0] || null; setPhoto(selectedPhoto); setPhotoUploadId(selectedPhoto ? crypto.randomUUID() : ""); setPhotoUploadError(""); setCanReplacePhoto(false); }} className="sr-only" />
                 <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photo ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h3l1.4-2h7.2l1.4 2h3A1.5 1.5 0 0 1 21.5 9v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
                     <circle cx="12" cy="13" r="3.5" />
                   </svg>
                 </label>
-                <input id="work-order-photo-camera" type="file" accept="image/*" capture="environment" onChange={(event) => { setPhoto(event.target.files?.[0] || null); setPhotoUploadError(""); }} className="sr-only" />
-                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
+                <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => { const selectedPhoto = event.target.files?.[0] || null; setPhoto(selectedPhoto); setPhotoUploadId(selectedPhoto ? crypto.randomUUID() : ""); setPhotoUploadError(""); setCanReplacePhoto(false); }} className="sr-only" />
+                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || pendingPhotoUploads.length > 0 || retryingPhotoUpload} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
                 <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`hidden rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 sm:inline-flex ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
@@ -2059,7 +1983,7 @@ export default function WorkOrdersPage() {
               </div>
             </div>
 
-            {(photo || photoUploadError) && <div className="flex min-w-0 items-center gap-2 text-[11px]">{photo && <span className="max-w-[60%] truncate text-slate-400" title={photo.name}>Attached: {photo.name}</span>}{photoUploadError && <span role="alert" className="text-amber-300">{photoUploadError}</span>}</div>}
+            {(photo || photoUploadError) && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]">{photo && <span className="max-w-[60%] truncate text-slate-400" title={photo.name}>Attached: {photo.name}</span>}{photoUploadError && <span role="alert" className="text-amber-300">{photoUploadError}</span>}{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{photo && pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
 
             {isFrontDeskUser && <label className="block">
               <span className="mb-1 block text-sm font-medium"> {tx("Your first name", "Tu nombre")} <span className="text-red-300">*</span></span>
@@ -2107,42 +2031,61 @@ export default function WorkOrdersPage() {
             <div className="grid gap-2 md:grid-cols-3">
               <label className="block md:col-span-1">
                 <span className="mb-1 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
-                <SearchableSelect
-                  value={assetId}
-                  onChange={handleAssetChange}
-                  disabled={isSubmitOnlyUser || !locationId || loadingAssets}
-                  placeholder={!locationId ? tx("Select location first", "Selecciona la ubicación primero") : tx("Asset / Equipment", "Equipo / Activo")}
-                  options={createAssetOptions}
-                  topSuggestions={3}
-                  showSuggestionsOnOpen={false}
-                  expandOnOpen
-                />
+                {!canSetEngineeringFields ? (
+                  <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
+                    {!locationId
+                      ? tx("Select location first", "Selecciona la ubicación primero")
+                      : createAssetOptions.find((option) => option.value === assetId)?.label
+                        ?? tx("No specific asset / equipment", "Sin equipo específico")}
+                  </output>
+                ) : (
+                  <SearchableSelect
+                    value={assetId}
+                    onChange={handleAssetChange}
+                    disabled={!locationId || loadingAssets}
+                    placeholder={!locationId ? tx("Select location first", "Selecciona la ubicación primero") : tx("Asset / Equipment", "Equipo / Activo")}
+                    options={createAssetOptions}
+                    topSuggestions={3}
+                    showSuggestionsOnOpen={false}
+                    expandOnOpen
+                  />
+                )}
               </label>
 
               <label className="block">
                 <span className="mb-1 block text-sm font-medium"> {tx("Category", "Categoría")} </span>
-                <SearchableSelect
-                  value={category}
-                  disabled={isSubmitOnlyUser}
-                  onChange={(value) => { setManualCategory(true); setCategory(value); }}
-                  placeholder={tx("Category", "Categoría")}
-                  topSuggestions={2}
-                  options={categoryOptions(category).map((option) => ({ ...option, label: isSpanish ? (categoryLabelEs[option.value] || option.label) : option.label }))}
-                />
-                {isSubmitOnlyUser && <p className="mt-2 text-xs font-semibold text-emerald-400"> {tx("System best guess · Engineering verifies after submission", "Mejor estimación del sistema · Ingeniería verifica después del envío")} </p>}
+                {!canSetEngineeringFields ? (
+                  <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
+                    {isSpanish ? (categoryLabelEs[category] || category) : category}
+                  </output>
+                ) : (
+                  <SearchableSelect
+                    value={category}
+                    onChange={(value) => { setManualCategory(true); setCategory(value); }}
+                    placeholder={tx("Category", "Categoría")}
+                    topSuggestions={2}
+                    options={categoryOptions(category).map((option) => ({ ...option, label: isSpanish ? (categoryLabelEs[option.value] || option.label) : option.label }))}
+                  />
+                )}
+                {!canSetEngineeringFields && <p className="mt-2 text-xs font-semibold text-emerald-400"> {tx("System best guess · Engineering verifies after submission", "Mejor estimación del sistema · Ingeniería verifica después del envío")} </p>}
               </label>
 
               <label className="block">
                 <span className="mb-1 block text-sm font-medium"> {tx("Priority", "Prioridad")} </span>
-                <SearchableSelect
-                  value={priority}
-                  disabled={isSubmitOnlyUser}
-                  onChange={(value) => { setManualPriority(true); setPriority(value); }}
-                  placeholder={tx("Priority", "Prioridad")}
-                  topSuggestions={2}
-                  options={['Urgent','High','Medium','Low'].map((value) => ({ value, label: isSpanish ? ({ Urgent: 'Urgente', High: 'Alta', Medium: 'Media', Low: 'Baja' } as Record<string,string>)[value] : value }))}
-                />
-                {isSubmitOnlyUser && <p className="mt-2 text-xs font-semibold text-emerald-400"> {tx("System best guess · locked for submit-only roles", "Mejor estimación del sistema · bloqueado para funciones de solo envío")} </p>}
+                {!canSetEngineeringFields ? (
+                  <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
+                    {isSpanish ? ({ Urgent: "Urgente", High: "Alta", Medium: "Media", Low: "Baja" } as Record<string, string>)[priority] : priority}
+                  </output>
+                ) : (
+                  <SearchableSelect
+                    value={priority}
+                    onChange={(value) => { setManualPriority(true); setPriority(value); }}
+                    placeholder={tx("Priority", "Prioridad")}
+                    topSuggestions={2}
+                    options={['Urgent','High','Medium','Low'].map((value) => ({ value, label: isSpanish ? ({ Urgent: 'Urgente', High: 'Alta', Medium: 'Media', Low: 'Baja' } as Record<string,string>)[value] : value }))}
+                  />
+                )}
+                {!canSetEngineeringFields && <p className="mt-2 text-xs font-semibold text-emerald-400"> {tx("System best guess · locked for submit-only roles", "Mejor estimación del sistema · bloqueado para funciones de solo envío")} </p>}
               </label>
             </div>
 

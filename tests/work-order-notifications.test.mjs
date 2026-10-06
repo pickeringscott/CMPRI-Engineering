@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
 import {
   mergeWorkOrderNotifications,
   unseenWorkOrderNotifications,
@@ -9,7 +11,9 @@ import {
   workOrderNotificationsForRecipient,
   readDismissedWorkOrderViewNotifications,
   saveDismissedWorkOrderViewNotifications,
+  unreadWorkOrderNotificationCount,
 } from '../src/lib/dashboard/work-order-notifications.ts';
+import { receivesOrdinaryWorkOrderNotifications, receivesPoolClosedNotifications } from '../src/lib/server/roles.ts';
 
 function historyEvent(id, patch = {}) {
   return {
@@ -99,6 +103,7 @@ test('engineers are alerted on status changes and claims by anyone else', () => 
 
 test('engineer dashboard inbox records status and claim history for engineers only', () => {
   const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /const isEngineer = roleKey\(auth\.principal\.profile\.role\) === "engineer";/);
   assert.match(route, /if \(isEngineer\) \{[\s\S]*from\("cmpri_work_order_history"\)[\s\S]*\.in\("event_type", \["status_changed", "closed", "reopened", "claimed"\]\)[\s\S]*engineerHistoryNotifications\(history, userId\)/);
   const migration = readFileSync(new URL('../supabase/migrations/20260930220000_cmpri_work_order_history_notifications.sql', import.meta.url), 'utf8');
   assert.match(migration, /'actor_role', coalesce\(v_actor_role, ''\), 'after_close', v_after_close/);
@@ -142,6 +147,121 @@ test('engineer and technician notification cursors are independent', () => {
     workOrderNotificationCursorKey('shared-user', 'engineer'),
     workOrderNotificationCursorKey('shared-user', 'technician'),
   );
+});
+
+test('CMPRI notifications use the exact ordinary and pool-closure role lists', () => {
+  for (const role of ['Chief Engineer', 'Engineer', 'Maintenance Technician', 'Technician']) {
+    assert.equal(receivesOrdinaryWorkOrderNotifications(role), true, role);
+  }
+  for (const role of ['General Manager', 'Assistant General Manager', 'Front Desk Manager', 'System Administrator', 'Front Desk', 'Housekeeping', 'Senior Management']) {
+    assert.equal(receivesOrdinaryWorkOrderNotifications(role), false, role);
+  }
+  for (const role of ['Chief Engineer', 'Engineer', 'Maintenance Technician', 'Engineering Manager', 'Regional Maintenance', 'General Manager', 'Assistant General Manager', 'Front Desk Manager']) {
+    assert.equal(receivesPoolClosedNotifications({ role }), true, role);
+  }
+  for (const role of ['System Administrator', 'Front Desk', 'Housekeeping', 'Senior Management']) {
+    assert.equal(receivesPoolClosedNotifications({ role }), false, role);
+  }
+  assert.equal(receivesPoolClosedNotifications({ role: 'Front Desk', secondary_roles: ['Chief Engineer'] }), false);
+});
+
+test('read notifications immediately leave the unread count without being cleared', () => {
+  const items = [
+    { id: 'unread-1', work_order_id: null, target_path: '/engineering/pool-log', message: 'Pool closed', recorded_at: '2026-10-05T12:00:00Z' },
+    { id: 'read-1', work_order_id: 'order-1', message: 'Assigned', recorded_at: '2026-10-05T11:00:00Z', is_read: true },
+    { id: 'unread-2', work_order_id: 'order-2', message: 'New order', recorded_at: '2026-10-05T10:00:00Z', is_read: false },
+  ];
+  assert.equal(unreadWorkOrderNotificationCount(items), 2);
+  assert.equal(unreadWorkOrderNotificationCount(items.map((item) => ({ ...item, is_read: true }))), 0);
+});
+
+test('opening a dashboard notification marks it read before navigation and the badge counts only unread items', () => {
+  const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
+  assert.match(dashboard, /function openNotification\(notification: WorkOrderNotification\) \{\s*void markNotificationRead\(notification\);[\s\S]*?if \(notification\.target_path\)/);
+  assert.match(dashboard, /function openApprovals\(\) \{[\s\S]*?inbox\.forEach\(\(notification\) => \{\s*if \(!notification\.is_read\) void markNotificationRead\(notification\);\s*\}\)/);
+  assert.match(dashboard, /const unreadCount = unreadWorkOrderNotificationCount\(inbox\)/);
+  assert.match(dashboard, /count=\{notificationCount\}/);
+  assert.doesNotMatch(dashboard, /const notificationCount = inbox\.length/);
+});
+
+test('Technician inbox reads are separate from active notification resolution', () => {
+  const dashboard = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
+  const openInbox = dashboard.slice(dashboard.indexOf('async function toggleInbox()'), dashboard.indexOf('const assignedOrders'));
+  assert.match(openInbox, /markServerDashboardNotificationsRead\(dashboardTokenRef\.current, unreadIds\)/);
+  assert.doesNotMatch(openInbox, /clearServerDashboardNotifications/);
+  assert.match(dashboard, /Active notifications · \{dashboardInbox\.length\}/);
+});
+
+test('notification read API updates only the signed-in recipient and unread row', async () => {
+  const source = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
+  const code = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const calls = [];
+  const principal = { identity: { id: 'recipient-user' }, profile: { role: 'Front Desk Manager', active: true } };
+  const admin = {
+    from(table) {
+      let mutation;
+      const filters = [];
+      const query = {
+        update(value) { mutation = value; return query; },
+        eq(key, value) { filters.push(['eq', key, value]); return query; },
+        is(key, value) { filters.push(['is', key, value]); return query; },
+        in(key, value) { filters.push(['in', key, value]); return query; },
+        then(resolve, reject) {
+          calls.push({ table, mutation, filters });
+          return Promise.resolve({ error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+  const exports = {};
+  vm.runInNewContext(code, {
+    exports,
+    require(name) {
+      if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
+      if (name === '@/lib/constants') return { HOTEL_ID: 'cmpri-hotel' };
+      if (name === '@/lib/server/access') return { allows: (_user, capability) => capability === 'receive_pool_closed_notifications' };
+      if (name === '@/lib/server/auth') return { requireUser: async () => ({ principal, admin }) };
+      if (name === '@/lib/server/roles') return {
+        receivesAnyNotifications: () => true,
+        receivesOrdinaryWorkOrderNotifications,
+        profileHasRole: () => false,
+        roleKey: () => 'front_desk_manager',
+      };
+      if (name === '@/lib/notifications/web-push') return { dispatchWebPushNotifications: async () => undefined, isWebPushEligibleProfile: () => false };
+      if (name === '@/lib/notifications/schedule') return { isWebPushEligibleProfile: () => false };
+      if (name === '@/lib/dashboard/work-order-notifications') return {
+        dashboardNotificationScanStart: () => '',
+        engineerHistoryNotifications: () => [],
+        newWorkOrderNotification: () => ({}),
+        sanitizeImportedDashboardNotifications: () => [],
+        shouldWriteDashboardNotificationCursor: () => false,
+        technicianViewNotificationsForEngineer: () => [],
+        unrecordedDashboardNotifications: () => [],
+      };
+      throw new Error(`Unexpected module ${name}`);
+    },
+  });
+  const response = await exports.POST({
+    json: async () => ({ action: 'read', ids: ['pool-closed:local'] }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].table, 'cmpri_dashboard_notifications');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].mutation)), { read_at: calls[0].mutation.read_at });
+  assert.deepEqual(calls[0].filters.map(([operator, column, value]) => [
+    operator, column, Array.isArray(value) ? [...value] : value,
+  ]), [
+    ['eq', 'hotel_id', 'cmpri-hotel'],
+    ['eq', 'recipient_user_id', 'recipient-user'],
+    ['is', 'cleared_at', null],
+    ['in', 'notification_key', ['pool-closed:local']],
+    ['is', 'read_at', null],
+  ]);
+  assert.equal(typeof calls[0].mutation.read_at, 'string');
+  assert.equal(Date.parse(calls[0].mutation.read_at) > 0, true);
 });
 
 test('engineer dismissals persist technician-view notices for the engineer only', () => {

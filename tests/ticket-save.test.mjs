@@ -13,6 +13,7 @@ function fixture(failure,extra={}){
   const calls={reload:0,fetch:0,requests:[],notes:[],staged:[],saving:[],messages:[],fingerprints:[]};
   const exports={};
   const ctx={exports,order:{id:'order',issue:'Fan noisy',room:'409',status:'Open',revision:7},issue:'Fan noisy',assets:[],assetId:'',category:'General',priority:'Medium',technicianName:'',status:'In Progress',notes:'Unsaved technician note',actionRootCause:'',parts:'',cost:'',hours:'',dueBy:'',currentActor:'Test Engineer',embedded:false,modalToken:'',
+    canEditField:()=>true,
     cleanTicketReportedIssue:value=>value,historyLine:entry=>JSON.stringify(entry),
     setSaving:v=>calls.saving.push(v),setSaveState:()=>{},setMessage:v=>calls.messages.push(v),setIssue:()=>{},setOrder:()=>{},setNotes:v=>calls.notes.push(v),setStagedNoteIds:v=>calls.staged.push(v),setInitialFingerprint:v=>calls.fingerprints.push(v),
     loadTicket:async()=>{calls.reload++;},

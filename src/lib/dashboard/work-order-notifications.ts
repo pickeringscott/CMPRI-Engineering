@@ -19,7 +19,12 @@ export type WorkOrderNotification = {
   target_path?: string | null;
   message: string;
   recorded_at: string;
+  is_read?: boolean;
 };
+
+export function unreadWorkOrderNotificationCount(notifications: readonly WorkOrderNotification[]) {
+  return notifications.filter((notification) => notification.is_read !== true).length;
+}
 
 export type WorkOrderNotificationResponse = {
   notifications: WorkOrderNotification[];
@@ -228,7 +233,8 @@ function isNotification(value: unknown): value is WorkOrderNotification {
     && (typeof item.work_order_id === "string" || item.work_order_id === null)
     && (item.target_path === undefined || item.target_path === null || typeof item.target_path === "string")
     && typeof item.message === "string"
-    && typeof item.recorded_at === "string";
+    && typeof item.recorded_at === "string"
+    && (item.is_read === undefined || typeof item.is_read === "boolean");
 }
 
 function byNewest(a: WorkOrderNotification, b: WorkOrderNotification) {
@@ -358,6 +364,10 @@ async function postDashboardInbox(accessToken: string, body: Record<string, unkn
 
 export function clearServerDashboardNotifications(accessToken: string, ids: string[]) {
   return postDashboardInbox(accessToken, { action: "clear", ids }, "Notifications could not be cleared.");
+}
+
+export function markServerDashboardNotificationsRead(accessToken: string, ids: string[]) {
+  return postDashboardInbox(accessToken, { action: "read", ids }, "Notifications could not be marked read.");
 }
 
 export function importServerDashboardNotifications(accessToken: string, notifications: WorkOrderNotification[]) {

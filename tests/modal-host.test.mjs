@@ -71,6 +71,13 @@ test('create cancellation and completion messages dismiss the matching modal', (
   assert.match(source, /event\.data\.modalToken !== top\.modalToken/);
 });
 
+test('profile sign-out carries the embedded modal token accepted by the host', () => {
+  const profile = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
+  assert.match(profile, /const modalToken = new URLSearchParams\(window\.location\.search\)\.get\("modalToken"\) \|\| ""/);
+  assert.match(profile, /type: "cmpri-modal-sign-out", modalToken/);
+  assert.match(source, /if \(event\.data\.type === "cmpri-modal-sign-out"\)/);
+});
+
 test('inner embedded forms get first refusal on Escape before the host closes', () => {
   assert.match(source, /keyEvent\.defaultPrevented/);
   assert.match(source, /cmpri-modal-cancel-request/);
@@ -185,6 +192,14 @@ test('dashboard return works for tokenless modals and respects embedded cancel g
   assert.match(source, /embeddedCleanupRefs\.current\.get\(entry\.id\)/);
 });
 
+test('standalone dashboard buttons keep their navigation when no modal is open', () => {
+  const handlerStart = source.indexOf('const handleClick = (event: MouseEvent) =>');
+  const handlerEnd = source.indexOf('const handleKeydown =', handlerStart);
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  const handler = source.slice(handlerStart, handlerEnd);
+  assert.match(handler, /if \(isDashboardAction\) \{\s*if \(stack\.length === 0\) return;\s*event\.preventDefault\(\);\s*setStack\(\[\]\);\s*return;/);
+});
+
 test('dashboard return actions are omitted from embedded modal pages', () => {
   const dashboardLink = readFileSync(new URL('../src/components/ModalDashboardLink.tsx', import.meta.url), 'utf8');
   const workOrder = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
@@ -231,6 +246,11 @@ test('dashboard action pages render without duplicate outer headers when embedde
   assert.match(profile, /<section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">/);
 });
 
+test('temporary user passwords are masked and excluded from normal autocomplete', () => {
+  const users = readFileSync(new URL('../src/app/management/users/page.tsx', import.meta.url), 'utf8');
+  assert.match(users, /type="password" autoComplete="new-password" aria-label="Temporary password"/);
+});
+
 test('Engineering Dashboard screen-launch controls are real buttons that open desktop windows', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const launchers = dashboard.slice(dashboard.indexOf('const launcherGroups'), dashboard.indexOf('function launch('));
@@ -254,9 +274,11 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
     assert.match(launchers, new RegExp(`href: "${route.replaceAll('/', '\\/')}"`));
   }
   assert.match(dashboard, /function DashboardLauncherButton[\s\S]*?<button[\s\S]*?data-cmpri-desktop-launch=\{launcher\.key\}/);
-  assert.match(navigation, /group\.items\.filter\(\(item\): item is Launcher => Boolean\(item\)\)\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
+  assert.match(dashboard, /const visibleLauncherGroups = launcherGroups[\s\S]*?group\.items\.filter\(\(item\): item is Launcher => Boolean\(item\)\)[\s\S]*?group\.items\.length > 0/);
+  assert.match(navigation, /visibleLauncherGroups\.map\(\(group\) => \([\s\S]*?group\.items\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
+  assert.match(launchers, /hasCapability\(session, "(?:view_dashboard|submit|edit_tickets|manage_assets|manage_rooms|manage_users|review_feedback|view_profiles)"\)/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
-  assert.match(dashboard, /onClick=\{\(event\) => \{\s*onLaunch\(launcher, Date\.now\(\)\)/);
+  assert.match(dashboard, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);
 });
 
 test('shared modal navigation controls render buttons instead of links', () => {

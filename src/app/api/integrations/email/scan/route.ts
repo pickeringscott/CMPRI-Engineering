@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseOperationalEmail, type ParsedEmail } from "@/lib/integrations/email-parser";
 import { HOTEL_ID } from "@/lib/constants";
-import { requireCapability } from "@/lib/server/auth";
+import { requireCapability, requireUser } from "@/lib/server/auth";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { fetchOperationalMessages, type OperationalMessage } from "@/lib/integrations/email-provider";
 import { mergedPurchaseStatus, parentStatusFromShipments, matchEnseoWorkOrder } from "@/lib/integrations/operations";
+import { isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
 
 type Admin = NonNullable<ReturnType<typeof createSupabaseAdmin>>;
 
@@ -222,7 +223,19 @@ async function authorized(request: NextRequest) {
 }
 
 async function scan(request: NextRequest) {
-  if (!(await authorized(request))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await authorized(request))) {
+    const auth = await requireUser(request);
+    if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
+    return NextResponse.json({ error: "Email integration access is required." }, { status: 403 });
+  }
+  if (isIntegrationsSafeMode()) {
+    return NextResponse.json({
+      configured: false,
+      safeMode: true,
+      blocked: true,
+      error: "Safe mode is on: mailbox scan was NOT sent to an external provider.",
+    }, { status: 503 });
+  }
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "Supabase service configuration is missing." }, { status: 503 });
   try {

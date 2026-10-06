@@ -307,11 +307,13 @@ export default function GlobalModalHost() {
         ? button.dataset.cmpriModalDashboardHref || "/engineering"
         : button.dataset.cmpriModalHref;
       if (!href || !isSameOriginInternal(href)) return;
-      event.preventDefault();
       if (isDashboardAction) {
-        if (stack.length > 0) setStack([]);
+        if (stack.length === 0) return;
+        event.preventDefault();
+        setStack([]);
         return;
       }
+      event.preventDefault();
       setStack((current) => [...current, {
         id: crypto.randomUUID(),
         ...modalHref(href),

@@ -154,7 +154,7 @@ export default function UserManagementPage() {
               Set temporary password instead of sending an invite email
             </label>
             {setPasswordMode && (
-              <input required disabled={busy} minLength={10} maxLength={128} type="text" aria-label="Temporary password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temporary password (10+ characters)" className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 sm:col-span-2" />
+              <input required disabled={busy} minLength={10} maxLength={128} type="password" autoComplete="new-password" aria-label="Temporary password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temporary password (10+ characters)" className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 sm:col-span-2" />
             )}
             <button disabled={busy || !roles.includes(role)} className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-50 sm:col-span-2">{busy ? "Saving…" : setPasswordMode ? "Create User With Password" : "Invite User"}</button>
           </form>

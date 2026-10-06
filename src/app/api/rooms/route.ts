@@ -43,22 +43,47 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ locations }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  if (!allows(principal, "view_dashboard") && !allows(principal, "manage_rooms")) {
+  const isTechnician = roleKey(principal.profile.role) === "technician";
+  if (!allows(principal, "view_engineering_operations") && !(isTechnician && allows(principal, "view_pm"))) {
     return NextResponse.json({ error: "Engineering dashboard access is required." }, { status: 403 });
   }
 
-  const [locationResult, orderResult, pmPlanResult, pmCompletionResult] = await Promise.all([
+  const orderResult = isTechnician
+    ? await (async () => {
+      const technicianName = principal.profile.full_name?.trim();
+      const workOrderQuery = () => admin.from("work_orders")
+        .select("id, location_id, room, issue, status, created_at, technician_name")
+        .eq("hotel_id", HOTEL_ID)
+        .in("status", ["Open", "In Progress"])
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      const unassignedQuery = workOrderQuery().or("technician_name.is.null,technician_name.eq.");
+      const assignedQuery = technicianName ? workOrderQuery().eq("technician_name", technicianName) : null;
+      const [unassigned, assigned] = await Promise.all([
+        unassignedQuery,
+        assignedQuery ?? Promise.resolve({ data: [], error: null }),
+      ]);
+      if (unassigned.error || assigned.error) return { data: null, error: unassigned.error || assigned.error };
+      return {
+        data: Array.from(new Map(
+          [...(assigned.data || []), ...(unassigned.data || [])].map((order) => [order.id, order]),
+        ).values()),
+        error: null,
+      };
+    })()
+    : admin.from("work_orders")
+      .select("id, location_id, room, issue, status, created_at")
+      .eq("hotel_id", HOTEL_ID)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+  const [locationResult, loadedOrders, pmPlanResult, pmCompletionResult] = await Promise.all([
     admin.from("locations")
       .select("id, area, name, room_number, location_type, active")
       .eq("hotel_id", HOTEL_ID)
       .eq("active", true)
       .order("area", { ascending: true })
       .order("room_number", { ascending: true }),
-    admin.from("work_orders")
-      .select("id, location_id, room, issue, status, created_at")
-      .eq("hotel_id", HOTEL_ID)
-      .order("created_at", { ascending: false })
-      .limit(1000),
+    orderResult,
     admin.from("pm_plans")
       .select("id, location_id, asset_id, title, description, checklist, frequency_value, frequency_unit, last_completed_on, next_due_on, active")
       .eq("hotel_id", HOTEL_ID)
@@ -71,13 +96,13 @@ export async function GET(request: NextRequest) {
       .limit(2000),
   ]);
 
-  if (locationResult.error || orderResult.error || pmPlanResult.error || pmCompletionResult.error) {
+  if (locationResult.error || loadedOrders.error || pmPlanResult.error || pmCompletionResult.error) {
     return NextResponse.json({ error: "Rooms, work orders, or PM records could not be loaded." }, { status: 503 });
   }
 
   return NextResponse.json({
     locations: locationResult.data || [],
-    work_orders: orderResult.data || [],
+    work_orders: loadedOrders.data || [],
     pm_plans: pmPlanResult.data || [],
     pm_completions: pmCompletionResult.data || [],
     can_edit: allows(principal, "manage_rooms"),

@@ -13,8 +13,8 @@ function isMonday(value: string) {
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!allows(auth.principal, "view_dashboard")) {
-    return NextResponse.json({ error: "Engineering dashboard access is required." }, { status: 403 });
+  if (!allows(auth.principal, "view_pm")) {
+    return NextResponse.json({ error: "Preventive Maintenance access is required." }, { status: 403 });
   }
 
   const week = request.nextUrl.searchParams.get("week") || "";

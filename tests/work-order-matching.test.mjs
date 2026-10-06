@@ -12,6 +12,9 @@ const requireStub = (mod) => {
   return {};
 };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-suggestions.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:suggestionExports,require:requireStub});
+const creationExports = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-creation.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:creationExports,require:requireStub});
+const {findLocationFromText} = creationExports;
 const {priorityForCategory,categoryFromIssue,inferWorkOrder,assetTermsForPlumbingIssue,separateIssueFromReporterNotes}=suggestionExports;
 const source=readFileSync(new URL('../src/app/work-orders/page.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('page.tsx',source,99,true,ts.ScriptKind.TSX);
@@ -26,7 +29,8 @@ const locations=[409,410].map(n=>({id:String(n),name:`Room ${n}`,room_number:Str
 const assets=locations.map(l=>({id:`vtac-${l.id}`,location_id:l.id,asset_type:'VTAC',name:`VTAC - Room ${l.id}`,manufacturer:'Friedrich',active:true}));
 function fixture(overrides={}){
   const writes={};const exports={};
-  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,isFrontDeskUser:false,isSubmitOnlyUser:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
+  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
+  context.systemAssignedTechnicalFields=overrides.systemAssignedTechnicalFields ?? context.isSubmitOnlyUser;
   for(const key of ['LocationId','AssetId','Category','Priority'])context['set'+key]=value=>{writes[key[0].toLowerCase()+key.slice(1)]=value;};
   vm.runInNewContext(code,context);return {match:exports.match,writes};
 }
@@ -98,6 +102,13 @@ test('surveillance camera is Safety and Enseo STB is TV / AV',()=>{
 
 test('front desk replaces stale guesses with the same canonical result used on submission',()=>{
   const f=fixture({isFrontDeskUser:true,isSubmitOnlyUser:true,assetId:'stale',manualAsset:true,manualCategory:true,manualPriority:true});f.match('not cooling','');assert.equal(f.writes.assetId,'vtac-409');assert.equal(f.writes.category,'HVAC');assert.equal(f.writes.priority,'High');
+});
+test('General Managers cannot preserve manually selected engineering-owned creation fields',()=>{
+  const f=fixture({systemAssignedTechnicalFields:true,assetId:'stale',manualAsset:true,manualCategory:true,manualPriority:true});
+  f.match('not cooling','');
+  assert.equal(f.writes.assetId,'vtac-409');
+  assert.equal(f.writes.category,'HVAC');
+  assert.equal(f.writes.priority,'High');
 });
 test('front desk does not display unassigned inventory as room equipment',()=>{
   const f=fixture({isFrontDeskUser:true,isSubmitOnlyUser:true,assets:[{id:'stock-vtac',location_id:null,asset_type:'VTAC',name:'VTAC inventory',active:true}]});f.match('not cooling','');assert.equal(f.writes.assetId,'');assert.equal(f.writes.category,'HVAC');

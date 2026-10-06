@@ -159,13 +159,14 @@ export async function POST(request: NextRequest) {
   let id: string | undefined;
   if (password) {
     const createUser = adminAuth.createUser as
-      | ((attrs: { email: string; password: string; email_confirm: boolean; user_metadata: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
+      | ((attrs: { email: string; password: string; email_confirm: boolean; role: string; user_metadata: Record<string, unknown> }) => Promise<{ data: { user?: { id?: string } }; error: { message: string } | null }>)
       | undefined;
     if (!createUser) return NextResponse.json({ error: "Supabase Auth admin user creation is unavailable." }, { status: 500 });
     const { data: created, error: createError } = await createUser.call(adminAuth, {
       email,
       password,
       email_confirm: true,
+      role: "authenticated",
       user_metadata: { full_name: fullName },
     });
     if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
@@ -180,6 +181,29 @@ export async function POST(request: NextRequest) {
     id = invited.user?.id;
   }
   if (!id) return NextResponse.json({ error: "The account could not be created." }, { status: 502 });
+
+  if (!password) {
+    const updateUserById = adminAuth.updateUserById as
+      | ((userId: string, attributes: { role: string }) => Promise<{ error: { message: string } | null }>)
+      | undefined;
+    if (!updateUserById) {
+      return setupFailureResponse(id, adminAuth, admin, "Supabase Auth role setup", "Auth user role updates are unavailable.");
+    }
+    try {
+      const { error: roleError } = await updateUserById.call(adminAuth, id, { role: "authenticated" });
+      if (roleError) {
+        return setupFailureResponse(id, adminAuth, admin, "Supabase Auth role setup", roleError.message);
+      }
+    } catch (error) {
+      return setupFailureResponse(
+        id,
+        adminAuth,
+        admin,
+        "Supabase Auth role setup",
+        error instanceof Error ? error.message : "Auth user role update failed.",
+      );
+    }
+  }
 
   const { error: profileError } = await admin.from("profiles").upsert({
     id,

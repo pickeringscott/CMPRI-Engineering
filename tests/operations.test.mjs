@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mergedPurchaseStatus, parentStatusFromShipments, matchEnseoWorkOrder } from "../src/lib/integrations/operations.ts";
 import { parseOperationalEmail } from "../src/lib/integrations/email-parser.ts";
 
@@ -28,6 +29,34 @@ test("closed TV work order remains unlinked", () => assert.equal(matchEnseoWorkO
 test("wrong STB suffix remains unlinked", () => assert.equal(matchEnseoWorkOrder([{...tv, issue: "TV 103B"}], "103", "103A"), null));
 test("matching suffixed room preserved", () => assert.equal(matchEnseoWorkOrder([{...tv, room: "103A"}], "103", "103A"), "tv"));
 test("unrelated room remains unlinked", () => assert.equal(matchEnseoWorkOrder([tv], "104"), null));
+test("purchasing mutation controls are rendered only for integration operators", () => {
+  const page = readFileSync(new URL("../src/app/engineering/purchasing/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const canEdit = data\?\.can_edit === true/);
+  assert.equal((page.match(/\{canEdit &&/g) || []).length, 6);
+  assert.doesNotMatch(page, /disabled=\{data\?\.can_edit !== true/);
+});
+test("restricted engineering pages and data APIs require explicit engineering-operations capability", () => {
+  const pagePaths = [
+    "../src/app/engineering/gss/page.tsx",
+    "../src/app/engineering/purchasing/page.tsx",
+    "../src/app/engineering/enseo-assignments/page.tsx",
+    "../src/app/engineering/room-operations/page.tsx",
+    "../src/app/management/rooms/page.tsx",
+  ];
+  for (const path of pagePaths) {
+    const source = readFileSync(new URL(path, import.meta.url), "utf8");
+    assert.match(source, /view_engineering_operations/, `${path} must gate its UI`);
+  }
+  const apiPolicies = [
+    ["../src/app/api/engineering/operations/route.ts", /allows\(auth\.principal, "view_engineering_operations"\)/],
+    ["../src/app/api/enseo/assignments/route.ts", /allows\(auth\.principal, "view_engineering_operations"\)/],
+    ["../src/app/api/rooms/route.ts", /allows\(principal, "view_engineering_operations"\)/],
+    ["../src/app/api/room-operations/route.ts", /requireCapability\(request, "view_engineering_operations"\)/],
+  ];
+  for (const [path, policy] of apiPolicies) {
+    assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), policy, `${path} must enforce the policy server-side`);
+  }
+});
 test("Monday GSS included", () => assert.equal(parseOperationalEmail({subject: "GSS report", messageAt:"2026-09-14T12:00:00Z"}).category, "gss"));
 test("Tuesday GSS excluded", () => assert.equal(parseOperationalEmail({subject: "GSS report", messageAt:"2026-09-15T12:00:00Z"}).category, "other"));
 test("credit memo retained as warranty case", () => assert.equal(parseOperationalEmail({subject: "Credit memo for returned part"}).category, "warranty"));

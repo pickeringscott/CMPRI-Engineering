@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
@@ -12,8 +13,12 @@ import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roleKey } from "@/lib/server/roles";
+import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
+import { resolveRoomRankerContext, type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
 import { roomStatusBadge } from "@/lib/room-availability";
+import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
+import { assignableAssetsForLocation } from "@/lib/work-orders/assignable-assets";
 
 
 type Asset = {
@@ -32,8 +37,6 @@ type Asset = {
   install_year: number | null;
   documentation_key: string | null;
 };
-type WorkOrderImage = { id: string; name: string; url: string };
-
 type WorkOrder = {
   revision: number;
   id: string;
@@ -84,22 +87,13 @@ type ExternalActivity = {
   history?: { id: string; actor_name?: string | null; event_type?: string | null; old_status?: string | null; new_status?: string | null; changed_fields?: Record<string, unknown> | null; source?: string | null; recorded_at?: string | null }[];
 };
 
-type RoomRankerContext = {
-  rowNumber?: number;
-  room?: string;
-  rank?: string;
-  check1?: string;
-  check2?: string;
-  check3?: string;
-  notes?: string;
-};
-
 type RoomPmContext = {
   error?: string;
 };
 
 type RoomOperationalContext = {
   ranker: RoomRankerContext | null;
+  rankerError: string;
   pm: RoomPmContext | null;
   checkoutTime: string;
   checkoutError: string;
@@ -660,6 +654,8 @@ export default function WorkOrderTicketPage() {
   const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
   const [manualPagePreview, setManualPagePreview] = useState<number | null>(null);
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
+  const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
+  const [workOrderImageError, setWorkOrderImageError] = useState("");
   const [imagePreview, setImagePreview] = useState<WorkOrderImage | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -697,7 +693,7 @@ export default function WorkOrderTicketPage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [externalActivity, setExternalActivity] = useState<ExternalActivity>({ purchases: [], enseo: [], warranties: [], followups: [] });
-  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, pm: null, checkoutTime: "", checkoutError: "", loading: false });
+  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, rankerError: "", pm: null, checkoutTime: "", checkoutError: "", loading: false });
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
 
@@ -741,19 +737,29 @@ export default function WorkOrderTicketPage() {
   }
 
   async function loadWorkOrderImages() {
-    if (!id) return;
+    if (!id) {
+      setWorkOrderImagesLoading(false);
+      return;
+    }
+    setWorkOrderImagesLoading(true);
+    setWorkOrderImageError("");
+    setWorkOrderImages([]);
     try {
       const session = await getValidSession();
-      if (!session?.access_token) return;
+      if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/attachments`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
-      if (!response.ok) return;
-      const payload = await response.json();
-      setWorkOrderImages(Array.isArray(payload.images) ? payload.images as WorkOrderImage[] : []);
-    } catch {
+      const payload: unknown = await response.json().catch(() => null);
+      const result = resolveWorkOrderImages(response.ok, payload);
+      if (result.error) throw new Error(result.error);
+      setWorkOrderImages(result.images);
+    } catch (error) {
       setWorkOrderImages([]);
+      setWorkOrderImageError(error instanceof Error ? error.message : "Work-order images could not be loaded.");
+    } finally {
+      setWorkOrderImagesLoading(false);
     }
   }
 
@@ -797,24 +803,31 @@ export default function WorkOrderTicketPage() {
   async function loadRoomOperationalContext(roomLabel?: string | null) {
     const roomText = String(roomLabel || "");
     const room = roomText.match(/\b(?:\d{2,4}|MGR)\b/i)?.[0] || "";
-    if (!room) { setRoomOperationalContext({ ranker: null, pm: null, checkoutTime: "", checkoutError: "", loading: false }); return; }
+    if (!room) { setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, checkoutTime: "", checkoutError: "", loading: false }); return; }
     setRoomOperationalContext((current) => ({ ...current, loading: true }));
     try {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) {
-        setRoomOperationalContext({ ranker: null, pm: { error: "Your CMPRI session has expired. Sign in again." }, checkoutTime: "", checkoutError: "Today's checkout time could not be loaded.", loading: false });
+        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, checkoutTime: "", checkoutError: "Today's checkout time could not be loaded.", loading: false });
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
       const current = await loadCmpriSession();
       const isSystemAdmin = roleKey(current.user.role) === "system_admin";
-      const rankerResponse = isSystemAdmin
-        ? await fetch("/api/room-ranker", { headers, cache: "no-store" })
-        : null;
-      const rankerPayload = rankerResponse?.ok ? await rankerResponse.json().catch(() => ({})) : {};
-      const rankerRows = Array.isArray(rankerPayload?.rooms) ? rankerPayload.rooms as RoomRankerContext[] : [];
-      const ranker = rankerRows.find((item) => String(item.room || "").trim() === room) || null;
+      let ranker: RoomRankerContext | null = null;
+      let rankerError = "";
+      if (isSystemAdmin) {
+        try {
+          const rankerResponse = await fetch("/api/room-ranker", { headers, cache: "no-store" });
+          const rankerPayload: unknown = await rankerResponse.json().catch(() => null);
+          const result = resolveRoomRankerContext(rankerResponse.ok, rankerPayload, room);
+          ranker = result.ranker;
+          rankerError = result.error;
+        } catch (error) {
+          rankerError = error instanceof Error ? error.message : "Room Ranker could not be loaded.";
+        }
+      }
       let checkoutTime = "";
       let checkoutError = "";
       if (!current.capabilities.includes("view_dashboard")) {
@@ -832,13 +845,15 @@ export default function WorkOrderTicketPage() {
           checkoutError = error instanceof Error ? error.message : "Today's checkout time could not be loaded.";
         }
       }
-      setRoomOperationalContext({ ranker, pm: {}, checkoutTime, checkoutError, loading: false });
+      setRoomOperationalContext({ ranker, rankerError, pm: {}, checkoutTime, checkoutError, loading: false });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Room context could not be loaded.";
       setRoomOperationalContext({
         ranker: null,
-        pm: { error: error instanceof Error ? error.message : "Room PM checks could not be loaded." },
+        rankerError: message,
+        pm: { error: message },
         checkoutTime: "",
-        checkoutError: error instanceof Error ? error.message : "Today's checkout time could not be loaded.",
+        checkoutError: message,
         loading: false,
       });
     }
@@ -866,7 +881,7 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  async function loadTicket(showLoading = true) {
+  async function loadTicket(showLoading = true, canLoadMaintenanceReference = true) {
     if (!id) return;
 
     if (showLoading) setLoading(true);
@@ -933,7 +948,7 @@ export default function WorkOrderTicketPage() {
       // Render the ticket immediately. Reference data can finish loading in the
       // background; the user should not wait on assets/technicians just to read a work order.
       setLoading(false);
-      void loadMaintenanceReference();
+      if (canLoadMaintenanceReference) void loadMaintenanceReference();
     } catch (error) {
       setOrder(null);
       setMessage(`Work order error: ${error instanceof Error ? error.message : String(error)}`);
@@ -982,10 +997,12 @@ export default function WorkOrderTicketPage() {
         window.location.replace("/");
         return;
       }
+      let canLoadMaintenanceReference = false;
       try {
         const session = await loadCmpriSession();
         setCmpriSession(session);
-        const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets");
+        canLoadMaintenanceReference = session.capabilities.includes("view_dashboard");
+        const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("view_work_orders") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets");
         if (!canViewTicket) {
           window.location.replace("/work-orders");
           return;
@@ -1003,7 +1020,7 @@ export default function WorkOrderTicketPage() {
           hadPreview = true;
         }
       } catch {}
-      await loadTicket(!hadPreview);
+      await loadTicket(!hadPreview, canLoadMaintenanceReference);
       void loadWorkOrderImages();
       void loadExternalActivity();
     })();
@@ -1023,12 +1040,12 @@ export default function WorkOrderTicketPage() {
   function handleAssetChange(newAssetId: string) {
     setAssetId(newAssetId);
     setManualPagePreview(null);
-    
+
     const asset = assets.find((item) => item.id === newAssetId);
     if (asset) {
       const nextCategory = categoryForAsset(asset);
       setCategory(nextCategory);
-      setPriority(priorityForCategory(nextCategory));
+      if (roleKey(cmpriSession?.user.role) !== "technician") setPriority(priorityForCategory(nextCategory));
     }
   }
 
@@ -1175,7 +1192,7 @@ export default function WorkOrderTicketPage() {
     setAssetId(created.id);
     setCategory(categoryForAsset(created));
     setShowAddAsset(false);
-    
+
     setNewAssetType(""); setNewAssetManufacturer(""); setNewAssetModel(""); setNewAssetSerial("");
     setNewAssetInstallDate(""); setNewAssetDocumentType("Service Manual"); setNewAssetDocument(null);
     setMessage(`New asset added and selected. Save the work order to make the assignment final.${documentationMessage}`);
@@ -1252,7 +1269,7 @@ export default function WorkOrderTicketPage() {
     if (!order) return;
 
     const normalizedIssue = cleanTicketReportedIssue(issue, order.room || "");
-    if (!normalizedIssue.trim()) {
+    if (canEditField("issue") && !normalizedIssue.trim()) {
       setMessage("Reported Issue is required.");
       return;
     }
@@ -1279,7 +1296,7 @@ export default function WorkOrderTicketPage() {
       expected_revision: order.revision,
     };
     const capabilities = typeof cmpriSession !== "undefined" ? (cmpriSession?.capabilities ?? []) : ["edit_tickets"];
-    if (capabilities.includes("edit_tickets")) {
+    if (canEditField("issue")) {
       Object.assign(updatePayload, {
         issue: normalizedIssue,
         asset_id: asset?.id ?? null,
@@ -1295,9 +1312,23 @@ export default function WorkOrderTicketPage() {
         hours: hours.trim() === "" ? 0 : Number(hours),
         due_by: dueBy || null,
       });
-    } else if (capabilities.includes("review_tickets")) {
+    } else if (canEditField("asset_id")) {
+      Object.assign(updatePayload, {
+        asset_id: asset?.id ?? null,
+        category,
+        status,
+        notes: notesWithChanges,
+      });
+    } else if (canReviewCurrentTicket && capabilities.includes("review_tickets")) {
       if ((order.status || "Open") !== status) updatePayload.status = status;
       if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
+    } else if (canAddWorkOrderNotes && capabilities.includes("add_work_order_notes")) {
+      if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
+    } else if (isTechnician) {
+      setMessage("Take this work before editing its details.");
+      setSaving(false);
+      setSaveState("idle");
+      return;
     } else {
       setMessage("This account is view-only.");
       setSaving(false);
@@ -1460,8 +1491,7 @@ export default function WorkOrderTicketPage() {
     return score;
   }
 
-  const activeAssets = assets.filter((asset) => asset.active !== false);
-  const rankedAssets = [...activeAssets].sort((a, b) => {
+  const rankedAssets = [...assignableAssetsForLocation(assets, order?.location_id, assetId)].sort((a, b) => {
     const delta = assetIssueScore(b) - assetIssueScore(a);
     if (delta !== 0) return delta;
     return a.name.localeCompare(b.name);
@@ -1472,15 +1502,13 @@ export default function WorkOrderTicketPage() {
       const score = assetIssueScore(asset);
       const exactLocation = !!order?.location_id && asset.location_id === order.location_id;
       const sameCategory = categoryForAsset(asset) === category;
-      const group = exactLocation && score >= 180
-        ? "Best Match — This Location"
-        : exactLocation && sameCategory
-          ? "This Location — Same Category"
-          : exactLocation
-            ? "This Location"
-            : score >= 80
-              ? "Recommended"
-              : "Other Locations";
+      const group = !exactLocation
+        ? "Current Ticket Equipment"
+        : score >= 180
+          ? "Best Match — This Location"
+          : sameCategory
+            ? "This Location — Same Category"
+            : "This Location";
       return {
         value: asset.id,
         label: asset.location_name ? `${asset.name} — ${asset.location_name}` : asset.name,
@@ -1507,18 +1535,42 @@ export default function WorkOrderTicketPage() {
   const priorityOptions = ['Urgent','High','Medium','Low'].map((value) => ({ value, label: value }));
   const canEditTicket = Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
+  const canAddWorkOrderNotes = Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
-  const isTechnician = ["technician", "maintenancetechnician"].includes(
-    (cmpriSession?.user.role || "").toLowerCase().replace(/[\s_-]+/g, ""),
-  );
+  const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
   const canClaimWorkOrder = isTechnician &&
+    canEditTicket &&
     !String(order.technician_name || "").trim() &&
     ["Open", "In Progress"].includes(String(order.status || "Open"));
+  const canReviewCurrentTicket = canReviewTicket && order.status === "Pending Verification";
+  const editableFields = workOrderEditableFields({
+    role: cmpriSession?.user.role,
+    canEdit: canEditTicket,
+    canReview: canReviewCurrentTicket,
+    canAddNotes: canAddWorkOrderNotes,
+    unassigned: !String(order.technician_name || "").trim(),
+    canClaimUnassigned: canClaimWorkOrder,
+  });
+  const canSubmitTicketNote = canSubmitWorkOrderNote({
+    role: cmpriSession?.user.role,
+    canEdit: canEditTicket,
+    canReview: canReviewCurrentTicket,
+    canAddNotes: canAddWorkOrderNotes,
+    status: order.status,
+    unassigned: !String(order.technician_name || "").trim(),
+    canClaimUnassigned: canClaimWorkOrder,
+  });
+  const canEditField = (field: WorkOrderEditableField) => editableFields.includes(field);
+  const canEditWorkOrder = editableFields.some((field) => field !== "technician_name" && field !== "notes");
   const statusValues = (() => {
-    if (canReviewTicket && !canEditTicket) {
+    if (canReviewCurrentTicket && !canEditTicket) {
       return status === "Pending Verification" ? ["Pending Verification", "Open", "Will Not Do"] : [status];
     }
-    if (!canEditTicket) return [status];
+    if (!canEditField("status")) return [status];
+    if (isTechnician) {
+      const values = ["Open", "In Progress", "Completed"];
+      return values.includes(status) ? values : [status];
+    }
     if (status === "Closed") return canReopenTicket ? ["Closed", "In Progress", "Completed"] : ["Closed"];
     const values = ["Open", "In Progress", "Completed", "Will Not Do", "Closed"];
     return status === "Pending Verification" ? ["Pending Verification", ...values] : values;
@@ -1666,7 +1718,7 @@ export default function WorkOrderTicketPage() {
               >
                 {order.display_id || "Work Order"}
               </button>
-              {(canEditTicket || canReviewTicket) && <button
+              {(editableFields.length > 0 || canReviewCurrentTicket) && <button
                 type="button"
                 onClick={saveTicket}
                 disabled={saving || saveState === "saved"}
@@ -1685,8 +1737,8 @@ export default function WorkOrderTicketPage() {
                   : saveState === "saved"
                     ? "Saved"
                     : hasUnsavedChanges
-                      ? "Save Changes"
-                      : "Save Work Order"}
+                      ? canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? "Save Notes" : "Save Changes"
+                      : canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? "Save Notes" : "Save Work Order"}
               </button>}
             </div>
           </div>
@@ -1704,7 +1756,7 @@ export default function WorkOrderTicketPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <h2 className="text-[30px] font-bold leading-tight tracking-tight">Reported Issue</h2>
-                  {(canEditTicket || canReviewTicket) && <button
+                  {(canEditWorkOrder || canReviewCurrentTicket) && <button
                     type="button"
                     onClick={() => {
                       const next = !editingIssue;
@@ -1712,7 +1764,11 @@ export default function WorkOrderTicketPage() {
                     }}
                     className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold ${editingIssue ? "border-amber-400 bg-amber-950/40 text-amber-100" : "border-slate-700 text-amber-300 hover:bg-slate-800"}`}
                   >
-                    {editingIssue ? "Done Editing" : "✎ Edit Issue"}
+                    {editingIssue
+                      ? canReviewCurrentTicket && !canEditTicket ? "Done Reviewing" : "Done Editing"
+                      : canReviewCurrentTicket && !canEditTicket
+                        ? "Review Request"
+                        : isTechnician ? "Edit Work Order" : "✎ Edit Issue"}
                   </button>}
                 </div>
                 <div className="text-right text-[11px] leading-4 text-slate-500">
@@ -1721,7 +1777,7 @@ export default function WorkOrderTicketPage() {
                 </div>
               </div>
 
-              {editingIssue && canEditTicket ? (
+              {editingIssue && canEditField("issue") ? (
                 <>
                   <textarea
                     required
@@ -1754,39 +1810,55 @@ export default function WorkOrderTicketPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment</div>
-                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel="+ Add New Asset" onFooterAction={() => setShowAddAsset(true)} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
+                  {editingIssue && canEditField("asset_id") ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</div>
-                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{category || "General"}</p>}
+                  {editingIssue && canEditField("category") ? <div className="mt-2"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{category || "General"}</p>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</div>
-                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{priority || "Medium"}</p>}
+                  {editingIssue && canEditField("priority") ? <div className="mt-2"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{priority || "Medium"}</p>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician</div>
-                  {editingIssue && canEditTicket ? <div className="mt-2"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{technicianName || "Unassigned"}</p>}
+                  {editingIssue && canEditField("technician_name") ? <div className="mt-2"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{technicianName || "Unassigned"}</p>}
                   {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-2 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
-                  {editingIssue && (canEditTicket || canReviewTicket) ? <div className="mt-2"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{status || "Open"}</p>}
+                  {editingIssue && canEditField("status") ? <div className="mt-2"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{status || "Open"}</p>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By</div>
-                  {editingIssue && canEditTicket ? <input type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-2 min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400" /> : <p className="mt-2 text-base text-slate-200">{dueBy || "No due date"}</p>}
+                  {editingIssue && canEditField("due_by") ? <input type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-2 min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400" /> : <p className="mt-2 text-base text-slate-200">{dueBy || "No due date"}</p>}
                 </div>
               </div>
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
               <h2 className="text-lg font-bold tracking-tight text-slate-100">Photo</h2>
-              {workOrderImages.length ? (
+              {workOrderImageError ? (
+                <div role="alert" className="mt-3 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">
+                  <p>{workOrderImageError}</p>
+                  <button type="button" onClick={() => void loadWorkOrderImages()} disabled={workOrderImagesLoading} className="mt-2 rounded-md border border-red-700 px-3 py-1.5 text-xs font-bold hover:bg-red-900/50 disabled:opacity-50">
+                    {workOrderImagesLoading ? "Retrying…" : "Retry"}
+                  </button>
+                </div>
+              ) : workOrderImagesLoading ? (
+                <p role="status" className="mt-3 text-sm text-slate-400">Loading work-order photos…</p>
+              ) : workOrderImages.length ? (
                 <div className="mt-3 flex flex-wrap gap-3">
                   {workOrderImages.map((image) => (
-                    <button key={image.id} type="button" onClick={() => setImagePreview(image)} className="overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
-                      <img src={image.url} alt="Work-order attachment" className="h-auto w-[25%] min-w-24 max-w-48 object-contain" />
+                    <button key={image.id} type="button" onClick={() => setImagePreview(image)} className="relative aspect-[4/3] w-[25%] min-w-24 max-w-48 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
+                      <Image
+                        src={image.url}
+                        alt="Work-order attachment"
+                        fill
+                        sizes="(max-width: 640px) 96px, 192px"
+                        unoptimized
+                        className="object-contain"
+                      />
                     </button>
                   ))}
                 </div>
@@ -1821,7 +1893,7 @@ export default function WorkOrderTicketPage() {
                 <textarea
                   id="technician-note-editor"
                   value={noteDraft}
-                  disabled={!canEditTicket && !canReviewTicket}
+                  disabled={!canSubmitTicketNote}
                   onChange={(event) => setNoteDraft(event.target.value)}
                   rows={2}
                   placeholder="Document findings, diagnostic codes, readings, tests, work performed, or type @ to mention another ticket..."
@@ -1840,7 +1912,7 @@ export default function WorkOrderTicketPage() {
                 )}
               </div>
               <div className="mt-2 flex justify-end">
-                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || (!canEditTicket && !canReviewTicket)} className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
+                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
               </div>
             </section>
 
@@ -2032,6 +2104,7 @@ export default function WorkOrderTicketPage() {
                 <textarea
                   value={actionRootCause}
                   onChange={(event) => setActionRootCause(event.target.value)}
+                  disabled={!canEditField("action_root_cause") || saving}
                   rows={5}
                   placeholder="Repair performed, root cause, or reason not completed..."
                   className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-amber-400"
@@ -2042,11 +2115,11 @@ export default function WorkOrderTicketPage() {
           </div>
 
           <aside className="space-y-6">
-            {(roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
+            {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
               <section className="rounded-2xl border border-cyan-500/30 bg-slate-900 p-5">
                 <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Room Context</p><h2 className="mt-1 text-lg font-semibold">{roleKey(cmpriSession?.user.role) === "system_admin" ? "Room Ranker & Preventive Maintenance" : "Preventive Maintenance"}</h2></div><div className="flex gap-2">{roleKey(cmpriSession?.user.role) === "system_admin" && <Link href="/engineering/room-ranker" className="text-xs font-semibold text-amber-300 hover:underline">Ranker</Link>}</div></div>
                 {roomOperationalContext.loading ? <p className="mt-3 text-sm text-slate-400">Loading live room context…</p> : <>
-                  {roleKey(cmpriSession?.user.role) === "system_admin" && <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="flex items-center justify-between gap-3"><b>Room Ranker</b><span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs font-bold text-amber-200">{roomOperationalContext.ranker?.rank || "Unranked"}</span></div>{roomRankerFlags.length ? <ul className="mt-2 space-y-1 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul> : <p className="mt-2 text-xs text-slate-500">No Room Ranker flags/notes returned for this room.</p>}</div>}
+                  {roleKey(cmpriSession?.user.role) === "system_admin" && <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="flex items-center justify-between gap-3"><b>Room Ranker</b><span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span></div>{roomOperationalContext.rankerError ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.rankerError}</p> : roomRankerFlags.length ? <ul className="mt-2 space-y-1 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul> : <p className="mt-2 text-xs text-slate-500">{roomOperationalContext.ranker ? "No Room Ranker flags or notes are recorded for this room." : "No Room Ranker row was returned for this room."}</p>}</div>}
                   <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
                     <b>Today&apos;s checkout time</b>
                     {roomOperationalContext.checkoutError
@@ -2132,6 +2205,7 @@ export default function WorkOrderTicketPage() {
                 <input
                   value={parts}
                   onChange={(event) => setParts(event.target.value)}
+                  disabled={!canEditField("parts") || saving}
                   className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400"
                   placeholder="Parts used / ordered"
                 />
@@ -2148,6 +2222,7 @@ export default function WorkOrderTicketPage() {
                     min="0"
                     value={hours}
                     onChange={(event) => setHours(event.target.value)}
+                    disabled={!canEditField("hours") || saving}
                     className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400"
                   />
                 </label>
@@ -2162,6 +2237,7 @@ export default function WorkOrderTicketPage() {
                     min="0"
                     value={cost}
                     onChange={(event) => setCost(event.target.value)}
+                    disabled={!canEditField("cost") || saving}
                     className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400"
                   />
                 </label>
@@ -2254,7 +2330,16 @@ export default function WorkOrderTicketPage() {
         }}>
           <button type="button" aria-label="Close photo" onClick={() => setImagePreview(null)} className="absolute inset-0 cursor-default" />
           <div className="cmpri-modal-shell relative z-10 border border-slate-600 bg-slate-950 shadow-2xl">
-            <img src={imagePreview.url} alt="Full-size work-order attachment" className="max-h-[92vh] max-w-[92vw] object-contain" />
+            <div className="relative h-[92vh] w-[92vw]">
+              <Image
+                src={imagePreview.url}
+                alt="Full-size work-order attachment"
+                fill
+                sizes="92vw"
+                unoptimized
+                className="object-contain"
+              />
+            </div>
             <button type="button" onClick={() => setImagePreview(null)} className="absolute right-3 top-3 rounded-lg border border-slate-600 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-white">Close</button>
           </div>
         </div>

@@ -70,6 +70,8 @@ function fixture(config = {}) {
           const normalized = String(value).trim().toLowerCase().replace(/[\s_-]+/g, '');
           return ['systemadmin', 'systemadministrator', 'administrator', 'admin'].includes(normalized)
             ? 'system_admin'
+            : ['engineer', 'chiefengineer', 'engineeringmanager', 'regionalmaintenance', 'regionalengineer'].includes(normalized)
+              ? 'engineer'
             : normalized;
         };
         return {
@@ -87,8 +89,22 @@ function fixture(config = {}) {
   };
 }
 
-test('only a System Administrator may review PM proposals', async () => {
+test('only System Administrators and Engineers may review PM proposals', async () => {
   const f = fixture({ role: 'Maintenance Technician' });
+  const response = await f.handler(f.request({ proposalId, decision: 'approve', expectedRevision: 1 }));
+  assert.equal(response.status, 403);
+  assert.equal(f.calls.length, 0);
+});
+
+test('an Engineer can review and reject a PM proposal', async () => {
+  const f = fixture({ role: 'Chief Engineer' });
+  const response = await f.handler(f.request({ proposalId, decision: 'reject', expectedRevision: 1 }));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.proposal.status, 'rejected');
+});
+
+test('a General Manager cannot review PM proposals', async () => {
+  const f = fixture({ role: 'General Manager' });
   const response = await f.handler(f.request({ proposalId, decision: 'approve', expectedRevision: 1 }));
   assert.equal(response.status, 403);
   assert.equal(f.calls.length, 0);

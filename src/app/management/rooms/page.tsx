@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
+import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
@@ -71,6 +72,7 @@ export default function RoomsPage() {
   const [draft, setDraft] = useState<Location | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [canManageCorporatePm, setCanManageCorporatePm] = useState(false);
+  const [pageAllowed, setPageAllowed] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -106,7 +108,21 @@ export default function RoomsPage() {
     });
   }, []);
 
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  useEffect(() => {
+    let active = true;
+    void loadCmpriSession().then((session) => {
+      if (!active) return;
+      if (!hasCapability(session, "view_engineering_operations")) {
+        window.location.replace(session.landing);
+        return;
+      }
+      setPageAllowed(true);
+      void load();
+    }).catch(() => {
+      if (active) window.location.replace("/");
+    });
+    return () => { active = false; };
+  }, [load]);
 
   const roomOrders = useMemo(() => {
     if (!draft) return [];
@@ -158,6 +174,7 @@ export default function RoomsPage() {
     }
   }
 
+  if (!pageAllowed) return null;
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full px-3 py-4 sm:px-4">

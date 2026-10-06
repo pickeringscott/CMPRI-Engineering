@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
+import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { togglePmRoutineResponse } from "@/lib/pm/routine-responses";
+import { isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
+import { findReferencedPmTemplate } from "@/lib/pm/references";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -37,7 +39,8 @@ type PmEntry = {
   work_order_id: string | null;
   revision: number;
   updated_at: string;
-  status?: "pending" | "approved" | "rejected";
+  status?: "pending" | "processing" | "approved" | "rejected";
+  can_edit_entry?: boolean;
   proposed_cells?: Array<{ sheet: string; row: number; column: number; label: string; expectedValue: string; proposedValue: string }>;
 };
 type PmReviewProposal = {
@@ -142,7 +145,7 @@ function sourceRoutineStatus(template: PmTemplate, period: string, itemId: strin
       ? workbook.weekly[month] || []
       : workbook.monthly[month] || [];
   const liveTask = tasks.find((task) => task.label.trim().toLowerCase() === item.label.trim().toLowerCase());
-  return liveTask?.targets.some((target) => target.value === "TRUE") || false;
+  return isPmRoutineCellChecked(liveTask?.targets || []);
 }
 
 function SourceNote({ template }: { template: PmTemplate }) {
@@ -232,6 +235,11 @@ export default function PreventiveMaintenancePage() {
     try {
       const session = await getValidSession();
       if (!session?.access_token) throw new Error("Sign in again to open Preventive Maintenance.");
+      const cmpriSession = await loadCmpriSession();
+      if (!cmpriSession.capabilities.includes("view_pm")) {
+        window.location.replace(cmpriSession.landing);
+        return;
+      }
       const response = await fetch(`/api/preventive-maintenance?week=${encodeURIComponent(week)}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
@@ -390,7 +398,7 @@ export default function PreventiveMaintenancePage() {
         templateId: template.id,
         periodStart,
         scopeKey: "property",
-        responses,
+        responses: { [itemId]: checked },
         formData: existing?.form_data || {},
         notes: existing?.notes || "",
         deficiencyNotes: existing?.deficiency_notes || "",
@@ -436,6 +444,8 @@ export default function PreventiveMaintenancePage() {
   const activeTemplate = activeForm ? findPmTemplate(activeForm.templateId) : null;
   const activeScopeKey = activeForm?.scopeKey || "property";
   const activeScopeEntry = activeForm && activeTemplate ? entryFor(activeTemplate, activeForm.periodStart, activeScopeKey) : null;
+  const activeCanEdit = canEdit
+    && (!["pending", "processing"].includes(activeScopeEntry?.status || "") || activeScopeEntry?.can_edit_entry === true);
   const followUpItems = activeTemplate?.checklist.filter((item) => checklist[item.id] === "follow-up") || [];
   const pendingLinkMatchesForm = Boolean(
     pendingWorkOrderLink && activeForm && activeTemplate
@@ -496,6 +506,7 @@ export default function PreventiveMaintenancePage() {
   }
 
   async function saveActive(isComplete: boolean) {
+    if (!activeCanEdit) return;
     setSavingKey("active-form");
     setError("");
     setMessage("");
@@ -513,6 +524,7 @@ export default function PreventiveMaintenancePage() {
   }
 
   async function createWorkOrderFromDeficiency() {
+    if (!activeCanEdit) return;
     if (!activeTemplate || !activeForm || !deficiencyNotes.trim()) {
       setError("Record the deficiency details before creating a work order.");
       return;
@@ -672,16 +684,8 @@ export default function PreventiveMaintenancePage() {
   ).length;
   const filteredRooms = PM_ROOM_NUMBERS.filter((room) => room.includes(roomSearch.trim()));
 
-  function findReferencedForm(reference: string | null | undefined) {
-    if (!reference) return null;
-    const normalizedReference = reference.toLowerCase();
-    return PM_TEMPLATES.find((template) =>
-      template.kind !== "routine" && normalizedReference.includes(template.sourceFile.toLowerCase()),
-    ) || null;
-  }
-
   function openRoutineReference(reference: string | null | undefined, period: string, weekly = false) {
-    const template = findReferencedForm(reference);
+    const template = findReferencedPmTemplate(reference, PM_TEMPLATES);
     if (!template) return;
     const formPeriod = template.cadence === "weekly" ? weekStart : period;
     openForm(template, formPeriod);
@@ -708,7 +712,7 @@ export default function PreventiveMaintenancePage() {
               <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
             ))}
           </div>
-          <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
+          <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit || (["pending", "processing"].includes(existingSingle?.status || "") && !existingSingle?.can_edit_entry) ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
         </div>
       </article>
     );
@@ -725,6 +729,11 @@ export default function PreventiveMaintenancePage() {
     return sourceRoutineStatus(template, period, itemId, liveWorkbook);
   }
 
+  function canEditPeriod(template: PmTemplate, period: string) {
+    const entry = entryFor(template, period);
+    return canEdit && (!["pending", "processing"].includes(entry?.status || "") || entry?.can_edit_entry === true);
+  }
+
   function renderRoutineTable(template: PmTemplate, periods: string[], heading: string, linkedReference?: (itemId: string) => string | null) {
     const savingFor = (period: string) => savingKey === entryKey(template.id, period);
     return (
@@ -734,12 +743,14 @@ export default function PreventiveMaintenancePage() {
             <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{heading}</th>{periods.map((period, index) => <th key={period} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{DAY_LABELS[index]}</span><span>{dateLabel(period)}</span></> : <span>{periodLabel(template, period)}</span>}</th>)}</tr>
           </thead>
           <tbody>
-            {template.checklist.map((item, index) => (
+            {template.checklist.map((item, index) => {
+              const reference = linkedReference?.(item.id) || null;
+              return (
               <tr key={item.id} className="border-t border-slate-800/80 hover:bg-slate-900/50">
                 <th scope="row" className="sticky left-0 bg-slate-950 px-3 py-2.5 text-sm font-medium text-slate-200">
                   {item.category && <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}
                   {item.label}
-                  {linkedReference?.(item.id) && <button type="button" onClick={() => openRoutineReference(linkedReference(item.id), periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
+                  {findReferencedPmTemplate(reference, PM_TEMPLATES) && <button type="button" onClick={() => openRoutineReference(reference, periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
                 </th>
                 {periods.map((period) => {
                   const checked = routineStatus(template, period, item.id);
@@ -752,7 +763,7 @@ export default function PreventiveMaintenancePage() {
                         role="checkbox"
                         aria-checked={checked}
                         aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${hasPending ? " · pending review" : ""}`}
-                        disabled={!canEdit || !liveWorkbook || savingFor(period)}
+                        disabled={!canEditPeriod(template, period) || !liveWorkbook || savingFor(period)}
                         onClick={() => void updateRoutine(template, period, item.id, !checked)}
                         className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : checked ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
                         title={hasPending ? "Pending reviewer confirmation" : undefined}
@@ -762,7 +773,8 @@ export default function PreventiveMaintenancePage() {
                 })}
                 <td className="sr-only">{index}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -848,7 +860,7 @@ export default function PreventiveMaintenancePage() {
                 <section key={template.id}>
                   <SectionHeading eyebrow={`${template.title} · workbook checkboxes`} title={`${dateLabel(period, { month: "long", year: "numeric" })} monthly tasks`} trailing={<span className="text-xs text-slate-400">{template.checklist.filter((item) => routineStatus(template, period, item.id)).length} / {template.checklist.length} complete</span>} />
                   <div className="mt-3">
-                    {renderRoutineTable(template, [period], "Monthly task", (itemId) => template.checklist.find((item) => item.id === itemId)?.source?.match(/[^, ]+\.pdf/i)?.[0] || null)}
+                    {renderRoutineTable(template, [period], "Monthly task", (itemId) => template.checklist.find((item) => item.id === itemId)?.source || null)}
                   </div>
                 </section>
               );
@@ -914,9 +926,11 @@ export default function PreventiveMaintenancePage() {
                     <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
                     <td className="px-4 py-3 text-slate-300">{roomRank}</td>
                     <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${entry?.status === "pending" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : displayDate ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{entry?.status === "pending" ? "Pending review" : displayDate ? "Complete" : "Due"}</span></td>
-                    <td className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
+                    <td className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
                   </tr>;
-                })}</tbody>
+                })}
+                  {filteredRooms.length === 0 && <tr><td colSpan={5} role="status" className="border-t border-slate-800/80 px-4 py-5 text-center text-slate-400">No rooms match “{roomSearch.trim()}”.</td></tr>}
+                </tbody>
               </table>
             </div>
           </section>
@@ -1056,10 +1070,10 @@ export default function PreventiveMaintenancePage() {
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Source period</p><p className="mt-1 text-sm font-semibold">{periodLabel(activeTemplate, activeForm.periodStart)}</p></div>
-                {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? "Quarterly room PM completion date *" : "Completion date"}</span><input type="date" disabled={!canEdit || !!savingKey} value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white disabled:opacity-50" /></label>}
+                {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? "Quarterly room PM completion date *" : "Completion date"}</span><input type="date" disabled={!activeCanEdit || !!savingKey} value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white disabled:opacity-50" /></label>}
                 {activeTemplate.scope === "room" && <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Room</p><p className="mt-1 text-sm font-bold">{activeScopeKey.slice(5)}</p></div>}
                 {activeTemplate.fields.map((field) => (
-                  <FieldInput key={field.id} field={field} value={formData[field.id] || ""} disabled={!canEdit || !!savingKey} onChange={(value) => setFormData((current) => ({ ...current, [field.id]: value }))} />
+                  <FieldInput key={field.id} field={field} value={formData[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setFormData((current) => ({ ...current, [field.id]: value }))} />
                 ))}
               </div>
 
@@ -1071,7 +1085,7 @@ export default function PreventiveMaintenancePage() {
                       <div key={item.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 flex-1"><p className="text-sm text-slate-200">{item.category && <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}{item.label}</p><span className="text-[10px] text-slate-600">{item.source}</span></div>
                         <div className="flex shrink-0 gap-1">
-                          {(["complete", "follow-up", "na"] as const).map((state) => <button key={state} type="button" disabled={!canEdit || !!savingKey} aria-pressed={checklist[item.id] === state} onClick={() => setChecklist((current) => ({ ...current, [item.id]: state }))} className={`rounded-md border px-2 py-1.5 text-[11px] font-bold ${checklist[item.id] === state ? statusStyle(state === "complete" ? true : state === "follow-up" ? state : "na") : "border-slate-700 text-slate-400 hover:border-slate-500"} disabled:opacity-40`}>{state === "complete" ? "✓ OK" : state === "follow-up" ? "/ Follow-up" : "N/A"}</button>)}
+                          {(["complete", "follow-up", "na"] as const).map((state) => <button key={state} type="button" disabled={!activeCanEdit || !!savingKey} aria-pressed={checklist[item.id] === state} onClick={() => setChecklist((current) => ({ ...current, [item.id]: state }))} className={`rounded-md border px-2 py-1.5 text-[11px] font-bold ${checklist[item.id] === state ? statusStyle(state === "complete" ? true : state === "follow-up" ? state : "na") : "border-slate-700 text-slate-400 hover:border-slate-500"} disabled:opacity-40`}>{state === "complete" ? "✓ OK" : state === "follow-up" ? "/ Follow-up" : "N/A"}</button>)}
                         </div>
                       </div>
                     ))}
@@ -1081,13 +1095,13 @@ export default function PreventiveMaintenancePage() {
 
               {activeTemplate.repeatableFields && (
                 <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 sm:p-4">
-                  <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold">{activeTemplate.repeatableLabel || "Inspection records"}</h3><p className="mt-0.5 text-xs text-slate-500">Add one row for each inspected device, valve, or test location.</p></div><button type="button" disabled={!canEdit || !!savingKey} onClick={() => setRepeatableRows((current) => [...current, {}])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-40">Add row +</button></div>
+                  <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold">{activeTemplate.repeatableLabel || "Inspection records"}</h3><p className="mt-0.5 text-xs text-slate-500">Add one row for each inspected device, valve, or test location.</p></div><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => [...current, {}])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-40">Add row +</button></div>
                   <div className="mt-3 space-y-3">
                     {repeatableRows.map((row, index) => (
                       <div key={index} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Record {index + 1}</p><button type="button" disabled={!canEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="text-xs text-red-300 hover:underline">Remove</button></div>
+                        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Record {index + 1}</p><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="text-xs text-red-300 hover:underline">Remove</button></div>
                         <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                          {activeTemplate.repeatableFields!.map((field) => <FieldInput key={field.id} field={field} value={row[field.id] || ""} disabled={!canEdit || !!savingKey} onChange={(value) => setRepeatableRows((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, [field.id]: value } : item))} />)}
+                          {activeTemplate.repeatableFields!.map((field) => <FieldInput key={field.id} field={field} value={row[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setRepeatableRows((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, [field.id]: value } : item))} />)}
                         </div>
                       </div>
                     ))}
@@ -1096,17 +1110,17 @@ export default function PreventiveMaintenancePage() {
               )}
 
               <div className="grid gap-3 lg:grid-cols-2">
-                <label className="block"><span className="text-xs font-semibold text-slate-300">Inspection notes</span><textarea disabled={!canEdit || !!savingKey} value={formNotes} onChange={(event) => setFormNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" placeholder="Record observations, readings, or context…" /></label>
-                <label className="block"><span className="text-xs font-semibold text-amber-200">Deficiencies and follow-up plan</span><textarea disabled={!canEdit || !!savingKey} value={deficiencyNotes} onChange={(event) => setDeficiencyNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" placeholder="Describe what needs repair and the next step…" /></label>
+                <label className="block"><span className="text-xs font-semibold text-slate-300">Inspection notes</span><textarea disabled={!activeCanEdit || !!savingKey} value={formNotes} onChange={(event) => setFormNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" placeholder="Record observations, readings, or context…" /></label>
+                <label className="block"><span className="text-xs font-semibold text-amber-200">Deficiencies and follow-up plan</span><textarea disabled={!activeCanEdit || !!savingKey} value={deficiencyNotes} onChange={(event) => setDeficiencyNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" placeholder="Describe what needs repair and the next step…" /></label>
               </div>
 
-              {deficiencyNotes.trim() && canEdit && (
+              {deficiencyNotes.trim() && activeCanEdit && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
                   <p className="text-sm font-bold text-amber-100">Create a linked work order</p>
                   <p className="mt-1 text-xs text-amber-100/70">The PM record is saved first. The work order will include the form source, inspection period, marked deficiencies, and your follow-up notes.</p>
                   <div className="mt-3 flex flex-wrap items-end gap-3">
                     <label className="min-w-[240px] flex-1"><span className="text-xs font-semibold text-slate-300">Work-order location</span><select value={deficiencyLocationId} onChange={(event) => setDeficiencyLocationId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Select location…</option>{locations.map((location) => <option key={location.id} value={location.id}>{[location.area, location.room_number, location.name].filter(Boolean).join(" · ")}</option>)}</select></label>
-                    <button type="button" disabled={!canEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? "Creating…" : "Save & create work order"}</button>
+                    <button type="button" disabled={!activeCanEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? "Creating…" : "Save & create work order"}</button>
                   </div>
                 </div>
               )}
@@ -1115,8 +1129,8 @@ export default function PreventiveMaintenancePage() {
               {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">Open linked work order</button>}
 
               <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-4">
-                <button type="button" disabled={!canEdit || !!savingKey} onClick={() => void saveActive(false)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-200 disabled:opacity-40">{savingKey === "active-form" ? "Saving…" : "Save draft"}</button>
-                <button type="button" disabled={!canEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">Mark complete</button>
+                <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(false)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-200 disabled:opacity-40">{savingKey === "active-form" ? "Saving…" : "Save draft"}</button>
+                <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">Mark complete</button>
               </footer>
             </div>
           </section>

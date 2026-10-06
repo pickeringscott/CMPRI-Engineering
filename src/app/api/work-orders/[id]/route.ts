@@ -1,38 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { roleKey } from "@/lib/server/roles";
+import { isEngineeringWorkOrderActor, recordEngineeringWorkOrderView } from "@/lib/server/work-order-notification-resolution";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
+import { isUuid } from "@/lib/uuid";
+import { TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields } from "@/lib/work-order-edit-policy";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
-const TECHNICAL_FIELDS = [
-  "issue", "asset_id", "asset_name", "category", "priority", "technician_name", "status", "notes",
-  "action_root_cause", "parts", "cost", "hours", "due_by",
-] as const;
-const REVIEW_FIELDS = ["status", "notes"] as const;
 
 function isMcpRequest(request: NextRequest) {
   return /^Bearer\s+cmpri_mcp_[^\s]+$/i.test(request.headers.get("authorization") || "");
-}
-
-function callerDatabase(request: NextRequest, admin: NonNullable<Awaited<ReturnType<typeof requireUser>>>["admin"]) {
-  if (isMcpRequest(request)) {
-    return admin;
-  }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
-  const authorization = request.headers.get("authorization") || "";
-  if (!url || !key || !authorization) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { headers: { Authorization: authorization } },
-  });
 }
 
 async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {
@@ -55,11 +37,12 @@ function validateDueDate(value: unknown) {
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser(request);
-  if (!auth || (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "edit_tickets"))) {
+  if (!auth || (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders") && !allows(auth.principal, "edit_tickets"))) {
     return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   }
 
   const { id } = await params;
+  if (!isUuid(id)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
   const includeMentions = request.nextUrl.searchParams.get("include") === "mentions";
   const { data: workOrder, error: workOrderError } = await auth.admin
     .from("work_orders")
@@ -69,11 +52,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .maybeSingle();
   if (workOrderError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+  if ((!allows(auth.principal, "view_dashboard") || allows(auth.principal, "add_work_order_notes"))
+    && allows(auth.principal, "view_work_orders")
+    && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
+    return NextResponse.json({ error: "This role can only view open work orders." }, { status: 403 });
+  }
   if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
   const roomStatuses = await loadCurrentRoomStatuses(auth.admin);
   if (roomStatuses.error || !roomStatuses.statuses) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+
+  if (isEngineeringWorkOrderActor(auth.principal.profile)) {
+    try {
+      await recordEngineeringWorkOrderView(auth.admin, workOrder, {
+        id: auth.principal.identity.id,
+      });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Engineering notification review could not be recorded." }, { status: 503 });
+    }
+  }
 
   const isTechnician = roleKey(auth.principal.profile.role) === "technician";
   if (isTechnician) {
@@ -148,21 +146,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!auth) return NextResponse.json({ error: "Work-order editing or review permission is required." }, { status: 403 });
   const canEdit = allows(auth.principal, "edit_tickets");
   const canReview = allows(auth.principal, "review_tickets");
-  if (!canEdit && !canReview) return NextResponse.json({ error: "Work-order editing or review permission is required." }, { status: 403 });
+  const canAddNotes = allows(auth.principal, "add_work_order_notes");
+  if (!canEdit && !canReview && !canAddNotes) return NextResponse.json({ error: "Work-order editing, notes, or review permission is required." }, { status: 403 });
 
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
   const { id } = await params;
-  const db = callerDatabase(request, auth.admin);
-  if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
+  if (!isUuid(id)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
+  const db = auth.admin;
 
   const { data: existing, error: lookupError } = await db.from("work_orders")
-    .select("id, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, revision")
+    .select("id, display_id, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, revision")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
   if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+  if (canAddNotes && !canEdit && !canReview && !["Open", "In Progress"].includes(String(existing.status || ""))) {
+    return NextResponse.json({ error: "Notes may only be added to open work orders." }, { status: 403 });
+  }
   const technicianEdit = roleKey(auth.principal.profile.role) === "technician";
   if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, existing)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
@@ -181,17 +183,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Someone changed this ticket since you opened it. Your edits were not saved. Reload before combining the changes." }, { status: 409 });
   }
 
-  const allowedFields: readonly string[] = technicianEdit
-    ? unassignedWorkOrder
-      ? canClaimUnassigned ? ["technician_name"] : []
-      : ["asset_id", "category", "status", "notes"]
-    : canEdit ? TECHNICAL_FIELDS : REVIEW_FIELDS;
+  const allowedFields = workOrderEditableFields({
+    role: auth.principal.profile.role,
+    canEdit,
+    canReview,
+    canAddNotes,
+    unassigned: unassignedWorkOrder,
+    canClaimUnassigned,
+  });
   const allowedFieldSet = new Set(allowedFields);
   const update: Record<string, unknown> = {};
   for (const key of allowedFields) {
     if (Object.prototype.hasOwnProperty.call(body, key)) update[key] = body[key];
   }
-  const attemptedProtected = TECHNICAL_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(body, field) && !allowedFieldSet.has(field));
+  const attemptedProtected = TECHNICAL_WORK_ORDER_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(body, field) && !allowedFieldSet.has(field));
   if (attemptedProtected) return NextResponse.json({ error: "Your role cannot change technical work-order fields." }, { status: 403 });
   if (
     technicianEdit &&
@@ -209,7 +214,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Technicians may set work only to Open, In Progress, or Completed." }, { status: 403 });
   }
 
-  if (!canEdit) {
+  if (!canEdit && canReview) {
     if (existing.status !== "Pending Verification") {
       return NextResponse.json({ error: "Management review is limited to pending requests." }, { status: 403 });
     }
@@ -319,6 +324,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
   if (!data) return NextResponse.json({ error: "This ticket changed while you were saving. Your edits were not saved. Reload before combining the changes." }, { status: 409 });
+  if (isEngineeringWorkOrderActor(auth.principal.profile)) {
+    try {
+      await recordEngineeringWorkOrderView(auth.admin, { id, display_id: existing.display_id }, {
+        id: auth.principal.identity.id,
+      });
+    } catch (resolutionError) {
+      return NextResponse.json({ error: resolutionError instanceof Error ? resolutionError.message : "Technician notifications could not be resolved." }, { status: 503 });
+    }
+  }
   await processRoomRankerSyncForWorkOrder(auth.admin, id).catch(() => undefined);
   return NextResponse.json({ workOrder: data });
 }
@@ -326,12 +340,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Work-order deletion requires sign-in." }, { status: 401 });
-  const canDelete = allows(auth.principal, "edit_tickets") || allows(auth.principal, "close_tickets") || allows(auth.principal, "manage_users");
-  if (!canDelete) return NextResponse.json({ error: "Engineering access is required to delete work orders." }, { status: 403 });
+  if (!allows(auth.principal, "review_tickets")) {
+    return NextResponse.json({ error: "Work-order review permission is required to delete work orders." }, { status: 403 });
+  }
 
   const { id } = await params;
-  const db = callerDatabase(request, auth.admin);
-  if (!db) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
+  if (!isUuid(id)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
+  const db = auth.admin;
 
   const { data: existing, error: lookupError } = await db.from("work_orders")
     .select("id, room, display_id, status")

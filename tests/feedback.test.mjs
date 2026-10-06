@@ -6,6 +6,7 @@ import ts from 'typescript';
 import { roleAllows } from '../src/lib/server/roles.ts';
 
 const source = readFileSync(new URL('../src/app/api/feedback/route.ts', import.meta.url), 'utf8');
+const feedbackPageSource = readFileSync(new URL('../src/app/feedback/page.tsx', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -67,6 +68,12 @@ function fixture({ role = 'Front Desk', denied = [], rows = [], adminUnavailable
   });
   return { handlers: exports, inserted, updates, deleted, request, db, rows };
 }
+
+test('embedded feedback cancel closes only its current modal', () => {
+  const closeHandler = feedbackPageSource.match(/function closeFeedback\(event: MouseEvent<HTMLButtonElement>\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+  assert.match(closeHandler, /type: "cmpri-modal-close", modalToken: params\.get\("modalToken"\) \|\| ""/);
+  assert.equal(closeHandler.includes('cmpri-modal-dashboard'), false);
+});
 
 test('feedback permissions do not grant work-order editing or queue access to submit-only roles', () => {
   for (const role of ['Front Desk', 'Lead Housekeeper']) {

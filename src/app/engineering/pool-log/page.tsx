@@ -12,6 +12,7 @@ import {
   poolLocationReadings,
   poolLocationValue,
   poolReadingWarnings,
+  poolLogTodayDate,
   sampleLocationLabel,
   sampleLocations,
 } from "@/lib/pool-log";
@@ -135,7 +136,7 @@ function bromineOutOfRange(value: unknown) {
 
 export default function PoolLogPage() {
   const embedded = useEmbeddedModal();
-  const [date, setDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()));
+  const [date, setDate] = useState(() => poolLogTodayDate());
   const [facilityChoice, setFacilityChoice] = useState("");
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [facility, setFacility] = useState<Facility | null>(null);
@@ -158,7 +159,6 @@ export default function PoolLogPage() {
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
-      await Promise.resolve();
       setLoading(true);
       setMessage("");
       setEditingSavedLog(false);
@@ -251,7 +251,7 @@ export default function PoolLogPage() {
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await response.json() as { error?: string; log?: Log; unchanged?: boolean; closure_reasons?: string[]; closure_required?: boolean; warnings?: string[] };
+      const result = await response.json() as { error?: string; log?: Log; unchanged?: boolean; closure_reasons?: string[]; closure_required?: boolean; warnings?: string[]; notifications_recorded?: boolean };
       if (!response.ok || !result.log) throw new Error(result.error || "Unable to save readings.");
       const values = formFromLog(result.log);
       if (poolClosureReasons(values).length) values.closure_condition = true;
@@ -263,6 +263,7 @@ export default function PoolLogPage() {
       setShowHistory(false);
       const notes = [result.unchanged ? "No new readings to save; the pool log is unchanged." : "Pool log saved to the database."];
       if (result.closure_required) notes.push(`THE POOL MUST BE CLOSED${result.closure_reasons?.length ? `: ${result.closure_reasons.join("; ")}` : ""}.`);
+      if (result.closure_required && result.notifications_recorded === false) notes.push("Pool-closure notifications could not be recorded; contact the Chief Engineer.");
       if (result.warnings?.length) notes.push(`Out of range: ${result.warnings.join("; ")}.`);
       setMessage(notes.join(" "));
     } catch (error) {
@@ -347,7 +348,7 @@ export default function PoolLogPage() {
 
         <section className="print:hidden">
           <div className="flex flex-wrap gap-3">
-            <label>Date<input type="date" value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className={fieldClass} /></label>
+            <label>Date<input type="date" max={poolLogTodayDate()} value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className={fieldClass} /></label>
             {facilities.length > 1 ? <label className="min-w-56">Pool<SearchableSelect value={facilityChoice || facility?.id || ""} disabled={saving || dirty || historyLoading} onChange={chooseFacility} placeholder="Pool" options={facilities.map((item) => ({ value: item.id, label: item.pool_name }))} /></label> : null}
             <button type="button" disabled={saving || loading} className="self-end rounded-lg border border-slate-600 p-2" onClick={() => setReload((value) => value + 1)}>{dirty ? "Discard edits and reload" : "Reload"}</button>
           </div>

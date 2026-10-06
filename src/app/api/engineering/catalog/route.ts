@@ -109,7 +109,12 @@ export async function POST(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Parts and vendor editing requires equipment-management permission." }, { status: 403 });
   const body = await bodyObject(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
-  const kind = text(body.kind, "Record type", 50, true);
+  let kind: string;
+  try {
+    kind = text(body.kind, "Record type", 50, true);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Record type is invalid." }, { status: 400 });
+  }
   const actorId = auth.principal.identity.id;
   const actorName = auth.principal.profile.full_name || auth.principal.identity.email || "CMPRI Engineering";
 
@@ -303,8 +308,14 @@ export async function PATCH(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Parts and vendor editing requires equipment-management permission." }, { status: 403 });
   const body = await bodyObject(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
-  const kind = text(body.kind, "Record type", 50, true);
-  const id = optionalId(body.id, "Record id");
+  let kind: string;
+  let id: string | null;
+  try {
+    kind = text(body.kind, "Record type", 50, true);
+    id = optionalId(body.id, "Record id");
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Record details are invalid." }, { status: 400 });
+  }
   if (!id) return NextResponse.json({ error: "Record id is required." }, { status: 400 });
   const now = new Date().toISOString();
 

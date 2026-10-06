@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { authenticatedUser } from "@/lib/server/request-auth";
-import { roleAllows, roleKey } from "@/lib/server/roles";
+import { receivesPoolClosedNotifications, roleAllows, roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolClosureReasons, validLogDate } from "@/lib/pool-log";
 import { fetchAllPages } from "@/lib/server/paginated-query";
+import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 
 type DatabaseError = { code?: string; message?: string; details?: string | null; hint?: string | null } | null;
 
@@ -30,7 +31,9 @@ function saveFailure(error: DatabaseError) {
 export async function GET(request: NextRequest) {
   const auth = await authenticatedUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!roleAllows(auth.profile.role, "view_dashboard")) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
+  if (!roleAllows(auth.profile.role, "view_dashboard") && !roleAllows(auth.profile.role, "view_pool_log")) {
+    return NextResponse.json({ error: "Pool-log access is required." }, { status: 403 });
+  }
   const admin = auth.admin ?? createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest) {
     log,
     date,
     status: poolLogStatus(log),
-    can_edit: roleAllows(auth.profile.role, "operate_integrations"),
+    can_edit: roleAllows(auth.profile.role, "operate_pool_log"),
     can_edit_saved: roleKey(auth.profile.role) === "system_admin",
     operator: auth.profile.full_name || "",
   }, { headers: { "Cache-Control": "private, no-store" } });
@@ -79,7 +82,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authenticatedUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!roleAllows(auth.profile.role, "operate_integrations")) return NextResponse.json({ error: "Engineering access is required to save pool readings." }, { status: 403 });
+  if (!roleAllows(auth.profile.role, "operate_pool_log")) return NextResponse.json({ error: "Pool-log operating permission is required to save readings." }, { status: 403 });
   const body = await jsonObject(request);
   if (!body) return NextResponse.json({ error: "A JSON object is required." }, { status: 400 });
 
@@ -149,11 +152,72 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: failure.error }, { status: failure.status });
   }
   const closureReasons = poolClosureReasons(log);
+  const wasClosed = !!existing && (existing.closure_condition === true || poolClosureReasons(existing).length > 0);
+  const isClosed = closureReasons.length > 0 || log.closure_condition === true;
+  let notificationsRecorded = true;
+  if (!wasClosed && isClosed) {
+    const { data: profiles, error: profilesError } = await admin.from("profiles")
+      .select("id, role, secondary_roles, active")
+      .eq("active", true);
+    if (profilesError) {
+      notificationsRecorded = false;
+      console.error("Pool closure recipients could not be loaded", profilesError);
+    } else {
+      const eligibleProfiles = (profiles || []).filter(receivesPoolClosedNotifications);
+      const eligibleIds = eligibleProfiles.map((profile) => profile.id);
+      const { data: memberships, error: membershipError } = eligibleIds.length
+        ? await admin.from("hotel_members")
+          .select("user_id")
+          .eq("hotel_id", HOTEL_ID)
+          .eq("active", true)
+          .in("user_id", eligibleIds)
+        : { data: [], error: null };
+      if (membershipError) {
+        notificationsRecorded = false;
+        console.error("Pool closure recipient memberships could not be loaded", membershipError);
+      } else {
+        const recipients = [...new Set((memberships || []).map((membership) => membership.user_id))];
+        const reason = typeof log.closure_reason === "string" ? log.closure_reason.trim() : "";
+        const { data: recordedNotifications, error: notificationError } = recipients.length
+          ? await admin.from("cmpri_dashboard_notifications")
+            .upsert(recipients.map((recipient_user_id) => ({
+              hotel_id: HOTEL_ID,
+              recipient_user_id,
+              notification_key: `pool-closed:${facility.id}:${body.log_date}:${log.revision}`,
+              work_order_id: null,
+              target_path: "/engineering/pool-log",
+              message: `CMPRI pool closed on ${body.log_date}.${reason ? ` ${reason}` : ""}`,
+              recorded_at: new Date().toISOString(),
+            })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true })
+            .select("recipient_user_id")
+          : { data: [], error: new Error("No active CMPRI notification recipients were found.") };
+        if (notificationError) {
+          notificationsRecorded = false;
+          console.error("Pool closure notifications could not be recorded", notificationError);
+        } else if (recordedNotifications?.length) {
+          const recordedIds = new Set(recordedNotifications.map((notification: { recipient_user_id: string }) => notification.recipient_user_id));
+          const phoneRecipients = eligibleProfiles.filter((profile) => recordedIds.has(profile.id));
+          for (const recipient of phoneRecipients) {
+            try {
+              await dispatchWebPushNotifications(admin, recipient.id, recipient, [{
+                id: `pool-closed:${facility.id}:${body.log_date}:${log.revision}`,
+                target_path: "/engineering/pool-log",
+                message: `CMPRI pool closed on ${body.log_date}.${reason ? ` ${reason}` : ""}`,
+              }]);
+            } catch (deliveryError) {
+              console.error("Pool closure was recorded, but a phone alert could not be delivered.", deliveryError);
+            }
+          }
+        }
+      }
+    }
+  }
   return NextResponse.json({
     log,
     status: poolLogStatus(log),
     closure_required: closureReasons.length > 0 || log.closure_condition === true,
     closure_reasons: closureReasons,
     warnings: poolReadingWarnings(log),
+    notifications_recorded: notificationsRecorded,
   });
 }

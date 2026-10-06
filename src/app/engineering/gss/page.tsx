@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
+import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 
@@ -12,6 +13,7 @@ export default function GssPage() {
   const embedded = useEmbeddedModal();
   const [reports, setReports] = useState<Report[]>([]);
   const [message, setMessage] = useState("");
+  const [pageAllowed, setPageAllowed] = useState(false);
   const load = useCallback(async () => {
     const session = await getValidSession();
     const token = session?.access_token;
@@ -21,7 +23,21 @@ export default function GssPage() {
     if (!response.ok) setMessage(body.error || "Could not load GSS reports.");
     else setReports(body.gss || []);
   }, []);
-  useEffect(() => { (async () => { if (await enforceSessionPreference()) await load(); })(); }, [load]);
+  useEffect(() => { (async () => {
+    try {
+      if (!await enforceSessionPreference()) return;
+      const session = await loadCmpriSession();
+      if (!hasCapability(session, "view_engineering_operations")) {
+        window.location.replace(session.landing);
+        return;
+      }
+      setPageAllowed(true);
+      await load();
+    } catch {
+      window.location.replace("/");
+    }
+  })(); }, [load]);
+  if (!pageAllowed) return null;
   const latest = reports[0];
   const previous = reports[1];
   const keys = Array.from(new Set([...(latest ? Object.keys(latest.scores || {}) : []), ...(previous ? Object.keys(previous.scores || {}) : [])]));

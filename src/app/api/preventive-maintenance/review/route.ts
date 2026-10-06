@@ -60,8 +60,9 @@ function dbError(error: { message?: string; code?: string } | null, fallback: st
 export async function PATCH(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!profileHasRole(auth.principal.profile, "system_admin")) {
-    return NextResponse.json({ error: "Only a System Administrator can review PM proposals." }, { status: 403 });
+  if (!profileHasRole(auth.principal.profile, "system_admin")
+    && !profileHasRole(auth.principal.profile, "engineer")) {
+    return NextResponse.json({ error: "Only a System Administrator or Engineer can review PM proposals." }, { status: 403 });
   }
 
   let body: Record<string, unknown> | null;

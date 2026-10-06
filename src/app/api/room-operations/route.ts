@@ -25,20 +25,42 @@ function validDate(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-function normalizedDate(value: unknown): string {
+function normalizedDate(value: unknown, referenceDate = hotelDate()): string {
   if (value === undefined || value === null || value === "") return "";
   const text = typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "";
   if (!text) return "";
   const isoMatch = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
   if (isoMatch) {
     const iso = `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
-    if (validDate(iso)) return iso;
+    return validDate(iso) ? iso : "";
   }
-  const us = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/);
+  const shortDate = text.match(/^(\d{1,2})([A-Za-z]{3})(\d{2}|\d{4})?$/);
+  if (shortDate) {
+    const month = new Date(`${shortDate[2]} 1, 2000`).getMonth() + 1;
+    if (!month) return "";
+    const day = Number(shortDate[1]);
+    const explicitYear = shortDate[3]
+      ? Number(shortDate[3].length === 2 ? `20${shortDate[3]}` : shortDate[3])
+      : null;
+    const years = explicitYear
+      ? [explicitYear]
+      : [Number(referenceDate.slice(0, 4)) - 1, Number(referenceDate.slice(0, 4)), Number(referenceDate.slice(0, 4)) + 1];
+    const candidates = years
+      .map((year) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`)
+      .filter(validDate);
+    if (candidates.length) {
+      return candidates.sort((a, b) =>
+        Math.abs(Date.parse(`${a}T12:00:00Z`) - Date.parse(`${referenceDate}T12:00:00Z`))
+        - Math.abs(Date.parse(`${b}T12:00:00Z`) - Date.parse(`${referenceDate}T12:00:00Z`))
+      )[0];
+    }
+    return "";
+  }
+  const us = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4}|\d{2})/);
   if (us) {
     const year = us[3].length === 2 ? `20${us[3]}` : us[3];
     const iso = `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
-    if (validDate(iso)) return iso;
+    return validDate(iso) ? iso : "";
   }
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) {
@@ -76,8 +98,27 @@ function reserved(value: unknown) {
   if (value === undefined || value === null || value === "") return false;
   if (typeof value === "boolean") return value;
   const normalized = String(value).trim().toLowerCase();
-  if (["true", "yes", "y", "1", "reserved", "blk"].includes(normalized)) return true;
+  if (
+    ["true", "yes", "y", "1", "reserved", "blk", "blocked", "x", "✓", "✔"].includes(normalized)
+    || (/^\d+$/.test(normalized) && Number(normalized) > 0)
+  ) return true;
   return false;
+}
+
+function missingCurrentGuestFields(rows: Record<string, unknown>[]) {
+  const requiredFields = [
+    ["guest_name", "guest name"],
+    ["guest_code", "guest code"],
+    ["guest_arrival_date", "current guest arrival date"],
+    ["checkout_date", "current guest departure date"],
+  ] as const;
+  return rows.flatMap((row) => {
+    if (!/\boccupied\b/i.test(String(row.room_status || ""))) return [];
+    const missing = requiredFields
+      .filter(([field]) => !String(row[field] || "").trim())
+      .map(([, label]) => label);
+    return missing.length ? [`${String(row.room)} (${missing.join(", ")})`] : [];
+  });
 }
 
 function parseDelimitedCells(line: string, delimiter: string) {
@@ -115,7 +156,7 @@ function parseCsvToRows(rawCsv: string): Record<string, unknown>[] {
   const headerRowIdx = parsedLines.findIndex((row) =>
     row.some((cell) => {
       const norm = cell.toUpperCase().replace(/\s+/g, " ");
-      return norm === "ROOM" || norm === "ROOM #" || norm === "RM" || norm === "ROOM NUMBER";
+      return norm === "ROOM" || norm === "ROOM #" || norm === "RM #" || norm === "RM" || norm === "ROOM NUMBER";
     })
   );
   if (headerRowIdx < 0) return [];
@@ -127,19 +168,23 @@ function parseCsvToRows(rawCsv: string): Record<string, unknown>[] {
     return headers.findIndex((h) => normNames.some((n) => n.length >= 4 && h.includes(n)));
   };
 
-  const roomIdx = findCol("ROOM", "ROOM #", "ROOM NUMBER", "RM");
+  const roomIdx = findCol("ROOM", "ROOM #", "ROOM NUMBER", "RM #", "RM");
   if (roomIdx < 0) return [];
   const statusIdx = findCol("ROOM STATUS", "HOUSEKEEPING STATUS", "HK STATUS", "ROOM CONDITION", "CONDITION", "STATUS");
   const guestNameIdx = findCol("GUEST NAME", "GUEST / NAME", "GUEST", "NAME");
   const roomTypeIdx = findCol("ROOM TYPE", "RM TYPE", "ROOM TYPE CODE", "TYPE");
   const losIdx = findCol("LOS", "LENGTH OF STAY", "NIGHTS");
-  const reservedIdx = findCol("RESERVED", "BLOCKED", "BLK");
-  const checkoutDateIdx = findCol("CHECKOUT DATE", "CHECK OUT DATE", "DEPARTURE DATE", "DEP DATE");
-  const checkoutTimeIdx = findCol("CHECKOUT TIME", "CHECK OUT TIME", "DEPARTURE TIME", "DEP TIME", "TIME");
-  const arrivalDateIdx = findCol("INCOMING ARRIVAL DATE", "CHECKIN DATE", "CHECK-IN DATE", "ARRIVAL DATE");
+  const reservedIdx = findCol("RESERVED", "BLOCKED", "BLK", "BLK'D", "BLK’D", "BLKD");
+  const checkoutDateIdx = findCol("CHECKOUT DATE", "CHECK OUT DATE", "DEPARTURE DATE", "DEP DATE", "DEP");
+  const checkoutTimeIdx = findCol("CHECKOUT TIME", "CHECK OUT TIME", "DEPARTURE TIME", "DEP TIME", "DPLM", "TIME");
+  const arrivalDateIdx = headers.includes("INCOMING ARRIVAL DATE")
+    ? headers.indexOf("INCOMING ARRIVAL DATE")
+    : findCol("DUE IN", "CHECKIN DATE", "CHECK-IN DATE", "ARRIVAL DATE");
   const arrivalTimeIdx = findCol("INCOMING ARRIVAL TIME", "CHECKIN TIME", "CHECK-IN TIME", "ARRIVAL TIME");
   const guestCodeIdx = findCol("GUEST CODE", "GUEST TYPE CODE", "RATE CODE", "MEMBER CODE", "CODE");
-  const guestArrivalDateIdx = findCol("GUEST ARRIVAL", "ARV", "ARV DATE", "GUEST ARRIVAL DATE");
+  const guestArrivalDateIdx = findCol("CURRENT GUEST ARRIVAL DATE", "GUEST ARRIVAL DATE", "GUEST ARRIVAL", "ARV DATE", "ARV");
+  const moveFromIdx = findCol("MOVE FROM", "MOVED FROM", "FROM ROOM");
+  const moveToIdx = findCol("MOVE TO", "MOVED TO", "TO ROOM");
 
   const rows: Record<string, unknown>[] = [];
   for (let i = headerRowIdx + 1; i < parsedLines.length; i += 1) {
@@ -174,14 +219,16 @@ function parseCsvToRows(rawCsv: string): Record<string, unknown>[] {
       guest_arrival_date: guestArrivalDate,
       stay_nights: rawStay,
       reserved: rawRes,
+      move_from: moveFromIdx >= 0 ? line[moveFromIdx] || "" : "",
+      move_to: moveToIdx >= 0 ? line[moveToIdx] || "" : "",
     });
   }
   return rows;
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireCapability(request, "view_dashboard");
-  if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
+  const auth = await requireCapability(request, "view_engineering_operations");
+  if (!auth) return NextResponse.json({ error: "Engineering operations access is required." }, { status: 403 });
   const date = request.nextUrl.searchParams.get("date") || hotelDate();
   if (!validDate(date)) return NextResponse.json({ error: "Room-operations date is invalid." }, { status: 400 });
   const today = hotelDate();
@@ -280,8 +327,8 @@ export async function POST(request: NextRequest) {
           stay_nights: 0,
           reserved: false,
         };
-        existing.checkout_date = d.checkout_date || reportDate;
-        existing.checkout_time = d.checkout_time || "11:00 AM";
+        existing.checkout_date = d.checkout_date || existing.checkout_date || reportDate;
+        existing.checkout_time = d.checkout_time || existing.checkout_time || "11:00 AM";
         mergedMap.set(r, existing);
       }
       body.rows = [...mergedMap.values()];
@@ -311,19 +358,49 @@ export async function POST(request: NextRequest) {
       const room = roomValue(rawRoom, `Row ${index + 1} room`);
       if (room !== "MGR" && !knownRooms.has(room)) throw new Error(`Row ${index + 1}: Room ${room} is not an active CMPRI room.`);
 
-      const checkoutDate = normalizedDate(row.checkoutDate ?? row.checkout_date ?? row["Checkout Date"]);
-      const checkoutTime = normalizedDate(row.checkoutDate ?? row.checkout_date ?? row["Checkout Date"])
-        ? shortText(row.checkoutTime ?? row.checkout_time ?? row["Checkout Time"], `Row ${index + 1} checkout time`, 80) || "11:00 AM"
+      const checkoutDate = normalizedDate(
+        row.checkoutDate
+          ?? row.checkout_date
+          ?? row["Checkout Date"]
+          ?? row["Departure Date"]
+          ?? row["Dep Date"],
+        reportDate,
+      );
+      const checkoutTime = checkoutDate
+        ? shortText(
+          row.checkoutTime
+            ?? row.checkout_time
+            ?? row["Checkout Time"]
+            ?? row["Departure Time"]
+            ?? row["Dep Time"],
+          `Row ${index + 1} checkout time`,
+          80,
+        ) || "11:00 AM"
         : "";
       const roomStatus = shortText(row.roomStatus ?? row.room_status ?? row["Room Status"] ?? row.status, `Row ${index + 1} room status`, 200);
-      const arrivalDate = normalizedDate(row.arrivalDate ?? row.arrival_date ?? row["Arrival Date"]);
+      const arrivalDate = normalizedDate(
+        row.arrivalDate ?? row.arrival_date ?? row["Arrival Date"] ?? row["Incoming Arrival Date"] ?? row["Due In"],
+        reportDate,
+      );
       const arrivalTime = shortText(row.arrivalTime ?? row.arrival_time ?? row["Arrival Time"], `Row ${index + 1} arrival time`, 80);
       const guestName = shortText(row.guestName ?? row.guest_name ?? row["Guest Name"], `Row ${index + 1} guest name`, 200);
       const roomType = shortText(row.roomType ?? row.room_type ?? row["Room Type"], `Row ${index + 1} room type`, 80);
-      const guestCode = shortText(row.guestCode ?? row.guest_code ?? row["Guest Code"], `Row ${index + 1} guest code`, 80);
-      const guestArrivalDate = normalizedDate(row.guestArrivalDate ?? row.guest_arrival_date ?? row["Guest Arrival"]);
+      const guestCode = shortText(row.guestCode ?? row.guest_code ?? row["Guest Code"] ?? row.Code, `Row ${index + 1} guest code`, 80);
+      const guestArrivalDate = normalizedDate(
+        row.guestArrivalDate
+          ?? row.guest_arrival_date
+          ?? row["Guest Arrival"]
+          ?? row["Guest Arrival Date"]
+          ?? row["ARV Date"]
+          ?? row.ARV,
+        reportDate,
+      );
       const stayNightsVal = stayNights(row.stayNights ?? row.stay_nights ?? row.LOS ?? row.los);
-      const reservedVal = reserved(row.reserved ?? row.Reserved);
+      const reservedVal = reserved(row.reserved ?? row.Reserved ?? row.blocked ?? row["BLK'D"] ?? row["BLK’D"] ?? row.BLK);
+      const moveFromRaw = shortText(row.moveFrom ?? row.move_from ?? row["Move From"] ?? row["Moved From"], `Row ${index + 1} move from`, 20);
+      const moveToRaw = shortText(row.moveTo ?? row.move_to ?? row["Move To"] ?? row["Moved To"], `Row ${index + 1} move to`, 20);
+      const moveFrom = moveFromRaw ? roomValue(moveFromRaw, `Row ${index + 1} move from`) : "";
+      const moveTo = moveToRaw ? roomValue(moveToRaw, `Row ${index + 1} move to`) : "";
 
       const existingIdx = rows.findIndex((r) => r.room === room);
       if (existingIdx >= 0) {
@@ -339,6 +416,8 @@ export async function POST(request: NextRequest) {
         if (guestArrivalDate && !existing.guest_arrival_date) existing.guest_arrival_date = guestArrivalDate;
         if (stayNightsVal > 0) existing.stay_nights = stayNightsVal;
         if (reservedVal) existing.reserved = true;
+        if (moveFrom) existing.move_from = moveFrom;
+        if (moveTo) existing.move_to = moveTo;
       } else {
         seen.add(room);
         rows.push({
@@ -374,6 +453,14 @@ export async function POST(request: NextRequest) {
     }, { status: 422 });
   }
 
+  const missingGuestFields = missingCurrentGuestFields(rows);
+  if (missingGuestFields.length) {
+    const details = missingGuestFields.slice(0, 20).join("; ");
+    return NextResponse.json({
+      error: `Current guest details are incomplete for occupied rooms (${details}${missingGuestFields.length > 20 ? `; and ${missingGuestFields.length - 20} more rooms` : ""}). Nothing was saved. Include the current guest's name, code, arrival date, and departure date, then retry.`,
+    }, { status: 422 });
+  }
+
   if (body.validate_only === true) {
     return NextResponse.json({ ok: true, date: reportDate, count: rows.length, rows }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Authorization" } });
   }
@@ -389,15 +476,52 @@ export async function POST(request: NextRequest) {
     }
     yesterdayRows = data || [];
   }
+  const rowsWithMoves = detectRoomMoves(yesterdayRows, rows.map((row) => ({
+    ...row,
+    room: String(row.room),
+    room_status: String(row.room_status || ""),
+    guest_name: String(row.guest_name || ""),
+    guest_code: String(row.guest_code || ""),
+    move_from: String(row.move_from || ""),
+    move_to: String(row.move_to || ""),
+  })));
   const { data: importId, error } = await auth.admin.rpc("cmpri_replace_room_operations", {
     p_hotel_id: HOTEL_ID,
     p_report_date: reportDate,
     p_actor_id: auth.principal.identity.id,
     p_actor_name: actorName,
     p_source_type: source,
-    p_rows: rows,
+    p_rows: rowsWithMoves,
   });
   if (error) return NextResponse.json({ error: `Room operations were not saved: ${error.message}` }, { status: 409 });
+
+  const checkoutRooms = [...new Set(rows
+    .filter((row) => row.checkout_date === reportDate)
+    .map((row) => String(row.room)))];
+  let checkoutWorkOrders: Array<{
+    room: string;
+    display_id: string | null;
+    issue: string;
+    status: string;
+  }> | null = [];
+  if (checkoutRooms.length) {
+    const { data: workOrders, error: workOrdersError } = await auth.admin.from("work_orders")
+      .select("display_id, room, issue, status")
+      .eq("hotel_id", HOTEL_ID)
+      .in("room", checkoutRooms)
+      .in("status", ["Open", "In Progress"])
+      .limit(500);
+    if (workOrdersError) {
+      checkoutWorkOrders = null;
+    } else {
+      checkoutWorkOrders = (workOrders || []).map((workOrder) => ({
+        room: String(workOrder.room || ""),
+        display_id: typeof workOrder.display_id === "string" ? workOrder.display_id : null,
+        issue: String(workOrder.issue || ""),
+        status: String(workOrder.status || ""),
+      }));
+    }
+  }
 
   const notification = roomOperationsNotification(
     String(importId),
@@ -458,5 +582,6 @@ export async function POST(request: NextRequest) {
     date: reportDate,
     count: rows.length,
     notifications_recorded: notificationsRecorded,
+    checkout_work_orders: checkoutWorkOrders,
   });
 }

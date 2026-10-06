@@ -6,6 +6,8 @@ import RoomOperationsImport from "./RoomOperationsImport";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
+import { isRailwayCnGuestName } from "@/lib/room-operations";
+import Image from "next/image";
 
 type RoomOperation = {
   room: string;
@@ -27,7 +29,6 @@ type RoomOperation = {
 
 type Summary = {
   departures: number;
-  arrivals: number;
   reserved: number;
   vacantReady: number;
   vacantDirty: number;
@@ -70,32 +71,100 @@ function parseDate(value: string | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function dateClass(value: string | null, selectedDate: string) {
-  const date = parseDate(value);
-  const report = parseDate(selectedDate);
-  if (!date || !report) return "border-slate-600 bg-slate-900 text-slate-300";
-  const diff = Math.round((date.getTime() - report.getTime()) / 86_400_000);
-  if (diff < 0) return "border-red-400/45 bg-red-950/35 text-red-200";
-  if (diff === 0) return "border-green-400/45 bg-green-950/35 text-green-200";
-  if (diff === 1) return "border-yellow-400/45 bg-yellow-950/35 text-yellow-200";
-  return "border-blue-400/45 bg-blue-950/35 text-blue-200";
-}
-
 function displayDate(value: string | null) {
   const parsed = parseDate(value);
   return parsed ? parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
 }
 
+function daysUntilCheckout(value: string | null, today = hotelDate()) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const checkoutDate = new Date(`${value}T00:00:00Z`);
+  const todayDate = new Date(`${today}T00:00:00Z`);
+  if (Number.isNaN(checkoutDate.getTime()) || Number.isNaN(todayDate.getTime())) return null;
+  return Math.round((checkoutDate.getTime() - todayDate.getTime()) / 86_400_000);
+}
+
+function checkoutLabel(row: Pick<RoomOperation, "checkout_date" | "checkout_time">, today = hotelDate()) {
+  if (!row.checkout_date) return "";
+  const days = daysUntilCheckout(row.checkout_date, today);
+  const time = row.checkout_time || "11:00 AM";
+  if (days === 0) return `Checkout today · ${time}`;
+  if (days === 1) return `Checkout tomorrow · ${time}`;
+  if (days !== null && days < 0) return `Overdue · ${displayDate(row.checkout_date)} · ${time}`;
+  return `${displayDate(row.checkout_date)} · ${time}`;
+}
+
+function checkoutClass(days: number | null) {
+  const pill = "rounded-full border px-2 py-0.5 text-xs font-semibold";
+  if (days === 0) return `${pill} border-green-400/45 bg-green-950/35 text-green-200`;
+  if (days === 1) return `${pill} border-yellow-400/45 bg-yellow-950/35 text-yellow-200`;
+  if (days !== null && days < 0) return `${pill} border-red-400/45 bg-red-950/35 text-red-200`;
+  return "text-xs text-slate-400";
+}
+
 function summaryFor(rows: RoomOperation[]): Summary {
   return rows.reduce<Summary>((summary, row) => {
     if (row.checkout_date) summary.departures += 1;
-    if (row.arrival_date) summary.arrivals += 1;
     if (row.reserved) summary.reserved += 1;
     const status = String(row.room_status || "").trim().toLowerCase();
     if (status.includes("vacant ready") || status === "vr") summary.vacantReady += 1;
     if (status.includes("vacant dirty") || status === "vd") summary.vacantDirty += 1;
     return summary;
-  }, { departures: 0, arrivals: 0, reserved: 0, vacantReady: 0, vacantDirty: 0 });
+  }, { departures: 0, reserved: 0, vacantReady: 0, vacantDirty: 0 });
+}
+
+function RoomIdentity({ row }: { row: RoomOperation }) {
+  const railwayGuest = isRailwayCnGuestName(row.guest_name);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-lg font-black text-white">Room {row.room}</span>
+      {railwayGuest ? (
+        <Image
+          src="/railway-cn-logo.png"
+          alt=""
+          aria-hidden="true"
+          width={42}
+          height={27}
+          className="h-[1.5em] w-auto rounded-[4px] object-contain text-lg"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CheckoutPill({ row }: { row: RoomOperation }) {
+  const label = checkoutLabel(row);
+  if (!label) return null;
+  return <span className={checkoutClass(daysUntilCheckout(row.checkout_date))}>{label}</span>;
+}
+
+function MovePill({ row }: { row: RoomOperation }) {
+  if (!row.move_from && !row.move_to) return null;
+  return (
+    <span className="rounded-full border border-red-400/60 bg-red-950/70 px-2 py-0.5 text-xs font-bold text-red-100">
+      Move from {row.move_from || "—"}{row.move_to ? ` → ${row.move_to}` : ""}
+    </span>
+  );
+}
+
+function RoomDetails({ row }: { row: RoomOperation }) {
+  return (
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <RoomIdentity row={row} />
+        {row.room_status ? isOutOfOrder(row.room_status)
+          ? <span className="rounded-full border border-red-400/45 bg-red-950/35 px-2 py-0.5 text-xs font-semibold text-red-200">Out of Order</span>
+          : <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
+        {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-semibold text-fuchsia-200">Reserved</span> : null}
+        <CheckoutPill row={row} />
+        <MovePill row={row} />
+      </div>
+      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400">{row.guest_name}</div> : null}
+      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
+        {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
+      </div>
+    </div>
+  );
 }
 
 export default function RoomOperationsPage() {
@@ -114,7 +183,7 @@ export default function RoomOperationsPage() {
     let active = true;
     void loadCmpriSession().then((current) => {
       if (!active) return;
-      if (!hasCapability(current, "view_dashboard")) {
+      if (!hasCapability(current, "view_engineering_operations")) {
         router.replace(current.landing);
         return;
       }
@@ -160,7 +229,6 @@ export default function RoomOperationsPage() {
   const summary = useMemo(() => summaryFor(rows), [rows]);
   const summaryCards: Array<[keyof Summary, string, number]> = [
     ["departures", "Departures", summary.departures],
-    ["arrivals", "Incoming", summary.arrivals],
     ["reserved", "Reserved", summary.reserved],
     ["vacantReady", "Vacant Ready", summary.vacantReady],
     ["vacantDirty", "Vacant Dirty", summary.vacantDirty],
@@ -170,7 +238,6 @@ export default function RoomOperationsPage() {
     return rows.filter((row) => {
       const status = String(row.room_status || "").trim().toLowerCase();
       if (activeSummary === "departures") return !!row.checkout_date;
-      if (activeSummary === "arrivals") return !!row.arrival_date;
       if (activeSummary === "reserved") return row.reserved === true;
       if (activeSummary === "vacantReady") return status.includes("vacant ready") || status === "vr";
       if (activeSummary === "vacantDirty") return status.includes("vacant dirty") || status === "vd";
@@ -244,30 +311,7 @@ export default function RoomOperationsPage() {
           <div className="space-y-2">
             {filtered.map((row) => (
               <article key={row.room} className="rounded-xl border border-slate-800 bg-slate-950/55 p-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-lg font-black text-white">Room {row.room}</span>
-                      {row.room_status ? isOutOfOrder(row.room_status)
-                        ? <span className="text-xs font-bold text-red-200">{row.room_status}</span>
-                        : <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
-                      {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-bold text-fuchsia-200">Reserved</span> : null}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-300">
-                      {row.guest_name ? <span><strong className="text-slate-400">Guest:</strong> {row.guest_name}</span> : null}
-                      {row.room_type ? <span><strong className="text-slate-400">Type:</strong> {row.room_type}</span> : null}
-                      {row.guest_code ? <span><strong className="text-slate-400">Code:</strong> {row.guest_code}</span> : null}
-                      {row.guest_arrival_date ? <span><strong className="text-slate-400">Current arrival:</strong> {displayDate(row.guest_arrival_date)}</span> : null}
-                      {row.stay_nights ? <span><strong className="text-slate-400">LOS:</strong> {row.stay_nights} nights</span> : null}
-                    </div>
-                  </div>
-                  <div className="grid min-w-[280px] grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:min-w-[520px]">
-                    <div className={`rounded-lg border p-2 ${dateClass(row.checkout_date, date)}`}><div className="font-semibold opacity-75">Checkout</div><div className="mt-0.5 font-bold">{displayDate(row.checkout_date)}</div><div>{row.checkout_time || "—"}</div></div>
-                    <div className={`rounded-lg border p-2 ${dateClass(row.arrival_date, date)}`}><div className="font-semibold opacity-75">Incoming</div><div className="mt-0.5 font-bold">{displayDate(row.arrival_date)}</div><div>{row.arrival_time || "—"}</div></div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300"><div className="font-semibold text-slate-500">Move from</div><div className="mt-0.5 font-bold text-slate-200">{row.move_from || "—"}</div></div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300"><div className="font-semibold text-slate-500">Move to</div><div className="mt-0.5 font-bold text-slate-200">{row.move_to || "—"}</div></div>
-                  </div>
-                </div>
+                <RoomDetails row={row} />
               </article>
             ))}
           </div>
@@ -286,19 +330,7 @@ export default function RoomOperationsPage() {
               <div className="mt-4 space-y-2">
                 {summaryRows.length ? summaryRows.map((row) => (
                   <article key={row.room} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-black text-white">Room {row.room}</span>
-                      {row.room_status ? isOutOfOrder(row.room_status)
-                        ? <span className="text-xs font-bold text-red-200">{row.room_status}</span>
-                        : <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
-                      {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-bold text-fuchsia-200">Reserved</span> : null}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-300">
-                      {row.guest_name ? <span><strong className="text-slate-400">Guest:</strong> {row.guest_name}</span> : null}
-                      {row.checkout_date ? <span><strong className="text-slate-400">Checkout:</strong> {displayDate(row.checkout_date)} {row.checkout_time || ""}</span> : null}
-                      {row.arrival_date ? <span><strong className="text-slate-400">Incoming:</strong> {displayDate(row.arrival_date)} {row.arrival_time || ""}</span> : null}
-                      {row.move_from || row.move_to ? <span><strong className="text-slate-400">Move:</strong> {row.move_from || "—"} → {row.move_to || row.room}</span> : null}
-                    </div>
+                    <RoomDetails row={row} />
                   </article>
                 )) : <p className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">No rooms match this KPI.</p>}
               </div>

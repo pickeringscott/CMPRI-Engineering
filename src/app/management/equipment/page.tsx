@@ -5,6 +5,7 @@ import { getValidSession } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
+import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-install-year";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 
 type Asset = {
@@ -71,7 +72,7 @@ export default function ManageEquipmentPage() {
     return session?.access_token || "";
   }
 
-  async function loadAssets(preferId?: string) {
+  async function loadAssets(preferId?: string): Promise<boolean> {
     setLoading(true);
     setMessage("");
     try {
@@ -88,8 +89,10 @@ export default function ManageEquipmentPage() {
       const nextId = preferId || selectedId || "";
       const item = list.find((asset) => asset.id === nextId) || blankAsset;
       selectAsset(item);
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load equipment.");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -154,6 +157,12 @@ export default function ManageEquipmentPage() {
 
   async function save() {
     if (!selectedId || verified || !canManage || saving) return;
+    try {
+      parseAssetInstallYear(draft.install_year);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Install year is invalid.");
+      return;
+    }
     setSaving(true);
     setMessage("Saving equipment…");
     const access = await token();
@@ -177,8 +186,7 @@ export default function ManageEquipmentPage() {
     const payload = await response.json();
     setSaving(false);
     if (!response.ok) { setMessage(payload.error || "Save failed."); return; }
-    setMessage("Equipment saved.");
-    await loadAssets(selectedId);
+    if (await loadAssets(selectedId)) setMessage("Equipment saved.");
   }
 
   function statusKey(doc: Doc) {
@@ -263,8 +271,7 @@ export default function ManageEquipmentPage() {
     const payload = await response.json();
     setVerifying(false);
     if (!response.ok) { setMessage(payload.error || "Verification failed."); return; }
-    setMessage("Verified from documentation. These equipment fields are now locked.");
-    await loadAssets(selectedId);
+    if (await loadAssets(selectedId)) setMessage("Verified from documentation. These equipment fields are now locked.");
   }
 
   const extractedFields = [
@@ -339,7 +346,7 @@ export default function ManageEquipmentPage() {
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
                   <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
                 ))}
-                <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max="2200" value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
+                <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
 
               <div className="mt-6 border-t border-slate-800 pt-5">

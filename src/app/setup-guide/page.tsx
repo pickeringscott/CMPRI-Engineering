@@ -80,15 +80,18 @@ export default function SetupGuidePage() {
               <li>Click <strong>Authentication</strong> in the left sidebar.</li>
               <li>Click <strong>URL Configuration</strong>.</li>
               <li>Under <strong>Site URL</strong>, paste your current published Bolt site URL (see below).</li>
-              <li>Under <strong>Redirect URLs</strong>, add both entries below.</li>
+              <li>Under <strong>Redirect URLs</strong>, add the published URLs and the local development URL below.</li>
               <li>Click <strong>Save</strong>.</li>
             </ol>
+            <p>The app sends Google sign-in back to the same origin where it was opened. This lets a local build return to localhost while the published build returns to its own domain. Keep Google&apos;s authorized redirect URI pointed at the Supabase Auth callback; add local development under Supabase&apos;s Redirect URLs.</p>
             <p className="font-semibold text-slate-200">Site URL (use your current published Bolt address):</p>
             <CopyField text="https://YOUR-PROJECT.bolt.host" label="Copy Bolt URL" />
             <p className="text-xs text-slate-500">Replace YOUR-PROJECT with your actual Bolt project subdomain. You can find it in the browser address bar when viewing the published site.</p>
-            <p className="font-semibold text-slate-200">Redirect URLs to add (one per line):</p>
+            <p className="font-semibold text-slate-200">Redirect URLs to add (one per line; use the localhost entry for the default Next.js dev port):</p>
             <CopyField text="https://YOUR-PROJECT.bolt.host/**" label="Copy" />
             <CopyField text="https://cmpri-engineering.com/**" label="Copy" />
+            <CopyField text="http://localhost:3000/**" label="Copy local URL" />
+            <p className="text-xs text-slate-500">If the local build runs on a different host or port, add that exact local origin with <code>{"/**"}</code> instead.</p>
             <p className="text-xs text-slate-500">Add the cmpri-engineering.com entry now so it is ready when the domain goes live.</p>
           </Step>
 

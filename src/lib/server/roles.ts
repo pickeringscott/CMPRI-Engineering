@@ -2,9 +2,9 @@
  * CMPRI capability policy.
  *
  * - Engineer: technical control. Chief/Regional titles normalize here.
- * - Manager: management review/approval and subordinate account control, but no technical editing.
+ * - Manager: open-work-order notes, read-only PM oversight, and operational pool logging.
  * - Technician: technical work-order/equipment access, but no user management.
- * - Front Desk / Housekeeping: submit-only roles.
+ * - Front Desk / Housekeeping: submit-only; manager variants can read active work orders, add notes, and log pools.
  * - Senior Management: read-only oversight.
  * - system_admin: bootstrap/full-control role.
  *
@@ -18,6 +18,7 @@ export type CmpriRole =
   | "technician"
   | "front_desk"
   | "front_desk_manager"
+  | "assistant_manager"
   | "housekeeping"
   | "system_admin"
   | "unknown";
@@ -25,6 +26,13 @@ export type CmpriRole =
 export type Capability =
   | "submit"
   | "view_dashboard"
+  | "view_engineering_operations"
+  | "view_pool_log"
+  | "operate_pool_log"
+  | "receive_pool_closed_notifications"
+  | "view_work_orders"
+  | "add_work_order_notes"
+  | "view_pm"
   | "edit_tickets"
   | "review_tickets"
   | "close_tickets"
@@ -60,9 +68,9 @@ const aliases: Readonly<Record<string, CmpriRole>> = {
   maintenancetechnician: "technician",
 
   frontdesk: "front_desk",
-  assistantgm: "front_desk",
-  assistantgeneralmanager: "front_desk",
-  assistantmanager: "front_desk",
+  assistantgm: "assistant_manager",
+  assistantgeneralmanager: "assistant_manager",
+  assistantmanager: "assistant_manager",
   salesmanager: "front_desk",
   frontdeskmanager: "front_desk_manager",
 
@@ -102,16 +110,24 @@ const TECHNICAL: readonly Capability[] = [
   "operate_integrations",
 ];
 
+const TECHNICIAN: readonly Capability[] = [
+  "submit",
+  "view_dashboard",
+  "edit_tickets",
+  "close_tickets",
+];
+
 const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   unknown: [],
   front_desk: ["submit", "submit_feedback", "view_profiles"],
-  front_desk_manager: ["submit", "submit_feedback", "view_profiles"],
+  front_desk_manager: ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"],
+  assistant_manager: ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"],
   housekeeping: ["submit", "submit_feedback", "view_profiles"],
-  technician: [...TECHNICAL, "submit_feedback"],
-  engineer: [...TECHNICAL, "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
-  manager: ["submit", "submit_feedback", "view_dashboard", "review_tickets", "manage_users", "view_profiles"],
-  senior_management: ["submit_feedback", "view_dashboard", "view_profiles"],
-  system_admin: [...TECHNICAL, "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
+  technician: [...TECHNICIAN, "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback"],
+  engineer: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
+  manager: ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],
+  senior_management: ["submit_feedback", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_profiles"],
+  system_admin: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
 };
 
 export function roleAllows(role: unknown, capability: Capability): boolean {
@@ -123,10 +139,30 @@ export function roleAllows(role: unknown, capability: Capability): boolean {
   return CAPABILITIES[roleKey(role)].includes(capability);
 }
 
+export function membershipAllows(role: unknown, capability: Capability): boolean {
+  switch (typeof role === "string" ? role.trim().toLowerCase() : "") {
+    case "admin":
+      return true;
+    case "manager":
+      return ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "submit_feedback", "view_profiles"].includes(capability);
+    case "technician":
+      return ["submit", "view_dashboard", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "add_work_order_notes", "edit_tickets", "close_tickets", "submit_feedback", "view_profiles"].includes(capability);
+    case "viewer":
+      return ["view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "submit_feedback", "view_profiles"].includes(capability);
+    default:
+      return false;
+  }
+}
+
 export function profileAllows(
   profile: { role: unknown; secondary_roles?: readonly unknown[] },
   capability: Capability,
 ): boolean {
+  if (capability === "review_feedback") {
+    return [profile.role, ...(profile.secondary_roles || [])].some((assignedRole) =>
+      typeof assignedRole === "string"
+      && assignedRole.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).some((label) => roleAllows(label, capability)));
+  }
   return (Object.keys(CAPABILITIES) as CmpriRole[])
     .some((role) => profileHasRole(profile, role) && roleAllows(role, capability));
 }
@@ -139,10 +175,19 @@ export function canEditEquipment(role: unknown): boolean {
   return ["engineer", "system_admin"].includes(roleKey(role));
 }
 
-export const isFrontDesk = (role: unknown) => ["front_desk", "front_desk_manager"].includes(roleKey(role));
+export const isFrontDesk = (role: unknown) => ["front_desk", "front_desk_manager", "assistant_manager"].includes(roleKey(role));
 export const isSubmitOnlyRole = (role: unknown) =>
-  ["front_desk", "front_desk_manager", "housekeeping"].includes(roleKey(role));
+  ["front_desk", "housekeeping"].includes(roleKey(role));
 export const isReadOnlyRole = (role: unknown) => roleKey(role) === "senior_management";
+
+export function receivesOrdinaryWorkOrderNotifications(role: unknown): boolean {
+  return ["engineer", "technician"].includes(roleKey(role));
+}
+
+export function receivesPoolClosedNotifications(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
+  return receivesOrdinaryWorkOrderNotifications(profile.role)
+    || ["manager", "assistant_manager", "front_desk_manager"].some((role) => profileHasRole(profile, role as CmpriRole));
+}
 
 /**
  * Equal roles cannot manage one another. Engineers and General Managers may
@@ -154,8 +199,8 @@ export function canManageTargetRole(callerRole: unknown, targetRole: unknown): b
   const target = roleKey(targetRole);
   if (target === "unknown" || target === "system_admin") return false;
   if (caller === "system_admin") return true;
-  if (caller === "engineer") return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
-  if (caller === "manager") return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
+  if (caller === "engineer") return ["technician", "front_desk", "front_desk_manager", "assistant_manager", "housekeeping"].includes(target);
+  if (caller === "manager") return ["technician", "front_desk", "front_desk_manager", "assistant_manager", "housekeeping"].includes(target);
   return false;
 }
 
@@ -172,7 +217,7 @@ export function canSuperviseDraftRole(callerRole: unknown, targetRole: unknown):
   const target = roleKey(targetRole);
   if (caller === "system_admin") return target !== "system_admin" && target !== "unknown";
   if (caller === "engineer" || caller === "manager") {
-    return ["technician", "front_desk", "front_desk_manager", "housekeeping"].includes(target);
+    return ["technician", "front_desk", "front_desk_manager", "assistant_manager", "housekeeping"].includes(target);
   }
   return false;
 }
@@ -192,7 +237,7 @@ export function canChangeAccount(
  *
  * Current list:
  * Chief Engineer, Engineering Manager, Regional Maintenance, General Manager,
- * Maintenance Technician, Front Desk, Assistant Manager, Front Desk Manager,
+ * Maintenance Technician, Front Desk, Assistant General Manager, Front Desk Manager,
  * Sales Manager, Lead Housekeeper.
  *
  * Retired/hidden titles remain in aliases above so historical records continue
@@ -205,7 +250,7 @@ export const ASSIGNABLE_ROLE_LABELS = [
   "General Manager",
   "Maintenance Technician",
   "Front Desk",
-  "Assistant Manager",
+  "Assistant General Manager",
   "Front Desk Manager",
   "Sales Manager",
   "Lead Housekeeper",
@@ -225,7 +270,7 @@ const TECHNICIAN_TITLES = ["Maintenance Technician"];
 
 const FRONT_DESK_TITLES = [
   "Front Desk",
-  "Assistant Manager",
+  "Assistant General Manager",
   "Front Desk Manager",
   "Sales Manager",
 ];
@@ -264,6 +309,11 @@ export function membershipRole(role: unknown): "admin" | "manager" | "technician
       return "manager";
     case "technician":
       return "technician";
+    case "front_desk":
+    case "front_desk_manager":
+    case "assistant_manager":
+    case "housekeeping":
+      return "technician";
     default:
       return "viewer";
   }
@@ -273,5 +323,5 @@ export function landingPath(role: unknown): "/work-orders" | "/technician" | "/e
   const key = roleKey(role);
   if (key === "unknown") return null;
   if (key === "technician") return "/technician";
-  return ["front_desk", "front_desk_manager", "housekeeping"].includes(key) ? "/work-orders" : "/engineering";
+  return ["front_desk", "housekeeping"].includes(key) ? "/work-orders" : "/engineering";
 }

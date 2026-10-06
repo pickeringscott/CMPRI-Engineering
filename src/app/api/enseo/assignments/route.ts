@@ -46,7 +46,7 @@ function normalizeMove(value: unknown) {
 async function getData(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) } as const;
-  if (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "manage_assets")) {
+  if (!allows(auth.principal, "view_engineering_operations")) {
     return { response: NextResponse.json({ error: "Engineering access is required." }, { status: 403 }) } as const;
   }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { fetchAllPages } from '../src/lib/server/paginated-query.ts';
 import { newlyAvailableTechnicianWork } from '../src/lib/dashboard/technician-work-notifications.ts';
 
 const routePath = new URL('../src/app/api/work-orders/route.ts', import.meta.url);
@@ -21,13 +22,16 @@ function fixture(config = {}) {
         select() { return query; },
         eq(field, value) { filters.push(['eq', field, value]); return query; },
         neq(field, value) { filters.push(['neq', field, value]); return query; },
+        in(field, value) { filters.push(['in', field, value]); return query; },
         or(expression) { filters.push(['or', expression]); return query; },
+        limit() { return query; },
         order() { return query; },
         then(resolve, reject) {
           calls.push({ table, filters });
           const data = rows.filter((row) => filters.every(([operator, field, value]) => {
             if (operator === 'eq') return row[field] === value;
             if (operator === 'neq') return row[field] !== value;
+            if (operator === 'in') return value.includes(row[field]);
             return row.technician_name == null || row.technician_name === '';
           }));
           return Promise.resolve({
@@ -54,6 +58,7 @@ function fixture(config = {}) {
       if (name === '@/lib/server/request-auth') return { authenticatedUser: async () => null };
       if (name === '@/lib/server/roles') return {
         roleAllows: (role, capability) => config.allowed !== false && role === 'Maintenance Technician' && capability === 'edit_tickets',
+        roleKey: (role) => String(role).toLowerCase().includes('technician') ? 'technician' : 'unknown',
         isFrontDesk: () => false,
         isSubmitOnlyRole: () => false,
         canSuperviseDraftRole: () => false,
@@ -69,10 +74,11 @@ function fixture(config = {}) {
         loadCurrentRoomStatuses: async () => ({ date: '2026-10-01', statuses: new Map(), error: null }),
         currentRoomStatus: () => null,
       };
+      if (name === '@/lib/server/paginated-query') return { fetchAllPages };
       throw new Error(`Unexpected import: ${name}`);
     },
   });
-  const request = { nextUrl: { searchParams: new URLSearchParams('mode=technician') } };
+  const request = { nextUrl: { searchParams: new URLSearchParams(`mode=${config.mode ?? 'technician'}`) } };
   return { run: () => exports.GET(request), calls };
 }
 
@@ -80,9 +86,14 @@ test('technician coverage includes their assigned and unassigned open work only'
   const f = fixture({
     workOrders: [
       { id: 'assigned-self', hotel_id: 'hotel-id', technician_name: 'Morgan Lee', status: 'Open' },
+      { id: 'assigned-self-progress', hotel_id: 'hotel-id', technician_name: 'Morgan Lee', status: 'In Progress' },
       { id: 'unassigned-null', hotel_id: 'hotel-id', technician_name: null, status: 'Open' },
       { id: 'unassigned-empty', hotel_id: 'hotel-id', technician_name: '', status: 'Open' },
+      { id: 'unassigned-progress', hotel_id: 'hotel-id', technician_name: '', status: 'In Progress' },
       { id: 'assigned-other', hotel_id: 'hotel-id', technician_name: 'Taylor Smith', status: 'Open' },
+      { id: 'pending-unassigned', hotel_id: 'hotel-id', technician_name: null, status: 'Pending Verification' },
+      { id: 'pending-assigned', hotel_id: 'hotel-id', technician_name: 'Morgan Lee', status: 'Pending Verification' },
+      { id: 'completed-unassigned', hotel_id: 'hotel-id', technician_name: null, status: 'Completed' },
       { id: 'closed', hotel_id: 'hotel-id', technician_name: null, status: 'Closed' },
       { id: 'other-hotel', hotel_id: 'another-hotel', technician_name: null, status: 'Open' },
     ],
@@ -91,7 +102,7 @@ test('technician coverage includes their assigned and unassigned open work only'
   assert.equal(response.status, 200);
   assert.deepEqual(
     Array.from(response.body.work_orders, (order) => order.id).sort(),
-    ['assigned-self', 'unassigned-empty', 'unassigned-null'],
+    ['assigned-self', 'assigned-self-progress', 'unassigned-empty', 'unassigned-null', 'unassigned-progress'],
   );
   assert.equal(f.calls.length, 2);
 });
@@ -108,6 +119,25 @@ test('technician with no profile name still receives unassigned work only', asyn
   assert.equal(response.status, 200);
   assert.deepEqual(Array.from(response.body.work_orders, (order) => order.id), ['unassigned']);
   assert.equal(f.calls.length, 1);
+});
+
+test('technician dashboard and duplicate API reads exclude other assignments and non-active tickets', async () => {
+  const workOrders = [
+    { id: 'self', hotel_id: 'hotel-id', technician_name: 'Morgan Lee', status: 'Open' },
+    { id: 'unassigned', hotel_id: 'hotel-id', technician_name: null, status: 'In Progress' },
+    { id: 'other-tech', hotel_id: 'hotel-id', technician_name: 'Taylor Smith', status: 'Open' },
+    { id: 'pending', hotel_id: 'hotel-id', technician_name: null, status: 'Pending Verification' },
+  ];
+
+  for (const mode of ['dashboard', 'duplicate-candidates']) {
+    const response = await fixture({ mode, workOrders }).run();
+    assert.equal(response.status, 200, mode);
+    assert.deepEqual(
+      Array.from(response.body.work_orders, (order) => order.id).sort(),
+      ['self', 'unassigned'],
+      mode,
+    );
+  }
 });
 
 test('technician dashboard query failures are surfaced', async () => {

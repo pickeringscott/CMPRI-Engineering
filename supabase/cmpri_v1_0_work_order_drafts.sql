@@ -29,7 +29,9 @@ create policy cmpri_work_order_drafts_owner_select on public.cmpri_work_order_dr
 for select using (
   created_by = auth.uid() and exists (
     select 1 from public.hotel_members m
-    where m.user_id = auth.uid() and m.hotel_id = hotel_id and m.active = true
+    where m.user_id = auth.uid()
+      and m.hotel_id = cmpri_work_order_drafts.hotel_id
+      and m.active = true
   )
 );
 drop policy if exists cmpri_work_order_drafts_owner_write on public.cmpri_work_order_drafts;
@@ -37,12 +39,16 @@ create policy cmpri_work_order_drafts_owner_write on public.cmpri_work_order_dra
 for all using (
   created_by = auth.uid() and exists (
     select 1 from public.hotel_members m
-    where m.user_id = auth.uid() and m.hotel_id = hotel_id and m.active = true
+    where m.user_id = auth.uid()
+      and m.hotel_id = cmpri_work_order_drafts.hotel_id
+      and m.active = true
   )
 ) with check (
   created_by = auth.uid() and exists (
     select 1 from public.hotel_members m
-    where m.user_id = auth.uid() and m.hotel_id = hotel_id and m.active = true
+    where m.user_id = auth.uid()
+      and m.hotel_id = cmpri_work_order_drafts.hotel_id
+      and m.active = true
   )
 );
 commit;

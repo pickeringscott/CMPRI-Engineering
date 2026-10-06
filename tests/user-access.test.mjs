@@ -7,6 +7,8 @@ import ts from 'typescript';
 function fixture(config={}) {
   const writes=[];
   const deletedAuthIds=[];
+  const createdAuthAttributes=[];
+  const authRoleUpdates=[];
   const memberships=config.memberships??[
     {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
     {user_id:'target',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
@@ -53,14 +55,15 @@ function fixture(config={}) {
       const k=roleKey(r);
       if(k==='system_admin'||k==='engineer')return 'admin';
       if(k==='manager')return 'manager';
-      if(k==='technician')return 'technician';
+      if(['technician','front_desk','front_desk_manager','housekeeping'].includes(k))return 'technician';
       return 'viewer';
     },
   };
 
   const adminAuth={
     inviteUserByEmail:async function(){assert.strictEqual(this,adminAuth);writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
-    createUser:async function(){assert.strictEqual(this,adminAuth);writes.push('createUser');return {data:{user:{id:'created'}},error:null};},
+    createUser:async function(attributes){assert.strictEqual(this,adminAuth);writes.push('createUser');createdAuthAttributes.push(attributes);return {data:{user:{id:'created'}},error:null};},
+    ...(config.noAuthRoleUpdate?{}:{updateUserById:async function(id,attributes){assert.strictEqual(this,adminAuth);writes.push('setAuthRole');authRoleUpdates.push({id,role:attributes.role});return {data:{user:{id}},error:config.authRoleError?{message:'Auth role update failed'}:null};}}),
     deleteUser:async function(id){assert.strictEqual(this,adminAuth);writes.push('deleteUser');deletedAuthIds.push(id);return {error:config.authDeleteError?{message:'Auth cleanup failed'}:null};},
   };
   const client={auth:{getUser:async()=>({data:{user:{id:'caller'}},error:config.authError?{message:'failed'}:null}),
@@ -142,6 +145,8 @@ function fixture(config={}) {
     handlers:compile('../src/app/api/users/route.ts'),
     writes,
     deletedAuthIds,
+    createdAuthAttributes,
+    authRoleUpdates,
     request:{
       url:'https://test.invalid/api/users?id=target&confirm_name=Test%20User',
       headers:new Headers({authorization:'Bearer fake'}),
@@ -298,14 +303,15 @@ test('engineer can invite front desk with validated role and property membership
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,200);
   assert.equal(r.body.user.role,'front_desk');
-  assert.deepEqual(f.writes,['invite','upsert','upsert']);
+  assert.deepEqual(f.authRoleUpdates,[{id:'invited',role:'authenticated'}]);
+  assert.deepEqual(f.writes,['invite','setAuthRole','upsert','upsert']);
 });
 test('system_admin can create a manager profile when role label is Manager',async()=>{
   const f=fixture({caller:{id:'caller',role:'system_admin',active:true}, body:{email:'manager@example.invalid',full_name:'Test Manager',role:'Manager'}});
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,200);
   assert.equal(r.body.user.role,'manager');
-  assert.deepEqual(f.writes,['invite','upsert','upsert']);
+  assert.deepEqual(f.writes,['invite','setAuthRole','upsert','upsert']);
 });
 test('combined Chief Engineer and system administrator can invite elevated user roles',async()=>{
   const f=fixture({
@@ -315,7 +321,30 @@ test('combined Chief Engineer and system administrator can invite elevated user 
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,200);
   assert.equal(r.body.user.role,'manager');
-  assert.deepEqual(f.writes,['invite','upsert','upsert']);
+  assert.deepEqual(f.writes,['invite','setAuthRole','upsert','upsert']);
+});
+test('password-mode creation assigns the authenticated Auth role without inviting',async()=>{
+  const f=fixture({body:{email:'test@example.invalid',full_name:'Test Technician',role:'Maintenance Technician',password:'temporary123'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,200);
+  assert.equal(r.body.user.invited,false);
+  assert.equal(f.createdAuthAttributes[0].role,'authenticated');
+  assert.deepEqual(f.authRoleUpdates,[]);
+  assert.deepEqual(f.writes,['createUser','upsert','upsert']);
+});
+test('invite creation rolls back when the authenticated Auth role cannot be set',async()=>{
+  const f=fixture({authRoleError:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,500);
+  assert.match(r.body.error,/Supabase Auth role setup failed/);
+  assert.deepEqual(f.writes,['invite','setAuthRole','delete:hotel_members','delete:profiles','deleteUser']);
+});
+test('invite creation rolls back when Auth role updates are unavailable',async()=>{
+  const f=fixture({noAuthRoleUpdate:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});
+  const r=await f.handlers.POST(f.request);
+  assert.equal(r.status,500);
+  assert.match(r.body.error,/Auth user role updates are unavailable/);
+  assert.deepEqual(f.writes,['invite','delete:hotel_members','delete:profiles','deleteUser']);
 });
 for(const [mode,password] of [['invite',undefined],['temporary password','temporary123']]){
   test(`POST rolls back the ${mode} Auth account when profile setup fails`,async()=>{
@@ -323,7 +352,9 @@ for(const [mode,password] of [['invite',undefined],['temporary password','tempor
     const r=await f.handlers.POST(f.request);
     assert.equal(r.status,500);
     assert.match(r.body.error,/rolled back/i);
-    assert.deepEqual(f.writes,[password?'createUser':'invite','upsert','delete:hotel_members','delete:profiles','deleteUser']);
+    assert.deepEqual(f.writes,password
+      ?['createUser','upsert','delete:hotel_members','delete:profiles','deleteUser']
+      :['invite','setAuthRole','upsert','delete:hotel_members','delete:profiles','deleteUser']);
   });
 }
 test('POST rolls back the profile and Auth account when property membership setup fails',async()=>{
@@ -331,7 +362,7 @@ test('POST rolls back the profile and Auth account when property membership setu
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,500);
   assert.match(r.body.error,/rolled back/i);
-  assert.deepEqual(f.writes,['invite','upsert','upsert','delete:hotel_members','delete:profiles','deleteUser']);
+  assert.deepEqual(f.writes,['invite','setAuthRole','upsert','upsert','delete:hotel_members','delete:profiles','deleteUser']);
 });
 test('POST reports manual cleanup when Auth account deletion fails during rollback',async()=>{
   const f=fixture({profileUpsertError:true,authDeleteError:true,body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});
@@ -430,6 +461,13 @@ test('role policy gives General Manager manager permissions without granting the
     },
     process: { env: {} },
   });
+  const membershipForRole = (role) => {
+    const key = rolesExports.roleKey(role);
+    if (key === 'system_admin' || key === 'engineer') return 'admin';
+    if (key === 'manager') return 'manager';
+    if (['technician', 'front_desk', 'front_desk_manager', 'housekeeping'].includes(key)) return 'technician';
+    return 'viewer';
+  };
   const base = {
     identity: { id: 'role-test', email: 'role-test@example.invalid' },
     profile: { id: 'role-test', email: 'role-test@example.invalid', role: '', active: true, full_name: 'Role Test' },
@@ -437,7 +475,12 @@ test('role policy gives General Manager manager permissions without granting the
     membership: { user_id: 'role-test', hotel_id: 'hotel-1', role: 'viewer', active: true },
   };
   const grants = (role, permissions) => permissions.map((permission) => ({ role, permission, allowed: true }));
-  const asRole = (role, permissions) => ({ ...base, profile: { ...base.profile, role }, permissions });
+  const asRole = (role, permissions) => ({
+    ...base,
+    profile: { ...base.profile, role },
+    membership: { ...base.membership, role: membershipForRole(role) },
+    permissions,
+  });
   const frontDesk = asRole('Front Desk', grants('Front Desk', ['manage_users', 'manage_work_orders']));
   const technician = asRole('Maintenance Technician', grants('Maintenance Technician', ['manage_users', 'manage_work_orders']));
   const housekeeper = asRole('Lead Housekeeper', grants('Lead Housekeeper', ['manage_users', 'manage_work_orders']));
@@ -445,11 +488,13 @@ test('role policy gives General Manager manager permissions without granting the
   const dualRoleEngineer = {
     ...base,
     profile: { ...base.profile, role: 'Front Desk', secondary_roles: ['Chief Engineer'] },
+    membership: { ...base.membership, role: 'admin' },
     permissions: grants('Chief Engineer', ['manage_users']),
   };
   const combinedSystemAdmin = {
     ...base,
     profile: { ...base.profile, role: 'Chief Engineer / System Administrator' },
+    membership: { ...base.membership, role: 'admin' },
     permissions: [],
   };
 
@@ -460,11 +505,23 @@ test('role policy gives General Manager manager permissions without granting the
   assert.equal(accessExports.allows(housekeeper, 'submit'), true);
   assert.equal(accessExports.allows(housekeeper, 'edit_tickets'), false);
   assert.equal(accessExports.allows(housekeeper, 'manage_users'), false);
-  assert.equal(accessExports.allows(manager, 'review_tickets'), true);
-  assert.equal(accessExports.allows(manager, 'manage_users'), true);
+  assert.equal(accessExports.allows(manager, 'review_tickets'), false);
+  assert.equal(accessExports.allows(manager, 'manage_users'), false);
+  assert.equal(accessExports.allows(manager, 'view_dashboard'), true);
+  assert.equal(accessExports.allows(manager, 'view_work_orders'), true);
+  assert.equal(accessExports.allows(manager, 'add_work_order_notes'), true);
+  assert.equal(accessExports.allows(manager, 'view_pm'), true);
   assert.equal(accessExports.allows(manager, 'edit_tickets'), false);
   assert.equal(accessExports.allows(dualRoleEngineer, 'manage_users'), true);
   assert.equal(accessExports.allows(combinedSystemAdmin, 'manage_users'), true);
+  const engineerWithViewerMembership = {
+    ...asRole('Chief Engineer', []),
+    membership: { ...base.membership, role: 'viewer' },
+  };
+  assert.equal(accessExports.allows(engineerWithViewerMembership, 'edit_tickets'), false);
+  assert.equal(accessExports.allows(engineerWithViewerMembership, 'submit'), false);
+  assert.equal(accessExports.allows({ ...combinedSystemAdmin, membership: { ...combinedSystemAdmin.membership, role: 'viewer' } }, 'manage_users'), false);
+  assert.equal(accessExports.allows({ ...engineerWithViewerMembership, membership: { ...base.membership, role: 'manager' } }, 'edit_tickets'), false);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Front Desk'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Chief Engineer'), false);
 });

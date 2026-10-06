@@ -1,4 +1,4 @@
-import { profileAllows, profileHasRole, roleKey, type Capability } from "./roles";
+import { membershipAllows, profileAllows, profileHasRole, roleKey, type Capability } from "./roles";
 export type { Capability } from "./roles";
 
 export type AccessIdentity = { id: string; email: string | null };
@@ -81,6 +81,7 @@ const GRANTS: Partial<Record<Capability, readonly string[]>> = {
  */
 export function allows(principal: Principal, capability: Capability): boolean {
   if (principal.profile.active !== true || principal.membership.active !== true) return false;
+  if (!membershipAllows(principal.membership.role, capability)) return false;
   if (!profileAllows(principal.profile, capability)) return false;
 
   // The bootstrap system administrator is intentionally full-control and must not be

@@ -135,10 +135,14 @@ export function poolLocationValue(log: Record<string, unknown>, key: string): un
   return null;
 }
 
-export function validLogDate(value: unknown): value is string {
+export function poolLogTodayDate(now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);
+}
+
+export function validLogDate(value: unknown, today = poolLogTodayDate()): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value && value <= today;
 }
 
 type McpPoolFacility = {
@@ -157,7 +161,7 @@ export function prepareMcpPoolLogInput(
 ) {
   const logDate = input.log_date ?? input.date;
   if (!validLogDate(logDate)) {
-    throw new Error("Pool-log date must use YYYY-MM-DD. Use the date returned by the pool-log read.");
+    throw new Error("Pool-log date must use an allowed YYYY-MM-DD date that is not in the future.");
   }
 
   const selected = typeof input.pool_facility_id === "string" && /^[a-f0-9-]{36}$/i.test(input.pool_facility_id)

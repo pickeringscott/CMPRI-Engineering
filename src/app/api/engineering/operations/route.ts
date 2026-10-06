@@ -4,11 +4,12 @@ import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 
 import { PURCHASE_STATUSES, SHIPMENT_STATUSES, parentStatusFromShipments } from "@/lib/integrations/operations";
+import { isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!allows(auth.principal, "view_dashboard")) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
+  if (!allows(auth.principal, "view_engineering_operations")) return NextResponse.json({ error: "Engineering operations access is required." }, { status: 403 });
   const { admin } = auth;
 
   const [purchasesResult, enseoResult, warrantyResult, followupResult, gssResult, emailResult] = await Promise.all([
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     configured: true,
     can_edit: allows(auth.principal, "operate_integrations"),
+    safe_mode: isIntegrationsSafeMode(),
     purchases: purchasesResult.data || [],
     enseo: enseoResult.data || [],
     warranties: warrantyResult.data || [],

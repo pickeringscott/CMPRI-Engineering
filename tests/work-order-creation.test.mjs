@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 const order={location_id:'location-409',issue:'Sink leaking',display_id:'WO-test',category:'Plumbing',priority:'Medium'};
-function fixture(body,config={},options={}) {
+function fixture(body,config={}) {
   const writes=[],clients=[];
   const profile={active:true,role:'Front Desk',full_name:'Shared Desk',...config.profile};
   const assets=config.assets??[{id:'asset',location_id:config.wrongAsset?'other':'location-409',name:'Verified sink',asset_type:'Plumbing',active:true}];
@@ -20,16 +20,14 @@ function fixture(body,config={},options={}) {
     limit:async()=>({data:table==='assets'?assets:(config.existing||[]),error:(table==='assets'?config.assetLookupError:config.duplicateError)?{message:'Unavailable'}:null}),
     insert:async rows=>{writes.push(...rows);return {error:config.insertError?{message:'Rejected'}:null};},
   };}};
-  const env = options.env ?? {NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'public-test'};
-  const configStub = options.configStub ?? {SUPABASE_URL:'https://config.invalid',SUPABASE_PUBLISHABLE_KEY:'config-public'};
   function load(file) {
     const exports={};
-    vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env},
+    vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:config.noServiceRole?{}:{SUPABASE_SERVICE_ROLE_KEY:'service-role-test'}},
       require(name){
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:(url,key,options)=>{clients.push({url,key,options});return db;}};
         if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'shared-id',email:'desk@example.invalid'},profile}};if(name==='server-only')return {};
-        if(name==='@/lib/supabase/config')return configStub;
+        if(name==='@/lib/supabase/config')return {SUPABASE_URL:'https://test.invalid'};
         if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>({processed:true})};
         let target=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(file),name);if(!existsSync(target))target+='.ts';return load(target);
       },
@@ -44,11 +42,22 @@ for(const name of ['Scott','María','Anne-Marie','李'])test(`first name ${name}
   const f=fixture({orders:[{...order,created_by:'spoof',creator_name:'Spoof',status:'Closed'}],staff_first_name:name});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].creator_name,name);assert.equal(f.writes[0].submitted_by_name,name);
   assert.equal(f.writes[0].created_by,'shared-id');assert.equal(f.writes[0].creator_account_user_id,'shared-id');assert.equal(f.writes[0].status,'Pending Verification');
-  assert.equal(f.clients[0].key,'public-test');assert.equal(f.clients[0].options.global.headers.Authorization,'Bearer caller-token');
+  assert.equal(f.writes[0].creator_source,'front_desk_pending_verification');
+  assert.equal(f.clients[0].key,'service-role-test');
+  assert.equal(f.clients[0].options.auth.persistSession,false);
+  assert.equal(f.clients[0].options.auth.autoRefreshToken,false);
 });
 test('batch submissions attribute every ticket to the same first name and account',async()=>{
   const f=fixture({orders:[order,{...order,issue:'Door sticks'}],staff_first_name:' Scott '});
-  assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes.length,2);assert.ok(f.writes.every(row=>row.creator_name==='Scott'&&row.created_by==='shared-id'));
+  assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes.length,2);assert.ok(f.writes.every(row=>row.creator_name==='Scott'&&row.created_by==='shared-id'&&row.creator_source==='front_desk_pending_verification'));
+});
+test('Housekeeping submissions retain department provenance without a front-desk name',async()=>{
+  const f=fixture({orders:[order]}, {profile:{role:'Housekeeping',full_name:'Audit Housekeeping'}});
+  assert.equal((await f.handler(f.request)).status,200);
+  assert.equal(f.writes[0].creator_name,'Audit Housekeeping');
+  assert.equal(f.writes[0].submitted_by_name,null);
+  assert.equal(f.writes[0].creator_source,'department_pending_verification');
+  assert.equal(f.writes[0].status,'Pending Verification');
 });
 test('engineer identity comes from the signed-in profile, not submitted names',async()=>{
   const f=fixture({orders:[order],staff_first_name:'Spoof'},{profile:{role:'Engineer',full_name:'Scott Pickering'}});
@@ -74,7 +83,7 @@ test('issue-driven suggestions share inference with submit-only overrides',()=>{
   const handler=source.slice(start,end);
   assert.match(handler,/inferWorkOrder\(/);
   assert.match(handler,/shouldAutoSelectAsset/);
-  assert.match(handler,/isSubmitOnlyUser/);
+  assert.match(handler,/systemAssignedTechnicalFields/);
 });
 test('troubleshooting guide is bottom-placed and restricted to maintenance roles',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
@@ -137,11 +146,25 @@ test('the observed system_admin role can create a work order',async()=>{
   const f=fixture({orders:[order]},{profile:{role:'system_admin',full_name:'Engineer'}});assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].creator_name,'Engineer');
 });
 
-test('creation falls back to the built-in Supabase config when public env vars are unavailable',async()=>{
-  const f=fixture({orders:[order],staff_first_name:'Scott'}, {}, { env: {} });
+test('general managers can create work orders without setting engineering-owned fields',async()=>{
+  const f=fixture({
+    orders:[{...order,asset_id:'forged-asset',asset_name:'Forged equipment',category:'Forged category',priority:'Urgent',technician_name:'Spoof',status:'Closed'}],
+  },{profile:{role:'General Manager',full_name:'Audit Manager'}});
   assert.equal((await f.handler(f.request)).status,200);
-  assert.equal(f.clients[0].url,'https://config.invalid');
-  assert.equal(f.clients[0].key,'config-public');
+  assert.equal(f.writes.length,1);
+  assert.notEqual(f.writes[0].asset_id,'forged-asset');
+  assert.notEqual(f.writes[0].asset_name,'Forged equipment');
+  assert.notEqual(f.writes[0].category,'Forged category');
+  assert.notEqual(f.writes[0].priority,'Urgent');
+  assert.equal(f.writes[0].technician_name,'');
+  assert.notEqual(f.writes[0].status,'Closed');
+});
+
+test('creation fails closed when server-only database credentials are unavailable',async()=>{
+  const f=fixture({orders:[order],staff_first_name:'Scott'}, {noServiceRole:true});
+  assert.equal((await f.handler(f.request)).status,503);
+  assert.equal(f.writes.length,0);
+  assert.equal(f.clients.length,0);
 });
 
 test('submit-only work orders page past the 1000-asset threshold without failing closed',async()=>{
@@ -160,10 +183,10 @@ test('assetless work orders still infer the category and priority from the issue
 });
 
 test('mixed maintenance reports split into separate reviewable work orders',()=>{
-  const pageSource=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
+  const creationSource=readFileSync(path.join(root,'lib/work-order-creation.ts'),'utf8');
   const suggestionsSource=readFileSync(path.join(root,'lib/work-order-suggestions.ts'),'utf8');
   const categoriesSource=readFileSync(path.join(root,'lib/work-order-categories.ts'),'utf8');
-  const pageAst=ts.createSourceFile('page.tsx',pageSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  const creationAst=ts.createSourceFile('work-order-creation.ts',creationSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
   const suggestionsAst=ts.createSourceFile('work-order-suggestions.ts',suggestionsSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
   const categoriesAst=ts.createSourceFile('work-order-categories.ts',categoriesSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
   const names=new Set([
@@ -187,7 +210,7 @@ test('mixed maintenance reports split into separate reviewable work orders',()=>
         (ts.isVariableStatement(node) && node.declarationList.declarations.some((decl) => decl.name.getText() === 'WORK_ORDER_CATEGORIES'))
     ),
     ...suggestionsAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)),
-    ...pageAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)),
+    ...creationAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)),
   ].map(node=>node.getText(node.getSourceFile())).join('\n');
   const exports={};
   vm.runInNewContext(ts.transpileModule(functions+'\nexports.detect=detectMultipleCreateIssues;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports});
@@ -202,8 +225,8 @@ test('mixed maintenance reports split into separate reviewable work orders',()=>
 });
 
 test('punctuation-free reports split every repeated issue starter without an upper limit',()=>{
-  const pageSource=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
-  const pageAst=ts.createSourceFile('page.tsx',pageSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  const creationSource=readFileSync(path.join(root,'lib/work-order-creation.ts'),'utf8');
+  const creationAst=ts.createSourceFile('work-order-creation.ts',creationSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
   const suggestionsSource=readFileSync(path.join(root,'lib/work-order-suggestions.ts'),'utf8');
   const suggestionsAst=ts.createSourceFile('work-order-suggestions.ts',suggestionsSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
   const categoriesSource=readFileSync(path.join(root,'lib/work-order-categories.ts'),'utf8');
@@ -212,7 +235,7 @@ test('punctuation-free reports split every repeated issue starter without an upp
   const functions=[
     ...categoriesAst.statements.filter((node)=>(ts.isFunctionDeclaration(node)&&names.has(node.name?.text))||(ts.isVariableStatement(node)&&node.declarationList.declarations.some((decl)=>decl.name.getText()==='WORK_ORDER_CATEGORIES'))),
     ...suggestionsAst.statements.filter((node)=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)),
-    ...pageAst.statements.filter((node)=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)),
+    ...creationAst.statements.filter((node)=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)),
   ].map((node)=>node.getText(node.getSourceFile())).join('\n');
   const exports={};
   vm.runInNewContext(ts.transpileModule(functions+'\nexports.detect=detectMultipleCreateIssues;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports});

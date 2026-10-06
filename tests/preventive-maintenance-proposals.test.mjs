@@ -45,11 +45,17 @@ function fixture(config = {}) {
         return query;
       }
       if (table !== 'cmpri_pm_proposals') throw new Error(`Unexpected table ${table}`);
+      const filters = {};
       const query = {
         select: () => query,
         match: () => query,
-        eq: () => query,
-        maybeSingle: async () => ({ data: config.pending || null, error: null }),
+        eq: (column, value) => { filters[column] = value; return query; },
+        maybeSingle: async () => ({
+          data: config.pending && (!config.pending.submitted_by || config.pending.submitted_by === filters.submitted_by)
+            ? config.pending
+            : null,
+          error: null,
+        }),
         insert: values => {
           calls.push({ insert: values });
           return { select: () => ({ single: async () => ({ data: inserted, error: null }) }) };
@@ -97,7 +103,7 @@ function fixture(config = {}) {
           cadence: 'daily',
           scope: 'property',
           kind: 'routine',
-          checklist: [{ id: 'daily-task', label: 'Check Fire Panel for Troubles' }],
+          checklist: config.checklist || [{ id: 'daily-task', label: 'Check Fire Panel for Troubles' }],
           fields: [],
         } : null,
         PM_ROOM_NUMBERS: ['101'],
@@ -146,9 +152,89 @@ test('technician PM saves create CMPRI-only proposals without workbook cell chan
   const response = await f.handler(f.request);
   assert.equal(response.status, 201);
   assert.equal(response.body.entry.status, 'pending');
+  assert.equal(response.body.entry.can_edit_entry, true);
   assert.deepEqual(JSON.parse(JSON.stringify(response.body.entry.proposed_cells)), []);
   assert.equal(f.calls.some(call => call.table === 'cmpri_pm_proposals'), true);
   assert.equal(f.calls.some(call => call.table === 'cmpri_pm_entries'), false);
+});
+
+test('routine saves persist only the one changed checklist item', async () => {
+  const f = fixture({
+    checklist: [{ id: 'daily-task' }, { id: 'daily-sibling' }],
+    body: {
+      templateId: 'workbook:daily',
+      periodStart: '2026-01-05',
+      scopeKey: 'property',
+      responses: { 'daily-task': true },
+      formData: {},
+      notes: '',
+      deficiencyNotes: '',
+      completedOn: null,
+      isComplete: false,
+      workOrderId: null,
+      expectedRevision: 0,
+    },
+  });
+  const response = await f.handler(f.request);
+  const inserted = f.calls.find(call => call.insert)?.insert;
+  assert.equal(response.status, 201);
+  assert.deepEqual(JSON.parse(JSON.stringify(inserted.payload.responses)), { 'daily-task': true });
+});
+
+test('routine saves merge one changed item and preserve existing sibling responses', async () => {
+  const f = fixture({
+    checklist: [{ id: 'daily-task' }, { id: 'daily-sibling' }],
+    pending: {
+      id: 'own-pending-proposal',
+      revision: 2,
+      submitted_by: 'actor-id',
+      payload: { responses: { 'daily-task': true, 'daily-sibling': true } },
+    },
+    body: {
+      templateId: 'workbook:daily',
+      periodStart: '2026-01-05',
+      scopeKey: 'property',
+      responses: { 'daily-task': false },
+      formData: {},
+      notes: '',
+      deficiencyNotes: '',
+      completedOn: null,
+      isComplete: false,
+      workOrderId: null,
+      expectedRevision: 2,
+    },
+  });
+  const response = await f.handler(f.request);
+  const update = f.calls.find(call => call.update)?.update;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.entry.can_edit_entry, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(update.payload.responses)), {
+    'daily-task': false,
+    'daily-sibling': true,
+  });
+});
+
+test('routine API rejects multi-item checkbox saves before database access', async () => {
+  const f = fixture({
+    checklist: [{ id: 'daily-task' }, { id: 'daily-sibling' }],
+    body: {
+      templateId: 'workbook:daily',
+      periodStart: '2026-01-05',
+      scopeKey: 'property',
+      responses: { 'daily-task': true, 'daily-sibling': false },
+      formData: {},
+      notes: '',
+      deficiencyNotes: '',
+      completedOn: null,
+      isComplete: false,
+      workOrderId: null,
+      expectedRevision: 0,
+    },
+  });
+  const response = await f.handler(f.request);
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /exactly one routine checklist item/);
+  assert.equal(f.calls.some(call => call.table === 'cmpri_pm_proposals'), false);
 });
 
 test('PM proposal saves do not resolve or access Google Sheets', async () => {
@@ -182,4 +268,27 @@ test('a secondary System Administrator role can submit PM proposals', async () =
   const response = await f.handler(f.request);
   assert.equal(response.status, 201);
   assert.equal(response.body.entry.status, 'pending');
+});
+
+test("a user cannot edit another submitter's pending PM proposal", async () => {
+  const f = fixture({
+    pending: { id: 'another-users-proposal', revision: 3, submitted_by: 'other-user-id' },
+    body: {
+      templateId: 'workbook:daily',
+      periodStart: '2026-01-05',
+      scopeKey: 'property',
+      responses: { 'daily-task': false },
+      formData: {},
+      notes: '',
+      deficiencyNotes: '',
+      completedOn: null,
+      isComplete: false,
+      workOrderId: null,
+      expectedRevision: 3,
+    },
+  });
+  const response = await f.handler(f.request);
+  assert.equal(response.status, 409);
+  assert.equal(f.calls.some(call => call.insert), false);
+  assert.equal(f.calls.some(call => call.update), false);
 });

@@ -3,6 +3,7 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { profileHasRole, roleKey } from "@/lib/server/roles";
+import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import {
   technicianViewNotificationsForEngineer,
   workOrderNotificationsForRecipient,
@@ -94,6 +95,12 @@ export async function GET(request: NextRequest) {
     }
     notifications.push(...technicianViewNotificationsForEngineer(views));
     resolvedNotificationIds = resolvedViews.map((view) => `technician-view:${view.id}`);
+  }
+
+  try {
+    await dispatchWebPushNotifications(auth.admin, auth.principal.identity.id, auth.principal.profile, notifications);
+  } catch (error) {
+    console.error("Work-order notifications were loaded, but phone alerts could not be delivered.", error);
   }
 
   return NextResponse.json({ notifications, resolved_notification_ids: resolvedNotificationIds, checked_at: checkedAt }, {
