@@ -120,11 +120,17 @@ test('Lead Housekeeper HVAC reports use the same location-bound inference',async
   assert.equal(f.writes[0].asset_id,'vtac');assert.equal(f.writes[0].asset_name,'VTAC - Room 409');
   assert.equal(f.writes[0].category,'HVAC');assert.equal(f.writes[0].priority,'High');
 });
-test('guest departure comment stays in reporter notes beside the maintenance issue',async()=>{
+test('guest departure comment is saved in notes beside the maintenance issue',async()=>{
   const f=fixture({orders:[{...order,issue:'TV is broken\nGuest is going to leave at 5 PM'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.writes[0].issue,'TV is broken');
-  assert.equal(f.writes[0].reporter_notes,'Guest is going to leave at 5 PM');
+  assert.equal(f.writes[0].notes,'Guest is going to leave at 5 PM');
+  assert.equal(f.writes[0].reporter_notes,undefined);
+});
+test('reporter comments are appended to submitted notes without losing either',async()=>{
+  const f=fixture({orders:[{...order,issue:'TV is broken\nGuest is going to leave at 5 PM',notes:'Remote was already replaced.'}],staff_first_name:'Scott'});
+  assert.equal((await f.handler(f.request)).status,200);
+  assert.equal(f.writes[0].notes,'Remote was already replaced.\nGuest is going to leave at 5 PM');
 });
 test('guest departure comment alone cannot create another work order',async()=>{
   const f=fixture({orders:[{...order,issue:'Guest is going to leave at 5 PM'}],staff_first_name:'Scott'});

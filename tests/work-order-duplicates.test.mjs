@@ -8,6 +8,8 @@ for(const [name,other,expected] of [
   ['extra details',{...a,issue:'Sink leaking under cabinet'},true],
   ['another room',{...a,location_id:'410'},false],
   ['another asset',{...a,asset_id:'shower'},false],
+  ['completed history',{...a,status:'Completed'},false],
+  ['done history',{...a,status:'Done'},false],
   ['closed history',{...a,status:'Closed'},false],
   ['different issue',{...a,issue:'Sink is clogged'},false],
   ['missing asset',{...a,asset_id:null},true],

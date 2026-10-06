@@ -170,6 +170,9 @@ try {
   for (const file of files) await check(`migration ${file}`, async () => {
     await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
   });
+  const workOrderDuplicateGuardMigration = readFileSync(new URL('../supabase/migrations/20261006150000_cmpri_work_order_duplicate_guard.sql', import.meta.url), 'utf8');
+  await check('work-order duplicate guard migration', async () => db.exec(workOrderDuplicateGuardMigration));
+  await check('work-order duplicate guard migration is idempotent', async () => db.exec(workOrderDuplicateGuardMigration));
   const workOrderImportsMigration = readFileSync(new URL('../supabase/migrations/20261004120000_cmpri_work_order_imports.sql', import.meta.url), 'utf8');
   await check('work-order imports migration is idempotent', async () => db.exec(workOrderImportsMigration));
   const bromineBandMigration = readFileSync(new URL('../supabase/migrations_archive/20260930030000_cmpri_pool_log_bromine_bands.sql', import.meta.url), 'utf8');
@@ -378,12 +381,30 @@ try {
     await db.exec("select set_config('cmpri.test_uid','',false),set_config('cmpri.test_role','service_role',false)");
     try {
       await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
-        values ($1,$2,'duplicate-active-1','Room 410','Sink leaking!!!','Open')`,[hotel,room]);
+        values ($1,$2,'duplicate-active-1','Room 410','Drain blocked!!!','Open')`,[hotel,room]);
       await assert.rejects(
         () => db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
-          values ($1,$2,'duplicate-active-2','Room 411','  SINK leaking!!! ','Open')`,[hotel,room]),
+          values ($1,$2,'duplicate-active-2','Room 411','  DRAIN blocked!!! ','Open')`,[hotel,room]),
         /duplicate key/,
       );
+    } finally {
+      await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false)`);
+    }
+  });
+  await check('duplicate pending submissions are blocked but completed history is allowed', async () => {
+    await db.exec("select set_config('cmpri.test_uid','',false),set_config('cmpri.test_role','service_role',false)");
+    try {
+      await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
+        values ($1,$2,'duplicate-pending-1','Room 410','Pending leak guard','Pending Verification')`,[hotel,room]);
+      await assert.rejects(
+        () => db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
+          values ($1,$2,'duplicate-pending-2','Room 411','Pending leak guard','Pending Verification')`,[hotel,room]),
+        /duplicate key/,
+      );
+      await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
+        values ($1,$2,'duplicate-history-1','Room 410','Historical leak guard','Completed')`,[hotel,room]);
+      await db.query(`insert into public.work_orders(hotel_id,location_id,display_id,room,issue,status)
+        values ($1,$2,'duplicate-history-2','Room 410','Historical leak guard','Completed')`,[hotel,room]);
     } finally {
       await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false)`);
     }

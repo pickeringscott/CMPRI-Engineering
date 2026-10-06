@@ -274,8 +274,8 @@ export async function POST(request: NextRequest) {
       if (!cleanIssue) throw new Error("A maintenance issue is required. Add comments to an existing work order's notes.");
       row.issue = cleanIssue;
       if (reporterNotes) {
-        const existingNotes = typeof row.notes === "string" && row.notes.trim() ? `${row.notes.trim()}\n` : "";
-        row.reporter_notes = `${existingNotes}${reporterNotes}`;
+        const existingNotes = typeof row.notes === "string" ? row.notes.trim() : "";
+        row.notes = [existingNotes, reporterNotes].filter(Boolean).join("\n");
       }
       if (canSetEngineeringFields && row.category !== undefined) {
         const normalizedCategory = normalizeWorkOrderCategory(row.category);

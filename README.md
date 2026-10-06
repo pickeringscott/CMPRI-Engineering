@@ -4,11 +4,15 @@ This is an integrated SOURCE CHECKPOINT of the Residence Inn Champaign engineeri
 
 ## Core application
 
-Duplicate checks now run in the shared submission API for single, batch and
-related creation. The proposed exact-match database guard is in
-`supabase/cmpri_v1_0_exact_duplicate_guard.sql`; it is unexecuted and does not
-complete the fuzzy/concurrent duplicate requirement. Validate all required migrations
-and existing data in an isolated database before release.
+Duplicate checks run in the shared submission API for single, batch, related and
+import creation. The migration
+`supabase/migrations/20261006150000_cmpri_work_order_duplicate_guard.sql` adds a
+database-level exact-match guard for pending and active work orders; the application
+also checks likely duplicates with normalized wording and issue synonyms. Reporter
+comments and other non-issue context from a submission are appended to its Notes
+without replacing notes entered separately. Migrations are not automatically
+applied: validate existing data and required migrations in an isolated database
+before release.
 
 The front-desk submission update requires the database migration
 `supabase/cmpri_v1_0_submitter_attribution.sql`. Apply and validate it in an

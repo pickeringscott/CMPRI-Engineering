@@ -4,7 +4,7 @@
 -- similar wording and unknown-versus-known asset matches still need an atomic
 -- database submission workflow before full duplicate prevention can be certified.
 begin;
-create unique index if not exists cmpri_work_orders_exact_active_unique
+create unique index if not exists cmpri_work_orders_exact_pending_active_unique
 on public.work_orders (
   hotel_id,
   location_id,
@@ -13,5 +13,5 @@ on public.work_orders (
 )
 -- Compare enum values directly. Casting the observed enum to text here is
 -- not immutable and PostgreSQL would reject an index predicate using that cast.
-where status in ('Open', 'In Progress');
+where status in ('Pending Verification', 'Open', 'In Progress');
 commit;

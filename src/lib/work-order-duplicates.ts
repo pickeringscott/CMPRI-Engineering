@@ -1,5 +1,5 @@
 type Candidate = { location_id?: unknown; asset_id?: unknown; issue?: unknown; status?: unknown };
-const terminal = new Set(["closed", "cancelled", "canceled", "will not do", "duplicate"]);
+const terminal = new Set(["completed", "done", "closed", "cancelled", "canceled", "will not do", "duplicate"]);
 const ignored = new Set(["a", "an", "the", "is", "are", "in", "at", "room", "unit", "issue", "problem", "please", "guest", "reported", "needs", "need", "with"]);
 const negation = new Set(["not", "no", "never", "isnt", "wont", "cannot", "cant", "sin"]);
 const synonym: Record<string, string> = {
