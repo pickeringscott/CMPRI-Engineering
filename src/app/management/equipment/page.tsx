@@ -30,10 +30,14 @@ type Asset = {
 type Doc = {
   name: string;
   id?: string;
+  document_key?: string;
+  document_type?: string | null;
   updated_at?: string;
   created_at?: string;
   storage_path?: string;
   url?: string | null;
+  source?: "asset" | "catalog";
+  verified?: boolean;
 };
 
 type Suggestions = Partial<Pick<Asset, "asset_type" | "manufacturer" | "model_family" | "model_number" | "serial_number" | "generation" | "install_year">>;
@@ -99,13 +103,17 @@ export default function ManageEquipmentPage() {
     }
   }
 
-  async function loadDocuments(assetId: string): Promise<{ documents: Doc[]; verified: boolean }> {
-    if (!assetId) return { documents: [], verified: false };
+  async function loadDocuments(assetId: string): Promise<{ documents: Doc[]; verified: boolean; warnings: string[] }> {
+    if (!assetId) return { documents: [], verified: false, warnings: [] };
     const access = await token();
     const response = await fetch(`/api/assets/documentation?asset_id=${encodeURIComponent(assetId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load documentation.");
-    return { documents: (payload.documents || []) as Doc[], verified: payload.verified === true };
+    return {
+      documents: (payload.documents || []) as Doc[],
+      verified: payload.verified === true,
+      warnings: Array.isArray(payload.catalog_warnings) ? payload.catalog_warnings.map(String) : [],
+    };
   }
 
   function displayDocuments(docs: Doc[], verifiedState = false) {
@@ -145,7 +153,11 @@ export default function ManageEquipmentPage() {
 
   useEffect(() => {
     let current = true;
-    void loadDocuments(selectedId).then((result) => { if (current) displayDocuments(result.documents, result.verified); }).catch(() => {
+    void loadDocuments(selectedId).then((result) => {
+      if (!current) return;
+      displayDocuments(result.documents, result.verified);
+      setMessage(result.warnings.length ? result.warnings.join(" ") : "");
+    }).catch(() => {
       if (current) setMessage("Could not load documentation. Please retry.");
     });
     return () => { current = false; };
@@ -209,12 +221,13 @@ export default function ManageEquipmentPage() {
     }));
   }
 
-  async function processDocumentation(options?: { storagePath?: string; file?: File }) {
+  async function processDocumentation(options?: { storagePath?: string; documentKey?: string; file?: File }) {
     if (!selectedId) return;
     const file = options?.file;
     const storagePath = options?.storagePath;
-    if (!file && !storagePath) return;
-    const key = storagePath || `new:${file?.name || "document"}`;
+    const documentKey = options?.documentKey;
+    if (!file && !storagePath && !documentKey) return;
+    const key = storagePath || documentKey || `new:${file?.name || "document"}`;
     setProcessingKey(key);
     setDialogMessage("Reading PDF…");
     if (storagePath) setDocStatuses((current) => ({ ...current, [storagePath]: { state: "reading", message: "Reading PDF…" } }));
@@ -223,6 +236,7 @@ export default function ManageEquipmentPage() {
     form.append("asset_id", selectedId);
     if (file) form.append("file", file);
     if (storagePath) form.append("storage_path", storagePath);
+    if (documentKey) form.append("document_key", documentKey);
     const response = await fetch("/api/assets/documentation", { method: "POST", headers: { Authorization: `Bearer ${access}` }, body: form });
     const payload = await response.json();
     setProcessingKey("");
@@ -232,7 +246,7 @@ export default function ManageEquipmentPage() {
       if (storagePath) setDocStatuses((current) => ({ ...current, [storagePath]: { state: "failed", message: reason } }));
       return;
     }
-    const returnedPath = String(payload.document?.storage_path || storagePath || "");
+    const returnedPath = String(payload.document?.storage_path || storagePath || documentKey || "");
     const state: DocStatus = payload.processing_status === "processed"
       ? { state: "processed", message: payload.processing_message || "Processed" }
       : { state: "failed", message: payload.processing_message || "Equipment information was not loaded." };
@@ -364,13 +378,14 @@ export default function ManageEquipmentPage() {
                     const status = docStatuses[key] || { state: "ready" as const };
                     const documentUrl = doc.url;
                     return <div key={key} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300">
-                      <div className="min-w-0"><div className="truncate">{doc.name}</div><div className={`mt-1 text-[11px] font-semibold ${status.state === "processed" ? "text-emerald-300" : status.state === "failed" ? "text-red-300" : status.state === "reading" ? "text-cyan-300" : "text-slate-500"}`}>{status.state === "reading" ? "Reading…" : status.state === "processed" ? "Processed" : status.state === "failed" ? `Failed${status.message ? ` · ${status.message}` : ""}` : "Ready"}</div></div>
+                      <div className="min-w-0"><div className="truncate">{doc.name}</div><div className={`mt-1 text-[11px] font-semibold ${doc.verified || status.state === "processed" ? "text-emerald-300" : status.state === "failed" ? "text-red-300" : status.state === "reading" ? "text-cyan-300" : "text-slate-500"}`}>{status.state === "reading" ? "Reading…" : status.state === "processed" ? "Processed" : status.state === "failed" ? `Failed${status.message ? ` · ${status.message}` : ""}` : doc.source === "catalog" ? `Verified manufacturer manual${doc.document_type ? ` · ${doc.document_type}` : ""}` : "Uploaded equipment document"}</div></div>
                       <div className="flex gap-2">
                         {documentUrl && <button type="button" onClick={() => window.open(documentUrl, "_blank", "noopener,noreferrer")} className="rounded-md border border-slate-700 px-2 py-1 text-xs font-semibold hover:bg-slate-800">Open PDF</button>}
+                        {doc.document_key && canManage && editing && !verified && <button type="button" disabled={Boolean(processingKey)} onClick={() => void processDocumentation({ documentKey: doc.document_key })} className="rounded-md border border-cyan-500/40 px-2 py-1 text-xs font-semibold text-cyan-100 disabled:opacity-40">Read for fields</button>}
                         {status.state === "failed" && doc.storage_path && <button type="button" onClick={() => { setShowDocumentationDialog(true); void processDocumentation({ storagePath: doc.storage_path }); }} className="rounded-md border border-red-500/40 px-2 py-1 text-xs font-semibold text-red-200">Try Again</button>}
                       </div>
                     </div>;
-                  }) : <p className="text-sm text-slate-500">No uploaded documentation for this equipment.</p>}
+                  }) : <p className="text-sm text-slate-500">No exact-match manufacturer documentation. Enter the manufacturer and exact model family or model number to find applicable manuals.</p>}
                 </div>
               </div>
 

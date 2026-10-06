@@ -77,6 +77,8 @@ function fixture(route, config={}) {
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
       if(name==='@/lib/asset-install-year')return {maximumAssetInstallYear,parseAssetInstallYear};
       if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async()=>''};
+      if(name==='@/lib/manual-document-catalog')return {catalogManualMatchesEquipment:()=>false};
+      if(name==='@/lib/server/verified-manual-catalog')return {loadVerifiedCatalogManuals:async()=>({documents:[],warnings:[]})};
       if(name==='@/lib/server/auth')return {
         requireUser: async (req) => {
           if (!req.headers.get('authorization')) return null;

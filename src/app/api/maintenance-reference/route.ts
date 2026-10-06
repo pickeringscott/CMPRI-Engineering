@@ -10,6 +10,7 @@ import {
   manualPdfSha256,
   structureVerifiedManual,
 } from "@/lib/manual-pdf-knowledge";
+import { loadVerifiedCatalogManuals } from "@/lib/server/verified-manual-catalog";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -279,6 +280,7 @@ export async function GET(request: NextRequest) {
 
   let manualKnowledge: KnowledgePayload | null = null;
   let documentationStatus = assetId ? "unresolved" : "no_asset";
+  let documentationWarnings: string[] = [];
   const selectedAsset = assetId ? usableAssets.find((asset) => String(asset.id) === assetId) : undefined;
 
   if (assetId && !selectedAsset) {
@@ -290,41 +292,83 @@ export async function GET(request: NextRequest) {
     const { data: storedDocs, error: storageError } = await dataClient.storage
       .from(DOCUMENTATION_BUCKET)
       .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
-    if (storageError) {
-      documentationStatus = "lookup_unavailable";
-    } else {
-      const files = storedDocs || [];
-      const verified = files.some((file) => String(file.name || "") === VERIFY_MARKER);
-      const pdfFiles = files.filter((file) => String(file.name || "").toLowerCase().endsWith(".pdf"));
-      if (!verified) {
-        documentationStatus = "unverified";
-      } else if (!selectedAsset.manufacturer || (!selectedAsset.model_family && !selectedAsset.model_number)) {
-        documentationStatus = "identity_incomplete";
-      } else {
-        const matchingDocuments: Array<{ name: string; text: string; sha256: string }> = [];
-        for (const file of pdfFiles) {
-          const storagePath = `${prefix}/${file.name}`;
-          const { data: stored, error: downloadError } = await dataClient.storage
-            .from(DOCUMENTATION_BUCKET)
-            .download(storagePath);
-          if (downloadError || !stored) {
-            return NextResponse.json({ error: `Verified PDF ${file.name} could not be read.` }, { status: 503 });
-          }
-          const bytes = new Uint8Array(await stored.arrayBuffer());
-          let text: string;
-          try {
-            text = await extractManualPdfText(bytes);
-          } catch {
-            return NextResponse.json({ error: `Verified PDF ${file.name} could not be read as a PDF.` }, { status: 503 });
-          }
-          if (text && manualPdfMatchesEquipment(text, selectedAsset)) {
-            matchingDocuments.push({ name: file.name, text, sha256: manualPdfSha256(bytes) });
-          }
+    const files = storageError ? [] : storedDocs || [];
+    const assetDocumentsVerified = files.some((file) => String(file.name || "") === VERIFY_MARKER);
+    const pdfFiles = files.filter((file) => String(file.name || "").toLowerCase().endsWith(".pdf"));
+    const matchingDocuments: Array<{
+      name: string;
+      text: string;
+      sha256: string;
+      storagePath: string;
+      documentKey: string | null;
+      documentManufacturer: string;
+      documentType: string | null;
+      modelFamily: string | null;
+      catalogVerified: boolean;
+    }> = [];
+    if (assetDocumentsVerified && selectedAsset.manufacturer && (selectedAsset.model_family || selectedAsset.model_number)) {
+      for (const file of pdfFiles) {
+        const storagePath = `${prefix}/${file.name}`;
+        const { data: stored, error: downloadError } = await dataClient.storage
+          .from(DOCUMENTATION_BUCKET)
+          .download(storagePath);
+        if (downloadError || !stored) {
+          return NextResponse.json({ error: `Verified PDF ${file.name} could not be read.` }, { status: 503 });
         }
+        const bytes = new Uint8Array(await stored.arrayBuffer());
+        let text: string;
+        try {
+          text = await extractManualPdfText(bytes);
+        } catch {
+          return NextResponse.json({ error: `Verified PDF ${file.name} could not be read as a PDF.` }, { status: 503 });
+        }
+        if (text && manualPdfMatchesEquipment(text, selectedAsset)) {
+          matchingDocuments.push({
+            name: file.name,
+            text,
+            sha256: manualPdfSha256(bytes),
+            storagePath,
+            documentKey: null,
+            documentManufacturer: selectedAsset.manufacturer || "",
+            documentType: "Uploaded equipment document",
+            modelFamily: selectedAsset.model_family,
+            catalogVerified: false,
+          });
+        }
+      }
+    }
 
-        if (!matchingDocuments.length) {
-          documentationStatus = "no_exact_match";
-        } else {
+    let catalogWarnings: string[] = [];
+    try {
+      const catalog = await loadVerifiedCatalogManuals(dataClient, selectedAsset);
+      catalogWarnings = catalog.warnings;
+      documentationWarnings = catalog.warnings;
+      matchingDocuments.push(...catalog.documents.map((document) => ({
+        name: document.name,
+        text: document.text,
+        sha256: document.sha256,
+        storagePath: document.storagePath,
+        documentKey: document.documentKey,
+        documentManufacturer: document.manufacturer,
+        documentType: document.documentType,
+        modelFamily: document.modelFamily,
+        catalogVerified: true,
+      })));
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "Verified manufacturer documentation could not be loaded.",
+      }, { status: 503 });
+    }
+
+    if (!matchingDocuments.length) {
+      documentationStatus = !selectedAsset.manufacturer || (!selectedAsset.model_family && !selectedAsset.model_number)
+        ? "identity_incomplete"
+        : catalogWarnings.length
+          ? "catalog_verification_failed"
+          : assetDocumentsVerified || !storageError
+            ? "no_exact_match"
+            : "lookup_unavailable";
+    } else {
           const cacheKey = `verified-manual:${assetId}`;
           const { data: cached, error: cacheReadError } = await dataClient
             .from("troubleshooting_cache")
@@ -337,9 +381,16 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Verified manual knowledge could not be checked." }, { status: 503 });
           }
 
-          const documentDigest = matchingDocuments.map((document) => `${document.name}:${document.sha256}`).join("\n");
+          const documentDigest = matchingDocuments.map((document) => [
+            document.storagePath,
+            document.sha256,
+            document.documentKey || "",
+            document.documentManufacturer,
+            document.modelFamily || "",
+            document.documentType || "",
+          ].join(":")).join("\n");
           const identityDigest = JSON.stringify({
-            manufacturer: selectedAsset.manufacturer,
+            manufacturer: selectedAsset.manufacturer || "",
             model_family: selectedAsset.model_family,
             model_number: selectedAsset.model_number,
           });
@@ -356,7 +407,11 @@ export async function GET(request: NextRequest) {
           } else {
             try {
               const generated = await Promise.all(matchingDocuments.map((document) =>
-                structureVerifiedManual(document.text, selectedAsset, document.name),
+                structureVerifiedManual(document.text, {
+                  manufacturer: selectedAsset.manufacturer || "",
+                  model_family: document.modelFamily,
+                  model_number: selectedAsset.model_number,
+                }, document.name, { manufacturerVerifiedByCatalog: document.catalogVerified }),
               ));
               const error_codes = generated.flatMap((knowledge) => knowledge.error_codes || []);
               const symptom_rules = generated.flatMap((knowledge) => knowledge.symptom_rules || []);
@@ -367,8 +422,8 @@ export async function GET(request: NextRequest) {
               } else {
                 const primaryDocument = matchingDocuments[0];
                 manualKnowledge = {
-                  manufacturer: selectedAsset.manufacturer,
-                  model_family: selectedAsset.model_family || "",
+                  manufacturer: selectedAsset.manufacturer || "",
+                  model_family: selectedAsset.model_family || matchingDocuments[0].modelFamily || "",
                   model_number: selectedAsset.model_number || "",
                   source: {
                     title: primaryDocument.name,
@@ -407,7 +462,7 @@ export async function GET(request: NextRequest) {
             const primaryDoc = matchingDocuments.find((document) => document.name === primaryFile) || matchingDocuments[0];
             const { data: signed, error: signedError } = await dataClient.storage
               .from(DOCUMENTATION_BUCKET)
-              .createSignedUrl(`${prefix}/${primaryDoc.name}`, 60 * 60);
+              .createSignedUrl(primaryDoc.storagePath, 60 * 60);
             if (signedError || !signed?.signedUrl) {
               return NextResponse.json({ error: "Verified PDF preview could not be created." }, { status: 503 });
             }
@@ -417,8 +472,6 @@ export async function GET(request: NextRequest) {
             };
             documentationStatus = "verified";
           }
-        }
-      }
     }
 
     manualKnowledge = enrichManualKnowledge(manualKnowledge);
@@ -431,6 +484,7 @@ export async function GET(request: NextRequest) {
     asset_id: selectedAsset?.id || null,
     documentation_key: selectedAsset?.documentation_key || null,
     documentation_status: documentationStatus,
+    documentation_warnings: documentationWarnings,
     can_edit_equipment: allows(auth.principal, "manage_assets"),
   }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Authorization" } });
 }

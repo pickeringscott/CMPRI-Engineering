@@ -4,6 +4,8 @@ import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { canEditEquipment } from "@/lib/server/roles";
 import { extractManualPdfText } from "@/lib/manual-pdf-knowledge";
+import { catalogManualMatchesEquipment } from "@/lib/manual-document-catalog";
+import { loadVerifiedCatalogManuals } from "@/lib/server/verified-manual-catalog";
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -111,7 +113,7 @@ export async function GET(request: NextRequest) {
   const assetId = request.nextUrl.searchParams.get("asset_id")?.trim() || "";
   if (!assetId) return NextResponse.json({ error: "asset_id is required." }, { status: 400 });
   const { data: asset, error: assetError } = await auth.admin.from("assets")
-    .select("id")
+    .select("id, manufacturer, model_family, model_number")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", assetId)
     .maybeSingle();
@@ -123,12 +125,12 @@ export async function GET(request: NextRequest) {
     limit: 100,
     sortBy: { column: "created_at", order: "desc" },
   });
-  if (error) {
-    if (/not found|bucket/i.test(error.message)) return NextResponse.json({ documents: [], verified: false });
+  if (error && !/not found|bucket/i.test(error.message)) {
     return NextResponse.json({ error: "Equipment documentation could not be listed." }, { status: 503 });
   }
-  const verified = (data || []).some((file) => file.name === VERIFY_MARKER);
-  const documents = await Promise.all((data || []).filter((file) => file.name !== VERIFY_MARKER).map(async (file) => {
+  const assetFiles = data || [];
+  const verified = assetFiles.some((file) => file.name === VERIFY_MARKER);
+  const assetDocuments = await Promise.all(assetFiles.filter((file) => file.name !== VERIFY_MARKER).map(async (file) => {
     const storagePath = `${prefix}/${file.name}`;
     const { data: signed } = await auth.admin.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60);
     return {
@@ -138,9 +140,40 @@ export async function GET(request: NextRequest) {
       created_at: file.created_at,
       storage_path: storagePath,
       url: signed?.signedUrl || null,
+      source: "asset",
+      verified,
     };
   }));
-  return NextResponse.json({ documents, verified });
+  let catalogDocuments: Awaited<ReturnType<typeof loadVerifiedCatalogManuals>>["documents"] = [];
+  let catalogWarnings: string[] = [];
+  try {
+    const catalog = await loadVerifiedCatalogManuals(auth.admin, asset);
+    catalogDocuments = catalog.documents;
+    catalogWarnings = catalog.warnings;
+  } catch (catalogError) {
+    return NextResponse.json({
+      error: catalogError instanceof Error ? catalogError.message : "Manufacturer documentation could not be loaded.",
+    }, { status: 503 });
+  }
+  const signedCatalogDocuments = await Promise.all(catalogDocuments.map(async (document) => {
+    const { data: signed, error: signedError } = await auth.admin.storage.from(BUCKET)
+      .createSignedUrl(document.storagePath, 60 * 60);
+    if (signedError || !signed?.signedUrl) return null;
+    return {
+      name: document.name,
+      document_key: document.documentKey,
+      document_type: document.documentType,
+      storage_path: document.storagePath,
+      url: signed.signedUrl,
+      source: "catalog",
+      verified: true,
+    };
+  }));
+  if (signedCatalogDocuments.some((document) => document === null)) {
+    return NextResponse.json({ error: "A verified manufacturer PDF could not be opened." }, { status: 503 });
+  }
+  const documents = [...assetDocuments, ...signedCatalogDocuments];
+  return NextResponse.json({ documents, verified, catalog_warnings: catalogWarnings });
 }
 
 export async function POST(request: NextRequest) {
@@ -153,11 +186,13 @@ export async function POST(request: NextRequest) {
 
   const assetId = String(form.get("asset_id") || "").trim();
   const existingPath = String(form.get("storage_path") || "").trim();
+  const documentKey = String(form.get("document_key") || "").trim();
   const file = form.get("file");
   if (!assetId) return NextResponse.json({ error: "Equipment is required." }, { status: 400 });
+  if (existingPath && documentKey) return NextResponse.json({ error: "Choose one stored document source." }, { status: 400 });
 
   const { data: asset, error: assetError } = await auth.admin.from("assets")
-    .select("id")
+    .select("id, manufacturer, model_family, model_number")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", assetId)
     .maybeSingle();
@@ -167,19 +202,47 @@ export async function POST(request: NextRequest) {
   const bucketError = await ensureBucket(auth.admin);
   if (bucketError) return NextResponse.json({ error: `Unable to prepare documentation storage: ${bucketError.message}` }, { status: 500 });
 
-  let bytes: Uint8Array;
   let storagePath: string;
   let originalName: string;
   let uploaded = false;
+  let text = "";
 
-  if (existingPath) {
+  if (documentKey) {
+    const { data: catalogManual, error: catalogError } = await auth.admin.from("maintenance_documents")
+      .select("document_key,title,document_type,manufacturer,equipment,model_pattern,storage_path,source_file_name,active,ingestion_status")
+      .eq("hotel_id", HOTEL_ID)
+      .eq("document_key", documentKey)
+      .eq("active", true)
+      .eq("ingestion_status", "complete")
+      .maybeSingle();
+    if (catalogError) return NextResponse.json({ error: "Manufacturer documentation could not be verified." }, { status: 503 });
+    if (!catalogManual || !catalogManualMatchesEquipment(asset, catalogManual)) {
+      return NextResponse.json({ error: "This manual is not an exact manufacturer and model-family match for the selected equipment." }, { status: 409 });
+    }
+    let catalog: Awaited<ReturnType<typeof loadVerifiedCatalogManuals>>;
+    try {
+      catalog = await loadVerifiedCatalogManuals(auth.admin, asset);
+    } catch (catalogError) {
+      return NextResponse.json({
+        error: catalogError instanceof Error ? catalogError.message : "Manufacturer documentation could not be verified.",
+      }, { status: 503 });
+    }
+    const matchedDocument = catalog.documents.find((document) => document.documentKey === documentKey);
+    if (!matchedDocument) {
+      return NextResponse.json({ error: catalog.warnings[0] || "The selected manual PDF could not be verified against this equipment." }, { status: 409 });
+    }
+    storagePath = matchedDocument.storagePath;
+    originalName = matchedDocument.name;
+    text = matchedDocument.text;
+  } else if (existingPath) {
     const requiredPrefix = `${HOTEL_ID}/${assetId}/`;
     if (!existingPath.startsWith(requiredPrefix) || existingPath.endsWith(VERIFY_MARKER)) {
       return NextResponse.json({ error: "Invalid stored document path." }, { status: 400 });
     }
     const { data: stored, error: downloadError } = await auth.admin.storage.from(BUCKET).download(existingPath);
     if (downloadError || !stored) return NextResponse.json({ error: "Stored PDF could not be read." }, { status: 400 });
-    bytes = new Uint8Array(await stored.arrayBuffer());
+    const bytes = new Uint8Array(await stored.arrayBuffer());
+    text = await extractPdfText(bytes);
     storagePath = existingPath;
     originalName = existingPath.split("/").pop()?.replace(/^\d+-/, "") || "documentation.pdf";
   } else {
@@ -188,7 +251,8 @@ export async function POST(request: NextRequest) {
     if (file.type && file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       return NextResponse.json({ error: "Documentation must be a PDF." }, { status: 400 });
     }
-    bytes = new Uint8Array(await file.arrayBuffer());
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    text = await extractPdfText(bytes);
     originalName = file.name;
     storagePath = `${HOTEL_ID}/${assetId}/${Date.now()}-${safePart(file.name)}`;
     const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(storagePath, bytes, {
@@ -206,7 +270,6 @@ export async function POST(request: NextRequest) {
     uploaded = true;
   }
 
-  const text = await extractPdfText(bytes);
   const suggestions = text ? extractEquipmentSuggestions(text) : null;
   const { data: signed } = await auth.admin.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60);
   return NextResponse.json({
@@ -215,6 +278,7 @@ export async function POST(request: NextRequest) {
       original_name: originalName,
       storage_bucket: BUCKET,
       storage_path: storagePath,
+      document_key: documentKey || null,
       url: signed?.signedUrl || null,
     },
     uploaded,

@@ -3,7 +3,21 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { manualMatchesEquipment } from '../src/lib/manual-document-match.ts';
+import { manualMatchesEquipment, manualTextContainsExactIdentity } from '../src/lib/manual-document-match.ts';
+
+const catalogSource=readFileSync(new URL('../src/lib/manual-document-catalog.ts',import.meta.url),'utf8');
+const catalogAst=ts.createSourceFile('manual-document-catalog.ts',catalogSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+const catalogNames=new Set(['normalized','catalogFamilyMatchesEquipment','catalogManualModelFamily','catalogManualMatchesEquipment','catalogManualPdfMatchesEquipment']);
+const catalogFunctions=catalogAst.statements
+  .filter(node=>ts.isFunctionDeclaration(node)&&catalogNames.has(node.name?.text))
+  .map(node=>node.getText(catalogAst)).join('\n');
+assert.equal(catalogAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&catalogNames.has(node.name?.text)).length,5);
+const catalogExports={};
+vm.runInNewContext(ts.transpileModule(`${catalogFunctions}\nexports.matches=catalogManualMatchesEquipment;exports.modelFamily=catalogManualModelFamily;exports.pdfMatches=catalogManualPdfMatchesEquipment;`,{
+  compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
+}).outputText,{exports:catalogExports,manualTextContainsExactIdentity});
+const catalogManualMatchesEquipment=catalogExports.matches;
+const catalogManualPdfMatchesEquipment=catalogExports.pdfMatches;
 
 // Execute the shared manual normalizer used by the ticket page.
 const source=readFileSync(new URL('../src/lib/manual-knowledge.ts',import.meta.url),'utf8');
@@ -14,7 +28,7 @@ assert.equal(ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.h
 const exports={};
 vm.runInNewContext(ts.transpileModule(functions+'\nexports.normalize=normalizeManualKnowledge;',{
   compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
-}).outputText,{exports});
+}).outputText,{exports,manualTextContainsExactIdentity});
 const normalize=exports.normalize;
 
 for(const input of [null,undefined,[],42,'manual'])test(`rejects non-record manual: ${String(input)}`,()=>assert.equal(normalize(input),null));
@@ -40,15 +54,95 @@ test('manufacturer documentation requires an exact manufacturer and model-family
   assert.equal(manualMatchesEquipment({manufacturer:'Friedrich',model_number:'VPAK-A'}, {manufacturer:'Friedrich',model_number:'VPAK-B'}),false);
 });
 
+test('active catalog manuals match only the exact manufacturer and explicitly cataloged model family',()=>{
+  const equipment={manufacturer:'UniMac',model_family:null,model_number:'UWN065T4VXU4001'};
+  const manual={manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',active:true,ingestion_status:'complete'};
+  assert.equal(catalogManualMatchesEquipment(equipment,manual),true);
+  assert.equal(catalogManualMatchesEquipment(equipment,{...manual,manufacturer:'Alliance'}),false);
+  assert.equal(catalogManualMatchesEquipment(equipment,{...manual,model_pattern:'UWN065T3V'}),false);
+  assert.equal(catalogManualMatchesEquipment(equipment,{...manual,active:false}),false);
+  assert.equal(catalogManualMatchesEquipment(equipment,{...manual,ingestion_status:'content_mismatch'}),false);
+  assert.equal(catalogManualMatchesEquipment({manufacturer:'UniMac',model_family:null,model_number:null},manual),false);
+  assert.equal(catalogManualMatchesEquipment({manufacturer:'Friedrich',model_family:'Verdepac VTAC',model_number:null},{
+    manufacturer:'Friedrich',equipment:'Vert-I-Pak',model_pattern:null,active:true,ingestion_status:'complete',
+  }),false);
+});
+
+test('catalog manual PDF must contain the exact model family before it is shown or used',()=>{
+  const equipment={manufacturer:'UniMac',model_family:null,model_number:'UWN065T4VXU4001'};
+  const manual={manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',active:true,ingestion_status:'complete'};
+  assert.equal(catalogManualPdfMatchesEquipment('Applicable models UWN065T4V and related configurations.',equipment,manual),true);
+  assert.equal(catalogManualPdfMatchesEquipment('Applicable models UWN065T3V.',equipment,manual),false);
+  assert.equal(catalogManualPdfMatchesEquipment('Applicable models UWN065T4V.',equipment,{...manual,active:false}),false);
+});
+
+test('shared catalog loader lists only active exact-family PDFs whose text confirms that family',async()=>{
+  const source=readFileSync(new URL('../src/lib/server/verified-manual-catalog.ts',import.meta.url),'utf8');
+  const rows=[
+    {document_key:'unimac-family',title:'UniMac washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/washer.pdf',source_file_name:'washer.pdf',active:true,ingestion_status:'complete'},
+    {document_key:'neighbor-family',title:'Neighbor washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T3V',storage_path:'asset docs/neighbor.pdf',source_file_name:'neighbor.pdf',active:true,ingestion_status:'complete'},
+    {document_key:'wrong-content',title:'Mismatched washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/mismatch.pdf',source_file_name:'mismatch.pdf',active:true,ingestion_status:'complete'},
+    {document_key:'inactive',title:'Inactive washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/inactive.pdf',source_file_name:'inactive.pdf',active:false,ingestion_status:'complete'},
+  ];
+  for (const row of rows) row.hotel_id='hotel';
+  const contentByName=new Map([
+    ['washer.pdf','Applicable models UWN065T4V.'],
+    ['neighbor.pdf','Applicable models UWN065T3V.'],
+    ['mismatch.pdf','Applicable models UWN065T3V.'],
+  ]);
+  const calls=[];
+  const admin={
+    from(table){
+      assert.equal(table,'maintenance_documents');
+      const filters={};
+      const query={
+        select(){return this;},
+        eq(field,value){filters[field]=value;return this;},
+        order(){return this;},
+        limit(){return this;},
+        then(resolve,reject){return Promise.resolve({data:rows.filter(row=>Object.entries(filters).every(([field,value])=>row[field]===value)),error:null}).then(resolve,reject);},
+      };
+      return query;
+    },
+    storage:{from(bucket){
+      assert.equal(bucket,'asset-documentation');
+      return {
+        async list(prefix){calls.push(['list',prefix]);return {data:[{name:'washer.pdf'},{name:'neighbor.pdf'},{name:'mismatch.pdf'}],error:null};},
+        async download(path){calls.push(['download',path]);const name=path.split('/').pop();const text=contentByName.get(name);return text?{data:new Blob([text]),error:null}:{data:null,error:{message:'missing'}};},
+      };
+    }},
+  };
+  const catalogSource=readFileSync(new URL('../src/lib/manual-document-catalog.ts',import.meta.url),'utf8');
+  const catalogAst=ts.createSourceFile('manual-document-catalog.ts',catalogSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+  const catalogFunctions=catalogAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&catalogNames.has(node.name?.text)).map(node=>node.getText(catalogAst)).join('\n');
+  const catalogRuntime={};
+  vm.runInNewContext(ts.transpileModule(`${catalogFunctions}\nexports.matches=catalogManualMatchesEquipment;exports.modelFamily=catalogManualModelFamily;exports.pdfMatches=catalogManualPdfMatchesEquipment;`,{
+    compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
+  }).outputText,{exports:catalogRuntime,manualTextContainsExactIdentity});
+  const helperExports={};
+  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  vm.runInNewContext(compiled,{exports:helperExports,Uint8Array,Promise,require(name){
+    if(name==='@/lib/constants')return {HOTEL_ID:'hotel'};
+    if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async(bytes)=>new TextDecoder().decode(bytes),manualPdfSha256:()=> 'sha256'};
+    if(name==='@/lib/manual-document-catalog')return {catalogManualMatchesEquipment:catalogRuntime.matches,catalogManualModelFamily:catalogRuntime.modelFamily,catalogManualPdfMatchesEquipment:catalogRuntime.pdfMatches};
+    throw new Error(`Unexpected import ${name}`);
+  }});
+  const result=await helperExports.loadVerifiedCatalogManuals(admin,{manufacturer:'UniMac',model_family:null,model_number:'UWN065T4VXU4001'});
+  assert.deepEqual(Array.from(result.documents,doc=>doc.name),['washer.pdf']);
+  assert.equal(result.documents[0].storagePath,'Asset Docs/washer.pdf');
+  assert.deepEqual(Array.from(result.warnings),['Mismatched washer manual: the PDF content did not verify the exact cataloged model family.']);
+  assert.deepEqual(calls,[['list','Asset Docs'],['download','Asset Docs/washer.pdf'],['download','Asset Docs/mismatch.pdf']]);
+});
+
 test('verified PDFs must contain the exact manufacturer and family or model identifier',()=>{
   const source=readFileSync(new URL('../src/lib/manual-pdf-knowledge.ts',import.meta.url),'utf8');
   const ast=ts.createSourceFile('manual-pdf-knowledge.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
-  const names=new Set(['identityPhraseMatches','manualPdfMatchesEquipment']);
+  const names=new Set(['identityPhraseMatches','manualPdfContainsEquipmentModel','manualPdfMatchesEquipment']);
   const functions=ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)).map(node=>node.getText(ast)).join('\n');
   const exports={};
   vm.runInNewContext(ts.transpileModule(`${functions}\nexports.matches=manualPdfMatchesEquipment;`,{
     compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
-  }).outputText,{exports});
+  }).outputText,{exports,manualTextContainsExactIdentity});
   const matches=exports.matches;
   assert.equal(matches('Friedrich Verdepac VTAC Service Manual',{manufacturer:'Friedrich',model_family:'Verdepac VTAC',model_number:null}),true);
   assert.equal(matches('Freedom Verdepac VTAC Service Manual',{manufacturer:'Friedrich',model_family:'Verdepac VTAC',model_number:null}),false);
@@ -62,6 +156,16 @@ test('exact PDF matches refresh structure without relying on a pre-existing cach
   assert.match(route,/\.from\("troubleshooting_cache"\)[\s\S]*?\.maybeSingle\(\)/);
   assert.match(route,/\.from\("troubleshooting_cache"\)\.upsert\(/);
   assert.match(route,/document_digest === documentDigest/);
+  assert.match(route,/loadVerifiedCatalogManuals\(dataClient, selectedAsset\)/);
+});
+
+test('equipment documentation screen discovers verified catalog PDFs outside the asset folder',()=>{
+  const route=readFileSync(new URL('../src/app/api/assets/documentation/route.ts',import.meta.url),'utf8');
+  const page=readFileSync(new URL('../src/app/management/equipment/page.tsx',import.meta.url),'utf8');
+  assert.match(route,/loadVerifiedCatalogManuals\(auth\.admin, asset\)/);
+  assert.match(route,/source:\s*"catalog"/);
+  assert.match(page,/Verified manufacturer manual/);
+  assert.match(page,/No exact-match manufacturer documentation/);
 });
 test('null code and rule entries do not crash the ticket',()=>{
   const result=normalize({error_codes:[null,{},7],symptom_rules:[null,{},'Inspect model label']});

@@ -27,6 +27,13 @@ function exactIdentityValue(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US") : "";
 }
 
+export function manualTextContainsExactIdentity(text: string, identity: string | null | undefined) {
+  const phrase = identity?.trim().replace(/\s+/g, " ");
+  if (!phrase) return false;
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(text);
+}
+
 export function manualMatchesEquipment(asset: EquipmentIdentity, manual: ManualIdentity) {
   const assetManufacturer = exactIdentityValue(asset.manufacturer);
   const assetFamily = exactIdentityValue(asset.model_family);

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
+import { manualTextContainsExactIdentity } from "@/lib/manual-document-match";
 
 export type ManualEquipmentIdentity = {
   manufacturer: string | null;
@@ -33,14 +34,18 @@ export async function extractManualPdfText(bytes: Uint8Array) {
 }
 
 function identityPhraseMatches(text: string, identity: string | null | undefined) {
-  const phrase = identity?.trim().replace(/\s+/g, " ");
-  if (!phrase) return false;
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(text);
+  return manualTextContainsExactIdentity(text, identity);
 }
 
 export function manualPdfMatchesEquipment(text: string, equipment: ManualEquipmentIdentity) {
   if (!identityPhraseMatches(text, equipment.manufacturer)) return false;
+  return manualPdfContainsEquipmentModel(text, equipment);
+}
+
+export function manualPdfContainsEquipmentModel(
+  text: string,
+  equipment: Pick<ManualEquipmentIdentity, "model_family" | "model_number">,
+) {
   const familyMatches = identityPhraseMatches(text, equipment.model_family);
   const modelMatches = identityPhraseMatches(text, equipment.model_number);
   return familyMatches || modelMatches;
@@ -54,10 +59,14 @@ export async function structureVerifiedManual(
   text: string,
   equipment: ManualEquipmentIdentity,
   sourceFileName: string,
+  options: { manufacturerVerifiedByCatalog?: boolean } = {},
 ): Promise<ManualKnowledge> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured; verified documentation cannot be structured.");
-  if (!manualPdfMatchesEquipment(text, equipment)) {
+  const identityMatches = options.manufacturerVerifiedByCatalog
+    ? manualPdfContainsEquipmentModel(text, equipment)
+    : manualPdfMatchesEquipment(text, equipment);
+  if (!identityMatches) {
     throw new Error("The PDF does not contain the exact equipment manufacturer and model-family or model identity.");
   }
 

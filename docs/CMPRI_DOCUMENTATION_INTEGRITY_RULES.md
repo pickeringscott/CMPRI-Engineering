@@ -17,12 +17,14 @@ Before a document can supply verified troubleshooting, all applicable identities
    - equipment
    - model pattern
    - document type
+   - shared-catalog documents must be explicitly active and have completed ingestion
 
 3. **Actual document content**
    - cover/title text
-   - manufacturer named in the document
+   - manufacturer identity agrees with the curated catalog entry
    - equipment family named in the document
    - listed applicable models
+   - the exact cataloged family or model identifier appears in the PDF text
 
 4. **Structured troubleshooting**
    - extract it from the verified PDF itself,
@@ -34,6 +36,16 @@ Before a document can supply verified troubleshooting, all applicable identities
    - verification must be explicit after the identities above are checked.
 
 If these disagree, CMPRI must fail closed: the file may remain visible as an uploaded/reference document, but its extracted procedures must not be presented as verified troubleshooting.
+
+Shared manufacturer PDFs stored in `asset-documentation/Asset Docs` are surfaced from
+`maintenance_documents`, not copied into each equipment folder. A catalog entry is
+eligible only when `active = true` and `ingestion_status = 'complete'`; the
+manufacturer must match exactly, and the cataloged `model_pattern` must equal the
+equipment's model family or be the exact leading family identifier of its full
+model number. The PDF itself must contain that exact family/model token. Filename
+similarity, manufacturer-only matching, inactive entries, and incomplete ingestion
+never establish a match. These same checks gate both the equipment documentation
+panel and open-work-order troubleshooting.
 
 ## Defect found: UniMac dryer document
 CMPRI's Drive/index contains files titled:
@@ -104,5 +116,7 @@ On mismatch:
 - Duplicate Drive files with the same title must not be assumed identical or correct based on title alone.
 - A document title/index row alone is never sufficient evidence of equipment identity.
 - Friedrich Verdepac documentation must match Friedrich + Verdepac VTAC; it must not match another Friedrich family.
+- Shared-catalog manuals in `Asset Docs` appear on equipment only after the active/complete catalog record and exact manufacturer/family plus PDF-content checks pass.
+- An exact shared-catalog match appears on the equipment record and is used to generate or refresh its open-work-order guidance; unmatched or content-mismatched manuals remain excluded.
 - Adding or updating a verified exact-match PDF must create or refresh its structured troubleshooting without requiring a prior cache entry.
 - If no verified exact-match PDF exists, no generic troubleshooting or unrelated documentation is shown.
