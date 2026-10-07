@@ -54,3 +54,14 @@ test('MCP exposes Ranker and PM management writes only to system administrators'
     assert.equal(adminActions.includes(action),true,action);
   }
 });
+
+test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot validation',()=>{
+  const writesSource=readFileSync(path.join(root,'lib/server/cmpri-mcp-writes.ts'),'utf8');
+  const mcpRoute=readFileSync(path.join(root,'app/api/mcp/route.ts'),'utf8');
+  assert.match(writesSource,/case "room_operations\.import":[\s\S]*?const reportImages = images !== undefined[\s\S]*?api\/room-operations\/extract\/route[\s\S]*?images: reportImages/);
+  assert.match(writesSource,/delete importInput\.rows/);
+  assert.match(writesSource,/The report must include every active room and its reported room_status; occupied rooms must also include current guest_name, guest_code, guest_arrival_date, and checkout_date/);
+  assert.match(writesSource,/Nothing was imported/);
+  assert.match(mcpRoute,/MAX_MCP_REQUEST_BYTES = 4_500_000/);
+  assert.match(mcpRoute,/MAX_MCP_WRITE_INPUT_BYTES = 4_000_000/);
+});

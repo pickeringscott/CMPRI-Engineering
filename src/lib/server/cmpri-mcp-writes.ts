@@ -19,7 +19,7 @@ type WriteAction = {
 const WRITE_ACTIONS: WriteAction[] = [
   { action: "work_orders.create", description: "Submit one or more CMPRI work orders, using the same validation and attribution as the CMPRI form.", capability: "submit" },
   { action: "work_orders.import", description: "Import validated CMPRI work orders from SafetyCulture or a spreadsheet.", capability: "edit_tickets" },
-  { action: "room_operations.import", description: "Import a daily room-operations snapshot from CSV text or room-status/departures photos without manual steps. Supply report_date (YYYY-MM-DD, defaults to today) and either csv (the raw CSV text containing room rows) or rows array with room, stay_nights, reserved, checkout_date, checkout_time, room_status, arrival_date, arrival_time, guest_name, room_type, guest_code, and guest_arrival_date. Replaces the complete snapshot for that date atomically and automatically triggers Out of Order status and room move notifications. Only call when the user explicitly asks to import/save.", capability: "edit_tickets" },
+  { action: "room_operations.import", description: "Import a daily room-operations snapshot from report photos or structured text. For photos, provide image or images as base64 image data (or {data, mediaType} objects); CMPRI runs its report OCR before validation. Otherwise provide csv or rows. Supply report_date (YYYY-MM-DD, defaults to today). The report must include every active room and its reported room_status; occupied rooms must also include current guest_name, guest_code, guest_arrival_date, and checkout_date. Rows may include room, stay_nights, reserved, checkout_date, checkout_time, room_status, arrival_date, arrival_time, guest_name, room_type, guest_code, and guest_arrival_date. CMPRI rejects incomplete snapshots without saving. The complete snapshot is replaced atomically and triggers Out of Order status and room-move notifications. Only call when the user explicitly asks to import/save.", capability: "edit_tickets" },
   { action: "work_orders.update", description: "Edit an authorized work order by supplying its UUID as id, expected_revision from the latest work-order read, and editable fields. Fields may be flat or nested under changes, updates, or fields. Editable fields include notes, status, technician_name (assignment), category, issue, priority, asset_id, cost, hours, due_by, parts, and action_root_cause. Use the exact status 'In Progress' or 'Completed' when reopening a closed work order; reopening to Open is rejected. An In Progress order must have an assigned technician.", anyOf: ["edit_tickets", "review_tickets"] },
   { action: "work_orders.delete", description: "Delete a work order when your CMPRI role permits it. Include its UUID.", anyOf: ["edit_tickets", "close_tickets", "manage_users"] },
   { action: "work_order_drafts.create", description: "Create a CMPRI work-order draft.", capability: "submit" },
@@ -109,8 +109,42 @@ export async function callMcpWriteAction(
       return callApi(incoming, "/api/work-orders/import", "POST", bearer, input, route.POST);
     }
     case "room_operations.import": {
+      const images = input.images;
+      const image = input.image;
+      const importInput = { ...input };
+      delete importInput.images;
+      delete importInput.image;
+      delete importInput.validate_only;
+      let csv = typeof input.csv === "string" ? input.csv : "";
+      if (images !== undefined || image !== undefined) {
+        const reportImages = images !== undefined
+          ? Array.isArray(images) ? images : [images]
+          : [image];
+        const extractRoute = await import("@/app/api/room-operations/extract/route");
+        const extraction = await callApi(
+          incoming,
+          "/api/room-operations/extract",
+          "POST",
+          bearer,
+          { images: reportImages },
+          extractRoute.POST,
+        );
+        if (extraction.status < 200 || extraction.status >= 300) return extraction;
+        if (!extraction.body || typeof extraction.body !== "object"
+          || !("csv" in extraction.body) || typeof extraction.body.csv !== "string"
+          || !extraction.body.csv.trim()) {
+          return { status: 502, body: { error: "Room Operations report extraction returned no CSV data. Nothing was imported." } };
+        }
+        csv = extraction.body.csv;
+        delete importInput.rows;
+        delete importInput.csv;
+      }
       const route = await import("@/app/api/room-operations/route");
-      return callApi(incoming, "/api/room-operations", "POST", bearer, input, route.POST);
+      return callApi(incoming, "/api/room-operations", "POST", bearer, {
+        ...importInput,
+        source: "file",
+        ...(csv ? { csv } : {}),
+      }, route.POST);
     }
     case "work_orders.update": {
       const route = await import("@/app/api/work-orders/[id]/route");
