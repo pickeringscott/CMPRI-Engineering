@@ -12,7 +12,7 @@ function load(relative, overrides = {}) {
   const exports={};
   const filename=path.join(root,relative);
   const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-  vm.runInNewContext(source,{exports,URL,require(name){
+  vm.runInNewContext(source,{exports,URL,Response,require(name){
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
     if(name==='next/server')return {NextRequest:class NextRequest {}};
@@ -54,6 +54,41 @@ test('MCP exposes Ranker and PM management writes only to system administrators'
     assert.equal(engineerActions.includes(action),false,action);
     assert.equal(adminActions.includes(action),true,action);
   }
+});
+
+test('MCP tools/list preserves the generic nested write input for every advertised action',async()=>{
+  const route=load('app/api/mcp/route.ts',{
+    'next/server':{NextRequest:class {}},
+    '@/lib/constants':{HOTEL_ID:'test-hotel'},
+    '@/lib/server/cmpri-mcp':{mcpIdentity:async()=>identity('Chief Engineer')},
+    '@/lib/server/cmpri-mcp-reads':{
+      availableMcpReadViews:()=>[],
+      callMcpReadView:async()=>({}),
+    },
+    '@/lib/server/cmpri-mcp-writes':{
+      availableMcpWriteActions:(value)=>writes.availableMcpWriteActions(value),
+      callMcpWriteAction:async()=>({status:200,body:{}}),
+    },
+    '@/lib/ai/mcp-work-order-location':{resolveMcpWorkOrderLocation:()=>({status:'not_found'})},
+  });
+  const response=await route.POST({
+    headers:{get:()=>null},
+    json:async()=>({jsonrpc:'2.0',id:1,method:'tools/list'}),
+  });
+  assert.equal(response.status,200);
+  const payload=await response.json();
+  const writeTool=payload.result.tools.find(({name})=>name==='perform_cmpri_write');
+  assert.ok(writeTool);
+  const schema=writeTool.inputSchema;
+  assert.deepEqual(Array.from(schema.required),['action','input']);
+  assert.equal(schema.additionalProperties,false);
+  assert.deepEqual(Object.keys(schema.properties.input).sort(),['additionalProperties','description','type']);
+  assert.equal(schema.properties.input.type,'object');
+  assert.equal(schema.properties.input.additionalProperties,true);
+  const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action).sort();
+  assert.equal(Array.from(schema.properties.action.enum).sort().join('|'),allowed.join('|'));
+  assert.ok(allowed.includes('work_orders.update'));
+  assert.ok(allowed.includes('room_operations.import'));
 });
 
 test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot validation',()=>{
