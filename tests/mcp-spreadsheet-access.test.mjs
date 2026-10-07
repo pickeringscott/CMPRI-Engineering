@@ -8,11 +8,12 @@ import ts from 'typescript';
 
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 
-function load(relative) {
+function load(relative, overrides = {}) {
   const exports={};
   const filename=path.join(root,relative);
   const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-  vm.runInNewContext(source,{exports,require(name){
+  vm.runInNewContext(source,{exports,URL,require(name){
+    if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
     if(name==='next/server')return {NextRequest:class NextRequest {}};
     if(name==='@/lib/server/access')return {allows:(principal,capability)=>capability!=='edit_tickets'||['chief engineer','engineering manager','maintenance technician','system administrator'].includes(String(principal.profile.role).trim().toLowerCase())};
@@ -64,4 +65,48 @@ test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot 
   assert.match(writesSource,/Nothing was imported/);
   assert.match(mcpRoute,/MAX_MCP_REQUEST_BYTES = 4_500_000/);
   assert.match(mcpRoute,/MAX_MCP_WRITE_INPUT_BYTES = 4_000_000/);
+});
+
+test('ChatGPT Room Ops write forwards uploaded images through OCR before importing extracted CSV',async()=>{
+  const calls=[];
+  const writeRoute=load('lib/server/cmpri-mcp-writes.ts',{
+    'next/server':{
+      NextRequest:class {
+        constructor(url,init) {
+          this.url=url;
+          this.method=init.method;
+          const requestHeaders=init.headers;
+          this.headers={get:(name)=>requestHeaders[name]||null};
+          this.body=init.body;
+          this.nextUrl=new URL(url);
+        }
+        async json(){return JSON.parse(this.body);}
+      },
+    },
+    '@/app/api/room-operations/extract/route':{
+      POST:async(request)=>{
+        const body=await request.json();
+        calls.push({path:'/extract',body});
+        return {status:200,json:async()=>({ok:true,csv:'Room,Room Status\\n101,Vacant Ready'})};
+      },
+    },
+    '@/app/api/room-operations/route':{
+      POST:async(request)=>{
+        calls.push({path:'/import',body:await request.json()});
+        return {status:200,json:async()=>({ok:true,import_id:'import-1'})};
+      },
+    },
+  });
+  const incoming={nextUrl:{origin:'https://cmpri.example'},headers:{get:(name)=>name.toLowerCase()==='authorization'?'Bearer cmpri_mcp_test':null}};
+  const outcome=await writeRoute.callMcpWriteAction(
+    incoming,
+    identity('Chief Engineer'),
+    'room_operations.import',
+    {report_date:'2026-10-06',images:[{data:'aGVsbG8=',mediaType:'image/jpeg'}]},
+  );
+  assert.equal(outcome.status,200);
+  assert.deepEqual(calls,[
+    {path:'/extract',body:{images:[{data:'aGVsbG8=',mediaType:'image/jpeg'}]}},
+    {path:'/import',body:{report_date:'2026-10-06',source:'file',csv:'Room,Room Status\\n101,Vacant Ready'}},
+  ]);
 });

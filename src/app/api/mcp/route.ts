@@ -105,63 +105,6 @@ const MCP_TOOLS = [
   },
 ];
 
-const ROOM_OPERATIONS_WRITE_INPUT_SCHEMA = {
-  type: "object",
-  description: "Provide one of csv, rows, image, or images. Images may be base64 strings/data URLs or objects with data and mediaType. The report must contain every active room and room_status; occupied rooms also require guest_name, guest_code, guest_arrival_date, and checkout_date.",
-  properties: {
-    report_date: { type: "string", description: "Snapshot date in YYYY-MM-DD format; defaults to today." },
-    csv: { type: "string", description: "Complete room-status CSV with an optional supplemental departures report." },
-    status_csv: { type: "string", description: "Complete room-status CSV containing every active room and its status." },
-    departures_csv: { type: "string", description: "Optional supplemental expected-departures CSV." },
-    rows: {
-      type: "array",
-      description: "Complete snapshot rows. Every active room needs room and room_status.",
-      items: {
-        type: "object",
-        properties: {
-          room: { type: ["string", "number"] },
-          room_status: { type: "string" },
-          guest_name: { type: "string" },
-          guest_code: { type: "string" },
-          guest_arrival_date: { type: "string" },
-          checkout_date: { type: "string" },
-          checkout_time: { type: "string" },
-          arrival_date: { type: "string" },
-          arrival_time: { type: "string" },
-          room_type: { type: "string" },
-          stay_nights: { type: ["string", "number"] },
-          reserved: { type: ["boolean", "string", "number"] },
-        },
-        required: ["room", "room_status"],
-        additionalProperties: true,
-      },
-    },
-    image: {
-      oneOf: [
-        { type: "string", description: "Base64-encoded image data or a data URL." },
-        { type: "object", properties: { data: { type: "string" }, mediaType: { type: "string" } }, required: ["data"], additionalProperties: false },
-      ],
-    },
-    images: {
-      type: "array",
-      items: {
-        oneOf: [
-          { type: "string", description: "Base64-encoded image data or a data URL." },
-          { type: "object", properties: { data: { type: "string" }, mediaType: { type: "string" } }, required: ["data"], additionalProperties: false },
-        ],
-      },
-    },
-  },
-  anyOf: [
-    { required: ["csv"] },
-    { required: ["rows"] },
-    { required: ["status_csv"] },
-    { required: ["image"] },
-    { required: ["images"] },
-  ],
-  additionalProperties: true,
-};
-
 function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
@@ -347,9 +290,6 @@ export async function POST(request: NextRequest) {
           properties: {
             ...tool.inputSchema.properties,
             action: { type: "string", enum: availableMcpWriteActions(identity).map((action) => action.action) },
-            input: availableMcpWriteActions(identity).some((action) => action.action === "room_operations.import")
-              ? ROOM_OPERATIONS_WRITE_INPUT_SCHEMA
-              : tool.inputSchema.properties.input,
           },
         },
       }
