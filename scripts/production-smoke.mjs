@@ -8,9 +8,10 @@ const GO_LIVE_ROLES = [
   "manager",
   "technician",
   "engineer",
+  "senior_management",
   "system_admin",
 ];
-const SUBMIT_ONLY_CAPABILITIES = ["submit", "submit_feedback", "view_profiles"];
+const SUBMIT_ONLY_CAPABILITIES = ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"];
 const NOTE_AND_POOL_CAPABILITIES = [
   "submit",
   "view_pool_log",
@@ -23,6 +24,7 @@ const NOTE_AND_POOL_CAPABILITIES = [
 ];
 const ENGINEERING_CAPABILITIES = [
   "submit",
+  "add_work_order_notes",
   "view_dashboard",
   "view_engineering_operations",
   "view_pool_log",
@@ -49,6 +51,7 @@ const EXPECTED_CAPABILITIES = {
   assistant_manager: NOTE_AND_POOL_CAPABILITIES,
   manager: [
     "submit",
+    "add_work_order_notes",
     "view_dashboard",
     "view_pool_log",
     "operate_pool_log",
@@ -60,6 +63,7 @@ const EXPECTED_CAPABILITIES = {
   ],
   technician: [
     "submit",
+    "add_work_order_notes",
     "view_dashboard",
     "view_work_orders",
     "view_pm",
@@ -71,6 +75,16 @@ const EXPECTED_CAPABILITIES = {
     "submit_feedback",
   ],
   engineer: ENGINEERING_CAPABILITIES,
+  senior_management: [
+    "submit",
+    "add_work_order_notes",
+    "view_dashboard",
+    "view_engineering_operations",
+    "view_work_orders",
+    "view_pm",
+    "submit_feedback",
+    "view_profiles",
+  ],
   system_admin: ENGINEERING_CAPABILITIES,
 };
 

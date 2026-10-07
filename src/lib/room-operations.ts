@@ -19,6 +19,21 @@ export type CheckoutRoomWorkOrder = {
   status: string;
 };
 
+export function expiredRoomOperationsBefore(now: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now).reduce<Record<string, string>>((result, part) => {
+    result[part.type] = part.value;
+    return result;
+  }, {});
+  const cutoff = new Date(`${parts.year}-${parts.month}-${parts.day}T12:00:00.000Z`);
+  cutoff.setUTCDate(cutoff.getUTCDate() - 1);
+  return cutoff.toISOString().slice(0, 10);
+}
+
 export function isRailwayCnGuestName(value: string | null | undefined) {
   return /railway\s*\/\s*cn/i.test(value || "");
 }

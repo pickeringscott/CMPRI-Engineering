@@ -132,6 +132,16 @@ test('reporter comments are appended to submitted notes without losing either',a
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.writes[0].notes,'Remote was already replaced.\nGuest is going to leave at 5 PM');
 });
+test('multi-work-order submissions preserve each issue and move shared reporter context to notes atomically',async()=>{
+  const f=fixture({orders:[
+    {...order,issue:'TV is broken\nGuest is leaving at 5 PM'},
+    {...order,issue:'Sink is leaking\nGuest is leaving at 5 PM'},
+  ],staff_first_name:'Scott'});
+  assert.equal((await f.handler(f.request)).status,200);
+  assert.equal(f.writes.length,2);
+  assert.deepEqual(f.writes.map(row=>row.issue),['TV is broken','Sink is leaking']);
+  assert.deepEqual(f.writes.map(row=>row.notes),['Guest is leaving at 5 PM','Guest is leaving at 5 PM']);
+});
 test('guest departure comment alone cannot create another work order',async()=>{
   const f=fixture({orders:[{...order,issue:'Guest is going to leave at 5 PM'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,400);

@@ -40,6 +40,8 @@ test('technicians can stage notes only when their work-order edit policy permits
   assert.equal(canSubmitWorkOrderNote({...common,status:'Open',unassigned:false}),true);
   assert.equal(canSubmitWorkOrderNote({...common,status:'Pending Verification',unassigned:true}),false);
   assert.equal(canSubmitWorkOrderNote({...common,status:'Open',unassigned:true,canClaimUnassigned:true}),false);
+  assert.equal(canSubmitWorkOrderNote({...common,canAddNotes:true,status:'Open',unassigned:true}),true);
+  assert.deepEqual(Array.from(workOrderEditableFields({...common,canAddNotes:true,status:'Open',unassigned:true,canClaimUnassigned:false})),['notes']);
 });
 
 test('work-order note-only roles can stage notes only on open work orders',()=>{
@@ -48,6 +50,19 @@ test('work-order note-only roles can stage notes only on open work orders',()=>{
   }
   for(const status of ['Pending Verification','Completed','Closed','Will Not Do']){
     assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,canAddNotes:true,status}),false,status);
+  }
+});
+
+test('every active role can stage open-ticket notes without receiving technical edit fields',()=>{
+  const noteRoles=['Front Desk','Housekeeping','Front Desk Manager','Assistant General Manager','Assistant Manager','General Manager','Senior Management'];
+  for(const role of noteRoles){
+    assert.equal(roleExports.roleAllows(role,'add_work_order_notes'),true,role);
+    assert.deepEqual(Array.from(workOrderEditableFields({
+      role,canEdit:false,canReview:false,canAddNotes:true,unassigned:false,canClaimUnassigned:false,
+    })),['notes'],role);
+  }
+  for(const role of ['Engineer','Maintenance Technician','System Administrator']){
+    assert.equal(roleExports.roleAllows(role,'add_work_order_notes'),true,role);
   }
 });
 
@@ -96,7 +111,7 @@ function fixture(config={}){
     const role=p.profile.role;
     if(c==='view_dashboard')return ['Engineer','Chief Engineer','General Manager','Senior Management','system_admin'].includes(role);
     if(c==='view_work_orders')return ['Engineer','Chief Engineer','General Manager','Assistant General Manager','Front Desk Manager','Senior Management','system_admin'].includes(role);
-    if(c==='add_work_order_notes')return ['General Manager','Assistant General Manager','Front Desk Manager'].includes(role);
+    if(c==='add_work_order_notes')return ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management','Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role);
     if(c==='view_pm')return ['Engineer','Chief Engineer','General Manager','Maintenance Technician','Senior Management','system_admin'].includes(role);
     if(c==='edit_tickets')return ['Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role);
     if(c==='review_tickets')return ['Engineer','Chief Engineer','system_admin'].includes(role);
@@ -190,8 +205,8 @@ test('shared work-order field policy matches role-specific API and UI permission
   assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: cmpriSession\?\.user\.role,[\s\S]*unassigned: !String\(order\.technician_name \|\| ""\)\.trim\(\),[\s\S]*canClaimUnassigned: canClaimWorkOrder/);
 });
 
-test('GM/assistant-GM/front-desk-manager note saves update only notes on open tickets',async()=>{
-  for(const role of ['General Manager','Assistant General Manager','Front Desk Manager']){
+test('every note-only role saves only notes on open tickets',async()=>{
+  for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const f=fixture({profile:{id:'actor',active:true,role},body:{notes:'A permitted operational note'}});
     assert.equal((await f.run()).status,200,role);
     assert.deepEqual(Object.keys(f.saved()).sort(),['history_actor_user_id','history_source','notes'],role);
@@ -200,7 +215,7 @@ test('GM/assistant-GM/front-desk-manager note saves update only notes on open ti
 });
 
 test('all note-only roles cannot change status, assignments, or engineering-owned fields',async()=>{
-  for(const role of ['General Manager','Assistant General Manager','Front Desk Manager']){
+  for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const profile={id:'actor',active:true,role};
     for(const field of ['status','technician_name','issue','asset_id','asset_name','category','priority','action_root_cause','parts','cost','hours','due_by']){
       const f=fixture({profile,body:{[field]:field==='cost'||field==='hours'?1:'unauthorized'}});
@@ -214,7 +229,7 @@ test('all note-only roles cannot change status, assignments, or engineering-owne
 });
 
 test('note-only roles can open active tickets but cannot read completed or closed tickets',async()=>{
-  for(const role of ['General Manager','Assistant General Manager','Front Desk Manager']){
+  for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const active=fixture({profile:{id:'actor',active:true,role},existingStatus:'Open'});
     assert.equal((await active.get()).status,200,`${role}/open`);
     for(const existingStatus of ['Completed','Closed','Will Not Do','Pending Verification']){
@@ -225,11 +240,13 @@ test('note-only roles can open active tickets but cannot read completed or close
 });
 
 test('note-only roles cannot add notes to pending, completed, or closed work orders',async()=>{
-  const profile={id:'actor',active:true,role:'General Manager'};
-  for(const status of ['Pending Verification','Completed','Closed','Will Not Do']){
-    const f=fixture({profile,existingStatus:status,body:{notes:'Should not be saved'}});
-    assert.equal((await f.run()).status,403,status);
-    assert.equal(f.writes(),0,status);
+  for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
+    const profile={id:'actor',active:true,role};
+    for(const status of ['Pending Verification','Completed','Closed','Will Not Do']){
+      const f=fixture({profile,existingStatus:status,body:{notes:'Should not be saved'}});
+      assert.equal((await f.run()).status,403,`${role}/${status}`);
+      assert.equal(f.writes(),0,`${role}/${status}`);
+    }
   }
 });
 

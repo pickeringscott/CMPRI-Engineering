@@ -54,17 +54,22 @@ export function categoryFromIssue(issue: string) {
 }
 
 function findAssetByTerms(assets: SuggestionAsset[], terms: string[]) {
-  return assets.find((asset) => {
-    const haystack = `${asset.name} ${asset.asset_type}`.toLowerCase();
-    return terms.some((term) => haystack.includes(term));
-  });
+  for (const term of terms) {
+    const matches = assets.filter((asset) =>
+      `${asset.name} ${asset.asset_type}`.toLowerCase().includes(term),
+    );
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return undefined;
+  }
+  return undefined;
 }
 
 function findAirConditioningAsset(assets: SuggestionAsset[]) {
   const terms = ["vtac", "ptac", "air conditioner", "air conditioning", "friedrich", "carrier", "hvac"];
   for (const term of terms) {
-    const asset = assets.find((item) => `${item.name} ${item.asset_type}`.toLowerCase().includes(term));
-    if (asset) return asset;
+    const matches = assets.filter((item) => `${item.name} ${item.asset_type}`.toLowerCase().includes(term));
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return undefined;
   }
   return undefined;
 }
@@ -117,7 +122,10 @@ export function inferWorkOrder(text: string, assets: SuggestionAsset[]): SmartSu
     const words = [asset.name, asset.asset_type, asset.manufacturer, asset.model_number, asset.generation, asset.asset_tag].filter(Boolean).join(" ").toLowerCase();
     return { asset, score: terms.reduce((score, term) => score + (words.includes(term) ? 20 : 0), 0) + (asset.documentation_key ? 5 : 0) };
   }).sort((a, b) => b.score - a.score || a.asset.id.localeCompare(b.asset.id));
-  return { ...suggestion, assetId: candidates[0]?.asset.id ?? null };
+  const best = candidates[0];
+  const tied = best && candidates[1]?.score === best.score;
+  const uniquelyBest = candidates.length === 1 || (best && best.score > 0 && !tied);
+  return { ...suggestion, assetId: uniquelyBest ? best?.asset.id ?? null : null };
 }
 
 /**

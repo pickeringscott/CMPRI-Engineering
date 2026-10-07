@@ -37,7 +37,7 @@ function validateDueDate(value: unknown) {
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser(request);
-  if (!auth || (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders") && !allows(auth.principal, "edit_tickets"))) {
+  if (!auth || (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders") && !allows(auth.principal, "edit_tickets") && !allows(auth.principal, "add_work_order_notes"))) {
     return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   }
 
@@ -52,9 +52,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .maybeSingle();
   if (workOrderError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  if ((!allows(auth.principal, "view_dashboard") || allows(auth.principal, "add_work_order_notes"))
-    && allows(auth.principal, "view_work_orders")
-    && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
+  const canViewAllStatuses = allows(auth.principal, "view_dashboard")
+    && (allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
+  if (!canViewAllStatuses && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
     return NextResponse.json({ error: "This role can only view open work orders." }, { status: 403 });
   }
   if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
@@ -114,7 +114,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   let mentionTickets: Array<Record<string, unknown>> = [];
-  if (includeMentions) {
+  const noteOnlyReader = allows(auth.principal, "add_work_order_notes")
+    && !allows(auth.principal, "edit_tickets")
+    && !allows(auth.principal, "review_tickets");
+  if (includeMentions && !noteOnlyReader) {
     let mentionQuery = auth.admin
       .from("work_orders")
       .select("id, display_id, room, issue, status, created_at")
@@ -357,15 +360,26 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
 
   if (existing.status === "Closed" && !allows(auth.principal, "close_tickets")) {
-    return NextResponse.json({ error: "Closing permission is required to delete closed work orders." }, { status: 403 });
+    return NextResponse.json({ error: "Closing permission is required to cancel closed work orders." }, { status: 403 });
   }
 
-  const { error: deleteError } = await db.from("work_orders")
-    .delete()
+  const { data: cancelled, error: deleteError } = await db.from("work_orders")
+    .update({ status: "Will Not Do", action_updated_at: new Date().toISOString() })
     .eq("hotel_id", HOTEL_ID)
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", existing.status)
+    .select("id, status")
+    .maybeSingle();
 
-  if (deleteError) return NextResponse.json({ error: "Work order could not be deleted." }, { status: 500 });
+  if (deleteError) return NextResponse.json({ error: "Work order could not be safely cancelled." }, { status: 500 });
+  if (!cancelled) return NextResponse.json({ error: "Work order changed while cancelling. Reload and try again." }, { status: 409 });
 
-  return NextResponse.json({ deleted: id, display_id: existing.display_id || null, room: existing.room || null, ok: true });
+  return NextResponse.json({
+    cancelled: id,
+    display_id: existing.display_id || null,
+    room: existing.room || null,
+    status: "Will Not Do",
+    history_retained: true,
+    ok: true,
+  });
 }

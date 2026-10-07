@@ -102,6 +102,7 @@ export function profileHasRole(
 
 const TECHNICAL: readonly Capability[] = [
   "submit",
+  "add_work_order_notes",
   "view_dashboard",
   "edit_tickets",
   "close_tickets",
@@ -112,6 +113,7 @@ const TECHNICAL: readonly Capability[] = [
 
 const TECHNICIAN: readonly Capability[] = [
   "submit",
+  "add_work_order_notes",
   "view_dashboard",
   "edit_tickets",
   "close_tickets",
@@ -119,14 +121,14 @@ const TECHNICIAN: readonly Capability[] = [
 
 const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   unknown: [],
-  front_desk: ["submit", "submit_feedback", "view_profiles"],
+  front_desk: ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"],
   front_desk_manager: ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"],
   assistant_manager: ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"],
-  housekeeping: ["submit", "submit_feedback", "view_profiles"],
+  housekeeping: ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"],
   technician: [...TECHNICIAN, "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback"],
   engineer: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
   manager: ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],
-  senior_management: ["submit_feedback", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_profiles"],
+  senior_management: ["submit_feedback", "view_dashboard", "view_engineering_operations", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],
   system_admin: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
 };
 
@@ -148,7 +150,7 @@ export function membershipAllows(role: unknown, capability: Capability): boolean
     case "technician":
       return ["submit", "view_dashboard", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "add_work_order_notes", "edit_tickets", "close_tickets", "submit_feedback", "view_profiles"].includes(capability);
     case "viewer":
-      return ["view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "submit_feedback", "view_profiles"].includes(capability);
+      return ["view_dashboard", "view_engineering_operations", "view_work_orders", "add_work_order_notes", "view_pm", "submit_feedback", "view_profiles"].includes(capability);
     default:
       return false;
   }

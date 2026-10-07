@@ -29,7 +29,7 @@ const locations=[409,410].map(n=>({id:String(n),name:`Room ${n}`,room_number:Str
 const assets=locations.map(l=>({id:`vtac-${l.id}`,location_id:l.id,asset_type:'VTAC',name:`VTAC - Room ${l.id}`,manufacturer:'Friedrich',active:true}));
 function fixture(overrides={}){
   const writes={};const exports={};
-  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
+  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,separateIssueFromReporterNotes,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
   context.systemAssignedTechnicalFields=overrides.systemAssignedTechnicalFields ?? context.isSubmitOnlyUser;
   for(const key of ['LocationId','AssetId','Category','Priority'])context['set'+key]=value=>{writes[key[0].toLowerCase()+key.slice(1)]=value;};
   vm.runInNewContext(code,context);return {match:exports.match,writes};
@@ -51,6 +51,13 @@ test('AC symptom selects the air conditioner ahead of another HVAC asset',()=>{
   const suggestion=inferWorkOrder('No AC',candidates);
   assert.equal(suggestion.assetId,'z-vtac');
   assert.equal(suggestion.category,'HVAC');
+});
+test('ambiguous equipment guesses stay unassigned instead of selecting by ID order',()=>{
+  const candidates=[
+    {id:'a-vtac',location_id:'409',asset_type:'VTAC',name:'VTAC - Room 409',active:true},
+    {id:'b-vtac',location_id:'409',asset_type:'VTAC',name:'VTAC - Room 409 backup',active:true},
+  ];
+  assert.equal(inferWorkOrder('No AC',candidates).assetId,null);
 });
 test('named lobby with AC shorthand uses lobby equipment',()=>{
   const location={id:'lobby',name:'Lobby / General',room_number:null,area:'Lobby',location_type:'Public Area'};

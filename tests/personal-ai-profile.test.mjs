@@ -34,22 +34,24 @@ test("profile connection UI explains per-user ChatGPT OAuth and connection revoc
   assert.match(dashboard, /Connect ChatGPT/);
   assert.doesNotMatch(dashboard, /personalAiConnected|Connect OpenAI/);
   assert.match(route, /requireUser\(request\)/);
-  assert.match(route, /isSubmitOnlyRole\(auth\.principal\.profile\.role\)/);
+  assert.doesNotMatch(route, /isSubmitOnlyRole/);
   assert.match(route, /allows\(auth\.principal, "submit"\)/);
   assert.match(route, /cmpri_personal_mcp_links/);
   assert.match(route, /revoked_at/);
   assert.match(route, /Private-link connections are retired/);
   assert.match(route, /status: 410/);
-  assert.match(mcpAuth, /isSubmitOnlyRole\(profileRow\.role\)/);
+  assert.doesNotMatch(mcpAuth, /isSubmitOnlyRole/);
 });
 
-test("submit-only roles cannot use ChatGPT while other connected roles remain eligible", () => {
+test("submit-only roles retain the profile UI restriction without blocking ChatGPT authentication", () => {
   for (const role of ["Front Desk", "Housekeeping", "Lead Housekeeper"]) {
     assert.equal(isSubmitOnlyRole(role), true, `${role} should be submit-only`);
   }
   for (const role of ["Engineer", "Manager", "Technician", "Senior Management", "Front Desk Manager"]) {
     assert.equal(isSubmitOnlyRole(role), false, `${role} should retain ChatGPT eligibility`);
   }
+  const profile = source("../src/app/profile/page.tsx");
+  assert.match(profile, /canManageChatgptConnection\s*=\s*!\s*isSubmitOnlyRole\(data\?\.profile\.role\)/);
 });
 
 test("legacy personal MCP links remain valid but new profile links are disabled in favor of OAuth", () => {

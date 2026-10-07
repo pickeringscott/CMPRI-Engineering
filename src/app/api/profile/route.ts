@@ -82,9 +82,7 @@ export async function GET(request: NextRequest) {
       profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
       chatgpt_connection: chatgptConnection,
-      warning: isSubmitOnlyRole(auth.principal.profile.role)
-        ? undefined
-        : "Profile preferences are available, but ChatGPT connections require the CMPRI MCP authorization migration.",
+      warning: "Profile preferences are available, but ChatGPT connections require the CMPRI MCP authorization migration.",
     });
   }
   if (!data) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
@@ -145,9 +143,7 @@ export async function PATCH(request: NextRequest) {
       profile_settings_available: true,
       can_manage_users: allows(auth.principal, "manage_users"),
       chatgpt_connection: chatgptConnection,
-      warning: isSubmitOnlyRole(auth.principal.profile.role)
-        ? undefined
-        : "Profile changes were saved, but ChatGPT connections require the CMPRI MCP authorization migration.",
+      warning: "Profile changes were saved, but ChatGPT connections require the CMPRI MCP authorization migration.",
     });
   }
   let chatgptConnection;

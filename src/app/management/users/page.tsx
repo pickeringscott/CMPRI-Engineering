@@ -23,8 +23,6 @@ export default function UserManagementPage() {
   const [password, setPassword] = useState("");
   const [setPasswordMode, setSetPasswordMode] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<UserRow | null>(null);
-  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const roleOptions = roles.map((value) => ({ value, label: value }));
 
   const authHeaders = useCallback(async () => {
@@ -105,29 +103,6 @@ export default function UserManagementPage() {
     finally { setBusy(false); }
   }
 
-  async function confirmDelete() {
-    if (!pendingDelete || busy) return;
-    const expected = (pendingDelete.full_name || "").trim();
-    if (!expected || deleteConfirmName.trim() !== expected) return;
-    setBusy(true);
-    setMessage("");
-    try {
-      const headers = await authHeaders();
-      const params = new URLSearchParams({ id: pendingDelete.id, confirm_name: deleteConfirmName.trim() });
-      const res = await fetch(`/api/users?${params.toString()}`, { method: "DELETE", headers });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) { setMessage(payload.error || "Unable to permanently delete this user."); return; }
-      setUsers((rows) => rows.filter((row) => row.id !== pendingDelete.id));
-      setMessage(`Permanently deleted ${expected}.`);
-      setPendingDelete(null);
-      setDeleteConfirmName("");
-    } catch { setMessage("The deletion could not be confirmed. Reload the list to check."); }
-    finally { setBusy(false); }
-  }
-
-  const deleteExpectedName = (pendingDelete?.full_name || "").trim();
-  const deleteReady = !!pendingDelete && deleteExpectedName.length > 0 && deleteConfirmName.trim() === deleteExpectedName;
-
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full px-4 py-8 sm:px-6">
@@ -135,7 +110,7 @@ export default function UserManagementPage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Management</p>
             <h1 className="mt-2 text-3xl font-bold">User Management</h1>
-            <p className="mt-2 text-sm text-slate-400">Invite users, assign roles, deactivate access, or permanently delete test accounts.</p>
+            <p className="mt-2 text-sm text-slate-400">Invite users, assign roles, or deactivate access. Deactivated accounts retain their CMPRI history.</p>
           </div>
           <div className="flex items-center gap-3"><span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{users.filter((u) => u.active === true).length} active</span><ModalDashboardLink className="text-sm font-semibold text-amber-400">← Dashboard</ModalDashboardLink></div>
         </div>}
@@ -162,7 +137,7 @@ export default function UserManagementPage() {
         <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900">
           <div className="border-b border-slate-800 px-5 py-4"><h2 className="text-xl font-bold">Users</h2></div>
           {loading ? <p className="p-5 text-slate-400">Loading…</p> : users.map((user) => (
-            <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px_150px] md:items-center">
+            <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px] md:items-center">
               <div className="min-w-0">
                 <p className="break-words font-semibold">{user.full_name || "Unnamed user"}</p>
                 <p className="mt-1 break-all text-sm text-slate-300">{user.email || "No email on file"}</p>
@@ -181,45 +156,11 @@ export default function UserManagementPage() {
               ) : (
                 <span className="text-xs text-slate-500">View only</span>
               )}
-              {user.can_manage ? (
-                <button disabled={busy} onClick={() => { setPendingDelete(user); setDeleteConfirmName(""); }} className="rounded-lg border border-red-500 bg-red-950/40 px-3 py-2 text-sm font-bold text-red-100 disabled:opacity-50">Delete…</button>
-              ) : (
-                <span />
-              )}
             </div>
           ))}
         </section>
       </div>
 
-      {pendingDelete && (
-        <div role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" className="cmpri-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80">
-          <div className="cmpri-modal-shell border border-red-500/50 bg-slate-900 shadow-2xl">
-            <h2 id="delete-dialog-title" className="text-lg font-bold text-red-200">Permanently Delete Account</h2>
-            <p className="mt-3 text-sm text-slate-300">
-              This removes <span className="font-semibold text-white">{deleteExpectedName || "this account"}</span> and every work order, draft, note, history event, and activity record they created. It cannot be undone.
-            </p>
-            <p className="mt-3 text-xs text-slate-400">
-              For real employees who are leaving, use <span className="font-semibold text-slate-200">Deactivate</span> instead so their history is preserved. Only use <span className="font-semibold text-red-200">Delete</span> for test accounts.
-            </p>
-            <label className="mt-4 block text-sm font-medium text-slate-200">
-              Type the full name to confirm: <span className="font-semibold text-white">{deleteExpectedName}</span>
-              <input
-                type="text"
-                autoFocus
-                value={deleteConfirmName}
-                onChange={(e) => setDeleteConfirmName(e.target.value)}
-                disabled={busy}
-                className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3"
-                aria-label="Type the full name to confirm deletion"
-              />
-            </label>
-            <div className="mt-5 flex justify-end gap-3">
-              <button type="button" disabled={busy} onClick={() => { setPendingDelete(null); setDeleteConfirmName(""); }} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 disabled:opacity-50">Cancel</button>
-              <button type="button" disabled={busy || !deleteReady} onClick={() => void confirmDelete()} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{busy ? "Deleting…" : "Permanently Delete"}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </main>
   );
 }

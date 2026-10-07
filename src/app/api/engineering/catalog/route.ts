@@ -192,7 +192,21 @@ export async function POST(request: NextRequest) {
         const compatibilityRow = { hotel_id: HOTEL_ID, asset_id: compatibleAssetId, inventory_item_id: data.id, notes: "", created_by: actorId };
         const { error: compatibilityError } = await auth.admin.from("cmpri_asset_inventory_compatibility").insert(compatibilityRow);
         if (compatibilityError) {
-          await auth.admin.from("cmpri_inventory_items").delete().eq("hotel_id", HOTEL_ID).eq("id", data.id);
+          const { data: removed, error: rollbackError } = await auth.admin.from("cmpri_inventory_items")
+            .delete()
+            .eq("hotel_id", HOTEL_ID)
+            .eq("id", data.id)
+            .select("id")
+            .maybeSingle();
+          if (rollbackError || !removed) {
+            console.error("Inventory item rollback failed after compatibility-link insertion failed.", {
+              inventoryItemId: data.id,
+              rollbackError,
+            });
+            return NextResponse.json({
+              error: `Compatibility setup failed and inventory item ${data.id} could not be rolled back. An administrator must review the item.`,
+            }, { status: 500 });
+          }
           throw new Error(`Inventory item was not kept because compatible-equipment linkage failed: ${compatibilityError.message}`);
         }
       }

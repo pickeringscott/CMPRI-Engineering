@@ -22,12 +22,16 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
 
 async function documentationState(data: SupabaseClient, assetId: string) {
   const prefix = `${HOTEL_ID}/${assetId}`;
-  const { data: files, error } = await data.storage.from(BUCKET).list(prefix, { limit: 100 });
-  if (error) {
-    if (/not found|bucket/i.test(error.message || "")) return { verified: false, documentCount: 0, error: null };
-    return { verified: false, documentCount: 0, error: "Equipment documentation verification is unavailable." };
+  const names: string[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const { data: files, error } = await data.storage.from(BUCKET).list(prefix, { limit: 100, offset });
+    if (error) {
+      if (/not found|bucket/i.test(error.message || "")) return { verified: false, documentCount: 0, error: null };
+      return { verified: false, documentCount: 0, error: "Equipment documentation verification is unavailable." };
+    }
+    names.push(...(files || []).map((file) => String(file.name || "")));
+    if ((files || []).length < 100) break;
   }
-  const names = (files || []).map((file) => String(file.name || ""));
   return {
     verified: names.includes(VERIFY_MARKER),
     documentCount: names.filter((name) => name && name !== VERIFY_MARKER).length,
@@ -84,7 +88,7 @@ export async function GET(request: NextRequest) {
   const assets: Array<Record<string, unknown> & { id: string }> = [];
   for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
     const { data, error } = await auth.admin.from("assets")
-      .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key")
+      .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by")
       .eq("hotel_id", HOTEL_ID)
       .range(offset, offset + ASSET_PAGE_SIZE - 1)
       .order("name", { ascending: true });
@@ -95,9 +99,23 @@ export async function GET(request: NextRequest) {
   const results = includeDocumentation
     ? await Promise.all(assets.map(async (asset) => {
         const state = await documentationState(auth.admin, asset.id);
-        return { state, asset: { ...asset, documentation_verified: state.verified, documentation_count: state.documentCount } };
+        return {
+          state,
+          asset: {
+            ...asset,
+            documentation_verified: Boolean(asset.documentation_verified_at) || state.verified,
+            documentation_count: state.documentCount,
+          },
+        };
       }))
-    : assets.map((asset) => ({ state: { verified: false, documentCount: 0, error: null }, asset: { ...asset, documentation_verified: false, documentation_count: 0 } }));
+    : assets.map((asset) => ({
+      state: { verified: false, documentCount: 0, error: null },
+      asset: {
+        ...asset,
+        documentation_verified: Boolean(asset.documentation_verified_at),
+        documentation_count: 0,
+      },
+    }));
   return NextResponse.json({
     assets: results.map((result) => result.asset),
     can_manage: canEditEquipment(auth.principal.profile.role),
@@ -160,6 +178,35 @@ export async function PATCH(request: NextRequest) {
 
   const state = await documentationState(auth.admin, id);
   if (state.error) return NextResponse.json({ error: state.error }, { status: 503 });
+  const verifiedAt = typeof existing.documentation_verified_at === "string" ? existing.documentation_verified_at : null;
+  if (verifiedAt) {
+    if (body.verify_with_documentation === true) {
+      return NextResponse.json({
+        asset: { ...existing, documentation_verified: true, documentation_count: state.documentCount },
+        verified: true,
+      });
+    }
+    return NextResponse.json({
+      error: "This equipment record is verified from documentation and is locked. A documented revision workflow is required before changing verified fields.",
+    }, { status: 409 });
+  }
+  if (state.verified) {
+    const { error: syncError } = await auth.admin.rpc("cmpri_verify_asset_documentation", {
+      p_asset_id: id,
+      p_hotel_id: HOTEL_ID,
+      p_expected_updated_at: existing.updated_at,
+      p_actor_id: auth.principal.identity.id,
+    });
+    if (syncError) {
+      return NextResponse.json({ error: "The existing documentation verification could not be safely locked to this equipment record." }, { status: 409 });
+    }
+    if (body.verify_with_documentation !== true) {
+      return NextResponse.json({
+        error: "This equipment record is verified from documentation and is locked. A documented revision workflow is required before changing verified fields.",
+      }, { status: 409 });
+    }
+    return NextResponse.json({ asset: { ...existing, documentation_verified: true, documentation_count: state.documentCount }, verified: true });
+  }
   if (body.verify_with_documentation === true) {
     if (!state.documentCount) return NextResponse.json({ error: "Upload and process documentation before confirming this equipment." }, { status: 400 });
     const marker = JSON.stringify({
@@ -173,11 +220,38 @@ export async function PATCH(request: NextRequest) {
       contentType: "application/json", upsert: true, metadata: { cmpri_type: "equipment_verification" },
     });
     if (markerError) return NextResponse.json({ error: `Could not save verification record: ${markerError.message}` }, { status: 400 });
-    return NextResponse.json({ asset: { ...existing, documentation_verified: true, documentation_count: state.documentCount }, verified: true });
-  }
-
-  if (state.verified) {
-    return NextResponse.json({ error: "This equipment record is verified from documentation and is locked. A documented revision workflow is required before changing verified fields." }, { status: 409 });
+    const { error: verifyError } = await auth.admin.rpc("cmpri_verify_asset_documentation", {
+      p_asset_id: id,
+      p_hotel_id: HOTEL_ID,
+      p_expected_updated_at: existing.updated_at,
+      p_actor_id: auth.principal.identity.id,
+    });
+    if (verifyError) {
+      const { data: current, error: currentError } = await auth.admin.from("assets")
+        .select("documentation_verified_at")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("id", id)
+        .maybeSingle();
+      if (currentError) {
+        return NextResponse.json({ error: "Verification status could not be confirmed. The uploaded marker was retained for administrator review." }, { status: 503 });
+      }
+      if (current?.documentation_verified_at) {
+        return NextResponse.json({
+          asset: { ...existing, documentation_verified_at: current.documentation_verified_at, documentation_verified: true, documentation_count: state.documentCount },
+          verified: true,
+        });
+      }
+      const { error: cleanupError } = await auth.admin.storage.from(BUCKET).remove([path]);
+      if (cleanupError) {
+        console.error("Uncommitted equipment verification marker could not be removed.", { assetId: id, cleanupError });
+        return NextResponse.json({ error: "Equipment verification was not committed and its marker could not be removed. An administrator must review it." }, { status: 503 });
+      }
+      return NextResponse.json({ error: "The equipment changed during verification. Reload it and verify again." }, { status: 409 });
+    }
+    return NextResponse.json({
+      asset: { ...existing, documentation_verified: true, documentation_count: state.documentCount },
+      verified: true,
+    });
   }
 
   try {
@@ -199,7 +273,10 @@ export async function PATCH(request: NextRequest) {
     }
     if (!Object.keys(update).length) return NextResponse.json({ error: "No equipment changes were supplied." }, { status: 400 });
     const { data, error } = await auth.admin.from("assets").update(update).eq("hotel_id", HOTEL_ID).eq("id", id).select("*").single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      const status = /verified equipment is locked/i.test(error.message) ? 409 : 400;
+      return NextResponse.json({ error: error.message }, { status });
+    }
     return NextResponse.json({ asset: { ...data, documentation_verified: false, documentation_count: state.documentCount } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Equipment could not be updated." }, { status: 400 });

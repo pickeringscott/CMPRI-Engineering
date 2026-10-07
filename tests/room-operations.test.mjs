@@ -6,7 +6,7 @@ import ts from "typescript";
 import sharp from "sharp";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { detectRoomMoves, formatCheckoutRoomWorkOrders, isRailwayCnGuestName, summarizeRoomOperations } from "../src/lib/room-operations.ts";
+import { detectRoomMoves, expiredRoomOperationsBefore, formatCheckoutRoomWorkOrders, isRailwayCnGuestName, summarizeRoomOperations } from "../src/lib/room-operations.ts";
 import { createRoomOperationsOcrCrops } from "../src/lib/room-operations-report-images.ts";
 import { roomKey, roomStatusBadge } from "../src/lib/room-availability.ts";
 
@@ -249,6 +249,19 @@ test("room-operations uploads are manual, limited to retained dates, and preserv
   assert.match(migration, /delete from public\.cmpri_room_operation_imports[\s\S]*report_date < timezone\('America\/Chicago', now\(\)\)::date - 1/);
   assert.match(migration, /create or replace function public\.cmpri_replace_room_operations/);
   assert.match(migration, /p_report_date not between/);
+});
+
+test("room-operations cleanup fails closed until its retention policy is confirmed", () => {
+  assert.equal(expiredRoomOperationsBefore(new Date("2026-10-07T04:59:00.000Z"), "America/Chicago"), "2026-10-05");
+  assert.equal(expiredRoomOperationsBefore(new Date("2026-10-07T05:00:00.000Z"), "America/Chicago"), "2026-10-06");
+  assert.equal(expiredRoomOperationsBefore(new Date("2026-11-02T06:00:00.000Z"), "America/Chicago"), "2026-11-01");
+
+  const cleanupRoute = readFileSync(new URL("../src/app/api/room-operations/cleanup/route.ts", import.meta.url), "utf8");
+  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.match(cleanupRoute, /request\.headers\.get\("authorization"\) !== `Bearer \$\{secret\}`/);
+  assert.match(cleanupRoute, /Room Operations cleanup is disabled until a retention policy is confirmed/);
+  assert.doesNotMatch(cleanupRoute, /\.delete\(\)/);
+  assert.equal(vercel.crons.some(({ path }) => path === "/api/room-operations/cleanup"), false);
 });
 
 test("manual import previews two reports and verifies the replacement snapshot", () => {

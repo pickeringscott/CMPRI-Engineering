@@ -6,15 +6,16 @@ import ts from 'typescript';
 
 function fixture(config={}) {
   const writes=[];
+  const rpcCalls=[];
   const deletedAuthIds=[];
   const createdAuthAttributes=[];
   const authRoleUpdates=[];
-  const memberships=config.memberships??[
-    {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
-    {user_id:'target',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
-  ];
   const caller=config.caller===undefined?{id:'caller',role:'Engineer',active:true}:config.caller;
   const target=config.target===undefined?{id:'target',role:'Front Desk',active:true,full_name:'Test User'}:config.target;
+  const memberships=config.memberships??[
+    {user_id:'caller',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:'admin',active:true},
+    {user_id:'target',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:'technician',active:true},
+  ];
 
   const roleKey=(r)=>{
     if(typeof r!=='string')return 'unknown';
@@ -71,7 +72,9 @@ function fixture(config={}) {
     admin:adminAuth,
   },
   rpc:async(name,args)=>{
-    writes.push(`rpc:${name}:${args.target_id}`);
+    writes.push(`rpc:${name}`);
+    rpcCalls.push({name,args});
+    if(name==='cmpri_update_user_access'&&config.changedRole)return {error:{message:'Account changed while saving'}};
     return {error:config.purgeError?{message:'Purge failed'}:null};
   },
   from(table){
@@ -144,6 +147,7 @@ function fixture(config={}) {
   return {
     handlers:compile('../src/app/api/users/route.ts'),
     writes,
+    rpcCalls,
     deletedAuthIds,
     createdAuthAttributes,
     authRoleUpdates,
@@ -187,12 +191,29 @@ test('engineer cannot invite with an unknown role',async()=>{
   assert.equal((await f.handlers.POST(f.request)).status,403);
   assert.deepEqual(f.writes,[]);
 });
-test('engineer can deactivate a front desk user while preserving history and revoking membership',async()=>{
+test('engineer can deactivate a front desk user with one atomic profile and membership update',async()=>{
   const f=fixture();
   const r=await f.handlers.PATCH(f.request);
   assert.equal(r.status,200);
   assert.equal(r.body.user.active,false);
-  assert.deepEqual(f.writes,['update','update']);
+  assert.deepEqual(f.writes,['rpc:cmpri_update_user_access']);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.rpcCalls)),[{
+    name:'cmpri_update_user_access',
+    args:{
+      p_user_id:'target',
+      p_hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',
+      p_expected_role:'Front Desk',
+      p_expected_active:true,
+      p_full_name:null,
+      p_update_full_name:false,
+      p_new_role:null,
+      p_new_active:false,
+      p_expected_membership_role:'technician',
+      p_expected_membership_active:true,
+      p_new_membership_role:null,
+      p_new_membership_active:false,
+    },
+  }]);
 });
 test('engineer cannot deactivate an equal engineer',async()=>{
   const f=fixture({caller:{id:'caller',role:'Engineer',active:true},target:{id:'target',role:'Engineer',active:true}});
@@ -250,53 +271,23 @@ test('foreign-property profiles cannot be patched or deactivated',async()=>{
   ];
   const f=fixture({memberships});
   assert.equal((await f.handlers.PATCH(f.request)).status,404);
-  assert.equal((await f.handlers.DELETE(f.request)).status,404);
+  assert.equal((await f.handlers.DELETE(f.request)).status,409);
   assert.deepEqual(f.writes,[]);
 });
-test('DELETE permanently purges CMPRI data before deleting the Auth login',async()=>{
+test('DELETE is disabled and preserves all account data',async()=>{
   const f=fixture();
   const r=await f.handlers.DELETE(f.request);
-  assert.equal(r.status,200);
-  assert.equal(r.body.deleted,'target');
-  assert.equal(r.body.preserved_history,false);
-  assert.deepEqual(f.writes,['rpc:purge_cmpri_user:target','deleteUser']);
-  assert.deepEqual(f.deletedAuthIds,['target']);
-});
-test('DELETE does not remove the Auth login when CMPRI purge fails',async()=>{
-  const f=fixture({purgeError:true});
-  const r=await f.handlers.DELETE(f.request);
-  assert.equal(r.status,503);
-  assert.match(r.body.error,/Auth login was not deleted/i);
-  assert.deepEqual(f.writes,['rpc:purge_cmpri_user:target']);
-  assert.deepEqual(f.deletedAuthIds,[]);
-});
-test('DELETE reports when the Auth login remains after CMPRI data purge',async()=>{
-  const f=fixture({authDeleteError:true});
-  const r=await f.handlers.DELETE(f.request);
-  assert.equal(r.status,500);
-  assert.match(r.body.error,/Auth login remains/i);
-  assert.deepEqual(f.writes,['rpc:purge_cmpri_user:target','deleteUser']);
-});
-test('DELETE requires service-role credentials before removing any account data',async()=>{
-  const f=fixture({noServiceRoleKey:true});
-  const r=await f.handlers.DELETE(f.request);
-  assert.equal(r.status,503);
-  assert.match(r.body.error,/SUPABASE_SERVICE_ROLE_KEY/i);
+  assert.equal(r.status,409);
+  assert.match(r.body.error,/disabled to preserve linked CMPRI records/i);
   assert.deepEqual(f.writes,[]);
   assert.deepEqual(f.deletedAuthIds,[]);
-});
-test('DELETE requires exact target-name confirmation before purging',async()=>{
-  const f=fixture();
-  f.request.url='https://test.invalid/api/users?id=target&confirm_name=Wrong%20Name';
-  const r=await f.handlers.DELETE(f.request);
-  assert.equal(r.status,400);
-  assert.deepEqual(f.writes,[]);
 });
 test('a changed target role prevents applying a stale authorized edit',async()=>{
   const f=fixture({changedRole:'system_admin'});
   const r=await f.handlers.PATCH(f.request);
   assert.notEqual(r.status,200);
   assert.ok(r.body.error);
+  assert.deepEqual(f.writes,['rpc:cmpri_update_user_access']);
 });
 test('engineer can invite front desk with validated role and property membership',async()=>{
   const f=fixture({body:{email:'test@example.invalid',full_name:'Test Front Desk',role:'Front Desk'}});

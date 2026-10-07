@@ -16,7 +16,7 @@ import AccountSummary from "@/components/AccountSummary";
 
 import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
-import { priorityForCategory, inferWorkOrder } from "@/lib/work-order-suggestions";
+import { priorityForCategory, inferWorkOrder, separateIssueFromReporterNotes } from "@/lib/work-order-suggestions";
 import { categoryOptions } from "@/lib/work-order-categories";
 import { validFirstName } from "@/lib/work-order-attribution";
 import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
@@ -720,7 +720,7 @@ export default function WorkOrdersPage() {
         await Promise.all([
           loadLocations(),
           loadAssets(),
-          loadWorkOrders(session.capabilities.includes("view_work_orders")),
+          loadWorkOrders(session.capabilities.includes("view_work_orders") || session.capabilities.includes("add_work_order_notes")),
           loadDrafts(),
           loadProfilePreference(),
         ]);
@@ -798,13 +798,12 @@ export default function WorkOrdersPage() {
 
   function applySmartSuggestions(
     newIssue: string,
-    newNotes: string,
+    _newNotes: string,
     locationOverride?: Location
   ) {
-    const combinedText =
-      `${newIssue} ${newNotes}`.trim();
+    const issueText = separateIssueFromReporterNotes(newIssue).issue.trim();
 
-    if (!combinedText) {
+    if (!issueText) {
       
       return;
     }
@@ -818,7 +817,7 @@ export default function WorkOrdersPage() {
     if (!locationOverride && !manualLocation) {
       const detectedLocation =
         findLocationFromText(
-          combinedText,
+          issueText,
           locations
         );
 
@@ -849,7 +848,7 @@ export default function WorkOrdersPage() {
       );
 
     const suggestion = inferWorkOrder(
-      combinedText,
+      issueText,
       workingAssets,
     );
     const shouldAutoSelectAsset = !manualAsset || Boolean(locationOverride) || systemAssignedTechnicalFields;
@@ -884,23 +883,6 @@ export default function WorkOrdersPage() {
       );
     }
 
-    const recognized: string[] = [
-      workingLocation.name,
-    ];
-
-    if (matchedAsset) {
-      recognized.push(
-        matchedAsset.name
-      );
-    }
-
-    if (smartCategory) {
-      recognized.push(
-        smartCategory
-      );
-    }
-
-    
   }
 
 
@@ -924,7 +906,7 @@ export default function WorkOrdersPage() {
     
 
     const nextLocation = locations.find((item) => item.id === newLocationId);
-    if (nextLocation && (issue.trim() || notes.trim())) applySmartSuggestions(issue, notes, nextLocation);
+    if (nextLocation && issue.trim()) applySmartSuggestions(issue, "", nextLocation);
   }
 
 
@@ -936,7 +918,8 @@ export default function WorkOrdersPage() {
     setAssetId(newAssetId);
 
     if (!newAssetId) {
-      const assetlessSuggestion = inferWorkOrder(`${issue} ${notes}`.trim(), assetsForLocation(selectedLocation, assets));
+      const assetlessIssue = separateIssueFromReporterNotes(issue).issue;
+      const assetlessSuggestion = inferWorkOrder(assetlessIssue, assetsForLocation(selectedLocation, assets));
       if (!manualCategory) {
         setCategory(assetlessSuggestion.category || "General");
       }
@@ -992,18 +975,13 @@ export default function WorkOrdersPage() {
     // normalized copy in the background.
     setIssue(newIssue);
     const smartIssue = cleanIssueLocationPrefix(newIssue, locations, detectedLocation).issue;
-    applySmartSuggestions(smartIssue, notes, detectedLocation?.id !== locationId ? detectedLocation || undefined : undefined);
+    applySmartSuggestions(smartIssue, "", detectedLocation?.id !== locationId ? detectedLocation || undefined : undefined);
   }
 
   function handleNotesChange(
     newNotes: string
   ) {
     setNotes(newNotes);
-
-    applySmartSuggestions(
-      issue,
-      newNotes
-    );
   }
 
 
@@ -1276,19 +1254,8 @@ export default function WorkOrdersPage() {
         assets
       );
 
-    return possibleAssets.find(
-      (asset) => {
-        const value =
-          `${asset.name} ${asset.asset_type}`.toLowerCase();
-
-        return suggestion.assetTerms.some(
-          (term) =>
-            value.includes(
-              term.toLowerCase()
-            )
-        );
-      }
-    );
+    const inferred = inferWorkOrder(suggestion.issue, possibleAssets);
+    return possibleAssets.find((asset) => asset.id === inferred.assetId);
   }
 
   function resolveSuggestionLocation(suggestion: RelatedIssueSuggestion): Location | null {
@@ -1407,7 +1374,7 @@ export default function WorkOrdersPage() {
     setMessage(isSubmitOnlyUser
       ? `${rows.length} related request${rows.length === 1 ? "" : "s"} submitted for Engineering verification${displayIds.length ? `: ${displayIds.join(", ")}` : "."}`
       : `${rows.length} related work order${rows.length === 1 ? "" : "s"} created${displayIds.length ? `: ${displayIds.join(", ")}` : "."}`);
-    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
     setCreatingRelatedWorkOrders(false);
 
     if (mainWorkOrderCreated) {
@@ -1481,7 +1448,7 @@ export default function WorkOrdersPage() {
     }
     if (remaining.length === 0) {
       await clearSubmittedDraft();
-      await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
+      await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
       setShowBatchCreateDialog(false);
       setBatchCreateSuggestions([]);
       setCreateState("created");
@@ -1554,7 +1521,7 @@ export default function WorkOrdersPage() {
     }
 
     await clearSubmittedDraft();
-    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
     setCreatingBatchWorkOrders(false);
     setShowBatchCreateDialog(false);
     setCreateState("created");
@@ -1735,7 +1702,10 @@ export default function WorkOrdersPage() {
       return;
     }
 
-    const normalizedIssue = cleanIssueLocationPrefix(issue, locations, location).issue;
+    const issueWithLocationRemoved = cleanIssueLocationPrefix(issue, locations, location).issue;
+    const separated = separateIssueFromReporterNotes(issueWithLocationRemoved);
+    const normalizedIssue = cleanIssueLocationPrefix(separated.issue, locations, location).issue;
+    const submittedNotes = [notes.trim(), separated.reporterNotes].filter(Boolean).join("\n");
     if (!normalizedIssue.trim()) {
       setMessage("Reported Issue is required.");
       setLoading(false);
@@ -1743,6 +1713,7 @@ export default function WorkOrdersPage() {
       return;
     }
     if (normalizedIssue !== issue) setIssue(normalizedIssue);
+    if (submittedNotes !== notes) setNotes(submittedNotes);
 
     const duplicate = possibleDuplicateFor(normalizedIssue, location, assetId || null);
     if (duplicate) {
@@ -1769,7 +1740,7 @@ export default function WorkOrdersPage() {
       category,
       issue: normalizedIssue,
       priority,
-      notes,
+      notes: submittedNotes,
     });
 
     if (result.error) {
@@ -1781,7 +1752,7 @@ export default function WorkOrdersPage() {
 
     const displayId = result.workOrders[0]?.display_id || "Work order";
     await clearSubmittedDraft();
-    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders")));
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
 
     if (result.photoUploadPending) {
       setMessage(`Work order ${displayId} created. Its photo upload failed; retry the photo upload to finish.`);

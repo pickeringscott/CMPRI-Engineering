@@ -1015,7 +1015,7 @@ export default function WorkOrderTicketPage() {
         const session = await loadCmpriSession();
         setCmpriSession(session);
         canLoadMaintenanceReference = session.capabilities.includes("view_dashboard");
-        const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("view_work_orders") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets");
+        const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("view_work_orders") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets") || session.capabilities.includes("add_work_order_notes");
         if (!canViewTicket) {
           window.location.replace("/work-orders");
           return;

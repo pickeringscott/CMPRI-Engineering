@@ -8,7 +8,7 @@ import { isUuid } from "@/lib/uuid";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders")) return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
+  if (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders") && !allows(auth.principal, "add_work_order_notes")) return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
 
@@ -22,7 +22,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .maybeSingle();
   if (workOrderError) return NextResponse.json({ error: "Work-order activity could not be verified." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  if ((!allows(auth.principal, "view_dashboard") || allows(auth.principal, "add_work_order_notes"))
+  const noteOnlyReader = allows(auth.principal, "add_work_order_notes")
+    && !allows(auth.principal, "edit_tickets")
+    && !allows(auth.principal, "review_tickets");
+  if ((!allows(auth.principal, "view_dashboard") || noteOnlyReader)
     && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
     return NextResponse.json({ error: "This role can only view open work orders." }, { status: 403 });
   }
@@ -30,7 +33,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
 
-  if (!allows(auth.principal, "view_dashboard") || allows(auth.principal, "add_work_order_notes")) {
+  if (!allows(auth.principal, "view_dashboard") || noteOnlyReader) {
     const { data: history, error } = await auth.admin
       .from("cmpri_work_order_history")
       .select("id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, source, recorded_at")

@@ -109,6 +109,7 @@ test("every actual application role's /api/session capabilities match its role a
   });
 
   for (const { role, landing, membership } of roleCases) {
+    assert.equal(roleModule.roleAllows(role, "add_work_order_notes"), true, `${role} note capability`);
     principal = makePrincipal(role);
     const response = await exports.GET({});
     const body = await response.json();
@@ -146,15 +147,15 @@ test("Maintenance Technician receives workflow permissions but not engineering a
 
 test("CMPRI go-live roles receive only their approved operational capabilities", () => {
   const expected = new Map([
-    ["Housekeeping", ["submit", "submit_feedback", "view_profiles"]],
-    ["Front Desk", ["submit", "submit_feedback", "view_profiles"]],
+    ["Housekeeping", ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"]],
+    ["Front Desk", ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"]],
     ["Front Desk Manager", ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"]],
     ["Assistant General Manager", ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"]],
     ["General Manager", ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"]],
     ["Assistant Manager", ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"]],
-    ["Maintenance Technician", ["submit", "view_dashboard", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "close_tickets", "submit_feedback"]],
-    ["Chief Engineer", ["submit", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "review_tickets", "close_tickets", "reopen", "manage_assets", "manage_rooms", "manage_users", "operate_integrations", "submit_feedback", "review_feedback", "view_profiles"]],
-    ["System Administrator", ["submit", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "review_tickets", "close_tickets", "reopen", "manage_assets", "manage_rooms", "manage_users", "operate_integrations", "submit_feedback", "review_feedback", "view_profiles"]],
+    ["Maintenance Technician", ["submit", "add_work_order_notes", "view_dashboard", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "close_tickets", "submit_feedback"]],
+    ["Chief Engineer", ["submit", "add_work_order_notes", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "review_tickets", "close_tickets", "reopen", "manage_assets", "manage_rooms", "manage_users", "operate_integrations", "submit_feedback", "review_feedback", "view_profiles"]],
+    ["System Administrator", ["submit", "add_work_order_notes", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "review_tickets", "close_tickets", "reopen", "manage_assets", "manage_rooms", "manage_users", "operate_integrations", "submit_feedback", "review_feedback", "view_profiles"]],
   ]);
   for (const [role, approved] of expected) {
     const actual = capabilities.filter((capability) => accessModule.allows(makePrincipal(role), capability)).sort();

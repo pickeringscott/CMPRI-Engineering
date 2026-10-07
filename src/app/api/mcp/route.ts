@@ -353,9 +353,7 @@ export async function POST(request: NextRequest) {
           ? args.input as Record<string, unknown>
           : null;
         if (!input) throw new Error("A valid input object is required for a CMPRI write.");
-        if (new TextEncoder().encode(JSON.stringify(input)).byteLength > MAX_MCP_WRITE_INPUT_BYTES) {
-          throw new Error("The CMPRI write input is too large. Reduce the number or resolution of attached report images and retry.");
-        }
+        if (new TextEncoder().encode(JSON.stringify(input)).byteLength > MAX_MCP_WRITE_INPUT_BYTES) throw new Error("The CMPRI write input is too large.");
         const outcome = await callMcpWriteAction(request, identity, action, input);
         const success = outcome.status >= 200 && outcome.status < 300;
         return Response.json({

@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { resolvePrincipal, type Permission, type Principal, allows } from "@/lib/server/access";
 import { HOTEL_ID } from "@/lib/constants";
-import { canReadEquipment, isSubmitOnlyRole, roleKey } from "@/lib/server/roles";
+import { canReadEquipment, roleKey } from "@/lib/server/roles";
 import { assistantPolicy } from "@/lib/ai/assistant-policy";
 import { CMPRI_MCP_RESOURCE, CMPRI_MCP_WRITE_SCOPE, validMcpScope } from "@/lib/server/cmpri-mcp-oauth-scope";
 
@@ -64,8 +64,6 @@ export async function mcpIdentity(authorization: string | null): Promise<McpIden
   if (!userResult.user.email || !profileRow.email
     || userResult.user.email.trim().toLowerCase() !== profileRow.email.trim().toLowerCase()
     || profileRow.active !== true) return null;
-  if (isSubmitOnlyRole(profileRow.role)) return null;
-
   const { data: membershipRow, error: membershipError } = await admin.from("hotel_members")
     .select("user_id, hotel_id, role, active")
     .eq("user_id", token.user_id)

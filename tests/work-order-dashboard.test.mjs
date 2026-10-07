@@ -60,8 +60,10 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
       if (name === "@/lib/server/access") return {
         allows: (_principal, capability) => capability === "view_dashboard"
           ? hasDashboard
-          : capability === "add_work_order_notes" && role === "General Manager"
-            ? true
+          : capability === "edit_tickets" || capability === "review_tickets"
+            ? role === "System Administrator"
+          : capability === "add_work_order_notes"
+            ? ["Front Desk", "Housekeeping", "General Manager", "Assistant General Manager", "Front Desk Manager", "Assistant Manager", "Senior Management", "Maintenance Technician", "Engineer", "System Administrator"].includes(role)
           : capability === "view_work_orders" && role === "General Manager",
       };
       if (name === "@/lib/server/auth") return { requireUser: async () => ({ principal, admin }) };
@@ -119,6 +121,16 @@ test("note-only General Managers can list active open work orders but not closed
   assert.equal(response.status, 200);
   assert.ok(response.body.work_orders.length > 0);
   assert.ok(response.body.work_orders.every((order) => ["Open", "In Progress"].includes(order.status)));
+});
+
+test("every role with note access can list active tickets without full dashboard access", async () => {
+  for (const role of ["Front Desk", "Housekeeping", "Assistant Manager", "Senior Management"]) {
+    const route = fixture({ role, hasDashboard: false });
+    const response = await route.get();
+    assert.equal(response.status, 200, role);
+    assert.ok(response.body.work_orders.length > 0, role);
+    assert.ok(response.body.work_orders.every((order) => ["Open", "In Progress"].includes(order.status)), role);
+  }
 });
 
 test("General Manager dashboard layout remains available but lists only active authorized tickets", async () => {

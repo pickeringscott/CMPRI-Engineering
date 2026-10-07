@@ -117,7 +117,8 @@ export async function GET(request: NextRequest) {
   if (mode === "duplicate-candidates") {
     const canViewDashboard = allows(auth.principal, "view_dashboard");
     const canViewWorkOrders = allows(auth.principal, "view_work_orders");
-    if (!canViewDashboard && !canViewWorkOrders) return NextResponse.json({ error: "Work-order access is required to inspect existing work orders." }, { status: 403 });
+    const canAddNotes = allows(auth.principal, "add_work_order_notes");
+    if (!canViewDashboard && !canViewWorkOrders && !canAddNotes) return NextResponse.json({ error: "Work-order access is required to inspect existing work orders." }, { status: 403 });
     if (roleKey(auth.principal.profile.role) === "technician") {
       const { data, error } = await fetchTechnicianWorkOrders(
         auth.admin,
@@ -128,7 +129,8 @@ export async function GET(request: NextRequest) {
       if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
       return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "private, no-store" } });
     }
-    const canViewAllStatuses = canViewDashboard && !allows(auth.principal, "add_work_order_notes");
+    const canViewAllStatuses = canViewDashboard
+      && (allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
     let query = auth.admin
       .from("work_orders")
       .select("id, display_id, room, location_id, asset_id, asset_name, category, issue, priority, status")
@@ -144,7 +146,8 @@ export async function GET(request: NextRequest) {
   }
 
   const canViewDashboard = allows(auth.principal, "view_dashboard");
-  if (mode !== "dashboard" || (!canViewDashboard && !allows(auth.principal, "view_work_orders"))) {
+  const canAddNotes = allows(auth.principal, "add_work_order_notes");
+  if (mode !== "dashboard" || (!canViewDashboard && !allows(auth.principal, "view_work_orders") && !canAddNotes)) {
     return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   }
   if (roleKey(auth.principal.profile.role) === "technician") {
@@ -157,7 +160,8 @@ export async function GET(request: NextRequest) {
     if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
     return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
   }
-  const canViewAllStatuses = canViewDashboard && !allows(auth.principal, "add_work_order_notes");
+  const canViewAllStatuses = canViewDashboard
+    && (allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
   const { data, error } = await fetchAllPages((from, to) => {
     let query = auth.admin
     .from("work_orders")
@@ -318,7 +322,7 @@ export async function POST(request: NextRequest) {
       const availableAssets = await fetchAllAssetsForLocations(db, uniqueLocationIds);
       for (const row of rows) {
         const candidates = availableAssets.filter((asset) => asset.location_id === row.location_id && asset.active !== false);
-        const guess = inferWorkOrder(`${row.issue} ${row.notes || ""}`.trim(), candidates);
+        const guess = inferWorkOrder(String(row.issue || ""), candidates);
         row.asset_id = guess.assetId;
         row.asset_name = candidates.find((asset) => asset.id === guess.assetId)?.name || "";
         row.category = guess.category || "General";
@@ -331,7 +335,7 @@ export async function POST(request: NextRequest) {
 
   for (const row of rows) {
     if (!row.asset_id && (!row.category || String(row.category).trim() === "General")) {
-      const suggestion = inferWorkOrder(`${String(row.issue || "")} ${String(row.notes || "")}`.trim(), []);
+      const suggestion = inferWorkOrder(String(row.issue || ""), []);
       if (suggestion.category) row.category = suggestion.category;
       if (suggestion.priority) row.priority = suggestion.priority;
     }

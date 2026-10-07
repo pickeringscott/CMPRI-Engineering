@@ -65,11 +65,16 @@ export function workOrderEditableFields({
 }): readonly WorkOrderEditableField[] {
   if (roleKey(role) === "technician") {
     if (!canEdit) return [];
-    if (unassigned) return canClaimUnassigned ? UNASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS : [];
+    if (unassigned) {
+      return [
+        ...(canClaimUnassigned ? UNASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS : []),
+        ...(canAddNotes ? NOTE_ONLY_WORK_ORDER_FIELDS : []),
+      ];
+    }
     return ASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS;
   }
-  if (canAddNotes) return NOTE_ONLY_WORK_ORDER_FIELDS;
   if (canEdit) return TECHNICAL_WORK_ORDER_FIELDS;
   if (canReview) return REVIEW_WORK_ORDER_FIELDS;
+  if (canAddNotes) return NOTE_ONLY_WORK_ORDER_FIELDS;
   return [];
 }

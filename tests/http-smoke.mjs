@@ -1,6 +1,7 @@
 // Isolated production-server smoke checks. No real account or production data.
 import { spawn } from 'node:child_process';
 const port = 3110;
+const cleanupSecret = 'cmpri-local-cleanup-test-secret';
 const anonymousDenied = [401, 403];
 const apiReachable = [401, 403, 405];
 const uiPaths = [
@@ -14,7 +15,7 @@ const apiPaths = [
   '/api/session', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
   '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
-  '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-ranker',
+  '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-operations/cleanup', '/api/room-ranker',
   '/api/rooms', '/api/users', '/api/work-orders', '/api/work-orders/test-id',
   '/api/work-orders/test-id/activity', '/api/work-orders/drafts', '/api/work-orders/import',
 ];
@@ -34,7 +35,7 @@ const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'star
   '--hostname', '127.0.0.1', '--port', String(port)], {
   env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'cmpri-local-test-placeholder',
-    SUPABASE_SERVICE_ROLE_KEY: '', CRON_SECRET: ''},
+    SUPABASE_SERVICE_ROLE_KEY: '', CRON_SECRET: cleanupSecret},
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let started = false;
@@ -64,6 +65,20 @@ server.stdout.on('data', async chunk => {
       failures += Number(!passed);
       console.log(JSON.stringify({...test, actual: response.status, result: passed ? 'PASS' : 'FAIL'}));
     }
+    const cleanupResponse = await fetch(`http://127.0.0.1:${port}/api/room-operations/cleanup`, {
+      method: 'GET',
+      headers: {Authorization: `Bearer ${cleanupSecret}`},
+      signal: AbortSignal.timeout(10000),
+    });
+    const cleanupPassed = cleanupResponse.status === 503;
+    failures += Number(!cleanupPassed);
+    console.log(JSON.stringify({
+      path: '/api/room-operations/cleanup',
+      method: 'GET',
+      expected: 503,
+      actual: cleanupResponse.status,
+      result: cleanupPassed ? 'PASS' : 'FAIL',
+    }));
     console.log(`${cases.length - failures}/${cases.length} HTTP checks passed. Not authenticated workflow or browser tests.`);
     process.exitCode = failures ? 1 : 0;
   } catch (error) {

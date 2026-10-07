@@ -17,7 +17,7 @@ try {
     create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}'::jsonb);
     create role anon;
     create role authenticated;
-    create role service_role;
+    create role service_role bypassrls;
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('cmpri.test_uid',true),'')::uuid $$;
     create function auth.role() returns text language sql stable as $$ select current_setting('cmpri.test_role',true) $$;
     create type public.hotel_role as enum ('admin','manager','technician','viewer');
@@ -34,7 +34,12 @@ try {
     await db.exec(`create table public.${name} (${columns.join(',')});`);
   }
   await db.exec(`create table public.cmpri_vendors (id uuid primary key, company_name text not null);
-    create table if not exists public.assets (id uuid primary key);
+    create table if not exists public.assets (
+      id uuid primary key,
+      hotel_id uuid,
+      name text,
+      updated_at timestamptz not null default now()
+    );
     create table public.cmpri_inventory_items (id uuid primary key, item_name text not null);
     create table public.cmpri_order_ideas (id uuid primary key);
     create table public.cmpri_vendor_proposals (id uuid primary key);
@@ -69,6 +74,90 @@ try {
     const { rows } = await db.query(`select column_name from information_schema.columns
       where table_schema='public' and table_name='assets' and column_name='model_family'`);
     assert.deepEqual(rows, [{ column_name: 'model_family' }]);
+  });
+  const databaseSafetyMigration = readFileSync(new URL('../supabase/migrations/20261007090000_cmpri_database_safety_guards.sql', import.meta.url), 'utf8');
+  await check('database safety guards migration', async () => db.exec(databaseSafetyMigration));
+  await check('database safety guards migration is idempotent', async () => db.exec(databaseSafetyMigration));
+  await check('account role and active updates are applied together', async () => {
+    const testHotel = '00000000-0000-0000-0000-000000000910';
+    const testUser = '00000000-0000-0000-0000-000000000911';
+    await db.exec(`insert into public.hotels (id, code, name, timezone, default_checkout_time, default_checkin_time, created_at, updated_at)
+      values (${quote(testHotel)}, 'SAFETY_TEST', 'Safety Test', 'UTC', '11:00', '15:00', now(), now());
+      insert into public.profiles (id, role, property_scope, active, created_at, updated_at, preferred_language, full_name)
+      values (${quote(testUser)}, 'manager', 'assigned_property', true, now(), now(), 'en', 'Safety Test User');
+      insert into public.hotel_members (hotel_id, user_id, role, active, created_at)
+      values (${quote(testHotel)}, ${quote(testUser)}, 'manager', true, now());
+      select set_config('cmpri.test_role', 'service_role', false);`);
+    await db.query(`select public.cmpri_update_user_access(
+      ${quote(testUser)}, ${quote(testHotel)}, 'manager', true, null, false,
+      'engineer', false, 'manager'::public.hotel_role, true,
+      'admin'::public.hotel_role, false
+    )`);
+    await db.exec(`select set_config('cmpri.test_role', '', false);`);
+    const { rows: profiles } = await db.query(`select role, active from public.profiles where id=${quote(testUser)}`);
+    const { rows: memberships } = await db.query(`select role::text, active from public.hotel_members where hotel_id=${quote(testHotel)} and user_id=${quote(testUser)}`);
+    assert.deepEqual(profiles, [{ role: 'engineer', active: false }]);
+    assert.deepEqual(memberships, [{ role: 'admin', active: false }]);
+  });
+  await check('verified equipment rejects subsequent field updates', async () => {
+    const testHotel = '00000000-0000-0000-0000-000000000910';
+    const testUser = '00000000-0000-0000-0000-000000000911';
+    const testAsset = '00000000-0000-0000-0000-000000000912';
+    await db.exec(`insert into public.assets (id, hotel_id, name, updated_at)
+      values (${quote(testAsset)}, ${quote(testHotel)}, 'Before verification', now());
+      select set_config('cmpri.test_role', 'service_role', false);`);
+    await db.query(`select public.cmpri_verify_asset_documentation(
+      ${quote(testAsset)}, ${quote(testHotel)},
+      (select updated_at from public.assets where id=${quote(testAsset)}),
+      ${quote(testUser)}
+    )`);
+    await assert.rejects(
+      db.exec(`update public.assets set name='After verification' where id=${quote(testAsset)}`),
+      /Verified equipment is locked against changes/,
+    );
+    await db.exec(`select set_config('cmpri.test_role', '', false);`);
+    const { rows } = await db.query(`select name, documentation_verified_at is not null as verified
+      from public.assets where id=${quote(testAsset)}`);
+    assert.deepEqual(rows, [{ name: 'Before verification', verified: true }]);
+  });
+  await check('application database role cannot delete hotels or work orders', async () => {
+    const testHotel = '00000000-0000-0000-0000-000000000910';
+    const testWorkOrder = '00000000-0000-0000-0000-000000000913';
+    await db.exec(`insert into public.work_orders (
+        id, hotel_id, display_id, room, asset_name, category, issue, priority,
+        technician_name, action_root_cause, parts, cost, hours, status, notes,
+        logged_on, created_at, updated_at, creator_name, creator_initials, creator_source
+      ) values (
+        ${quote(testWorkOrder)}, ${quote(testHotel)}, 'SAFETY-TEST', '1', '', 'General',
+        'Test issue', 'Medium', '', '', '', 0, 0, 'Open', '', current_date, now(), now(), '', '', 'signed_in_user'
+      );
+      alter table public.hotels disable row level security;
+      alter table public.work_orders disable row level security;
+      alter table public.hotels owner to service_role;
+      alter table public.work_orders owner to service_role;
+      set role service_role;`);
+    const { rows: deletionPrivileges } = await db.query(`select
+      current_user as current_user,
+      has_table_privilege(current_user, 'public.hotels', 'delete') as can_delete_hotels,
+      has_table_privilege(current_user, 'public.work_orders', 'delete') as can_delete_work_orders`);
+    assert.deepEqual(deletionPrivileges, [{
+      current_user: 'service_role',
+      can_delete_hotels: true,
+      can_delete_work_orders: true,
+    }]);
+    try {
+      await assert.rejects(
+        db.exec(`delete from public.hotels where id=${quote(testHotel)}`),
+        /Hotel records cannot be deleted/,
+      );
+      await assert.rejects(
+        db.exec(`delete from public.work_orders where id=${quote(testWorkOrder)}`),
+        /Work orders cannot be permanently deleted/,
+      );
+    } finally {
+      await db.exec('reset role');
+    }
+    await db.exec(`select set_config('cmpri.test_role', '', false);`);
   });
   await db.exec(`create table public.cmpri_dashboard_notifications (
       id uuid primary key,
