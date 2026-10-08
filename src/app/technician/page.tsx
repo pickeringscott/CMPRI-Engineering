@@ -58,6 +58,7 @@ export default function TechnicianDashboard() {
   const [message, setMessage] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const loadingRef = useRef(false);
+  const hasLoadedWorkRef = useRef(false);
   const knownOrdersRef = useRef<Map<string, string> | null>(null);
   const notificationCursorRef = useRef<string | null>(null);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
@@ -124,11 +125,9 @@ export default function TechnicianDashboard() {
     router.replace("/");
   }
 
-  const loadAssignedWork = useCallback(async (silent = false) => {
+  const loadAssignedWork = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
-    if (!silent) setLoading(true);
-    setMessage("");
     try {
       const session = await getValidSession();
       if (!session) throw new Error("Sign in again to load your technician dashboard.");
@@ -158,10 +157,12 @@ export default function TechnicianDashboard() {
       }
       knownOrdersRef.current = new Map(fetched.map((order) => [order.id, order.technician_name?.trim() || ""]));
       setOrders(fetched);
+      setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Assigned work could not be loaded.");
     } finally {
-      if (!silent) setLoading(false);
+      if (!hasLoadedWorkRef.current) setLoading(false);
+      hasLoadedWorkRef.current = true;
       loadingRef.current = false;
     }
   }, [playAlertTone, refreshDashboardInbox, refreshNotifications]);
@@ -170,7 +171,7 @@ export default function TechnicianDashboard() {
     soundEnabledRef.current = readSoundPreference();
     setSoundEnabled(soundEnabledRef.current);
     void loadAssignedWork();
-    const interval = window.setInterval(() => { void loadAssignedWork(true); }, REFRESH_MS);
+    const interval = window.setInterval(() => { void loadAssignedWork(); }, REFRESH_MS);
     return () => {
       window.clearInterval(interval);
       void audioContextRef.current?.close();
@@ -244,9 +245,9 @@ export default function TechnicianDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="min-h-[100svh] bg-slate-950 text-white">
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
-        <div className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-slate-800 bg-slate-950/95 pb-3 pt-1 backdrop-blur sm:static sm:flex-row sm:items-center sm:justify-between sm:bg-transparent sm:pt-0 sm:backdrop-blur-0">
           <div className="flex w-full min-w-0 items-center gap-3">
             <div className="min-w-0 flex-1">
               <h1 className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></h1>

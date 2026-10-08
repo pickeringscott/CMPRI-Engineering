@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
@@ -94,13 +95,17 @@ type WorkOrder = {
   creator_name: string;
 };
 type CreatedWorkOrder = { id: string; display_id: string; status: string };
+type SelectedWorkOrderPhoto = { file: File; previewUrl: string; uploadId: string };
+type PendingPhotoUpload = Pick<CreatedWorkOrder, "id" | "display_id"> & { photo: SelectedWorkOrderPhoto };
 
-
-
-
-
-
-
+function WorkOrderPhotoPreview({ photo }: { photo: SelectedWorkOrderPhoto }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-950/70 p-1.5">
+      <Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 shrink-0 rounded object-cover" />
+      <span className="min-w-0 max-w-40 truncate text-xs text-slate-300" title={photo.file.name}>{photo.file.name}</span>
+    </div>
+  );
+}
 
 type NotesAnalysis = {
   detectedCode: string | null;
@@ -496,14 +501,20 @@ export default function WorkOrdersPage() {
     setNotes,
   ] = useState("");
 
-  const [photo, setPhoto] = useState<File | null>(null);
+  const [photos, setPhotos] = useState<SelectedWorkOrderPhoto[]>([]);
   const [photoUploadError, setPhotoUploadError] = useState("");
-  const [photoUploadId, setPhotoUploadId] = useState("");
   const [canReplacePhoto, setCanReplacePhoto] = useState(false);
-  const [pendingPhotoUploads, setPendingPhotoUploads] = useState<Array<Pick<CreatedWorkOrder, "id" | "display_id">>>([]);
+  const [photoToReplaceUploadId, setPhotoToReplaceUploadId] = useState("");
+  const [pendingPhotoUploads, setPendingPhotoUploads] = useState<PendingPhotoUpload[]>([]);
   const [retryingPhotoUpload, setRetryingPhotoUpload] = useState(false);
   const photoFileInputRef = useRef<HTMLInputElement>(null);
   const photoCameraInputRef = useRef<HTMLInputElement>(null);
+  const photoPreviewUrlsRef = useRef(new Set<string>());
+
+  useEffect(() => () => {
+    photoPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    photoPreviewUrlsRef.current.clear();
+  }, []);
 
   const [
     manualLocation,
@@ -1139,10 +1150,12 @@ export default function WorkOrdersPage() {
     setIssue("");
     setPriority("Medium");
     setNotes("");
-    setPhoto(null);
+    photoPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    photoPreviewUrlsRef.current.clear();
+    setPhotos([]);
     setPhotoUploadError("");
-    setPhotoUploadId("");
     setCanReplacePhoto(false);
+    setPhotoToReplaceUploadId("");
     setPendingPhotoUploads([]);
     setRetryingPhotoUpload(false);
     if (photoFileInputRef.current) photoFileInputRef.current.value = "";
@@ -1155,6 +1168,41 @@ export default function WorkOrdersPage() {
 
     
     setMainWorkOrderCreated(false);
+  }
+
+  function acceptSelectedPhotos(files: FileList | null, fromCamera = false) {
+    const selected = Array.from(files || []).slice(0, fromCamera ? 1 : undefined);
+    if (!selected.length) return;
+
+    if (photoToReplaceUploadId) {
+      const previous = photos.find((photo) => photo.uploadId === photoToReplaceUploadId);
+      if (previous) {
+        URL.revokeObjectURL(previous.previewUrl);
+        photoPreviewUrlsRef.current.delete(previous.previewUrl);
+      }
+      const replacement = { file: selected[0], previewUrl: URL.createObjectURL(selected[0]), uploadId: crypto.randomUUID() };
+      photoPreviewUrlsRef.current.add(replacement.previewUrl);
+      setPhotos((current) => current.map((photo) => photo.uploadId === photoToReplaceUploadId ? replacement : photo));
+      setPendingPhotoUploads((current) => current.map((pending) => pending.photo.uploadId === photoToReplaceUploadId
+        ? { ...pending, photo: replacement }
+        : pending));
+      setPhotoToReplaceUploadId("");
+    } else {
+      const newPhotos = selected.map((file) => {
+        const previewUrl = URL.createObjectURL(file);
+        photoPreviewUrlsRef.current.add(previewUrl);
+        return { file, previewUrl, uploadId: crypto.randomUUID() };
+      });
+      setPhotos((current) => [
+        ...current,
+        ...newPhotos,
+      ]);
+    }
+
+    setPhotoUploadError("");
+    setCanReplacePhoto(false);
+    if (photoFileInputRef.current) photoFileInputRef.current.value = "";
+    if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
   }
 
   function notifyCreateModal(type: "cmpri-work-order-cancelled" | "cmpri-work-order-created", displayId?: string) {
@@ -1578,20 +1626,29 @@ export default function WorkOrdersPage() {
       }
       const workOrders = Array.isArray(result.work_orders) ? result.work_orders as CreatedWorkOrder[] : [];
       let photoUploadPending = false;
-      if (photo && workOrders.length) {
-        const uploadId = photoUploadId || crypto.randomUUID();
-        if (!photoUploadId) setPhotoUploadId(uploadId);
-        for (let index = 0; index < workOrders.length; index += 1) {
-          const workOrder = workOrders[index];
-          const upload = await uploadWorkOrderAttachment(workOrder.id, photo, session.access_token, uploadId);
-          if (!upload.ok) {
-            const failedUploads = workOrders.slice(index).map(({ id, display_id }) => ({ id, display_id }));
-            setPendingPhotoUploads(failedUploads);
-            setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
-            setCanReplacePhoto(upload.canReplace);
-            photoUploadPending = true;
-            break;
+      if (photos.length && workOrders.length) {
+        for (let photoIndex = 0; photoIndex < photos.length; photoIndex += 1) {
+          const selectedPhoto = photos[photoIndex];
+          for (let workOrderIndex = 0; workOrderIndex < workOrders.length; workOrderIndex += 1) {
+            const workOrder = workOrders[workOrderIndex];
+            const upload = await uploadWorkOrderAttachment(workOrder.id, selectedPhoto.file, session.access_token, selectedPhoto.uploadId);
+            if (!upload.ok) {
+              const failedUploads = photos.slice(photoIndex).flatMap((remainingPhoto, remainingPhotoIndex) =>
+                workOrders.slice(remainingPhotoIndex === 0 ? workOrderIndex : 0).map(({ id, display_id }) => ({
+                  id,
+                  display_id,
+                  photo: remainingPhoto,
+                })),
+              );
+              setPendingPhotoUploads(failedUploads);
+              setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
+              setCanReplacePhoto(upload.canReplace);
+              setPhotoToReplaceUploadId(upload.canReplace ? selectedPhoto.uploadId : "");
+              photoUploadPending = true;
+              break;
+            }
           }
+          if (photoUploadPending) break;
         }
       }
       return {
@@ -1609,7 +1666,7 @@ export default function WorkOrdersPage() {
   }
 
   async function retryPendingPhotoUploads() {
-    if (retryingPhotoUpload || !photo || !photoUploadId || pendingPhotoUploads.length === 0) return;
+    if (retryingPhotoUpload || pendingPhotoUploads.length === 0) return;
     let session;
     try {
       session = await getValidSession();
@@ -1628,11 +1685,12 @@ export default function WorkOrdersPage() {
       let failedUploads: typeof pending = [];
       for (let index = 0; index < pending.length; index += 1) {
         const workOrder = pending[index];
-        const upload = await uploadWorkOrderAttachment(workOrder.id, photo, session.access_token, photoUploadId);
+        const upload = await uploadWorkOrderAttachment(workOrder.id, workOrder.photo.file, session.access_token, workOrder.photo.uploadId);
         if (!upload.ok) {
           failedUploads = pending.slice(index);
           setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
           setCanReplacePhoto(upload.canReplace);
+          setPhotoToReplaceUploadId(upload.canReplace ? workOrder.photo.uploadId : "");
           break;
         }
       }
@@ -1654,22 +1712,20 @@ export default function WorkOrdersPage() {
   }
 
   function chooseReplacementPhoto() {
-    if (!canReplacePhoto) return;
-    setPhoto(null);
-    setPhotoUploadId("");
-    setPhotoUploadError("");
-    if (photoFileInputRef.current) photoFileInputRef.current.value = "";
-    if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
+    if (!canReplacePhoto || !photoToReplaceUploadId) return;
+    photoFileInputRef.current?.click();
   }
 
   function continueWithoutPhoto() {
     if (!canReplacePhoto || retryingPhotoUpload || pendingPhotoUploads.length === 0) return;
     const skippedUploads = pendingPhotoUploads;
     setPendingPhotoUploads([]);
-    setPhoto(null);
+    photoPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    photoPreviewUrlsRef.current.clear();
+    setPhotos([]);
     setPhotoUploadError("");
-    setPhotoUploadId("");
     setCanReplacePhoto(false);
+    setPhotoToReplaceUploadId("");
     setBatchCreateSuggestions([]);
     if (photoFileInputRef.current) photoFileInputRef.current.value = "";
     if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
@@ -1871,7 +1927,7 @@ export default function WorkOrdersPage() {
 
 
   return (
-    <main className="min-h-screen bg-slate-950 p-1 text-white">
+    <main className="min-h-[100svh] bg-slate-950 p-1 text-white">
       <div className={`mx-auto w-full max-w-none ${isSubmitOnlyUser ? "" : "lg:w-[66vw]"}`}>
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
@@ -1913,7 +1969,7 @@ export default function WorkOrdersPage() {
             onSubmit={createWorkOrder}
             className="mx-auto w-full space-y-1 rounded-xl border border-slate-800 bg-slate-900 p-2"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950 px-3 py-2">
+            <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950 px-3 py-2 md:static">
               {cmpriSession && !embedded && (
                 <div className="mr-auto flex min-w-0 flex-col items-start leading-tight">
                   <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></p>
@@ -1938,23 +1994,26 @@ export default function WorkOrdersPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
                   </svg>
                 </label>
-                <input ref={photoFileInputRef} id="work-order-photo-file" type="file" accept="image/*" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => { const selectedPhoto = event.target.files?.[0] || null; setPhoto(selectedPhoto); setPhotoUploadId(selectedPhoto ? crypto.randomUUID() : ""); setPhotoUploadError(""); setCanReplacePhoto(false); }} className="sr-only" />
-                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photo ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
+                <input ref={photoFileInputRef} id="work-order-photo-file" type="file" accept="image/*" multiple disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files)} className="sr-only" />
+                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photos.length ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h3l1.4-2h7.2l1.4 2h3A1.5 1.5 0 0 1 21.5 9v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
                     <circle cx="12" cy="13" r="3.5" />
                   </svg>
                 </label>
-                <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => { const selectedPhoto = event.target.files?.[0] || null; setPhoto(selectedPhoto); setPhotoUploadId(selectedPhoto ? crypto.randomUUID() : ""); setPhotoUploadError(""); setCanReplacePhoto(false); }} className="sr-only" />
+                <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files, true)} className="sr-only" />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || pendingPhotoUploads.length > 0 || retryingPhotoUpload} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
-                <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>
+                {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
                 <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`hidden rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 sm:inline-flex ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>
             </div>
 
-            {(photo || photoUploadError) && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]">{photo && <span className="max-w-[60%] truncate text-slate-400" title={photo.name}>Attached: {photo.name}</span>}{photoUploadError && <span role="alert" className="text-amber-300">{photoUploadError}</span>}{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{photo && pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
+            {(photos.length > 0 || photoUploadError) && <div className="space-y-2">
+              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label="Selected photo previews">{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} />)}</div>}
+              {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{photoUploadError}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
+            </div>}
 
             {isFrontDeskUser && <label className="block">
               <span className="mb-1 block text-sm font-medium"> {tx("Your first name", "Tu nombre")} <span className="text-red-300">*</span></span>

@@ -333,6 +333,15 @@ test("attachment route intentionally exposes no delete handler", () => {
   assert.equal(routeSource.includes("export async function GET"), true);
 });
 
+test("work-order form accepts multiple gallery photos, camera photos, and previews them before submit", () => {
+  assert.match(workOrderPageSource, /id="work-order-photo-file" type="file" accept="image\/\*" multiple/);
+  assert.match(workOrderPageSource, /id="work-order-photo-camera" type="file" accept="image\/\*" capture="environment"/);
+  assert.match(workOrderPageSource, /function WorkOrderPhotoPreview/);
+  assert.match(workOrderPageSource, /photos\.map\(\(photo\) => <WorkOrderPhotoPreview/);
+  assert.match(workOrderPageSource, /uploadWorkOrderAttachment\(workOrder\.id, selectedPhoto\.file, session\.access_token, selectedPhoto\.uploadId\)/);
+  assert.match(workOrderPageSource, /uploadWorkOrderAttachment\(workOrder\.id, workOrder\.photo\.file, session\.access_token, workOrder\.photo\.uploadId\)/);
+});
+
 test("a failed photo upload can be retried against the same created work order", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
@@ -399,10 +408,11 @@ test("permanent file-validation failures let users replace the image without dis
 
   assert.match(workOrderPageSource, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button[^>]*onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
   assert.match(workOrderPageSource, /disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
-  assert.match(workOrderPageSource, /function chooseReplacementPhoto\(\)[\s\S]*?setPhoto\(null\)[\s\S]*?setPhotoUploadId\(""\)[\s\S]*?setPhotoUploadError\(""\)/);
+  assert.match(workOrderPageSource, /function chooseReplacementPhoto\(\)[\s\S]*?photoFileInputRef\.current\?\.click\(\)/);
+  assert.match(workOrderPageSource, /function acceptSelectedPhotos\([\s\S]*?setPhotos\(\(current\) => current\.map\(\(photo\) => photo\.uploadId === photoToReplaceUploadId \? replacement : photo\)\)/);
   assert.match(workOrderPageSource, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
-  assert.match(workOrderPageSource, /function continueWithoutPhoto\(\)[\s\S]*?setPendingPhotoUploads\(\[\]\)[\s\S]*?setPhoto\(null\)[\s\S]*?Photo upload was skipped[\s\S]*?resetWorkOrderForm\(true\)/);
-  assert.match(workOrderPageSource, /\{photo && pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button[^>]*onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
+  assert.match(workOrderPageSource, /function continueWithoutPhoto\(\)[\s\S]*?setPendingPhotoUploads\(\[\]\)[\s\S]*?setPhotos\(\[\]\)[\s\S]*?Photo upload was skipped[\s\S]*?resetWorkOrderForm\(true\)/);
+  assert.match(workOrderPageSource, /\{pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button[^>]*onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
 });
 
 test("attachment read errors are surfaced instead of appearing as an empty photo list", () => {

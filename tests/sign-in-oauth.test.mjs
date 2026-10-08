@@ -7,6 +7,13 @@ import ts from 'typescript';
 const signInPage = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
 const supabaseClient = readFileSync(new URL('../src/lib/supabase/client.ts', import.meta.url), 'utf8');
 
+test('password entry does not trigger React state updates and remains scrollable on mobile', () => {
+  assert.match(signInPage, /const passwordRef = useRef<HTMLInputElement>\(null\)/);
+  assert.match(signInPage, /password: passwordRef\.current\?\.value \|\| ""/);
+  assert.doesNotMatch(signInPage, /setPassword|onChange=\{\(event\) => setPassword/);
+  assert.match(signInPage, /min-h-\[100svh\].*overflow-y-auto overscroll-contain/);
+});
+
 test('only an OAuth flow started in this tab is treated as a sign-in callback', () => {
   assert.match(signInPage, /function hasOAuthCallback\(\)\s*\{\s*return window\.sessionStorage\.getItem\(OAUTH_PENDING_KEY\) === "true";\s*\}/);
   assert.match(signInPage, /if \(session\) \{[\s\S]*?removeItem\(OAUTH_PENDING_KEY\)/);

@@ -75,6 +75,15 @@ test('first-name field is required and all three creation paths use the common s
   assert.equal((source.match(/await submitWorkOrders\(/g)||[]).length,4);
   assert.equal(/\.insert\(/.test(source),false);
 });
+test('submit-only roles do not get a manual draft-saving control',()=>{
+  const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
+  assert.match(source,/!isSubmitOnlyUser && <button type="button" onClick=\{\(\) => void saveDraft\(\)\}/);
+  assert.match(source,/front desk manager/);
+  assert.match(source,/lead housekeeper/);
+  assert.match(source,/assistant general manager/);
+  assert.match(source,/frontdeskmanager/);
+  assert.match(source,/setTimeout\(\(\) => \{ void saveDraft\(true\); \}, 30 \* 60 \* 1000\)/);
+});
 test('issue-driven suggestions share inference with submit-only overrides',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
   const start=source.indexOf('function applySmartSuggestions(');

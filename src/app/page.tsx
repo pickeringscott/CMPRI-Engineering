@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
+import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   createClient,
@@ -58,7 +58,7 @@ export default function SignInPage() {
   const [redirecting, setRedirecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [rememberMe, setRememberMe] = useState(false);
   const [showPasswordAccess, setShowPasswordAccess] = useState(false);
 
@@ -131,7 +131,7 @@ export default function SignInPage() {
       setRememberOnDevice(rememberMe);
       const { error } = await createClient().auth.signInWithPassword({
         email: email.trim(),
-        password,
+        password: passwordRef.current?.value || "",
       });
       if (error) throw error;
       const session = await getValidSession();
@@ -158,7 +158,7 @@ export default function SignInPage() {
     );
   }
   return (
-    <main className="grid min-h-[100dvh] w-full items-start justify-items-center bg-slate-950 px-4 pt-4 text-white sm:pt-6">
+    <main className="grid min-h-[100svh] w-full items-start justify-items-center overflow-y-auto overscroll-contain bg-slate-950 px-4 pt-4 text-white sm:pt-6">
       <section aria-busy={disabled} className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 shadow-lg shadow-slate-950/25">
         <div className="text-center">
           <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
@@ -212,8 +212,7 @@ export default function SignInPage() {
                 type="password"
                 autoComplete="current-password"
                 aria-label="Password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                ref={passwordRef}
                 placeholder="Password"
                 className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white"
               />

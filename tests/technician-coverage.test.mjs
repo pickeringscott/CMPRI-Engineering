@@ -156,10 +156,18 @@ test('technician coverage does not bypass existing edit-ticket capability checks
 
 test('technician dashboard polls for new work and displays in-app sound alerts', () => {
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /setInterval\(\(\) => \{ void loadAssignedWork\(true\); \}, REFRESH_MS\)/);
+  assert.match(source, /window\.setInterval\(\(\) => \{ void loadAssignedWork\(\); \}, REFRESH_MS\)/);
   assert.match(source, /role="alert"/);
   assert.match(source, /Unassigned coverage/);
   assert.match(source, /Assigned to you/);
+});
+
+test('mobile technician refresh retains the current work list and keeps its page header pinned', () => {
+  const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
+  assert.match(source, /const hasLoadedWorkRef = useRef\(false\)/);
+  assert.match(source, /if \(!hasLoadedWorkRef\.current\) setLoading\(false\)/);
+  assert.match(source, /sticky top-0 z-20[^"]*sm:static/);
+  assert.match(source, /min-h-\[100svh\]/);
 });
 
 test('technician arrival alert only queues newly available unassigned work', () => {

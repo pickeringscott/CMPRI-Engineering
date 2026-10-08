@@ -659,7 +659,7 @@ export default function EngineeringDashboardPage() {
     .find((launcher) => launcher.key === "/work-orders");
 
   return (
-    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white">
+    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh">
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:flex-row lg:items-center lg:gap-3 lg:pb-3">
         <div className="flex w-full shrink-0 items-center gap-4 border-b border-slate-800 pb-2 lg:w-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
           <div className="flex min-w-0 flex-col items-start leading-tight">
