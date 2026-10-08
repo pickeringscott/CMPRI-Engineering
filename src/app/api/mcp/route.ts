@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { CANONICAL_APP_URL, HOTEL_ID } from "@/lib/constants";
+import { HOTEL_ID } from "@/lib/constants";
 import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
+import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 import { availableMcpReadViews, callMcpReadView } from "@/lib/server/cmpri-mcp-reads";
 import { availableMcpWriteActions, callMcpWriteAction } from "@/lib/server/cmpri-mcp-writes";
 import { resolveMcpWorkOrderLocation } from "@/lib/ai/mcp-work-order-location";
@@ -201,7 +202,7 @@ async function runTool(identity: McpIdentity, name: string, args: Record<string,
 }
 
 function unauthorized() {
-  const metadata = `${CANONICAL_APP_URL}/.well-known/oauth-protected-resource`;
+  const metadata = `${new URL(CMPRI_MCP_RESOURCE).origin}/.well-known/oauth-protected-resource`;
   return Response.json({ error: "unauthorized", error_description: "Provide a valid CMPRI connection link or authorize this app." }, {
     status: 401,
     headers: {

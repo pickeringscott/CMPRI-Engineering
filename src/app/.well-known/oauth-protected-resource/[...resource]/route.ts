@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { CANONICAL_APP_URL } from "@/lib/constants";
+import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +9,9 @@ export async function GET(
 ) {
   const { resource } = await context.params;
   if (resource.join("/") !== "api/mcp") return Response.json({ error: "not_found" }, { status: 404 });
-  const origin = CANONICAL_APP_URL;
   return Response.json({
-    resource: `${origin}/api/mcp`,
-    authorization_servers: [origin],
+    resource: CMPRI_MCP_RESOURCE,
+    authorization_servers: [new URL(CMPRI_MCP_RESOURCE).origin],
     bearer_methods_supported: ["header"],
     scopes_supported: ["cmpri:read", "cmpri:write"],
   }, {

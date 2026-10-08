@@ -1,12 +1,11 @@
-import { CANONICAL_APP_URL } from "@/lib/constants";
+import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  const origin = CANONICAL_APP_URL;
   return Response.json({
-    resource: `${origin}/api/mcp`,
-    authorization_servers: [origin],
+    resource: CMPRI_MCP_RESOURCE,
+    authorization_servers: [new URL(CMPRI_MCP_RESOURCE).origin],
     bearer_methods_supported: ["header"],
     scopes_supported: ["cmpri:read", "cmpri:write"],
   }, {

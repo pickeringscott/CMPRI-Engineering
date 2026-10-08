@@ -1,6 +1,4 @@
-import { CANONICAL_APP_URL } from "@/lib/constants";
-
-export const CMPRI_MCP_RESOURCE = `${CANONICAL_APP_URL}/api/mcp`;
+export const CMPRI_MCP_RESOURCE = "https://www.cmpri-engineering.com/api/mcp";
 export const CMPRI_MCP_SCOPE = "cmpri:read";
 export const CMPRI_MCP_WRITE_SCOPE = "cmpri:read cmpri:write";
 

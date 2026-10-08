@@ -1,9 +1,9 @@
-import { CANONICAL_APP_URL } from "@/lib/constants";
+import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  const origin = CANONICAL_APP_URL;
+  const origin = new URL(CMPRI_MCP_RESOURCE).origin;
   return Response.json({
     issuer: origin,
     authorization_endpoint: `${origin}/mcp/authorize`,
