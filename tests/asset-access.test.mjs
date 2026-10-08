@@ -32,14 +32,15 @@ function fixture(route, config={}) {
   const calls=[];
   let insertedAsset=null;
   let updatedAsset=null;
-  const assetRows=config.assetRows || (config.asset ? [{id:'test'}] : []);
+  const assetRows=config.assetRows || (config.asset ? [{id:'test',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true}] : []);
   const profile=config.profile === undefined ? {active:true,role:config.permission?'Chief Engineer':'Front Desk',full_name:'Test'} : config.profile;
   const data={
     auth:{getUser:async()=>({data:{user:config.noUser?null:{id:'test-user'}},error:config.authError?{message:'auth failed'}:null})},
     from(table){
       calls.push(table);
       const query={
-        select(){return query;},eq(){return query;},range(start,end){query.rangeStart=start;query.rangeEnd=end;return query;},
+        filters:[],
+        select(){return query;},eq(key,value){query.filters.push([key,value]);return query;},range(start,end){query.rangeStart=start;query.rangeEnd=end;return query;},
         async maybeSingle(){
           if(table==='profiles')return {data:profile,error:config.profileError?{message:'profile failed'}:null};
           if(table==='role_permissions')return {data:config.permission?{permission:'manage_assets',allowed:true}:null,error:config.permissionError?{message:'permission failed'}:null};
@@ -48,7 +49,10 @@ function fixture(route, config={}) {
           throw new Error(`Unexpected table ${table}`);
         },
         order(){return query;},
-        then(resolve,reject){return Promise.resolve({data:assetRows.slice(query.rangeStart ?? 0, (query.rangeEnd ?? assetRows.length - 1) + 1),error:null}).then(resolve,reject);},
+        then(resolve,reject){
+          const rows=table==='assets'?assetRows.filter(row=>query.filters.every(([key,value])=>row[key]===value)):assetRows;
+          return Promise.resolve({data:rows.slice(query.rangeStart ?? 0, (query.rangeEnd ?? rows.length - 1) + 1),error:null}).then(resolve,reject);
+        },
         insert(row){insertedAsset=row;return query;},
         update(row){updatedAsset=row;return query;},
         async single(){
@@ -194,17 +198,36 @@ test('front desk cannot read equipment management',async()=>{
   assert.equal((await f.handlers.GET(f.request)).status,403);
 });
 test('GET reads assets beyond the Supabase page limit',async()=>{
-  const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
+  const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`,hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}))});
   const result=await f.handlers.GET(f.request);
   assert.equal(result.status,200);
   assert.equal(result.body.assets.length,1001);
 });
 test('work-order creation asset mode reads beyond the Supabase page limit',async()=>{
-  const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`}))});
+  const f=fixture('route.ts',{permission:true,assetRows:Array.from({length:1001},(_,index)=>({id:`asset-${index}`,hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true}))});
   f.request.nextUrl.searchParams.set('mode','create');
   const result=await f.handlers.GET(f.request);
   assert.equal(result.status,200);
   assert.equal(result.body.assets.length,1001);
+});
+test('GET includes assets assigned to another hotel id in the single-property asset table',async()=>{
+  const f=fixture('route.ts',{permission:true,assetRows:[
+    {id:'asset-current-property',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'},
+    {id:'asset-legacy-property',hotel_id:'legacy-property-id'},
+  ]});
+  const result=await f.handlers.GET(f.request);
+  assert.equal(result.status,200);
+  assert.deepEqual(Array.from(result.body.assets,asset=>asset.id),['asset-current-property','asset-legacy-property']);
+});
+test('work-order creation asset mode includes assets assigned to another hotel id',async()=>{
+  const f=fixture('route.ts',{permission:true,assetRows:[
+    {id:'asset-current-property',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
+    {id:'asset-legacy-property',hotel_id:'legacy-property-id',active:true},
+  ]});
+  f.request.nextUrl.searchParams.set('mode','create');
+  const result=await f.handlers.GET(f.request);
+  assert.equal(result.status,200);
+  assert.deepEqual(Array.from(result.body.assets,asset=>asset.id),['asset-current-property','asset-legacy-property']);
 });
 test('authorized editor passes permission gate to scoped asset lookup',async()=>{
   const f=fixture('route.ts',{permission:true});assert.equal((await f.handlers.PATCH(f.request)).status,404);assert.equal(f.calls.includes('assets'),true);
