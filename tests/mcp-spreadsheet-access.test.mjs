@@ -60,6 +60,7 @@ test('MCP tools/list preserves the generic nested write input for every advertis
   const route=load('app/api/mcp/route.ts',{
     'next/server':{NextRequest:class {}},
     '@/lib/constants':{HOTEL_ID:'test-hotel'},
+    '@/lib/server/cmpri-mcp-oauth-scope':{CMPRI_MCP_RESOURCE:'https://www.cmpri-engineering.com/api/mcp'},
     '@/lib/server/cmpri-mcp':{mcpIdentity:async()=>identity('Chief Engineer')},
     '@/lib/server/cmpri-mcp-reads':{
       availableMcpReadViews:()=>[],
