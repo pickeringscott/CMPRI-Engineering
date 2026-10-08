@@ -1285,8 +1285,9 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  async function saveTicket() {
+  async function saveTicket(statusOverride?: string) {
     if (!order) return;
+    const saveStatus = statusOverride ?? status;
 
     const normalizedIssue = cleanTicketReportedIssue(issue, order.room || "");
     if (canEditField("issue") && !normalizedIssue.trim()) {
@@ -1305,7 +1306,7 @@ export default function WorkOrderTicketPage() {
     if ((order.category || "General") !== category) fieldChanges.push(`Category: ${order.category || "General"} → ${category}`);
     if ((order.priority || "Medium") !== priority) fieldChanges.push(`Priority: ${order.priority || "Medium"} → ${priority}`);
     if ((order.technician_name || "") !== technicianName.trim()) fieldChanges.push(`Technician: ${order.technician_name || "Unassigned"} → ${technicianName.trim() || "Unassigned"}`);
-    if ((order.status || "Open") !== status) fieldChanges.push(`Status: ${order.status || "Open"} → ${status}`);
+    if ((order.status || "Open") !== saveStatus) fieldChanges.push(`Status: ${order.status || "Open"} → ${saveStatus}`);
     const originalDue = order.due_by ? String(order.due_by).slice(0,10) : "";
     if (originalDue !== dueBy) fieldChanges.push(`Due By: ${originalDue || "None"} → ${dueBy || "None"}`);
     if (cleanTicketReportedIssue(order.issue || "", order.room || "") !== normalizedIssue) fieldChanges.push("Reported Issue updated");
@@ -1324,7 +1325,7 @@ export default function WorkOrderTicketPage() {
         category,
         priority,
         technician_name: technicianName.trim(),
-        status,
+        status: saveStatus,
         notes: notesWithChanges,
         action_root_cause: actionRootCause.trim(),
         parts: parts.trim(),
@@ -1336,11 +1337,11 @@ export default function WorkOrderTicketPage() {
       Object.assign(updatePayload, {
         asset_id: asset?.id ?? null,
         category,
-        status,
+        status: saveStatus,
         notes: notesWithChanges,
       });
     } else if (canReviewCurrentTicket && capabilities.includes("review_tickets")) {
-      if ((order.status || "Open") !== status) updatePayload.status = status;
+      if ((order.status || "Open") !== saveStatus) updatePayload.status = saveStatus;
       if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
     } else if (canAddWorkOrderNotes && capabilities.includes("add_work_order_notes")) {
       if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
@@ -1383,11 +1384,12 @@ export default function WorkOrderTicketPage() {
     }
 
     if (savedRow) setOrder({ ...savedRow, technician_view_entries: order.technician_view_entries });
+    if (statusOverride !== undefined) setStatus(saveStatus);
     setNotes(notesWithChanges);
     setStagedNoteIds([]);
 
     setInitialFingerprint(JSON.stringify({
-      issue: normalizedIssue, assetId, category, priority, technicianName, status, notes: notesWithChanges,
+      issue: normalizedIssue, assetId, category, priority, technicianName, status: saveStatus, notes: notesWithChanges,
       actionRootCause, parts, cost, hours, dueBy,
     }));
     setSaving(false);
@@ -1740,7 +1742,7 @@ export default function WorkOrderTicketPage() {
               </button>
               {(editableFields.length > 0 || canReviewCurrentTicket) && <button
                 type="button"
-                onClick={saveTicket}
+                onClick={() => { void saveTicket(); }}
                 disabled={saving || saveState === "saved"}
                 className={`rounded-lg border px-5 py-3 text-sm font-bold transition-colors disabled:opacity-80 ${
                   saveState === "saved"
@@ -1823,7 +1825,7 @@ export default function WorkOrderTicketPage() {
 
               {status === "Pending Verification" && canReviewTicket && (
                 <div className="mt-4 flex justify-end">
-                  <button type="button" onClick={() => { setStatus("Open"); setMessage("Verified. Save the work order to approve it and move it into the active Open queue."); }} className="rounded-lg border border-purple-400/50 bg-purple-950/40 px-3 py-2 text-xs font-bold text-purple-100 hover:bg-purple-900/50">Approve → Open</button>
+                  <button type="button" onClick={() => { void saveTicket("Open"); }} disabled={saving} className="rounded-lg border border-purple-400/50 bg-purple-950/40 px-3 py-2 text-xs font-bold text-purple-100 hover:bg-purple-900/50 disabled:opacity-60">Approve → Open</button>
                 </div>
               )}
 

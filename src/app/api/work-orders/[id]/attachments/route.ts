@@ -52,9 +52,8 @@ async function authorizedWorkOrder(request: NextRequest, id: string, mode: "read
     .maybeSingle();
   if (error) return { response: NextResponse.json({ error: "The work order could not be verified." }, { status: 503 }) };
   if (!workOrder) return { response: NextResponse.json({ error: "Work order not found." }, { status: 404 }) };
-  if ((roleKey(auth.principal.profile.role) === "technician"
-    || !allows(auth.principal, "view_dashboard")
-    || allows(auth.principal, "add_work_order_notes"))
+  const canEditOrReview = allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets");
+  if ((roleKey(auth.principal.profile.role) === "technician" || !canEditOrReview)
     && allows(auth.principal, "view_work_orders")
     && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
     return { response: NextResponse.json({ error: "This role can only view attachments for open work orders." }, { status: 403 }) };

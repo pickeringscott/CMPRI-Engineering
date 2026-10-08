@@ -374,7 +374,7 @@ test('work-order labor and parts inputs use field-level permissions',()=>{
   }
   assert.match(source,/disabled=\{!canEditField\("action_root_cause"\) \|\| saving\}/);
   assert.match(source,/const values = \["Open", "In Progress", "Completed"\]/);
-  assert.match(source,/else if \(canEditField\("asset_id"\)\) \{\s*Object\.assign\(updatePayload, \{\s*asset_id: asset\?\.id \?\? null,\s*category,\s*status,\s*notes: notesWithChanges,/);
+  assert.match(source,/else if \(canEditField\("asset_id"\)\) \{\s*Object\.assign\(updatePayload, \{\s*asset_id: asset\?\.id \?\? null,\s*category,\s*status: saveStatus,\s*notes: notesWithChanges,/);
 });
 
 test('the observed system_admin role can reopen with explicit editing permission',async()=>{

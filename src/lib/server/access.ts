@@ -1,4 +1,4 @@
-import { membershipAllows, profileAllows, profileHasRole, roleKey, type Capability } from "./roles";
+import { membershipAllows, profileAllows, profileHasRole, profileIsChiefEngineer, roleKey, type Capability } from "./roles";
 export type { Capability } from "./roles";
 
 export type AccessIdentity = { id: string; email: string | null };
@@ -75,12 +75,23 @@ const GRANTS: Partial<Record<Capability, readonly string[]>> = {
   operate_integrations: ["manage_pm", "manage_integrations"],
 };
 
+const CHIEF_ENGINEER_WORK_ORDER_CAPABILITIES: readonly Capability[] = [
+  "view_work_orders",
+  "add_work_order_notes",
+  "edit_tickets",
+  "review_tickets",
+  "close_tickets",
+  "reopen",
+];
+
 /**
  * Submit and read-dashboard access are hard application policy for active property members.
- * Mutations beyond submission require both the named-role policy and a database grant.
+ * Other mutations require both the named-role policy and a database grant; Chief Engineer
+ * work-order controls are granted directly by role.
  */
 export function allows(principal: Principal, capability: Capability): boolean {
   if (principal.profile.active !== true || principal.membership.active !== true) return false;
+  if (profileIsChiefEngineer(principal.profile) && CHIEF_ENGINEER_WORK_ORDER_CAPABILITIES.includes(capability)) return true;
   if (!membershipAllows(principal.membership.role, capability)) return false;
   if (!profileAllows(principal.profile, capability)) return false;
 

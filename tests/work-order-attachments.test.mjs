@@ -293,6 +293,12 @@ test("attachment retries reuse a validated upload ID without creating duplicate 
   assert.equal(invalid.storageCalls.length, 0);
 });
 
+test("Chief Engineer can read and upload attachments for closed work orders they did not create", async () => {
+  const route = fixture({ role: "Chief Engineer", userId: "chief", createdBy: "owner", status: "Closed" });
+  assert.equal((await route.get()).status, 200);
+  assert.equal((await route.post(photo())).status, 200);
+});
+
 test("attachment listing returns signed image URLs and surfaces storage/signing failures", async () => {
   const route = fixture({
     role: "General Manager",

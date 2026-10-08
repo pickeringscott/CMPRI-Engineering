@@ -100,6 +100,13 @@ export function profileHasRole(
     && assignedRole.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).some((roleLabel) => roleKey(roleLabel) === role));
 }
 
+export function profileIsChiefEngineer(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
+  const assignedRoles = [profile.role, ...(profile.secondary_roles || [])];
+  return assignedRoles.some((assignedRole) => typeof assignedRole === "string"
+    && assignedRole.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i)
+      .some((roleLabel) => roleLabel.trim().toLowerCase().replace(/[\s_-]+/g, "") === "chiefengineer"));
+}
+
 const TECHNICAL: readonly Capability[] = [
   "submit",
   "add_work_order_notes",

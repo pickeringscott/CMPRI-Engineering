@@ -10,12 +10,12 @@ function walk(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='saveTicket')sav
 assert.ok(save);
 const code=ts.transpileModule(save+'\nexports.save=saveTicket;', {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 function fixture(failure,extra={}){
-  const calls={reload:0,fetch:0,requests:[],notes:[],staged:[],saving:[],messages:[],fingerprints:[]};
+  const calls={reload:0,fetch:0,requests:[],notes:[],staged:[],saving:[],messages:[],fingerprints:[],status:[]};
   const exports={};
   const ctx={exports,order:{id:'order',issue:'Fan noisy',room:'409',status:'Open',revision:7},issue:'Fan noisy',assets:[],assetId:'',category:'General',priority:'Medium',technicianName:'',status:'In Progress',notes:'Unsaved technician note',actionRootCause:'',parts:'',cost:'',hours:'',dueBy:'',currentActor:'Test Engineer',embedded:false,modalToken:'',
     canEditField:()=>true,
     cleanTicketReportedIssue:value=>value,historyLine:entry=>JSON.stringify(entry),
-    setSaving:v=>calls.saving.push(v),setSaveState:()=>{},setMessage:v=>calls.messages.push(v),setIssue:()=>{},setOrder:()=>{},setNotes:v=>calls.notes.push(v),setStagedNoteIds:v=>calls.staged.push(v),setInitialFingerprint:v=>calls.fingerprints.push(v),
+    setSaving:v=>calls.saving.push(v),setSaveState:()=>{},setMessage:v=>calls.messages.push(v),setIssue:()=>{},setStatus:v=>calls.status.push(v),setOrder:()=>{},setNotes:v=>calls.notes.push(v),setStagedNoteIds:v=>calls.staged.push(v),setInitialFingerprint:v=>calls.fingerprints.push(v),
     loadTicket:async()=>{calls.reload++;},
     getValidSession:async()=>{if(failure==='session')throw Error('Session unavailable');return {access_token:'fake'};},
     supabase:{auth:{getSession:async()=>({data:{session:{access_token:'fake'}}})}},
@@ -33,4 +33,16 @@ test('blank issue stops before any save request',async()=>{const f=fixture(null,
 
 test('ticket save sends the original database revision',async()=>{
   const f=fixture();await f.run();assert.equal(f.calls.requests[0].expected_revision,7);
+});
+test('one-click approval saves pending edits and changes status to Open in the same request',async()=>{
+  const f=fixture(null,{order:{id:'order',issue:'Fan noisy',room:'409',status:'Pending Verification',revision:7},status:'Pending Verification',notes:'Submitter comments'});
+  await f.run('Open');
+  assert.equal(f.calls.fetch,1);
+  assert.equal(f.calls.requests[0].status,'Open');
+  assert.equal(f.calls.requests[0].issue,'Fan noisy');
+  assert.match(f.calls.requests[0].notes,/Submitter comments/);
+  assert.equal(f.calls.status[0],'Open');
+});
+test('Approve triggers the save operation directly without a second button action',()=>{
+  assert.match(source,/<button type="button" onClick=\{\(\) => \{ void saveTicket\("Open"\); \}\}[^>]*>Approve/);
 });

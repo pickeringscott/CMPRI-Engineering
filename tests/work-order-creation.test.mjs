@@ -132,6 +132,12 @@ test('reporter comments are appended to submitted notes without losing either',a
   assert.equal((await f.handler(f.request)).status,200);
   assert.equal(f.writes[0].notes,'Remote was already replaced.\nGuest is going to leave at 5 PM');
 });
+for(const role of ['Front Desk','Front Desk Manager','Assistant General Manager','Housekeeping','Lead Housekeeper','Sales Manager','General Manager','Maintenance Technician','Chief Engineer','System Administrator'])test(`reporter comments reach work-order notes for ${role} submissions`,async()=>{
+  const f=fixture({orders:[{...order,issue:'TV is broken\nGuest is going to leave at 5 PM',notes:'Remote was already replaced.'}],staff_first_name:'Scott'},{profile:{role,full_name:'Test Submitter'}});
+  assert.equal((await f.handler(f.request)).status,200);
+  assert.equal(f.writes[0].issue,'TV is broken');
+  assert.equal(f.writes[0].notes,'Remote was already replaced.\nGuest is going to leave at 5 PM');
+});
 test('multi-work-order submissions preserve each issue and move shared reporter context to notes atomically',async()=>{
   const f=fixture({orders:[
     {...order,issue:'TV is broken\nGuest is leaving at 5 PM'},

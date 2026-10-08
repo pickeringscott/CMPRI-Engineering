@@ -145,6 +145,17 @@ test("Maintenance Technician receives workflow permissions but not engineering a
   }
 });
 
+test("Chief Engineer retains full work-order control without additional membership grants", () => {
+  const principal = makePrincipal("Chief Engineer");
+  principal.membership.role = "manager";
+  principal.permissions = [];
+  for (const capability of ["view_work_orders", "add_work_order_notes", "edit_tickets", "review_tickets", "close_tickets", "reopen"]) {
+    assert.equal(accessModule.allows(principal, capability), true, capability);
+  }
+  assert.equal(accessModule.allows(principal, "manage_assets"), false);
+  assert.equal(accessModule.allows(principal, "manage_rooms"), false);
+});
+
 test("CMPRI go-live roles receive only their approved operational capabilities", () => {
   const expected = new Map([
     ["Housekeeping", ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"]],
