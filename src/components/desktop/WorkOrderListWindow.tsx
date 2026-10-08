@@ -128,7 +128,6 @@ export default function WorkOrderListWindow({
 }) {
   const [filter, setFilter] = useState<WorkOrderListFilter>("all");
   const [query, setQuery] = useState("");
-  const [showFilters, setShowFilters] = useState(true);
   const groups = useMemo(() => groupWorkOrders(orders), [orders]);
   const normalizedQuery = query.trim().toLowerCase();
   const rows = normalizedQuery
@@ -136,22 +135,10 @@ export default function WorkOrderListWindow({
     : groups[filter];
 
   return (
-    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.55em] overflow-hidden bg-[#06162b] p-[0.65em] text-white">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.55em]">
+    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-[#06162b] p-[0.45em] text-white">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
         <h1 className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.4em] @md:flex-nowrap">
-          <button
-            type="button"
-            aria-expanded={showFilters}
-            aria-controls="work-order-kpi-filters"
-            onClick={() => setShowFilters((visible) => !visible)}
-            className="inline-flex shrink-0 items-center gap-[0.35em] rounded-md border border-[#28527b] bg-[#102a47] px-[0.7em] py-[0.45em] text-[0.9em] font-semibold text-slate-100 hover:bg-[#173757]"
-          >
-            <svg aria-hidden="true" viewBox="0 0 20 20" className="size-[1em] fill-none stroke-current" strokeWidth="1.7">
-              <path d="M3 4h14l-5.5 6.2v4.4l-3 1.5v-5.9L3 4Z" strokeLinejoin="round" />
-            </svg>
-            Filter
-          </button>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
           <div className="relative min-w-[12em] flex-1 @md:max-w-[32em]">
             <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute left-[0.65em] top-1/2 size-[1em] -translate-y-1/2 fill-none stroke-slate-400" strokeWidth="1.7">
               <circle cx="8.5" cy="8.5" r="5.5" />
@@ -170,32 +157,31 @@ export default function WorkOrderListWindow({
         </div>
       </header>
 
-      {showFilters && (
-        <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.35em] @md:grid-cols-4 @4xl:grid-cols-8">
-          {KPI_CARDS.map((card) => {
-            const selected = !normalizedQuery && filter === card.key;
-            return (
-              <button
-                key={card.key}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => { setFilter(card.key); setQuery(""); }}
-                className={`min-w-0 rounded-md border px-[0.55em] py-[0.3em] text-left ${selected ? "border-sky-400 bg-[#102a47]" : "border-[#1b3d60] bg-[#0a1e34] hover:border-[#3974a8]"}`}
-              >
-                <span className="block truncate text-[0.72em] font-semibold uppercase tracking-wide text-slate-300">{card.label}</span>
-                <span className={`block text-[1.15em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-4 gap-[0.2em] @md:grid-cols-8">
+        {KPI_CARDS.map((card) => {
+          const selected = !normalizedQuery && filter === card.key;
+          return (
+            <button
+              key={card.key}
+              type="button"
+              title={card.label}
+              aria-pressed={selected}
+              onClick={() => { setFilter(card.key); setQuery(""); }}
+              className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-[#102a47]" : "border-[#1b3d60] bg-[#0a1e34] hover:border-[#3974a8]"}`}
+            >
+              <span className="min-w-0 truncate text-[0.62em] font-semibold uppercase leading-tight tracking-wide text-slate-300">{card.label}</span>
+              <span className={`shrink-0 text-[0.9em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (
-          <p className="rounded-md border border-[#1b3d60] bg-[#0a1e34] p-[0.8em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
+          <p className="rounded-md border border-[#1b3d60] bg-[#0a1e34] p-[0.5em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
         )}
         {rows.length > 0 && (
-          <div className="flex flex-col gap-[0.4em]">
+          <div className="flex flex-col gap-[0.2em]">
             {rows.slice(0, ROW_LIMIT).map((order) => {
               const occupancy = roomStatusBadge(order.room_status);
               const checkout = checkoutLabel(order.checkout_date, order.checkout_time);
@@ -205,40 +191,40 @@ export default function WorkOrderListWindow({
                   type="button"
                   onClick={() => onOpenWorkOrder(order)}
                   aria-label={`Open work order for ${order.room || "No location"}: ${order.issue || "No issue description"}`}
-                  className="flex w-full min-w-0 flex-col gap-[0.35em] rounded-lg border border-[#1b4771] bg-[#0b2340] px-[0.75em] py-[0.55em] text-left transition-colors hover:border-[#3277b7] hover:bg-[#102b4b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+                  className="flex w-full min-w-0 flex-col gap-[0.12em] rounded-md border border-[#1b4771] bg-[#0b2340] px-[0.6em] py-[0.28em] text-left transition-colors hover:border-[#3277b7] hover:bg-[#102b4b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >
-                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.7em] gap-y-[0.35em]">
-                    <div className="flex min-w-0 flex-wrap items-center gap-[0.4em]">
-                      <span className="font-bold text-white">{order.room || "No location"}</span>
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.5em] gap-y-[0.12em]">
+                    <div className="flex min-w-0 flex-wrap items-center gap-[0.25em]">
+                      <span className="font-bold leading-tight text-white">{order.room || "No location"}</span>
                       {order.cn_room && (
                         <Image
                           src="/railway-cn-logo.png"
                           alt="CN"
                           width={42}
                           height={27}
-                          className="h-[1.35em] w-auto rounded-[4px] object-contain"
+                          className="h-[1.15em] w-auto rounded-[3px] object-contain"
                         />
                       )}
-                      {occupancy && <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.76em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
-                      {checkout && <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.76em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
+                      {occupancy && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
+                      {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-[0.35em]">
-                      {order.priority && <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.78em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
-                      <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.78em] font-semibold leading-tight ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
-                      <svg aria-hidden="true" viewBox="0 0 20 20" className="size-[1.1em] shrink-0 fill-none stroke-sky-400" strokeWidth="2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-[0.22em]">
+                      {order.priority && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
+                      <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
+                      <svg aria-hidden="true" viewBox="0 0 20 20" className="size-[0.95em] shrink-0 fill-none stroke-sky-400" strokeWidth="2">
                         <path d="m7 4 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
                   </div>
-                  <span className="block break-words text-white">{order.issue || "No issue description"}</span>
-                  <span className="block break-words text-[0.88em] text-sky-200/75">Assigned to: {order.technician_name || "Unassigned"}</span>
+                  <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
+                  <span className="block break-words text-[0.78em] leading-tight text-sky-200/75">Assigned to: {order.technician_name || "Unassigned"}</span>
                 </button>
               );
             })}
           </div>
         )}
       </div>
-      <span role="status" className="shrink-0 text-right text-[0.8em] text-sky-200/70">
+      <span role="status" className="shrink-0 text-right text-[0.68em] leading-tight text-sky-200/70">
         {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${rows.length}`}
       </span>
     </div>
