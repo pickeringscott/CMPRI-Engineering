@@ -1,14 +1,19 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
-import { filterKpiWorkOrders, isKpiOverdue, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
+import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { roomStatusBadge } from "@/lib/room-availability";
+import { HOTEL_TIME_ZONE } from "@/lib/constants";
 
 export type DesktopWorkOrder = Record<string, unknown> & {
   id: string;
   display_id?: string | null;
   room?: string | null;
   room_status?: string | null;
+  checkout_date?: string | null;
+  checkout_time?: string | null;
+  cn_room?: boolean | null;
   asset_name?: string | null;
   category?: string | null;
   issue?: string | null;
@@ -23,32 +28,66 @@ export type WorkOrderListFilter = "pending" | "open" | "progress" | "priority" |
 
 export function priorityClass(priority?: string | null) {
   const value = String(priority || "").toLowerCase();
-  if (value === "urgent") return "border-purple-400/40 bg-purple-950/45 text-purple-200";
-  if (value === "high") return "border-red-400/40 bg-red-950/40 text-red-200";
+  if (value === "urgent" || value === "high") return "border-red-400/40 bg-red-950/40 text-red-200";
   if (value === "medium") return "border-yellow-400/40 bg-yellow-950/35 text-yellow-200";
-  if (value === "low") return "border-blue-400/40 bg-blue-950/35 text-blue-200";
-  return "border-slate-700 bg-slate-900 text-slate-300";
+  return "border-slate-600 bg-slate-800 text-slate-300";
 }
 
 export function statusClass(status?: string | null) {
   const value = normalizeKpiStatus(status).toLowerCase();
-  if (value === "pending verification") return "border-purple-400/50 bg-purple-950/45 text-purple-200";
-  if (value === "open") return "border-green-400/40 bg-green-950/35 text-green-200";
-  if (value === "in progress") return "border-yellow-400/40 bg-yellow-950/35 text-yellow-200";
-  if (value === "completed") return "border-blue-400/40 bg-blue-950/35 text-blue-200";
-  if (value === "duplicate") return "border-orange-400/40 bg-orange-950/35 text-orange-200";
-  if (value === "closed") return "border-red-400/40 bg-red-950/35 text-red-200";
-  return "border-slate-600 bg-slate-800 text-slate-200";
+  if (value === "pending verification" || value === "in review") return "border-purple-400/50 bg-purple-950/45 text-purple-200";
+  if (value === "open") return "border-blue-400/40 bg-blue-950/35 text-blue-200";
+  if (value === "in progress") return "border-orange-400/40 bg-orange-950/35 text-orange-200";
+  if (value === "completed") return "border-green-400/40 bg-green-950/35 text-green-200";
+  if (value === "will not do") return "border-red-400/40 bg-red-950/35 text-red-200";
+  return "border-slate-600 bg-slate-800 text-slate-300";
 }
 
 export function isPendingApproval(order: { status?: string | null }) {
   return normalizeKpiStatus(order.status).toLowerCase() === "pending verification";
 }
 
-function formatDue(value?: string | null) {
-  if (!value) return "—";
-  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function hotelDate() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: HOTEL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function checkoutDays(value: string, today = hotelDate()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const checkout = new Date(`${value}T00:00:00Z`);
+  const current = new Date(`${today}T00:00:00Z`);
+  if (Number.isNaN(checkout.getTime()) || Number.isNaN(current.getTime())) return null;
+  return Math.round((checkout.getTime() - current.getTime()) / 86_400_000);
+}
+
+function checkoutLabel(date?: string | null, time?: string | null) {
+  if (!date) return null;
+  const days = checkoutDays(date);
+  const parsed = new Date(`${date.slice(0, 10)}T12:00:00`);
+  const displayDate = Number.isNaN(parsed.getTime())
+    ? date
+    : parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const when = time ? ` · ${time}` : "";
+  if (days === 0) return { label: `Checkout today${when}`, className: "border-green-400/45 bg-green-950/35 text-green-200" };
+  if (days === 1) return { label: `Checkout tomorrow${when}`, className: "border-blue-400/45 bg-blue-950/35 text-blue-200" };
+  if (days !== null && days < 0) return { label: `Overdue · ${displayDate}${when}`, className: "border-red-400/45 bg-red-950/35 text-red-200" };
+  return { label: `${displayDate}${when}`, className: "border-transparent bg-transparent text-slate-400" };
+}
+
+function priorityLabel(priority?: string | null) {
+  const value = String(priority || "").trim();
+  const normalized = value.toLowerCase();
+  if (normalized === "urgent") return "Urgent Priority";
+  if (normalized === "high") return "High Priority";
+  if (normalized === "medium") return "Medium Priority";
+  if (normalized === "low" || normalized === "normal") return "Normal Priority";
+  return value;
 }
 
 export function groupWorkOrders<T extends DesktopWorkOrder>(orders: T[]): Record<WorkOrderListFilter, T[]> {
@@ -89,6 +128,7 @@ export default function WorkOrderListWindow({
 }) {
   const [filter, setFilter] = useState<WorkOrderListFilter>("all");
   const [query, setQuery] = useState("");
+  const [showFilters, setShowFilters] = useState(true);
   const groups = useMemo(() => groupWorkOrders(orders), [orders]);
   const normalizedQuery = query.trim().toLowerCase();
   const rows = normalizedQuery
@@ -96,88 +136,111 @@ export default function WorkOrderListWindow({
     : groups[filter];
 
   return (
-    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.5em] overflow-hidden p-[0.6em]">
-      <div role="group" aria-label="Work order KPIs" className="grid shrink-0 grid-cols-2 gap-[0.4em] @md:grid-cols-4 @4xl:grid-cols-8">
-        {KPI_CARDS.map((card) => {
-          const selected = !normalizedQuery && filter === card.key;
-          return (
-            <button
-              key={card.key}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => { setFilter(card.key); setQuery(""); }}
-              className={`min-w-0 rounded-md border px-[0.6em] py-[0.35em] text-left ${selected ? "border-amber-400 bg-amber-950/25" : "border-slate-800 bg-slate-900/80 hover:border-slate-600"}`}
-            >
-              <span className="block truncate text-[0.78em] font-semibold uppercase tracking-wide text-slate-400">{card.label}</span>
-              <span className={`block text-[1.35em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex shrink-0 items-center gap-[0.5em]">
-        <div className="relative min-w-0 flex-1">
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search work orders…"
-            aria-label="Search work orders"
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-[0.75em] pr-[2.2em] text-white outline-none placeholder:text-slate-500 focus:border-amber-400"
-          />
-          {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
+    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.55em] overflow-hidden bg-[#06162b] p-[0.65em] text-white">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.55em]">
+        <h1 className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.4em] @md:flex-nowrap">
+          <button
+            type="button"
+            aria-expanded={showFilters}
+            aria-controls="work-order-kpi-filters"
+            onClick={() => setShowFilters((visible) => !visible)}
+            className="inline-flex shrink-0 items-center gap-[0.35em] rounded-md border border-[#28527b] bg-[#102a47] px-[0.7em] py-[0.45em] text-[0.9em] font-semibold text-slate-100 hover:bg-[#173757]"
+          >
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="size-[1em] fill-none stroke-current" strokeWidth="1.7">
+              <path d="M3 4h14l-5.5 6.2v4.4l-3 1.5v-5.9L3 4Z" strokeLinejoin="round" />
+            </svg>
+            Filter
+          </button>
+          <div className="relative min-w-[12em] flex-1 @md:max-w-[32em]">
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute left-[0.65em] top-1/2 size-[1em] -translate-y-1/2 fill-none stroke-slate-400" strokeWidth="1.7">
+              <circle cx="8.5" cy="8.5" r="5.5" />
+              <path d="m13 13 4 4" strokeLinecap="round" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search rooms, locations, or issues..."
+              aria-label="Search rooms, locations, or issues"
+              className="w-full rounded-md border border-[#28527b] bg-[#0b2038] py-[0.45em] pl-[2em] pr-[2.2em] text-white outline-none placeholder:text-slate-400 focus:border-sky-400"
+            />
+            {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
+          </div>
         </div>
-        <span role="status" className="shrink-0 text-[0.85em] text-slate-400">
-          {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${rows.length}`}
-        </span>
-      </div>
+      </header>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-900/60">
+      {showFilters && (
+        <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.35em] @md:grid-cols-4 @4xl:grid-cols-8">
+          {KPI_CARDS.map((card) => {
+            const selected = !normalizedQuery && filter === card.key;
+            return (
+              <button
+                key={card.key}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => { setFilter(card.key); setQuery(""); }}
+                className={`min-w-0 rounded-md border px-[0.55em] py-[0.3em] text-left ${selected ? "border-sky-400 bg-[#102a47]" : "border-[#1b3d60] bg-[#0a1e34] hover:border-[#3974a8]"}`}
+              >
+                <span className="block truncate text-[0.72em] font-semibold uppercase tracking-wide text-slate-300">{card.label}</span>
+                <span className={`block text-[1.15em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (
-          <p className="p-[0.8em] text-slate-400">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
+          <p className="rounded-md border border-[#1b3d60] bg-[#0a1e34] p-[0.8em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
         )}
         {rows.length > 0 && (
-          <table className="w-full table-fixed border-collapse text-left text-[0.92em]">
-            <thead className="sticky top-0 z-10 bg-slate-900 text-[0.8em] uppercase tracking-wide text-slate-400">
-              <tr>
-                <th scope="col" className="hidden w-[7em] px-[0.6em] py-[0.4em] @xl:table-cell">WO #</th>
-                <th scope="col" className="w-[7.5em] px-[0.6em] py-[0.4em]">Location</th>
-                <th scope="col" className="px-[0.6em] py-[0.4em]">Issue</th>
-                <th scope="col" className="hidden w-[6.5em] px-[0.6em] py-[0.4em] @2xl:table-cell">Priority</th>
-                <th scope="col" className="w-[9.5em] px-[0.6em] py-[0.4em]">Status</th>
-                <th scope="col" className="hidden w-[9em] px-[0.6em] py-[0.4em] @3xl:table-cell">Technician</th>
-                <th scope="col" className="hidden w-[6em] px-[0.6em] py-[0.4em] @4xl:table-cell">Due</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {rows.slice(0, ROW_LIMIT).map((order) => (
-                <tr key={order.id} onClick={() => onOpenWorkOrder(order)} className="cursor-pointer align-top hover:bg-slate-800/60">
-                  <td className="hidden truncate px-[0.6em] py-[0.45em] font-mono text-slate-300 @xl:table-cell">{order.display_id || "—"}</td>
-                  <td className="px-[0.6em] py-[0.45em]">
-                    <button type="button" onClick={(event) => { event.stopPropagation(); onOpenWorkOrder(order); }} className="max-w-full truncate text-left font-bold text-white hover:underline">
-                      {order.room || "No location"}
-                    </button>
-                    {roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[0.72em] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}
-                    {order.category && <span className="block truncate text-[0.8em] text-slate-500">{order.category}</span>}
-                  </td>
-                  <td className="px-[0.6em] py-[0.45em]">
-                    <span className="line-clamp-2 text-slate-200">{order.issue || "No issue description"}</span>
-                    {order.asset_name && <span className="block truncate text-[0.8em] text-slate-500">{order.asset_name}</span>}
-                  </td>
-                  <td className="hidden px-[0.6em] py-[0.45em] @2xl:table-cell">
-                    {order.priority && <span className={`inline-block rounded-full border px-[0.5em] text-[0.82em] font-semibold ${priorityClass(order.priority)}`}>{order.priority}</span>}
-                  </td>
-                  <td className="px-[0.6em] py-[0.45em]">
-                    <span className={`inline-block max-w-full truncate rounded-full border px-[0.5em] text-[0.82em] font-semibold ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
-                  </td>
-                  <td className="hidden truncate px-[0.6em] py-[0.45em] text-slate-300 @3xl:table-cell">{order.technician_name || "Unassigned"}</td>
-                  <td className={`hidden px-[0.6em] py-[0.45em] @4xl:table-cell ${isKpiOverdue(order.due_by) ? "font-semibold text-orange-300" : "text-slate-400"}`}>{formatDue(order.due_by)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="flex flex-col gap-[0.4em]">
+            {rows.slice(0, ROW_LIMIT).map((order) => {
+              const occupancy = roomStatusBadge(order.room_status);
+              const checkout = checkoutLabel(order.checkout_date, order.checkout_time);
+              return (
+                <button
+                  key={order.id}
+                  type="button"
+                  onClick={() => onOpenWorkOrder(order)}
+                  aria-label={`Open work order for ${order.room || "No location"}: ${order.issue || "No issue description"}`}
+                  className="flex w-full min-w-0 flex-col gap-[0.35em] rounded-lg border border-[#1b4771] bg-[#0b2340] px-[0.75em] py-[0.55em] text-left transition-colors hover:border-[#3277b7] hover:bg-[#102b4b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+                >
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.7em] gap-y-[0.35em]">
+                    <div className="flex min-w-0 flex-wrap items-center gap-[0.4em]">
+                      <span className="font-bold text-white">{order.room || "No location"}</span>
+                      {order.cn_room && (
+                        <Image
+                          src="/railway-cn-logo.png"
+                          alt="CN"
+                          width={42}
+                          height={27}
+                          className="h-[1.35em] w-auto rounded-[4px] object-contain"
+                        />
+                      )}
+                      {occupancy && <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.76em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
+                      {checkout && <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.76em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-[0.35em]">
+                      {order.priority && <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.78em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
+                      <span className={`inline-flex rounded-full border px-[0.55em] py-[0.15em] text-[0.78em] font-semibold leading-tight ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
+                      <svg aria-hidden="true" viewBox="0 0 20 20" className="size-[1.1em] shrink-0 fill-none stroke-sky-400" strokeWidth="2">
+                        <path d="m7 4 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  </div>
+                  <span className="block break-words text-white">{order.issue || "No issue description"}</span>
+                  <span className="block break-words text-[0.88em] text-sky-200/75">Assigned to: {order.technician_name || "Unassigned"}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
+      <span role="status" className="shrink-0 text-right text-[0.8em] text-sky-200/70">
+        {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${rows.length}`}
+      </span>
     </div>
   );
 }

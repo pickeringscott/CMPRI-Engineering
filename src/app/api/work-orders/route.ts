@@ -13,7 +13,7 @@ import { likelyDuplicate } from "@/lib/work-order-duplicates";
 import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
-import { currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
+import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
 const ACTIVE_DUPLICATE_LIMIT = 1000;
@@ -21,11 +21,18 @@ const ACTIVE_DUPLICATE_LIMIT = 1000;
 async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: SupabaseClient, orders: T[]) {
   const roomStatuses = await loadCurrentRoomStatuses(admin);
   const statuses = roomStatuses.statuses;
-  if (roomStatuses.error || !statuses) return null;
-  return orders.map((order) => ({
-    ...order,
-    room_status: currentRoomStatus(statuses, order.room),
-  }));
+  const operations = roomStatuses.operations;
+  if (roomStatuses.error || !statuses || !operations) return null;
+  return orders.map((order) => {
+    const operation = currentRoomOperation(operations, order.room);
+    return {
+      ...order,
+      room_status: currentRoomStatus(statuses, order.room),
+      checkout_date: operation?.checkout_date || null,
+      checkout_time: operation?.checkout_time || null,
+      cn_room: operation?.cn_room ?? null,
+    };
+  });
 }
 
 async function fetchTechnicianWorkOrders(admin: SupabaseClient, technicianName: string | undefined) {

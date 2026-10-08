@@ -71,7 +71,8 @@ function fixture(config = {}) {
       if (name === '@/lib/work-order-categories') return { normalizeWorkOrderCategory: () => null };
       if (name === '@/lib/server/room-ranker') return { processRoomRankerSyncForWorkOrder: async () => ({}) };
       if (name === '@/lib/server/room-availability') return {
-        loadCurrentRoomStatuses: async () => ({ date: '2026-10-01', statuses: new Map(), error: null }),
+        currentRoomOperation: () => null,
+        loadCurrentRoomStatuses: async () => ({ date: '2026-10-01', statuses: new Map(), operations: new Map(), error: null }),
         currentRoomStatus: () => null,
       };
       if (name === '@/lib/server/paginated-query') return { fetchAllPages };

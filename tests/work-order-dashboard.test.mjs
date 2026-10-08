@@ -83,8 +83,9 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
       if (name === "@/lib/work-order-categories") return { normalizeWorkOrderCategory: (value) => value };
       if (name === "@/lib/server/room-ranker") return { processRoomRankerSyncForWorkOrder: async () => {} };
       if (name === "@/lib/server/room-availability") return {
+        currentRoomOperation: () => null,
         currentRoomStatus: () => null,
-        loadCurrentRoomStatuses: async () => ({ statuses: new Map(), error: null }),
+        loadCurrentRoomStatuses: async () => ({ statuses: new Map(), operations: new Map(), error: null }),
       };
       if (name === "@/lib/server/paginated-query") return { fetchAllPages };
       throw new Error(`Unexpected module ${name}`);
@@ -101,6 +102,9 @@ test("dashboard returns every work order beyond the old 2000-row limit", async (
   assert.equal(response.status, 200);
   assert.equal(response.body.work_orders.length, 2501);
   assert.equal(response.body.work_orders.at(-1).id, "order-2500");
+  assert.equal(response.body.work_orders[0].checkout_date, null);
+  assert.equal(response.body.work_orders[0].checkout_time, null);
+  assert.equal(response.body.work_orders[0].cn_room, null);
   assert.deepEqual(route.ranges, [[0, 999], [1000, 1999], [2000, 2999]]);
 });
 
