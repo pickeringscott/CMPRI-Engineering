@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   defaultNotificationSchedule,
+  isNotificationScheduleEligibleProfile,
   isWithinNotificationSchedule,
   isWebPushEligibleProfile,
   normalizeNotificationSettings,
@@ -31,13 +32,37 @@ test('schedule validation rejects malformed days and time zones', () => {
   assert.equal(normalizeNotificationSettings({ timezone: 'UTC', schedule: incomplete }), null);
 });
 
-test('Web Push eligibility is restricted to the two requested roles', () => {
+test('work-order Web Push delivery is restricted to Chief Engineers and Maintenance Technicians', () => {
   assert.equal(isWebPushEligibleProfile({ role: 'Chief Engineer' }), true);
   assert.equal(isWebPushEligibleProfile({ role: 'Maintenance Technician' }), true);
-  assert.equal(isWebPushEligibleProfile({ role: 'engineer' }), true);
+  assert.equal(isWebPushEligibleProfile({ role: 'System Administrator' }), true);
+  assert.equal(isWebPushEligibleProfile({ role: 'System Admin' }), true);
+  assert.equal(isWebPushEligibleProfile({ role: 'Engineer' }), false);
+  assert.equal(isWebPushEligibleProfile({ role: 'engineer' }), false);
   assert.equal(isWebPushEligibleProfile({ role: 'technician' }), true);
   assert.equal(isWebPushEligibleProfile({ role: 'Engineering Manager' }), false);
   assert.equal(isWebPushEligibleProfile({ role: 'Technician' }), true);
-  assert.equal(isWebPushEligibleProfile({ role: 'System Administrator', secondary_roles: ['engineer'] }), false);
+  assert.equal(isWebPushEligibleProfile({ role: 'System Administrator', secondary_roles: ['engineer'] }), true);
   assert.equal(isWebPushEligibleProfile({ role: 'Front Desk', secondary_roles: ['Chief Engineer'] }), true);
+});
+
+test('notification schedules are available only to Group 4 roles and all System Administrators', () => {
+  for (const role of [
+    'Chief Engineer',
+    'Engineer',
+    'Engineering Manager',
+    'Regional Maintenance',
+    'Maintenance Technician',
+    'Technician',
+    'Front Desk Manager',
+    'Assistant General Manager',
+    'General Manager',
+    'System Administrator',
+    'System Admin',
+  ]) {
+    assert.equal(isNotificationScheduleEligibleProfile({ role }), true, role);
+  }
+  for (const role of ['Front Desk', 'Housekeeping', 'Senior Management']) {
+    assert.equal(isNotificationScheduleEligibleProfile({ role }), false, role);
+  }
 });

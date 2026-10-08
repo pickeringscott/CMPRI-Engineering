@@ -12,8 +12,8 @@ self.addEventListener("push", (event) => {
   const url = typeof payload.url === "string" ? payload.url : "/engineering";
   event.waitUntil(self.registration.showNotification(title, {
     body,
-    icon: "/cmpri-push-icon.svg",
-    badge: "/cmpri-push-icon.svg",
+    icon: "/cmpri-engineering-icon-192.png",
+    badge: "/cmpri-engineering-icon-192.png",
     tag: typeof payload.tag === "string" ? payload.tag : undefined,
     data: { url },
   }));

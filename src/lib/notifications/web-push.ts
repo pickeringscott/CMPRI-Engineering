@@ -26,7 +26,7 @@ export async function dispatchWebPushNotifications(
   admin: SupabaseClient,
   recipientUserId: string,
   profile: WebPushEligibleProfile,
-  notifications: Array<{ id: string; message: string; target_path?: string | null }>,
+  notifications: Array<{ id: string; message: string; target_path?: string | null; work_order_id?: string | null }>,
 ) {
   if (!notifications.length || !isWebPushEligibleProfile(profile)) return;
   const { data: subscriptions, error: subscriptionsError } = await admin
@@ -56,7 +56,7 @@ export async function dispatchWebPushNotifications(
   }
   for (const notification of notifications) {
     for (const subscription of subscriptions as Array<{ id: string; subscription: webpush.PushSubscription }>) {
-      const { data: insertedClaim, error: claimError } = await admin
+      const { data: insertedDelivery, error: insertError } = await admin
         .from("cmpri_web_push_deliveries")
         .insert({
           hotel_id: HOTEL_ID,
@@ -67,48 +67,71 @@ export async function dispatchWebPushNotifications(
         })
         .select("id")
         .maybeSingle();
-      let claim = insertedClaim;
-      if (claimError && (claimError as { code?: string }).code === "23505") {
+      let deliveryId = insertedDelivery?.id as string | undefined;
+      if (insertError && (insertError as { code?: string }).code === "23505") {
         const existing = await admin.from("cmpri_web_push_deliveries")
-          .select("id, status")
+          .select("id, status, claimed_at")
           .eq("hotel_id", HOTEL_ID)
           .eq("recipient_user_id", recipientUserId)
           .eq("subscription_id", subscription.id)
           .eq("notification_key", notification.id)
           .maybeSingle();
         if (existing.error) throw new Error("Phone notification delivery status could not be loaded.");
-        if (!existing.data || existing.data.status !== "failed") continue;
-        claim = { id: existing.data.id };
-        const reset = await admin.from("cmpri_web_push_deliveries")
-          .update({ status: "pending" })
-          .eq("id", claim.id)
-          .eq("status", "failed");
-        if (reset.error) throw new Error("Phone notification delivery could not be retried.");
-      } else if (claimError) {
+        deliveryId = existing.data?.id;
+        if (!deliveryId) continue;
+      } else if (insertError) {
         throw new Error("Phone notification delivery could not be recorded.");
       }
-      if (!claim) continue;
       if (!scheduledAt) {
-        const { error: updateError } = await admin
-          .from("cmpri_web_push_deliveries")
-          .update({ status: "suppressed" })
-          .eq("id", claim.id);
-        if (updateError) throw new Error("Suppressed phone notification could not be recorded.");
         continue;
       }
+
+      const claimedAt = new Date().toISOString();
+      const claimPending = await admin.from("cmpri_web_push_deliveries")
+        .update({ status: "sending", claimed_at: claimedAt })
+        .eq("id", deliveryId)
+        .in("status", ["pending", "suppressed", "failed"])
+        .select("id")
+        .maybeSingle();
+      if (claimPending.error) throw new Error("Phone notification delivery could not be claimed.");
+      let claim = claimPending.data;
+      if (!claim) {
+        const existing = await admin.from("cmpri_web_push_deliveries")
+          .select("status, claimed_at")
+          .eq("id", deliveryId)
+          .maybeSingle();
+        if (existing.error) throw new Error("Phone notification delivery status could not be loaded.");
+        if (!existing.data || existing.data.status !== "sending") continue;
+
+        const staleBefore = new Date(Date.now() - 5 * 60_000).toISOString();
+        let staleClaim = admin.from("cmpri_web_push_deliveries")
+          .update({ status: "sending", claimed_at: claimedAt })
+          .eq("id", deliveryId)
+          .eq("status", "sending");
+        staleClaim = existing.data.claimed_at
+          ? staleClaim.lt("claimed_at", staleBefore)
+          : staleClaim.is("claimed_at", null);
+        const staleResult = await staleClaim.select("id").maybeSingle();
+        if (staleResult.error) throw new Error("A stalled phone notification delivery could not be recovered.");
+        claim = staleResult.data;
+      }
+      if (!claim) continue;
+
       try {
         await webpush.sendNotification(subscription.subscription, JSON.stringify({
           title: "CMPRI Engineering",
           body: notification.message,
-          url: notification.target_path || (notification.id.startsWith("new-order:") && notification.id.length > 10
-            ? `/work-orders/${encodeURIComponent(notification.id.slice("new-order:".length))}`
-            : "/engineering"),
+          url: notification.target_path || (notification.work_order_id
+            ? `/work-orders/${encodeURIComponent(notification.work_order_id)}`
+            : notification.id.startsWith("new-order:") && notification.id.length > 10
+              ? `/work-orders/${encodeURIComponent(notification.id.slice("new-order:".length))}`
+              : "/"),
           tag: `cmpri-${notification.id}`,
         }));
         const { error: updateError } = await admin
           .from("cmpri_web_push_deliveries")
-          .update({ status: "sent" })
-          .eq("id", claim.id);
+          .update({ status: "sent", claimed_at: null })
+          .eq("id", deliveryId);
         if (updateError) console.error("Phone notification delivery status could not be saved.", updateError);
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
@@ -124,8 +147,8 @@ export async function dispatchWebPushNotifications(
         }
         const { error: updateError } = await admin
           .from("cmpri_web_push_deliveries")
-          .update({ status: "failed" })
-          .eq("id", claim.id);
+          .update({ status: "failed", claimed_at: null })
+          .eq("id", deliveryId);
         if (updateError) console.error("Phone notification delivery status could not be saved.", updateError);
       }
     }

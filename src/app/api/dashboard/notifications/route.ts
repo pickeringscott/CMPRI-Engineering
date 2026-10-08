@@ -3,12 +3,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { receivesOrdinaryWorkOrderNotifications, roleKey } from "@/lib/server/roles";
+import {
+  profileHasRole,
+  profileIsChiefEngineerOrSystemAdmin,
+  receivesWorkOrderNotifications,
+} from "@/lib/server/roles";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import { isWebPushEligibleProfile } from "@/lib/notifications/schedule";
 import {
   dashboardNotificationScanStart,
   engineerHistoryNotifications,
+  markTechnicianViewedWorkOrdersRead,
   newWorkOrderNotification,
   sanitizeImportedDashboardNotifications,
   shouldWriteDashboardNotificationCursor,
@@ -79,13 +84,21 @@ async function recordNotifications(
       target_path: notification.target_path || null,
       message: notification.message,
       recorded_at: notification.recorded_at,
+      read_at: !profileIsChiefEngineerOrSystemAdmin(profile)
+        && profileHasRole(profile, "technician")
+        && notification.is_read
+        ? notification.recorded_at
+        : null,
     })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true })
     .select("notification_key");
   if (error) return false;
   if (deliverPush && inserted?.length && isWebPushEligibleProfile(profile)) {
     const insertedKeys = new Set(inserted.map((row: { notification_key: string }) => row.notification_key));
     try {
-      await dispatchWebPushNotifications(admin, userId, profile, missing.filter((item) => insertedKeys.has(item.id)));
+      await dispatchWebPushNotifications(admin, userId, profile, missing.filter((item) =>
+        insertedKeys.has(item.id)
+        && (profileIsChiefEngineerOrSystemAdmin(profile) || !profileHasRole(profile, "technician") || !item.is_read),
+      ));
     } catch (deliveryError) {
       console.error("New dashboard notifications were saved, but phone alerts could not be delivered.", deliveryError);
     }
@@ -98,8 +111,9 @@ export async function GET(request: NextRequest) {
   if (!auth) return response;
   const admin = auth.admin;
   const userId = auth.principal.identity.id;
-  const isEngineer = roleKey(auth.principal.profile.role) === "engineer";
-  const canReceiveOrdinary = receivesOrdinaryWorkOrderNotifications(auth.principal.profile.role);
+  const isEngineer = profileIsChiefEngineerOrSystemAdmin(auth.principal.profile);
+  const isTechnician = !isEngineer && profileHasRole(auth.principal.profile, "technician");
+  const canReceiveOrdinary = receivesWorkOrderNotifications(auth.principal.profile);
   const checkedAt = new Date().toISOString();
 
   const { data: cursorRow, error: cursorError } = await admin
@@ -114,10 +128,10 @@ export async function GET(request: NextRequest) {
 
   const candidates: WorkOrderNotification[] = [];
   if (savedCursor && canReceiveOrdinary) {
-    const orders = await scanPages<{ id: string; display_id: string | null; room: string | null; issue: string | null; created_at: string }>(
+    const orders = await scanPages<{ id: string; display_id: string | null; room: string | null; issue: string | null; status: string | null; created_at: string }>(
       (from, to) => admin
         .from("work_orders")
-        .select("id, display_id, room, issue, created_at")
+        .select("id, display_id, room, issue, status, created_at")
         .eq("hotel_id", HOTEL_ID)
         .gt("created_at", scanStart)
         .lte("created_at", checkedAt)
@@ -127,15 +141,17 @@ export async function GET(request: NextRequest) {
     );
     if (!orders) return NextResponse.json({ error: "New work orders could not be checked." }, { status: 503 });
     let newOrderCandidates = orders.map(newWorkOrderNotification);
-    if (roleKey(auth.principal.profile.role) === "technician" && orders.length) {
-      const { data: engineeringViews, error: engineeringViewError } = await admin
-        .from("cmpri_work_order_engineering_views")
+    if (isTechnician && orders.length) {
+      const { data: views, error: viewsError } = await admin
+        .from("cmpri_work_order_technician_views")
         .select("work_order_id")
         .eq("hotel_id", HOTEL_ID)
         .in("work_order_id", orders.map((order) => order.id));
-      if (engineeringViewError) return NextResponse.json({ error: "Engineering work-order views could not be checked." }, { status: 503 });
-      const alreadySeen = new Set((engineeringViews || []).map((view: { work_order_id: string }) => view.work_order_id));
-      newOrderCandidates = newOrderCandidates.filter((notification) => !notification.work_order_id || !alreadySeen.has(notification.work_order_id));
+      if (viewsError) return NextResponse.json({ error: "Technician work-order views could not be checked." }, { status: 503 });
+      newOrderCandidates = markTechnicianViewedWorkOrdersRead(
+        newOrderCandidates,
+        (views || []).map((view: { work_order_id: string }) => view.work_order_id),
+      );
     }
     candidates.push(...newOrderCandidates);
 
@@ -204,14 +220,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Notifications could not be loaded." }, { status: 503 });
   }
 
-  const notifications = (inboxResult.data || []).map((row: { notification_key: string; work_order_id: string | null; target_path: string | null; message: string; recorded_at: string; read_at: string | null }) => ({
-    id: row.notification_key,
-    work_order_id: row.work_order_id,
-    target_path: row.target_path,
-    message: row.message,
-    recorded_at: row.recorded_at,
-    is_read: row.read_at !== null,
-  }));
+  const notifications = (inboxResult.data || [])
+    .filter((row: { work_order_id: string | null }) => canReceiveOrdinary || row.work_order_id === null)
+    .map((row: { notification_key: string; work_order_id: string | null; target_path: string | null; message: string; recorded_at: string; read_at: string | null }) => ({
+      id: row.notification_key,
+      work_order_id: row.work_order_id,
+      target_path: row.target_path,
+      message: row.message,
+      recorded_at: row.recorded_at,
+      is_read: row.read_at !== null,
+    }));
   const latest = (versionResult.data?.[0] as { updated_at?: string } | undefined)?.updated_at || "";
 
   return NextResponse.json({
@@ -245,6 +263,7 @@ export async function POST(request: NextRequest) {
       .eq("recipient_user_id", userId)
       .is("cleared_at", null)
       .in("notification_key", ids);
+    if (!receivesWorkOrderNotifications(auth.principal.profile)) query = query.is("work_order_id", null);
     if (body.action === "read") query = query.is("read_at", null);
     const { error } = await query;
     if (error) return NextResponse.json({ error: body.action === "read" ? "Notifications could not be marked read." : "Notifications could not be cleared." }, { status: 503 });
@@ -252,7 +271,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (body?.action === "import") {
-    if (!receivesOrdinaryWorkOrderNotifications(auth.principal.profile)) {
+    if (!receivesWorkOrderNotifications(auth.principal.profile)) {
       return NextResponse.json({ error: "Ordinary work-order notifications are not enabled for this role." }, { status: 403 });
     }
     const notifications = sanitizeImportedDashboardNotifications(body.notifications);

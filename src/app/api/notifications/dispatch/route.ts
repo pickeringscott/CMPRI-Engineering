@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
-import { receivesOrdinaryWorkOrderNotifications, roleKey } from "@/lib/server/roles";
+import { profileHasRole, profileIsChiefEngineerOrSystemAdmin, receivesWorkOrderNotifications } from "@/lib/server/roles";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import { isWebPushEligibleProfile } from "@/lib/notifications/schedule";
 import {
   dashboardNotificationScanStart,
   engineerHistoryNotifications,
+  markTechnicianViewedWorkOrdersRead,
   newWorkOrderNotification,
   shouldWriteDashboardNotificationCursor,
   technicianHistoryNotifications,
@@ -42,8 +43,13 @@ async function scanPages<T>(load: (from: number, to: number) => PromiseLike<{ da
   throw new Error("Too many notification events are pending; review the dashboard before retrying.");
 }
 
-async function saveInboxRows(admin: SupabaseClient, userId: string, notifications: WorkOrderNotification[]) {
+async function saveInboxRows(
+  admin: SupabaseClient,
+  profile: PushProfile,
+  notifications: WorkOrderNotification[],
+) {
   if (!notifications.length) return;
+  const userId = profile.id;
   const recordedKeys: string[] = [];
   for (let index = 0; index < notifications.length; index += 200) {
     const keys = notifications.slice(index, index + 200).map((notification) => notification.id);
@@ -66,6 +72,11 @@ async function saveInboxRows(admin: SupabaseClient, userId: string, notification
       target_path: notification.target_path || null,
       message: notification.message,
       recorded_at: notification.recorded_at,
+      read_at: !profileIsChiefEngineerOrSystemAdmin(profile)
+        && profileHasRole(profile, "technician")
+        && notification.is_read
+        ? notification.recorded_at
+        : null,
     })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true });
   if (error) throw new Error("Dashboard notifications could not be saved.");
 }
@@ -76,11 +87,11 @@ async function notificationsForUser(
   savedCursor: string,
   checkedAt: string,
 ) {
-  const role = roleKey(profile.role);
+  const role = profileIsChiefEngineerOrSystemAdmin(profile) ? "engineer" : "technician";
   const start = dashboardNotificationScanStart(savedCursor, checkedAt);
-  const orders = await scanPages<{ id: string; display_id: string | null; room: string | null; issue: string | null; created_at: string }>(
+  const orders = await scanPages<{ id: string; display_id: string | null; room: string | null; issue: string | null; status: string | null; created_at: string }>(
     (from, to) => admin.from("work_orders")
-      .select("id, display_id, room, issue, created_at")
+      .select("id, display_id, room, issue, status, created_at")
       .eq("hotel_id", HOTEL_ID)
       .gt("created_at", start)
       .lte("created_at", checkedAt)
@@ -88,19 +99,18 @@ async function notificationsForUser(
       .order("id", { ascending: true })
       .range(from, to),
   );
-  let newOrders = orders.map(newWorkOrderNotification);
-  const dashboard: WorkOrderNotification[] = [...newOrders];
+  let dashboard: WorkOrderNotification[] = orders.map(newWorkOrderNotification);
   let technicianHistory: WorkOrderNotification[] = [];
-
   if (role === "technician" && orders.length) {
-    const { data: views, error } = await admin.from("cmpri_work_order_engineering_views")
+    const { data: views, error } = await admin.from("cmpri_work_order_technician_views")
       .select("work_order_id")
       .eq("hotel_id", HOTEL_ID)
       .in("work_order_id", orders.map((order) => order.id));
-    if (error) throw new Error("Engineering work-order views could not be checked.");
-    const alreadySeen = new Set((views || []).map((view: { work_order_id: string }) => view.work_order_id));
-    newOrders = newOrders.filter((notification) => !notification.work_order_id || !alreadySeen.has(notification.work_order_id));
-    dashboard.splice(0, dashboard.length, ...newOrders);
+    if (error) throw new Error("Technician work-order views could not be checked.");
+    dashboard = markTechnicianViewedWorkOrdersRead(
+      dashboard,
+      (views || []).map((view: { work_order_id: string }) => view.work_order_id),
+    );
   }
 
   const history = await scanPages<WorkOrderHistoryNotification>(
@@ -137,6 +147,41 @@ async function notificationsForUser(
   return { dashboard, technicianHistory };
 }
 
+async function dispatchPendingInboxNotifications(admin: SupabaseClient, profile: PushProfile) {
+  const { data: deliveries, error: deliveriesError } = await admin.from("cmpri_web_push_deliveries")
+    .select("notification_key")
+    .eq("hotel_id", HOTEL_ID)
+    .eq("recipient_user_id", profile.id)
+    .in("status", ["pending", "sending", "suppressed", "failed"]);
+  if (deliveriesError) throw new Error("Pending phone notification deliveries could not be loaded.");
+  const keys = Array.from(new Set((deliveries || []).map((row: { notification_key: string }) => row.notification_key)));
+  if (!keys.length) return 0;
+
+  const { data: rows, error: inboxError } = await admin.from("cmpri_dashboard_notifications")
+    .select("notification_key, work_order_id, target_path, message, recorded_at")
+    .eq("hotel_id", HOTEL_ID)
+    .eq("recipient_user_id", profile.id)
+    .is("cleared_at", null)
+    .is("read_at", null)
+    .in("notification_key", keys);
+  if (inboxError) throw new Error("Pending phone notification messages could not be loaded.");
+  const notifications: WorkOrderNotification[] = (rows || []).map((row: {
+    notification_key: string;
+    work_order_id: string | null;
+    target_path: string | null;
+    message: string;
+    recorded_at: string;
+  }) => ({
+    id: row.notification_key,
+    work_order_id: row.work_order_id,
+    target_path: row.target_path,
+    message: row.message,
+    recorded_at: row.recorded_at,
+  }));
+  await dispatchWebPushNotifications(admin, profile.id, profile, notifications);
+  return notifications.length;
+}
+
 async function dispatch(admin: SupabaseClient) {
   const { data: subscriptions, error: subscriptionError } = await admin.from("cmpri_web_push_subscriptions")
     .select("recipient_user_id")
@@ -155,7 +200,7 @@ async function dispatch(admin: SupabaseClient) {
   const recipients = ((profiles || []) as PushProfile[]).filter((profile) =>
     activeMembers.has(profile.id)
       && isWebPushEligibleProfile(profile)
-      && receivesOrdinaryWorkOrderNotifications(profile.role),
+      && receivesWorkOrderNotifications(profile),
   );
   const checkedAt = new Date().toISOString();
   let notificationCount = 0;
@@ -172,14 +217,21 @@ async function dispatch(admin: SupabaseClient) {
       const { error } = await admin.from("cmpri_dashboard_notification_cursors")
         .upsert({ hotel_id: HOTEL_ID, recipient_user_id: profile.id, checked_at: checkedAt, updated_at: checkedAt }, { onConflict: "hotel_id,recipient_user_id", ignoreDuplicates: true });
       if (error) throw new Error("Phone notification scan cursor could not be initialized.");
+      await dispatchPendingInboxNotifications(admin, profile);
       continue;
     }
 
+    await dispatchPendingInboxNotifications(admin, profile);
     const candidates = await notificationsForUser(admin, profile, savedCursor, checkedAt);
-    await saveInboxRows(admin, profile.id, candidates.dashboard);
+    const allNotifications = [...candidates.dashboard, ...candidates.technicianHistory];
+    await saveInboxRows(admin, profile, allNotifications);
     notificationCount += candidates.dashboard.length + candidates.technicianHistory.length;
     try {
-      await dispatchWebPushNotifications(admin, profile.id, profile, [...candidates.dashboard, ...candidates.technicianHistory]);
+      await dispatchWebPushNotifications(admin, profile.id, profile, allNotifications.filter((notification) =>
+        profileIsChiefEngineerOrSystemAdmin(profile)
+        || !profileHasRole(profile, "technician")
+        || !notification.is_read,
+      ));
     } catch (error) {
       console.error(`Existing notifications were retained, but phone delivery failed for user ${profile.id}.`, error);
     }

@@ -107,6 +107,10 @@ export function profileIsChiefEngineer(profile: { role: unknown; secondary_roles
       .some((roleLabel) => roleLabel.trim().toLowerCase().replace(/[\s_-]+/g, "") === "chiefengineer"));
 }
 
+export function profileIsChiefEngineerOrSystemAdmin(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
+  return profileIsChiefEngineer(profile) || profileHasRole(profile, "system_admin");
+}
+
 const TECHNICAL: readonly Capability[] = [
   "submit",
   "add_work_order_notes",
@@ -191,6 +195,10 @@ export const isReadOnlyRole = (role: unknown) => roleKey(role) === "senior_manag
 
 export function receivesOrdinaryWorkOrderNotifications(role: unknown): boolean {
   return ["engineer", "technician"].includes(roleKey(role));
+}
+
+export function receivesWorkOrderNotifications(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
+  return profileIsChiefEngineerOrSystemAdmin(profile) || profileHasRole(profile, "technician");
 }
 
 export function receivesPoolClosedNotifications(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {

@@ -3,7 +3,7 @@ import { HOTEL_ID } from "@/lib/constants";
 import { requireUser } from "@/lib/server/auth";
 import {
   defaultNotificationSchedule,
-  isWebPushEligibleProfile,
+  isNotificationScheduleEligibleProfile,
   normalizeNotificationSettings,
 } from "@/lib/notifications/schedule";
 import { webPushPublicKey } from "@/lib/notifications/web-push";
@@ -32,8 +32,8 @@ function validSubscription(value: unknown): value is {
 async function authorize(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return { response: NextResponse.json({ error: "Sign in is required." }, { status: 401 }) };
-  if (!isWebPushEligibleProfile(auth.principal.profile)) {
-    return { response: NextResponse.json({ error: "Phone notifications are available only to the Chief Engineer and Maintenance Technician." }, { status: 403 }) };
+  if (!isNotificationScheduleEligibleProfile(auth.principal.profile)) {
+    return { response: NextResponse.json({ error: "Notification schedules are not available for this role." }, { status: 403 }) };
   }
   return { auth };
 }

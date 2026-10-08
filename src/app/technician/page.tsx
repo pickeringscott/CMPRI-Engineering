@@ -204,7 +204,9 @@ export default function TechnicianDashboard() {
     const opening = !inboxOpen;
     setInboxOpen(opening);
     if (!opening) return;
-    const unreadIds = dashboardInbox.filter((item) => item.is_read !== true).map((item) => item.id);
+    const unreadIds = dashboardInbox
+      .filter((item) => item.work_order_id === null && item.is_read !== true)
+      .map((item) => item.id);
     if (!unreadIds.length || !dashboardTokenRef.current) return;
     try {
       await markServerDashboardNotificationsRead(dashboardTokenRef.current, unreadIds);

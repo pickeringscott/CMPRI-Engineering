@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {
   mergeWorkOrderNotifications,
+  markTechnicianViewedWorkOrdersRead,
+  newWorkOrderNotification,
   unseenWorkOrderNotifications,
   technicianViewNotificationsForEngineer,
   workOrderNotificationCursorKey,
@@ -13,7 +15,12 @@ import {
   saveDismissedWorkOrderViewNotifications,
   unreadWorkOrderNotificationCount,
 } from '../src/lib/dashboard/work-order-notifications.ts';
-import { receivesOrdinaryWorkOrderNotifications, receivesPoolClosedNotifications } from '../src/lib/server/roles.ts';
+import {
+  receivesOrdinaryWorkOrderNotifications,
+  receivesPoolClosedNotifications,
+  receivesWorkOrderNotifications,
+  profileIsChiefEngineerOrSystemAdmin,
+} from '../src/lib/server/roles.ts';
 
 function historyEvent(id, patch = {}) {
   return {
@@ -74,17 +81,55 @@ test('technicians hear about work assigned to them, reassignment after close, an
   ]);
 });
 
-test('engineers are alerted on status changes and claims by anyone else', () => {
+test('new technician notifications remain unread until viewed or resolved by status', () => {
+  const notification = newWorkOrderNotification({
+    id: 'order-1',
+    display_id: 'WO-1',
+    room: '101',
+    issue: 'Leaking faucet',
+    status: 'Pending Verification',
+    created_at: '2026-10-08T12:00:00Z',
+  });
+  assert.equal(notification.is_read, undefined);
+  assert.match(notification.message, /101 — Leaking faucet · Pending Verification/);
+  assert.deepEqual(
+    markTechnicianViewedWorkOrdersRead([notification], ['order-1']).map((item) => item.is_read),
+    [true],
+  );
+});
+
+test('Chief Engineers receive Technician status changes with work-order context', () => {
   const events = [
     historyEvent('created', { event_type: 'created', old_status: null, new_status: 'Open' }),
-    historyEvent('status-change', { event_type: 'status_changed', actor_name: 'Morgan Lee', actor_user_id: 'technician-id', old_status: 'Open', new_status: 'In Progress' }),
-    historyEvent('closed', { event_type: 'closed', actor_name: 'Pat Admin', actor_user_id: 'admin-id', old_status: 'Completed', new_status: 'Closed' }),
-    historyEvent('own-change', { event_type: 'status_changed', actor_user_id: 'engineer-id', old_status: 'Open', new_status: 'Completed' }),
+    historyEvent('status-change', {
+      event_type: 'status_changed',
+      actor_name: 'Morgan Lee',
+      actor_user_id: 'technician-id',
+      old_status: 'Open',
+      new_status: 'In Progress',
+      changed_fields: { actor_role: 'Maintenance Technician' },
+      snapshot: { display_id: 'WO-status-change', room: '101', issue: 'Leaking faucet' },
+    }),
+    historyEvent('admin-change', {
+      event_type: 'closed',
+      actor_name: 'Pat Admin',
+      actor_user_id: 'admin-id',
+      old_status: 'Completed',
+      new_status: 'Closed',
+      changed_fields: { actor_role: 'System Administrator' },
+    }),
+    historyEvent('own-change', {
+      event_type: 'status_changed',
+      actor_user_id: 'engineer-id',
+      old_status: 'Open',
+      new_status: 'Completed',
+      changed_fields: { actor_role: 'Chief Engineer' },
+    }),
     historyEvent('self-claim', {
       event_type: 'claimed',
       actor_name: 'Morgan Lee',
       actor_user_id: 'technician-id',
-      changed_fields: { technician_name: 'Morgan Lee' },
+      changed_fields: { technician_name: 'Morgan Lee', actor_role: 'Maintenance Technician' },
       snapshot: { display_id: 'WO-2' },
     }),
     historyEvent('assignment', {
@@ -95,19 +140,25 @@ test('engineers are alerted on status changes and claims by anyone else', () => 
   ];
   const result = workOrderNotificationsForRecipient(events, { id: 'engineer-id', name: 'Alex Engineer', role: 'engineer' });
   assert.deepEqual(result.map(({ id, message }) => [id, message]), [
-    ['history:status-change', 'WO-status-change status changed: Open \u2192 In Progress by Morgan Lee.'],
-    ['history:closed', 'WO-closed status changed: Completed \u2192 Closed by Pat Admin.'],
+    ['history:status-change', 'WO-status-change (101 — Leaking faucet) status changed: Open \u2192 In Progress by Morgan Lee.'],
     ['history:self-claim', 'WO-2 was claimed by Morgan Lee.'],
   ]);
 });
 
-test('engineer dashboard inbox records status and claim history for engineers only', () => {
+test('Chief Engineer dashboard inbox records only for the Chief Engineer role', () => {
   const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /const isEngineer = roleKey\(auth\.principal\.profile\.role\) === "engineer";/);
+  assert.match(route, /const isEngineer = profileIsChiefEngineerOrSystemAdmin\(auth\.principal\.profile\);/);
   assert.match(route, /if \(isEngineer\) \{[\s\S]*from\("cmpri_work_order_history"\)[\s\S]*\.in\("event_type", \["status_changed", "closed", "reopened", "claimed"\]\)[\s\S]*engineerHistoryNotifications\(history, userId\)/);
   const migration = readFileSync(new URL('../supabase/migrations/20260930220000_cmpri_work_order_history_notifications.sql', import.meta.url), 'utf8');
   assert.match(migration, /'actor_role', coalesce\(v_actor_role, ''\), 'after_close', v_after_close/);
   assert.match(migration, /v_after_close := old\.status::text = 'Closed' or/);
+  const groupFive = readFileSync(new URL('../supabase/migrations/20261008174000_cmpri_group5_work_order_notifications.sql', import.meta.url), 'utf8');
+  assert.match(groupFive, /NEW\.event_type IN \('status_changed', 'closed', 'reopened'\)/);
+  assert.match(groupFive, /jsonb_build_object\('actor_role', v_actor_role\)/);
+  assert.match(groupFive, /jsonb_build_object\('room', coalesce\(v_room, ''\), 'issue', coalesce\(v_issue, ''\)\)/);
+  assert.match(groupFive, /NEW\.new_status IN \('In Progress', 'Pending Verification'\)/);
+  assert.match(groupFive, /AFTER INSERT ON public\.cmpri_work_order_technician_views/);
+  assert.match(groupFive, /AFTER INSERT ON public\.cmpri_dashboard_notifications/);
 });
 test('notification helpers de-duplicate repeated polling responses', () => {
   const notification = {
@@ -156,6 +207,16 @@ test('CMPRI notifications use the exact ordinary and pool-closure role lists', (
   for (const role of ['General Manager', 'Assistant General Manager', 'Front Desk Manager', 'System Administrator', 'Front Desk', 'Housekeeping', 'Senior Management']) {
     assert.equal(receivesOrdinaryWorkOrderNotifications(role), false, role);
   }
+  for (const role of ['Chief Engineer', 'Maintenance Technician', 'Technician']) {
+    assert.equal(receivesWorkOrderNotifications({ role }), true, role);
+  }
+  for (const role of ['System Administrator', 'System Admin', 'Administrator', 'Admin']) {
+    assert.equal(receivesWorkOrderNotifications({ role }), true, role);
+    assert.equal(profileIsChiefEngineerOrSystemAdmin({ role }), true, role);
+  }
+  for (const role of ['Engineer', 'Engineering Manager', 'Regional Maintenance', 'General Manager', 'Front Desk Manager']) {
+    assert.equal(receivesWorkOrderNotifications({ role }), false, role);
+  }
   for (const role of ['Chief Engineer', 'Engineer', 'Maintenance Technician', 'Engineering Manager', 'Regional Maintenance', 'General Manager', 'Assistant General Manager', 'Front Desk Manager']) {
     assert.equal(receivesPoolClosedNotifications({ role }), true, role);
   }
@@ -187,6 +248,7 @@ test('opening a dashboard notification marks it read before navigation and the b
 test('Technician inbox reads are separate from active notification resolution', () => {
   const dashboard = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const openInbox = dashboard.slice(dashboard.indexOf('async function toggleInbox()'), dashboard.indexOf('const assignedOrders'));
+  assert.match(openInbox, /item\.work_order_id === null && item\.is_read !== true/);
   assert.match(openInbox, /markServerDashboardNotificationsRead\(dashboardTokenRef\.current, unreadIds\)/);
   assert.doesNotMatch(openInbox, /clearServerDashboardNotifications/);
   assert.match(dashboard, /Active notifications · \{dashboardInbox\.length\}/);
@@ -225,10 +287,9 @@ test('notification read API updates only the signed-in recipient and unread row'
       if (name === '@/lib/server/access') return { allows: (_user, capability) => capability === 'receive_pool_closed_notifications' };
       if (name === '@/lib/server/auth') return { requireUser: async () => ({ principal, admin }) };
       if (name === '@/lib/server/roles') return {
-        receivesAnyNotifications: () => true,
-        receivesOrdinaryWorkOrderNotifications,
+        receivesWorkOrderNotifications: () => false,
+        profileIsChiefEngineer: () => false,
         profileHasRole: () => false,
-        roleKey: () => 'front_desk_manager',
       };
       if (name === '@/lib/notifications/web-push') return { dispatchWebPushNotifications: async () => undefined, isWebPushEligibleProfile: () => false };
       if (name === '@/lib/notifications/schedule') return { isWebPushEligibleProfile: () => false };
@@ -258,6 +319,7 @@ test('notification read API updates only the signed-in recipient and unread row'
     ['eq', 'recipient_user_id', 'recipient-user'],
     ['is', 'cleared_at', null],
     ['in', 'notification_key', ['pool-closed:local']],
+    ['is', 'work_order_id', null],
     ['is', 'read_at', null],
   ]);
   assert.equal(typeof calls[0].mutation.read_at, 'string');
@@ -296,6 +358,8 @@ test('notification endpoint authorizes dashboard recipients and scopes audit rec
   const route = readFileSync(new URL('../src/app/api/work-orders/notifications/route.ts', import.meta.url), 'utf8');
   assert.match(route, /requireUser\(request\)/);
   assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
+  assert.match(route, /profileIsChiefEngineerOrSystemAdmin\(auth\.principal\.profile\)/);
+  assert.match(route, /profileHasRole\(auth\.principal\.profile, "technician"\)/);
   assert.match(route, /\.eq\("hotel_id", HOTEL_ID\)/);
   assert.match(route, /\.gt\("recorded_at",/);
   assert.match(route, /role === "engineer"/);
@@ -307,6 +371,6 @@ test('first technician view is recorded once and rendered as a locked timeline n
   const ticket = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
   assert.match(detailRoute, /cmpri_work_order_technician_views/);
   assert.match(detailRoute, /ignoreDuplicates: true/);
-  assert.match(ticket, /Technician first viewed this work order/);
+  assert.match(ticket, /Technician Viewed this work order/);
   assert.match(ticket, /entry\.locked &&/);
 });

@@ -67,9 +67,14 @@ function changedText(event: WorkOrderHistoryNotification, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function isTechnicianRole(value: unknown) {
+  const role = typeof value === "string" ? value.trim().toLowerCase().replace(/[^a-z]/g, "") : "";
+  return role === "technician" || role === "maintenancetechnician";
+}
+
 const STATUS_EVENTS = new Set(["status_changed", "closed", "reopened"]);
 
-/** Engineer inbox: every status change and claim made by someone else. */
+/** Chief Engineer inbox: technician status changes and claims made by someone else. */
 export function engineerHistoryNotifications(
   events: WorkOrderHistoryNotification[],
   recipientId: string,
@@ -77,11 +82,15 @@ export function engineerHistoryNotifications(
   const notifications: WorkOrderNotification[] = [];
   for (const event of events) {
     if (event.actor_user_id && event.actor_user_id === recipientId) continue;
+    if (!isTechnicianRole(event.changed_fields?.actor_role)) continue;
     const order = orderLabel(event.snapshot || {});
     const who = event.actor_name?.trim() || "System";
     let message = "";
     if (STATUS_EVENTS.has(event.event_type || "") && event.new_status) {
-      message = `${order} status changed: ${event.old_status || "—"} → ${event.new_status} by ${who}.`;
+      const location = typeof event.snapshot?.room === "string" ? event.snapshot.room.trim() : "";
+      const issue = typeof event.snapshot?.issue === "string" ? event.snapshot.issue.trim() : "";
+      const details = [location || "No location", issue || "No issue details"].join(" — ");
+      message = `${order} (${details}) status changed: ${event.old_status || "—"} → ${event.new_status} by ${who}.`;
     } else if (event.event_type === "claimed") {
       message = `${order} was claimed by ${changedText(event, "technician_name") || who}.`;
     }
@@ -379,17 +388,29 @@ export function newWorkOrderNotification(order: {
   display_id?: string | null;
   room?: string | null;
   issue?: string | null;
+  status?: string | null;
   created_at?: string | null;
 }): WorkOrderNotification {
   const label = order.display_id?.trim() || "Work order";
   const location = order.room?.trim() || "No location";
   const issue = order.issue?.trim();
+  const status = order.status?.trim() || "";
   return {
     id: `new-order:${order.id}`,
     work_order_id: order.id,
-    message: `New ${label}: ${location}${issue ? ` — ${issue}` : ""}`,
+    message: `New ${label}: ${location}${issue ? ` — ${issue}` : ""}${status ? ` · ${status}` : ""}`,
     recorded_at: order.created_at && Number.isFinite(Date.parse(order.created_at)) ? order.created_at : new Date().toISOString(),
   };
+}
+
+export function markTechnicianViewedWorkOrdersRead(
+  notifications: WorkOrderNotification[],
+  viewedWorkOrderIds: Iterable<string>,
+) {
+  const viewedIds = new Set(viewedWorkOrderIds);
+  return notifications.map((notification) => notification.work_order_id && viewedIds.has(notification.work_order_id)
+    ? { ...notification, is_read: true }
+    : notification);
 }
 
 export function unseenWorkOrderNotifications(

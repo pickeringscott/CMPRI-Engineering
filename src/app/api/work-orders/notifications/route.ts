@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { profileHasRole, roleKey } from "@/lib/server/roles";
+import { profileHasRole, profileIsChiefEngineerOrSystemAdmin } from "@/lib/server/roles";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import {
   technicianViewNotificationsForEngineer,
@@ -15,9 +15,9 @@ export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
 
-  const role = profileHasRole(auth.principal.profile, "engineer")
+  const role = profileIsChiefEngineerOrSystemAdmin(auth.principal.profile)
     ? "engineer"
-    : roleKey(auth.principal.profile.role);
+    : profileHasRole(auth.principal.profile, "technician") ? "technician" : "unknown";
   if (!allows(auth.principal, "view_dashboard") || !["engineer", "technician"].includes(role)) {
     return NextResponse.json({ error: "Dashboard notification access is required." }, { status: 403 });
   }

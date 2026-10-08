@@ -16,7 +16,6 @@ function resolutionModule() {
       if (name === '@/lib/constants') return { HOTEL_ID: 'cmpri-hotel' };
       if (name === '@/lib/server/roles') return {
         profileHasRole: (profile, role) => role === 'engineer' && profile.role === 'Chief Engineer',
-        roleKey: (role) => role === 'Maintenance Technician' ? 'technician' : 'engineer',
       };
       throw new Error(`Unexpected module ${name}`);
     },
@@ -24,7 +23,7 @@ function resolutionModule() {
   return exports;
 }
 
-test('Engineering review resolves only the Technician new-order row', async () => {
+test('Engineering review tracking does not mark Technician notifications read or cleared', async () => {
   const calls = [];
   const admin = {
     from(table) {
@@ -56,10 +55,7 @@ test('Engineering review resolves only the Technician new-order row', async () =
   assert.equal(isEngineeringWorkOrderActor({ role: 'Maintenance Technician' }), false);
 
   await recordEngineeringWorkOrderView(admin, { id: 'work-order-1', display_id: 'WO-1' }, { id: 'engineer-user' });
-  const resolution = calls.find((call) => call.table === 'cmpri_dashboard_notifications' && call.operation === 'update');
-  assert.equal(Number.isFinite(Date.parse(resolution.mutation.cleared_at)), true);
-  assert.ok(resolution.filters.some(([operator, key, value]) => operator === 'eq' && key === 'notification_key' && value === 'new-order:work-order-1'));
-  assert.ok(resolution.filters.some(([operator, key, value]) => operator === 'in' && key === 'recipient_user_id' && value.join(',') === 'technician-user'));
-  assert.ok(resolution.filters.some(([operator, key, value]) => operator === 'is' && key === 'cleared_at' && value === null));
-  assert.equal(resolution.filters.some(([, , value]) => value === 'chief-user'), false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].table, 'cmpri_work_order_engineering_views');
+  assert.equal(calls[0].operation, 'upsert');
 });

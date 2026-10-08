@@ -1660,7 +1660,7 @@ export default function WorkOrderTicketPage() {
       timestamp: view.viewed_at,
       actor: view.technician_name || "Technician",
       kind: "system",
-      text: "Technician first viewed this work order",
+      text: "Technician Viewed this work order",
       locked: true,
     });
   }

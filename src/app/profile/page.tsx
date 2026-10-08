@@ -8,6 +8,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
+import { isNotificationScheduleEligibleProfile } from "@/lib/notifications/schedule";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
 type Preferences = {
@@ -49,17 +50,6 @@ const NOTIFICATION_DAYS = [
   ["saturday", "Saturday"],
   ["sunday", "Sunday"],
 ] as const;
-
-function phoneNotificationRole(profile: Profile) {
-  const normalize = (role: unknown) => typeof role === "string"
-    ? role.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).map((label) => label.trim().toLowerCase().replace(/[^a-z]/g, ""))
-    : [];
-  const allRoles = [profile.role, ...(profile.secondary_roles || [])].flatMap(normalize);
-  if (allRoles.some((role) => ["chiefengineer", "maintenancetechnician"].includes(role))) return true;
-  if (allRoles.some((role) => ["engineeringmanager", "regionalmaintenance", "regionalengineer"].includes(role))) return false;
-  const primaryRoles = normalize(profile.role);
-  return primaryRoles.includes("engineer") || primaryRoles.includes("technician");
-}
 
 function localTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -148,7 +138,7 @@ export default function ProfilePage() {
     setData(result);
     setName(result.profile.full_name || "");
     setPreferences(result.preferences);
-    if (phoneNotificationRole(result.profile)) {
+    if (isNotificationScheduleEligibleProfile(result.profile)) {
       const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration("/") : undefined;
       const currentSubscription = await registration?.pushManager.getSubscription();
       const endpoint = currentSubscription?.endpoint;
@@ -389,7 +379,7 @@ export default function ProfilePage() {
           </div>
           {phoneMessage && <p role="status" className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{phoneMessage}</p>}
         </section>}
-        {!phoneSettings && phoneMessage && data && phoneNotificationRole(data.profile) && <section className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/20 p-5">
+        {!phoneSettings && phoneMessage && data && isNotificationScheduleEligibleProfile(data.profile) && <section className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/20 p-5">
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
           <p role="alert" className="mt-3 text-sm text-amber-100">{phoneMessage}</p>
           <button type="button" onClick={() => void load().catch((error) => setPhoneMessage(error instanceof Error ? error.message : "Phone notification settings could not be loaded."))} className="mt-3 rounded-lg border border-amber-400/50 px-3 py-2 text-sm font-semibold text-amber-100">{tx("Retry", "Reintentar")}</button>

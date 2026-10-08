@@ -22,21 +22,33 @@ export type WebPushEligibleProfile = {
 const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 const WEEK_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-const ELIGIBLE_ROLE_NAMES = new Set(["chiefengineer", "maintenancetechnician"]);
-const NON_ELIGIBLE_ENGINEERING_TITLES = new Set(["engineeringmanager", "regionalmaintenance", "regionalengineer"]);
+const WORK_ORDER_PUSH_ROLES = new Set([
+  "chiefengineer", "systemadmin", "sysadmin", "systemadministrator", "administrator", "admin",
+  "technician", "maintenancetechnician",
+]);
+const SCHEDULE_ROLES = new Set([
+  "engineer", "engineering", "chiefengineer", "engineeringmanager", "regionalmaintenance", "regionalengineer",
+  "technician", "maintenancetechnician",
+  "manager", "generalmanager", "gm",
+  "frontdeskmanager",
+  "assistantgm", "assistantgeneralmanager", "assistantmanager",
+  "systemadmin", "sysadmin", "systemadministrator", "administrator", "admin",
+]);
 
-function normalizedRoleLabels(value: unknown) {
-  if (typeof value !== "string") return [];
-  return value.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i)
-    .map((label) => label.trim().toLowerCase().replace(/[^a-z]/g, ""));
+function profileRoleLabels(profile: WebPushEligibleProfile) {
+  return [profile.role, ...(profile.secondary_roles || [])]
+    .flatMap((role) => typeof role === "string"
+      ? role.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i)
+      : [])
+    .map((role) => role.trim().toLowerCase().replace(/[^a-z]/g, ""));
 }
 
 export function isWebPushEligibleProfile(profile: WebPushEligibleProfile) {
-  const allRoles = [profile.role, ...(profile.secondary_roles || [])].flatMap(normalizedRoleLabels);
-  if (allRoles.some((role) => ELIGIBLE_ROLE_NAMES.has(role))) return true;
-  if (allRoles.some((role) => NON_ELIGIBLE_ENGINEERING_TITLES.has(role))) return false;
-  const primaryRoles = normalizedRoleLabels(profile.role);
-  return primaryRoles.includes("engineer") || primaryRoles.includes("technician");
+  return profileRoleLabels(profile).some((role) => WORK_ORDER_PUSH_ROLES.has(role));
+}
+
+export function isNotificationScheduleEligibleProfile(profile: WebPushEligibleProfile) {
+  return profileRoleLabels(profile).some((role) => SCHEDULE_ROLES.has(role));
 }
 
 export function defaultNotificationSchedule(): NotificationSchedule {
