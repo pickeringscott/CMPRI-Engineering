@@ -44,7 +44,10 @@ function fixture(route, config={}) {
         async maybeSingle(){
           if(table==='profiles')return {data:profile,error:config.profileError?{message:'profile failed'}:null};
           if(table==='role_permissions')return {data:config.permission?{permission:'manage_assets',allowed:true}:null,error:config.permissionError?{message:'permission failed'}:null};
-          if(table==='assets')return {data:config.asset?{id:'test'}:null,error:null};
+          if(table==='assets') {
+            const asset=config.assetRow || (config.asset?{id:'test',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}:null);
+            return {data:asset&&query.filters.every(([key,value])=>asset[key]===value)?asset:null,error:null};
+          }
           if(table==='locations')return {data:{id:'test-location',name:'Test location'},error:null};
           throw new Error(`Unexpected table ${table}`);
         },
@@ -67,7 +70,10 @@ function fixture(route, config={}) {
       };
       return query;
     },
-    storage:{from:()=>({list:async()=>({data:[],error:config.storageError?{message:'Storage unavailable'}:null})})},
+    storage:{from:()=>({
+      list:async()=>({data:config.storageFiles||[],error:config.storageError?{message:'Storage unavailable'}:null}),
+      createSignedUrl:async(path)=>({data:{signedUrl:`https://storage.test/${path}`},error:null}),
+    })},
   };
   const exports={};
   const compiled=ts.transpileModule(readFileSync(new URL(`../src/app/api/assets/${route}`,import.meta.url),'utf8'),{
@@ -238,6 +244,16 @@ test('GET still returns asset records when verification storage cannot be read',
   assert.equal(result.status,200);
   assert.equal(result.body.documentation_state_available,false);
   assert.equal(result.body.assets.length,1);
+});
+test('documentation GET lists stored PDFs for assets with a legacy hotel id',async()=>{
+  const f=fixture('documentation/route.ts',{
+    assetRow:{id:'test',hotel_id:'legacy-property-id',manufacturer:'Friedrich',model_family:'Verdepac'},
+    storageFiles:[{id:'document-1',name:'manual.pdf',created_at:'2026-10-01T00:00:00Z'}],
+  });
+  const result=await f.handlers.GET(f.request);
+  assert.equal(result.status,200);
+  assert.deepEqual(Array.from(result.body.documents,document=>document.name),['manual.pdf']);
+  assert.equal(result.body.documents[0].url,'https://storage.test/c81ad01a-7a9f-4880-ac1c-5e849f30bad6/test/manual.pdf');
 });
 test('PATCH fails closed when verification storage cannot be read',async()=>{
   const f=fixture('route.ts',{permission:true,asset:true,storageError:true});

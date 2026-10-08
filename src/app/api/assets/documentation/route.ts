@@ -114,7 +114,6 @@ export async function GET(request: NextRequest) {
   if (!assetId) return NextResponse.json({ error: "asset_id is required." }, { status: 400 });
   const { data: asset, error: assetError } = await auth.admin.from("assets")
     .select("id, manufacturer, model_family, model_number")
-    .eq("hotel_id", HOTEL_ID)
     .eq("id", assetId)
     .maybeSingle();
   if (assetError) return NextResponse.json({ error: "Equipment could not be verified." }, { status: 503 });
@@ -193,7 +192,6 @@ export async function POST(request: NextRequest) {
 
   const { data: asset, error: assetError } = await auth.admin.from("assets")
     .select("id, manufacturer, model_family, model_number")
-    .eq("hotel_id", HOTEL_ID)
     .eq("id", assetId)
     .maybeSingle();
   if (assetError) return NextResponse.json({ error: "Equipment could not be verified." }, { status: 503 });
