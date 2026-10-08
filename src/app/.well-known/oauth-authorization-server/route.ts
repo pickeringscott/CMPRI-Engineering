@@ -1,9 +1,9 @@
-import type { NextRequest } from "next/server";
+import { CANONICAL_APP_URL } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
-export function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin;
+export function GET() {
+  const origin = CANONICAL_APP_URL;
   return Response.json({
     issuer: origin,
     authorization_endpoint: `${origin}/mcp/authorize`,

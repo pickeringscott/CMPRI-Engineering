@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { HOTEL_ID } from "@/lib/constants";
+import { CANONICAL_APP_URL, HOTEL_ID } from "@/lib/constants";
 import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
 import { availableMcpReadViews, callMcpReadView } from "@/lib/server/cmpri-mcp-reads";
 import { availableMcpWriteActions, callMcpWriteAction } from "@/lib/server/cmpri-mcp-writes";
@@ -200,8 +200,8 @@ async function runTool(identity: McpIdentity, name: string, args: Record<string,
   throw new Error("This CMPRI tool is not available.");
 }
 
-function unauthorized(request: NextRequest) {
-  const metadata = `${request.nextUrl.origin}/.well-known/oauth-protected-resource`;
+function unauthorized() {
+  const metadata = `${CANONICAL_APP_URL}/.well-known/oauth-protected-resource`;
   return Response.json({ error: "unauthorized", error_description: "Provide a valid CMPRI connection link or authorize this app." }, {
     status: 401,
     headers: {
@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
     console.error("CMPRI MCP authorization failed:", error instanceof Error ? error.message : String(error));
     return Response.json(rpcError(rpc.id, -32603, "CMPRI could not verify this authorization."), { status: 503, headers: NO_STORE });
   }
-  if (!identity) return unauthorized(request);
+  if (!identity) return unauthorized();
 
   if (rpc.method === "tools/list") {
     const tools = MCP_TOOLS.filter((tool) => {
@@ -381,6 +381,6 @@ export async function POST(request: NextRequest) {
   return Response.json(rpcError(rpc.id, -32601, "Method not found."), { status: 404, headers: NO_STORE });
 }
 
-export async function GET(request: NextRequest) {
-  return unauthorized(request);
+export async function GET() {
+  return unauthorized();
 }

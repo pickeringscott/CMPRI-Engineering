@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 type Connection = {
   connected: boolean;
@@ -20,7 +21,7 @@ const EMPTY_CONNECTION: Connection = {
   connected: false,
   status: "disconnected",
   access: "disconnected",
-  endpoint: "https://www.cmpri-engineering.com/api/mcp",
+  endpoint: CMPRI_MCP_RESOURCE,
   message: "Connect ChatGPT using OAuth. CMPRI checks your current account permissions for every tool call.",
   oauth_connected: false,
   oauth_access: "disconnected",

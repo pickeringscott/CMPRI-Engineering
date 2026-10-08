@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient, getValidSession } from "@/lib/supabase/client";
+import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 type ClientDetails = { client_id: string; client_name: string };
 type CmpriUser = { user: { id: string; name: string | null; email: string; role: string } };
@@ -87,7 +88,7 @@ export default function McpAuthorizePage() {
           code_challenge: params.get("code_challenge"),
           code_challenge_method: params.get("code_challenge_method"),
           scope: params.get("scope") || "cmpri:read",
-          resource: params.get("resource") || "https://www.cmpri-engineering.com/api/mcp",
+          resource: params.get("resource") || CMPRI_MCP_RESOURCE,
           state: params.get("state"),
         }),
         cache: "no-store",

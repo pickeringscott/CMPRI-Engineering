@@ -1,6 +1,6 @@
 import "server-only";
 
-import { CMPRI_MCP_WRITE_SCOPE } from "@/lib/server/cmpri-mcp-oauth-scope";
+import { CMPRI_MCP_RESOURCE, CMPRI_MCP_WRITE_SCOPE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 export { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp-auth";
 
@@ -14,7 +14,7 @@ export function connectionFromActiveTokens(scopes: readonly string[] | null, err
     status: connected ? "active" as const : "disconnected" as const,
     access: writeEnabled ? "read_write" as const : connected ? "read_only" as const : "disconnected" as const,
     provider: "ChatGPT",
-    endpoint: "https://www.cmpri-engineering.com/api/mcp",
+    endpoint: CMPRI_MCP_RESOURCE,
     message: writeEnabled
       ? "ChatGPT is connected with read and write access limited to your current CMPRI permissions."
       : connected

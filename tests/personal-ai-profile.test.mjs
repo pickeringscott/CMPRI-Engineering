@@ -90,6 +90,15 @@ test("ChatGPT work-order room resolution requires a unique exact active location
 test("ChatGPT OAuth supports read/write scopes with dynamic registration, PKCE, one-time codes, and rotated opaque tokens", () => {
   const oauth = source("../src/lib/server/cmpri-mcp-oauth.ts");
   const oauthScopes = source("../src/lib/server/cmpri-mcp-oauth-scope.ts");
+  const constants = source("../src/lib/constants.ts");
+  const mcpServer = source("../src/lib/server/cmpri-mcp.ts");
+  const connectionPage = source("../src/app/profile/ai-connection/page.tsx");
+  const consentPage = source("../src/app/mcp/authorize/page.tsx");
+  const authorizationMetadata = source("../src/app/.well-known/oauth-authorization-server/route.ts");
+  const resourceMetadata = source("../src/app/.well-known/oauth-protected-resource/route.ts");
+  const resourceMetadataCatchAll = source("../src/app/.well-known/oauth-protected-resource/[...resource]/route.ts");
+  const mcpRoute = source("../src/app/api/mcp/route.ts");
+  const nextConfig = source("../next.config.ts");
   const register = source("../src/app/oauth/register/route.ts");
   const authorize = source("../src/app/oauth/authorize/route.ts");
   const token = source("../src/app/oauth/token/route.ts");
@@ -106,6 +115,19 @@ test("ChatGPT OAuth supports read/write scopes with dynamic registration, PKCE, 
   assert.match(token, /pending\.scope/);
   assert.match(oauthScopes, /CMPRI_MCP_WRITE_SCOPE = "cmpri:read cmpri:write"/);
   assert.match(oauthScopes, /normalizeMcpScope/);
+  assert.match(oauthScopes, /CMPRI_MCP_RESOURCE = `\$\{CANONICAL_APP_URL\}\/api\/mcp`/);
+  assert.match(constants, /CANONICAL_APP_URL = "https:\/\/cmpri-engineering\.com"/);
+  assert.doesNotMatch(`${oauthScopes}\n${mcpServer}\n${connectionPage}\n${consentPage}`, /www\.cmpri-engineering\.com/);
+  assert.match(mcpServer, /endpoint: CMPRI_MCP_RESOURCE/);
+  assert.match(connectionPage, /endpoint: CMPRI_MCP_RESOURCE/);
+  assert.match(consentPage, /resource: params\.get\("resource"\) \|\| CMPRI_MCP_RESOURCE/);
+  assert.match(authorizationMetadata, /const origin = CANONICAL_APP_URL;[\s\S]*issuer: origin/);
+  assert.match(authorizationMetadata, /authorization_endpoint: `\$\{origin\}\/mcp\/authorize`/);
+  assert.match(resourceMetadata, /resource: `\$\{origin\}\/api\/mcp`/);
+  assert.match(resourceMetadataCatchAll, /resource: `\$\{origin\}\/api\/mcp`/);
+  assert.match(mcpRoute, /CANONICAL_APP_URL\}\/\.well-known\/oauth-protected-resource/);
+  assert.match(nextConfig, /value: "www\\\\\.cmpri-engineering\\\\\.com"/);
+  assert.match(nextConfig, /destination: `\$\{CANONICAL_APP_URL\}\/:path\*`/);
   assert.match(token, /revoked_at/);
   assert.match(revoke, /token_family_id/);
   assert.doesNotMatch(`${register}\n${authorize}\n${token}`, /OPENAI_API_KEY|api_key_encrypted/);

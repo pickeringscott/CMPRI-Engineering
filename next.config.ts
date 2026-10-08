@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
 		return [
 			{
 				source: "/:path*",
+				has: [{ type: "host", value: "www\\.cmpri-engineering\\.com" }],
+				destination: `${CANONICAL_APP_URL}/:path*`,
+				permanent: true,
+			},
+			{
+				source: "/:path*",
 				has: [{ type: "host", value: ".*\\.vercel\\.app" }],
 				missing: [{ type: "header", key: "x-vercel-cron-schedule" }],
 				destination: `${CANONICAL_APP_URL}/:path*`,
