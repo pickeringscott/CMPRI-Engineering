@@ -439,11 +439,13 @@ export default function GlobalModalHost() {
       {stack.map((entry, index) => {
         const isTop = index === stack.length - 1;
         const scale = 0.9 ** (index + 1);
+        const entryPath = entry.href.replace(/^https?:\/\/[^/]+/, "");
+        const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(entryPath);
         const panelStyle: ModalPanelStyle = {
-          "--cmpri-modal-width": `min(${66 * scale}vw, ${72 * scale}rem)`,
-          "--cmpri-modal-height": `calc(${100 * scale}dvh - ${16 * scale}px)`,
-          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${16 * scale}px)`,
-          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${16 * scale}px)`,
+          "--cmpri-modal-width": `min(${(isWorkOrderDetail ? 94 : 66) * scale}vw, ${(isWorkOrderDetail ? 88 : 72) * scale}rem)`,
+          "--cmpri-modal-height": `calc(${(isWorkOrderDetail ? 82 : 100) * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
+          "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
+          "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
         };
         return (
           <div

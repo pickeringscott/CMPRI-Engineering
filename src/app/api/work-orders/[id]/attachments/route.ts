@@ -53,8 +53,9 @@ async function authorizedWorkOrder(request: NextRequest, id: string, mode: "read
   if (error) return { response: NextResponse.json({ error: "The work order could not be verified." }, { status: 503 }) };
   if (!workOrder) return { response: NextResponse.json({ error: "Work order not found." }, { status: 404 }) };
   const canEditOrReview = allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets");
+  const canComment = allows(auth.principal, "add_work_order_notes");
   if ((roleKey(auth.principal.profile.role) === "technician" || !canEditOrReview)
-    && allows(auth.principal, "view_work_orders")
+    && (allows(auth.principal, "view_work_orders") || canComment)
     && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
     return { response: NextResponse.json({ error: "This role can only view attachments for open work orders." }, { status: 403 }) };
   }
@@ -63,11 +64,11 @@ async function authorizedWorkOrder(request: NextRequest, id: string, mode: "read
   }
   const isCreator = String(workOrder.created_by || "") === String(auth.principal.identity.id);
   const canAccess = isCreator || (mode === "write"
-    ? allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets")
-    : allows(auth.principal, "view_dashboard") || allows(auth.principal, "view_work_orders") || allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
+    ? canEditOrReview || canComment
+    : allows(auth.principal, "view_dashboard") || allows(auth.principal, "view_work_orders") || canEditOrReview || canComment);
   return canAccess
     ? { context: { auth, workOrder: workOrder as AttachmentContext["workOrder"] } }
-    : { response: NextResponse.json({ error: mode === "write" ? "Work-order attachment edit or review access is required." : "Work-order attachment access is required." }, { status: 403 }) };
+    : { response: NextResponse.json({ error: mode === "write" ? "Work-order comment, edit, or review access is required." : "Work-order attachment access is required." }, { status: 403 }) };
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -130,7 +131,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       console.error("Work-order photo URL signing failed:", signedUrlError?.message || "No signed URL was returned.");
       return NextResponse.json({ error: "A work-order image could not be opened." }, { status: 503 });
     }
-    images.push({ id: file.name, name: file.name, url: signed.signedUrl });
+    images.push({
+      id: file.name,
+      name: file.name,
+      url: signed.signedUrl,
+      ...(typeof file.created_at === "string" ? { uploaded_at: file.created_at } : {}),
+    });
   }
 
   return NextResponse.json({ images }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });

@@ -147,6 +147,8 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const windowFrame = readFileSync(new URL('../src/components/desktop/DesktopWindow.tsx', import.meta.url), 'utf8');
   const listWindow = readFileSync(new URL('../src/components/desktop/WorkOrderListWindow.tsx', import.meta.url), 'utf8');
+  const workOrderDetail = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
+  const modalHost = readFileSync(new URL('../src/components/GlobalModalHost.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   assert.doesNotMatch(windowFrame, /minimi[sz]e|maximi[sz]e/i);
   assert.match(windowFrame, /data-cmpri-window-close="true"/);
@@ -162,6 +164,15 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.doesNotMatch(dashboard, /WorkOrderNotificationBanner|resolved_notification_ids/);
   assert.doesNotMatch(dashboard, /Awaiting Approval|KPI/, 'KPI cards live in the work order list window');
   assert.match(listWindow, /Awaiting Approval/);
+  assert.match(listWindow, /overflow-hidden bg-slate-950/);
+  assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
+  assert.match(workOrderDetail, /Photos \({workOrderImagesLoading \?/);
+  assert.match(workOrderDetail, /Upload photo/);
+  assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
+  assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details<\/summary>/);
+  assert.match(workOrderDetail, /uploadWorkOrderAttachment\(id, photo, session\.access_token/);
+  assert.match(workOrderDetail, /image\.uploaded_at[\s\S]*?text: "Photo uploaded"/);
+  assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);
   assert.match(styles, /html\.cmpri-desktop-interacting iframe \{\s*pointer-events: none !important;/);
   assert.match(styles, /container-type: inline-size;/);
 });

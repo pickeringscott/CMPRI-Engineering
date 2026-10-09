@@ -199,15 +199,17 @@ test("attachment ownership and cross-role API access match the role capability b
     assert.equal((await ownOrder.post(photo())).status, 200, `${role} uploads to own order`);
 
     const otherUserOrder = fixture({ role, userId: "user-a", createdBy: "other-user" });
-    const canReadOtherOrder = dashboard || roleModule.roleAllows(role, "view_work_orders");
+    const canReadOtherOrder = dashboard || roleModule.roleAllows(role, "view_work_orders") || roleModule.roleAllows(role, "add_work_order_notes");
     assert.equal((await otherUserOrder.get()).status, canReadOtherOrder ? 200 : 403, `${role} reads another user's attachments`);
     const canEditOtherOrder = roleModule.roleAllows(role, "edit_tickets") || roleModule.roleAllows(role, "review_tickets");
-    assert.equal((await otherUserOrder.post(photo())).status, canEditOtherOrder ? 200 : 403, `${role} uploads to another user's order`);
+    const canCommentOnOtherOrder = roleModule.roleAllows(role, "add_work_order_notes");
+    assert.equal((await otherUserOrder.post(photo())).status, canEditOtherOrder || canCommentOnOtherOrder ? 200 : 403, `${role} uploads to another user's order`);
   }
 
   for (const role of ["General Manager", "Assistant General Manager", "Front Desk Manager"]) {
     const closedOrder = fixture({ role, userId: "reader", createdBy: "other-user", status: "Closed" });
     assert.equal((await closedOrder.get()).status, 403, `${role} cannot read closed-order attachments`);
+    assert.equal((await closedOrder.post(photo())).status, 403, `${role} cannot upload to closed work orders`);
     assert.equal(closedOrder.storageCalls.length, 0);
   }
 
@@ -303,7 +305,7 @@ test("attachment listing returns signed image URLs and surfaces storage/signing 
   const route = fixture({
     role: "General Manager",
     files: [
-      { name: "photo.png", metadata: { mimetype: "image/png" } },
+      { name: "photo.png", created_at: "2026-10-09T14:00:00.000Z", metadata: { mimetype: "image/png" } },
       { name: "metadata.txt", metadata: { mimetype: "text/plain" } },
       { name: null, metadata: { mimetype: "image/png" } },
     ],
@@ -315,6 +317,7 @@ test("attachment listing returns signed image URLs and surfaces storage/signing 
     name: "photo.png",
     url: "http://local.invalid/signed-photo",
   }]);
+  assert.equal(response.body.images[0].uploaded_at, "2026-10-09T14:00:00.000Z");
   assert.equal(response.headers["Cache-Control"], "private, no-store, max-age=0");
   assert.equal(route.storageCalls.filter(({ operation }) => operation === "sign").length, 1);
 
@@ -340,6 +343,15 @@ test("work-order form accepts multiple gallery photos, camera photos, and previe
   assert.match(workOrderPageSource, /photos\.map\(\(photo\) => <WorkOrderPhotoPreview/);
   assert.match(workOrderPageSource, /uploadWorkOrderAttachment\(workOrder\.id, selectedPhoto\.file, session\.access_token, selectedPhoto\.uploadId\)/);
   assert.match(workOrderPageSource, /uploadWorkOrderAttachment\(workOrder\.id, workOrder\.photo\.file, session\.access_token, workOrder\.photo\.uploadId\)/);
+});
+
+test("work-order detail exposes desktop photo upload and mobile camera controls to commenters", () => {
+  const detailSource = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
+  assert.match(detailSource, /canSubmitTicketNote && \([\s\S]*?id="work-order-detail-photo"[\s\S]*?accept="image\/\*"[\s\S]*?Upload photo/);
+  assert.match(detailSource, /id="work-order-detail-camera"[\s\S]*?capture="environment"/);
+  assert.match(detailSource, /className="[^"]*\bmd:hidden\b/);
+  assert.match(detailSource, />\s*Camera\s*</);
+  assert.match(detailSource, /onClick=\{\(\) => photoFileInputRef\.current\?\.click\(\)\}/);
 });
 
 test("a failed photo upload can be retried against the same created work order", async () => {
@@ -435,5 +447,15 @@ test("attachment reads reject malformed response data", () => {
 
 test("attachment reads preserve valid image metadata", () => {
   const image = { id: "photo-1", name: "photo.png", url: "http://127.0.0.1:55557/storage/signed" };
+  assert.deepEqual(resolveWorkOrderImages(true, { images: [image] }), { images: [image], error: "" });
+});
+
+test("attachment reads preserve upload timestamps when present", () => {
+  const image = {
+    id: "photo-1",
+    name: "photo.png",
+    url: "http://127.0.0.1:55557/storage/signed",
+    uploaded_at: "2026-10-09T14:00:00.000Z",
+  };
   assert.deepEqual(resolveWorkOrderImages(true, { images: [image] }), { images: [image], error: "" });
 });

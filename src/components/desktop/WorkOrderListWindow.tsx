@@ -66,7 +66,7 @@ function checkoutDays(value: string, today = hotelDate()) {
   return Math.round((checkout.getTime() - current.getTime()) / 86_400_000);
 }
 
-function checkoutLabel(date?: string | null, time?: string | null) {
+export function checkoutLabel(date?: string | null, time?: string | null) {
   if (!date) return null;
   const days = checkoutDays(date);
   const parsed = new Date(`${date.slice(0, 10)}T12:00:00`);
@@ -80,7 +80,7 @@ function checkoutLabel(date?: string | null, time?: string | null) {
   return { label: `${displayDate}${when}`, className: "border-transparent bg-transparent text-slate-400" };
 }
 
-function priorityLabel(priority?: string | null) {
+export function priorityLabel(priority?: string | null) {
   const value = String(priority || "").trim();
   const normalized = value.toLowerCase();
   if (normalized === "urgent") return "Urgent Priority";
@@ -135,7 +135,7 @@ export default function WorkOrderListWindow({
     : groups[filter];
 
   return (
-    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-[#06162b] p-[0.45em] text-white">
+    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
         <h1 className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">

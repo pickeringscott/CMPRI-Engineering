@@ -2,6 +2,7 @@ export type WorkOrderImage = {
   id: string;
   name: string;
   url: string;
+  uploaded_at?: string | null;
 };
 
 export type WorkOrderImageResolution = {
@@ -18,7 +19,12 @@ function workOrderImage(value: unknown): WorkOrderImage | null {
   if (typeof value.id !== "string" || !value.id.trim()) return null;
   if (typeof value.name !== "string" || !value.name.trim()) return null;
   if (typeof value.url !== "string" || !value.url.trim()) return null;
-  return { id: value.id, name: value.name, url: value.url };
+  return {
+    id: value.id,
+    name: value.name,
+    url: value.url,
+    ...(typeof value.uploaded_at === "string" ? { uploaded_at: value.uploaded_at } : {}),
+  };
 }
 
 export function resolveWorkOrderImages(responseOk: boolean, payload: unknown): WorkOrderImageResolution {

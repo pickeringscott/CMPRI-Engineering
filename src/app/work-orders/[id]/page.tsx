@@ -13,9 +13,13 @@ import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roleKey } from "@/lib/server/roles";
+import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
+import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
+import { isRailwayCnGuestName } from "@/lib/room-operations";
 import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
 import { resolveRoomRankerContext, type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
+import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
 import { assignableAssetsForLocation } from "@/lib/work-orders/assignable-assets";
@@ -96,7 +100,11 @@ type RoomOperationalContext = {
   ranker: RoomRankerContext | null;
   rankerError: string;
   pm: RoomPmContext | null;
+  guestName: string;
+  roomStatus: string;
+  checkoutDate: string;
   checkoutTime: string;
+  cnRoom: boolean;
   checkoutError: string;
   loading: boolean;
 };
@@ -130,30 +138,6 @@ function priorityForCategory(
       return "Medium";
   }
 }
-
-function priorityBubbleClass(priority?: string | null) {
-  const value = String(priority || "").toLowerCase();
-  if (value === "urgent") return "border-purple-400/40 bg-purple-950/45 text-purple-200";
-  if (value === "high") return "border-red-400/40 bg-red-950/40 text-red-200";
-  if (value === "medium") return "border-yellow-400/40 bg-yellow-950/35 text-yellow-200";
-  if (value === "low") return "border-blue-400/40 bg-blue-950/35 text-blue-200";
-  return "border-slate-700 bg-slate-900 text-slate-300";
-}
-
-function statusBubbleClass(status?: string | null) {
-  const value = String(status || "Open").toLowerCase();
-  if (value === "pending verification") return "border-purple-400/50 bg-purple-950/45 text-purple-200";
-  if (value === "open") return "border-green-400/40 bg-green-950/35 text-green-200";
-  if (value === "in progress") return "border-yellow-400/40 bg-yellow-950/35 text-yellow-200";
-  if (value === "completed") return "border-blue-400/40 bg-blue-950/35 text-blue-200";
-  if (value === "duplicate") return "border-orange-400/40 bg-orange-950/35 text-orange-200";
-  if (value === "closed") return "border-red-400/40 bg-red-950/35 text-red-200";
-  if (value === "will not do") return "border-slate-500/40 bg-slate-800 text-slate-200";
-  return "border-slate-700 bg-slate-900 text-slate-300";
-}
-
-
-
 
 type SymptomRoute = {
   key: string;
@@ -660,6 +644,10 @@ export default function WorkOrderTicketPage() {
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
   const [workOrderImageError, setWorkOrderImageError] = useState("");
   const [imagePreview, setImagePreview] = useState<WorkOrderImage | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState("");
+  const [photoUploadMessage, setPhotoUploadMessage] = useState("");
+  const photoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [embedded, setEmbedded] = useState(true);
@@ -696,7 +684,7 @@ export default function WorkOrderTicketPage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [externalActivity, setExternalActivity] = useState<ExternalActivity>({ purchases: [], enseo: [], warranties: [], followups: [] });
-  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, rankerError: "", pm: null, checkoutTime: "", checkoutError: "", loading: false });
+  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: false });
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
 
@@ -769,6 +757,28 @@ export default function WorkOrderTicketPage() {
     }
   }
 
+  async function uploadWorkOrderPhoto(photo: File) {
+    if (!id) {
+      setPhotoUploadError("This work order could not be identified for photo upload.");
+      return;
+    }
+    setPhotoUploading(true);
+    setPhotoUploadError("");
+    setPhotoUploadMessage("");
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
+      const result = await uploadWorkOrderAttachment(id, photo, session.access_token, crypto.randomUUID());
+      if (!result.ok) throw new Error(result.message);
+      await loadWorkOrderImages();
+      setPhotoUploadMessage("Photo uploaded.");
+    } catch (error) {
+      setPhotoUploadError(error instanceof Error ? error.message : "The work-order photo could not be uploaded.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   function seedTicketPreview(row: WorkOrder) {
     setOrder(row);
     const previewIssue = cleanTicketReportedIssue(row.issue || "", row.room || "");
@@ -809,13 +819,13 @@ export default function WorkOrderTicketPage() {
   async function loadRoomOperationalContext(roomLabel?: string | null) {
     const roomText = String(roomLabel || "");
     const room = roomText.match(/\b(?:\d{2,4}|MGR)\b/i)?.[0] || "";
-    if (!room) { setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, checkoutTime: "", checkoutError: "", loading: false }); return; }
-    setRoomOperationalContext((current) => ({ ...current, loading: true }));
+    if (!room) { setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: false }); return; }
+    setRoomOperationalContext((current) => ({ ...current, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, loading: true }));
     try {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) {
-        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, checkoutTime: "", checkoutError: "Today's checkout time could not be loaded.", loading: false });
+        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "Today's checkout time could not be loaded.", loading: false });
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
@@ -834,6 +844,9 @@ export default function WorkOrderTicketPage() {
           rankerError = error instanceof Error ? error.message : "Room Ranker could not be loaded.";
         }
       }
+      let guestName = "";
+      let roomStatus = "";
+      let checkoutDate = "";
       let checkoutTime = "";
       let checkoutError = "";
       if (!current.capabilities.includes("view_dashboard")) {
@@ -841,24 +854,31 @@ export default function WorkOrderTicketPage() {
       } else {
         try {
           const roomOperationsResponse = await fetch("/api/room-operations", { headers, cache: "no-store" });
-          const roomOperationsPayload = await roomOperationsResponse.json().catch(() => ({})) as { rows?: Array<{ room?: string; checkout_time?: string }>; error?: string };
+          const roomOperationsPayload = await roomOperationsResponse.json().catch(() => ({})) as { rows?: Array<{ room?: string; guest_name?: string | null; room_status?: string | null; checkout_date?: string | null; checkout_time?: string | null }>; error?: string };
           if (!roomOperationsResponse.ok || !Array.isArray(roomOperationsPayload.rows)) {
             throw new Error(roomOperationsPayload.error || "Today's room-operations data could not be loaded.");
           }
           const roomOperation = roomOperationsPayload.rows.find((item) => String(item.room || "").trim().toUpperCase() === room.toUpperCase());
+          guestName = String(roomOperation?.guest_name || "");
+          roomStatus = String(roomOperation?.room_status || "");
+          checkoutDate = String(roomOperation?.checkout_date || "");
           checkoutTime = String(roomOperation?.checkout_time || "");
         } catch (error) {
           checkoutError = error instanceof Error ? error.message : "Today's checkout time could not be loaded.";
         }
       }
-      setRoomOperationalContext({ ranker, rankerError, pm: {}, checkoutTime, checkoutError, loading: false });
+      setRoomOperationalContext({ ranker, rankerError, pm: {}, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Room context could not be loaded.";
       setRoomOperationalContext({
         ranker: null,
         rankerError: message,
         pm: { error: message },
+        guestName: "",
+        roomStatus: "",
+        checkoutDate: "",
         checkoutTime: "",
+        cnRoom: false,
         checkoutError: message,
         loading: false,
       });
@@ -1679,55 +1699,73 @@ export default function WorkOrderTicketPage() {
   if (order.created_at && !authoritativeHistory.some((event) => event.event_type === "created")) {
     historyEntries.push({ id: "created", timestamp: order.created_at, actor: "System", kind: "system", text: "Work order created" });
   }
+  for (const image of workOrderImages) {
+    if (image.uploaded_at) {
+      historyEntries.push({
+        id: `photo-${image.id}`,
+        timestamp: image.uploaded_at,
+        actor: "Attachment",
+        kind: "system",
+        text: "Photo uploaded",
+        locked: true,
+      });
+    }
+  }
   const uniqueHistory = new Map<string, TicketHistoryEntry>();
   for (const entry of historyEntries) uniqueHistory.set(`${entry.timestamp}|${entry.actor}|${entry.kind}|${entry.text}`, entry);
   historyEntries.splice(0, historyEntries.length, ...Array.from(uniqueHistory.values()));
   historyEntries.sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const roomOccupancy = roomStatusBadge(order.room_status || roomOperationalContext.roomStatus);
+  const checkout = checkoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime);
 
   return (
     <main className="min-h-screen bg-slate-950 text-[16px] text-white">
-      <div className="mx-auto max-w-5xl px-3 pb-4 sm:px-4">
-        <div className="sticky top-0 z-20 -mx-4 flex flex-col gap-4 border-b border-slate-800 bg-slate-950/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
+      <div className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
+        <div className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
+          <div className="order-2 min-w-0 w-full sm:order-none sm:w-auto sm:flex-1">
             {!embedded && (
               <Link
                 href="/engineering"
-                className="text-sm font-semibold text-amber-400 hover:text-amber-300"
+                className="text-xs font-semibold text-amber-400 hover:text-amber-300"
               >
                 ← Engineering Dashboard
               </Link>
             )}
-            <div className="mt-2 flex flex-wrap items-start gap-3">
-              <div className="min-w-0">
-                <h1 className="text-3xl font-bold leading-none sm:text-4xl">{order.room || "Work Order"}</h1>
-                {roomStatusBadge(order.room_status) && <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}
-                <p className="mt-1 max-w-[22rem] truncate text-sm leading-5 text-slate-200 sm:max-w-[26rem]" title={issue || "No reported issue"}>
-                  {issue || "No reported issue"}
-                </p>
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-1">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                  <div className="min-w-0">
+                    <h1 className="truncate text-lg font-bold leading-tight text-white">{order.room || "Work Order"}</h1>
+                    {roomOperationalContext.guestName && <p className="max-w-48 truncate text-[11px] leading-tight text-slate-400" title={roomOperationalContext.guestName}>{roomOperationalContext.guestName}</p>}
+                  </div>
+                  {roomOperationalContext.cnRoom && (
+                    <Image
+                      src="/railway-cn-logo.png"
+                      alt="CN"
+                      width={42}
+                      height={27}
+                      className="h-[1.15em] w-auto rounded-[3px] object-contain"
+                    />
+                  )}
+                  {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
+                  {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
+                </div>
+                <p className="mt-1 truncate text-xs leading-tight text-white" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
+                <p className="truncate text-[11px] leading-tight text-sky-200/75" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
               </div>
-              <div className="flex items-start gap-2 pt-0.5">
-                <div className="grid w-max justify-items-stretch gap-0.5 text-center">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Priority</span>
-                  <span className={`rounded-full border px-3 py-1 text-center text-xs font-semibold ${priorityBubbleClass(priority)}`}>
-                    {priority}
-                  </span>
-                </div>
-                <div className="grid w-max justify-items-stretch gap-0.5 text-center">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Status</span>
-                  <span className={`rounded-full border px-3 py-1 text-center text-xs font-semibold ${statusBubbleClass(status)}`}>
-                    {status}
-                  </span>
-                </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
+                <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
               </div>
             </div>
           </div>
 
-          <div className="ml-auto flex shrink-0 items-end gap-2 self-end">
+          <div className="order-1 ml-auto flex shrink-0 items-center gap-1 self-start sm:order-none">
             <button
               type="button"
               onClick={cancelTicket}
               disabled={saving}
-              className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
+              className="whitespace-nowrap rounded-lg border border-slate-600 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
             >
               Cancel
             </button>
@@ -1736,7 +1774,7 @@ export default function WorkOrderTicketPage() {
                 type="button"
                 title="Copy work order number"
                 onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(order.display_id); }}
-                className="rounded-full border border-orange-500/50 bg-orange-950/45 px-2.5 py-1 text-[11px] font-bold text-orange-200"
+                className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
               >
                 {order.display_id || "Work Order"}
               </button>
@@ -1744,7 +1782,7 @@ export default function WorkOrderTicketPage() {
                 type="button"
                 onClick={() => { void saveTicket(); }}
                 disabled={saving || saveState === "saved"}
-                className={`rounded-lg border px-5 py-3 text-sm font-bold transition-colors disabled:opacity-80 ${
+                className={`whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors disabled:opacity-80 ${
                   saveState === "saved"
                     ? "border-emerald-500 bg-emerald-600 text-white"
                     : saveState === "saving"
@@ -1767,24 +1805,55 @@ export default function WorkOrderTicketPage() {
         </div>
 
         {message && (
-          <div className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">
+          <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm">
             {message}
           </div>
         )}
 
-        <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_370px]">
-          <div className="space-y-3">
-            <section className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+        {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
+          <section className="mt-2 grid gap-1.5 rounded-xl border border-cyan-500/30 bg-slate-900 p-1.5">
+            {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
+              {roomOperationalContext.checkoutError && <p role="alert" className="text-xs text-red-300">Room checkout details are unavailable: {roomOperationalContext.checkoutError}</p>}
+              {roleKey(cmpriSession?.user.role) === "system_admin" && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <b className="text-sm">Room Ranker</b>
+                    <div className="flex items-center gap-1.5">
+                      <Link href="/engineering/room-ranker" className="text-[11px] font-semibold text-amber-300 hover:underline">Ranker</Link>
+                      <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span>
+                    </div>
+                  </div>
+                  {roomOperationalContext.rankerError
+                    ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.rankerError}</p>
+                    : roomRankerFlags.length
+                      ? <ul className="mt-1 space-y-0.5 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul>
+                      : <p className="mt-1 text-xs text-slate-500">{roomOperationalContext.ranker ? "No Room Ranker flags or notes are recorded for this room." : "No Room Ranker row was returned for this room."}</p>}
+                </div>
+              )}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
+                <b className="text-sm">PM checks and quarterly room forms</b>
+                {roomOperationalContext.pm?.error
+                  ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
+                  : <p className="mt-1 text-xs leading-tight text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
+                <Link href="/engineering/preventive-maintenance" className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
+              </div>
+            </>}
+          </section>
+        )}
+
+        <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
+          <div className="min-w-0 space-y-2">
+            <section className="rounded-xl border border-slate-800 bg-slate-900 p-2.5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-[30px] font-bold leading-tight tracking-tight">Reported Issue</h2>
+                  <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue</h2>
                   {(canEditWorkOrder || canReviewCurrentTicket) && <button
                     type="button"
                     onClick={() => {
                       const next = !editingIssue;
                       setEditingIssue(next);
                     }}
-                    className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold ${editingIssue ? "border-amber-400 bg-amber-950/40 text-amber-100" : "border-slate-700 text-amber-300 hover:bg-slate-800"}`}
+                    className={`rounded-lg border px-2 py-1 text-[11px] font-bold ${editingIssue ? "border-amber-400 bg-amber-950/40 text-amber-100" : "border-slate-700 text-amber-300 hover:bg-slate-800"}`}
                   >
                     {editingIssue
                       ? canReviewCurrentTicket && !canEditTicket ? "Done Reviewing" : "Done Editing"
@@ -1793,7 +1862,7 @@ export default function WorkOrderTicketPage() {
                         : isTechnician ? "Edit Work Order" : "✎ Edit Issue"}
                   </button>}
                 </div>
-                <div className="text-right text-[11px] leading-4 text-slate-500">
+                <div className="text-right text-[10px] leading-tight text-slate-500">
                   <div>Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span></div>
                   <div>{formatDateTime(order.created_at)}</div>
                 </div>
@@ -1805,112 +1874,164 @@ export default function WorkOrderTicketPage() {
                     required
                     value={issue}
                     onChange={(event) => setIssue(event.target.value)}
-                    rows={Math.max(3, Math.min(10, issue.split("\n").length + Math.floor(issue.length / 70)))}
-                    className="mt-3 w-full resize-y rounded-xl border border-slate-700 bg-slate-950 p-3 text-base text-white outline-none focus:border-amber-400"
+                    rows={2}
+                    className="mt-1 max-h-20 w-full resize-y overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none focus:border-amber-400"
                   />
-                  <div className="mt-2 rounded-lg border border-sky-500/25 bg-sky-950/20 px-3 py-2 text-xs text-sky-100/80">
+                  <div className="mt-1 rounded-lg border border-sky-500/25 bg-sky-950/20 px-2 py-1 text-[10px] leading-tight text-sky-100/80">
                     Editing an existing ticket never creates additional work orders. Additional problems entered here remain attached to this ticket as sub-issues unless someone deliberately creates a separate work order.
                   </div>
                 </>
               ) : (
-                <p className="mt-3 whitespace-pre-wrap text-base leading-6 text-slate-200">{issue || "—"}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-200">{issue || "—"}</p>
               )}
 
               {order.reporter_notes && (
-                <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+                <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reporter Notes</div>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-300">{order.reporter_notes}</p>
                 </div>
               )}
 
               {status === "Pending Verification" && canReviewTicket && (
-                <div className="mt-4 flex justify-end">
+                <div className="mt-2 flex justify-end">
                   <button type="button" onClick={() => { void saveTicket("Open"); }} disabled={saving} className="rounded-lg border border-purple-400/50 bg-purple-950/40 px-3 py-2 text-xs font-bold text-purple-100 hover:bg-purple-900/50 disabled:opacity-60">Approve → Open</button>
                 </div>
               )}
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+              <div className="mt-1 grid gap-1.5 sm:grid-cols-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment</div>
-                  {editingIssue && canEditField("asset_id") ? <div className="mt-2"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-2 text-base text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
+                  {editingIssue && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-1 text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</div>
-                  {editingIssue && canEditField("category") ? <div className="mt-2"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{category || "General"}</p>}
+                  {editingIssue && canEditField("category") ? <div className="mt-1"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{category || "General"}</p>}
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</div>
-                  {editingIssue && canEditField("priority") ? <div className="mt-2"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{priority || "Medium"}</p>}
+                  {editingIssue && canEditField("priority") ? <div className="mt-1"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{priority || "Medium"}</p>}
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician</div>
-                  {editingIssue && canEditField("technician_name") ? <div className="mt-2"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{technicianName || "Unassigned"}</p>}
-                  {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-2 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
+                  {editingIssue && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{technicianName || "Unassigned"}</p>}
+                  {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
-                  {editingIssue && canEditField("status") ? <div className="mt-2"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} /></div> : <p className="mt-2 text-base text-slate-200">{status || "Open"}</p>}
+                  {editingIssue && canEditField("status") ? <div className="mt-1"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{status || "Open"}</p>}
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By</div>
-                  {editingIssue && canEditField("due_by") ? <input type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-2 min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400" /> : <p className="mt-2 text-base text-slate-200">{dueBy || "No due date"}</p>}
+                  {editingIssue && canEditField("due_by") ? <input type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <p className="mt-1 text-sm text-slate-200">{dueBy || "No due date"}</p>}
                 </div>
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="text-lg font-bold tracking-tight text-slate-100">Photo</h2>
-              {workOrderImageError ? (
-                <div role="alert" className="mt-3 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">
-                  <p>{workOrderImageError}</p>
-                  <button type="button" onClick={() => void loadWorkOrderImages()} disabled={workOrderImagesLoading} className="mt-2 rounded-md border border-red-700 px-3 py-1.5 text-xs font-bold hover:bg-red-900/50 disabled:opacity-50">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h2 className="mr-auto text-sm font-bold tracking-tight text-slate-100">Photos ({workOrderImagesLoading ? "…" : workOrderImages.length})</h2>
+                {canSubmitTicketNote && (
+                  <>
+                    <input
+                      ref={photoFileInputRef}
+                      id="work-order-detail-photo"
+                      type="file"
+                      accept="image/*"
+                      disabled={photoUploading || saving}
+                      onChange={(event) => {
+                        const photo = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (photo) void uploadWorkOrderPhoto(photo);
+                      }}
+                      className="sr-only"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => photoFileInputRef.current?.click()}
+                      disabled={photoUploading || saving}
+                      className="whitespace-nowrap rounded-md border border-sky-500/40 bg-sky-950/35 px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {photoUploading ? "Uploading…" : "Upload photo"}
+                    </button>
+                    <input
+                      id="work-order-detail-camera"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      disabled={photoUploading || saving}
+                      onChange={(event) => {
+                        const photo = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (photo) void uploadWorkOrderPhoto(photo);
+                      }}
+                      className="sr-only"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById("work-order-detail-camera")?.click()}
+                      disabled={photoUploading || saving}
+                      className="whitespace-nowrap rounded-md border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 md:hidden"
+                    >
+                      Camera
+                    </button>
+                  </>
+                )}
+              </div>
+              {workOrderImageError && (
+                <div role="alert" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-red-200">
+                  <span>{workOrderImageError}</span>
+                  <button type="button" onClick={() => void loadWorkOrderImages()} disabled={workOrderImagesLoading} className="rounded border border-red-700 px-2 py-1 font-bold hover:bg-red-900/50 disabled:opacity-50">
                     {workOrderImagesLoading ? "Retrying…" : "Retry"}
                   </button>
                 </div>
-              ) : workOrderImagesLoading ? (
-                <p role="status" className="mt-3 text-sm text-slate-400">Loading work-order photos…</p>
-              ) : workOrderImages.length ? (
-                <div className="mt-3 flex flex-wrap gap-3">
-                  {workOrderImages.map((image) => (
-                    <button key={image.id} type="button" onClick={() => setImagePreview(image)} className="relative aspect-[4/3] w-[25%] min-w-24 max-w-48 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
-                      <Image
-                        src={image.url}
-                        alt="Work-order attachment"
-                        fill
-                        sizes="(max-width: 640px) 96px, 192px"
-                        unoptimized
-                        className="object-contain"
-                      />
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-3 flex min-h-24 items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950 text-sm text-slate-500">No photo attached</div>
+              )}
+              {photoUploadError && <p role="alert" className="mt-1 text-xs text-red-200">{photoUploadError}</p>}
+              {photoUploadMessage && <p role="status" className="mt-1 text-xs text-emerald-300">{photoUploadMessage}</p>}
+              {workOrderImagesLoading && <p role="status" className="mt-1 text-xs text-slate-400">Loading photos…</p>}
+              {!workOrderImagesLoading && !workOrderImageError && workOrderImages.length === 0 && <p className="mt-1 text-xs text-slate-500">No photos attached.</p>}
+              {!!workOrderImages.length && (
+                <details className="mt-1">
+                  <summary className="w-fit cursor-pointer text-xs font-semibold text-sky-300">View attached photos</summary>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {workOrderImages.map((image) => (
+                      <button key={image.id} type="button" onClick={() => setImagePreview(image)} aria-label={`Open work-order photo${image.uploaded_at ? ` uploaded ${formatDateTime(image.uploaded_at)}` : ""}`} className="relative aspect-[4/3] w-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
+                        <Image
+                          src={image.url}
+                          alt="Work-order attachment"
+                          fill
+                          sizes="80px"
+                          unoptimized
+                          className="object-contain"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </details>
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="text-lg font-bold tracking-tight text-slate-100">Technician Notes &amp; Ticket History</h2>
-              <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-xl border border-slate-700 bg-slate-950">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <h2 className="text-sm font-bold tracking-tight text-slate-100">Technician Notes &amp; Ticket History</h2>
+              <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
                   const when = new Date(entry.timestamp);
-                  const shortDate = Number.isNaN(when.getTime()) ? "—" : when.toLocaleDateString([], { month: "numeric", day: "numeric", year: "2-digit" });
+                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString([], { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
                   const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
                   return (
-                    <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[5rem_8.5rem_minmax(0,1fr)_auto] items-start gap-2 border-b border-slate-800 px-3 py-1.5 text-[15px] leading-5 last:border-b-0">
-                      <span className="text-slate-500" title={hoverTime}>{shortDate}</span>
+                    <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7rem_6rem_minmax(0,1fr)_auto] items-start gap-1 border-b border-slate-800 px-2 py-1 text-xs leading-tight last:border-b-0">
+                      <span className="text-slate-500" title={hoverTime}>{visibleTime}</span>
                       <span className="truncate font-semibold text-sky-200" title={entry.actor}>{entry.actor}</span>
                       <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
                       {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
                       {entry.staged && <button type="button" onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
                     </div>
                   );
-                }) : <div className="px-3 py-2 text-[15px] text-slate-500">No ticket history yet.</div>}
+                }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="text-[28px] font-bold leading-tight tracking-tight">Technician Notes</h2>
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <h2 className="text-sm font-bold leading-tight tracking-tight">Technician Notes</h2>
               <div className="relative">
                 <textarea
                   id="technician-note-editor"
@@ -1919,7 +2040,7 @@ export default function WorkOrderTicketPage() {
                   onChange={(event) => setNoteDraft(event.target.value)}
                   rows={2}
                   placeholder="Document findings, diagnostic codes, readings, tests, work performed, or type @ to mention another ticket..."
-                  className="mt-2 max-h-20 w-full resize-none overflow-y-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-[16px] text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
+                  className="mt-2 max-h-20 w-full resize-none overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
                 />
                 {mentionMatch && mentionSuggestions.length > 0 && (
                   <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
@@ -1933,18 +2054,18 @@ export default function WorkOrderTicketPage() {
                   </div>
                 )}
               </div>
-              <div className="mt-2 flex justify-end">
-                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
+              <div className="mt-1 flex justify-end">
+                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="text-[28px] font-bold leading-tight tracking-tight text-amber-400">
+            <details className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <summary className="list-item cursor-pointer">
+                <h2 className="text-base font-bold leading-tight tracking-tight text-amber-400">
                   Suggested Troubleshooting
                 </h2>
                 {selectedAsset && (
-                  <span className="text-xs text-slate-500">
+                  <span className="truncate text-[11px] text-slate-500">
                     {manualLoading
                       ? "Loading equipment documentation..."
                       : manualSteps.length
@@ -1952,10 +2073,10 @@ export default function WorkOrderTicketPage() {
                         : "No exact verified manual match"}
                   </span>
                 )}
-              </div>
+              </summary>
 
               {!selectedAsset && (
-                <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-300">
+                <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-sm text-slate-300">
                   Select equipment to check for an exact verified manufacturer and model match. No generic troubleshooting fallback is shown.
                 </div>
               )}
@@ -1974,7 +2095,7 @@ export default function WorkOrderTicketPage() {
                 </div>
               )}
 
-              <div className="mt-4 max-h-[26rem] overflow-y-auto pr-2">
+              <div className="mt-2 max-h-[26rem] overflow-y-auto pr-1">
                 {manualKnowledge?.source?.title && (
                   <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                     <p className="text-sm font-semibold">{manualKnowledge.source.title}</p>
@@ -2119,11 +2240,11 @@ export default function WorkOrderTicketPage() {
                   </p>
                 )}
               </div>
-            </section>
+            </details>
 
             {["Completed", "Closed", "Will Not Do"].includes(status) && (
-              <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-                <h2 className="text-lg font-semibold">Closure Details</h2>
+              <details className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+                <summary className="cursor-pointer text-sm font-semibold">Closure Details</summary>
                 <p className="mt-1 text-xs text-slate-500">
                   Record the final action and root cause only when closing the ticket.
                 </p>
@@ -2131,52 +2252,30 @@ export default function WorkOrderTicketPage() {
                   value={actionRootCause}
                   onChange={(event) => setActionRootCause(event.target.value)}
                   disabled={!canEditField("action_root_cause") || saving}
-                  rows={5}
+                  rows={3}
                   placeholder="Repair performed, root cause, or reason not completed..."
-                  className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-amber-400"
+                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-amber-400"
                 />
-              </section>
+              </details>
             )}
 
           </div>
 
-          <aside className="space-y-6">
-            {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
-              <section className="rounded-2xl border border-cyan-500/30 bg-slate-900 p-5">
-                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Room Context</p><h2 className="mt-1 text-lg font-semibold">{roleKey(cmpriSession?.user.role) === "system_admin" ? "Room Ranker & Preventive Maintenance" : "Preventive Maintenance"}</h2></div><div className="flex gap-2">{roleKey(cmpriSession?.user.role) === "system_admin" && <Link href="/engineering/room-ranker" className="text-xs font-semibold text-amber-300 hover:underline">Ranker</Link>}</div></div>
-                {roomOperationalContext.loading ? <p className="mt-3 text-sm text-slate-400">Loading live room context…</p> : <>
-                  {roleKey(cmpriSession?.user.role) === "system_admin" && <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="flex items-center justify-between gap-3"><b>Room Ranker</b><span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span></div>{roomOperationalContext.rankerError ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.rankerError}</p> : roomRankerFlags.length ? <ul className="mt-2 space-y-1 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul> : <p className="mt-2 text-xs text-slate-500">{roomOperationalContext.ranker ? "No Room Ranker flags or notes are recorded for this room." : "No Room Ranker row was returned for this room."}</p>}</div>}
-                  <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
-                    <b>Today&apos;s checkout time</b>
-                    {roomOperationalContext.checkoutError
-                      ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.checkoutError}</p>
-                      : <p className="mt-2 text-sm text-slate-300">{roomOperationalContext.checkoutTime || "No checkout is listed for this room today."}</p>}
-                  </div>
-                  <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                    <b>PM checks and quarterly room forms</b>
-                    {roomOperationalContext.pm?.error
-                      ? <p className="mt-2 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
-                      : <p className="mt-2 text-xs text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
-                    <Link href="/engineering/preventive-maintenance" className="mt-3 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
-                  </div>
-                </>}
-              </section>
-            )}
-
+          <aside className="min-w-0 space-y-2">
             {(externalActivity.purchases?.length || externalActivity.enseo?.length || externalActivity.warranties?.length || externalActivity.followups?.length) ? (
-              <section className="rounded-2xl border border-orange-500/30 bg-slate-900 p-5">
+              <section className="rounded-2xl border border-orange-500/30 bg-slate-900 p-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">Linked External Activity</p>
-                    <h2 className="mt-1 text-lg font-semibold">Parts, Shipments & Service Tickets</h2>
+                    <h2 className="mt-1 text-sm font-semibold">Parts, Shipments & Service Tickets</h2>
                   </div>
                   <Link href="/engineering/purchasing" className="text-xs font-semibold text-amber-300 hover:underline">View all</Link>
                 </div>
 
                 {!!externalActivity.purchases?.length && (
-                  <div className="mt-4 space-y-3">
+                  <div className="mt-2 space-y-2">
                     {externalActivity.purchases.map((purchase) => (
-                      <div key={purchase.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                      <div key={purchase.id} className="rounded-xl border border-slate-800 bg-slate-950 p-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="font-semibold">{purchase.vendor || "Supplier"}{purchase.order_number ? ` · PO ${purchase.order_number}` : ""}</p>
                           <span className="rounded-full border border-blue-400/40 bg-blue-950/35 px-2 py-0.5 text-[11px] font-semibold text-blue-200">{purchase.status || "Ordered"}</span>
@@ -2199,21 +2298,21 @@ export default function WorkOrderTicketPage() {
                 )}
 
                 {!!externalActivity.enseo?.length && (
-                  <div className="mt-4 border-t border-slate-800 pt-3">
+                  <div className="mt-2 border-t border-slate-800 pt-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-sky-300">Enseo</p>
                     {externalActivity.enseo.map((ticket) => <p key={ticket.id} className="mt-1 text-sm text-slate-300">{ticket.ticket_number ? `Ticket ${ticket.ticket_number}` : "Enseo ticket"}{ticket.enseo_endpoint ? ` · ${ticket.enseo_endpoint}` : ticket.room_number ? ` · Room ${ticket.room_number}` : ""} · {ticket.status || "Updated"}</p>)}
                   </div>
                 )}
 
                 {!!externalActivity.warranties?.length && (
-                  <div className="mt-4 border-t border-slate-800 pt-3">
+                  <div className="mt-2 border-t border-slate-800 pt-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-purple-300">Warranty / RMA</p>
                     {externalActivity.warranties.map((item) => <p key={item.id} className="mt-1 text-sm text-slate-300">{item.rma_number ? `RMA ${item.rma_number}` : item.warranty_case_number ? `Case ${item.warranty_case_number}` : "Warranty case"} · {item.status || "Open"}</p>)}
                   </div>
                 )}
 
                 {!!externalActivity.followups?.length && (
-                  <div className="mt-4 border-t border-slate-800 pt-3">
+                  <div className="mt-2 border-t border-slate-800 pt-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">Supplier Follow-up</p>
                     {externalActivity.followups.map((item) => <p key={item.id} className="mt-1 text-sm text-slate-300">{item.status || "Vendor Contacted — Awaiting Response"}</p>)}
                   </div>
@@ -2221,25 +2320,25 @@ export default function WorkOrderTicketPage() {
               </section>
             ) : null}
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-              <h2 className="text-lg font-semibold">Labor & Parts</h2>
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <h2 className="text-sm font-semibold">Labor & Parts</h2>
 
-              <label className="mt-4 block">
-                <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <label className="mt-2 block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Parts
                 </span>
                 <input
                   value={parts}
                   onChange={(event) => setParts(event.target.value)}
                   disabled={!canEditField("parts") || saving}
-                  className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400"
+                  className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
                   placeholder="Parts used / ordered"
                 />
               </label>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Hours
                   </span>
                   <input
@@ -2249,12 +2348,12 @@ export default function WorkOrderTicketPage() {
                     value={hours}
                     onChange={(event) => setHours(event.target.value)}
                     disabled={!canEditField("hours") || saving}
-                    className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400"
+                    className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
                   />
                 </label>
 
                 <label className="block">
-                  <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Cost
                   </span>
                   <input
@@ -2264,7 +2363,7 @@ export default function WorkOrderTicketPage() {
                     value={cost}
                     onChange={(event) => setCost(event.target.value)}
                     disabled={!canEditField("cost") || saving}
-                    className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-amber-400"
+                    className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
                   />
                 </label>
               </div>
