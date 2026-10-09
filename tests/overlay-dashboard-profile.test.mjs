@@ -267,7 +267,8 @@ test('authorized Housekeeping render replaces the Engineering fallback and share
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   assert.match(dashboard, /if \(!cmpriSession\)\s*\{\s*return/);
   assert.match(dashboard, /isHousekeepingDashboard \? "Housekeeping" : "Engineering"/);
-  assert.match(dashboard, /<main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-dvh w-full min-w-0 flex-col overflow-hidden/);
+  assert.match(dashboard, /<main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden/);
+  assert.match(dashboard, /lg:h-dvh/);
   assert.doesNotMatch(dashboard, /lg:w-\[66vw\]/);
   assert.doesNotMatch(layout, /DashboardAssistant/);
   assert.doesNotMatch(styles, /cmpri-dashboard-assistant/);
@@ -296,13 +297,15 @@ test('submit-only work-order forms display inferred category and priority withou
 test('work-order top bar separates photo-file selection from camera capture', () => {
   const source = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /htmlFor="work-order-photo-file"[^>]*title="Choose a photo file"/);
-  assert.match(source, /ref=\{photoFileInputRef\} id="work-order-photo-file" type="file" accept="image\/\*" disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
-  assert.match(source, /setPhotoUploadId\(selectedPhoto \? crypto\.randomUUID\(\) : ""\); setPhotoUploadError\(""\); setCanReplacePhoto\(false\)/);
+  assert.match(source, /ref=\{photoFileInputRef\} id="work-order-photo-file" type="file" accept="image\/\*" multiple disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
+  assert.match(source, /const selected = Array\.from\(files \|\| \[\]\)\.slice\(0, fromCamera \? 1 : undefined\)/);
+  assert.match(source, /return \{ file, previewUrl, uploadId: crypto\.randomUUID\(\) \}/);
+  assert.match(source, /setPhotoUploadError\(""\);\s+setCanReplacePhoto\(false\)/);
   assert.match(source, /htmlFor="work-order-photo-camera"[^>]*title="Take a photo"[^>]*\$\{isSubmitOnlyUser \? "md:hidden" : ""\}/);
   assert.match(source, /ref=\{photoCameraInputRef\} id="work-order-photo-camera" type="file" accept="image\/\*" capture="environment" disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
   assert.match(source, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button type="button" onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
   assert.match(source, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
-  assert.match(source, /\{photo && pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button type="button" onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
+  assert.match(source, /\{photoUploadError && <div[\s\S]*pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button type="button" onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
   assert.match(source, /\{!isSubmitOnlyUser && <button type="button" onClick=\{\(\) => void signOut\(\)\}/);
 });
 

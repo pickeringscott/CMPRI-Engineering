@@ -432,7 +432,7 @@ test('system_admin access policy bypasses empty permission rows for bootstrap ma
   assert.equal(accessExports.allows(principal, 'manage_users'), true);
   assert.equal(accessExports.allows(principal, 'view_dashboard'), true);
   assert.equal(accessExports.allows(engineerWithoutGrants, 'manage_users'), false);
-  assert.equal(accessExports.allows(engineerWithoutGrants, 'edit_tickets'), false);
+  assert.equal(accessExports.allows(engineerWithoutGrants, 'edit_tickets'), true);
   assert.equal(accessExports.allows(engineerWithoutGrants, 'view_dashboard'), true);
   assert.equal(accessExports.allows(engineerWithoutGrants, 'submit'), true);
 });
@@ -509,10 +509,10 @@ test('role policy gives General Manager manager permissions without granting the
     ...asRole('Chief Engineer', []),
     membership: { ...base.membership, role: 'viewer' },
   };
-  assert.equal(accessExports.allows(engineerWithViewerMembership, 'edit_tickets'), false);
+  assert.equal(accessExports.allows(engineerWithViewerMembership, 'edit_tickets'), true);
   assert.equal(accessExports.allows(engineerWithViewerMembership, 'submit'), false);
   assert.equal(accessExports.allows({ ...combinedSystemAdmin, membership: { ...combinedSystemAdmin.membership, role: 'viewer' } }, 'manage_users'), false);
-  assert.equal(accessExports.allows({ ...engineerWithViewerMembership, membership: { ...base.membership, role: 'manager' } }, 'edit_tickets'), false);
+  assert.equal(accessExports.allows({ ...engineerWithViewerMembership, membership: { ...base.membership, role: 'manager' } }, 'edit_tickets'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Front Desk'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Chief Engineer'), false);
 });

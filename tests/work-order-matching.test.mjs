@@ -23,7 +23,7 @@ let matching;
 function find(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='applySmartSuggestions')matching=n.getText(ast);ts.forEachChild(n,find);}find(ast);
 assert.ok(matching,'must exercise the real matcher');
 const code=ts.transpileModule(helpers.join('\n')+'\n'+matching+'\nexports.match=applySmartSuggestions;',{
-  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React},
 }).outputText;
 const locations=[409,410].map(n=>({id:String(n),name:`Room ${n}`,room_number:String(n),area:'Guest Rooms',location_type:'Guest Room'}));
 const assets=locations.map(l=>({id:`vtac-${l.id}`,location_id:l.id,asset_type:'VTAC',name:`VTAC - Room ${l.id}`,manufacturer:'Friedrich',active:true}));
