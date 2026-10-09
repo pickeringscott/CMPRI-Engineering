@@ -18,6 +18,9 @@ function load(relative, overrides = {}) {
     if(name==='next/server')return {NextRequest:class NextRequest {}};
     if(name==='@/lib/server/access')return {allows:(principal,capability)=>capability!=='edit_tickets'||['chief engineer','engineering manager','maintenance technician','system administrator'].includes(String(principal.profile.role).trim().toLowerCase())};
     if(name==='@/lib/server/roles')return {roleKey:role=>String(role).trim().toLowerCase()==='system administrator'?'system_admin':String(role).trim().toLowerCase()};
+    if(name==='@/lib/room-ranker-access')return load('lib/room-ranker-access.ts', {
+      '@/lib/server/roles': load('lib/server/roles.ts'),
+    });
     if(name==='@/lib/constants')return {HOTEL_ID:'test-hotel'};
     if(name==='@/lib/ai/mcp-write-input')return {normalizeMcpFeedbackInput:()=>({}),normalizeMcpWorkOrderUpdate:()=>({})};
     if(name==='@/lib/pool-log')return {prepareMcpPoolLogInput:()=>({})};
@@ -28,22 +31,27 @@ function load(relative, overrides = {}) {
 
 const reads=load('lib/server/cmpri-mcp-reads.ts');
 const writes=load('lib/server/cmpri-mcp-writes.ts');
-function identity(role) {
-  return {canWrite:true,readAllWorkOrders:true,readAssignedWorkOrders:false,readOwnWorkOrders:false,principal:{profile:{role}}};
+function identity(role,email=`${role.toLowerCase().replace(/[^a-z]+/g,'-')}@example.invalid`) {
+  return {canWrite:true,readAllWorkOrders:true,readAssignedWorkOrders:false,readOwnWorkOrders:false,principal:{identity:{email},profile:{role,email}}};
 }
 
-test('MCP exposes Ranker reads only to system administrators while preserving room PM reads',()=>{
+test('MCP exposes Ranker reads to authorized viewers and Scott while preserving room PM reads',()=>{
   const engineerViews=reads.availableMcpReadViews(identity('Chief Engineer'));
-  const adminViews=reads.availableMcpReadViews(identity('System Administrator'));
+  const adminViews=reads.availableMcpReadViews(identity('System Administrator','pickering.scott@gmail.com'));
+  const viewerViews=reads.availableMcpReadViews(identity('General Manager'));
+  const scottViews=reads.availableMcpReadViews(identity('System Administrator','maint.cmpri@hawkeyehotels.com'));
   assert.equal(engineerViews.includes('room_ranker'),false);
   assert.equal(engineerViews.includes('corporate_pm'),true);
-  assert.equal(adminViews.includes('room_ranker'),true);
+  assert.equal(adminViews.includes('room_ranker'),false);
+  assert.equal(viewerViews.includes('room_ranker'),true);
+  assert.equal(scottViews.includes('room_ranker'),true);
 });
 
-test('MCP exposes Ranker and PM management writes only to system administrators',()=>{
+test('MCP exposes Room Ranker writes only to Scott and preserves PM management permissions',()=>{
   const restricted=['integrations.room_ranker.sync','room_ranker.update','corporate_pm.update'];
   const engineerActions=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action);
-  const adminActions=writes.availableMcpWriteActions(identity('System Administrator')).map(({action})=>action);
+  const adminActions=writes.availableMcpWriteActions(identity('System Administrator','pickering.scott@gmail.com')).map(({action})=>action);
+  const scottActions=writes.availableMcpWriteActions(identity('System Administrator','maint.cmpri@hawkeyehotels.com')).map(({action})=>action);
   const technicianActions=writes.availableMcpWriteActions(identity('Maintenance Technician')).map(({action})=>action);
   const frontDeskActions=writes.availableMcpWriteActions(identity('Front Desk')).map(({action})=>action);
   assert.equal(engineerActions.includes('room_operations.import'),true);
@@ -52,8 +60,22 @@ test('MCP exposes Ranker and PM management writes only to system administrators'
   assert.equal(frontDeskActions.includes('room_operations.import'),false);
   for(const action of restricted) {
     assert.equal(engineerActions.includes(action),false,action);
-    assert.equal(adminActions.includes(action),true,action);
+    assert.equal(adminActions.includes(action),action==='corporate_pm.update',action);
+    assert.equal(scottActions.includes(action),true,action);
   }
+});
+
+test('MCP grants authorized Ranker reads without widening technician work-order access',()=>{
+  const technician={...identity('Maintenance Technician'),readAllWorkOrders:false,readAssignedWorkOrders:true};
+  const views=reads.availableMcpReadViews(technician);
+  assert.equal(views.includes('room_ranker'),true);
+  assert.equal(views.includes('work_orders'),false);
+  assert.equal(views.includes('work_order'),true);
+  assert.equal(views.includes('corporate_pm'),false);
+  const mismatched=identity('System Administrator','maint.cmpri@hawkeyehotels.com');
+  mismatched.principal.profile.email='another@example.invalid';
+  assert.equal(reads.availableMcpReadViews(mismatched).includes('room_ranker'),false);
+  assert.equal(writes.availableMcpWriteActions(mismatched).some(({action})=>action==='room_ranker.update'),false);
 });
 
 test('MCP tools/list preserves the generic nested write input for every advertised action',async()=>{

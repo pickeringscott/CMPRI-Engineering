@@ -18,6 +18,7 @@ import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { isRailwayCnGuestName } from "@/lib/room-operations";
 import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
 import { resolveRoomRankerContext, type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
+import { roomRankerProfileCanView } from "@/lib/room-ranker-access";
 import { workOrderHistoryText } from "@/lib/work-order-history";
 import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
 import { roomStatusBadge } from "@/lib/room-availability";
@@ -830,10 +831,10 @@ export default function WorkOrderTicketPage() {
       }
       const headers = { Authorization: `Bearer ${token}` };
       const current = await loadCmpriSession();
-      const isSystemAdmin = roleKey(current.user.role) === "system_admin";
+      const canViewRanker = roomRankerProfileCanView(current.user, current.user.email);
       let ranker: RoomRankerContext | null = null;
       let rankerError = "";
-      if (isSystemAdmin) {
+      if (canViewRanker) {
         try {
           const rankerResponse = await fetch("/api/room-ranker", { headers, cache: "no-store" });
           const rankerPayload: unknown = await rankerResponse.json().catch(() => null);
@@ -1814,7 +1815,7 @@ export default function WorkOrderTicketPage() {
           <section className="mt-2 grid gap-1.5 rounded-xl border border-cyan-500/30 bg-slate-900 p-1.5">
             {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
               {roomOperationalContext.checkoutError && <p role="alert" className="text-xs text-red-300">Room checkout details are unavailable: {roomOperationalContext.checkoutError}</p>}
-              {roleKey(cmpriSession?.user.role) === "system_admin" && (
+              {cmpriSession && roomRankerProfileCanView(cmpriSession.user, cmpriSession.user.email) && (
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <b className="text-sm">Room Ranker</b>

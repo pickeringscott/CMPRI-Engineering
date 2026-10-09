@@ -104,15 +104,15 @@ export function groupWorkOrders<T extends DesktopWorkOrder>(orders: T[]): Record
   };
 }
 
-const KPI_CARDS: Array<{ key: WorkOrderListFilter; label: string; tone: string }> = [
-  { key: "pending", label: "Awaiting Approval", tone: "text-purple-200" },
-  { key: "open", label: "Open", tone: "text-green-200" },
-  { key: "progress", label: "In Progress", tone: "text-yellow-200" },
-  { key: "priority", label: "Urgent / High", tone: "text-red-200" },
-  { key: "overdue", label: "Overdue", tone: "text-orange-200" },
-  { key: "completed", label: "Completed", tone: "text-blue-200" },
-  { key: "closed", label: "Closed", tone: "text-slate-300" },
-  { key: "all", label: "All", tone: "text-white" },
+const KPI_CARDS: Array<{ key: WorkOrderListFilter; label: string; compactLabel: string; tone: string }> = [
+  { key: "pending", label: "Awaiting Approval", compactLabel: "Pending", tone: "text-purple-200" },
+  { key: "open", label: "Open", compactLabel: "Open", tone: "text-green-200" },
+  { key: "progress", label: "In Progress", compactLabel: "Progress", tone: "text-yellow-200" },
+  { key: "priority", label: "Urgent / High", compactLabel: "Urgent/High", tone: "text-red-200" },
+  { key: "overdue", label: "Overdue", compactLabel: "Overdue", tone: "text-orange-200" },
+  { key: "completed", label: "Completed", compactLabel: "Done", tone: "text-blue-200" },
+  { key: "closed", label: "Closed", compactLabel: "Closed", tone: "text-slate-300" },
+  { key: "all", label: "All", compactLabel: "All", tone: "text-white" },
 ];
 
 const ROW_LIMIT = 200;
@@ -165,11 +165,15 @@ export default function WorkOrderListWindow({
               key={card.key}
               type="button"
               title={card.label}
+              aria-label={`${card.label}: ${loading ? "loading" : groups[card.key].length}`}
               aria-pressed={selected}
               onClick={() => { setFilter(card.key); setQuery(""); }}
               className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-[#102a47]" : "border-[#1b3d60] bg-[#0a1e34] hover:border-[#3974a8]"}`}
             >
-              <span className="min-w-0 truncate text-[0.62em] font-semibold uppercase leading-tight tracking-wide text-slate-300">{card.label}</span>
+              <span className="min-w-0 truncate text-[0.78em] font-semibold uppercase leading-tight tracking-wide text-slate-300">
+                <span className="@md:hidden">{card.compactLabel}</span>
+                <span className="hidden @md:inline">{card.label}</span>
+              </span>
               <span className={`shrink-0 text-[0.9em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
             </button>
           );

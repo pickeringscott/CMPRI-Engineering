@@ -7,6 +7,7 @@ import { prepareMcpPoolLogInput } from "@/lib/pool-log";
 import { allows, type Capability } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
 import { roleKey } from "@/lib/server/roles";
+import { canEditRoomRanker } from "@/lib/room-ranker-access";
 
 type WriteAction = {
   action: string;
@@ -46,6 +47,9 @@ const WRITE_ACTIONS: WriteAction[] = [
 ];
 
 function actionAllowed(identity: McpIdentity, action: WriteAction) {
+  if (action.action === "integrations.room_ranker.sync" || action.action === "room_ranker.update") {
+    return canEditRoomRanker(identity.principal);
+  }
   if (action.systemAdminOnly && roleKey(identity.principal.profile.role) !== "system_admin") return false;
   if (!action.capability && !action.anyOf) return true;
   if (action.capability) return allows(identity.principal, action.capability);

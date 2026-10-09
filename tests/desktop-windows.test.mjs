@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import {
   clampWindowRect,
   defaultWindowRect,
@@ -26,6 +27,15 @@ import {
 
 const desktop = { width: 1600, height: 900 };
 const origin = 'https://cmpri.example';
+
+test('work-order list remains a valid client component', () => {
+  const source = readFileSync(new URL('../src/components/desktop/WorkOrderListWindow.tsx', import.meta.url), 'utf8');
+  const ast = ts.createSourceFile('WorkOrderListWindow.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  assert.equal(ast.parseDiagnostics.length, 0, 'work-order list must parse without errors');
+  const directive = ast.statements[0];
+  assert.ok(ts.isExpressionStatement(directive) && ts.isStringLiteral(directive.expression));
+  assert.equal(directive.expression.text, 'use client');
+});
 
 function memoryStorage() {
   const values = new Map();
@@ -164,9 +174,13 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.doesNotMatch(dashboard, /WorkOrderNotificationBanner|resolved_notification_ids/);
   assert.doesNotMatch(dashboard, /Awaiting Approval|KPI/, 'KPI cards live in the work order list window');
   assert.match(listWindow, /Awaiting Approval/);
+  assert.match(listWindow, /compactLabel/);
+  assert.match(listWindow, /@md:hidden/);
+  assert.match(listWindow, /@md:inline/);
+  assert.match(listWindow, /aria-label=\{\`\$\{card\.label\}:/);
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
-  assert.match(workOrderDetail, /Photos \({workOrderImagesLoading \?/);
+  assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImages\.length\}\)/);
   assert.match(workOrderDetail, /Upload photo/);
   assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
   assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details<\/summary>/);

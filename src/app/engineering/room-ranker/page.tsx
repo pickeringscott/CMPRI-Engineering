@@ -6,7 +6,6 @@ import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { roleKey } from "@/lib/server/roles";
 
 type RoomRankerRow = {
   rowNumber: number;
@@ -26,9 +25,6 @@ type SheetColumn = { key: "room" | EditableField; label: string; width: string }
 const columns: SheetColumn[] = [
   { key: "room", label: "Room", width: "w-12" },
   { key: "inspectedBy", label: "Room Inspected by", width: "w-24" },
-  { key: "check1", label: "Specific Room Check 1", width: "w-28" },
-  { key: "check2", label: "Specific Room Check 2", width: "w-28" },
-  { key: "check3", label: "Specific Room Check 3", width: "w-28" },
   { key: "rank", label: "Room Rank", width: "w-16" },
   { key: "notes", label: "Notes / Actions Needed", width: "w-32" },
 ];
@@ -67,13 +63,7 @@ export default function RoomRankerPage() {
     setSyncStatus("Loading source sheet…");
     setCanEdit(false);
     try {
-      const session = await loadCmpriSession();
-      if (roleKey(session.user.role) !== "system_admin") {
-        setRooms([]);
-        setSyncState("error");
-        setSyncStatus("Room Ranker is available only to System Administrators.");
-        return;
-      }
+      await loadCmpriSession();
       const response = await fetch("/api/room-ranker", {
         headers: { Authorization: `Bearer ${await token()}` },
         cache: "no-store",

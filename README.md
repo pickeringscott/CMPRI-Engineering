@@ -111,13 +111,27 @@ The Gmail integration is designed to use a read-only Gmail OAuth scope for mailb
 
 ## Room Ranker
 
-Room Ranker is available only to System Administrators. CMPRI accesses the
+Room Ranker is readable by Front Desk Managers, Assistant General Managers,
+Maintenance Technicians, and General Managers (including matching secondary
+roles), plus Scott's mapped `maint.cmpri@hawkeyehotels.com` account. Only that
+account can edit or manually synchronize Room Ranker; server cron synchronization
+is unchanged. Both the authenticated identity and profile email must match for
+account-specific access. Other engineer or system-admin accounts are not granted
+access solely by their role. Dashboard launchers, work-order context, API routes,
+and MCP read/write tools use the shared policy.
+
+CMPRI accesses the
 private Google Sheet directly using a Google Cloud service account; no Apps
 Script endpoint or custom Room Ranker API key is used. Enable the Google Sheets
 API in the service account's Google Cloud project and share the spreadsheet
 with that service account's `client_email` as an Editor. Keep the sheet private
-to its normal users and that service account. Only System Administrators can
-open or edit Room Ranker.
+to its normal users and that service account. The CMPRI table displays Room,
+Room Inspected by, Room Rank, and Notes / Actions Needed; the three specific-room
+check columns remain in the integration data but are not displayed in that table.
+
+The same viewer roles and Scott's mapped account have a Troubleshooting Guide
+menu on their dashboards: Enseo TV, Dormakaba LED Visual Guide, and the bilingual
+Guest Room guide. Guides render as HTML with a guide-only print view.
 
 Work-order synchronization also requires the server-only outbox and trigger in
 `supabase/cmpri_v1_0_room_ranker_sync.sql`. Apply this transactional, idempotent

@@ -20,6 +20,8 @@ import {
 } from "@/lib/dashboard/work-order-notifications";
 import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
+import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
+import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
 
 const REFRESH_MS = 30_000;
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
@@ -294,6 +296,10 @@ export default function TechnicianDashboard() {
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-3 py-2 text-xs font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
+          {account && roomRankerProfileCanView(account, account.email) && (
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</button>
+          )}
+          {account && canAccessTroubleshootingGuides(account) && <TroubleshootingGuideDropdown />}
         </div>
 
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}

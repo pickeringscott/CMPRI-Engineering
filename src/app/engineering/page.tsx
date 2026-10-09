@@ -35,8 +35,10 @@ import { roleKey } from "@/lib/server/roles";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
+import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder } from "@/components/desktop/WorkOrderListWindow";
 import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWindow";
+import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
 
 const REFRESH_MS = 30_000;
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
@@ -536,7 +538,8 @@ export default function EngineeringDashboardPage() {
 
   const session = cmpriSession;
   const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
-  const isSystemAdmin = roleKey(session.user.role) === "system_admin";
+  const canViewRanker = roomRankerProfileCanView(session.user, session.user.email);
+  const canOpenTroubleshootingGuides = canAccessTroubleshootingGuides(session.user);
   const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
   const displayName = session.user.name?.trim() || "Name not set";
@@ -589,7 +592,7 @@ export default function EngineeringDashboardPage() {
         canUseEngineeringAdminTools && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         canUseEngineeringAdminTools && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
         canUseEngineeringAdminTools && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        isSystemAdmin && { key: "/engineering/room-ranker", label: "Room Ranker", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
+        canViewRanker && { key: "/engineering/room-ranker", label: "Room Ranker", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
         hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
       ],
     },
@@ -718,6 +721,7 @@ export default function EngineeringDashboardPage() {
           ))}
           </div>
         </nav>
+        {canOpenTroubleshootingGuides && <TroubleshootingGuideDropdown />}
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">

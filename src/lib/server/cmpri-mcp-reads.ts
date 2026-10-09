@@ -3,12 +3,12 @@ import "server-only";
 import { NextRequest } from "next/server";
 import { allows } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
+import { canViewRoomRanker } from "@/lib/room-ranker-access";
 import { roleKey } from "@/lib/server/roles";
 
 const DASHBOARD_VIEWS = [
   "work_orders",
   "rooms",
-  "room_ranker",
   "room_operations",
   "purchasing",
   "corporate_pm",
@@ -27,9 +27,9 @@ const READ_VIEW_CAPABILITIES = {
 } as const;
 
 export function availableMcpReadViews(identity: McpIdentity) {
-  const isSystemAdmin = roleKey(identity.principal.profile.role) === "system_admin";
   const views = [
-    ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS.filter((view) => view !== "room_ranker" || isSystemAdmin) : []),
+    ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
+    ...(canViewRoomRanker(identity.principal) ? ["room_ranker"] as const : []),
     ...(identity.readAllWorkOrders || identity.readAssignedWorkOrders || identity.readOwnWorkOrders
       ? ["work_order", "work_order_activity", "work_order_attachments"] as const
       : []),

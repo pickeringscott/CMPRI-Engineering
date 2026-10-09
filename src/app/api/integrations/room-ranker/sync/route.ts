@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/auth";
-import { roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { processDueRoomRankerSync } from "@/lib/server/room-ranker";
 import { integrationErrorMessage } from "@/lib/server/integrations-safe-mode";
+import { canEditRoomRanker } from "@/lib/room-ranker-access";
 
 async function authorizedAdmin(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -11,7 +11,7 @@ async function authorizedAdmin(request: NextRequest) {
     return createSupabaseAdmin();
   }
   const auth = await requireUser(request);
-  return auth && roleKey(auth.principal.profile.role) === "system_admin" ? auth.admin : null;
+  return auth && canEditRoomRanker(auth.principal) ? auth.admin : null;
 }
 
 async function run(request: NextRequest) {
