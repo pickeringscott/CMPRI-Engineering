@@ -98,21 +98,26 @@ const MCP_TOOLS = [
       type: "object",
       properties: {
         action: { type: "string", description: "An action returned in this tool's allowed_actions list." },
-        input: { type: "object", description: "The exact fields required by the corresponding existing CMPRI action.", additionalProperties: true },
+        input: {
+          type: "object",
+          description: `Input for the selected CMPRI action. For room_operations.import, use one complete mode: report_data, status_csv with optional departures_csv, csv/text/content/file, or all source-page images. The printed Room Status date is required and must be the current hotel date; a printed timestamp such as 10Oct26 01:17 PM maps to printed_date "2026-10-10" and printed_time "01:17 PM". Include every active room with exact status; occupied-room guest fields and reservation/incoming fields have conditional requirements. Expected Departures matches by room and its checkout date/time takes precedence. Checkout defaults to 11:00 AM when no source time exists; provenance fields are server-generated. CMPRI validates the entire coverage and payload before its single replacement, preserving prior accepted data on failure. Call get_room_operations_import_contract for the complete machine-readable schema, required/optional fields, all accepted CSV headers and aliases, formats, coverage, and provenance rules. Do not infer fields from stored rows or guess unreadable source values.`,
+          additionalProperties: true,
+        },
       },
       required: ["action", "input"],
       additionalProperties: false,
-      allOf: [{
-        if: {
-          properties: { action: { const: "room_operations.import" } },
-          required: ["action"],
-        },
-        then: {
-          properties: { input: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA },
-        },
-      }],
     },
     annotations: { title: "Write to CMPRI", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "get_room_operations_import_contract",
+    description: "Read the authoritative, machine-readable request contract for room_operations.import before preparing an import. Returns every input mode, nested shape, required and optional field, CSV header and alias, date/time format, coverage rule, report precedence, validation guarantee, checkout default, and provenance rule. This discovery call is read-only and does not import or change room data.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    annotations: { title: "Read Room Ops import contract", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
 ];
 
@@ -380,6 +385,16 @@ export async function POST(request: NextRequest) {
           jsonrpc: "2.0",
           id: rpc.id,
           result: toolResult(result),
+        }, { headers: NO_STORE });
+      }
+      if (params.name === "get_room_operations_import_contract") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: toolResult({
+            action: "room_operations.import",
+            input_schema: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA,
+          }),
         }, { headers: NO_STORE });
       }
       const result = await runTool(identity, params.name, args);

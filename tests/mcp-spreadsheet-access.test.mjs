@@ -107,13 +107,65 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   const toolSchema=writeTool.inputSchema;
   assert.deepEqual(Array.from(toolSchema.required),['action','input']);
   assert.equal(toolSchema.additionalProperties,false);
-  assert.equal(toolSchema.allOf[0].if.properties.action.const,'room_operations.import');
+  assert.equal(toolSchema.allOf,undefined);
+  assert.match(toolSchema.properties.input.description,/get_room_operations_import_contract/);
+  assert.match(toolSchema.properties.input.description,/10Oct26 01:17 PM/);
   const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action).sort();
   assert.equal(Array.from(toolSchema.properties.action.enum).sort().join('|'),allowed.join('|'));
   assert.ok(allowed.includes('work_orders.update'));
   assert.ok(allowed.includes('room_operations.import'));
 
-  const roomOperationsSchema=toolSchema.allOf[0].then.properties.input;
+  const contractTool=payload.result.tools.find(({name})=>name==='get_room_operations_import_contract');
+  assert.ok(contractTool);
+  assert.match(contractTool.description,/machine-readable request contract/);
+  assert.equal(contractTool.annotations.readOnlyHint,true);
+  const contractResponse=await route.POST({
+    headers:{get:()=>null},
+    json:async()=>({
+      jsonrpc:'2.0',
+      id:2,
+      method:'tools/call',
+      params:{name:'get_room_operations_import_contract',arguments:{}},
+    }),
+  });
+  assert.equal(contractResponse.status,200);
+  const contractPayload=await contractResponse.json();
+  assert.equal(contractPayload.result.isError,undefined);
+  const roomOperationsSchema=contractPayload.result.structuredContent.input_schema;
+  assert.ok(roomOperationsSchema);
+  const returnedSchema=JSON.parse(contractPayload.result.content[0].text).input_schema;
+  assert.deepEqual(returnedSchema,roomOperationsSchema);
+});
+
+test('Room Ops import contract discovery returns all modes and source-backed validation fields',async()=>{
+  const route=load('app/api/mcp/route.ts',{
+    'next/server':{NextRequest:class {}},
+    '@/lib/constants':{HOTEL_ID:'test-hotel'},
+    '@/lib/server/cmpri-mcp-oauth-scope':{CMPRI_MCP_RESOURCE:'https://www.cmpri-engineering.com/api/mcp'},
+    '@/lib/server/cmpri-mcp':{mcpIdentity:async()=>identity('Chief Engineer')},
+    '@/lib/server/cmpri-mcp-reads':{
+      availableMcpReadViews:()=>[],
+      callMcpReadView:async()=>({}),
+    },
+    '@/lib/server/cmpri-mcp-writes':{
+      availableMcpWriteActions:(value)=>writes.availableMcpWriteActions(value),
+      callMcpWriteAction:async()=>({status:200,body:{}}),
+    },
+    '@/lib/ai/mcp-work-order-location':{resolveMcpWorkOrderLocation:()=>({status:'not_found'})},
+  });
+  const response=await route.POST({
+    headers:{get:()=>null},
+    json:async()=>({
+      jsonrpc:'2.0',
+      id:1,
+      method:'tools/call',
+      params:{name:'get_room_operations_import_contract',arguments:{}},
+    }),
+  });
+  assert.equal(response.status,200);
+  const payload=await response.json();
+  const roomOperationsSchema=payload.result.structuredContent.input_schema;
+  assert.ok(roomOperationsSchema);
   const inputModes=roomOperationsSchema.oneOf.map(({required})=>Array.from(required).join(','));
   assert.deepEqual(inputModes,['report_data','status_csv','csv','text','content','file','images']);
   const structured=roomOperationsSchema.oneOf[0].properties.report_data;
@@ -149,6 +201,44 @@ test('MCP tools/list exposes the complete room-operations import contract for th
     assert.ok(roomOperationsSchema.oneOf[1].properties.status_csv.description.includes(alias),`missing CSV alias ${alias}`);
   }
   assert.equal(roomOperationsSchema.oneOf[6].properties.images.items.oneOf[1].properties.data.type,'string');
+});
+
+test('MCP exposes contract discovery to read-only sessions without exposing a write tool',async()=>{
+  const readOnlyIdentity={...identity('General Manager'),canWrite:false};
+  const route=load('app/api/mcp/route.ts',{
+    'next/server':{NextRequest:class {}},
+    '@/lib/constants':{HOTEL_ID:'test-hotel'},
+    '@/lib/server/cmpri-mcp-oauth-scope':{CMPRI_MCP_RESOURCE:'https://www.cmpri-engineering.com/api/mcp'},
+    '@/lib/server/cmpri-mcp':{mcpIdentity:async()=>readOnlyIdentity},
+    '@/lib/server/cmpri-mcp-reads':{
+      availableMcpReadViews:()=>[],
+      callMcpReadView:async()=>({}),
+    },
+    '@/lib/server/cmpri-mcp-writes':{
+      availableMcpWriteActions:(value)=>writes.availableMcpWriteActions(value),
+      callMcpWriteAction:async()=>({status:200,body:{}}),
+    },
+    '@/lib/ai/mcp-work-order-location':{resolveMcpWorkOrderLocation:()=>({status:'not_found'})},
+  });
+  const listResponse=await route.POST({
+    headers:{get:()=>null},
+    json:async()=>({jsonrpc:'2.0',id:1,method:'tools/list'}),
+  });
+  const listedTools=(await listResponse.json()).result.tools;
+  assert.equal(listedTools.some(({name})=>name==='perform_cmpri_write'),false);
+  assert.equal(listedTools.some(({name})=>name==='get_room_operations_import_contract'),true);
+
+  const contractResponse=await route.POST({
+    headers:{get:()=>null},
+    json:async()=>({
+      jsonrpc:'2.0',
+      id:2,
+      method:'tools/call',
+      params:{name:'get_room_operations_import_contract',arguments:{}},
+    }),
+  });
+  assert.equal(contractResponse.status,200);
+  assert.ok((await contractResponse.json()).result.structuredContent.input_schema);
 });
 
 test('Room Ops validates the full snapshot before its single database replacement',()=>{
