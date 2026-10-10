@@ -97,10 +97,10 @@ const MCP_TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", description: "A non-Room-Ops action returned in this tool's allowed_actions list. Use import_room_operations for room_operations.import; that tool exposes the complete import schema directly." },
+        action: { type: "string", description: "A non-Room-Ops action returned in this tool's allowed_actions list. Room Operations imports use the dedicated room_operations.import tool, which exposes the complete schema directly." },
         input: {
           type: "object",
-          description: "Input object for the selected existing CMPRI action. Room operations imports must use the dedicated import_room_operations tool.",
+          description: "Input object for the selected existing CMPRI action. Room Operations imports must use the dedicated room_operations.import tool.",
           additionalProperties: true,
         },
       },
@@ -110,7 +110,7 @@ const MCP_TOOLS = [
     annotations: { title: "Write to CMPRI", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
-    name: "import_room_operations",
+    name: "room_operations.import",
     description: "Import one complete, source-backed daily Room Operations report. The input schema below is the authoritative room_operations.import contract. Supply exactly one supported input mode and do not guess unreadable values. CMPRI validates the complete report and room coverage before its single replacement; a failed import preserves the previously accepted snapshot. Only call when the user explicitly asks to import/save.",
     inputSchema: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA,
     annotations: { title: "Import Room Operations", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -304,7 +304,7 @@ export async function POST(request: NextRequest) {
       if (tool.name === "read_cmpri_data") return availableMcpReadViews(identity).length > 0;
       if (tool.name === "create_work_order") return availableMcpWriteActions(identity).some((action) => action.action === "work_orders.create");
       if (tool.name === "perform_cmpri_write") return availableMcpWriteActions(identity).length > 0;
-      if (tool.name === "import_room_operations") return availableMcpWriteActions(identity).some((action) => action.action === "room_operations.import");
+      if (tool.name === "room_operations.import") return availableMcpWriteActions(identity).some((action) => action.action === "room_operations.import");
       return true;
     }).map((tool) => tool.name === "read_cmpri_data"
       ? {
@@ -375,7 +375,7 @@ export async function POST(request: NextRequest) {
       if (params.name === "perform_cmpri_write") {
         const action = stringArgument(args, "action", 100);
         if (action === "room_operations.import") {
-          throw new Error("Use the dedicated import_room_operations tool, which exposes the complete Room Operations import contract.");
+          throw new Error("Use the dedicated room_operations.import tool, which exposes the complete Room Operations import contract.");
         }
         const input = args.input && typeof args.input === "object" && !Array.isArray(args.input)
           ? args.input as Record<string, unknown>
@@ -390,7 +390,7 @@ export async function POST(request: NextRequest) {
           result: toolResult({ status: outcome.status, response: outcome.body }, !success),
         }, { headers: NO_STORE });
       }
-      if (params.name === "import_room_operations") {
+      if (params.name === "room_operations.import") {
         if (!availableMcpWriteActions(identity).some((action) => action.action === "room_operations.import")) {
           throw new Error("This action is not permitted for your current CMPRI role and permissions.");
         }

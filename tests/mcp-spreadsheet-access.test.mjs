@@ -112,7 +112,7 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   assert.deepEqual(Array.from(toolSchema.required),['action','input']);
   assert.equal(toolSchema.additionalProperties,false);
   assert.equal(toolSchema.allOf,undefined);
-  assert.match(toolSchema.properties.input.description,/import_room_operations/);
+  assert.match(toolSchema.properties.input.description,/room_operations\.import/);
   const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action);
   assert.equal(allowed.includes('room_operations.import'),true);
   const genericActions=Array.from(toolSchema.properties.action.enum).sort();
@@ -120,7 +120,7 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   assert.equal(genericActions.join('|'),allowed.filter((action)=>action!=='room_operations.import').sort().join('|'));
   assert.ok(allowed.includes('work_orders.update'));
 
-  const importTool=payload.result.tools.find(({name})=>name==='import_room_operations');
+  const importTool=payload.result.tools.find(({name})=>name==='room_operations.import');
   assert.ok(importTool);
   assert.equal(importTool.annotations.readOnlyHint,false);
   assert.equal(importTool.inputSchema.type,'object');
@@ -160,7 +160,7 @@ test('MCP tools/list exposes the complete room-operations import contract for th
       jsonrpc:'2.0',
       id:3,
       method:'tools/call',
-      params:{name:'import_room_operations',arguments:importInput},
+      params:{name:'room_operations.import',arguments:importInput},
     }),
   });
   assert.equal(importResponse.status,200);
@@ -257,7 +257,7 @@ test('MCP exposes contract discovery to read-only sessions without exposing a wr
   });
   const listedTools=(await listResponse.json()).result.tools;
   assert.equal(listedTools.some(({name})=>name==='perform_cmpri_write'),false);
-  assert.equal(listedTools.some(({name})=>name==='import_room_operations'),false);
+  assert.equal(listedTools.some(({name})=>name==='room_operations.import'),false);
   assert.equal(listedTools.some(({name})=>name==='get_room_operations_import_contract'),true);
 
   const contractResponse=await route.POST({
