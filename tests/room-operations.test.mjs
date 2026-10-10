@@ -24,6 +24,42 @@ import {
   roomAfterScheduledCheckout,
 } from "../src/lib/room-operations-reports.ts";
 
+const snapshotSource = readFileSync(new URL("../src/lib/server/cmpri-room-operations-snapshot.ts", import.meta.url), "utf8");
+const snapshotModule = { exports: {} };
+const snapshotRuntimeRequire = (specifier) => {
+  if (specifier === "@/lib/constants") return { HOTEL_ID: "hotel-test" };
+  if (specifier === "@/lib/room-operations-reports") return { normalizePrintedTime };
+  throw new Error(`Unexpected snapshot test dependency: ${specifier}`);
+};
+vm.runInNewContext(ts.transpileModule(snapshotSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { module: snapshotModule, exports: snapshotModule.exports, require: snapshotRuntimeRequire });
+const { loadEffectiveRoomOperationsSnapshot, applyRoomOperationCheckoutTransitions } = snapshotModule.exports;
+
+function snapshotAdmin(tables) {
+  return {
+    from(table) {
+      const query = { filters: [], orders: [], limit: null };
+      const builder = {
+        select() { return this; },
+        eq(column, value) { query.filters.push((row) => row[column] === value); return this; },
+        lte(column, value) { query.filters.push((row) => row[column] <= value); return this; },
+        order(column, options = {}) { query.orders.push([column, options.ascending !== false]); return this; },
+        limit(value) { query.limit = value; return this; },
+        then(resolve, reject) {
+          let rows = [...(tables[table] || [])].filter((row) => query.filters.every((filter) => filter(row)));
+          for (const [column, ascending] of query.orders.reverse()) {
+            rows.sort((a, b) => String(a[column] || "").localeCompare(String(b[column] || "")) * (ascending ? 1 : -1));
+          }
+          if (query.limit !== null) rows = rows.slice(0, query.limit);
+          return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+        },
+      };
+      return builder;
+    },
+  };
+}
+
 const importerSource = readFileSync(new URL("../src/app/engineering/room-operations/RoomOperationsImport.tsx", import.meta.url), "utf8");
 const importerAst = ts.createSourceFile("room-operations-importer.tsx", importerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const snapshotTimeNode = importerAst.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "normalizeSnapshotTime");
@@ -364,10 +400,10 @@ test("room-operations uploads validate printed reports, retain history, and reco
   assert.match(api, /room !== "MGR" && !knownRooms\.has\(room\)/);
   assert.match(api, /\\d\{2,4\}\|MGR/);
   assert.match(api, /parsedCheckoutTime \|\| "11:00:00"/);
-  assert.match(api, /if \(date !== today\)[\s\S]*cmpri_room_operation_imports/);
-  assert.match(api, /cmpri_room_operation_imports/);
+  assert.match(api, /loadEffectiveRoomOperationsSnapshot\(auth\.admin, date\)/);
+  assert.match(api, /source_type: snapshot\.source_type/);
+  assert.match(api, /carried_over: snapshot\.carried_over/);
   assert.match(api, /cmpri_reconcile_room_operations/);
-  assert.match(api, /\.eq\("hotel_id", HOTEL_ID\)\.eq\("report_date", date\)\.order\("room"\)/);
   assert.match(api, /auth\.admin\.rpc\("cmpri_replace_room_operations"/);
   assert.match(api, /p_rows: rowsForStorage/);
   assert.match(api, /roomOperationsNotification/);
@@ -385,6 +421,95 @@ test("room-operations uploads validate printed reports, retain history, and reco
   assert.match(migration, /create or replace function public\.cmpri_replace_room_operations/);
   assert.match(migration, /delete from public\.room_operations where hotel_id = p_hotel_id/);
   assert.doesNotMatch(migration, /delete from (?:public\.)?(?:profiles|work_orders|auth\.users)/);
+  const snapshot = readFileSync(new URL("../src/lib/server/cmpri-room-operations-snapshot.ts", import.meta.url), "utf8");
+  const availability = readFileSync(new URL("../src/lib/server/room-availability.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
+  assert.match(snapshot, /\.lte\("report_date", requestedDate\)/);
+  assert.match(snapshot, /order\("report_date", \{ ascending: false \}\)/);
+  assert.match(availability, /loadEffectiveRoomOperationsSnapshot\(admin, date\)/);
+  assert.match(page, /Showing \{snapshotInfo\.sourceType === "legacy" \? "legacy room data"/);
+  assert.match(page, /selected date/);
+  assert.match(page, /displayDate\(snapshotInfo\.requestedDate\)/);
+});
+
+test("effective room snapshot carries forward complete history without future leakage and protects newer room state", async () => {
+  const legacyRows = Array.from({ length: 112 }, (_, index) => ({
+    room: String(101 + index),
+    room_status: index === 111 ? "Out of Order" : "Occupied",
+    guest_name: `Guest ${index + 1}`,
+    report_date: "2026-10-09",
+  }));
+  const legacy = await loadEffectiveRoomOperationsSnapshot(snapshotAdmin({
+    cmpri_room_operation_imports: [
+      { hotel_id: "hotel-test", id: "future", report_date: "2026-10-11", source_type: "legacy", source_rows: [], uploaded_at: "2026-10-11T12:00:00Z" },
+      { hotel_id: "hotel-test", id: "legacy-oct-9", report_date: "2026-10-09", source_type: "legacy", source_rows: legacyRows, uploaded_at: "2026-10-09T12:00:00Z" },
+    ],
+    cmpri_room_operations: [],
+  }), "2026-10-10");
+  assert.equal(legacy.requested_date, "2026-10-10");
+  assert.equal(legacy.source_date, "2026-10-09");
+  assert.equal(legacy.source_type, "legacy");
+  assert.equal(legacy.carried_over, true);
+  assert.equal(legacy.rows.length, 112);
+  assert.equal(legacy.rows.filter((row) => row.room_status === "Out of Order").length, 1);
+  assert.equal(legacy.rows.every((row) => row.report_date === "2026-10-09"), true);
+
+  const beforeChicagoMidnight = await loadEffectiveRoomOperationsSnapshot(snapshotAdmin({
+    cmpri_room_operation_imports: [
+      { hotel_id: "hotel-test", id: "oct-9", report_date: "2026-10-09", source_type: "legacy", source_rows: legacyRows, uploaded_at: "2026-10-09T12:00:00Z" },
+    ],
+    cmpri_room_operations: [],
+  }), hotelDateAt(new Date("2026-10-10T04:59:00Z"), "America/Chicago"));
+  const afterChicagoMidnight = await loadEffectiveRoomOperationsSnapshot(snapshotAdmin({
+    cmpri_room_operation_imports: [
+      { hotel_id: "hotel-test", id: "oct-9", report_date: "2026-10-09", source_type: "legacy", source_rows: legacyRows, uploaded_at: "2026-10-09T12:00:00Z" },
+    ],
+    cmpri_room_operations: [],
+  }), hotelDateAt(new Date("2026-10-10T05:00:00Z"), "America/Chicago"));
+  assert.equal(beforeChicagoMidnight.requested_date, "2026-10-09");
+  assert.equal(beforeChicagoMidnight.carried_over, false);
+  assert.equal(afterChicagoMidnight.requested_date, "2026-10-10");
+  assert.equal(afterChicagoMidnight.source_date, "2026-10-09");
+  assert.equal(afterChicagoMidnight.carried_over, true);
+
+  const noPastSnapshot = await loadEffectiveRoomOperationsSnapshot(snapshotAdmin({
+    cmpri_room_operation_imports: [
+      { hotel_id: "hotel-test", id: "future", report_date: "2026-10-11", source_type: "legacy", source_rows: legacyRows, uploaded_at: "2026-10-11T12:00:00Z" },
+    ],
+    cmpri_room_operations: [],
+  }), "2026-10-10");
+  assert.equal(noPastSnapshot.source_date, null);
+  assert.equal(noPastSnapshot.rows.length, 0);
+
+  const transitioned = applyRoomOperationCheckoutTransitions([{
+    room: "101",
+    room_status: "Occupied",
+    guest_name: "Departing Guest",
+    checkout_date: "2026-10-10",
+    checkout_time: "11:00 AM",
+    incoming_name: "Next Guest",
+    incoming_block_indicator: "Blocked",
+  }], [{
+    room: "101",
+    departing_guest_name: "Departing Guest",
+    checkout_date: "2026-10-10",
+    checkout_time: "11:00:00",
+  }], "accepted-import");
+  assert.equal(transitioned[0].room_status, "Vacant Dirty");
+  assert.equal(transitioned[0].guest_name, "");
+  assert.equal(transitioned[0].incoming_name, "Next Guest");
+  assert.equal(transitioned[0].incoming_block_indicator, "Blocked");
+
+  const protectedRows = applyRoomOperationCheckoutTransitions([
+    { room: "101", room_status: "Occupied", guest_name: "New Guest", checkout_date: "2026-10-10", checkout_time: "11:00 AM" },
+    { room: "102", room_status: "Vacant Ready", guest_name: "", checkout_date: "2026-10-10", checkout_time: "11:00 AM" },
+  ], [
+    { room: "101", departing_guest_name: "Old Guest", checkout_date: "2026-10-10", checkout_time: "11:00:00" },
+    { room: "102", departing_guest_name: "", checkout_date: "2026-10-10", checkout_time: "11:00:00" },
+  ], "accepted-import");
+  assert.equal(protectedRows[0].guest_name, "New Guest");
+  assert.equal(protectedRows[0].room_status, "Occupied");
+  assert.equal(protectedRows[1].room_status, "Vacant Ready");
 });
 
 test("room-operations cleanup fails closed until its retention policy is confirmed", () => {
@@ -615,7 +740,7 @@ test("room availability bubbles normalize room identifiers and mark only vacant-
   assert.match(createRoute, /room_status: currentRoomStatus/);
   assert.match(workOrdersRoute, /room_status: currentRoomStatus/);
   assert.match(selector, /roomStatusBadge\(order\.room_status\)/);
-  assert.match(roomAvailability, /\.eq\("report_date", date\)/);
+  assert.match(roomAvailability, /loadEffectiveRoomOperationsSnapshot\(admin, date\)/);
 });
 
 test("technician room data is scoped to assigned and unassigned active work", () => {

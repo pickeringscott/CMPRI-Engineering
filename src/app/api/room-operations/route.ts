@@ -6,6 +6,7 @@ import { detectRoomMoves } from "@/lib/room-operations";
 import { roomOperationsNotification } from "@/lib/dashboard/room-operations-notifications";
 import { profileHasRole } from "@/lib/server/roles";
 import { normalizePrintedTime, parsePrintedReport, reportReplacementError, hotelDateAt, type AcceptedReportVersion, type PrintedReport } from "@/lib/room-operations-reports";
+import { loadEffectiveRoomOperationsSnapshot } from "@/lib/server/cmpri-room-operations-snapshot";
 
 function hotelDate() {
   return hotelDateAt(new Date(), HOTEL_TIME_ZONE);
@@ -256,23 +257,24 @@ export async function GET(request: NextRequest) {
   if (!isRetainedDate(date, today)) return NextResponse.json({ error: "Only today's and yesterday's room-operations snapshots are retained." }, { status: 400 });
   const { error: reconcileError } = await auth.admin.rpc("cmpri_reconcile_room_operations");
   if (reconcileError) return NextResponse.json({ error: `Scheduled room checkout transitions could not be reconciled: ${reconcileError.message}` }, { status: 503 });
-  if (date !== today) {
-    const { data: history, error: historyError } = await auth.admin.from("cmpri_room_operation_imports")
-      .select("source_rows, uploaded_at")
-      .eq("hotel_id", HOTEL_ID).eq("report_date", date)
-      .order("uploaded_at", { ascending: false }).limit(1);
-    if (historyError) return NextResponse.json({ error: "Historical room report could not be loaded." }, { status: 503 });
-    const rows = Array.isArray(history?.[0]?.source_rows)
-      ? history[0].source_rows.map((row: Record<string, unknown>) => ({ ...row, imported_at: history[0].uploaded_at }))
-      : [];
-    return NextResponse.json({ date, source_date: date, rows }, { headers: { "Cache-Control": "no-store" } });
-  }
-
-  const { data, error } = await auth.admin.from("cmpri_room_operations")
-    .select("room, checkout_date, checkout_time, room_status, arrival_date, arrival_time, move_from, move_to, guest_name, room_type, guest_code, guest_arrival_date, stay_nights, reserved, imported_at, report_date, incoming_name, incoming_type, incoming_code, incoming_block_indicator, incoming_reserved, source_page, checkout_source_report_date, checkout_source_uploaded_at, source_report_date, source_uploaded_at")
-    .eq("hotel_id", HOTEL_ID).eq("report_date", date).order("room");
-  if (error) return NextResponse.json({ error: "Shared room-operations data is not configured." }, { status: 503 });
-  return NextResponse.json({ date, source_date: data?.[0]?.report_date || null, rows: data || [] }, { headers: { "Cache-Control": "no-store" } });
+  const snapshot = await loadEffectiveRoomOperationsSnapshot(auth.admin, date);
+  if (snapshot.error) return NextResponse.json({ error: "Effective room-operations snapshot could not be loaded." }, { status: 503 });
+  const legacy = snapshot.source_type === "legacy";
+  const provenance = snapshot.source_date
+    ? legacy
+      ? `Legacy room snapshot from ${snapshot.source_date}; original report metadata is unavailable.`
+      : snapshot.carried_over
+        ? `Carried over from the accepted report dated ${snapshot.source_date}.`
+        : `Accepted room report dated ${snapshot.source_date}.`
+    : null;
+  return NextResponse.json({
+    date,
+    source_date: snapshot.source_date,
+    source_type: snapshot.source_type,
+    carried_over: snapshot.carried_over,
+    provenance,
+    rows: snapshot.rows,
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: NextRequest) {

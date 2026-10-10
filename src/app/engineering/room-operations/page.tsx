@@ -44,6 +44,14 @@ type Summary = {
   vacantDirty: number;
 };
 
+type SnapshotInfo = {
+  requestedDate: string;
+  sourceDate: string | null;
+  sourceType: string | null;
+  carriedOver: boolean;
+  provenance: string | null;
+};
+
 function hotelDate() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: HOTEL_TIME_ZONE,
@@ -236,6 +244,7 @@ export default function RoomOperationsPage() {
   const [today, setToday] = useState(hotelDate);
   const hotelTodayRef = useRef(today);
   const [rows, setRows] = useState<RoomOperation[]>([]);
+  const [snapshotInfo, setSnapshotInfo] = useState<SnapshotInfo | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -285,12 +294,30 @@ export default function RoomOperationsPage() {
         cache: "no-store",
         signal: controller.signal,
       });
-      const payload = await response.json().catch(() => ({})) as { error?: string; rows?: RoomOperation[] };
+      const payload = await response.json().catch(() => ({})) as {
+        error?: string;
+        rows?: RoomOperation[];
+        date?: string;
+        source_date?: string | null;
+        source_type?: string | null;
+        carried_over?: boolean;
+        provenance?: string | null;
+      };
       if (!response.ok) throw new Error(payload.error || "Unable to load daily room operations.");
-      if (!controller.signal.aborted) setRows((payload.rows || []).slice().sort(naturalRoomCompare));
+      if (!controller.signal.aborted) {
+        setRows((payload.rows || []).slice().sort(naturalRoomCompare));
+        setSnapshotInfo({
+          requestedDate: payload.date || date,
+          sourceDate: payload.source_date || null,
+          sourceType: payload.source_type || null,
+          carriedOver: payload.carried_over === true,
+          provenance: payload.provenance || null,
+        });
+      }
     })().catch((error) => {
       if (!controller.signal.aborted) {
         setRows([]);
+        setSnapshotInfo(null);
         setMessage(error instanceof Error ? error.message : "Unable to load daily room operations.");
       }
     }).finally(() => {
@@ -370,6 +397,18 @@ export default function RoomOperationsPage() {
             </button>
           ))}
         </section>
+
+        {snapshotInfo?.sourceDate ? (
+          <p role="status" className="rounded-xl border border-amber-400/35 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+            Showing {snapshotInfo.sourceType === "legacy" ? "legacy room data" : "room data"} from {displayDate(snapshotInfo.sourceDate)}
+            {snapshotInfo.carriedOver ? ` for selected date ${displayDate(snapshotInfo.requestedDate)} (carried over)` : ""}
+            {snapshotInfo.provenance ? `. ${snapshotInfo.provenance}` : ""}
+          </p>
+        ) : snapshotInfo ? (
+          <p role="status" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+            No accepted or preserved room snapshot is available on or before {displayDate(snapshotInfo.requestedDate)}.
+          </p>
+        ) : null}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

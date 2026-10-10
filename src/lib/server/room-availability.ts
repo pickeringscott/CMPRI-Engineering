@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
+import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { roomKey } from "@/lib/room-availability";
 import { isRailwayCnGuestName } from "@/lib/room-operations";
+import { loadEffectiveRoomOperationsSnapshot } from "@/lib/server/cmpri-room-operations-snapshot";
 
 export type CurrentRoomOperation = {
   checkout_date: string | null;
@@ -26,15 +27,11 @@ export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
   const date = hotelDate();
   const { error: reconcileError } = await admin.rpc("cmpri_reconcile_room_operations");
   if (reconcileError) return { date, statuses: null, operations: null, error: reconcileError };
-  const { data, error } = await admin.from("cmpri_room_operations")
-    .select("room, room_status, checkout_date, checkout_time, guest_name")
-    .eq("hotel_id", HOTEL_ID)
-    .eq("report_date", date)
-    .order("room");
-  if (error) return { date, statuses: null, operations: null, error };
+  const snapshot = await loadEffectiveRoomOperationsSnapshot(admin, date);
+  if (snapshot.error) return { date, statuses: null, operations: null, error: snapshot.error };
   const statuses = new Map<string, string>();
   const operations = new Map<string, CurrentRoomOperation>();
-  for (const row of data || []) {
+  for (const row of snapshot.rows) {
     const key = roomKey(row.room);
     const status = typeof row.room_status === "string" ? row.room_status.trim() : "";
     if (key && status) statuses.set(key, status);
