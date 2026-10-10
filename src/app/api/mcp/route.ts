@@ -97,10 +97,10 @@ const MCP_TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", description: "A non-Room-Ops action returned in this tool's allowed_actions list. Room Operations imports use the dedicated room_operations.import tool, which exposes the complete schema directly." },
+        action: { type: "string", description: "A CMPRI action returned in this tool's allowed_actions list. The room_operations.import branch includes its complete input schema." },
         input: {
           type: "object",
-          description: "Input object for the selected existing CMPRI action. Room Operations imports must use the dedicated room_operations.import tool.",
+          description: "Input object for the selected CMPRI action. The room_operations.import action uses its explicit schema branch.",
           additionalProperties: true,
         },
       },
@@ -108,12 +108,6 @@ const MCP_TOOLS = [
       additionalProperties: false,
     },
     annotations: { title: "Write to CMPRI", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-  },
-  {
-    name: "room_operations.import",
-    description: "Import one complete, source-backed daily Room Operations report. The input schema below is the authoritative room_operations.import contract. Supply exactly one supported input mode and do not guess unreadable values. CMPRI validates the complete report and room coverage before its single replacement; a failed import preserves the previously accepted snapshot. Only call when the user explicitly asks to import/save.",
-    inputSchema: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA,
-    annotations: { title: "Import Room Operations", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "get_room_operations_import_contract",
@@ -137,6 +131,44 @@ function toolResult(value: unknown, isError = false) {
     content: [{ type: "text", text: json }],
     structuredContent: value,
     ...(isError ? { isError: true } : {}),
+  };
+}
+
+function writeInputSchema(actions: string[]) {
+  const otherActions = actions.filter((action) => action !== "room_operations.import");
+  const branches = [];
+  if (actions.includes("room_operations.import")) {
+    branches.push({
+      type: "object",
+      description: "Complete request for the room_operations.import action.",
+      properties: {
+        action: { type: "string", const: "room_operations.import" },
+        input: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA,
+      },
+      required: ["action", "input"],
+      additionalProperties: false,
+    });
+  }
+  if (otherActions.length > 0) {
+    branches.push({
+      type: "object",
+      description: "Request for an allowed CMPRI write action other than room_operations.import.",
+      properties: {
+        action: { type: "string", enum: otherActions },
+        input: {
+          type: "object",
+          description: "Input object for the selected CMPRI action.",
+          additionalProperties: true,
+        },
+      },
+      required: ["action", "input"],
+      additionalProperties: false,
+    });
+  }
+  return {
+    type: "object",
+    description: "Perform an explicitly requested, permitted CMPRI write. The room_operations.import action has a complete action-specific input schema.",
+    oneOf: branches,
   };
 }
 
@@ -304,7 +336,6 @@ export async function POST(request: NextRequest) {
       if (tool.name === "read_cmpri_data") return availableMcpReadViews(identity).length > 0;
       if (tool.name === "create_work_order") return availableMcpWriteActions(identity).some((action) => action.action === "work_orders.create");
       if (tool.name === "perform_cmpri_write") return availableMcpWriteActions(identity).length > 0;
-      if (tool.name === "room_operations.import") return availableMcpWriteActions(identity).some((action) => action.action === "room_operations.import");
       return true;
     }).map((tool) => tool.name === "read_cmpri_data"
       ? {
@@ -316,7 +347,7 @@ export async function POST(request: NextRequest) {
       ? {
         ...tool,
         description: `${tool.description} Allowed actions for this user: ${availableMcpWriteActions(identity).map((action) => `${action.action} (${action.description})`).join("; ")}`,
-        inputSchema: withInputSchemaProperty(tool.inputSchema, "action", { type: "string", enum: availableMcpWriteActions(identity).filter((action) => action.action !== "room_operations.import").map((action) => action.action) }),
+        inputSchema: writeInputSchema(availableMcpWriteActions(identity).map((action) => action.action)),
       }
       : tool);
     return Response.json({ jsonrpc: "2.0", id: rpc.id, result: { tools } }, { headers: NO_STORE });
@@ -374,30 +405,12 @@ export async function POST(request: NextRequest) {
       }
       if (params.name === "perform_cmpri_write") {
         const action = stringArgument(args, "action", 100);
-        if (action === "room_operations.import") {
-          throw new Error("Use the dedicated room_operations.import tool, which exposes the complete Room Operations import contract.");
-        }
         const input = args.input && typeof args.input === "object" && !Array.isArray(args.input)
           ? args.input as Record<string, unknown>
           : null;
         if (!input) throw new Error("A valid input object is required for a CMPRI write.");
         if (new TextEncoder().encode(JSON.stringify(input)).byteLength > MAX_MCP_WRITE_INPUT_BYTES) throw new Error("The CMPRI write input is too large.");
         const outcome = await callMcpWriteAction(request, identity, action, input);
-        const success = outcome.status >= 200 && outcome.status < 300;
-        return Response.json({
-          jsonrpc: "2.0",
-          id: rpc.id,
-          result: toolResult({ status: outcome.status, response: outcome.body }, !success),
-        }, { headers: NO_STORE });
-      }
-      if (params.name === "room_operations.import") {
-        if (!availableMcpWriteActions(identity).some((action) => action.action === "room_operations.import")) {
-          throw new Error("This action is not permitted for your current CMPRI role and permissions.");
-        }
-        if (new TextEncoder().encode(JSON.stringify(args)).byteLength > MAX_MCP_WRITE_INPUT_BYTES) {
-          throw new Error("The Room Operations import input is too large.");
-        }
-        const outcome = await callMcpWriteAction(request, identity, "room_operations.import", args);
         const success = outcome.status >= 200 && outcome.status < 300;
         return Response.json({
           jsonrpc: "2.0",

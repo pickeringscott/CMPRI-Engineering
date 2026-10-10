@@ -109,28 +109,31 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   const writeTool=payload.result.tools.find(({name})=>name==='perform_cmpri_write');
   assert.ok(writeTool);
   const toolSchema=writeTool.inputSchema;
-  assert.deepEqual(Array.from(toolSchema.required),['action','input']);
-  assert.equal(toolSchema.additionalProperties,false);
-  assert.equal(toolSchema.allOf,undefined);
-  assert.match(toolSchema.properties.input.description,/room_operations\.import/);
+  assert.equal(toolSchema.type,'object');
+  assert.equal(toolSchema.properties,undefined);
+  assert.deepEqual(
+    Array.from(toolSchema.oneOf,({properties})=>properties.action.const || 'other'),
+    ['room_operations.import','other'],
+  );
   const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action);
   assert.equal(allowed.includes('room_operations.import'),true);
-  const genericActions=Array.from(toolSchema.properties.action.enum).sort();
+  const importBranch=toolSchema.oneOf[0];
+  const otherBranch=toolSchema.oneOf[1];
+  assert.deepEqual(Array.from(importBranch.required),['action','input']);
+  assert.equal(importBranch.properties.action.const,'room_operations.import');
+  assert.deepEqual(
+    Array.from(importBranch.properties.input.oneOf,({required})=>Array.from(required).join(',')),
+    ['report_data','status_csv','csv','text','content','file','images'],
+  );
+  assert.match(importBranch.properties.input.description,/10Oct26 01:17 PM/);
+  assert.match(importBranch.properties.input.oneOf[1].properties.status_csv.description,/Printed Date/);
+  assert.match(importBranch.properties.input.oneOf[1].properties.status_csv.description,/Room Status/);
+  const genericActions=Array.from(otherBranch.properties.action.enum).sort();
   assert.equal(genericActions.includes('room_operations.import'),false);
   assert.equal(genericActions.join('|'),allowed.filter((action)=>action!=='room_operations.import').sort().join('|'));
   assert.ok(allowed.includes('work_orders.update'));
 
-  const importTool=payload.result.tools.find(({name})=>name==='room_operations.import');
-  assert.ok(importTool);
-  assert.equal(importTool.annotations.readOnlyHint,false);
-  assert.equal(importTool.inputSchema.type,'object');
-  assert.deepEqual(
-    Array.from(importTool.inputSchema.oneOf,({required})=>Array.from(required).join(',')),
-    ['report_data','status_csv','csv','text','content','file','images'],
-  );
-  assert.match(importTool.inputSchema.description,/10Oct26 01:17 PM/);
-  assert.match(importTool.inputSchema.oneOf[1].properties.status_csv.description,/Printed Date/);
-  assert.match(importTool.inputSchema.oneOf[1].properties.status_csv.description,/Room Status/);
+  assert.equal(payload.result.tools.some(({name})=>name==='room_operations.import'),false);
 
   const contractTool=payload.result.tools.find(({name})=>name==='get_room_operations_import_contract');
   assert.ok(contractTool);
@@ -160,7 +163,10 @@ test('MCP tools/list exposes the complete room-operations import contract for th
       jsonrpc:'2.0',
       id:3,
       method:'tools/call',
-      params:{name:'room_operations.import',arguments:importInput},
+      params:{
+        name:'perform_cmpri_write',
+        arguments:{action:'room_operations.import',input:importInput},
+      },
     }),
   });
   assert.equal(importResponse.status,200);
