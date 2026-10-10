@@ -27,14 +27,18 @@ import {
 const snapshotSource = readFileSync(new URL("../src/lib/server/cmpri-room-operations-snapshot.ts", import.meta.url), "utf8");
 const snapshotModule = { exports: {} };
 const snapshotRuntimeRequire = (specifier) => {
-  if (specifier === "@/lib/constants") return { HOTEL_ID: "hotel-test" };
-  if (specifier === "@/lib/room-operations-reports") return { normalizePrintedTime };
+  if (specifier === "@/lib/constants") return { HOTEL_ID: "hotel-test", HOTEL_TIME_ZONE: "America/Chicago" };
+  if (specifier === "@/lib/room-operations-reports") return { checkoutDeadlinePassed, hotelDateAt, normalizePrintedTime };
   throw new Error(`Unexpected snapshot test dependency: ${specifier}`);
 };
 vm.runInNewContext(ts.transpileModule(snapshotSource, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { module: snapshotModule, exports: snapshotModule.exports, require: snapshotRuntimeRequire });
-const { loadEffectiveRoomOperationsSnapshot, applyRoomOperationCheckoutTransitions } = snapshotModule.exports;
+const {
+  loadEffectiveRoomOperationsSnapshot,
+  applyRoomOperationCheckoutTransitions,
+  applyExpiredRoomOperationCheckouts,
+} = snapshotModule.exports;
 
 function snapshotAdmin(tables) {
   return {
@@ -510,6 +514,52 @@ test("effective room snapshot carries forward complete history without future le
   assert.equal(protectedRows[0].guest_name, "New Guest");
   assert.equal(protectedRows[0].room_status, "Occupied");
   assert.equal(protectedRows[1].room_status, "Vacant Ready");
+
+  const dueSourceRows = [
+    { room: "201", room_status: "Occupied Dirty", guest_name: "Departed Guest", checkout_date: "2026-10-09", checkout_time: "11:00:00" },
+    { room: "202", room_status: "Occupied", guest_name: "Current Guest", checkout_date: "2026-10-10", checkout_time: "11:00:00" },
+    { room: "203", room_status: "Occupied", guest_name: "Future Guest", checkout_date: "2026-10-11", checkout_time: "11:00:00" },
+    { room: "204", room_status: "Occupied", guest_name: "Unknown Time", checkout_date: "2026-10-09", checkout_time: null },
+    { room: "205", room_status: "Occupied", guest_name: "Original Guest", checkout_date: "2026-10-09", checkout_time: "11:00:00" },
+    { room: "206", room_status: "Occupied", guest_name: "Original Guest", checkout_date: "2026-10-09", checkout_time: "11:00:00" },
+    { room: "207", room_status: "Occupied", guest_name: "Original Guest", checkout_date: "2026-10-09", checkout_time: "11:00:00", source_import_id: "other-import" },
+  ];
+  const dueRows = dueSourceRows.map((row) => ({ ...row, incoming_name: `Incoming ${row.room}` }));
+  dueRows[4] = { ...dueRows[4], guest_name: "New Guest" };
+  dueRows[5] = { ...dueRows[5], room_status: "Vacant Ready" };
+  const afterDeadline = applyExpiredRoomOperationCheckouts(
+    dueRows,
+    dueSourceRows,
+    "accepted-import",
+    "2026-10-10",
+    new Date("2026-10-10T22:00:00.000Z"),
+  );
+  assert.equal(afterDeadline[0].room_status, "Vacant Dirty");
+  assert.equal(afterDeadline[0].guest_name, "");
+  assert.equal(afterDeadline[0].incoming_name, "Incoming 201");
+  assert.equal(afterDeadline[1].room_status, "Vacant Dirty");
+  assert.equal(afterDeadline[2].room_status, "Occupied");
+  assert.equal(afterDeadline[3].room_status, "Occupied");
+  assert.equal(afterDeadline[4].guest_name, "New Guest");
+  assert.equal(afterDeadline[5].room_status, "Vacant Ready");
+  assert.equal(afterDeadline[6].room_status, "Occupied");
+
+  const beforeDeadline = applyExpiredRoomOperationCheckouts(
+    [dueSourceRows[1]],
+    [dueSourceRows[1]],
+    "accepted-import",
+    "2026-10-10",
+    new Date("2026-10-10T15:59:59.000Z"),
+  );
+  assert.equal(beforeDeadline[0].room_status, "Occupied");
+  const historicalSelection = applyExpiredRoomOperationCheckouts(
+    [dueSourceRows[0]],
+    [dueSourceRows[0]],
+    "accepted-import",
+    "2026-10-09",
+    new Date("2026-10-10T22:00:00.000Z"),
+  );
+  assert.equal(historicalSelection[0].room_status, "Occupied Dirty");
 });
 
 test("room-operations cleanup fails closed until its retention policy is confirmed", () => {

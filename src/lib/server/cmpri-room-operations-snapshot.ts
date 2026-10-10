@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HOTEL_ID } from "@/lib/constants";
-import { normalizePrintedTime } from "@/lib/room-operations-reports";
+import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
+import { checkoutDeadlinePassed, hotelDateAt, normalizePrintedTime } from "@/lib/room-operations-reports";
 
 type SnapshotImport = {
   id: string;
@@ -49,6 +49,39 @@ export function applyRoomOperationCheckoutTransitions(
     if (row.checkout_date !== transition.checkout_date) return row;
     if (normalizePrintedTime(String(row.checkout_time || "")) !== normalizePrintedTime(transition.checkout_time)) return row;
     if (transition.departing_guest_name && row.guest_name !== transition.departing_guest_name) return row;
+    return {
+      ...row,
+      room_status: "Vacant Dirty",
+      guest_name: "",
+      room_type: "",
+      guest_code: "",
+      guest_arrival_date: null,
+      stay_nights: 0,
+      checkout_date: null,
+      checkout_time: null,
+      default_checkout_time: true,
+      deadline: null,
+    };
+  });
+}
+
+export function applyExpiredRoomOperationCheckouts(
+  rows: RoomOperationRow[],
+  sourceRows: RoomOperationRow[],
+  importId: string,
+  requestedDate: string,
+  now: Date,
+) {
+  if (requestedDate !== hotelDateAt(now, HOTEL_TIME_ZONE)) return rows;
+  const sourceByRoom = new Map(sourceRows.map((row) => [String(row.room || ""), row]));
+  return rows.map((row) => {
+    const source = sourceByRoom.get(String(row.room || ""));
+    if (!source || (row.source_import_id && row.source_import_id !== importId)) return row;
+    if (row.guest_name !== source.guest_name || row.room_status !== source.room_status) return row;
+    if (row.checkout_date !== source.checkout_date) return row;
+    if (normalizePrintedTime(String(row.checkout_time || "")) !== normalizePrintedTime(String(source.checkout_time || ""))) return row;
+    if (!/\boccupied\b/i.test(String(row.room_status || ""))) return row;
+    if (!row.checkout_date || !row.checkout_time || !checkoutDeadlinePassed(row.checkout_date, row.checkout_time, now, HOTEL_TIME_ZONE)) return row;
     return {
       ...row,
       room_status: "Vacant Dirty",
@@ -117,8 +150,10 @@ export async function loadEffectiveRoomOperationsSnapshot(
       ? !row.source_import_id
       : row.source_import_id === snapshot.id);
   let rows: RoomOperationRow[];
+  let sourceRows: RoomOperationRow[] | null;
   if (liveSnapshotMatches) {
     rows = liveRows as RoomOperationRow[];
+    sourceRows = historyRows(snapshot);
   } else {
     const archivedRows = historyRows(snapshot);
     if (!archivedRows) {
@@ -132,6 +167,7 @@ export async function loadEffectiveRoomOperationsSnapshot(
       };
     }
     rows = archivedRows;
+    sourceRows = archivedRows;
     if (snapshot.source_type !== "legacy") {
       const { data: transitions, error: transitionsError } = await admin.from("cmpri_room_operation_checkout_transitions")
         .select("room, departing_guest_name, checkout_date, checkout_time")
@@ -143,6 +179,7 @@ export async function loadEffectiveRoomOperationsSnapshot(
       rows = applyRoomOperationCheckoutTransitions(rows, (transitions || []) as CheckoutTransition[], snapshot.id);
     }
   }
+  if (sourceRows) rows = applyExpiredRoomOperationCheckouts(rows, sourceRows, snapshot.id, requestedDate, new Date());
 
   return {
     requested_date: requestedDate,
