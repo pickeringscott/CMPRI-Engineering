@@ -11,6 +11,10 @@
     {
       "path": "/api/integrations/room-ranker/sync",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/room-operations/reconcile",
+      "schedule": "* * * * *"
     }
   ]
 }

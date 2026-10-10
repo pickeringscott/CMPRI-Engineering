@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import RoomOperationsImport from "./RoomOperationsImport";
 import { useRouter } from "next/navigation";
@@ -25,6 +25,16 @@ type RoomOperation = {
   stay_nights: number | null;
   reserved: boolean | null;
   imported_at: string | null;
+  report_date: string | null;
+  source_report_date: string | null;
+  source_uploaded_at: string | null;
+  checkout_source_report_date: string | null;
+  checkout_source_uploaded_at: string | null;
+  incoming_name: string | null;
+  incoming_type: string | null;
+  incoming_code: string | null;
+  incoming_block_indicator: string | null;
+  incoming_reserved: boolean | null;
 };
 
 type Summary = {
@@ -65,15 +75,33 @@ function isOutOfOrder(status: string | null) {
   return value === "ooo" || value.includes("out of order") || value.includes("out-of-order");
 }
 
-function parseDate(value: string | null) {
-  if (!value) return null;
-  const parsed = new Date(`${value.slice(0, 10)}T12:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+function displayDate(value: string | null) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "—";
+  const parsed = new Date(`${value}T12:00:00Z`);
+  return Number.isNaN(parsed.getTime())
+    ? "—"
+    : new Intl.DateTimeFormat(undefined, { timeZone: HOTEL_TIME_ZONE, month: "short", day: "numeric" }).format(parsed);
 }
 
-function displayDate(value: string | null) {
-  const parsed = parseDate(value);
-  return parsed ? parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
+function displayCheckoutTime(value: string | null) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  if (!match) return value || "11:00 AM";
+  let hours = Number(match[1]);
+  const meridiem = match[3]?.toUpperCase();
+  if (meridiem) hours = (hours % 12) + (meridiem === "PM" ? 12 : 0);
+  return `${hours % 12 || 12}:${match[2]} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+function displayHotelTimestamp(value: string | null) {
+  if (!value) return "Unavailable";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? "Unavailable"
+    : new Intl.DateTimeFormat(undefined, {
+      timeZone: HOTEL_TIME_ZONE,
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsed);
 }
 
 function daysUntilCheckout(value: string | null, today = hotelDate()) {
@@ -87,7 +115,7 @@ function daysUntilCheckout(value: string | null, today = hotelDate()) {
 function checkoutLabel(row: Pick<RoomOperation, "checkout_date" | "checkout_time">, today = hotelDate()) {
   if (!row.checkout_date) return "";
   const days = daysUntilCheckout(row.checkout_date, today);
-  const time = row.checkout_time || "11:00 AM";
+  const time = displayCheckoutTime(row.checkout_time);
   if (days === 0) return `Checkout today · ${time}`;
   if (days === 1) return `Checkout tomorrow · ${time}`;
   if (days !== null && days < 0) return `Overdue · ${displayDate(row.checkout_date)} · ${time}`;
@@ -132,10 +160,34 @@ function RoomIdentity({ row }: { row: RoomOperation }) {
   );
 }
 
-function CheckoutPill({ row }: { row: RoomOperation }) {
-  const label = checkoutLabel(row);
+function CheckoutPill({ row, today }: { row: RoomOperation; today: string }) {
+  const label = checkoutLabel(row, today);
   if (!label) return null;
-  return <span className={checkoutClass(daysUntilCheckout(row.checkout_date))}>{label}</span>;
+  const carriedOver = Boolean(row.checkout_source_report_date && row.checkout_source_report_date < today);
+  const provenance = [
+    `Source report date: ${row.checkout_source_report_date || "Unavailable"}.`,
+    `Uploaded: ${displayHotelTimestamp(row.checkout_source_uploaded_at)} (America/Chicago).`,
+    ...(carriedOver ? ["Carried-over data."] : []),
+  ].join(" ");
+  return (
+    <details className="group relative">
+      <summary
+        className={`${checkoutClass(daysUntilCheckout(row.checkout_date, today))} cursor-help list-none`}
+        aria-label={`${label}. ${provenance} Activate for details.`}
+        title={provenance}
+      >
+        {label}{carriedOver ? " · Carried-over data" : ""}
+      </summary>
+      <div
+        role="tooltip"
+        className="absolute left-0 top-full z-20 mt-1 hidden w-64 rounded-lg border border-slate-600 bg-slate-900 p-2 text-xs font-normal text-slate-200 shadow-xl group-hover:block group-focus-within:block group-open:block"
+      >
+        <div>Source report date: {row.checkout_source_report_date || "Unavailable"}</div>
+        <div>Uploaded: {displayHotelTimestamp(row.checkout_source_uploaded_at)} (America/Chicago)</div>
+        {carriedOver ? <div className="mt-1 font-semibold text-amber-200">Carried-over data</div> : null}
+      </div>
+    </details>
+  );
 }
 
 function MovePill({ row }: { row: RoomOperation }) {
@@ -147,22 +199,32 @@ function MovePill({ row }: { row: RoomOperation }) {
   );
 }
 
-function RoomDetails({ row }: { row: RoomOperation }) {
+function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-2">
         <RoomIdentity row={row} />
         {row.room_status ? isOutOfOrder(row.room_status)
-          ? <span className="rounded-full border border-red-400/45 bg-red-950/35 px-2 py-0.5 text-xs font-semibold text-red-200">Out of Order</span>
+          ? <span className="rounded-full border border-red-400/45 bg-red-950/35 px-2 py-0.5 text-xs font-semibold text-red-200">{row.room_status}</span>
           : <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${roomStatusClass(row.room_status)}`}>{row.room_status}</span> : null}
         {row.reserved ? <span className="rounded-full border border-fuchsia-400/45 bg-fuchsia-950/35 px-2 py-0.5 text-xs font-semibold text-fuchsia-200">Reserved</span> : null}
-        <CheckoutPill row={row} />
+        <CheckoutPill row={row} today={today} />
         <MovePill row={row} />
       </div>
       {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400">{row.guest_name}</div> : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
         {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
       </div>
+      {row.incoming_name || row.incoming_type || row.incoming_code || row.arrival_date || row.arrival_time || row.incoming_block_indicator ? (
+        <div className="mt-1 text-sm text-sky-200">
+          Incoming: {row.incoming_name || "Name unavailable"}
+          {row.incoming_type ? ` · ${row.incoming_type}` : ""}
+          {row.incoming_code ? ` · ${row.incoming_code}` : ""}
+          {row.arrival_date ? ` · ${displayDate(row.arrival_date)}` : ""}
+          {row.arrival_time ? ` ${displayCheckoutTime(row.arrival_time)}` : ""}
+          {row.incoming_block_indicator ? ` · ${row.incoming_block_indicator}` : ""}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -171,6 +233,8 @@ export default function RoomOperationsPage() {
   const router = useRouter();
   const [session, setSession] = useState<CmpriClientSession | null>(null);
   const [date, setDate] = useState(hotelDate);
+  const [today, setToday] = useState(hotelDate);
+  const hotelTodayRef = useRef(today);
   const [rows, setRows] = useState<RoomOperation[]>([]);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [query, setQuery] = useState("");
@@ -178,6 +242,20 @@ export default function RoomOperationsPage() {
   const [message, setMessage] = useState("");
   const [activeSummary, setActiveSummary] = useState<keyof Summary | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const current = hotelDate();
+      const previous = hotelTodayRef.current;
+      if (current !== previous) {
+        hotelTodayRef.current = current;
+        setToday(current);
+        setDate((selected) => selected === previous ? current : selected);
+      }
+      setRefreshVersion((version) => version + 1);
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -267,12 +345,12 @@ export default function RoomOperationsPage() {
               <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
             </div>
-            <p className="mt-2 text-sm text-slate-400">Manual room-status and expected-departure uploads create daily snapshots; room moves are detected by comparing today with yesterday.</p>
+            <p className="mt-2 text-sm text-slate-400">The latest accepted room report remains current until a newer verified report replaces it. Scheduled checkout times update the room to vacant dirty; this is not physical checkout confirmation.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs font-semibold text-slate-300">
               Report date
-              <input type="date" min={previousHotelDate()} max={hotelDate()} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
+              <input type="date" min={previousHotelDate()} max={today} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
             </label>
             {hasCapability(session, "edit_tickets") ? (
               <button type="button" onClick={() => setImportOpen((open) => !open)} className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">{importOpen ? "Hide Upload Form" : "Upload Room Ops"}</button>
@@ -311,7 +389,7 @@ export default function RoomOperationsPage() {
           <div className="space-y-2">
             {filtered.map((row) => (
               <article key={row.room} className="rounded-xl border border-slate-800 bg-slate-950/55 p-3">
-                <RoomDetails row={row} />
+                <RoomDetails row={row} today={today} />
               </article>
             ))}
           </div>
@@ -330,7 +408,7 @@ export default function RoomOperationsPage() {
               <div className="mt-4 space-y-2">
                 {summaryRows.length ? summaryRows.map((row) => (
                   <article key={row.room} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-                    <RoomDetails row={row} />
+                    <RoomDetails row={row} today={today} />
                   </article>
                 )) : <p className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">No rooms match this KPI.</p>}
               </div>

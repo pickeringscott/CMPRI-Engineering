@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability } from "@/lib/server/auth";
-import { createRoomOperationsOcrCrops } from "@/lib/room-operations-report-images";
+import { createRoomOperationsOcrCrops, createRoomOperationsRecoveryCrops } from "@/lib/room-operations-report-images";
 
 export const maxDuration = 60; // Allow up to 60 seconds for AI vision extraction
 export const runtime = "nodejs";
@@ -20,11 +20,20 @@ export async function POST(request: NextRequest) {
   }
 
   const images: Array<{ data: string; mediaType: string }> = [];
+  let recoveryContext: { unresolved: string; previous_report_data?: unknown } | null = null;
 
   const contentType = request.headers.get("content-type") || "";
   if (contentType.includes("multipart/form-data")) {
     try {
       const formData = await request.formData();
+      const rawRecoveryContext = formData.get("recovery_context");
+      if (typeof rawRecoveryContext === "string" && rawRecoveryContext) {
+        const parsed = JSON.parse(rawRecoveryContext) as { unresolved?: unknown; previous_report_data?: unknown };
+        if (typeof parsed.unresolved !== "string" || parsed.unresolved.length > 8000) {
+          return NextResponse.json({ error: "The automatic recovery request is invalid." }, { status: 400 });
+        }
+        recoveryContext = { unresolved: parsed.unresolved, previous_report_data: parsed.previous_report_data };
+      }
       const files = formData.getAll("images")
         .concat(formData.getAll("files"))
         .concat(formData.getAll("file"))
@@ -43,6 +52,13 @@ export async function POST(request: NextRequest) {
   } else {
     try {
       const body = await request.json();
+      if (body.recovery_context && typeof body.recovery_context === "object" && !Array.isArray(body.recovery_context)) {
+        const context = body.recovery_context as { unresolved?: unknown; previous_report_data?: unknown };
+        if (typeof context.unresolved !== "string" || context.unresolved.length > 8000) {
+          return NextResponse.json({ error: "The automatic recovery request is invalid." }, { status: 400 });
+        }
+        recoveryContext = { unresolved: context.unresolved, previous_report_data: context.previous_report_data };
+      }
       const rawList: unknown[] = Array.isArray(body.images)
         ? body.images
         : body.image
@@ -78,33 +94,56 @@ export async function POST(request: NextRequest) {
   const contentParts: Array<Record<string, unknown>> = [
     {
       type: "text",
-      text: `Extract and validate all room operations data from these hotel report image(s) (Room Status Report and/or Expected Departures Report). Each uploaded page is supplied as two enlarged, slightly overlapping table crops. Combine the evidence across crops and pages.
-Return ONLY valid CSV text in this exact format:
+      text: `Extract the complete hotel room report data from every supplied page. Each uploaded page is supplied as two enlarged, slightly overlapping table crops. Merge overlapping crop evidence, but do not merge distinct rooms or omit out-of-order rows. Return ONLY one valid JSON object with this shape:
+{
+  "room_status": {
+    "printed_date": "YYYY-MM-DD or empty if unreadable",
+    "printed_time": "exact printed generation time or empty if absent/unreadable",
+    "pages": [1],
+    "rows": [{
+      "room": "reported room identifier",
+      "room_status": "exact reported status",
+      "room_type": "current guest room type",
+      "guest_name": "current guest first Name column",
+      "guest_code": "current PP Code/Code",
+      "guest_arrival_date": "current guest Arv",
+      "checkout_date": "current guest Dep",
+      "stay_nights": "current guest LOS",
+      "reserved": "current Blk'd value",
+      "incoming_name": "incoming/block Name column to the right of Due In",
+      "incoming_type": "incoming/block Type column to the right of Due In",
+      "incoming_code": "incoming/block code if shown",
+      "incoming_arrival_date": "Due In",
+      "incoming_arrival_time": "incoming arrival time if shown",
+      "incoming_block_indicator": "reported incoming block/reservation indicator",
+      "source_page": "page number"
+    }]
+  },
+  "expected_departures": null or {
+    "printed_date": "YYYY-MM-DD or empty if unreadable",
+    "printed_time": "exact printed generation time or empty if absent/unreadable",
+    "pages": [1],
+    "rows": [{"room":"reported room","checkout_date":"reported date","checkout_time":"Dplm time"}]
+  }
+}
 
-Room,Room Status,Guest Name,Room Type,LOS,Blocked,Departure Date,Departure Time,Incoming Arrival Date,Incoming Arrival Time,Guest Code,Guest Arrival Date
-
-Extraction rules:
-1. Output ONLY the raw CSV text. Do not wrap in markdown backticks or commentary. Because crops overlap, output each room only once and combine the clearest field values across both crops.
-2. The Room Status Report is the source of the room rows: include exactly one data row for EVERY room shown there, including vacant, occupied, blocked, and out-of-order rooms. Use an Expected Departures report only as supplemental data for matching rooms; do not add rooms from that report. Ignore non-room summary/footer rows (e.g., Total Clean, Occupancy %, Grand Total, Page numbers).
-3. Map the Room Status Report columns exactly as follows: Room → Room; Status → Room Status; first Type column after Room → Room Type; Arv → Guest Arrival Date (current guest); Dep → Departure Date (current guest); LOS → LOS; PP Code/Code → Guest Code (current guest); first Name column immediately after PP Code/Code → Guest Name (current guest); Blk'd → Blocked; Due In → Incoming Arrival Date.
-4. Ignore ODH. Ignore the second Type and second Name columns to the right of Due In; those describe the incoming blocked booking and must not replace the current guest's type or name.
-5. Room: 2 to 4 digit room number or MGR (all uppercase).
-6. Room Status: Transcribe Status exactly as shown, including abbreviations such as VR, VD, and OOO. Never infer it from guest, arrival, or departure data. Leave it blank only if visibly blank or unreadable.
-7. Guest Name: Transcribe the current guest's first Name column exactly, including punctuation and slash-separated names (for example RAILWAY/CN-NJ8). Leave blank only when that cell is blank or unreadable. Do not substitute the incoming booking's second Name column.
-8. Room Type: Transcribe the first Type column after Room, or blank.
-9. LOS: Length of stay as a whole number (0 if empty/vacant).
-10. Blocked: Yes if Blk'd contains any block/reservation value (including a numeric confirmation number); otherwise No.
-11. Departure Date: Copy the current guest's Dep value. Compact dates such as 13Apr or 01Dec must be preserved exactly. Leave blank if absent.
-12. Departure Time: Match the room against the Expected Departures report's Rm # column and copy its Dplm time; if there is no time, leave blank.
-13. Incoming Arrival Date: Copy Due In, preserving compact dates such as 05Oct exactly. Incoming Arrival Time: extract if present or leave blank.
-14. Guest Code: Copy the current guest's PP Code/Code. Guest Arrival Date: Copy the current guest's Arv value, preserving the original text.
-15. Include every room shown, even when some fields are blank. Never omit OOO rooms or replace their reported status.`,
+Rules:
+1. Every supplied page must be represented in its report's pages array. Read the report's printed date and any printed generation time from the page itself, never from upload time. Do not infer missing values.
+2. Include exactly one row for every room in the Room Status Report, including vacant, occupied, blocked, out-of-order and out-of-order abbreviated as OOO. Do not add rooms from Expected Departures. Ignore only non-room summary/footer rows.
+3. Preserve exact status, names, codes, room types and block indicators as printed. Preserve special values such as RCNA, CN and Railway. Do not normalize or infer.
+4. Map the Room Status Report's first Type after Room to current room_type; Arv, Dep, LOS, PP Code/Code and the first Name after PP Code/Code are current-guest details. Blk'd is the current room block value.
+5. Keep the right-hand columns after Due In separate: capture its incoming Name, Type, code where shown, arrival date/time where shown, and block/reservation indicator. Never put incoming details in current-guest fields.
+6. Match Expected Departures by room and copy its checkout date/time exactly when present. Do not add Expected Departures-only rooms. An absent expected-departures report is null.
+7. Preserve compact dates such as 13Apr, 01Dec and 05Oct. An empty cell is an empty string. Use the exact string "[UNREADABLE]" for a required occupied/reservation detail that is present but cannot be read; never guess.
+8. Include every room row, even when some conditional fields are genuinely blank. Do not silently omit out-of-order rows or replace their status.`,
     },
   ];
 
   try {
     for (const img of images) {
-      const crops = await createRoomOperationsOcrCrops(Buffer.from(img.data, "base64"));
+      const crops = recoveryContext
+        ? await createRoomOperationsRecoveryCrops(Buffer.from(img.data, "base64"))
+        : await createRoomOperationsOcrCrops(Buffer.from(img.data, "base64"));
       for (const crop of crops) {
         contentParts.push({
           type: "image_url",
@@ -122,6 +161,16 @@ Extraction rules:
     );
   }
 
+  if (recoveryContext) {
+    const previousReport = recoveryContext.previous_report_data
+      ? `\n\nPrior extraction to reconcile (source evidence remains authoritative):\n${JSON.stringify(recoveryContext.previous_report_data).slice(0, 80000)}`
+      : "";
+    contentParts.push({
+      type: "text",
+      text: `AUTOMATIC RECOVERY PASS. Re-examine the supplied original report images using these enlarged overlapping crops. Focus on resolving only these specific rooms/fields: ${recoveryContext.unresolved}. Do not guess, fill blanks, or change other values unless the image clearly proves they were transcribed incorrectly. Preserve every already-extracted room and maintain full room/page coverage. Reconcile the result against the original images, not the prior extraction.${previousReport}`,
+    });
+  }
+
   try {
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -134,7 +183,7 @@ Extraction rules:
         messages: [
           {
             role: "system",
-            content: "You are an expert OCR system for hotel room operations reports. You transcribe hotel report images into the exact CSV format requested. Output only CSV.",
+            content: "You are an expert OCR system for hotel room operations reports. Transcribe source-backed values exactly into the requested JSON schema. Never guess or silently omit uncertain rows. Output only JSON.",
           },
           {
             role: "user",
@@ -148,23 +197,35 @@ Extraction rules:
     if (!openaiResponse.ok) {
       const errText = await openaiResponse.text();
       return NextResponse.json(
-        { error: `OpenAI API error (${openaiResponse.status}): ${errText}` },
+        { error: `OpenAI API error (${openaiResponse.status}): ${errText}`, retryable: openaiResponse.status >= 500 },
         { status: 502 }
       );
     }
 
     const data = await openaiResponse.json();
     const rawContent: string = data.choices?.[0]?.message?.content || "";
-    const cleanCsv = rawContent
-      .replace(/^```(?:csv|tsv|text)?\r?\n?/i, "")
+    const cleanJson = rawContent
+      .replace(/^```(?:json|text)?\r?\n?/i, "")
       .replace(/\r?\n?```\s*$/i, "")
       .trim();
-
-    if (!cleanCsv) {
-      return NextResponse.json({ error: "ChatGPT returned empty extraction data." }, { status: 422 });
+    if (!cleanJson) {
+      return NextResponse.json({ error: "ChatGPT returned empty extraction data.", retryable: true }, { status: 422 });
     }
-
-    return NextResponse.json({ ok: true, csv: cleanCsv });
+    let reportData: unknown;
+    try {
+      reportData = JSON.parse(cleanJson);
+    } catch {
+      return NextResponse.json({ error: "The extracted report is not valid JSON.", retryable: true }, { status: 422 });
+    }
+    if (
+      !reportData
+      || typeof reportData !== "object"
+      || !("room_status" in reportData)
+      || !("expected_departures" in reportData)
+    ) {
+      return NextResponse.json({ error: "The extracted report is missing its report identity or room rows.", retryable: true }, { status: 422 });
+    }
+    return NextResponse.json({ ok: true, report_data: reportData });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "ChatGPT image extraction failed." },

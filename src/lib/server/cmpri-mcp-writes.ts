@@ -8,6 +8,11 @@ import { allows, type Capability } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
 import { roleKey } from "@/lib/server/roles";
 import { canEditRoomRanker } from "@/lib/room-ranker-access";
+import {
+  extractAndValidateRoomOperations,
+  isRecoverableRoomOperationsValidationError,
+  RoomOperationsRecoveryIssue,
+} from "@/lib/room-operations-recovery";
 
 type WriteAction = {
   action: string;
@@ -20,7 +25,7 @@ type WriteAction = {
 const WRITE_ACTIONS: WriteAction[] = [
   { action: "work_orders.create", description: "Submit one or more CMPRI work orders, using the same validation and attribution as the CMPRI form.", capability: "submit" },
   { action: "work_orders.import", description: "Import validated CMPRI work orders from SafetyCulture or a spreadsheet.", capability: "edit_tickets" },
-  { action: "room_operations.import", description: "Import a daily room-operations snapshot from CSV text or room-status/departures photos without manual steps. Supply report_date (YYYY-MM-DD, defaults to today) and either csv (the raw CSV text containing room rows), rows array with room, stay_nights, reserved, checkout_date, checkout_time, room_status, arrival_date, arrival_time, guest_name, room_type, guest_code, and guest_arrival_date, or images array with base64 data and optional mediaType. The report must include every active room and its reported room_status; occupied rooms must also include current guest_name, guest_code, guest_arrival_date, and checkout_date. Replaces the complete snapshot for that date atomically and automatically triggers Out of Order status and room move notifications. Only call when the user explicitly asks to import/save.", capability: "edit_tickets" },
+  { action: "room_operations.import", description: "Import a daily room-operations report from CSV text, verified report_data, or room-status/departures photos. Printed Room Status and any Expected Departures dates must be present and current; a user-supplied report_date or upload time cannot establish report freshness. Include every active room with its exact room_status, separate current and incoming guest fields, and all conditionally required details. Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay. Same-day replacements require verifiable printed generation times. Photos are extracted through the existing supported image route; unreadable fields trigger up to two automatic recovery passes before requesting only the unresolved source details. Source reports remain in history; only a newer fully validated report replaces the live snapshot. Only call when the user explicitly asks to import/save.", capability: "edit_tickets" },
   { action: "work_orders.update", description: "Edit an authorized work order by supplying its UUID as id, expected_revision from the latest work-order read, and editable fields. Fields may be flat or nested under changes, updates, or fields. Editable fields include notes, status, technician_name (assignment), category, issue, priority, asset_id, cost, hours, due_by, parts, and action_root_cause. Use the exact status 'In Progress' or 'Completed' when reopening a closed work order; reopening to Open is rejected. An In Progress order must have an assigned technician.", anyOf: ["edit_tickets", "review_tickets"] },
   { action: "work_orders.delete", description: "Cancel a work order by marking it Will Not Do. The ticket and its history are retained. Include its UUID.", anyOf: ["review_tickets", "close_tickets"] },
   { action: "work_order_drafts.create", description: "Create a CMPRI work-order draft.", capability: "submit" },
@@ -119,21 +124,60 @@ export async function callMcpWriteAction(
       delete importInput.images;
       if (reportImages.length > 0) {
         const extractRoute = await import("@/app/api/room-operations/extract/route");
-        const extraction = await callApi(
-          incoming,
-          "/api/room-operations/extract",
-          "POST",
-          bearer,
-          { images: reportImages },
-          extractRoute.POST,
-        );
-        const extractionBody = extraction.body && typeof extraction.body === "object"
-          ? extraction.body as Record<string, unknown>
-          : null;
-        if (extraction.status < 200 || extraction.status >= 300 || typeof extractionBody?.csv !== "string" || !extractionBody.csv.trim()) {
-          const detail = typeof extractionBody?.error === "string" ? extractionBody.error : "Room-operations photos could not be extracted.";
-          throw new Error(`${detail} Nothing was imported.`);
-        }
+        const importRoute = await import("@/app/api/room-operations/route");
+        const { report: reportData } = await extractAndValidateRoomOperations({
+          async extract({ recoveryAttempt, unresolved, previousReport }) {
+            const extraction = await callApi(
+              incoming,
+              "/api/room-operations/extract",
+              "POST",
+              bearer,
+              {
+                images: reportImages,
+                ...(recoveryAttempt > 0 ? {
+                  recovery_context: {
+                    unresolved,
+                    previous_report_data: previousReport,
+                  },
+                } : {}),
+              },
+              extractRoute.POST,
+            );
+            const extractionBody = extraction.body && typeof extraction.body === "object"
+              ? extraction.body as Record<string, unknown>
+              : null;
+            if (extraction.status < 200 || extraction.status >= 300 || !extractionBody?.report_data || typeof extractionBody.report_data !== "object") {
+              const detail = typeof extractionBody?.error === "string" ? extractionBody.error : "Room-operations photos returned no verified extraction.";
+              throw new RoomOperationsRecoveryIssue(
+                detail,
+                extractionBody?.retryable === true,
+              );
+            }
+            return extractionBody.report_data;
+          },
+          async validate(candidateReport) {
+            const validation = await callApi(
+              incoming,
+              "/api/room-operations",
+              "POST",
+              bearer,
+              { source: "file", report_data: candidateReport, validate_only: true },
+              importRoute.POST,
+            );
+            const validationBody = validation.body && typeof validation.body === "object"
+              ? validation.body as Record<string, unknown> & { rows?: unknown[] }
+              : null;
+            if (validation.status < 200 || validation.status >= 300 || validationBody?.ok !== true || !Array.isArray(validationBody.rows)) {
+              const detail = typeof validationBody?.error === "string" ? validationBody.error : "Extracted room report failed validation.";
+              return {
+                ok: false,
+                error: detail,
+                recoverable: isRecoverableRoomOperationsValidationError(validation.status, detail),
+              };
+            }
+            return { ok: true, value: validationBody };
+          },
+        });
         delete importInput.rows;
         delete importInput.text;
         delete importInput.content;
@@ -141,7 +185,7 @@ export async function callMcpWriteAction(
         delete importInput.status_csv;
         delete importInput.departures_csv;
         importInput.source = "file";
-        importInput.csv = extractionBody.csv;
+        importInput.report_data = reportData;
       }
       const route = await import("@/app/api/room-operations/route");
       const outcome = await callApi(incoming, "/api/room-operations", "POST", bearer, importInput, route.POST);

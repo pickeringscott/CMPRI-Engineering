@@ -4,6 +4,13 @@ import { useState } from "react";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { formatCheckoutRoomWorkOrders, summarizeRoomOperations, type CheckoutRoomWorkOrder } from "@/lib/room-operations";
+import { parsePrintedReport, type PrintedReport } from "@/lib/room-operations-reports";
+import {
+  extractAndValidateRoomOperations,
+  isRecoverableRoomOperationsValidationError,
+  ROOM_OPERATIONS_RECOVERY_RETRY_LIMIT,
+  RoomOperationsRecoveryIssue,
+} from "@/lib/room-operations-recovery";
 
 type ImportSource = "paste" | "file";
 type RoomStatusRow = {
@@ -19,6 +26,12 @@ type RoomStatusRow = {
   guestArrivalDate: string;
   stayNights: number;
   reserved: boolean;
+  incomingName: string;
+  incomingType: string;
+  incomingCode: string;
+  incomingBlockIndicator: string;
+  incomingReserved: boolean;
+  sourcePage: string;
   moveFrom: string;
   moveTo: string;
 };
@@ -42,9 +55,20 @@ type ValidatedRow = {
   guest_arrival_date: string;
   stay_nights: number;
   reserved: boolean;
+  incoming_name: string;
+  incoming_type: string;
+  incoming_code: string;
+  incoming_block_indicator: string;
+  incoming_reserved: boolean;
+  source_page: string;
+  checkout_from_expected_departures: boolean;
 };
 type SnapshotRow = ValidatedRow & { imported_at: string | null };
-type ImportPreview = { date: string; source: ImportSource; rows: ValidatedRow[] };
+type ReportData = {
+  room_status: PrintedReport & { pages: number[]; rows: Record<string, unknown>[] };
+  expected_departures: (PrintedReport & { pages: number[]; rows: Record<string, unknown>[] }) | null;
+};
+type ImportPreview = { date: string; source: ImportSource; rows: ValidatedRow[]; report_data: ReportData };
 
 function missingCurrentGuestNames(rows: ValidatedRow[]) {
   return rows
@@ -124,7 +148,11 @@ function parseReport(raw: string, label: string) {
   if (!lines.length) throw new Error(`${label} is required.`);
   const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
   const rows = lines.map((line) => parseDelimitedLine(line, delimiter));
-  const headers = rows[0].map(normalizeHeader);
+  const headerIndex = rows.findIndex((row) => row.some((cell) =>
+    ["ROOM", "ROOM #", "ROOM NUMBER", "RM #", "RM"].includes(normalizeHeader(cell))
+  ));
+  if (headerIndex < 0) throw new Error(`${label} is missing a Room column.`);
+  const headers = rows[headerIndex].map(normalizeHeader);
   const findIndex = (...names: string[]) => {
     const normalized = names.map(normalizeHeader);
     const exact = headers.findIndex((header) => normalized.includes(header));
@@ -133,7 +161,16 @@ function parseReport(raw: string, label: string) {
   };
   const roomIndex = findIndex("ROOM", "ROOM #", "ROOM NUMBER", "RM #", "RM");
   if (roomIndex < 0) throw new Error(`${label} is missing a Room column.`);
-  return { rows: rows.slice(1), roomIndex, findIndex };
+  const printedReport = parsePrintedReport(raw, label);
+  if (printedReport.error) throw new Error(printedReport.error);
+  return {
+    rows: rows.slice(headerIndex + 1),
+    roomIndex,
+    findIndex,
+    headers,
+    printedReport: printedReport.report,
+    lineOffset: headerIndex + 2,
+  };
 }
 
 function normalizeRoom(value: string) {
@@ -142,25 +179,45 @@ function normalizeRoom(value: string) {
 }
 
 function parseRoomStatusReport(raw: string): RoomStatusRow[] {
-  const { rows, roomIndex, findIndex } = parseReport(raw, "Room Status Report");
+  const { rows, roomIndex, findIndex, headers, lineOffset } = parseReport(raw, "Room Status Report");
   const statusIndex = findIndex("ROOM STATUS", "HOUSEKEEPING STATUS", "HK STATUS", "STATUS");
   const arrivalDateIndex = findIndex("INCOMING ARRIVAL DATE", "DUE IN", "CHECKIN DATE", "CHECK-IN DATE", "CHECK IN DATE", "ARRIVAL DATE");
   const arrivalTimeIndex = findIndex("INCOMING ARRIVAL TIME", "CHECKIN TIME", "CHECK-IN TIME", "CHECK IN TIME");
-  const guestNameIndex = findIndex("GUEST NAME", "GUEST / NAME", "GUEST", "NAME");
-  const roomTypeIndex = findIndex("ROOM TYPE", "RM TYPE", "ROOM TYPE CODE", "TYPE");
+  const incomingStart = arrivalDateIndex >= 0 ? arrivalDateIndex : headers.length;
   const guestCodeIndex = findIndex("GUEST CODE", "GUEST TYPE CODE", "RATE CODE", "MEMBER CODE", "CODE");
+  const firstNameIndex = headers.findIndex((header, index) =>
+    index > guestCodeIndex && index < incomingStart && ["GUEST NAME", "GUEST / NAME", "GUEST", "NAME"].includes(header)
+  );
+  const firstTypeIndex = headers.findIndex((header, index) =>
+    index > roomIndex && index < incomingStart && ["ROOM TYPE", "RM TYPE", "ROOM TYPE CODE", "TYPE"].includes(header)
+  );
+  const incomingNameIndex = headers.findIndex((header, index) =>
+    index >= incomingStart && ["INCOMING GUEST NAME", "BLOCK NAME", "GUEST NAME", "GUEST / NAME", "GUEST", "NAME"].includes(header)
+  );
+  const incomingTypeIndex = headers.findIndex((header, index) =>
+    index >= incomingStart && ["INCOMING ROOM TYPE", "BLOCK TYPE", "ROOM TYPE", "RM TYPE", "TYPE"].includes(header)
+  );
+  const incomingCodeIndex = headers.findIndex((header, index) =>
+    index >= incomingStart && ["INCOMING GUEST CODE", "BLOCK CODE", "GUEST CODE", "CODE"].includes(header)
+  );
+  const incomingBlockIndex = headers.findIndex((header, index) =>
+    index >= incomingStart && ["INCOMING BLOCK INDICATOR", "BLOCK INDICATOR", "RESERVATION INDICATOR", "BLOCK", "RESERVATION", "RESERVED"].includes(header)
+  );
   const guestArrivalIndex = findIndex("CURRENT GUEST ARRIVAL DATE", "GUEST ARRIVAL DATE", "GUEST ARRIVAL", "ARV DATE", "ARV");
   const stayNightsIndex = findIndex("LOS", "LENGTH OF STAY", "NIGHTS");
   const reservedIndex = findIndex("RESERVED", "BLOCKED", "BLK", "BLK'D", "BLK’D", "BLKD");
   const checkoutDateIndex = findIndex("DEPARTURE DATE", "CHECKOUT DATE", "CHECK OUT DATE", "DEP DATE", "DEP");
   const checkoutTimeIndex = findIndex("DEPARTURE TIME", "CHECKOUT TIME", "CHECK OUT TIME", "DEP TIME", "DPLM");
+  const pageIndex = findIndex("SOURCE PAGE", "PAGE");
   const moveFromIndex = findIndex("MOVE FROM", "MOVED FROM", "FROM ROOM");
   const moveToIndex = findIndex("MOVE TO", "MOVED TO", "TO ROOM");
   const seenRooms = new Set<string>();
 
-  return rows.map((row, index) => {
-    const line = index + 2;
-    const room = normalizeRoom(String(row[roomIndex] || ""));
+  return rows.flatMap((row, index) => {
+    const line = index + lineOffset;
+    const rawRoom = String(row[roomIndex] || "").trim();
+    if (!rawRoom || /^(?:total|grand total|occupancy|occupancy %|page)\b/i.test(rawRoom)) return [];
+    const room = normalizeRoom(rawRoom);
     if (!room) throw new Error(`Room Status Report line ${line}: room was not recognized.`);
     if (seenRooms.has(room)) throw new Error(`Room Status Report contains room ${room} more than once.`);
     seenRooms.add(room);
@@ -169,38 +226,48 @@ function parseRoomStatusReport(raw: string): RoomStatusRow[] {
     if (!Number.isInteger(nights) || nights < 0 || nights > 3650) {
       throw new Error(`Room Status Report line ${line}: LOS must be a whole number from 0 to 3650.`);
     }
-    const reservedText = reservedIndex >= 0 ? String(row[reservedIndex] || "").trim().toLowerCase() : "";
+    const reservedText = reservedIndex >= 0 && reservedIndex < incomingStart ? String(row[reservedIndex] || "").trim().toLowerCase() : "";
     if (reservedText && !["true", "yes", "y", "1", "reserved", "blk", "blocked", "x", "✓", "✔", "false", "no", "n", "0", "not reserved", "unblocked"].includes(reservedText) && !/^\d+$/.test(reservedText)) {
       throw new Error(`Room Status Report line ${line}: reserved value '${reservedText}' is not recognized.`);
     }
-    return {
+    return [{
       room,
       roomStatus: statusIndex >= 0 ? String(row[statusIndex] || "").trim() : "",
       departureDate: checkoutDateIndex >= 0 ? String(row[checkoutDateIndex] || "").trim() : "",
       departureTime: checkoutTimeIndex >= 0 ? String(row[checkoutTimeIndex] || "").trim() : "",
       arrivalDate: arrivalDateIndex >= 0 ? String(row[arrivalDateIndex] || "").trim() : "",
       arrivalTime: arrivalTimeIndex >= 0 ? String(row[arrivalTimeIndex] || "").trim() : "",
-      guestName: guestNameIndex >= 0 ? String(row[guestNameIndex] || "").trim() : "",
-      roomType: roomTypeIndex >= 0 ? String(row[roomTypeIndex] || "").trim() : "",
+      guestName: firstNameIndex >= 0 ? String(row[firstNameIndex] || "").trim() : "",
+      roomType: firstTypeIndex >= 0 ? String(row[firstTypeIndex] || "").trim() : "",
       guestCode: guestCodeIndex >= 0 ? String(row[guestCodeIndex] || "").trim() : "",
       guestArrivalDate: guestArrivalIndex >= 0 ? String(row[guestArrivalIndex] || "").trim() : "",
       stayNights: nights,
       reserved: ["true", "yes", "y", "1", "reserved", "blk", "blocked", "x", "✓", "✔"].includes(reservedText)
         || (/^\d+$/.test(reservedText) && Number(reservedText) > 0),
+      incomingName: incomingNameIndex >= 0 ? String(row[incomingNameIndex] || "").trim() : "",
+      incomingType: incomingTypeIndex >= 0 ? String(row[incomingTypeIndex] || "").trim() : "",
+      incomingCode: incomingCodeIndex >= 0 ? String(row[incomingCodeIndex] || "").trim() : "",
+      incomingBlockIndicator: incomingBlockIndex >= 0 ? String(row[incomingBlockIndex] || "").trim() : "",
+      incomingReserved: incomingBlockIndex >= 0
+        ? /^(?:true|yes|y|1|reserved|blocked|blk|x|✓|✔)$/i.test(String(row[incomingBlockIndex] || "").trim())
+          || (/^\d+$/.test(String(row[incomingBlockIndex] || "").trim()) && Number(row[incomingBlockIndex]) > 0)
+        : false,
+      sourcePage: pageIndex >= 0 ? String(row[pageIndex] || "").trim() : String(line),
       moveFrom: moveFromIndex >= 0 ? normalizeRoom(String(row[moveFromIndex] || "")) : "",
       moveTo: moveToIndex >= 0 ? normalizeRoom(String(row[moveToIndex] || "")) : "",
-    };
+    }];
   });
 }
 
 function parseExpectedDepartures(raw: string): DepartureRow[] {
-  const { rows, roomIndex, findIndex } = parseReport(raw, "Expected Departures");
+  if (!raw.trim()) return [];
+  const { rows, roomIndex, findIndex, lineOffset } = parseReport(raw, "Expected Departures");
   const checkoutDateIndex = findIndex("CHECKOUT DATE", "CHECK OUT DATE", "DEPARTURE DATE", "DEP DATE", "DATE");
   const checkoutTimeIndex = findIndex("CHECKOUT TIME", "CHECK OUT TIME", "DEPARTURE TIME", "DEP TIME", "DPLM", "TIME");
   const seenRooms = new Set<string>();
 
   return rows.map((row, index) => {
-    const line = index + 2;
+    const line = index + lineOffset;
     const room = normalizeRoom(String(row[roomIndex] || ""));
     if (!room) throw new Error(`Expected Departures line ${line}: room was not recognized.`);
     if (seenRooms.has(room)) throw new Error(`Expected Departures contains room ${room} more than once.`);
@@ -223,7 +290,7 @@ function mergeRoomOperations(
     merged.set(row.room, {
       room: row.room,
       checkout_date: row.departureDate,
-      checkout_time: row.departureDate ? row.departureTime || "11:00 AM" : "",
+      checkout_time: row.departureTime,
       room_status: row.roomStatus,
       arrival_date: row.arrivalDate,
       arrival_time: row.arrivalTime,
@@ -235,6 +302,13 @@ function mergeRoomOperations(
       guest_arrival_date: row.guestArrivalDate,
       stay_nights: row.stayNights,
       reserved: row.reserved,
+      incoming_name: row.incomingName,
+      incoming_type: row.incomingType,
+      incoming_code: row.incomingCode,
+      incoming_block_indicator: row.incomingBlockIndicator,
+      incoming_reserved: row.incomingReserved,
+      source_page: row.sourcePage,
+      checkout_from_expected_departures: false,
     });
   }
   for (const departure of departures) {
@@ -253,12 +327,25 @@ function mergeRoomOperations(
       guest_arrival_date: "",
       stay_nights: 0,
       reserved: false,
+      incoming_name: "",
+      incoming_type: "",
+      incoming_code: "",
+      incoming_block_indicator: "",
+      incoming_reserved: false,
+      source_page: "",
+      checkout_from_expected_departures: false,
     };
     room.checkout_date = departure.checkoutDate || room.checkout_date || reportDate;
-    room.checkout_time = departure.checkoutTime || room.checkout_time || "11:00 AM";
+    if (departure.checkoutTime) {
+      room.checkout_time = departure.checkoutTime;
+      room.checkout_from_expected_departures = true;
+    }
     merged.set(departure.room, room);
   }
-  return [...merged.values()];
+  return [...merged.values()].map((room) => ({
+    ...room,
+    checkout_time: room.checkout_date ? room.checkout_time || "11:00 AM" : "",
+  }));
 }
 
 function snapshotMatches(expected: ValidatedRow[], actual: SnapshotRow[]) {
@@ -277,6 +364,11 @@ function snapshotMatches(expected: ValidatedRow[], actual: SnapshotRow[]) {
       && normalizeSnapshotValue(saved.guest_arrival_date) === normalizeSnapshotValue(row.guest_arrival_date)
       && saved.stay_nights === row.stay_nights
       && saved.reserved === row.reserved
+      && normalizeSnapshotValue(saved.incoming_name) === normalizeSnapshotValue(row.incoming_name)
+      && normalizeSnapshotValue(saved.incoming_type) === normalizeSnapshotValue(row.incoming_type)
+      && normalizeSnapshotValue(saved.incoming_code) === normalizeSnapshotValue(row.incoming_code)
+      && normalizeSnapshotValue(saved.incoming_block_indicator) === normalizeSnapshotValue(row.incoming_block_indicator)
+      && saved.incoming_reserved === row.incoming_reserved
       && (!row.move_from || saved.move_from === row.move_from)
       && (!row.move_to || saved.move_to === row.move_to);
   });
@@ -299,7 +391,6 @@ export default function RoomOperationsImport({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const today = hotelDate();
-  const yesterday = new Date(new Date(`${today}T12:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
 
   async function handleImageUpload(files: FileList | File[]) {
     const fileList = Array.from(files);
@@ -312,50 +403,108 @@ export default function RoomOperationsImport({
     setMessage("Sending RoomStatus image(s) to ChatGPT for extraction and validation…");
     try {
       const authHeaders = await authorizationHeaders();
-      const formData = new FormData();
-      fileList.forEach((file) => formData.append("images", file));
-
-      const extractRes = await fetch("/api/room-operations/extract", {
-        method: "POST",
-        headers: authHeaders,
-        body: formData,
+      const { report: reportData, validation: validationPayload } = await extractAndValidateRoomOperations({
+        onProgress(phase, recoveryAttempt, unresolved) {
+          if (phase === "extract") {
+            setMessage(recoveryAttempt === 0
+              ? "Reading the original report images with ChatGPT…"
+              : `Automatic recovery pass ${recoveryAttempt} of ${ROOM_OPERATIONS_RECOVERY_RETRY_LIMIT}: re-examining enlarged overlapping image crops for ${unresolved}`);
+          } else {
+            setMessage(recoveryAttempt
+              ? `Checking recovered report values and complete room coverage (recovery pass ${recoveryAttempt})…`
+              : "Checking the printed report date, every active room, and all conditional report fields…");
+          }
+        },
+        async extract({ recoveryAttempt, unresolved, previousReport }) {
+          const formData = new FormData();
+          fileList.forEach((file) => formData.append("images", file));
+          if (recoveryAttempt > 0) {
+            formData.append("recovery_context", JSON.stringify({
+              unresolved,
+              previous_report_data: previousReport,
+            }));
+          }
+          let extractRes: Response;
+          try {
+            extractRes = await fetch("/api/room-operations/extract", {
+              method: "POST",
+              headers: authHeaders,
+              body: formData,
+            });
+          } catch (error) {
+            throw new RoomOperationsRecoveryIssue(
+              error instanceof Error ? `Image extraction request failed: ${error.message}` : "Image extraction request failed.",
+              true,
+            );
+          }
+          const extractPayload = await extractRes.json().catch(() => ({})) as {
+            ok?: boolean;
+            retryable?: boolean;
+            report_data?: ReportData;
+            error?: string;
+          };
+          if (!extractRes.ok || extractPayload.ok !== true || !extractPayload.report_data) {
+            const errorMessage = extractPayload.error || "ChatGPT image extraction returned no verified report data.";
+            throw new RoomOperationsRecoveryIssue(
+              errorMessage,
+              extractPayload.retryable === true || (!extractPayload.error && extractRes.status >= 500),
+            );
+          }
+          return extractPayload.report_data;
+        },
+        async validate(reportData) {
+          let validationRes: Response;
+          try {
+            validationRes = await fetch("/api/room-operations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...authHeaders },
+              body: JSON.stringify({ source: "file", report_data: reportData, validate_only: true }),
+            });
+          } catch (error) {
+            return {
+              ok: false,
+              error: error instanceof Error ? `Room report validation request failed: ${error.message}` : "Room report validation request failed.",
+              recoverable: false,
+            };
+          }
+          const validationPayload = await validationRes.json().catch(() => ({})) as {
+            ok?: boolean;
+            count?: number;
+            rows?: ValidatedRow[];
+            error?: string;
+          };
+          const validatedRows = validationPayload.rows;
+          if (!validationRes.ok || validationPayload.ok !== true || !Array.isArray(validatedRows)) {
+            const error = validationPayload.error || "Extracted room data failed validation.";
+            return {
+              ok: false,
+              error,
+              recoverable: isRecoverableRoomOperationsValidationError(validationRes.status, error),
+            };
+          }
+          const missingNames = missingCurrentGuestNames(validatedRows);
+          if (missingNames.length) {
+            return {
+              ok: false,
+              error: `Occupied rooms are missing current guest names: ${missingNames.join(", ")}.`,
+              recoverable: true,
+            };
+          }
+          return {
+            ok: true,
+            value: { count: validationPayload.count, rows: validatedRows },
+          };
+        },
       });
-      const extractPayload = await extractRes.json().catch(() => ({})) as { ok?: boolean; csv?: string; error?: string };
-      if (!extractRes.ok || extractPayload.ok !== true || !extractPayload.csv) {
-        throw new Error(extractPayload.error || "ChatGPT image extraction failed.");
-      }
-
-      const extractedCsv = extractPayload.csv;
-      setStatusText(extractedCsv);
+      setStatusText("Image extraction completed. Report date and room values will be checked by the shared importer.");
       setStatusFileName(`ChatGPT Extracted (${fileList.map((f) => f.name).join(", ")})`);
 
-      setMessage("Checking that the extraction contains every active room and its room status…");
-      const validationRes = await fetch("/api/room-operations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ source: "file", report_date: date, csv: extractedCsv, validate_only: true }),
-      });
-      const validationPayload = await validationRes.json().catch(() => ({})) as {
-        ok?: boolean;
-        count?: number;
-        rows?: ValidatedRow[];
-        error?: string;
-      };
-      if (!validationRes.ok || validationPayload.ok !== true || !Array.isArray(validationPayload.rows)) {
-        throw new Error(validationPayload.error || "Extracted room data failed validation.");
-      }
-      const missingNames = missingCurrentGuestNames(validationPayload.rows);
-      if (missingNames.length) {
-        throw new Error(
-          `ChatGPT did not extract current guest names for occupied rooms ${missingNames.slice(0, 20).join(", ")}${missingNames.length > 20 ? ` and ${missingNames.length - 20} more` : ""}. Nothing was saved. Use clearer Room Status images or paste the report data and retry.`,
-        );
-      }
-      setMessage(`Validated ${validationPayload.count || validationPayload.rows.length} rooms and their status values. Saving the daily snapshot…`);
+      setMessage(`Validated ${validationPayload.count || validationPayload.rows.length} rooms and report freshness. Saving the current room data…`);
 
       const importRes = await fetch("/api/room-operations", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ source: "file", report_date: date, rows: validationPayload.rows }),
+        body: JSON.stringify({ source: "file", report_data: reportData }),
       });
       const importPayload = await importRes.json().catch(() => ({})) as {
         ok?: boolean;
@@ -370,13 +519,13 @@ export default function RoomOperationsImport({
         throw new Error(importPayload.error || "Room operations import failed.");
       }
 
-      const readback = await fetch(`/api/room-operations?date=${encodeURIComponent(date)}`, { headers: authHeaders, cache: "no-store" });
+      const readback = await fetch(`/api/room-operations?date=${encodeURIComponent(importPayload.date || date)}`, { headers: authHeaders, cache: "no-store" });
       const result = await readback.json().catch(() => ({})) as { date?: string; rows?: SnapshotRow[]; error?: string };
       if (!readback.ok || typeof result.date !== "string" || !Array.isArray(result.rows)) {
         throw new Error(`Import ${importPayload.import_id} succeeded, but read-back verification failed: ${result.error || "Room operations could not be reloaded."}`);
       }
-      if (result.date !== date || !snapshotMatches(validationPayload.rows, result.rows)) {
-        throw new Error(`Import ${importPayload.import_id} succeeded, but saved room statuses did not match the validated extraction. Reload Room Operations and verify report date ${date}.`);
+      if (result.date !== importPayload.date || !snapshotMatches(validationPayload.rows, result.rows)) {
+        throw new Error(`Import ${importPayload.import_id} succeeded, but saved room data did not match the validated extraction. Reload Room Operations and verify the accepted report date.`);
       }
 
       const count = result.rows.length;
@@ -436,24 +585,63 @@ export default function RoomOperationsImport({
       return;
     }
     try {
-      const rows = mergeRoomOperations(
-        parseRoomStatusReport(statusText),
-        parseExpectedDepartures(departuresText),
-        date,
-      );
+      const statusReportDate = parsePrintedReport(statusText, "Room Status Report");
+      if (statusReportDate.error || !statusReportDate.report) throw new Error(statusReportDate.error || "Room Status Report printed date cannot be verified.");
+      const departuresMetadata = departuresText.trim()
+        ? parsePrintedReport(departuresText, "Expected Departures")
+        : { report: null, error: null };
+      if (departuresMetadata.error) throw new Error(departuresMetadata.error);
+      const statusRows = parseRoomStatusReport(statusText);
+      const departures = parseExpectedDepartures(departuresText);
+      const rows = mergeRoomOperations(statusRows, departures, statusReportDate.report.printed_date);
       if (!rows.length) throw new Error("The two reports contain no room rows.");
       const source: ImportSource = statusFileName || departuresFileName ? "file" : "paste";
+      const report_data: ReportData = {
+        room_status: {
+          ...statusReportDate.report,
+          pages: [1],
+          rows: statusRows.map((row) => ({
+            room: row.room,
+            room_status: row.roomStatus,
+            room_type: row.roomType,
+            guest_name: row.guestName,
+            guest_code: row.guestCode,
+            guest_arrival_date: row.guestArrivalDate,
+            checkout_date: row.departureDate,
+            checkout_time: row.departureTime,
+            stay_nights: row.stayNights,
+            reserved: row.reserved,
+            incoming_name: row.incomingName,
+            incoming_type: row.incomingType,
+            incoming_code: row.incomingCode,
+            incoming_arrival_date: row.arrivalDate,
+            incoming_arrival_time: row.arrivalTime,
+            incoming_block_indicator: row.incomingBlockIndicator,
+            incoming_reserved: row.incomingReserved,
+            source_page: row.sourcePage,
+          })),
+        },
+        expected_departures: departuresMetadata.report ? {
+          ...departuresMetadata.report,
+          pages: [1],
+          rows: departures.map((row) => ({
+            room: row.room,
+            checkout_date: row.checkoutDate,
+            checkout_time: row.checkoutTime,
+          })),
+        } : null,
+      };
       const response = await fetch("/api/room-operations", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...await authorizationHeaders() },
-        body: JSON.stringify({ source, report_date: date, rows, validate_only: true }),
+        body: JSON.stringify({ source, report_data, validate_only: true }),
       });
       const payload = await response.json().catch(() => ({})) as { ok?: boolean; date?: string; count?: number; rows?: ValidatedRow[]; error?: string };
       if (!response.ok || payload.ok !== true || !Array.isArray(payload.rows) || typeof payload.date !== "string") {
         throw new Error(payload.error || "Room-operations rows could not be validated.");
       }
-      setPreview({ date: payload.date, source, rows: payload.rows });
-      setMessage(`${payload.count || payload.rows.length} merged room rows validated. Review the preview, then commit to replace this date's snapshot.`);
+      setPreview({ date: payload.date, source, rows: payload.rows, report_data });
+      setMessage(`${payload.count || payload.rows.length} merged room rows validated. Review the preview, then commit this verified current-date report.`);
     } catch (error) {
       setMessage(error instanceof Error ? `Room operations validation error: ${error.message}` : "Room operations validation error.");
     }
@@ -467,7 +655,7 @@ export default function RoomOperationsImport({
       const response = await fetch("/api/room-operations", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...await authorizationHeaders() },
-        body: JSON.stringify({ source: preview.source, report_date: preview.date, rows: preview.rows }),
+        body: JSON.stringify({ source: preview.source, report_data: preview.report_data }),
       });
       const payload = await response.json().catch(() => ({})) as { ok?: boolean; import_id?: string; date?: string; notifications_recorded?: boolean; error?: string };
       if (!response.ok || payload.ok !== true || !payload.import_id) throw new Error(payload.error || "Room operations were not saved.");
@@ -502,14 +690,14 @@ export default function RoomOperationsImport({
     <section aria-label="Import Daily Room Operations" className="space-y-3 rounded-xl border border-emerald-500/35 bg-slate-900/70 p-3">
       <div>
         <h2 className="text-lg font-semibold">Daily Room Ops Upload</h2>
-        <p className="mt-1 text-sm text-slate-400">Upload today&apos;s Room Status Report and Expected Departures photos or CSV files. When images are uploaded, CMPRI sends them to ChatGPT to extract, validate, and import them with zero manual CSV steps. Expected departures without a checkout time default to 11:00 AM.</p>
+        <p className="mt-1 text-sm text-slate-400">Upload today&apos;s printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to 11:00 AM.</p>
       </div>
 
       <div className="rounded-xl border border-sky-500/40 bg-sky-950/25 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-sm font-bold text-sky-200">Upload RoomStatus Images (ChatGPT Auto-Import)</h3>
-            <p className="text-xs text-slate-300">Take or upload photos of Room Status & Departures reports. ChatGPT extracts and validates the exact CSV format and imports it automatically.</p>
+            <p className="text-xs text-slate-300">Upload all report pages. Printed dates, current and incoming columns, room coverage, and required details are validated before import.</p>
           </div>
           <label className="shrink-0">
             <span className={`inline-block cursor-pointer rounded-lg bg-sky-500 px-4 py-2 text-center text-xs font-bold text-slate-950 shadow hover:bg-sky-400 ${busy ? "pointer-events-none opacity-50" : ""}`}>
@@ -533,17 +721,17 @@ export default function RoomOperationsImport({
 
       <label className="block max-w-xs text-xs font-semibold text-slate-300">
         Report date
-        <input type="date" required min={yesterday} max={today} value={date} onChange={(event) => { onDateChange(event.target.value); setPreview(null); }} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+        <input type="date" required min={today} max={today} value={date} onChange={(event) => { onDateChange(event.target.value); setPreview(null); }} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
       </label>
       <div className="grid gap-3 lg:grid-cols-2">
         <label className="block text-xs font-semibold text-slate-300">
           Room Status Report {statusFileName ? `· ${statusFileName}` : ""}
-          <textarea value={statusText} onChange={(event) => { setStatusText(event.target.value); setStatusFileName(""); setPreview(null); }} rows={8} placeholder={"Room\tRoom Status\tGuest Name\tRoom Type\n316\tOccupied\tGuest Name\tKING\nMGR\tOut of Order\t\t"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
+          <textarea value={statusText} onChange={(event) => { setStatusText(event.target.value); setStatusFileName(""); setPreview(null); }} rows={8} placeholder={"Printed Date: 10/10/2026\nPrinted Time: 8:15 AM\nRoom\tRoom Status\tRoom Type\tArv\tDep\tLOS\tCode\tName\tBlk'd\tDue In\tType\tName\n316\tOccupied\tKING\t10Oct\t11Oct\t1\tREG\tGuest Name\t\t\t\t"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
           <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "status"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
         <label className="block text-xs font-semibold text-slate-300">
           Expected Departures {departuresFileName ? `· ${departuresFileName}` : ""}
-          <textarea value={departuresText} onChange={(event) => { setDeparturesText(event.target.value); setDeparturesFileName(""); setPreview(null); }} rows={8} placeholder={"Room\tCheckout Date\tCheckout Time\tGuest Name\n316\t9/30/2026\t\tGuest Name"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
+          <textarea value={departuresText} onChange={(event) => { setDeparturesText(event.target.value); setDeparturesFileName(""); setPreview(null); }} rows={8} placeholder={"Printed Date: 10/10/2026\nPrinted Time: 8:20 AM\nRoom\tCheckout Date\tCheckout Time\tGuest Name\n316\t10/11/2026\t2:00 PM\tGuest Name"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
           <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "departures"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
       </div>

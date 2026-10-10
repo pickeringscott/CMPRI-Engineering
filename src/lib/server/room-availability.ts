@@ -24,10 +24,13 @@ function hotelDate() {
 
 export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
   const date = hotelDate();
+  const { error: reconcileError } = await admin.rpc("cmpri_reconcile_room_operations");
+  if (reconcileError) return { date, statuses: null, operations: null, error: reconcileError };
   const { data, error } = await admin.from("cmpri_room_operations")
     .select("room, room_status, checkout_date, checkout_time, guest_name")
     .eq("hotel_id", HOTEL_ID)
-    .eq("report_date", date);
+    .eq("report_date", date)
+    .order("room");
   if (error) return { date, statuses: null, operations: null, error };
   const statuses = new Map<string, string>();
   const operations = new Map<string, CurrentRoomOperation>();

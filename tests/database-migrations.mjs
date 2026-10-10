@@ -1034,6 +1034,34 @@ try {
       { report_date: yesterdayDate, room_status: 'Vacant Ready' },
       { report_date: today, room_status: 'Occupied' },
     ]);
+
+    const legacyImportId = '00000000-0000-0000-0000-000000000914';
+    await db.query(`insert into public.cmpri_room_operation_imports(
+      id, hotel_id, report_date, source_type, row_count, imported_by_name
+    ) values ($1,$2,$3,'file',1,'Legacy Audit')`, [legacyImportId, hotel, today]);
+    await db.query(`insert into public.cmpri_room_operations(
+      hotel_id, import_id, report_date, room, room_type, room_status, guest_name, guest_code,
+      arrival_date, checkout_date, checkout_time, arrival_time, reserved
+    ) values ($1,$2,$3,'103','KING','Occupied','Legacy Audit Guest','REG',$3,$3,'11:00','15:00',false)`, [hotel, legacyImportId, today]);
+
+    const roomOperationsProvenanceMigration = readFileSync(new URL('../supabase/migrations/20261010180000_cmpri_room_operations_provenance_checkouts.sql', import.meta.url), 'utf8');
+    await check('room-operations provenance/checkouts migration', async () => db.exec(roomOperationsProvenanceMigration));
+    await check('room-operations provenance/checkouts migration is idempotent', async () => db.exec(roomOperationsProvenanceMigration));
+    const { rows: preservedLegacyRoom } = await db.query(`select report_date::text, room, guest_name
+      from public.cmpri_room_operations_legacy_archive where hotel_id=$1`, [hotel]);
+    assert.deepEqual(preservedLegacyRoom, [
+      { report_date: today, room: '103', guest_name: 'Legacy Audit Guest' },
+    ]);
+    const { rows: legacyImports } = await db.query(`select report_date::text, source_type, row_count,
+        source_rows->0->>'room' as first_room, status_printed_time is null as printed_time_unavailable,
+        report_pages = '[]'::jsonb as pages_unavailable
+      from public.cmpri_room_operation_imports
+      where hotel_id=$1 and source_type='legacy' order by report_date`, [hotel]);
+    assert.deepEqual(legacyImports, [
+      { report_date: yesterdayDate, source_type: 'legacy', row_count: 1, first_room: '101', printed_time_unavailable: true, pages_unavailable: true },
+      { report_date: today, source_type: 'legacy', row_count: 2, first_room: '101', printed_time_unavailable: true, pages_unavailable: true },
+    ]);
+    assert.equal((await db.query(`select count(*)::integer as count from public.room_operations where hotel_id=$1`, [hotel])).rows[0].count, 3);
   });
   console.log(`${passed} PostgreSQL migration/behavior checks passed. Supabase RLS policies and concurrent sessions are not reproduced.`);
 } finally { await db.close(); }
