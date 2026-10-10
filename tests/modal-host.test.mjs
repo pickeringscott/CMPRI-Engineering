@@ -323,10 +323,12 @@ test('room operations import form and commit workflow live in the Daily Room Ope
   assert.match(page, /importOpen && hasCapability\(session, "edit_tickets"\)/);
   assert.match(page, /<RoomOperationsImport date=\{date\} onDateChange=\{setDate\} onCommitted=\{handleImportCommitted\}/);
   assert.doesNotMatch(dashboard, /Import Room Ops|showRoomOpsImport|Import Daily Room Operations/);
-  assert.match(importer, /Upload today(?:&apos;|')s Room Status Report and Expected Departures/);
-  assert.match(importer, /Expected Departures/);
+  assert.match(importer, /Upload today(?:&apos;|')s printed Room Status Report and optional Expected Departures report/);
+  assert.match(importer, /Upload RoomStatus Images \(ChatGPT Auto-Import\)/);
+  assert.match(importer, /Upload Images & Auto-Import/);
+  assert.match(importer, /complete room coverage/);
+  assert.match(importer, /Automatic recovery pass/);
   assert.match(importer, /11:00 AM/);
-  assert.doesNotMatch(importer, /Import Photo \/ Screenshot|AI import/i);
   assert.match(importer, /Validated preview/);
   assert.match(importer, /async function commitImport/);
   assert.match(importer, /snapshotMatches/);

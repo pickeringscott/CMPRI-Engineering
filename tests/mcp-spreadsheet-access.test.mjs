@@ -18,6 +18,8 @@ function load(relative, overrides = {}) {
     if(name==='next/server')return {NextRequest:class NextRequest {}};
     if(name==='@/lib/server/access')return {allows:(principal,capability)=>capability!=='edit_tickets'||['chief engineer','engineering manager','maintenance technician','system administrator'].includes(String(principal.profile.role).trim().toLowerCase())};
     if(name==='@/lib/server/roles')return {roleKey:role=>String(role).trim().toLowerCase()==='system administrator'?'system_admin':String(role).trim().toLowerCase()};
+    if(name==='@/lib/server/room-operations-import-schema')return load('lib/server/room-operations-import-schema.ts');
+    if(name==='@/lib/room-operations-recovery')return load('lib/room-operations-recovery.ts');
     if(name==='@/lib/room-ranker-access')return load('lib/room-ranker-access.ts', {
       '@/lib/server/roles': load('lib/server/roles.ts'),
     });
@@ -78,7 +80,7 @@ test('MCP grants authorized Ranker reads without widening technician work-order 
   assert.equal(writes.availableMcpWriteActions(mismatched).some(({action})=>action==='room_ranker.update'),false);
 });
 
-test('MCP tools/list preserves the generic nested write input for every advertised action',async()=>{
+test('MCP tools/list exposes the complete room-operations import contract for the authorized action',async()=>{
   const route=load('app/api/mcp/route.ts',{
     'next/server':{NextRequest:class {}},
     '@/lib/constants':{HOTEL_ID:'test-hotel'},
@@ -102,16 +104,62 @@ test('MCP tools/list preserves the generic nested write input for every advertis
   const payload=await response.json();
   const writeTool=payload.result.tools.find(({name})=>name==='perform_cmpri_write');
   assert.ok(writeTool);
-  const schema=writeTool.inputSchema;
-  assert.deepEqual(Array.from(schema.required),['action','input']);
-  assert.equal(schema.additionalProperties,false);
-  assert.deepEqual(Object.keys(schema.properties.input).sort(),['additionalProperties','description','type']);
-  assert.equal(schema.properties.input.type,'object');
-  assert.equal(schema.properties.input.additionalProperties,true);
+  const toolSchema=writeTool.inputSchema;
+  assert.deepEqual(Array.from(toolSchema.required),['action','input']);
+  assert.equal(toolSchema.additionalProperties,false);
+  assert.equal(toolSchema.allOf[0].if.properties.action.const,'room_operations.import');
   const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action).sort();
-  assert.equal(Array.from(schema.properties.action.enum).sort().join('|'),allowed.join('|'));
+  assert.equal(Array.from(toolSchema.properties.action.enum).sort().join('|'),allowed.join('|'));
   assert.ok(allowed.includes('work_orders.update'));
   assert.ok(allowed.includes('room_operations.import'));
+
+  const roomOperationsSchema=toolSchema.allOf[0].then.properties.input;
+  const inputModes=roomOperationsSchema.oneOf.map(({required})=>Array.from(required).join(','));
+  assert.deepEqual(inputModes,['report_data','status_csv','csv','text','content','file','images']);
+  const structured=roomOperationsSchema.oneOf[0].properties.report_data;
+  assert.deepEqual(Array.from(structured.required),['room_status']);
+  assert.deepEqual(Array.from(structured.properties.room_status.required),['printed_date','pages','rows']);
+  assert.deepEqual(Array.from(structured.properties.expected_departures.anyOf[0].required),['printed_date','pages','rows']);
+  const rowFields=structured.properties.room_status.properties.rows.items.properties;
+  for(const field of [
+    'room','room_status','room_type','guest_name','guest_code','guest_arrival_date','checkout_date',
+    'checkout_time','stay_nights','reserved','arrival_date','arrival_time','incoming_arrival_date',
+    'incoming_arrival_time','incoming_name','incoming_type','incoming_code','incoming_block_indicator',
+    'incoming_reserved','move_from','move_to','source_page',
+  ]) assert.ok(rowFields[field],`missing documented room-operation input field ${field}`);
+  assert.deepEqual(
+    Array.from(structured.properties.room_status.properties.rows.items.allOf[0].then.required),
+    ['guest_name','guest_code','room_type','guest_arrival_date','checkout_date','stay_nights'],
+  );
+  assert.deepEqual(
+    Array.from(structured.properties.room_status.properties.rows.items.allOf[1].then.required),
+    ['incoming_name'],
+  );
+
+  const contract=roomOperationsSchema.description;
+  assert.match(contract,/Expected Departures is joined to Current Room Status by room/);
+  assert.match(contract,/11:00 AM/);
+  assert.match(contract,/source_import_id/);
+  assert.match(contract,/checkout_source_report_date/);
+  assert.match(contract,/10Oct26 01:17 PM/);
+  assert.match(roomOperationsSchema.oneOf[1].properties.status_csv.description,/Printed Date/);
+  assert.match(roomOperationsSchema.oneOf[1].properties.status_csv.description,/Room Status/);
+  assert.match(roomOperationsSchema.oneOf[1].properties.departures_csv.description,/Expected Departures/);
+  for(const alias of ['RM #','HK STATUS','BLK’D','DPLM','ARV DATE','BLOCK NAME','INCOMING BLOCKED','MOVED FROM']) {
+    assert.ok(roomOperationsSchema.oneOf[1].properties.status_csv.description.includes(alias),`missing CSV alias ${alias}`);
+  }
+  assert.equal(roomOperationsSchema.oneOf[6].properties.images.items.oneOf[1].properties.data.type,'string');
+});
+
+test('Room Ops validates the full snapshot before its single database replacement',()=>{
+  const route=readFileSync(path.join(root,'app/api/room-operations/route.ts'),'utf8');
+  const completenessCheck=route.indexOf('const missingRooms =');
+  const guestCheck=route.indexOf('const missingGuestFields =');
+  const validateOnly=route.indexOf('if (body.validate_only === true)');
+  const replacement=route.indexOf('auth.admin.rpc("cmpri_replace_room_operations"');
+  assert.ok(completenessCheck>=0&&guestCheck>completenessCheck);
+  assert.ok(validateOnly>guestCheck);
+  assert.ok(replacement>validateOnly);
 });
 
 test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot validation',()=>{
@@ -119,7 +167,7 @@ test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot 
   const mcpRoute=readFileSync(path.join(root,'app/api/mcp/route.ts'),'utf8');
   assert.match(writesSource,/case "room_operations\.import":[\s\S]*?const reportImages = images !== undefined[\s\S]*?api\/room-operations\/extract\/route[\s\S]*?images: reportImages/);
   assert.match(writesSource,/delete importInput\.rows/);
-  assert.match(writesSource,/The report must include every active room and its reported room_status; occupied rooms must also include current guest_name, guest_code, guest_arrival_date, and checkout_date/);
+  assert.match(writesSource,/Include every active room with its exact room_status[\s\S]*Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay/);
   assert.match(writesSource,/Nothing was imported/);
   assert.match(mcpRoute,/MAX_MCP_REQUEST_BYTES = 4_500_000/);
   assert.match(mcpRoute,/MAX_MCP_WRITE_INPUT_BYTES = 4_000_000/);
@@ -127,6 +175,10 @@ test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot 
 
 test('ChatGPT Room Ops write forwards uploaded images through OCR before importing extracted CSV',async()=>{
   const calls=[];
+  const reportData={
+    room_status:{printed_date:'2026-10-06',printed_time:'08:15 AM',pages:[1],rows:[{room:'101',room_status:'Vacant Ready'}]},
+    expected_departures:null,
+  };
   const writeRoute=load('lib/server/cmpri-mcp-writes.ts',{
     'next/server':{
       NextRequest:class {
@@ -145,13 +197,16 @@ test('ChatGPT Room Ops write forwards uploaded images through OCR before importi
       POST:async(request)=>{
         const body=await request.json();
         calls.push({path:'/extract',body});
-        return {status:200,json:async()=>({ok:true,csv:'Room,Room Status\\n101,Vacant Ready'})};
+        return {status:200,json:async()=>({ok:true,report_data:reportData})};
       },
     },
     '@/app/api/room-operations/route':{
       POST:async(request)=>{
-        calls.push({path:'/import',body:await request.json()});
-        return {status:200,json:async()=>({ok:true,import_id:'import-1'})};
+        const body=await request.json();
+        calls.push({path:body.validate_only?'/validate':'/import',body});
+        return body.validate_only
+          ? {status:200,json:async()=>({ok:true,rows:reportData.room_status.rows})}
+          : {status:200,json:async()=>({ok:true,import_id:'import-1'})};
       },
     },
   });
@@ -165,6 +220,7 @@ test('ChatGPT Room Ops write forwards uploaded images through OCR before importi
   assert.equal(outcome.status,200);
   assert.deepEqual(calls,[
     {path:'/extract',body:{images:[{data:'aGVsbG8=',mediaType:'image/jpeg'}]}},
-    {path:'/import',body:{report_date:'2026-10-06',source:'file',csv:'Room,Room Status\\n101,Vacant Ready'}},
+    {path:'/validate',body:{source:'file',report_data:reportData,validate_only:true}},
+    {path:'/import',body:{report_date:'2026-10-06',source:'file',report_data:reportData}},
   ]);
 });

@@ -4,6 +4,7 @@ import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
 import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 import { availableMcpReadViews, callMcpReadView } from "@/lib/server/cmpri-mcp-reads";
 import { availableMcpWriteActions, callMcpWriteAction } from "@/lib/server/cmpri-mcp-writes";
+import { ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA } from "@/lib/server/room-operations-import-schema";
 import { resolveMcpWorkOrderLocation } from "@/lib/ai/mcp-work-order-location";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,15 @@ const MCP_TOOLS = [
       },
       required: ["action", "input"],
       additionalProperties: false,
+      allOf: [{
+        if: {
+          properties: { action: { const: "room_operations.import" } },
+          required: ["action"],
+        },
+        then: {
+          properties: { input: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA },
+        },
+      }],
     },
     annotations: { title: "Write to CMPRI", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
