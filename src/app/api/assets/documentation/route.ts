@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability, requireUser } from "@/lib/server/auth";
-import { canEditEquipment } from "@/lib/server/roles";
+import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
 import { extractManualPdfText } from "@/lib/manual-pdf-knowledge";
 import { catalogManualMatchesEquipment } from "@/lib/manual-document-catalog";
 import { loadVerifiedCatalogManuals } from "@/lib/server/verified-manual-catalog";
@@ -16,6 +16,7 @@ type Suggestions = {
   manufacturer?: string;
   model_family?: string;
   model_number?: string;
+  model_candidates?: string[];
   serial_number?: string;
   generation?: string;
   install_year?: number;
@@ -77,10 +78,16 @@ function extractEquipmentSuggestions(text: string): Suggestions | null {
   ]);
 
   const result: Suggestions = {};
+  const modelListMatch = flattened.match(/\b(?:applicable\s+)?models?\s*[:#=-]\s*([A-Za-z0-9][A-Za-z0-9._/-]*(?:\s*[,;]\s*[A-Za-z0-9][A-Za-z0-9._/-]*){1,20})/i);
+  const modelCandidates = modelListMatch?.[1]
+    .split(/[,;]/)
+    .map((value) => cleanPhrase(value))
+    .filter(Boolean) || [];
   if (assetType) result.asset_type = assetType;
   if (manufacturer) result.manufacturer = manufacturer;
   if (modelFamily) result.model_family = modelFamily;
   if (model) result.model_number = model;
+  if (modelCandidates.length > 1) result.model_candidates = Array.from(new Set(modelCandidates));
   if (serial) result.serial_number = serial;
   if (generation) result.generation = generation;
   if (installYearText) result.install_year = Number(installYearText);
@@ -110,6 +117,9 @@ async function ensureBucket(admin: SupabaseClient) {
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canReadEquipment(auth.principal.profile.role)) {
+    return NextResponse.json({ error: "Equipment documentation access is required." }, { status: 403 });
+  }
   const assetId = request.nextUrl.searchParams.get("asset_id")?.trim() || "";
   if (!assetId) return NextResponse.json({ error: "asset_id is required." }, { status: 400 });
   const { data: asset, error: assetError } = await auth.admin.from("assets")
@@ -120,14 +130,20 @@ export async function GET(request: NextRequest) {
   if (!asset) return NextResponse.json({ error: "Asset not found." }, { status: 404 });
 
   const prefix = `${HOTEL_ID}/${assetId}`;
-  const { data, error } = await auth.admin.storage.from(BUCKET).list(prefix, {
-    limit: 100,
-    sortBy: { column: "created_at", order: "desc" },
-  });
-  if (error && !/not found|bucket/i.test(error.message)) {
-    return NextResponse.json({ error: "Equipment documentation could not be listed." }, { status: 503 });
+  const assetFiles: Array<{ name: string; id?: string | null; updated_at?: string | null; created_at?: string | null }> = [];
+  for (let offset = 0; ; offset += 100) {
+    const { data, error } = await auth.admin.storage.from(BUCKET).list(prefix, {
+      limit: 100,
+      offset,
+      sortBy: { column: "created_at", order: "desc" },
+    });
+    if (error) {
+      if (/not found|bucket/i.test(error.message)) break;
+      return NextResponse.json({ error: "Equipment documentation could not be listed." }, { status: 503 });
+    }
+    assetFiles.push(...(data || []));
+    if ((data || []).length < 100) break;
   }
-  const assetFiles = data || [];
   const verified = assetFiles.some((file) => file.name === VERIFY_MARKER);
   const assetDocuments = await Promise.all(assetFiles.filter((file) => file.name !== VERIFY_MARKER).map(async (file) => {
     const storagePath = `${prefix}/${file.name}`;

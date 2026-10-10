@@ -179,9 +179,9 @@ test('mobile dashboard navigation actions remain directly accessible without dro
   assert.match(technician, /sm:hidden">Create Work Order<\/Link>/);
   assert.match(technician, /sm:hidden">[\s\S]*?Pool Log[\s\S]*?Sign Out/);
   assert.doesNotMatch(workOrders, /<details/);
-  assert.match(workOrders, /sm:hidden disabled:opacity-80/);
-  assert.match(workOrders, /flex items-center gap-1 sm:hidden/);
-  assert.match(workOrders, /className=\{`hidden rounded-lg border[\s\S]*?sm:inline-flex/);
+  assert.match(workOrders, /className="flex flex-wrap items-center justify-end gap-1"/);
+  assert.match(workOrders, /htmlFor="work-order-photo-file"/);
+  assert.match(workOrders, /htmlFor="work-order-photo-camera"/);
 });
 
 test('sign-in More toggle reveals password access without exposing test account data', () => {
@@ -276,7 +276,9 @@ test('authorized Housekeeping render replaces the Engineering fallback and share
 
 test('work-order dashboards use 66% desktop width except Front Desk and Housekeeping', () => {
   const source = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /const isSubmitOnlyUser = \[[\s\S]*?assistantgeneralmanager[\s\S]*?housekeeping/);
+  const roles = readFileSync(new URL('../src/lib/server/roles.ts', import.meta.url), 'utf8');
+  assert.match(source, /const isSubmitOnlyUser = isSubmitOnlyRole\(currentRole\)/);
+  assert.match(roles, /export const isSubmitOnlyRole = \(role: unknown\) =>\s*\[\s*"front_desk", "housekeeping"\s*\]\.includes\(roleKey\(role\)\)/);
   assert.match(source, /<div className=\{`mx-auto w-full max-w-none \$\{isSubmitOnlyUser \? "" : "lg:w-\[66vw\]"\}`\}>/);
 });
 
@@ -306,7 +308,8 @@ test('work-order top bar separates photo-file selection from camera capture', ()
   assert.match(source, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button type="button" onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
   assert.match(source, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
   assert.match(source, /\{photoUploadError && <div[\s\S]*pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button type="button" onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
-  assert.match(source, /\{!isSubmitOnlyUser && <button type="button" onClick=\{\(\) => void signOut\(\)\}/);
+  assert.match(source, /\{isSubmitOnlyUser && <ModalNavigationButton href="\/profile"/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => void signOut\(\)\}/);
 });
 
 test('profile exposes user management only through the shared capability policy', () => {

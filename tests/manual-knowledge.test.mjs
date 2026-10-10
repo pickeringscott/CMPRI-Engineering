@@ -159,13 +159,14 @@ test('exact PDF matches refresh structure without relying on a pre-existing cach
   assert.match(route,/loadVerifiedCatalogManuals\(dataClient, selectedAsset\)/);
 });
 
-test('equipment documentation screen discovers verified catalog PDFs outside the asset folder',()=>{
+test('equipment screen links every verified catalog PDF beside the asset name without a duplicate documentation section',()=>{
   const route=readFileSync(new URL('../src/app/api/assets/documentation/route.ts',import.meta.url),'utf8');
   const page=readFileSync(new URL('../src/app/management/equipment/page.tsx',import.meta.url),'utf8');
   assert.match(route,/loadVerifiedCatalogManuals\(auth\.admin, asset\)/);
   assert.match(route,/source:\s*"catalog"/);
-  assert.match(page,/Verified manufacturer manual/);
-  assert.match(page,/No exact-match manufacturer documentation/);
+  assert.match(page,/documents\.map\(\(doc\) => doc\.url && \(/);
+  assert.match(page,/Choose PDF/);
+  assert.doesNotMatch(page,/No exact-match manufacturer documentation/);
 });
 test('null code and rule entries do not crash the ticket',()=>{
   const result=normalize({error_codes:[null,{},7],symptom_rules:[null,{},'Inspect model label']});

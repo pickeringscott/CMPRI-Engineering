@@ -263,13 +263,26 @@ try {
     insert into public.profiles(id,role,active,full_name) values (${quote(actor)},'front_desk',true,'Shared Front Desk');
     insert into public.hotel_members(hotel_id,user_id,role,active) values (${quote(hotel)},${quote(actor)},'admin',true);
     select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false);`);
-  const files = ['status_values', 'integrations', 'submitter_attribution', 'work_order_revision', 'exact_duplicate_guard', 'work_order_imports', 'pool_log_guard', 'room_operations'];
+  const files = ['status_values', 'integrations', 'submitter_attribution', 'work_order_revision', 'draft_provenance', 'exact_duplicate_guard', 'work_order_imports', 'pool_log_guard', 'room_operations'];
   for (const file of files) await check(`migration ${file}`, async () => {
     await db.exec(readFileSync(new URL(`../supabase/cmpri_v1_0_${file}.sql`, import.meta.url), 'utf8'));
   });
   const workOrderDuplicateGuardMigration = readFileSync(new URL('../supabase/migrations/20261006150000_cmpri_work_order_duplicate_guard.sql', import.meta.url), 'utf8');
   await check('work-order duplicate guard migration', async () => db.exec(workOrderDuplicateGuardMigration));
   await check('work-order duplicate guard migration is idempotent', async () => db.exec(workOrderDuplicateGuardMigration));
+  const draftIdempotencyMigration = readFileSync(new URL('../supabase/migrations/20261009120000_cmpri_work_order_draft_idempotency.sql', import.meta.url), 'utf8');
+  await check('draft approval idempotency migration rejects prior duplicate provenance', async () => db.exec(draftIdempotencyMigration));
+  await check('draft approval idempotency migration is idempotent', async () => db.exec(draftIdempotencyMigration));
+  await check('one work order can be created per source draft', async () => {
+    const sourceDraftId = '00000000-0000-0000-0000-000000000021';
+    await db.query(`insert into public.work_orders(hotel_id,display_id,room,issue,submitted_by_name,source_draft_id)
+      values ($1,'draft-approval-first','Room 101','Draft request','Test Submitter',$2)`, [hotel, sourceDraftId]);
+    await assert.rejects(
+      () => db.query(`insert into public.work_orders(hotel_id,display_id,room,issue,submitted_by_name,source_draft_id)
+        values ($1,'draft-approval-second','Room 101','Edited draft request','Test Submitter',$2)`, [hotel, sourceDraftId]),
+      /duplicate key value violates unique constraint/,
+    );
+  });
   const workOrderImportsMigration = readFileSync(new URL('../supabase/migrations/20261004120000_cmpri_work_order_imports.sql', import.meta.url), 'utf8');
   await check('work-order imports migration is idempotent', async () => db.exec(workOrderImportsMigration));
   const bromineBandMigration = readFileSync(new URL('../supabase/migrations_archive/20260930030000_cmpri_pool_log_bromine_bands.sql', import.meta.url), 'utf8');

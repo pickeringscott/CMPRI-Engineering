@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 const component = readFileSync(new URL("../src/components/TroubleshootingGuideDropdown.tsx", import.meta.url), "utf8");
+const workOrderForm = readFileSync(new URL("../src/app/work-orders/page.tsx", import.meta.url), "utf8");
 
 test("guide printing hides dashboard content only while a guide portal is open", () => {
   const styles = readFileSync(new URL("../src/components/TroubleshootingGuideDropdown.module.css", import.meta.url), "utf8");
@@ -54,4 +55,10 @@ test("all required timing and numeric details are present in the HTML guide cont
   ]) {
     assert.ok(component.includes(value), `missing ${value}`);
   }
+});
+
+test("work-order technical guidance never falls back to generic checks", () => {
+  assert.match(workOrderForm, /trustedTroubleshootingKnowledge\?\.symptom_rules/);
+  assert.match(workOrderForm, /No issue-matched troubleshooting steps from verified documentation are available/);
+  assert.doesNotMatch(workOrderForm, /GENERAL_TROUBLESHOOTING_CHECKS|Generic troubleshooting/);
 });

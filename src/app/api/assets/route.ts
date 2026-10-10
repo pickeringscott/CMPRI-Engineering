@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
   const assets: Array<Record<string, unknown> & { id: string }> = [];
   for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
     const { data, error } = await auth.admin.from("assets")
-      .select("id, hotel_id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by")
+      .select("id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by")
       .range(offset, offset + ASSET_PAGE_SIZE - 1)
       .order("name", { ascending: true });
     if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });

@@ -75,12 +75,13 @@ test('first-name field is required and all three creation paths use the common s
   assert.equal((source.match(/await submitWorkOrders\(/g)||[]).length,4);
   assert.equal(/\.insert\(/.test(source),false);
 });
-test('submit-only roles do not get a manual draft-saving control',()=>{
+test('only roles classified submit-only by the shared role policy lose draft controls',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
+  const roles=readFileSync(path.join(root,'lib/server/roles.ts'),'utf8');
   assert.match(source,/!isSubmitOnlyUser && <button type="button" onClick=\{\(\) => void saveDraft\(\)\}/);
-  assert.match(source,/front desk manager/);
-  assert.match(source,/lead housekeeper/);
-  assert.match(source,/assistant general manager/);
+  assert.match(source,/const isSubmitOnlyUser = isSubmitOnlyRole\(currentRole\)/);
+  assert.match(roles,/export const isSubmitOnlyRole = \(role: unknown\) =>\s*\[\s*"front_desk", "housekeeping"\s*\]\.includes\(roleKey\(role\)\)/);
+  assert.doesNotMatch(source,/const isSubmitOnlyUser = \[[^\n]*(?:front desk manager|assistant general manager)/i);
   assert.match(source,/frontdeskmanager/);
   assert.match(source,/setTimeout\(\(\) => \{ void saveDraft\(true\); \}, 30 \* 60 \* 1000\)/);
 });

@@ -158,6 +158,7 @@ export function separateIssueFromReporterNotes(rawIssue: string): {
     /^(?:room|guest room)\s+(?:is\s+)?occupied\b/i,
     /^(?:after|before|during)\s+(?:checkout|check-out|check in|check-in|the guest(?:'s)? stay|the event)\b/i,
     /^(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i,
+    /^(?:it|this|the issue|the problem)\s+(?:started|began|first started|first began|has been happening|has continued)\b/i,
     /\b(?:just a heads up|just wanted to let you know|wanted to report|for your information)\b/i,
   ];
 
@@ -169,6 +170,7 @@ export function separateIssueFromReporterNotes(rawIssue: string): {
     /\bguest(?:s)?\s+(?:to return|will return|return(?:s)?|is expected|are expected|expecting)\b.*$/i,
     /\b(?:room|guest room)\s+(?:is\s+)?occupied\b.*$/i,
     /\b(?:guest|room)\s+(?:will\s+)?return\s+by\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b.*$/i,
+    /\b(?:the\s+)?guest(?:s)?\s+(?:says?|said|reports?|reported|mentions?|mentioned)\s+(?:that\s+)?(?:it|this|the issue|the problem)\s+(?:started|began|first started|first began|has been happening|has continued)\b.*$/i,
     /\b(?:previously|earlier|already reported|already called|called (?:yesterday|last week)|follow(?:ing)? up|still waiting|after checkout|before checkout|during checkout)\b.*$/i,
     /\b(?:just so you know|heads up|for context|additional (?:info|details)|fyi|please|pls|btw|note:|comment:)\b.*$/i,
   ];

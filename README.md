@@ -49,6 +49,8 @@ Purchase/shipment state is deliberately separate from the work-order status. Rec
 
 `supabase/migrations/20260930180000_cmpri_prod_baseline.sql` is a schema-only dump of live production (`supabase db dump --linked`) and is the only migration recorded in production's history. `supabase db diff --linked` against it is empty. Add new changes as new timestamped files in `supabase/migrations`. Earlier migrations are kept for reference and tests in `supabase/migrations_archive/`; they are already reflected in the baseline and should not be re-applied.
 
+Before deploying draft approval, apply `supabase/migrations/20261009120000_cmpri_work_order_draft_idempotency.sql`. It checks for existing duplicate draft provenance without rewriting records, then enforces at most one work order per source draft and hotel. Repeated approvals return the existing work order.
+
 The secondary-profile-roles migration adds `profiles.secondary_roles` while leaving `profiles.role` as the primary authorization role. When `maint.cmpri@hawkeyehotels.com` exists, it assigns that account the `engineer` secondary role and `system_admin` primary role. The account-specific backfill is skipped when the user is absent so schema-only shadow databases can replay the migration. Apply the migration before deploying the matching account/session display changes.
 
 Before enabling the new email/purchasing screens in production, apply:

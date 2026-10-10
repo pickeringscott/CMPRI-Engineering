@@ -98,6 +98,23 @@ function stringField(value: unknown, field: string, maximum: number, required = 
   return normalized;
 }
 
+async function alreadySubmittedDraftResponse(
+  admin: SupabaseClient,
+  sourceDraftId: string,
+  workOrder: Record<string, unknown>,
+) {
+  const { error } = await admin.from("cmpri_work_order_drafts")
+    .delete()
+    .eq("hotel_id", HOTEL_ID)
+    .eq("id", sourceDraftId);
+  return NextResponse.json({
+    ok: true,
+    count: 1,
+    work_orders: [workOrder],
+    already_submitted: true,
+    ...(error ? { warning: "The work order already exists, but the source draft could not be removed automatically." } : {}),
+  });
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
@@ -204,6 +221,20 @@ export async function POST(request: NextRequest) {
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
   if (sourceDraftId) {
+    const { data: existingDraftOrder, error: existingDraftOrderError } = await admin.from("work_orders")
+      .select("id, display_id, status, source_draft_created_by")
+      .eq("hotel_id", HOTEL_ID)
+      .eq("source_draft_id", sourceDraftId)
+      .maybeSingle();
+    if (existingDraftOrderError) return NextResponse.json({ error: "The source draft submission could not be checked." }, { status: 503 });
+    if (existingDraftOrder) {
+      if (String(existingDraftOrder.source_draft_created_by || "") !== auth.user.id
+        && !roleAllows(auth.profile.role, "review_tickets")) {
+        return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can submit this draft." }, { status: 403 });
+      }
+      return alreadySubmittedDraftResponse(admin, sourceDraftId, existingDraftOrder as Record<string, unknown>);
+    }
+
     const { data: draft, error: draftError } = await admin
       .from("cmpri_work_order_drafts")
       .select("*")
@@ -228,7 +259,6 @@ export async function POST(request: NextRequest) {
     if (!ownDraft && !roleAllows(auth.profile.role, "review_tickets")) {
       return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can submit this draft." }, { status: 403 });
     }
-
     const draftFrontDesk = isFrontDesk(draftCreator.role);
     const draftSubmitOnly = isSubmitOnlyRole(draftCreator.role);
     const firstName = typeof draft.staff_first_name === "string" ? draft.staff_first_name.trim() : "";
@@ -245,7 +275,7 @@ export async function POST(request: NextRequest) {
           ? "department_pending_verification"
           : "signed_in_user"
         : "draft_submitted_by_supervisor",
-      status: draftSubmitOnly ? "Pending Verification" : "Open",
+      status: draftSubmitOnly && ownDraft ? "Pending Verification" : "Open",
       source_draft_id: draft.id,
       source_draft_created_by: draftCreator.id,
       source_draft_creator_name: draftFrontDesk ? firstName : draftCreator.full_name?.trim() || "Unknown User",
@@ -370,7 +400,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: existing, error: duplicateError } = await db.from("work_orders")
-    .select("id, display_id, location_id, asset_id, issue, status")
+    .select("id, display_id, location_id, asset_id, issue, status, source_draft_id")
     .eq("hotel_id", HOTEL_ID)
     .in("location_id", uniqueLocationIds)
     .limit(ACTIVE_DUPLICATE_LIMIT);
@@ -380,6 +410,9 @@ export async function POST(request: NextRequest) {
   for (const row of rows) {
     const duplicate = existing.find((previous) => likelyDuplicate(row, previous));
     if (duplicate) {
+      if (sourceDraftId && sourceDraftRevision !== null && String(duplicate.source_draft_id || "") === sourceDraftId) {
+        return alreadySubmittedDraftResponse(admin, sourceDraftId, duplicate as Record<string, unknown>);
+      }
       return NextResponse.json({
         error: `Possible duplicate: ${duplicate.display_id || "existing work order"}. Review the existing ticket before submitting.`,
         existing_work_order_id: duplicate.id,
@@ -394,6 +427,17 @@ export async function POST(request: NextRequest) {
   const saved = (insertResult && (insertResult as { data?: Array<{ id: string; display_id?: string; status?: string }> }).data) || null;
   const insertError = insertResult && (insertResult as { error?: unknown }).error;
   if (insertError) {
+    if (sourceDraftId && sourceDraftRevision !== null) {
+      const { data: existingDraftOrder, error: existingDraftOrderError } = await db.from("work_orders")
+        .select("id, display_id, status")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("source_draft_id", sourceDraftId)
+        .maybeSingle();
+      if (existingDraftOrderError) return NextResponse.json({ error: "The source draft submission could not be checked." }, { status: 503 });
+      if (existingDraftOrder) {
+        return alreadySubmittedDraftResponse(admin, sourceDraftId, existingDraftOrder as Record<string, unknown>);
+      }
+    }
     return NextResponse.json({ error: "Work orders could not be saved. Refresh the list before retrying." }, { status: 409 });
   }
 
@@ -407,8 +451,7 @@ export async function POST(request: NextRequest) {
       .from("cmpri_work_order_drafts")
       .delete()
       .eq("hotel_id", HOTEL_ID)
-      .eq("id", sourceDraftId)
-      .eq("revision", sourceDraftRevision);
+      .eq("id", sourceDraftId);
     if (draftDeleteError) {
       return NextResponse.json({
         ok: true,

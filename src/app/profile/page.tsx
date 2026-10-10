@@ -51,6 +51,21 @@ const NOTIFICATION_DAYS = [
   ["sunday", "Sunday"],
 ] as const;
 
+const NOTIFICATION_TIMES = Array.from({ length: 96 }, (_, index) => {
+  const minutes = index * 15;
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return { value, label: `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}` };
+});
+
+function notificationTimeLabel(value: string) {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!match) return value;
+  const hour = Number(match[1]);
+  return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? "AM" : "PM"}`;
+}
+
 function localTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
@@ -365,14 +380,20 @@ export default function ProfilePage() {
                     })} className="size-4 accent-sky-500" />
                     {phoneSettings.schedule[day].enabled ? tx("On", "Activado") : tx("Off", "Desactivado")}
                   </label>
-                  <label className="grid gap-1 text-xs text-slate-400">{tx("Start", "Inicio")}<input type="time" value={phoneSettings.schedule[day].start} onChange={(event) => setPhoneSettings({
-                    ...phoneSettings,
-                    schedule: { ...phoneSettings.schedule, [day]: { ...phoneSettings.schedule[day], start: event.target.value } },
-                  })} className="min-h-9 rounded border border-slate-700 bg-slate-950 px-2 text-white" /></label>
-                  <label className="grid gap-1 text-xs text-slate-400">{tx("End", "Fin")}<input type="time" value={phoneSettings.schedule[day].end} onChange={(event) => setPhoneSettings({
-                    ...phoneSettings,
-                    schedule: { ...phoneSettings.schedule, [day]: { ...phoneSettings.schedule[day], end: event.target.value } },
-                  })} className="min-h-9 rounded border border-slate-700 bg-slate-950 px-2 text-white" /></label>
+                  {(["start", "end"] as const).map((field) => {
+                    const value = phoneSettings.schedule[day][field];
+                    const customTime = value && !NOTIFICATION_TIMES.some((option) => option.value === value);
+                    return <label key={field} className="grid min-w-0 gap-1 text-xs text-slate-400">
+                      {tx(field === "start" ? "Start" : "End", field === "start" ? "Inicio" : "Fin")}
+                      <select value={value} onChange={(event) => setPhoneSettings({
+                        ...phoneSettings,
+                        schedule: { ...phoneSettings.schedule, [day]: { ...phoneSettings.schedule[day], [field]: event.target.value } },
+                      })} className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white shadow-sm transition-colors focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30">
+                        {customTime && <option value={value}>{notificationTimeLabel(value)} (current)</option>}
+                        {NOTIFICATION_TIMES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>;
+                  })}
                 </div>
               ))}
             </div>

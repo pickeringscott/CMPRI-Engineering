@@ -247,6 +247,7 @@ test('GET still returns asset records when verification storage cannot be read',
 });
 test('documentation GET lists stored PDFs for assets with a legacy hotel id',async()=>{
   const f=fixture('documentation/route.ts',{
+    profile:{active:true,role:'Maintenance Technician'},
     assetRow:{id:'test',hotel_id:'legacy-property-id',manufacturer:'Friedrich',model_family:'Verdepac'},
     storageFiles:[{id:'document-1',name:'manual.pdf',created_at:'2026-10-01T00:00:00Z'}],
   });

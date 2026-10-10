@@ -12,7 +12,7 @@ import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
-import { roleKey } from "@/lib/server/roles";
+import { canReadEquipment, roleKey } from "@/lib/server/roles";
 import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
 import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { isRailwayCnGuestName } from "@/lib/room-operations";
@@ -42,6 +42,14 @@ type Asset = {
   generation: string | null;
   install_year: number | null;
   documentation_key: string | null;
+};
+type AssetDocument = {
+  name: string;
+  storage_path?: string;
+  url?: string | null;
+  source?: "asset" | "catalog";
+  verified?: boolean;
+  document_type?: string | null;
 };
 type WorkOrder = {
   revision: number;
@@ -636,6 +644,7 @@ export default function WorkOrderTicketPage() {
 
   const [order, setOrder] = useState<WorkOrder | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetDocumentResult, setAssetDocumentResult] = useState<{ assetId: string; documents: AssetDocument[]; error: string } | null>(null);
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
@@ -697,6 +706,37 @@ export default function WorkOrderTicketPage() {
   const manualKnowledge = manualCurrent ? manualResult?.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
+  const selectedAssetId = selectedAsset?.id;
+  const canReadAssetDocuments = canReadEquipment(cmpriSession?.user.role);
+  const assetDocuments = assetDocumentResult && assetDocumentResult.assetId === selectedAssetId ? assetDocumentResult.documents : [];
+  const assetDocumentsError = assetDocumentResult && assetDocumentResult.assetId === selectedAssetId ? assetDocumentResult.error : "";
+
+  useEffect(() => {
+    let current = true;
+    if (!selectedAssetId || !canReadAssetDocuments) return () => { current = false; };
+    void (async () => {
+      try {
+        const response = await fetch(`/api/assets/documentation?asset_id=${encodeURIComponent(selectedAssetId)}`, {
+          headers: await authorizationHeaders(),
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Equipment PDFs could not be loaded.");
+        if (current) setAssetDocumentResult({
+          assetId: selectedAssetId,
+          documents: Array.isArray(payload.documents) ? payload.documents as AssetDocument[] : [],
+          error: "",
+        });
+      } catch (error) {
+        if (current) setAssetDocumentResult({
+          assetId: selectedAssetId,
+          documents: [],
+          error: error instanceof Error ? error.message : "Equipment PDFs could not be loaded.",
+        });
+      }
+    })();
+    return () => { current = false; };
+  }, [canReadAssetDocuments, selectedAssetId]);
 
   useEffect(() => {
     const pane = historyScrollRef.current;
@@ -1114,7 +1154,6 @@ export default function WorkOrderTicketPage() {
   const manualSteps = Array.from(
     new Set(matchingSymptomRules.flatMap((rule) => rule.steps))
   ).filter((step) => !troubleshootingStepAlreadyDone(step, completedWorkNotes, []));
-
   const reportedCode = extractReportedErrorCode(combinedDiagnosticText);
   const manualErrorCodes = (() => {
     const byCode = new Map<string, ManualErrorCode>();
@@ -1736,19 +1775,21 @@ export default function WorkOrderTicketPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   <div className="min-w-0">
-                    <h1 className="truncate text-lg font-bold leading-tight text-white">{order.room || "Work Order"}</h1>
-                    {roomOperationalContext.guestName && <p className="max-w-48 truncate text-[11px] leading-tight text-slate-400" title={roomOperationalContext.guestName}>{roomOperationalContext.guestName}</p>}
-                  </div>
+                <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
+                  <span className="truncate">{order.room || "Work Order"}</span>
                   {roomOperationalContext.cnRoom && (
                     <Image
                       src="/railway-cn-logo.png"
                       alt="CN"
                       width={42}
                       height={27}
-                      className="h-[1.15em] w-auto rounded-[3px] object-contain"
+                      className="h-4 w-auto shrink-0 rounded-[3px] object-contain"
                     />
                   )}
-                  {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
+                </h1>
+                {roomOperationalContext.guestName && <p className="max-w-48 truncate text-[11px] leading-tight text-slate-400" title={roomOperationalContext.guestName}>{roomOperationalContext.guestName}</p>}
+              </div>
+              {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                 </div>
                 <p className="mt-1 truncate text-xs leading-tight text-white" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
@@ -1761,36 +1802,36 @@ export default function WorkOrderTicketPage() {
             </div>
           </div>
 
-          <div className="order-1 ml-auto flex shrink-0 items-center gap-1 self-start sm:order-none">
+          <div className="order-1 ml-auto grid shrink-0 justify-items-end gap-1 self-start sm:order-none">
             <button
               type="button"
-              onClick={cancelTicket}
-              disabled={saving}
-              className="whitespace-nowrap rounded-lg border border-slate-600 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
+              title="Copy work order number"
+              onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(order.display_id); }}
+              className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
             >
-              Cancel
+              {order.display_id || "Work Order"}
             </button>
-            <div className="grid justify-items-center gap-1">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                title="Copy work order number"
-                onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(order.display_id); }}
-                className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
+                onClick={cancelTicket}
+                disabled={saving}
+                className="min-h-9 whitespace-nowrap rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
               >
-                {order.display_id || "Work Order"}
+                Cancel
               </button>
               {(editableFields.length > 0 || canReviewCurrentTicket) && <button
                 type="button"
                 onClick={() => { void saveTicket(); }}
                 disabled={saving || saveState === "saved"}
-                className={`whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors disabled:opacity-80 ${
+                className={`min-h-9 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors disabled:opacity-80 ${
                   saveState === "saved"
                     ? "border-emerald-500 bg-emerald-600 text-white"
                     : saveState === "saving"
-                      ? "border-red-900 bg-red-950/70 text-red-200"
+                      ? "border-sky-900 bg-sky-950/70 text-sky-200"
                       : hasUnsavedChanges
-                        ? "border-red-500 bg-red-600 text-white ring-2 ring-red-400/20 hover:bg-red-500"
-                        : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"
+                        ? "border-sky-500 bg-sky-700 text-white ring-2 ring-sky-400/20 hover:bg-sky-600"
+                        : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"
                 }`}
               >
                 {saveState === "saving"
@@ -2100,7 +2141,7 @@ export default function WorkOrderTicketPage() {
                 {manualKnowledge?.source?.title && (
                   <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                     <p className="text-sm font-semibold">{manualKnowledge.source.title}</p>
-                    <p className={`mt-1 text-xs ${manualKnowledge?.source?.verified ? "text-emerald-400" : "text-slate-500"}`}>{manualKnowledge?.source?.verified ? "Verified equipment documentation" : manualKnowledge ? "Equipment reference uploaded — verification pending" : "Generic troubleshooting only — no equipment documentation linked"}</p>
+                    <p className={`mt-1 text-xs ${manualKnowledge?.source?.verified ? "text-emerald-400" : "text-slate-500"}`}>{manualKnowledge?.source?.verified ? "Verified equipment documentation" : "Equipment reference uploaded — verification pending"}</p>
                     {(manualKnowledge.manufacturer || manualKnowledge.equipment) && (
                       <p className="mt-1 text-xs text-slate-400">{[manualKnowledge.manufacturer, manualKnowledge.equipment].filter(Boolean).join(" · ")}</p>
                     )}
@@ -2124,6 +2165,27 @@ export default function WorkOrderTicketPage() {
                         <span className="text-[11px] text-sky-300">Manual page buttons below open the same PDF at the referenced page.</span>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {canReadAssetDocuments && assetDocumentsError && (
+                  <p role="status" className="mt-3 text-xs text-amber-200">{assetDocumentsError}</p>
+                )}
+                {canReadAssetDocuments && assetDocuments.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <p className="text-xs font-semibold text-slate-300">Linked equipment PDFs</p>
+                    <ul className="mt-1 space-y-1">
+                      {assetDocuments.map((document) => (
+                        <li key={document.storage_path || document.name} className="flex flex-wrap items-center gap-x-2 text-xs">
+                          {document.url
+                            ? <a href={document.url} target="_blank" rel="noreferrer" className="text-sky-300 underline underline-offset-2 hover:text-sky-200">{document.name}</a>
+                            : <span className="text-slate-300">{document.name}</span>}
+                          <span className={document.verified || document.source === "catalog" ? "text-emerald-300" : "text-slate-500"}>
+                            {document.source === "catalog" || document.verified ? "Verified documentation" : "Unverified reference"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 
@@ -2189,6 +2251,7 @@ export default function WorkOrderTicketPage() {
                                 ))}
                               </div>
                             )}
+
                           </li>
                         );
                       })}

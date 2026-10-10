@@ -117,6 +117,79 @@ function fixture(role, actorId = "actor") {
   };
 }
 
+function submittedDraftRetryFixture() {
+  const actorId = "reviewer";
+  const sourceDraftId = "submitted-draft";
+  const existingOrder = {
+    id: "created-work-order",
+    display_id: "WO-1234",
+    status: "Open",
+    source_draft_created_by: "submitter",
+  };
+  const calls = [];
+  const admin = {
+    from(table) {
+      const filters = [];
+      const query = {
+        select() { calls.push(`${table}.select`); return query; },
+        eq(field, expected) { filters.push([field, expected]); return query; },
+        delete() { calls.push(`${table}.delete`); return query; },
+        maybeSingle() {
+          calls.push(`${table}.maybeSingle`);
+          return Promise.resolve({
+            data: table === "work_orders"
+              && filters.some(([field, value]) => field === "source_draft_id" && value === sourceDraftId)
+              ? existingOrder
+              : null,
+            error: null,
+          });
+        },
+        then(resolve, reject) {
+          return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+  const routeExports = {};
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL("../src/app/api/work-orders/route.ts", import.meta.url), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    exports: routeExports,
+    require(name) {
+      if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
+      if (name === "@/lib/constants") return { HOTEL_ID: hotelId };
+      if (name === "@/lib/server/access") return { allows: () => true };
+      if (name === "@/lib/server/auth") return { requireUser: async () => null };
+      if (name === "@/lib/server/request-auth") return {
+        authenticatedUser: async () => ({ user: { id: actorId }, profile: { role: "System Administrator" } }),
+      };
+      if (name === "@/lib/server/roles") return roleExports;
+      if (name === "@/lib/server/supabase-admin") return { createSupabaseAdmin: () => admin };
+      if (name === "@/lib/server/paginated-query") return { fetchAllPages: async () => ({ data: [], error: null }) };
+      if (name === "@/lib/integrations/spreadsheet-input") return { jsonObject: async (request) => request.json() };
+      if (name === "@/lib/work-order-attribution") return { validFirstName: () => true, workOrderAttribution: () => ({}) };
+      if (name === "@/lib/work-order-duplicates") return { likelyDuplicate: () => false };
+      if (name === "@/lib/work-order-suggestions") return { inferWorkOrder: () => ({}) };
+      if (name === "@/lib/work-order-categories") return { normalizeWorkOrderCategory: (value) => value };
+      if (name === "@/lib/server/room-ranker") return { processRoomRankerSyncForWorkOrder: async () => ({}) };
+      if (name === "@/lib/server/room-availability") return { currentRoomOperation: () => null, currentRoomStatus: () => "", loadCurrentRoomStatuses: async () => ({}) };
+      throw new Error(`Unexpected module ${name}`);
+    },
+  });
+  return {
+    calls,
+    post: () => routeExports.POST({
+      headers: new Headers(),
+      json: async () => ({
+        source_draft_id: sourceDraftId,
+        source_draft_revision: 1,
+        orders: [{ location_id: "room-1", issue: "Already approved report" }],
+      }),
+    }),
+  };
+}
+
 test("dashboard managers see other drafts read-only without mutation controls", async () => {
   const route = fixture("General Manager");
   const response = await route.get();
@@ -266,4 +339,16 @@ test("work-order submission from another user's draft requires review capability
   assert.match(workOrderRoute, /if\s*\(!ownDraft\s*&&\s*!roleAllows\(auth\.profile\.role,\s*"review_tickets"\)\)/);
   assert.match(page, /if \(draft\.created_by !== cmpriSession\?\.user\.id && !draft\.can_edit\) return;/);
   assert.match(page, /: <span className="px-3 py-1\.5 text-xs font-semibold text-slate-500">Read-only<\/span>/);
+});
+
+test("retrying an already approved draft returns its existing order after draft deletion", async () => {
+  const route = submittedDraftRetryFixture();
+  const response = await route.post();
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.already_submitted, true);
+  assert.equal(response.body.count, 1);
+  assert.equal(response.body.work_orders[0].id, "created-work-order");
+  assert.ok(route.calls.indexOf("work_orders.maybeSingle") < route.calls.indexOf("cmpri_work_order_drafts.delete"));
+  assert.equal(route.calls.includes("cmpri_work_order_drafts.maybeSingle"), false);
 });

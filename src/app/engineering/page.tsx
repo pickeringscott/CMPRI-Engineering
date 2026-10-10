@@ -31,14 +31,15 @@ import {
   type WindowRect,
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
-import { roleKey } from "@/lib/server/roles";
+import { roleAllows, roleKey } from "@/lib/server/roles";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
-import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder } from "@/components/desktop/WorkOrderListWindow";
+import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder, type DesktopWorkOrderDraft } from "@/components/desktop/WorkOrderListWindow";
 import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWindow";
 import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
+import { likelyDuplicate } from "@/lib/work-order-duplicates";
 
 const REFRESH_MS = 30_000;
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
@@ -118,6 +119,7 @@ export default function EngineeringDashboardPage() {
   const router = useRouter();
   const refreshInFlightRef = useRef(false);
   const [orders, setOrders] = useState<DesktopWorkOrder[]>([]);
+  const [drafts, setDrafts] = useState<DesktopWorkOrderDraft[]>([]);
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -259,6 +261,19 @@ export default function EngineeringDashboardPage() {
       if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Dashboard work orders could not be loaded.");
       const fetched = payload.work_orders as DesktopWorkOrder[];
       setOrders(fetched);
+      if (roleAllows(role || userRoleRef.current, "review_tickets")) {
+        const draftResponse = await fetch("/api/work-orders/drafts", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const draftPayload = await draftResponse.json().catch(() => ({}));
+        if (!draftResponse.ok || !Array.isArray(draftPayload.drafts)) {
+          throw new Error(draftPayload.error || "Pending drafts could not be loaded.");
+        }
+        setDrafts(draftPayload.drafts as DesktopWorkOrderDraft[]);
+      } else {
+        setDrafts([]);
+      }
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? `Dashboard error: ${error.message}` : "Dashboard error.");
@@ -489,6 +504,18 @@ export default function EngineeringDashboardPage() {
   const openWorkOrder = useCallback((workOrderId: string) => {
     openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`);
   }, [openRoute]);
+
+  const openDraft = useCallback((draftId: string) => {
+    const origin = window.location.origin;
+    openWindow({
+      key: `work-order-draft:${draftId}`,
+      title: "Review Work-Order Draft",
+      kind: "frame",
+      src: desktopFrameHref(`/work-orders?draftId=${encodeURIComponent(draftId)}`, crypto.randomUUID(), origin),
+      accent: "bg-amber-400",
+      preferred: { width: 960, height: 780 },
+    });
+  }, [openWindow]);
 
   useEffect(() => {
     const handleWindowMessage = (event: MessageEvent) => {
@@ -765,7 +792,16 @@ export default function EngineeringDashboardPage() {
                 />
               )}
               {entry.kind === "list" && (
-                <WorkOrderListWindow orders={orders} loading={loading} onOpenWorkOrder={(order) => openWorkOrder(order.id)} />
+                <WorkOrderListWindow
+                  orders={orders}
+                  drafts={drafts.map((draft) => ({
+                    ...draft,
+                    potential_duplicate: orders.some((order) => likelyDuplicate(draft, order)),
+                  }))}
+                  loading={loading}
+                  onOpenWorkOrder={(order) => openWorkOrder(order.id)}
+                  onOpenDraft={openDraft}
+                />
               )}
               {entry.kind === "approvals" && (
                 <WorkOrderApprovalsWindow

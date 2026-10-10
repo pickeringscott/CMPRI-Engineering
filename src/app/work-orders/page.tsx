@@ -11,7 +11,7 @@ import {
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { getValidSession, signOutDevice } from "@/lib/supabase/client";
+import { getValidSession } from "@/lib/supabase/client";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import AccountSummary from "@/components/AccountSummary";
 
@@ -32,6 +32,7 @@ import {
 } from "@/lib/work-order-creation";
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
+import { isSubmitOnlyRole } from "@/lib/server/roles";
 
 type WorkOrderDraft = {
   id: string;
@@ -67,15 +68,6 @@ type Asset = {
   install_year: number | null;
   documentation_key: string | null;
 };
-
-const GENERAL_TROUBLESHOOTING_CHECKS = [
-  "Confirm the reported problem and reproduce it if safe to do so.",
-  "Inspect the affected equipment or area for obvious damage or abnormal condition.",
-  "Record error messages, noises, odors, leaks, temperatures, pressures, or other useful symptoms.",
-  "Determine whether the problem is isolated or affects other areas.",
-  "Check verified equipment documentation before replacing parts or changing settings.",
-  "Document findings and any tests already performed.",
-];
 
 type WorkOrder = {
   id: string;
@@ -606,6 +598,7 @@ export default function WorkOrdersPage() {
   const [activeDraftRevision, setActiveDraftRevision] = useState<number | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const autoOpenedDraftRef = useRef("");
 
 
 
@@ -617,14 +610,6 @@ export default function WorkOrdersPage() {
       Authorization: `Bearer ${session.access_token}`,
     };
   }, []);
-
-  async function signOut() {
-    await signOutDevice();
-    if (embedded && modalToken && window.parent !== window) {
-      window.parent.postMessage({ type: "cmpri-modal-sign-out", modalToken }, window.location.origin);
-    }
-    router.replace("/");
-  }
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -765,7 +750,7 @@ export default function WorkOrdersPage() {
     "technician", "maintenancetechnician",
   ].includes(currentRoleKey);
   const isFrontDeskUser = ["frontdesk", "frontdeskmanager", "assistantgm", "assistantgeneralmanager", "assistantmanager"].includes(currentRoleKey);
-  const isSubmitOnlyUser = ["front desk", "front desk manager", "frontdesk", "frontdeskmanager", "assistant general manager", "assistant manager", "assistantgm", "assistantgeneralmanager", "assistantmanager", "housekeeping", "lead housekeeper", "leadhousekeeper", "executive housekeeper", "executivehousekeeper"].includes(normalizedCurrentRole) || ["assistantgm", "assistantgeneralmanager", "assistantmanager", "leadhousekeeper", "executivehousekeeper"].includes(currentRoleKey);
+  const isSubmitOnlyUser = isSubmitOnlyRole(currentRole);
   const canSetEngineeringFields = Boolean(cmpriSession?.capabilities.includes("edit_tickets") || cmpriSession?.capabilities.includes("review_tickets"));
   const systemAssignedTechnicalFields = isSubmitOnlyUser || !canSetEngineeringFields;
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
@@ -1039,7 +1024,7 @@ export default function WorkOrdersPage() {
       }
     );
 
-  function restoreDraft(draft: WorkOrderDraft) {
+  const restoreDraft = useCallback((draft: WorkOrderDraft) => {
     if (draft.created_by !== cmpriSession?.user.id && !draft.can_edit) return;
     setActiveDraftId(draft.id);
     setActiveDraftRevision(draft.revision);
@@ -1055,7 +1040,18 @@ export default function WorkOrdersPage() {
     setManualCategory(false);
     setManualPriority(false);
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
-  }
+  }, [cmpriSession?.user.id]);
+
+  useEffect(() => {
+    if (!cmpriSession) return;
+    const requestedDraftId = new URLSearchParams(window.location.search).get("draftId") || "";
+    if (!requestedDraftId || requestedDraftId === autoOpenedDraftRef.current) return;
+    const draft = drafts.find((item) => item.id === requestedDraftId);
+    if (!draft) return;
+    autoOpenedDraftRef.current = requestedDraftId;
+    const timer = window.setTimeout(() => restoreDraft(draft), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeDraftId, cmpriSession, drafts, restoreDraft]);
 
   async function saveDraft(automatic = false) {
     if (!locationId || !issue.trim()) {
@@ -1913,6 +1909,8 @@ export default function WorkOrdersPage() {
   ];
 
   const detectedCreateIssues = issue.trim() ? detectMultipleCreateIssues(issue, locations, selectedLocation) : [];
+  const activeDraft = drafts.find((draft) => draft.id === activeDraftId);
+  const approvingDraft = Boolean(activeDraft && activeDraft.created_by !== cmpriSession?.user.id);
 
   const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true ? troubleshootingKnowledge : null;
   const trustedManualUrl = trustedTroubleshootingKnowledge?.source?.file_url || trustedTroubleshootingKnowledge?.source?.pdf_url;
@@ -1920,10 +1918,7 @@ export default function WorkOrdersPage() {
   const matchingTroubleshootingSteps = trustedTroubleshootingKnowledge?.symptom_rules
     ?.filter((rule) => !rule.match?.length || rule.match.some((phrase) => troubleshootingEvidence.includes(phrase.toLowerCase())))
     .flatMap((rule) => rule.steps) ?? [];
-  const troubleshootingSteps = Array.from(new Set([
-    ...matchingTroubleshootingSteps,
-    ...GENERAL_TROUBLESHOOTING_CHECKS,
-  ]));
+  const troubleshootingSteps = Array.from(new Set(matchingTroubleshootingSteps));
 
 
   return (
@@ -1954,7 +1949,7 @@ export default function WorkOrdersPage() {
                         {canEditDraft
                           ? <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? "Load" : "Review / Edit"}</button>
                           : <span className="px-3 py-1.5 text-xs font-semibold text-slate-500">Read-only</span>}
-                        {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-red-700/60 px-3 py-1.5 text-xs font-bold text-red-300 hover:bg-red-950/40 disabled:opacity-50">Delete</button>}
+                        {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Discard</button>}
                       </div>
                     </div>
                   </div>
@@ -1974,38 +1969,29 @@ export default function WorkOrdersPage() {
                 <div className="mr-auto flex min-w-0 flex-col items-start leading-tight">
                   <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></p>
                   <AccountSummary user={cmpriSession.user} />
+                  {isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mt-1 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
                 </div>
               )}
-              <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold sm:hidden disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white" : "border-blue-500 bg-blue-700 text-white"}`}>
-                {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
-              </button>
+              {cmpriSession && embedded && isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mr-auto rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
               <div className="flex flex-wrap items-center justify-end gap-1">
-                <div className="hidden items-center gap-1 sm:flex">
-                  <ModalNavigationButton href="/profile" className="rounded-lg border border-slate-700 px-2 py-1 text-[9pt] font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>
-                  {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
-                </div>
-                <div className="flex items-center gap-1 sm:hidden">
-                  <ModalNavigationButton href="/profile" className="min-h-8 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>
-                  {!isSubmitOnlyUser && <button type="button" onClick={() => void signOut()} className="min-h-8 rounded-lg border border-red-400/50 bg-red-950/30 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>}
-                </div>
-                <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-8 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
+                <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-10 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V3m0 0 4 4m-4-4-4 4" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
                   </svg>
                 </label>
                 <input ref={photoFileInputRef} id="work-order-photo-file" type="file" accept="image/*" multiple disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files)} className="sr-only" />
-                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-8 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photos.length ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
+                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-10 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photos.length ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h3l1.4-2h7.2l1.4 2h3A1.5 1.5 0 0 1 21.5 9v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
                     <circle cx="12" cy="13" r="3.5" />
                   </svg>
                 </label>
                 <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files, true)} className="sr-only" />
-                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || pendingPhotoUploads.length > 0 || retryingPhotoUpload} className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
-                {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="rounded-lg border border-sky-600/70 bg-sky-950/40 px-2 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
-                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`hidden rounded-lg border px-2 py-1 text-xs font-bold transition-colors disabled:opacity-80 sm:inline-flex ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-red-900 bg-red-950/70 text-red-200" : createHasUnsavedChanges ? "border-red-500 bg-red-600 text-white hover:bg-red-500" : "border-blue-500 bg-blue-700 text-white hover:bg-blue-600"}`}>
-                  {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
+                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || pendingPhotoUploads.length > 0 || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
+                {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="min-h-10 rounded-lg border border-sky-600/70 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
+                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-lg border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
+                  {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>
             </div>
@@ -2136,7 +2122,7 @@ export default function WorkOrdersPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-bold text-amber-300">Suggested Troubleshooting</h2>
-                    <p className="mt-1 text-xs text-slate-400">General checks and verified equipment guidance matched to the reported issue.</p>
+                    <p className="mt-1 text-xs text-slate-400">Only verified guidance for the selected equipment and reported issue is shown.</p>
                   </div>
                   {troubleshootingLoading && <span className="text-xs text-slate-400">Loading equipment guidance...</span>}
                 </div>
@@ -2152,16 +2138,20 @@ export default function WorkOrdersPage() {
                 {selectedCreateAsset && troubleshootingKnowledge?.source?.title && !trustedTroubleshootingKnowledge && (
                   <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.</p>
                 )}
-                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">Select equipment to include verified model-specific guidance.</p>}
+                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">Select equipment to check for an exact verified manual match.</p>}
                 {troubleshootingError && <p role="status" className="mt-3 text-xs text-amber-200">{troubleshootingError}</p>}
-                <ol className="mt-3 space-y-2 text-sm text-slate-300">
-                  {troubleshootingSteps.map((step, index) => (
-                    <li key={`${step}-${index}`} className="flex gap-2">
-                      <span className="font-semibold text-amber-400">{index + 1}.</span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ol>
+                {troubleshootingSteps.length > 0
+                  ? <ol className="mt-3 space-y-2 text-sm text-slate-300">
+                    {troubleshootingSteps.map((step, index) => (
+                      <li key={`${step}-${index}`} className="flex gap-2">
+                        <span className="font-semibold text-amber-400">{index + 1}.</span>
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  : selectedCreateAsset && !troubleshootingLoading && !troubleshootingError && (
+                    <p className="mt-3 text-xs text-slate-400">No issue-matched troubleshooting steps from verified documentation are available for this equipment.</p>
+                  )}
               </section>
             )}
 

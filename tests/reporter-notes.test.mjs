@@ -40,6 +40,12 @@ test('moves a guest departure time into notes without treating it as an issue', 
   assert.equal(result.reporterNotes, 'Guest is going to leave at 5 PM');
 });
 
+test('keeps guest-reported issue history in notes', () => {
+  const result = split('Room 409. AC is not cooling. Guest says it started last night.');
+  assert.equal(result.issue, 'Room 409. AC is not cooling.');
+  assert.equal(result.reporterNotes, 'Guest says it started last night.');
+});
+
 test('a standalone guest departure comment contains no maintenance issue', () => {
   const result = split('Guest is going to leave at 5 PM');
   assert.equal(result.issue, '');
