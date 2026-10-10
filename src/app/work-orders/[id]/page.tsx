@@ -1792,9 +1792,9 @@ export default function WorkOrderTicketPage() {
                   {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                 </div>
-                <div className="mt-1 flex min-w-0 flex-wrap items-center justify-between gap-x-2">
-                  <p className="min-w-0 flex-1 truncate text-xs leading-tight text-white" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
-                  <p className="max-w-[45%] shrink-0 truncate text-right text-[11px] leading-tight text-sky-200/75" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
+                <div className="mt-1 flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-x-2">
+                  <p className="w-full truncate text-xs leading-tight text-white sm:min-w-0 sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
+                  <p className="w-full truncate text-[11px] leading-tight text-sky-200/75 sm:max-w-[45%] sm:shrink-0 sm:text-right" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-1">
