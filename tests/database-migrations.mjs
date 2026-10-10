@@ -273,6 +273,30 @@ try {
   const draftIdempotencyMigration = readFileSync(new URL('../supabase/migrations/20261009120000_cmpri_work_order_draft_idempotency.sql', import.meta.url), 'utf8');
   await check('draft approval idempotency migration rejects prior duplicate provenance', async () => db.exec(draftIdempotencyMigration));
   await check('draft approval idempotency migration is idempotent', async () => db.exec(draftIdempotencyMigration));
+  const draftReviewProvenanceMigration = readFileSync(new URL('../supabase/migrations/20261010170000_cmpri_draft_review_provenance.sql', import.meta.url), 'utf8');
+  await check('draft review provenance migration', async () => db.exec(draftReviewProvenanceMigration));
+  await check('draft review provenance migration is idempotent', async () => db.exec(draftReviewProvenanceMigration));
+  await check('supervisor-approved drafts have a supported creator source', async () => {
+    const sourceDraftId = '00000000-0000-0000-0000-000000000022';
+    await db.exec(`select set_config('cmpri.test_uid','',false),set_config('cmpri.test_role','service_role',false)`);
+    try {
+      const { rows } = await db.query(`insert into public.work_orders(
+          hotel_id,display_id,room,issue,creator_source,source_draft_id,source_draft_created_by
+        ) values ($1,'draft-approval-supervisor','Room 101','Supervisor-approved draft',
+          'draft_submitted_by_supervisor',$2,$3) returning creator_source`,
+      [hotel, sourceDraftId, actor]);
+      assert.deepEqual(rows, [{ creator_source: 'draft_submitted_by_supervisor' }]);
+      await assert.rejects(
+        () => db.query(`insert into public.work_orders(
+            hotel_id,display_id,room,issue,creator_source,source_draft_id,source_draft_created_by
+          ) values ($1,'draft-approval-invalid-source','Room 101','Invalid source',
+            'unsupported_source','00000000-0000-0000-0000-000000000023',$2)`, [hotel, actor]),
+        /work_orders_creator_source_check/,
+      );
+    } finally {
+      await db.exec(`select set_config('cmpri.test_uid',${quote(actor)},false),set_config('cmpri.test_role','authenticated',false)`);
+    }
+  });
   await check('one work order can be created per source draft', async () => {
     const sourceDraftId = '00000000-0000-0000-0000-000000000021';
     await db.query(`insert into public.work_orders(hotel_id,display_id,room,issue,submitted_by_name,source_draft_id)
