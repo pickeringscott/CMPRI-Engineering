@@ -12,7 +12,7 @@ function load(relative, overrides = {}) {
   const exports={};
   const filename=path.join(root,relative);
   const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-  vm.runInNewContext(source,{exports,URL,Response,require(name){
+  vm.runInNewContext(source,{exports,URL,Response,TextEncoder,require(name){
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
     if(name==='next/server')return {NextRequest:class NextRequest {}};
@@ -81,6 +81,7 @@ test('MCP grants authorized Ranker reads without widening technician work-order 
 });
 
 test('MCP tools/list exposes the complete room-operations import contract for the authorized action',async()=>{
+  let calledWrite=null;
   const route=load('app/api/mcp/route.ts',{
     'next/server':{NextRequest:class {}},
     '@/lib/constants':{HOTEL_ID:'test-hotel'},
@@ -92,7 +93,10 @@ test('MCP tools/list exposes the complete room-operations import contract for th
     },
     '@/lib/server/cmpri-mcp-writes':{
       availableMcpWriteActions:(value)=>writes.availableMcpWriteActions(value),
-      callMcpWriteAction:async()=>({status:200,body:{}}),
+      callMcpWriteAction:async(_request,_identity,action,input)=>{
+        calledWrite={action,input};
+        return {status:200,body:{accepted:true}};
+      },
     },
     '@/lib/ai/mcp-work-order-location':{resolveMcpWorkOrderLocation:()=>({status:'not_found'})},
   });
@@ -108,12 +112,25 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   assert.deepEqual(Array.from(toolSchema.required),['action','input']);
   assert.equal(toolSchema.additionalProperties,false);
   assert.equal(toolSchema.allOf,undefined);
-  assert.match(toolSchema.properties.input.description,/get_room_operations_import_contract/);
-  assert.match(toolSchema.properties.input.description,/10Oct26 01:17 PM/);
-  const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action).sort();
-  assert.equal(Array.from(toolSchema.properties.action.enum).sort().join('|'),allowed.join('|'));
+  assert.match(toolSchema.properties.input.description,/import_room_operations/);
+  const allowed=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action);
+  assert.equal(allowed.includes('room_operations.import'),true);
+  const genericActions=Array.from(toolSchema.properties.action.enum).sort();
+  assert.equal(genericActions.includes('room_operations.import'),false);
+  assert.equal(genericActions.join('|'),allowed.filter((action)=>action!=='room_operations.import').sort().join('|'));
   assert.ok(allowed.includes('work_orders.update'));
-  assert.ok(allowed.includes('room_operations.import'));
+
+  const importTool=payload.result.tools.find(({name})=>name==='import_room_operations');
+  assert.ok(importTool);
+  assert.equal(importTool.annotations.readOnlyHint,false);
+  assert.equal(importTool.inputSchema.type,'object');
+  assert.deepEqual(
+    Array.from(importTool.inputSchema.oneOf,({required})=>Array.from(required).join(',')),
+    ['report_data','status_csv','csv','text','content','file','images'],
+  );
+  assert.match(importTool.inputSchema.description,/10Oct26 01:17 PM/);
+  assert.match(importTool.inputSchema.oneOf[1].properties.status_csv.description,/Printed Date/);
+  assert.match(importTool.inputSchema.oneOf[1].properties.status_csv.description,/Room Status/);
 
   const contractTool=payload.result.tools.find(({name})=>name==='get_room_operations_import_contract');
   assert.ok(contractTool);
@@ -135,6 +152,20 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   assert.ok(roomOperationsSchema);
   const returnedSchema=JSON.parse(contractPayload.result.content[0].text).input_schema;
   assert.deepEqual(returnedSchema,roomOperationsSchema);
+
+  const importInput={csv:'Printed Date,2026-10-10\nRoom,Room Status\n101,Vacant Ready'};
+  const importResponse=await route.POST({
+    headers:{get:()=>null},
+    json:async()=>( {
+      jsonrpc:'2.0',
+      id:3,
+      method:'tools/call',
+      params:{name:'import_room_operations',arguments:importInput},
+    }),
+  });
+  assert.equal(importResponse.status,200);
+  assert.equal(calledWrite.action,'room_operations.import');
+  assert.deepEqual(calledWrite.input,importInput);
 });
 
 test('Room Ops import contract discovery returns all modes and source-backed validation fields',async()=>{
@@ -226,6 +257,7 @@ test('MCP exposes contract discovery to read-only sessions without exposing a wr
   });
   const listedTools=(await listResponse.json()).result.tools;
   assert.equal(listedTools.some(({name})=>name==='perform_cmpri_write'),false);
+  assert.equal(listedTools.some(({name})=>name==='import_room_operations'),false);
   assert.equal(listedTools.some(({name})=>name==='get_room_operations_import_contract'),true);
 
   const contractResponse=await route.POST({
