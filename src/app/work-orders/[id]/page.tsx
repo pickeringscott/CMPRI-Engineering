@@ -1771,29 +1771,31 @@ export default function WorkOrderTicketPage() {
                 ← Engineering Dashboard
               </Link>
             )}
-            <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-1">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-xl border border-sky-900 bg-slate-900/70 p-2">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   <div className="min-w-0">
-                <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
-                  <span className="truncate">{order.room || "Work Order"}</span>
-                  {roomOperationalContext.cnRoom && (
-                    <Image
-                      src="/railway-cn-logo.png"
-                      alt="CN"
-                      width={42}
-                      height={27}
-                      className="h-4 w-auto shrink-0 rounded-[3px] object-contain"
-                    />
-                  )}
-                </h1>
-                {roomOperationalContext.guestName && <p className="max-w-48 truncate text-[11px] leading-tight text-slate-400" title={roomOperationalContext.guestName}>{roomOperationalContext.guestName}</p>}
-              </div>
-              {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
+                    <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
+                      <span className="truncate">{order.room || "Work Order"}</span>
+                      {roomOperationalContext.cnRoom && (
+                        <Image
+                          src="/railway-cn-logo.png"
+                          alt="CN"
+                          width={42}
+                          height={27}
+                          className="h-4 w-auto shrink-0 rounded-[3px] object-contain"
+                        />
+                      )}
+                    </h1>
+                    {roomOperationalContext.guestName && <p className="max-w-48 truncate text-[11px] leading-tight text-slate-400" title={roomOperationalContext.guestName}>{roomOperationalContext.guestName}</p>}
+                  </div>
+                  {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                 </div>
-                <p className="mt-1 truncate text-xs leading-tight text-white" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
-                <p className="truncate text-[11px] leading-tight text-sky-200/75" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center justify-between gap-x-2">
+                  <p className="min-w-0 flex-1 truncate text-xs leading-tight text-white" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
+                  <p className="max-w-[45%] shrink-0 truncate text-right text-[11px] leading-tight text-sky-200/75" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
+                </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-1">
                 {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
