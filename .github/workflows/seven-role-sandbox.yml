@@ -1,4 +1,4 @@
-name: Seven-role sandbox with Chief Engineer identity (one approved run)
+name: Seven-role sandbox with Auth preflight (one approved run)
 
 on:
   push:
@@ -9,8 +9,8 @@ permissions:
 
 jobs:
   sandbox:
-    # One additional approved push only. Subsequent pushes and reruns skip.
-    if: ${{ github.event.before == '4cf786706c8bbff8079958cf8f1042c3b4532173' && github.run_attempt == 1 }}
+    # Third run explicitly approved; only this push and first attempt may execute.
+    if: ${{ github.event.before == 'bd262beee179454a99fb598c8ef5819ac1956ea3' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,7 +52,7 @@ jobs:
           python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           from pathlib import Path
           print('## Local synthetic sandbox evidence')
-          for name in ['setup-diagnostics.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'lifecycle-results.json', 'notification-db-results.json']:
+          for name in ['setup-diagnostics.json', 'auth-preflight-results.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'lifecycle-results.json', 'notification-db-results.json']:
               p = Path('.sandbox') / name
               print('\n### ' + name + '\n')
               print('```json\n' + p.read_text() + '\n```' if p.exists() else 'Not produced: setup or a previous phase did not finish.')

@@ -28,7 +28,9 @@ enable_signup = false
 enable_anonymous_sign_ins = false
 
 [auth.email]
-enable_signup = false
+# CLI 2.81.3 maps this to GOTRUE_EXTERNAL_EMAIL_ENABLED (password logins).
+# Public signups remain disabled by auth.enable_signup above.
+enable_signup = true
 enable_confirmations = false
 
 [studio]

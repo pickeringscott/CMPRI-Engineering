@@ -6,13 +6,20 @@ Its first commit disables Vercel Git deployments through
 `vercel.json` → `git.deploymentEnabled: false`. Keep this override on the sandbox
 branch; do not merge it into production as part of the app fix.
 
-One additional run is authorized with a 20-minute job timeout, one standard Ubuntu runner,
-no matrix or reruns, and a total additional charge ceiling of USD 0.25 including
-applicable tax. At the verified USD 0.006/minute rate, 20 minutes is USD 0.12
-before tax, leaving USD 0.13 headroom. Included minutes are preferred but the
-remaining allowance is not exposed to the connected tools. The job only runs on
-the first push from commit `4cf786706c8bbff8079958cf8f1042c3b4532173` and
-`github.run_attempt == 1`; subsequent pushes and reruns skip it.
+The two prior runs have finished. One additional run is now explicitly approved:
+one standard Ubuntu job, at most 20 minutes and USD 0.25 additional charge
+including tax. It can execute only on the first push from
+`bd262beee179454a99fb598c8ef5819ac1956ea3` and attempt 1. Further pushes and
+reruns skip; any further metered run needs separate authorization.
+
+Sandbox email/password login is configured on with
+`auth.email.enable_signup = true`; CLI 2.81.3 maps that setting to the email
+provider switch. Public registration remains off with
+`auth.enable_signup = false`. Only the seeded synthetic accounts are used.
+A fail-fast preflight checks the local email provider, a synthetic password login,
+and the app session endpoint before the browser matrix. The repaired provider
+configuration and preflight have been syntax/config checked but have not run
+against an active stack. No successful login or browser pass is claimed.
 
 This workflow does not upload artifacts or caches, provision a hosted database,
 use production secrets, create OAuth access, deploy, or call paid AI services.

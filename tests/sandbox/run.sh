@@ -41,6 +41,7 @@ for attempt in range(120):
 else:
     raise SystemExit('Local app failed to become ready; inspect private app.log')
 PY
+node --require ./tests/sandbox/network-guard.cjs tests/sandbox/auth-preflight.mjs
 set +e
 python tests/sandbox/e2e.py
 browser_status=$?
