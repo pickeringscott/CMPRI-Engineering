@@ -16,5 +16,8 @@
       "path": "/api/room-operations/reconcile",
       "schedule": "* * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": false
+  }
 }

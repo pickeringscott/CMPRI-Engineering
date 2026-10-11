@@ -11,6 +11,7 @@ import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { validFirstName, workOrderAttribution } from "@/lib/work-order-attribution";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
+import { EQUIPMENT_SELECTION_COLUMNS } from "@/lib/equipment-selection";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
@@ -72,7 +73,7 @@ async function fetchAllAssetsForLocations(
   while (true) {
     const { data, error } = await db
       .from("assets")
-      .select("id, location_id, name, asset_type, manufacturer, model_number, generation, asset_tag, documentation_key, active")
+      .select(EQUIPMENT_SELECTION_COLUMNS)
       .eq("hotel_id", HOTEL_ID)
       .in("location_id", locationIds)
       .range(offset, offset + 999);

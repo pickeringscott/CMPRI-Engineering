@@ -33,7 +33,7 @@ function fixture(body,config={}) {
       },
     });return exports;
   }
-  return {writes,clients,handler:load(path.join(root,'app/api/work-orders/route.ts')).POST,request:{headers:new Headers({authorization:'Bearer caller-token'}),json:async()=>{if(config.badJson)throw new SyntaxError('bad');return body;}}};
+  return {writes,clients,infer:load(path.join(root,'lib/work-order-suggestions.ts')).inferWorkOrder,handler:load(path.join(root,'app/api/work-orders/route.ts')).POST,request:{headers:new Headers({authorization:'Bearer caller-token'}),json:async()=>{if(config.badJson)throw new SyntaxError('bad');return body;}}};
 }
 for(const name of [undefined,'','   ',123,'1234','Scott123'])test(`front desk requires first name ${JSON.stringify(name)}`,async()=>{
   const f=fixture({orders:[order],staff_first_name:name});assert.equal((await f.handler(f.request)).status,400);assert.equal(f.writes.length,0);
@@ -275,4 +275,19 @@ test('punctuation-free reports split every repeated issue starter without an upp
   const four=exports.detect('not cooling bathroom sink leaking bedroom TV no signal door lock broken');
   assert.equal(two.length,2);
   assert.equal(four.length,4);
+});
+
+const equipmentBatchRoles=['General Manager','Assistant General Manager','Front Desk Manager','Maintenance Technician','Chief Engineer','Lead Housekeeper','Front Desk'];
+for(const role of equipmentBatchRoles)for(const scenario of [
+ {name:'lamp',issue:'Desk lamp not working',assets:[{id:'lamp',name:'Desk lamp',asset_type:'Desk lamp'}],expected:'lamp'},
+ {name:'washer number',issue:'Washer #2 not draining',assets:[1,2,12].map(n=>({id:`washer-${n}`,name:`Washer #${n}`,asset_type:'Washer'})),expected:'washer-2'},
+ {name:'pool category',issue:'Pool filter pressure high',assets:[{id:'filter',name:'Sand filter',asset_type:'Pool Filter'}],expected:'filter'},
+ {name:'manufacturer input',issue:'Beta washer not working',assets:[{id:'a',name:'Washer',asset_type:'Washer',manufacturer:'Alpha'},{id:'b',name:'Washer',asset_type:'Washer',manufacturer:'Beta'}],expected:'b'},
+])test(`equipment batch preview/save agrees: ${role} / ${scenario.name}`,async()=>{
+ const assets=scenario.assets.map(a=>({...a,location_id:'location-409',active:true}));
+ const preliminary=fixture({orders:[{...order,issue:scenario.issue}],staff_first_name:'Casey'},{profile:{role},assets});
+ const preview=preliminary.infer(scenario.issue,assets);assert.equal(preview.assetId,scenario.expected);
+ const f=fixture({orders:[{...order,issue:scenario.issue,asset_id:preview.assetId,category:preview.category,priority:preview.priority,notes:'Original technician context'}],staff_first_name:'Casey'},{profile:{role},assets});
+ const response=await f.handler(f.request);assert.equal(response.status,200,JSON.stringify(response));
+ assert.equal(f.writes.length,1);assert.equal(f.writes[0].asset_id,preview.assetId);assert.equal(f.writes[0].category,preview.category);assert.equal(f.writes[0].priority,preview.priority);assert.equal(f.writes[0].notes,'Original technician context');
 });

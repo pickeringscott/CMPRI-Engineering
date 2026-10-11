@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { roleAllows } from '../src/lib/server/roles.ts';
 import { maximumAssetInstallYear, parseAssetInstallYear } from '../src/lib/asset-install-year.ts';
+import { EQUIPMENT_SELECTION_COLUMNS } from '../src/lib/equipment-selection.ts';
 function canEditEngineeringData(role) { return roleAllows(role, "edit_tickets"); }
 function fixtureRoleKey(value) {
   const key=String(value||'').toLowerCase().replace(/[\s_-]+/g,'');
@@ -30,6 +31,7 @@ function buildPrincipal(config, data, profile) {
 
 function fixture(route, config={}) {
   const calls=[];
+  const selections=[];
   let insertedAsset=null;
   let updatedAsset=null;
   const assetRows=config.assetRows || (config.asset ? [{id:'test',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true}] : []);
@@ -40,7 +42,7 @@ function fixture(route, config={}) {
       calls.push(table);
       const query={
         filters:[],
-        select(){return query;},eq(key,value){query.filters.push([key,value]);return query;},range(start,end){query.rangeStart=start;query.rangeEnd=end;return query;},
+        select(columns){selections.push(columns);return query;},eq(key,value){query.filters.push([key,value]);return query;},range(start,end){query.rangeStart=start;query.rangeEnd=end;return query;},
         async maybeSingle(){
           if(table==='profiles')return {data:profile,error:config.profileError?{message:'profile failed'}:null};
           if(table==='role_permissions')return {data:config.permission?{permission:'manage_assets',allowed:true}:null,error:config.permissionError?{message:'permission failed'}:null};
@@ -86,6 +88,7 @@ function fixture(route, config={}) {
       if(name==='@/lib/engineering-access')return {canEditEngineeringData};
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
       if(name==='@/lib/asset-install-year')return {maximumAssetInstallYear,parseAssetInstallYear};
+      if(name==='@/lib/equipment-selection')return {EQUIPMENT_SELECTION_COLUMNS};
       if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async()=>''};
       if(name==='@/lib/manual-document-catalog')return {catalogManualMatchesEquipment:()=>false};
       if(name==='@/lib/server/verified-manual-catalog')return {loadVerifiedCatalogManuals:async()=>({documents:[],warnings:[]})};
@@ -137,7 +140,7 @@ function fixture(route, config={}) {
   });
   const request={headers:new Headers(config.noToken?{}:{authorization:'Bearer fake'}),nextUrl:new URL('https://test.invalid/api/assets?asset_id=test'),
     json:async()=>{if(config.badJson)throw new SyntaxError('Invalid JSON');return config.nullBody?null:(config.body??{id:'test',name:'Test',asset_type:'VTAC'});},formData:async()=>new FormData()};
-  return {handlers:exports,request,calls,get insertedAsset(){return insertedAsset;},get updatedAsset(){return updatedAsset;}};
+  return {handlers:exports,request,calls,selections,get insertedAsset(){return insertedAsset;},get updatedAsset(){return updatedAsset;}};
 }
 for(const [route,method] of [['route.ts','POST'],['route.ts','PATCH'],['documentation/route.ts','POST']]) {
   for(const condition of ['no permission','permission lookup fails'])test(`${route} ${method}: ${condition} denies mutation`,async()=>{
@@ -331,4 +334,11 @@ test('equipment PDF extractor accepts an explicitly labelled model family',()=>{
 
 test('equipment PDF extractor does not guess identifiers from unlabeled manual numbers',()=>{
   assert.equal(extractEquipmentSuggestions('Service manual revision 70398301R2 published 2025. Input 208 volts. Page count 44.'),null);
+});
+
+test('creation equipment exposes the shared inference fields and distinguishing source labels',async()=>{
+ const asset={id:'synthetic-chair',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true,name:'Dining chair',asset_type:'Furniture',manufacturer:'Synthetic',model_number:'Model-A',generation:'2',asset_tag:'Tag-A',documentation_key:'manual-A',binder_tag:'LM206',quantity:12};
+ const f=fixture('route.ts',{assetRows:[asset]});f.request.nextUrl.searchParams.set('mode','create');
+ const response=await f.handlers.GET(f.request);assert.equal(response.status,200);assert.ok(f.selections.includes(EQUIPMENT_SELECTION_COLUMNS));
+ for(const field of ['manufacturer','model_number','generation','asset_tag','documentation_key','binder_tag','quantity'])assert.equal(response.body.assets[0][field],asset[field]);
 });

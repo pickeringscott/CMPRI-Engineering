@@ -18,6 +18,8 @@ import AccountSummary from "@/components/AccountSummary";
 import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
 import { priorityForCategory, inferWorkOrder, separateIssueFromReporterNotes } from "@/lib/work-order-suggestions";
+import { equipmentOptionLabel } from "@/lib/equipment-selection";
+import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-steps";
 import { categoryOptions } from "@/lib/work-order-categories";
 import { validFirstName } from "@/lib/work-order-attribution";
 import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
@@ -59,6 +61,8 @@ type Asset = {
   asset_type: string;
   name: string;
   asset_tag: string | null;
+  binder_tag?: string | null;
+  quantity?: number | null;
   active: boolean;
   status: string;
   manufacturer: string | null;
@@ -1897,12 +1901,13 @@ export default function WorkOrdersPage() {
   const createAssetOptions = [
     ...availableAssets.map((asset) => ({
       value: asset.id,
-      label: asset.name,
+      label: equipmentOptionLabel(asset),
       keywords: [
         asset.asset_type,
         asset.manufacturer ?? "",
         asset.model_number ?? "",
         asset.asset_tag ?? "",
+        asset.binder_tag ?? "",
       ],
     })),
     { value: "", label: tx("No specific asset / equipment", "Sin equipo específico") },
@@ -1918,7 +1923,8 @@ export default function WorkOrdersPage() {
   const matchingTroubleshootingSteps = trustedTroubleshootingKnowledge?.symptom_rules
     ?.filter((rule) => !rule.match?.length || rule.match.some((phrase) => troubleshootingEvidence.includes(phrase.toLowerCase())))
     .flatMap((rule) => rule.steps) ?? [];
-  const troubleshootingSteps = Array.from(new Set(matchingTroubleshootingSteps));
+  const troubleshootingSteps = Array.from(new Set(matchingTroubleshootingSteps))
+    .filter((step) => !troubleshootingStepAlreadyDone(step, notes));
 
 
   return (
@@ -2047,6 +2053,7 @@ export default function WorkOrdersPage() {
             <div className="grid gap-2 md:grid-cols-3">
               <label className="block md:col-span-1">
                 <span className="mb-1 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
+                {locationId && issue.trim() && !assetId && <p role="status" className="mb-2 text-xs text-amber-200">{tx("No confirmed equipment match for this location. You can submit; Engineering will verify the equipment.", "No hay equipo confirmado para esta ubicación. Puedes enviar; Ingeniería verificará el equipo.")}</p>}
                 {!canSetEngineeringFields ? (
                   <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
                     {!locationId
@@ -2150,7 +2157,9 @@ export default function WorkOrdersPage() {
                     ))}
                   </ol>
                   : selectedCreateAsset && !troubleshootingLoading && !troubleshootingError && (
-                    <p className="mt-3 text-xs text-slate-400">No issue-matched troubleshooting steps from verified documentation are available for this equipment.</p>
+                    <p className="mt-3 text-xs text-slate-400">{matchingTroubleshootingSteps.length
+                      ? "The matched checks are already recorded as completed or ruled out in Notes / Actions Taken."
+                      : "No issue-matched troubleshooting steps from verified documentation are available for this equipment."}</p>
                   )}
               </section>
             )}

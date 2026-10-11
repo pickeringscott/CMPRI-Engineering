@@ -101,7 +101,7 @@ test('unresolved location cannot assign another rooms equipment',()=>{
   const f=fixture({locationId:'missing'});f.match('not cooling','');assert.deepEqual(f.writes,{});
 });
 test('HVAC equipment in the pool room stays HVAC',()=>assert.equal(classifyAsset({asset_type:'VTAC',name:'VTAC - Pool Room'}),'HVAC'));
-test('pool pump remains Pool',()=>assert.equal(classifyAsset({asset_type:'Pool Pump',name:'Hayward - Pool Pump Room'}),'Pool'));
+test('pool pump uses canonical Pool/Spa',()=>assert.equal(classifyAsset({asset_type:'Pool Pump',name:'Hayward - Pool Pump Room'}),'Pool/Spa'));
 test('surveillance camera is Safety and Enseo STB is TV / AV',()=>{
   assert.equal(classifyAsset({asset_type:'Camera',name:'Camera - Lobby'}),'Safety');
   assert.equal(classifyAsset({asset_type:'STB',name:'Enseo - Room 103B'}),'TV / AV');
@@ -126,4 +126,35 @@ test('plumbing split preview does not match a sink report to a shower-only asset
   assert.deepEqual(terms,['sink']);
   assert.equal(matches({name:'Shower curtain - Room 101',asset_type:'Shower Curtain'}),false);
   assert.equal(matches({name:'Sink - Room 101',asset_type:'Plumbing Fixture'}),true);
+});
+
+test('desk lamps and bulbs classify before incidental furniture words',()=>{
+  for(const name of ['Desk lamp','Desk-lamp bulb','Floor lamp','Bulb']){
+    const asset={id:name,name,asset_type:name,active:true};
+    assert.equal(classifyAsset(asset),'Electrical');
+    const result=inferWorkOrder(`${name} not working`,[asset]);
+    assert.equal(result.assetId,name);assert.equal(result.category,'Electrical');assert.equal(result.priority,'Medium');
+  }
+  assert.equal(classifyAsset({name:'Desk',asset_type:'Furniture'}),'Furniture');
+});
+test('numbered washer selects exact unit, never another unit or a numeric substring',()=>{
+  const candidates=[1,2,12].map(n=>({id:`washer-${n}`,name:`Washer #${n}`,asset_type:'Washer',active:true}));
+  for(const issue of ['Washer #2 not draining','washer 2 stopped','Washer No. 2 not working'])assert.equal(inferWorkOrder(issue,candidates).assetId,'washer-2');
+  assert.equal(inferWorkOrder('Washer #3 not draining',candidates).assetId,null);
+  assert.equal(inferWorkOrder('Washer not draining',candidates).assetId,null);
+  assert.equal(inferWorkOrder('Washer #2 stopped',candidates.map(a=>({...a,active:a.id!=='washer-2'}))).assetId,null);
+});
+test('pool equipment category and inferred category use the same canonical value',()=>{
+  const asset={id:'filter',name:'Sand filter',asset_type:'Pool Filter',active:true};
+  assert.equal(classifyAsset(asset),'Pool/Spa');
+  const result=inferWorkOrder('Pool filter pressure high',[asset]);
+  assert.equal(result.category,'Pool/Spa');assert.equal(result.assetId,'filter');assert.equal(result.priority,'High');
+});
+test('documentation availability does not establish which identical equipment is installed',()=>{
+  const candidates=[{id:'a',name:'Washer',asset_type:'Washer'},{id:'b',name:'Washer',asset_type:'Washer',documentation_key:'manual'}];
+  assert.equal(inferWorkOrder('Washer not draining',candidates).assetId,null);
+});
+test('locationless model and equipment from other rooms remain ineligible',()=>{
+  const f=fixture({assets:[{id:'model',name:'Friedrich VTAC',asset_type:'VTAC',location_id:null,active:true},{id:'other',name:'VTAC',asset_type:'VTAC',location_id:'410',active:true}]});
+  f.match('No AC','');assert.equal(f.writes.assetId,'');assert.equal(f.writes.category,'HVAC');
 });

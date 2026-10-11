@@ -1,0 +1,3 @@
+import https from 'node:https';
+import {readFileSync,appendFileSync} from 'node:fs';
+https.createServer({key:readFileSync(new URL('../../.sandbox/push-key.pem',import.meta.url)),cert:readFileSync(new URL('../../.sandbox/push-cert.pem',import.meta.url))},(req,res)=>{let bytes=0;req.on('data',c=>bytes+=c.length);req.on('end',()=>{appendFileSync(new URL('../../.sandbox/push-receipts.jsonl',import.meta.url),JSON.stringify({path:req.url,method:req.method,bytes,contentEncoding:req.headers['content-encoding'],received_at:new Date().toISOString()})+'\n');res.writeHead(201);res.end();});}).listen(3143,'127.0.0.1',()=>console.log('Controlled local HTTPS push sink ready'));

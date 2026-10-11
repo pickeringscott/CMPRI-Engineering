@@ -5,6 +5,7 @@ export type SuggestionAsset = {
   id: string; name: string; asset_type: string; location_id?: string | null;
   manufacturer?: string | null; model_number?: string | null; generation?: string | null;
   asset_tag?: string | null; documentation_key?: string | null; active?: boolean | null;
+  status?: string | null; binder_tag?: string | null; quantity?: number | null;
 };
 export type SmartSuggestion = { assetId: string | null; category: string | null; priority: string | null; reason: string };
 
@@ -44,7 +45,7 @@ export function categoryFromIssue(issue: string) {
   if (/\b(vtac|hvac|ac|heat|heating|cooling|not cooling|not heating|air conditioner|thermostat|compressor|friedrich|carrier|rtu|aire acondicionado|no enfria|no calienta|calefaccion|termostato|cuarto caliente|habitacion caliente|frio|calor)\b/.test(text)) return "HVAC";
   if (/\b(pool|spa|bromine|chlorine|filter pressure|pool filter|pool pump|piscina|bromo|cloro|filtro de piscina|bomba de piscina)\b/.test(text)) return "Pool/Spa";
   if (/\b(leak|leaking|drain|toilet|sink|faucet|shower|plumbing|water leak|fuga|gotea|goteando|desague|inodoro|lavabo|fregadero|grifo|ducha|plomeria)\b/.test(text)) return "Plumbing";
-  if (/\b(light|lighting|outlet|breaker|electrical|power outlet|switch|luz|luces|bombilla|foco|enchufe|tomacorriente|interruptor|electrico|electricidad)\b/.test(text)) return "Electrical";
+  if (/\b(light|lighting|lamp|bulb|outlet|breaker|electrical|power outlet|switch|luz|luces|bombilla|foco|enchufe|tomacorriente|interruptor|electrico|electricidad)\b/.test(text)) return "Electrical";
   if (/\b(tv|television|no signal|enseo|channel|remote control|set top|set-top|televisor|sin senal|control remoto|canal)\b/.test(text)) return "TV / AV";
   if (/\b(washer|dryer|laundry|lint|unimac|lavadora|secadora|lavanderia|pelusa)\b/.test(text)) return "Laundry";
   if (/\b(refrigerator|fridge|dishwasher|microwave|ice machine|ice maker|exercise bike|blower|compressor tool|appliance|refrigerador|nevera|lavavajillas|microondas|maquina de hielo|electrodomestico)\b/.test(text)) return "Appliances";
@@ -114,13 +115,19 @@ export function smartSuggestionForIssue(issue: string, availableAssets: Suggesti
 
 /** Canonical local-only guess, used by both the locked form and submission API. */
 export function inferWorkOrder(text: string, assets: SuggestionAsset[]): SmartSuggestion {
-  const available = assets.filter((asset) => asset.active !== false).sort((a, b) => a.id.localeCompare(b.id));
+  // A unit number identifies equipment, not a room, temperature, or diagnostic code.
+  const numberedUnit = normalizedIssueText(text).match(/\b(washer|dryer|pump)\s*(?:#|no\.?\s*|number\s*)?\s*(\d+)\b/);
+  const available = assets.filter((asset) => asset.active !== false
+    && (!numberedUnit || new RegExp(`\\b${numberedUnit[1]}\\s*(?:#|no\\.?\\s*|number\\s*)?\\s*0*${Number(numberedUnit[2])}\\b`, "i")
+      .test(`${asset.name} ${asset.asset_tag || ""}`)))
+    .sort((a, b) => a.id.localeCompare(b.id));
   const suggestion = smartSuggestionForIssue(text, available);
   if (suggestion.assetId || !suggestion.category || suggestion.category === "General") return suggestion;
-  const terms = text.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3);
-  const candidates = available.filter((asset) => classifyAsset(asset) === suggestion.category).map((asset) => {
-    const words = [asset.name, asset.asset_type, asset.manufacturer, asset.model_number, asset.generation, asset.asset_tag].filter(Boolean).join(" ").toLowerCase();
-    return { asset, score: terms.reduce((score, term) => score + (words.includes(term) ? 20 : 0), 0) + (asset.documentation_key ? 5 : 0) };
+  const terms = [...new Set(normalizedIssueText(text).split(/[^a-z0-9]+/).filter((term) => term.length >= 3))];
+  const candidates = available.filter((asset) => normalizeWorkOrderCategory(classifyAsset(asset)) === suggestion.category).map((asset) => {
+    const words = new Set(normalizedIssueText([asset.name, asset.asset_type, asset.manufacturer, asset.model_number, asset.generation, asset.asset_tag].filter(Boolean).join(" ")).split(/[^a-z0-9]+/));
+    // Documentation availability cannot break a tie about physical identity.
+    return { asset, score: terms.reduce((score, term) => score + (words.has(term) ? 20 : 0), 0) };
   }).sort((a, b) => b.score - a.score || a.asset.id.localeCompare(b.asset.id));
   const best = candidates[0];
   const tied = best && candidates[1]?.score === best.score;
