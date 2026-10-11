@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
-import { ASSIGNABLE_ROLE_LABELS, canManageTargetProfile, membershipRole, roleKey } from "@/lib/server/roles";
+import { ASSIGNABLE_ROLE_LABELS, canManageTargetProfile, membershipRole, profileRoleForStorage } from "@/lib/server/roles";
 
 function callerCanChangeAccount(
   callerProfile: { role: unknown; secondary_roles?: readonly unknown[] },
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
   const role = typeof body.role === "string" ? body.role.trim() : "";
-  const profileRole = roleKey(role);
+  const profileRole = profileRoleForStorage(role);
   const password = typeof body.password === "string" ? body.password : "";
   if (!role || profileRole === "unknown" || !callerCanAssignRole(principal.profile, role)) {
     return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
@@ -271,7 +271,7 @@ export async function PATCH(request: NextRequest) {
     if (!isKnownLabel || !callerCanAssignRole(callerProfile, raw)) {
       return NextResponse.json({ error: "You may only assign roles below your own CMPRI access level." }, { status: 403 });
     }
-    proposedRole = roleKey(raw);
+    proposedRole = profileRoleForStorage(raw);
   }
 
   if (body.full_name !== undefined && (typeof body.full_name !== "string" || !body.full_name.trim() || body.full_name.trim().length > 200)) {

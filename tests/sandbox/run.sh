@@ -46,14 +46,16 @@ python tests/sandbox/e2e.py
 browser_status=$?
 node tests/sandbox/rls-check.mjs
 rls_status=$?
+node --require ./tests/sandbox/network-guard.cjs tests/sandbox/lifecycle.mjs
+lifecycle_status=$?
 NODE_EXTRA_CA_CERTS="$PWD/.sandbox/push-cert.pem" node --require ./tests/sandbox/network-guard.cjs tests/sandbox/notification-db-check.mjs
 notification_status=$?
 set -e
-node --input-type=module - "$browser_status" "$rls_status" "$notification_status" <<'JS'
+node --input-type=module - "$browser_status" "$rls_status" "$notification_status" "$lifecycle_status" <<'JS'
 import {readFileSync,writeFileSync} from 'node:fs';
 const gaps=JSON.parse(readFileSync('.sandbox/role-gaps.json'));
 const statuses=process.argv.slice(2).map(Number);
-const result={browserExit:statuses[0],rlsExit:statuses[1],notificationExit:statuses[2],roleGaps:gaps,passed:statuses.every(code=>code===0)&&gaps.length===0,limitations:['No production data or deployed environment tested','No browser push enrollment or device notification delivery','Verified manual storage fixtures and full engineering lifecycle still require additional E2E coverage']};
+const result={browserExit:statuses[0],rlsExit:statuses[1],notificationExit:statuses[2],lifecycleExit:statuses[3],roleGaps:gaps,passed:statuses.every(code=>code===0)&&gaps.length===0,limitations:['No production data or deployed environment tested','No browser push enrollment or device notification delivery','Lifecycle uses real Auth/API/DB; detail-page browser controls and verified manual storage/guide refresh still require additional coverage']};
 writeFileSync('.sandbox/summary.json',JSON.stringify(result,null,2));
 console.log(JSON.stringify(result,null,2));
 if(!result.passed)process.exitCode=1;

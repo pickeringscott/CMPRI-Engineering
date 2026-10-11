@@ -4,6 +4,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 from playwright.async_api import async_playwright
+from diagnostics import emit_result, is_login_landing, sanitize
 
 OUT = Path(__file__).resolve().parents[2] / '.sandbox'
 
@@ -18,6 +19,7 @@ def rows_for(user_id, location_id):
 async def main():
     results = []
     users = json.loads((OUT / 'synthetic-users.json').read_text())
+    secrets = [user['password'] for user in users]
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         for user in users:
@@ -38,7 +40,7 @@ async def main():
                 await page.get_by_role('textbox', name='Email', exact=True).fill(user['email'])
                 await page.get_by_role('textbox', name='Password', exact=True).fill(user['password'])
                 await page.get_by_role('button', name='Sign in with Password', exact=True).click()
-                await page.wait_for_url(lambda url: url.path in ['/engineering', '/technician', '/work-orders'], timeout=120000)
+                await page.wait_for_url(is_login_landing, timeout=120000)
                 for fixture in user['fixtures']:
                     result = {'role': user['label'], 'storedRole': user['role'], 'scenario': fixture['name'], 'passed': False}
                     try:
@@ -72,14 +74,17 @@ async def main():
                     result['browserErrors'] = list(errors)
                     await page.screenshot(path=str(OUT / f"{user['role'].replace(' ', '-')}-{fixture['name']}.png"), full_page=True)
                     results.append(result)
-                    (OUT / 'e2e-results.json').write_text(json.dumps(results, indent=2))
-                    print(json.dumps({key: result.get(key) for key in ['role', 'scenario', 'passed', 'status', 'error']}), flush=True)
+                    (OUT / 'e2e-results.json').write_text(json.dumps(sanitize(results, secrets), indent=2))
+                    emit_result(result, secrets)
             except Exception as error:
-                results.append({'role': user['label'], 'phase': 'login', 'passed': False, 'error': str(error)})
-                (OUT / 'e2e-results.json').write_text(json.dumps(results, indent=2))
+                result = {'role': user['label'], 'phase': 'login', 'passed': False, 'error': str(error)}
+                results.append(result)
+                (OUT / 'e2e-results.json').write_text(json.dumps(sanitize(results, secrets), indent=2))
+                emit_result(result, secrets)
             finally:
                 await context.close()
         await browser.close()
     assert len(results) == 28 and all(result['passed'] for result in results), 'Incomplete or failed browser/DB checks; see e2e-results.json'
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

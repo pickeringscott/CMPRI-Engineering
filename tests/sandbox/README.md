@@ -6,12 +6,12 @@ Its first commit disables Vercel Git deployments through
 `vercel.json` → `git.deploymentEnabled: false`. Keep this override on the sandbox
 branch; do not merge it into production as part of the app fix.
 
-One run is authorized with a 20-minute job timeout, one standard Ubuntu runner,
+One additional run is authorized with a 20-minute job timeout, one standard Ubuntu runner,
 no matrix or reruns, and a total additional charge ceiling of USD 0.25 including
 applicable tax. At the verified USD 0.006/minute rate, 20 minutes is USD 0.12
 before tax, leaving USD 0.13 headroom. Included minutes are preferred but the
 remaining allowance is not exposed to the connected tools. The job only runs on
-the first push from commit `5efa3ccb2e7c73bffbdfbe2abfb890523b92b07c` and
+the first push from commit `4cf786706c8bbff8079958cf8f1042c3b4532173` and
 `github.run_attempt == 1`; subsequent pushes and reruns skip it.
 
 This workflow does not upload artifacts or caches, provision a hosted database,
@@ -39,16 +39,25 @@ a controlled local HTTPS receiver. It sends nothing to staff. It does not cover
 browser push enrollment, device delivery, or automatic notification creation from
 a ticket. No checkout-time notification is added or tested.
 
-The Chief Engineer title is probed against the migrated profile constraint. If
-rejected, the canonical engineer alias can still exercise general technical
-submission behavior, but `role-gaps.json` explicitly records the gap and the final
-suite fails. This must not be reported as seven complete role passes. No schema
-change is made to make the fixture pass.
+Chief Engineer now persists as `chief_engineer`, while capability checks continue
+to use the existing engineer family. Account creation and explicit role edits
+preserve that identity after their existing authorization checks. Display and
+notification predicates recognize it. Generic `engineer` values remain generic
+and do not gain Chief Engineer notifications.
 
-Scoped regression checks cover equipment matching and completed-step filtering.
-Real verified-manual storage/guide refresh and the full engineering ticket
-lifecycle remain additional E2E coverage; this setup must not be called complete
-production or seven-role workflow verification.
+Migration `20261011230319_cmpri_chief_engineer_role_identity.sql` adds this one
+stored value to the primary/secondary profile constraints while retaining their
+old allowed values. It does not update any account, policy, or grant. It is for
+sandbox testing and production review only: no production application is
+authorized. Existing generic accounts cannot be reclassified without a verified
+assignment and separate production authorization.
+
+The technical-role lifecycle check uses actual local Auth and app APIs to claim,
+start, complete and close a ticket, then verifies persistence and seven-role
+notification API eligibility. It does not exercise detail-page browser controls.
+Both Technician and Chief Engineer controlled encrypted push deliveries are
+checked. Real verified-manual storage/guide refresh and browser push enrollment
+remain coverage gaps. No deployment or complete production verification is claimed.
 
 ## Execution and evidence
 

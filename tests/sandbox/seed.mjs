@@ -13,7 +13,7 @@ const cases = [
   ['Assistant General Manager', 'assistant_manager', 'technician'],
   ['Front Desk Manager', 'front_desk_manager', 'technician'],
   ['Maintenance Technician', 'technician', 'technician'],
-  ['Chief Engineer', 'engineer', 'admin'],
+  ['Chief Engineer', 'chief_engineer', 'admin'],
   ['Lead Housekeeper', 'housekeeping', 'technician'],
   ['Front Desk', 'front_desk', 'technician'],
 ];
@@ -29,12 +29,7 @@ for (const [i, [label, canonicalRole, membership]] of cases.entries()) {
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
   if (error) throw error;
   const id = data.user.id;
-  let role = canonicalRole;
-  if (label === 'Chief Engineer') {
-    const probe = await admin.from('profiles').upsert({ id, email, full_name: `Synthetic ${label}`, role: label, active: true });
-    if (probe.error) gaps.push({ role: label, code: probe.error.code, message: probe.error.message, gap: 'Literal Chief Engineer rejected; engineer alias checks do not prove title-specific notifications.' });
-    else role = label;
-  }
+  const role = canonicalRole;
   await ok(admin.from('profiles').upsert({ id, email, full_name: `Synthetic ${label}`, role, active: true }));
   await ok(admin.from('hotel_members').insert({ hotel_id: hotel, user_id: id, role: membership, active: true }));
   const fixtures = [];

@@ -91,6 +91,18 @@ export function roleKey(value: unknown): CmpriRole {
   return Object.hasOwn(aliases, key) ? aliases[key] : "unknown";
 }
 
+/** Keep the trusted Chief Engineer assignment distinct from its capability family.
+ * Call only after the existing account-management authorization checks.
+ * Historical generic engineer assignments are never inferred to be Chief Engineer.
+ */
+export function profileRoleForStorage(value: unknown): CmpriRole | "chief_engineer" {
+  if (typeof value === "string"
+    && value.trim().toLowerCase().replace(/[\s_-]+/g, "") === "chiefengineer") {
+    return "chief_engineer";
+  }
+  return roleKey(value);
+}
+
 export function profileHasRole(
   profile: { role: unknown; secondary_roles?: readonly unknown[] },
   role: CmpriRole,

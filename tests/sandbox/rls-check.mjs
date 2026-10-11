@@ -22,4 +22,8 @@ const anon = createClient(keys.API_URL, keys.ANON_KEY, { auth: { persistSession:
 const anonymous = await anon.from('work_orders').select('id');
 results.push({ role: 'unauthenticated boundary', readCount: anonymous.data?.length ?? null, passed: (!anonymous.error && Array.isArray(anonymous.data) && anonymous.data.length === 0) || anonymous.error?.code === '42501' });
 writeFileSync(new URL('rls-results.json', out), JSON.stringify(results, null, 2));
+for (const result of results) {
+  const safe = { ...result, phase: 'rls', error: result.error?.replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[redacted JWT]') };
+  console.log(JSON.stringify(safe));
+}
 assert.ok(results.every(result => result.passed), 'RLS checks failed; see rls-results.json');

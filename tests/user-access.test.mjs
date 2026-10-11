@@ -46,6 +46,7 @@ function fixture(config={}) {
   const rolesModule={
     roleAllows:(r,c)=>c==='manage_users'&&['engineer','manager','system_admin'].includes(roleKey(r)),
     roleKey,
+    profileRoleForStorage: (value) => String(value).trim().toLowerCase().replace(/[\s_-]+/g, '') === 'chiefengineer' ? 'chief_engineer' : roleKey(value),
     ASSIGNABLE_ROLE_LABELS:allLabels,
     assignableRoleLabels:(r)=>allLabels.filter(label=>canManageTargetRole(r,label)),
     canChangeAccount:(c,t)=>Boolean(c?.id&&t?.id&&c.id!==t.id&&canManageTargetRole(c.role,t.role)),
