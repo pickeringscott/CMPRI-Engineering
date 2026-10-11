@@ -10,7 +10,18 @@ cp -R supabase/migrations .sandbox/supabase/migrations
 
 # Never link, db push, or load remote credentials. Only this local project starts.
 export SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io
-supabase start --workdir .sandbox --exclude realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >.sandbox/startup.log 2>&1
+if ! supabase start --workdir .sandbox --exclude realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >.sandbox/startup.log 2>&1; then
+  python - <<'PY_DIAGNOSTICS'
+from pathlib import Path
+import json, re
+lines = Path('.sandbox/startup.log').read_text().splitlines()
+errors = [line for line in lines if re.search(r'error|failed|fatal|no space', line, re.I)][-20:]
+errors = [re.sub(r'eyJ[\w-]+\.[\w-]+\.[\w-]+', '[redacted JWT]', line) for line in errors]
+Path('.sandbox/setup-diagnostics.json').write_text(json.dumps({'phase': 'local Supabase startup', 'passed': False, 'errors': errors}, indent=2))
+print('Local Supabase startup failed; sanitized diagnostics recorded')
+PY_DIAGNOSTICS
+  exit 1
+fi
 supabase status --workdir .sandbox --output json >.sandbox/local-keys.json 2>.sandbox/status.log
 openssl req -x509 -newkey rsa:2048 -nodes -keyout .sandbox/push-key.pem -out .sandbox/push-cert.pem -days 1 -subj '/CN=127.0.0.1' -addext 'subjectAltName=IP:127.0.0.1' >.sandbox/tls.log 2>&1
 node tests/sandbox/seed.mjs

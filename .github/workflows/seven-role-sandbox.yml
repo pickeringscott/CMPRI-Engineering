@@ -1,4 +1,4 @@
-name: Seven-role isolated sandbox (execution disabled)
+name: Seven-role isolated sandbox (one approved run)
 
 on:
   push:
@@ -9,11 +9,10 @@ permissions:
 
 jobs:
   sandbox:
-    # HARD STOP: remove only after included capacity or enforced zero spend is
-    # verified and the parent authorizes this run. No runner starts while false.
-    if: ${{ false }}
+    # Exactly the approved first push from the preserved baseline; reruns skip.
+    if: ${{ github.event.before == '5efa3ccb2e7c73bffbdfbe2abfb890523b92b07c' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,7 +50,7 @@ jobs:
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           from pathlib import Path
           print('## Local synthetic sandbox evidence')
-          for name in ['summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'notification-db-results.json']:
+          for name in ['setup-diagnostics.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'notification-db-results.json']:
               p = Path('.sandbox') / name
               print('\n### ' + name + '\n')
               print('```json\n' + p.read_text() + '\n```' if p.exists() else 'Not produced: setup or a previous phase did not finish.')

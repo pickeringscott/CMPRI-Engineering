@@ -6,13 +6,16 @@ Its first commit disables Vercel Git deployments through
 `vercel.json` → `git.deploymentEnabled: false`. Keep this override on the sandbox
 branch; do not merge it into production as part of the app fix.
 
-The GitHub job has a literal `if: ${{ false }}` guard. Creating the branch may
-produce a skipped workflow, but allocates no runner. The private repository's
-included Actions balance and spending controls were not available through the
-connected tools. Do not remove the guard or dispatch another workflow until the
-parent verifies included capacity or an enforced zero-spend limit. This workflow
-does not upload artifacts or caches, provision a hosted database, use secrets,
-create OAuth access, deploy, or call paid AI services.
+One run is authorized with a 20-minute job timeout, one standard Ubuntu runner,
+no matrix or reruns, and a total additional charge ceiling of USD 0.25 including
+applicable tax. At the verified USD 0.006/minute rate, 20 minutes is USD 0.12
+before tax, leaving USD 0.13 headroom. Included minutes are preferred but the
+remaining allowance is not exposed to the connected tools. The job only runs on
+the first push from commit `5efa3ccb2e7c73bffbdfbe2abfb890523b92b07c` and
+`github.run_attempt == 1`; subsequent pushes and reruns skip it.
+
+This workflow does not upload artifacts or caches, provision a hosted database,
+use production secrets, create OAuth access, deploy, or call paid AI services.
 
 ## Intended checks once execution is authorized
 
@@ -58,7 +61,7 @@ explicit allowlist of sanitized JSON results is printed to GitHub's job summary.
 Never upload the entire directory or its key/session files. The runner destroys
 the stack with its ephemeral VM; no persistent hosted resource is created.
 
-This setup has been syntax/config checked but not run on GitHub. The original
+Before the authorized run, this setup was syntax/config checked but not run on GitHub; consult the Actions run for the actual outcome. The original
 cloud executor could not extract the Supabase Postgres image (`no space left on
 device` using Docker VFS). Passing prior mock-based checks did not establish a
 real Auth/Postgres/connected-session E2E pass.
