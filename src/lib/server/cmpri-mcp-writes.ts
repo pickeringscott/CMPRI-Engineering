@@ -8,12 +8,6 @@ import { allows, type Capability } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
 import { roleKey } from "@/lib/server/roles";
 import { canEditRoomRanker } from "@/lib/room-ranker-access";
-import {
-  extractAndValidateRoomOperations,
-  isRecoverableRoomOperationsValidationError,
-  RoomOperationsRecoveryIssue,
-} from "@/lib/room-operations-recovery";
-
 type WriteAction = {
   action: string;
   description: string;
@@ -25,7 +19,7 @@ type WriteAction = {
 const WRITE_ACTIONS: WriteAction[] = [
   { action: "work_orders.create", description: "Submit one or more CMPRI work orders, using the same validation and attribution as the CMPRI form.", capability: "submit" },
   { action: "work_orders.import", description: "Import validated CMPRI work orders from SafetyCulture or a spreadsheet.", capability: "edit_tickets" },
-  { action: "room_operations.import", description: "Import a daily room-operations report from CSV text, verified report_data, or room-status/departures photos. Printed Room Status and any Expected Departures dates must be present and current; a user-supplied report_date or upload time cannot establish report freshness. Include every active room with its exact room_status, separate current and incoming guest fields, and all conditionally required details. Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay. Same-day replacements require verifiable printed generation times. Photos are extracted through the existing supported image route; unreadable fields trigger up to two automatic recovery passes before requesting only the unresolved source details. Source reports remain in history; only a newer fully validated report replaces the live snapshot. Only call when the user explicitly asks to import/save.", capability: "edit_tickets" },
+  { action: "room_operations.import", description: "Read room_operations first for its import_contract. ChatGPT reads all supplied photos and extracts the complete report_data using that contract; never send images to server OCR. Include every active room with its exact room_status. Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay; keep incoming guest fields separate. Preserve printed dates, times, and pages; ask for unreadable fields instead of guessing. Older-than-today reports are accepted when newer than stored source data. Validate with validate_only: true, then submit the same data without validate_only only when explicitly asked to import/save. Never claim success from validation alone.", capability: "edit_tickets" },
   { action: "work_orders.update", description: "Edit an authorized work order by supplying its UUID as id, expected_revision from the latest work-order read, and editable fields. Fields may be flat or nested under changes, updates, or fields. Editable fields include notes, status, technician_name (assignment), category, issue, priority, asset_id, cost, hours, due_by, parts, and action_root_cause. Use the exact status 'In Progress' or 'Completed' when reopening a closed work order; reopening to Open is rejected. An In Progress order must have an assigned technician.", anyOf: ["edit_tickets", "review_tickets"] },
   { action: "work_orders.delete", description: "Cancel a work order by marking it Will Not Do. The ticket and its history are retained. Include its UUID.", anyOf: ["review_tickets", "close_tickets"] },
   { action: "work_order_drafts.create", description: "Create a CMPRI work-order draft.", capability: "submit" },
@@ -117,86 +111,11 @@ export async function callMcpWriteAction(
       return callApi(incoming, "/api/work-orders/import", "POST", bearer, input, route.POST);
     }
     case "room_operations.import": {
-      const { images } = input;
-      const reportImages = images !== undefined ? images : [];
-      if (!Array.isArray(reportImages)) throw new Error("Room-operations images must be supplied as an array.");
-      const importInput = { ...input };
-      delete importInput.images;
-      if (reportImages.length > 0) {
-        const extractRoute = await import("@/app/api/room-operations/extract/route");
-        const importRoute = await import("@/app/api/room-operations/route");
-        const { report: reportData } = await extractAndValidateRoomOperations({
-          async extract({ recoveryAttempt, unresolved, previousReport }) {
-            const extraction = await callApi(
-              incoming,
-              "/api/room-operations/extract",
-              "POST",
-              bearer,
-              {
-                images: reportImages,
-                ...(recoveryAttempt > 0 ? {
-                  recovery_context: {
-                    unresolved,
-                    previous_report_data: previousReport,
-                  },
-                } : {}),
-              },
-              extractRoute.POST,
-            );
-            const extractionBody = extraction.body && typeof extraction.body === "object"
-              ? extraction.body as Record<string, unknown>
-              : null;
-            if (extraction.status < 200 || extraction.status >= 300 || !extractionBody?.report_data || typeof extractionBody.report_data !== "object") {
-              const detail = typeof extractionBody?.error === "string" ? extractionBody.error : "Room-operations photos returned no verified extraction.";
-              throw new RoomOperationsRecoveryIssue(
-                detail,
-                extractionBody?.retryable === true,
-              );
-            }
-            return extractionBody.report_data;
-          },
-          async validate(candidateReport) {
-            const validation = await callApi(
-              incoming,
-              "/api/room-operations",
-              "POST",
-              bearer,
-              { source: "file", report_data: candidateReport, validate_only: true },
-              importRoute.POST,
-            );
-            const validationBody = validation.body && typeof validation.body === "object"
-              ? validation.body as Record<string, unknown> & { rows?: unknown[] }
-              : null;
-            if (validation.status < 200 || validation.status >= 300 || validationBody?.ok !== true || !Array.isArray(validationBody.rows)) {
-              const detail = typeof validationBody?.error === "string" ? validationBody.error : "Extracted room report failed validation.";
-              return {
-                ok: false,
-                error: detail,
-                recoverable: isRecoverableRoomOperationsValidationError(validation.status, detail),
-              };
-            }
-            return { ok: true, value: validationBody };
-          },
-        });
-        delete importInput.rows;
-        delete importInput.text;
-        delete importInput.content;
-        delete importInput.file;
-        delete importInput.status_csv;
-        delete importInput.departures_csv;
-        importInput.source = "file";
-        importInput.report_data = reportData;
+      if (Object.hasOwn(input, "images")) {
+        throw new Error("Read the supplied photos in ChatGPT and submit verified report_data. Server-side image extraction is not supported by this connected import. Read room_operations for the import contract; validate_only: true checks without saving.");
       }
       const route = await import("@/app/api/room-operations/route");
-      const outcome = await callApi(incoming, "/api/room-operations", "POST", bearer, importInput, route.POST);
-      if (reportImages.length > 0 && (outcome.status < 200 || outcome.status >= 300)) {
-        const body = outcome.body && typeof outcome.body === "object"
-          ? outcome.body as Record<string, unknown>
-          : null;
-        const detail = typeof body?.error === "string" ? body.error : "Room-operations snapshot was rejected.";
-        return { ...outcome, body: { ...body, error: `${detail} Nothing was imported.` } };
-      }
-      return outcome;
+      return callApi(incoming, "/api/room-operations", "POST", bearer, input, route.POST);
     }
     case "work_orders.update": {
       const route = await import("@/app/api/work-orders/[id]/route");

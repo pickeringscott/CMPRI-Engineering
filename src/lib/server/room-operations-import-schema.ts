@@ -129,7 +129,7 @@ const printedReportMetadata = {
     printed_date: {
       type: "string",
       format: "date",
-      description: "Required date visibly printed on this report, normalized to YYYY-MM-DD. For example, source text 10Oct26 becomes 2026-10-10. Must be the current hotel date for a new import.",
+      description: "Required date visibly printed on this report, normalized to YYYY-MM-DD. For example, source text 10Oct26 becomes 2026-10-10. May be older than today if newer than stored source data; future dates are rejected.",
     },
     printed_time: {
       ...timeValue,
@@ -169,7 +169,7 @@ const reportDataSchema = {
       anyOf: [
         {
           ...printedReportMetadata,
-          description: "Optional Expected Departures report, matched to Current Room Status by room. Its printed date must also be the current hotel date.",
+          description: "Optional Expected Departures report, matched to Current Room Status by room. Its printed date must match Current Room Status.",
           properties: {
             ...printedReportMetadata.properties,
             rows: { type: "array", items: expectedDepartureRowSchema },
@@ -214,24 +214,6 @@ const csvValue = {
   description: `${csvHeaders} The printed-date line must use YYYY-MM-DD, M/D/YYYY, or Month D, YYYY; for compact source dates such as 10Oct26, normalize to ISO (2026-10-10).`,
 };
 
-const imageValue = {
-  oneOf: [
-    {
-      type: "string",
-      description: "Base64-encoded image bytes, or a data URL beginning data:image/<type>;base64,.",
-    },
-    {
-      type: "object",
-      properties: {
-        data: { type: "string", minLength: 1, description: "Base64-encoded image bytes; do not send an image URL." },
-        mediaType: { type: "string", default: "image/jpeg", description: "Image MIME type, for example image/jpeg, image/png, or image/webp." },
-      },
-      required: ["data"],
-      additionalProperties: false,
-    },
-  ],
-};
-
 const inputOptions = (properties: Record<string, unknown>, required: string[]) => ({
   type: "object",
   properties: { ...commonInputProperties, ...properties },
@@ -241,7 +223,7 @@ const inputOptions = (properties: Record<string, unknown>, required: string[]) =
 
 export const ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA = {
   type: "object",
-  description: "Complete input contract for room_operations.import. Supply exactly one input mode: normalized report_data, Current Room Status CSV (and optionally a separate Expected Departures CSV), or source report images. For example, a printed timestamp 10Oct26 01:17 PM is supplied in report_data as printed_date 2026-10-10 and printed_time 01:17 PM. Printed Room Status and any Expected Departures report must both be dated for the current hotel date. Expected Departures is joined to Current Room Status by room; supplied Expected Departures checkout date/time takes precedence. If a matched Expected Departures row has no checkout date, the Room Status report date is used. Expected Departures-only rooms are ignored. Checkout defaults to 11:00 AM when no explicit time is available. The server creates source_import_id, source_report_date, source_uploaded_at, checkout_source_report_date, checkout_source_uploaded_at, and checkout_time_explicit; do not provide these. The complete snapshot and room coverage are validated before the single database replacement; failures leave the previously accepted snapshot unchanged.",
+  description: "Complete input contract for room_operations.import. Supply exactly one input mode: normalized report_data, Current Room Status CSV (and optionally a separate Expected Departures CSV), or CSV aliases. For example, a printed timestamp 10Oct26 01:17 PM is supplied in report_data as printed_date 2026-10-10 and printed_time 01:17 PM. Preserve the actual printed date; older-than-today reports can replace older stored source data, including legacy snapshots. Future reports are rejected. Expected Departures must match the Room Status printed date. Different versions from the same date require a later verifiable printed time. Expected Departures is joined to Current Room Status by room; supplied Expected Departures checkout date/time takes precedence. If a matched Expected Departures row has no checkout date, the Room Status report date is used. Expected Departures-only rooms are ignored. Checkout defaults to 11:00 AM when no explicit time is available. The server creates source_import_id, source_report_date, source_uploaded_at, checkout_source_report_date, checkout_source_uploaded_at, and checkout_time_explicit; do not provide these. The complete snapshot and room coverage are validated before the single database replacement; failures leave the previously accepted snapshot unchanged.",
   oneOf: [
     inputOptions({
       report_data: reportDataSchema,
@@ -262,13 +244,14 @@ export const ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA = {
     inputOptions({
       file: csvValue,
     }, ["file"]),
-    inputOptions({
-      images: {
-        type: "array",
-        minItems: 1,
-        items: imageValue,
-        description: "All source pages as images. Include every Current Room Status page and the Expected Departures page, if supplied; the extractor identifies and merges the report types. The printed dates/times must be legible in the images.",
-      },
-    }, ["images"]),
+
   ],
+} as const;
+
+export const ROOM_OPERATIONS_IMPORT_INSTRUCTIONS = "Read all supplied report photos in ChatGPT. Extract every source-backed field in input_schema into report_data, keeping current guest and incoming/block columns separate. Preserve printed dates/times and source pages; do not substitute today's date or upload time, invent unreadable values, or omit rooms. Ask for unresolved source details. Submit action room_operations.import with input {report_data, validate_only: true}; inspect validation errors and normalized rows, then save the identical data with validate_only omitted or false only when the user requested import. Validation is not a saved import. This connected route does not accept images or call server AI/OCR. After save success, read room_operations and verify the source date, count, OOO rooms and moves.";
+
+export const ROOM_OPERATIONS_IMPORT_CONTRACT = {
+  action: "room_operations.import",
+  instructions: ROOM_OPERATIONS_IMPORT_INSTRUCTIONS,
+  input_schema: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA,
 } as const;

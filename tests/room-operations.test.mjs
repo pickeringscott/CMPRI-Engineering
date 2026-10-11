@@ -398,7 +398,7 @@ test("room-operations uploads validate printed reports, retain history, and reco
   const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
   const migration = readFileSync(new URL("../supabase/migrations/20261010180000_cmpri_room_operations_provenance_checkouts.sql", import.meta.url), "utf8");
   assert.match(api, /\["paste", "file"\]/);
-  assert.match(api, /reportDate !== today/);
+  assert.match(api, /reportDate > today/);
   assert.match(migration, /Room Status Report printed identity or fingerprint is missing/);
   assert.match(api, /roomValue/);
   assert.match(api, /room !== "MGR" && !knownRooms\.has\(room\)/);
@@ -921,10 +921,9 @@ test("room-operations image extraction endpoint sends image parts to ChatGPT vis
   assert.match(extractRoute, /Return ONLY one valid JSON object/);
   assert.match(extractRoute, /"room_status"/);
   assert.match(extractRoute, /"expected_departures"/);
-  assert.match(mcpWrites, /extractAndValidateRoomOperations/);
-  assert.match(mcpWrites, /recovery_context/);
+  assert.doesNotMatch(mcpWrites, /extractAndValidateRoomOperations|api\/room-operations\/extract/);
   assert.match(mcpWrites, /validate_only: true/);
-  assert.match(mcpWrites, /importInput\.report_data = reportData/);
+  assert.match(mcpWrites, /submit verified report_data/);
   assert.match(extractRoute, /JSON\.parse\(cleanJson\)/);
   assert.match(extractRoute, /report_data: reportData/);
 });

@@ -368,8 +368,8 @@ export async function POST(request: NextRequest) {
   if (typeof body.report_date === "string" && body.report_date && body.report_date !== reportDate) {
     return NextResponse.json({ error: `Selected report date ${body.report_date} does not match the report's printed date ${reportDate}. Nothing was replaced.` }, { status: 422 });
   }
-  if (reportDate !== today) {
-    return NextResponse.json({ error: `Room Status Report is printed for ${reportDate}; a new daily replacement requires the current hotel date ${today}. Nothing was replaced.` }, { status: 422 });
+  if (reportDate > today) {
+    return NextResponse.json({ error: `Room Status Report is printed for ${reportDate}; future reports beyond the current hotel date ${today} cannot be imported. Nothing was replaced.` }, { status: 422 });
   }
 
   let expectedReport: Record<string, unknown> | null = null;
@@ -385,8 +385,8 @@ export async function POST(request: NextRequest) {
     const parsedExpectedMetadata = normalizeReportMetadata(expectedReport, "Expected Departures");
     if (parsedExpectedMetadata.error || !parsedExpectedMetadata.report) return NextResponse.json({ error: parsedExpectedMetadata.error }, { status: 422 });
     expectedMetadata = parsedExpectedMetadata.report;
-    if (expectedMetadata.printed_date !== today) {
-      return NextResponse.json({ error: `Expected Departures is printed for ${expectedMetadata.printed_date}; a new replacement requires a current-date report printed for ${today}. Nothing was replaced.` }, { status: 422 });
+    if (expectedMetadata.printed_date !== reportDate) {
+      return NextResponse.json({ error: `Expected Departures is printed for ${expectedMetadata.printed_date}; it must match the Room Status printed date ${reportDate}. Nothing was replaced.` }, { status: 422 });
     }
   }
   const statusFingerprint = createHash("sha256").update(JSON.stringify({
@@ -398,8 +398,9 @@ export async function POST(request: NextRequest) {
   })).digest("hex");
   const { data: latestImports, error: latestImportsError } = await auth.admin.from("cmpri_room_operation_imports")
     .select("report_date, status_printed_time, status_fingerprint, expected_departures_printed_date, expected_departures_printed_time, expected_departures_uploaded_at, departures_fingerprint, departures_rows, uploaded_at, source_type")
-    .neq("source_type", "legacy")
-    .eq("hotel_id", HOTEL_ID).order("uploaded_at", { ascending: false }).limit(1);
+    .eq("hotel_id", HOTEL_ID)
+    .order("report_date", { ascending: false }).order("status_printed_time", { ascending: false, nullsFirst: false })
+    .order("uploaded_at", { ascending: false }).limit(1);
   if (latestImportsError) return NextResponse.json({ error: "Latest accepted room report could not be checked. Nothing was replaced." }, { status: 503 });
   const latestImport = latestImports?.[0] || null;
   const latestStatus: AcceptedReportVersion | null = latestImport ? {
@@ -412,7 +413,7 @@ export async function POST(request: NextRequest) {
 
   let expectedWasCarried = false;
   let expectedUploadedAt = "";
-  if (!expectedReport && latestImport?.expected_departures_printed_date === today && Array.isArray(latestImport.departures_rows)) {
+  if (!expectedReport && latestImport?.expected_departures_printed_date === reportDate && Array.isArray(latestImport.departures_rows)) {
     expectedReport = {
       printed_date: String(latestImport.expected_departures_printed_date),
       printed_time: latestImport.expected_departures_printed_time,

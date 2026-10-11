@@ -1063,5 +1063,36 @@ try {
     ]);
     assert.equal((await db.query(`select count(*)::integer as count from public.room_operations where hotel_id=$1`, [hotel])).rows[0].count, 3);
   });
+  await check('room import source freshness migration preserves legacy history and rejects stale replacements atomically', async () => {
+    const sql = readFileSync(new URL('../supabase/migrations/20261011214515_cmpri_room_operations_source_freshness.sql', import.meta.url), 'utf8');
+    await db.exec(sql);
+    await db.exec(sql);
+    const sourceHotel='00000000-0000-0000-0000-000000000099';
+    await db.query(`insert into public.hotels(id,code,name) values ($1,'source-date-test','Source Date Test')`,[sourceHotel]);
+    const dateRows=(await db.query(`select (timezone('America/Chicago', now())::date - 2)::text as old,
+      (timezone('America/Chicago', now())::date - 1)::text as incoming,
+      (timezone('America/Chicago', now())::date + 1)::text as future`)).rows[0];
+    await db.query(`insert into public.cmpri_room_operation_imports(hotel_id,report_date,source_type,row_count,source_rows)
+      values ($1,$2,'legacy',1,'[{"room":"101","room_status":"OOO"}]'::jsonb)`,[sourceHotel,dateRows.old]);
+    await db.exec(`select set_config('cmpri.test_role','service_role',false)`);
+    const replace=async(date,fingerprint,time='08:00',extra={})=>db.query(
+      `select public.cmpri_replace_room_operations($1,$2,null,'Synthetic','file',$3::jsonb) as id`,
+      [sourceHotel,date,JSON.stringify([{room:'101',room_status:'OOO',status_printed_date:date,status_printed_time:time,status_fingerprint:fingerprint,report_pages:[1],...extra}])]);
+    await assert.rejects(()=>replace(dateRows.old,'same-legacy'),/generation time cannot be verified/);
+    const accepted=await replace(dateRows.incoming,'first');
+    assert.ok(accepted.rows[0].id);
+    assert.equal((await replace(dateRows.incoming,'first')).rows[0].id,accepted.rows[0].id);
+    await assert.rejects(()=>replace(dateRows.old,'stale'),/older than/);
+    await assert.rejects(()=>replace(dateRows.future,'future'),/future/);
+    await assert.rejects(()=>replace(dateRows.incoming,'same-time'),/not newer/);
+    await assert.rejects(()=>replace(dateRows.incoming,'missing-time',''),/generation time cannot be verified/);
+    await assert.rejects(()=>replace(dateRows.incoming,'mismatch','09:00',{expected_departures_printed_date:dateRows.old}),/must match/);
+    const stored=(await db.query(`select source_import_id, source_report_date::text,room_status from public.room_operations where hotel_id=$1`,[sourceHotel])).rows;
+    assert.deepEqual(stored,[{source_import_id:accepted.rows[0].id,source_report_date:dateRows.incoming,room_status:'OOO'}]);
+    assert.equal((await db.query(`select count(*)::int as count from public.cmpri_room_operation_imports where hotel_id=$1`,[sourceHotel])).rows[0].count,2);
+    const later=await replace(dateRows.incoming,'later','09:00');
+    assert.notEqual(later.rows[0].id,accepted.rows[0].id);
+    assert.equal((await db.query(`select count(*)::int as count from public.cmpri_room_operation_imports where hotel_id=$1 and source_type='legacy'`,[sourceHotel])).rows[0].count,1);
+  });
   console.log(`${passed} PostgreSQL migration/behavior checks passed. Supabase RLS policies and concurrent sessions are not reproduced.`);
 } finally { await db.close(); }

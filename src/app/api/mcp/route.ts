@@ -4,7 +4,7 @@ import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
 import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 import { availableMcpReadViews, callMcpReadView } from "@/lib/server/cmpri-mcp-reads";
 import { availableMcpWriteActions, callMcpWriteAction } from "@/lib/server/cmpri-mcp-writes";
-import { ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA } from "@/lib/server/room-operations-import-schema";
+import { ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA, ROOM_OPERATIONS_IMPORT_CONTRACT } from "@/lib/server/room-operations-import-schema";
 import { resolveMcpWorkOrderLocation } from "@/lib/ai/mcp-work-order-location";
 
 export const dynamic = "force-dynamic";
@@ -431,10 +431,7 @@ export async function POST(request: NextRequest) {
         return Response.json({
           jsonrpc: "2.0",
           id: rpc.id,
-          result: toolResult({
-            action: "room_operations.import",
-            input_schema: ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA,
-          }),
+          result: toolResult(ROOM_OPERATIONS_IMPORT_CONTRACT),
         }, { headers: NO_STORE });
       }
       const result = await runTool(identity, params.name, args);

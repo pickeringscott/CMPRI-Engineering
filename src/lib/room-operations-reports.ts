@@ -111,8 +111,8 @@ export function reportReplacementError(
 ) {
   if (!incoming) return `${label} printed date cannot be verified. Nothing was replaced.`;
   if (!validIsoDate(incoming.printed_date)) return `${label} printed date is invalid. Nothing was replaced.`;
-  if (incoming.printed_date !== today) {
-    return `${label} is printed for ${incoming.printed_date}; a new replacement requires a report printed for the current hotel date ${today}. Nothing was replaced.`;
+  if (incoming.printed_date > today) {
+    return `${label} is printed for ${incoming.printed_date}; future reports beyond the current hotel date ${today} cannot be imported. Nothing was replaced.`;
   }
   if (latest && latest.printed_date > incoming.printed_date) {
     return `${label} is older than the latest accepted source report (${latest.printed_date}). Nothing was replaced.`;
@@ -120,7 +120,7 @@ export function reportReplacementError(
   if (latest && latest.printed_date === incoming.printed_date) {
     if (latest.fingerprint === fingerprint) return null;
     if (!incoming.printed_time || !latest.printed_time) {
-      return `${label} is another version from ${today}, but its printed generation time cannot be compared with the latest accepted report. Nothing was replaced.`;
+      return `${label} is another version from ${incoming.printed_date}, but its printed generation time cannot be compared with the latest accepted report. Nothing was replaced.`;
     }
     if (incoming.printed_time <= latest.printed_time) {
       return `${label} printed generation time ${incoming.printed_time} is not newer than the latest accepted version at ${latest.printed_time}. Nothing was replaced.`;

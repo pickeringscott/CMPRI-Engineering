@@ -123,7 +123,7 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   assert.equal(importBranch.properties.action.const,'room_operations.import');
   assert.deepEqual(
     Array.from(importBranch.properties.input.oneOf,({required})=>Array.from(required).join(',')),
-    ['report_data','status_csv','csv','text','content','file','images'],
+    ['report_data','status_csv','csv','text','content','file'],
   );
   assert.match(importBranch.properties.input.description,/10Oct26 01:17 PM/);
   assert.match(importBranch.properties.input.oneOf[1].properties.status_csv.description,/Printed Date/);
@@ -204,7 +204,7 @@ test('Room Ops import contract discovery returns all modes and source-backed val
   const roomOperationsSchema=payload.result.structuredContent.input_schema;
   assert.ok(roomOperationsSchema);
   const inputModes=roomOperationsSchema.oneOf.map(({required})=>Array.from(required).join(','));
-  assert.deepEqual(inputModes,['report_data','status_csv','csv','text','content','file','images']);
+  assert.deepEqual(inputModes,['report_data','status_csv','csv','text','content','file']);
   const structured=roomOperationsSchema.oneOf[0].properties.report_data;
   assert.deepEqual(Array.from(structured.required),['room_status']);
   assert.deepEqual(Array.from(structured.properties.room_status.required),['printed_date','pages','rows']);
@@ -237,7 +237,7 @@ test('Room Ops import contract discovery returns all modes and source-backed val
   for(const alias of ['RM #','HK STATUS','BLK’D','DPLM','ARV DATE','BLOCK NAME','INCOMING BLOCKED','MOVED FROM']) {
     assert.ok(roomOperationsSchema.oneOf[1].properties.status_csv.description.includes(alias),`missing CSV alias ${alias}`);
   }
-  assert.equal(roomOperationsSchema.oneOf[6].properties.images.items.oneOf[1].properties.data.type,'string');
+  assert.equal(roomOperationsSchema.oneOf.some(mode=>mode.properties.images),false);
 });
 
 test('MCP exposes contract discovery to read-only sessions without exposing a write tool',async()=>{
@@ -290,65 +290,33 @@ test('Room Ops validates the full snapshot before its single database replacemen
   assert.ok(replacement>validateOnly);
 });
 
-test('ChatGPT Room Ops image imports use the OCR route before complete-snapshot validation',()=>{
-  const writesSource=readFileSync(path.join(root,'lib/server/cmpri-mcp-writes.ts'),'utf8');
-  const mcpRoute=readFileSync(path.join(root,'app/api/mcp/route.ts'),'utf8');
-  assert.match(writesSource,/case "room_operations\.import":[\s\S]*?const reportImages = images !== undefined[\s\S]*?api\/room-operations\/extract\/route[\s\S]*?images: reportImages/);
-  assert.match(writesSource,/delete importInput\.rows/);
-  assert.match(writesSource,/Include every active room with its exact room_status[\s\S]*Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay/);
-  assert.match(writesSource,/Nothing was imported/);
-  assert.match(mcpRoute,/MAX_MCP_REQUEST_BYTES = 4_500_000/);
-  assert.match(mcpRoute,/MAX_MCP_WRITE_INPUT_BYTES = 4_000_000/);
-});
 
-test('ChatGPT Room Ops write forwards uploaded images through OCR before importing extracted CSV',async()=>{
-  const calls=[];
-  const reportData={
-    room_status:{printed_date:'2026-10-06',printed_time:'08:15 AM',pages:[1],rows:[{room:'101',room_status:'Vacant Ready'}]},
-    expected_departures:null,
-  };
-  const writeRoute=load('lib/server/cmpri-mcp-writes.ts',{
-    'next/server':{
-      NextRequest:class {
-        constructor(url,init) {
-          this.url=url;
-          this.method=init.method;
-          const requestHeaders=init.headers;
-          this.headers={get:(name)=>requestHeaders[name]||null};
-          this.body=init.body;
-          this.nextUrl=new URL(url);
-        }
-        async json(){return JSON.parse(this.body);}
-      },
-    },
-    '@/app/api/room-operations/extract/route':{
-      POST:async(request)=>{
-        const body=await request.json();
-        calls.push({path:'/extract',body});
-        return {status:200,json:async()=>({ok:true,report_data:reportData})};
-      },
-    },
-    '@/app/api/room-operations/route':{
-      POST:async(request)=>{
-        const body=await request.json();
-        calls.push({path:body.validate_only?'/validate':'/import',body});
-        return body.validate_only
-          ? {status:200,json:async()=>({ok:true,rows:reportData.room_status.rows})}
-          : {status:200,json:async()=>({ok:true,import_id:'import-1'})};
-      },
-    },
+test('existing room_operations read returns the full contract even without refreshed tool discovery',async()=>{
+  const readRoute=load('lib/server/cmpri-mcp-reads.ts',{
+    'next/server':{NextRequest:Request},
+    '@/app/api/room-operations/route':{GET:async()=>Response.json({source_date:'2026-10-09',carried_over:true,rows:[]})},
   });
-  const incoming={nextUrl:{origin:'https://cmpri.example'},headers:{get:(name)=>name.toLowerCase()==='authorization'?'Bearer cmpri_mcp_test':null}};
-  const outcome=await writeRoute.callMcpWriteAction(
-    incoming,
-    identity('Chief Engineer'),
-    'room_operations.import',
-    {report_date:'2026-10-06',images:[{data:'aGVsbG8=',mediaType:'image/jpeg'}]},
-  );
-  assert.equal(outcome.status,200);
-  assert.deepEqual(calls,[
-    {path:'/extract',body:{images:[{data:'aGVsbG8=',mediaType:'image/jpeg'}]}},
-    {path:'/validate',body:{source:'file',report_data:reportData,validate_only:true}},
-    {path:'/import',body:{report_date:'2026-10-06',source:'file',report_data:reportData}},
-  ]);
+  const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer fixture'})};
+  const result=await readRoute.callMcpReadView(incoming,identity('Chief Engineer'),'room_operations',{});
+  assert.equal(result.source_date,'2026-10-09');
+  assert.equal(result.import_contract.action,'room_operations.import');
+  assert.match(result.import_contract.instructions,/Read all supplied report photos in ChatGPT/);
+  assert.match(result.import_contract.instructions,/validate_only/);
+  assert.ok(result.import_contract.input_schema.oneOf[0].properties.report_data);
+});
+test('connected import forwards structured data and dry-run unchanged, rejects images before any route call',async()=>{
+  const calls=[];
+  const writeRoute=load('lib/server/cmpri-mcp-writes.ts',{
+    'next/server':{NextRequest:Request},
+    '@/app/api/room-operations/route':{POST:async request=>{calls.push(await request.json());return Response.json({ok:true});}},
+    '@/app/api/room-operations/extract/route':{POST:async()=>{assert.fail('Connected imports must never call website OCR');}},
+  });
+  const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer fixture'})};
+  const input={report_data:{room_status:{printed_date:'2026-10-10',pages:[1],rows:[{room:'101',room_status:'OOO'}]}},validate_only:true};
+  await writeRoute.callMcpWriteAction(incoming,identity('Chief Engineer'),'room_operations.import',input);
+  assert.deepEqual(calls,[input]);
+  for(const images of [[],['fixture'],null]) {
+    await assert.rejects(()=>writeRoute.callMcpWriteAction(incoming,identity('Chief Engineer'),'room_operations.import',{images}),/submit verified report_data/);
+  }
+  assert.equal(calls.length,1);
 });

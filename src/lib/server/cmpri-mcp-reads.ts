@@ -1,5 +1,7 @@
 import "server-only";
 
+import { ROOM_OPERATIONS_IMPORT_CONTRACT } from "@/lib/server/room-operations-import-schema";
+
 import { NextRequest } from "next/server";
 import { allows } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
@@ -145,7 +147,8 @@ export async function callMcpReadView(
       const date = argument(args, "date", 10);
       const query = date ? `?date=${encodeURIComponent(date)}` : "";
       const route = await import("@/app/api/room-operations/route");
-      return callGet(incoming, `/api/room-operations${query}`, route.GET);
+      const snapshot = await callGet(incoming, `/api/room-operations${query}`, route.GET);
+      return { ...(snapshot as Record<string, unknown>), import_contract: ROOM_OPERATIONS_IMPORT_CONTRACT };
     }
     case "purchasing": {
       const route = await import("@/app/api/engineering/operations/route");
