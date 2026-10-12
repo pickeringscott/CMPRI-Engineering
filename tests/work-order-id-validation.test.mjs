@@ -1,3 +1,4 @@
+import * as accountDisplay from "../src/lib/account-display.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -45,6 +46,7 @@ function routeFixture(relativePath, config = {}) {
     console,
     process: { env: {} },
     require(name) {
+      if (name === "@/lib/account-display") return accountDisplay;
       if (name === 'next/server') return { NextResponse: response };
       if (name === '@supabase/supabase-js') return { createClient: () => admin };
       if (name === 'server-only') return {};

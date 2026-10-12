@@ -4,6 +4,10 @@ import { uploadWorkOrderAttachment } from "../src/lib/work-order-attachment-uplo
 import { resolveWorkOrderImages } from "../src/lib/work-orders/attachment-response.ts";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { PGlite } from "@electric-sql/pglite";
 import ts from "typescript";
 
 const hotelId = "c81ad01a-7a9f-4880-ac1c-5e849f30bad6";
@@ -77,7 +81,7 @@ function fixture(options = {}) {
     identity: { id: userId },
     profile: { id: userId, role, full_name: options.fullName || "Test User", active: true },
     hotelId,
-    membership: { user_id: userId, hotel_id: hotelId, role: roleModule.membershipRole(role), active: true },
+    membership: { user_id: userId, hotel_id: hotelId, role: options.membershipRole || roleModule.membershipRole(role), active: true },
     permissions,
   };
   const admin = {
@@ -87,7 +91,7 @@ function fixture(options = {}) {
         select() { return query; },
         eq(column, value) { filters.push([column, value]); return query; },
         maybeSingle: async () => ({
-          data: filters.every(([column, value]) => column !== "hotel_id" || record.hotel_id === value) ? record : null,
+          data: options.lookupWorkOrder ? await options.lookupWorkOrder(filters) : filters.every(([column, value]) => column !== "hotel_id" || record.hotel_id === value) ? record : null,
           error: options.lookupError ? new Error("database unavailable") : null,
         }),
       };
@@ -99,12 +103,17 @@ function fixture(options = {}) {
         return {
           upload: async (path, file, uploadOptions) => {
             storageCalls.push({ operation: "upload", path, file, uploadOptions });
+            if (options.persistDirectory && !options.uploadError) {
+              const target = join(options.persistDirectory, path);
+              await mkdir(dirname(target), { recursive: true });
+              await writeFile(target, Buffer.from(await file.arrayBuffer()));
+            }
             return { error: options.uploadError ? new Error("storage unavailable") : null };
           },
           list: async (prefix, listOptions) => {
             storageCalls.push({ operation: "list", prefix, listOptions });
             return {
-              data: options.files || [{ name: "photo.png", metadata: { mimetype: "image/png" } }],
+              data: options.persistDirectory ? (await readdir(join(options.persistDirectory, prefix))).map(name => ({ name, metadata: { mimetype: "image/png" } })) : options.files || [{ name: "photo.png", metadata: { mimetype: "image/png" } }],
               error: options.listError ? new Error("storage unavailable") : null,
             };
           },
@@ -459,3 +468,99 @@ test("attachment reads preserve upload timestamps when present", () => {
   };
   assert.deepEqual(resolveWorkOrderImages(true, { images: [image] }), { images: [image], error: "" });
 });
+
+for (const role of ["Lead Housekeeper", "Front Desk"]) {
+  test(`${role} completes own pending photo upload with durable ticket association but no pending read access`, async (t) => {
+    const db = new PGlite();
+    const directory = await mkdtemp(join(tmpdir(), "cmpri-photo-fixture-"));
+    const uploadId = "00000000-0000-4000-8000-000000000099";
+    try {
+      await db.exec("CREATE TABLE work_orders(id uuid, hotel_id uuid, created_by text, technician_name text, status text)");
+      await db.query("INSERT INTO work_orders VALUES ($1,$2,$3,NULL,'Pending Verification')", [workOrderId, hotelId, "owner"]);
+      const lookupWorkOrder = async filters => (await db.query("SELECT * FROM work_orders WHERE id=$1 AND hotel_id=$2", [filters.find(([key]) => key === "id")[1], filters.find(([key]) => key === "hotel_id")[1]])).rows[0] || null;
+      const route = fixture({ role, userId: "owner", lookupWorkOrder, persistDirectory: directory });
+      const methods = [];
+      t.mock.method(globalThis, "fetch", async (url, init) => {
+        assert.equal(url, `/api/work-orders/${workOrderId}/attachments`);
+        assert.equal(init.headers.Authorization, "Bearer synthetic-token");
+        methods.push(init.method);
+        const result = await route.post(init.body.get("photo"), init.headers["X-Upload-Id"]);
+        return new Response(JSON.stringify(result.body), {status: result.status});
+      });
+      const file = photo();
+      assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic-token", uploadId), {ok: true});
+      const relativePath = `${hotelId}/work-orders/${workOrderId}/${uploadId}.png`;
+      assert.deepEqual(await readFile(join(directory, relativePath)), Buffer.from(await file.arrayBuffer()));
+      assert.equal((await db.query("SELECT status FROM work_orders WHERE id=$1", [workOrderId])).rows[0].status, "Pending Verification");
+      assert.deepEqual(methods, ["POST"], "upload completion must not depend on forbidden GET readback");
+      assert.equal((await route.get()).status, 403);
+      assert.equal(route.storageCalls.filter(call => call.operation !== "upload").length, 0);
+      assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic-token", uploadId), {ok: true});
+      assert.equal((await readdir(dirname(join(directory, relativePath)))).length, 1, "retry keeps one associated object");
+      const engineering = fixture({ role: "Chief Engineer", userId: "engineering-reader", lookupWorkOrder, persistDirectory: directory });
+      const engineeringReadback = await engineering.get();
+      assert.equal(engineeringReadback.status, 200);
+      assert.equal(engineeringReadback.body.images.length, 1);
+      assert.equal(engineering.storageCalls.find(call => call.operation === "sign").path, relativePath);
+      await db.query("UPDATE work_orders SET status='Open' WHERE id=$1", [workOrderId]);
+      const readback = await route.get();
+      assert.equal(readback.status, 200);
+      assert.equal(readback.body.images[0].id, `${uploadId}.png`);
+      assert.equal(route.storageCalls.find(call => call.operation === "sign").path, relativePath);
+    } finally {
+      await db.close(); await rm(directory, {recursive: true, force: true});
+    }
+  });
+
+  test(`${role} pending uploads retain file validation and storage failure reporting`, async () => {
+    const options = { role, userId: "owner", createdBy: "owner", status: "Pending Verification" };
+    for (const file of [null, photo("notes.txt", "text/plain"), new File(["not an image"], "photo.png", { type: "image/png" }), photo("oversized.png", "image/png", 10 * 1024 * 1024 + 1)]) {
+      const route = fixture(options);
+      assert.equal((await route.post(file)).status, 400);
+      assert.equal(route.storageCalls.length, 0);
+    }
+    const failedStorage = fixture({ ...options, uploadError: true });
+    const result = await failedStorage.post(photo());
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error, "The work-order image could not be stored.");
+  });
+
+  test(`${role} pending exception rejects non-owner, other hotel, no submit capability and completed work`, async () => {
+    for (const options of [
+      {createdBy: "another-user", status: "Pending Verification"},
+      {createdBy: null, status: "Pending Verification"},
+      {workOrderHotelId: "00000000-0000-0000-0000-000000000099", status: "Pending Verification"},
+      {membershipRole: "viewer", status: "Pending Verification"},
+      ...["Completed", "Closed", "Will Not Do"].map(status => ({status})),
+    ]) {
+      const route = fixture({role, userId: "owner", createdBy: "owner", ...options});
+      assert.ok([403,404].includes((await route.post(photo())).status), JSON.stringify(options));
+      assert.ok([403,404].includes((await route.get()).status), JSON.stringify(options));
+      assert.equal(route.storageCalls.length, 0);
+    }
+  });
+}
+
+test("pending upload exception does not include managers or technicians even on their own tickets", async () => {
+  for (const role of ["General Manager", "Assistant General Manager", "Front Desk Manager", "Maintenance Technician"]) {
+    const route=fixture({role,userId:"owner",createdBy:"owner",status:"Pending Verification"});
+    assert.equal((await route.post(photo())).status,403,role);
+    assert.equal((await route.get()).status,403,role);
+    assert.equal(route.storageCalls.length,0);
+  }
+});
+
+for (const { role } of roleCases) {
+  test(`${role} attachment status and ownership permission matrix`, async () => {
+    const engineering = ["Engineer", "Chief Engineer", "Engineering Manager", "Regional Maintenance", "System Administrator"].includes(role);
+    const submitter = ["Front Desk", "Housekeeping", "Lead Housekeeper"].includes(role);
+    for (const status of ["Pending Verification", "Open", "In Progress", "Completed", "Closed", "Will Not Do"]) {
+      for (const own of [true, false]) {
+        const route = fixture({role, status, userId: "actor", createdBy: own ? "actor" : "other"});
+        const generallyAllowed = engineering || ["Open", "In Progress"].includes(status);
+        assert.equal((await route.get()).status, generallyAllowed ? 200 : 403, `${status} read own=${own}`);
+        assert.equal((await route.post(photo())).status, generallyAllowed || (submitter && own && status === "Pending Verification") ? 200 : 403, `${status} write own=${own}`);
+      }
+    }
+  });
+}

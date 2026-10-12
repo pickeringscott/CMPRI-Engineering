@@ -1,4 +1,4 @@
-import { roleDisplayName } from "@/lib/account-display";
+import { accountRoleDisplayName } from "@/lib/account-display";
 
 type AccountSummaryUser = {
   name: string | null;
@@ -8,7 +8,7 @@ type AccountSummaryUser = {
 };
 
 export default function AccountSummary({ user }: { user: AccountSummaryUser }) {
-  const displayRole = roleDisplayName(user.role, user.secondary_roles);
+  const displayRole = accountRoleDisplayName(user);
   const submitOnly = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(displayRole);
 
   return (

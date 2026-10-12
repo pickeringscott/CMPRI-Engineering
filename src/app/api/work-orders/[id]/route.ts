@@ -1,3 +1,4 @@
+import { accountRoleDisplayName } from "@/lib/account-display";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
@@ -100,16 +101,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (viewEntriesError) return NextResponse.json({ error: "Technician view notes could not be loaded." }, { status: 503 });
 
   let creatorRole: string | null = null;
+  let creatorDisplayRole: string | null = null;
   if (workOrder.created_by) {
     if (String(workOrder.created_by) === String(auth.principal.identity.id)) {
       creatorRole = auth.principal.profile.role || null;
+      creatorDisplayRole = accountRoleDisplayName({ ...auth.principal.profile, email: auth.principal.identity.email || auth.principal.profile.email });
     } else {
       const { data: creator } = await auth.admin
         .from("profiles")
-        .select("role")
+        .select("role, email, secondary_roles")
         .eq("id", workOrder.created_by)
         .maybeSingle();
       creatorRole = creator?.role || null;
+      creatorDisplayRole = creator ? accountRoleDisplayName(creator) : null;
     }
   }
 
@@ -138,6 +142,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       ...workOrder,
       room_status: currentRoomStatus(roomStatuses.statuses, workOrder.room),
       creator_role: creatorRole,
+      creator_display_role: creatorDisplayRole,
       technician_view_entries: technicianViewEntries || [],
     },
     mentionTickets,

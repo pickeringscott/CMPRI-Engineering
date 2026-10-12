@@ -499,3 +499,57 @@ html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="n"], [data-cmpri-d
 html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="e"], [data-cmpri-desktop-cursor="w"]) * { cursor: ew-resize !important; }
 html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="ne"], [data-cmpri-desktop-cursor="sw"]) * { cursor: nesw-resize !important; }
 html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="nw"], [data-cmpri-desktop-cursor="se"]) * { cursor: nwse-resize !important; }
+
+/* Keep the list's semantic badge/count colors readable on light slate surfaces. */
+html[data-theme="light"] .cmpri-work-order-list {
+  --color-purple-950: var(--color-purple-100);
+  --color-green-950: var(--color-green-100);
+  --color-yellow-950: var(--color-yellow-100);
+  --color-red-950: var(--color-red-100);
+  --color-orange-950: var(--color-orange-100);
+  --color-blue-950: var(--color-blue-100);
+  --color-amber-950: var(--color-amber-100);
+  --color-purple-200: var(--color-purple-800);
+  --color-green-200: var(--color-green-800);
+  --color-yellow-200: var(--color-yellow-800);
+  --color-red-200: var(--color-red-800);
+  --color-orange-200: var(--color-orange-800);
+  --color-blue-200: var(--color-blue-800);
+  --color-amber-200: var(--color-amber-800);
+}
+
+/* Presentation-only compact maintenance/Chief Engineer header; desktop is unchanged. */
+@media (width < 64rem) {
+  [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar { padding: 4px 8px; }
+  [data-chief-engineer-mobile="true"] [data-dashboard-title] { font-size: 12pt; }
+  [data-chief-engineer-mobile="true"] [data-dashboard-account] { margin-top: 4px; }
+  [data-chief-engineer-mobile="true"] [data-dashboard-name] { font-size: 11pt; }
+  [data-chief-engineer-mobile="true"] [data-dashboard-role] { margin-top: 2px; font-size: 8pt; }
+  [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar > div:first-child { align-items: flex-start; gap: 8px; padding-bottom: 4px; }
+  [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar [data-cmpri-desktop-launch="/work-orders"] { min-height: 32px; padding: 4px 8px; }
+}
+
+@media (width < 64rem) {
+  html[data-theme="light"] [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar {
+    background-image: none;
+    background-color: var(--color-slate-100);
+    --color-amber-300: var(--color-amber-800);
+    --color-sky-200: var(--color-sky-800);
+    --color-cyan-950: var(--color-cyan-50);
+    --color-cyan-100: var(--color-cyan-800);
+    --color-sky-950: var(--color-sky-50);
+    --color-sky-100: var(--color-sky-800);
+    --color-emerald-950: var(--color-emerald-50);
+    --color-emerald-100: var(--color-emerald-800);
+    --color-amber-950: var(--color-amber-50);
+    --color-amber-100: var(--color-amber-800);
+    --color-fuchsia-950: var(--color-fuchsia-50);
+    --color-fuchsia-100: var(--color-fuchsia-800);
+    --color-orange-950: var(--color-orange-50);
+    --color-orange-100: var(--color-orange-800);
+    --color-indigo-950: var(--color-indigo-50);
+    --color-indigo-100: var(--color-indigo-800);
+    --color-red-950: var(--color-red-50);
+    --color-red-100: var(--color-red-800);
+  }
+}

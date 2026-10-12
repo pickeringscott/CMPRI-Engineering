@@ -1,3 +1,4 @@
+import { accountRoleDisplayName } from "@/lib/account-display";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
@@ -27,10 +28,10 @@ async function readBody(request: NextRequest) {
 }
 
 async function creatorProfiles(admin: SupabaseClient, ids: string[]) {
-  if (!ids.length) return new Map<string, { id: string; role: string | null; full_name: string | null; active: boolean | null }>();
+  if (!ids.length) return new Map<string, { id: string; role: string | null; email?: string | null; secondary_roles?: string[]; full_name: string | null; active: boolean | null }>();
   const { data, error } = await admin
     .from("profiles")
-    .select("id, role, full_name, active")
+    .select("id, role, full_name, active, email, secondary_roles")
     .in("id", ids);
   if (error) throw new Error("Draft ownership could not be verified.");
   return new Map((data || []).map((profile) => [String(profile.id), profile]));
@@ -51,17 +52,20 @@ export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "submit");
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data, error } = await auth.admin
-    .from("cmpri_work_order_drafts")
-    .select("*")
-    .eq("hotel_id", HOTEL_ID)
-    .order("updated_at", { ascending: false })
-    .limit(MAX_DRAFTS);
+  const scope = request.nextUrl.searchParams.get("scope") || "own";
+  const reviewDraftId = request.nextUrl.searchParams.get("review_draft_id");
+  const canReviewDrafts = roleAllows(auth.principal.profile.role, "review_tickets");
+  if (!["own", "review"].includes(scope)) return NextResponse.json({ error: "Invalid draft scope." }, { status: 400 });
+  if ((scope === "review" || reviewDraftId) && !canReviewDrafts) {
+    return NextResponse.json({ error: "Draft review access is required." }, { status: 403 });
+  }
+  let query = auth.admin.from("cmpri_work_order_drafts").select("*").eq("hotel_id", HOTEL_ID);
+  if (scope === "own") query = query.eq("created_by", auth.principal.identity.id);
+  const { data, error } = await query.order("updated_at", { ascending: false }).limit(MAX_DRAFTS);
   if (error) return NextResponse.json({ error: "Drafts could not be loaded." }, { status: 503 });
 
   const rows = data || [];
   const profiles = await creatorProfiles(auth.admin, Array.from(new Set(rows.map((row) => String(row.created_by || "")).filter(Boolean))));
-  const canReviewDrafts = roleAllows(auth.principal.profile.role, "review_tickets");
   const canViewDashboard = roleAllows(auth.principal.profile.role, "view_dashboard");
   const canViewWorkOrders = roleAllows(auth.principal.profile.role, "view_work_orders");
   const visible = rows.filter((row) => {
@@ -87,12 +91,17 @@ export async function GET(request: NextRequest) {
       ...draft,
       creator_name: creator?.full_name || "Unknown User",
       creator_role: canReview ? creator?.role || "" : "",
+      creator_display_role: canReview && creator ? accountRoleDisplayName(creator) : "",
       can_edit: isOwner || canReview,
       can_delete: isOwner || canReview,
     };
   });
 
-  return NextResponse.json({ drafts: visible });
+  const reviewDraft = reviewDraftId ? await draftById(auth, reviewDraftId) : null;
+  return NextResponse.json({
+    drafts: visible,
+    ...(reviewDraftId ? { review_draft: reviewDraft ? { ...reviewDraft, can_edit: true, can_delete: true } : null } : {}),
+  }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function POST(request: NextRequest) {

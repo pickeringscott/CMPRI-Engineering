@@ -160,9 +160,9 @@ export default function WorkOrderListWindow({
     : groups[filter];
 
   return (
-    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
+    <div className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
-        <h1 className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
+        <h1 data-work-order-list-heading tabIndex={-1} className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
           <div className="relative min-w-[12em] flex-1 @md:max-w-[32em]">
             <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute left-[0.65em] top-1/2 size-[1em] -translate-y-1/2 fill-none stroke-slate-400" strokeWidth="1.7">
@@ -175,14 +175,14 @@ export default function WorkOrderListWindow({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search rooms, locations, or issues..."
               aria-label="Search rooms, locations, or issues"
-              className="w-full rounded-md border border-[#28527b] bg-[#0b2038] py-[0.45em] pl-[2em] pr-[2.2em] text-white outline-none placeholder:text-slate-400 focus:border-sky-400"
+              className="w-full rounded-md border border-slate-700 bg-slate-900 py-[0.45em] pl-[2em] pr-[2.2em] text-white outline-none placeholder:text-slate-400 focus:border-sky-400"
             />
             {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
           </div>
         </div>
       </header>
 
-      <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-4 gap-[0.2em] @md:grid-cols-8">
+      <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
         {KPI_CARDS.map((card) => {
           const selected = !normalizedQuery && filter === card.key;
           return (
@@ -193,13 +193,13 @@ export default function WorkOrderListWindow({
               aria-label={`${card.label}: ${loading ? "loading" : groups[card.key].length}`}
               aria-pressed={selected}
               onClick={() => { setFilter(card.key); setQuery(""); }}
-              className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-[#102a47]" : "border-[#1b3d60] bg-[#0a1e34] hover:border-[#3974a8]"}`}
+              className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-slate-800" : "border-slate-700 bg-slate-900 hover:border-slate-500"}`}
             >
-              <span className="min-w-0 truncate text-[0.78em] font-semibold uppercase leading-tight tracking-wide text-slate-300">
+              <span className="min-w-0 break-words text-[calc(0.78em+3px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
                 <span className="@md:hidden">{card.compactLabel}</span>
                 <span className="hidden @md:inline">{card.label}</span>
               </span>
-              <span className={`shrink-0 text-[0.9em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
             </button>
           );
         })}
@@ -207,7 +207,7 @@ export default function WorkOrderListWindow({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (
-          <p className="rounded-md border border-[#1b3d60] bg-[#0a1e34] p-[0.5em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
+          <p className="rounded-md border border-slate-700 bg-slate-900 p-[0.5em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
         )}
         {rows.length > 0 && (
           <div className="flex flex-col gap-[0.2em]">
@@ -222,7 +222,7 @@ export default function WorkOrderListWindow({
                   type="button"
                   onClick={() => isDraft && sourceDraftId ? onOpenDraft?.(sourceDraftId) : onOpenWorkOrder(order)}
                   aria-label={`${isDraft ? "Review draft" : "Open work order"} for ${order.room || "No location"}: ${order.issue || "No issue description"}`}
-                  className="flex w-full min-w-0 flex-col gap-[0.12em] rounded-md border border-[#1b4771] bg-[#0b2340] px-[0.6em] py-[0.28em] text-left transition-colors hover:border-[#3277b7] hover:bg-[#102b4b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+                  className="flex w-full min-w-0 flex-col gap-[0.12em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >
                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.5em] gap-y-[0.12em]">
                     <div className="flex min-w-0 flex-wrap items-center gap-[0.25em]">
@@ -249,14 +249,14 @@ export default function WorkOrderListWindow({
                   </div>
                   <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
                   {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">Draft — awaiting Chief Engineer approval{order.potential_duplicate === true ? " · Possible duplicate — review" : ""}</span>}
-                  <span className="block break-words text-[0.78em] leading-tight text-sky-200/75">Assigned to: {order.technician_name || "Unassigned"}</span>
+                  <span className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
                 </button>
               );
             })}
           </div>
         )}
       </div>
-      <span role="status" className="shrink-0 text-right text-[0.68em] leading-tight text-sky-200/70">
+      <span role="status" className="shrink-0 text-right text-[0.68em] leading-tight text-slate-400">
         {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${rows.length}`}
       </span>
     </div>

@@ -18,9 +18,15 @@ async function api(user,path,body){
 }
 const chief=users.find(u=>u.role==='chief_engineer'),technician=users.find(u=>u.role==='technician');
 try{
-  const {data,error}=await admin.from('work_orders').select('id,status,revision,technician_name').eq('created_by',technician.id).eq('location_id',technician.fixtures[0].location_id).single();
+  const {data,error}=await admin.from('work_orders').select('id,status,revision,technician_name').eq('created_by',users.find(u=>u.role==='housekeeping').id).eq('location_id',users.find(u=>u.role==='housekeeping').fixtures[0].location_id).single();
   assert.ifError(error);assert.ok(data,'Technician submission is a required lifecycle prerequisite');
   let current=data;
+  assert.equal(current.status,'Pending Verification','Use a real submit-only request for approval');
+  for(const user of users.filter(u=>!['chief_engineer','technician'].includes(u.role))){
+    const denied=await api(user,'/api/work-orders/'+current.id,{status:'Open',expected_revision:current.revision});
+    assert.ok([401,403].includes(denied.status),JSON.stringify(denied));
+    results.push({phase:'unauthorized approval denied',role:user.label,status:denied.status,passed:true});
+  }
   async function change(user,body,phase){
     const response=await api(user,'/api/work-orders/'+current.id,{...body,expected_revision:current.revision});
     assert.equal(response.status,200,JSON.stringify({phase,...response}));

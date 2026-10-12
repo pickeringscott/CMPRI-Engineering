@@ -42,3 +42,8 @@ enabled = false
 
 [edge_runtime]
 enabled = false
+
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"

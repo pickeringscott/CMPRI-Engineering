@@ -1,4 +1,4 @@
-name: Final seven-role release verification (one approved run)
+name: Post-release seven-role Auth and Storage verification (one run)
 
 on:
   push:
@@ -9,8 +9,8 @@ permissions:
 
 jobs:
   sandbox:
-    # Fourth and final run explicitly approved; only this push and first attempt may execute.
-    if: ${{ github.event.before == '4c4506f32890ad8aa4b38fa509d9cf37b8f962a7' && github.run_attempt == 1 }}
+    # One bounded post-release run; reruns and subsequent pushes must skip.
+    if: ${{ github.event.before == '5ea7f6cbf2a23b504a41e4aa23205cb298a0887f' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Verify released application and sandbox isolation
+        run: python tests/sandbox/verify-release.py
       - run: npm ci
       - name: Install pinned local Supabase CLI (verified archive)
         shell: bash
@@ -52,7 +54,7 @@ jobs:
           python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           from pathlib import Path
           print('## Local synthetic sandbox evidence')
-          for name in ['setup-diagnostics.json', 'auth-preflight-results.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'lifecycle-results.json', 'notification-db-results.json']:
+          for name in ['setup-diagnostics.json', 'auth-preflight-results.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'lifecycle-results.json', 'notification-db-results.json', 'draft-results.json', 'browser-extra-results.json', 'storage-results.json', 'notification-state-results.json']:
               p = Path('.sandbox') / name
               print('\n### ' + name + '\n')
               print('```json\n' + p.read_text() + '\n```' if p.exists() else 'Not produced: setup or a previous phase did not finish.')

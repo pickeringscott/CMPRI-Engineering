@@ -1,83 +1,45 @@
-# Isolated seven-role test setup
+# One post-release seven-role verification
 
-This test branch carries the pending equipment/troubleshooting batch over main
-`622602989159ee491a4cd25778368515da61d1fc`. It is not a production release.
-Its first commit disables Vercel Git deployments through
-`vercel.json` → `git.deploymentEnabled: false`. Keep this override on the sandbox
-branch; do not merge it into production as part of the app fix.
+Application, migrations and dependencies are exactly release
+`009a25000addefed5733415cf0a7c3656c59eb5c`; `verify-release.py` checks their
+SHA-256 manifest before execution. This branch changes only the verification
+harness and disables Vercel Git deployments. Never merge this override into main.
 
-The two prior runs have finished. One additional run is now explicitly approved:
-one standard Ubuntu job, at most 20 minutes and USD 0.25 additional charge
-including tax. It can execute only on the first push from
-`bd262beee179454a99fb598c8ef5819ac1956ea3` and attempt 1. Further pushes and
-reruns skip; any further metered run needs separate authorization.
+One standard Ubuntu GitHub Actions job is authorized, at most 20 minutes and
+USD 0.25 additional charge. The push guard accepts only the transition from
+`5ea7f6cbf2a23b504a41e4aa23205cb298a0887f`, attempt 1. No automatic reruns,
+artifacts, caches or additional jobs. Further metered runs need new approval.
 
-Sandbox email/password login is configured on with
-`auth.email.enable_signup = true`; CLI 2.81.3 maps that setting to the email
-provider switch. Public registration remains off with
-`auth.enable_signup = false`. Only the seeded synthetic accounts are used.
-A fail-fast preflight checks the local email provider, a synthetic password login,
-and the app session endpoint before the browser matrix. The repaired provider
-configuration and preflight have been syntax/config checked but have not run
-against an active stack. No successful login or browser pass is claimed.
+The pinned local Supabase stack uses real Auth/Postgres/RLS/Storage and repository
+migrations. Public signup is disabled; the repaired email/password provider stays
+enabled. Exactly seven synthetic accounts: General Manager, Assistant Manager
+(stored assistant_manager), Front Desk Manager, Maintenance Technician, Chief
+Engineer, Lead Housekeeper, Front Desk. No production secrets, records, accounts,
+grants, deployment or hosted backend. Node/browser guards block external calls.
+No destructive cleanup; the ephemeral runner owns all test data.
 
-This workflow does not upload artifacts or caches, provision a hosted database,
-use production secrets, create OAuth access, deploy, or call paid AI services.
+Coverage:
+- 28 real browser submissions, four equipment inference cases per role, with
+  persisted room/issue/Notes; Spanish notes preserved verbatim, not translated.
+- Own draft API and Create-form isolation for seven roles; explicit Chief review
+  access remains separate, other roles cannot edit someone else's draft.
+- English/Spanish Cancel with selected photos, Keep Editing then Confirm Cancel,
+  verifying unchanged database/order/Storage inventories.
+- LH/FD own Pending Verification uploads: select wrong+right PNG, red X removes
+  wrong file, only retained photo is uploaded. Real Storage bytes/SHA-256, path
+  association, engineering signed readback, and exact bucket inventory are checked.
+  Own Pending GET, other Pending POST and direct Storage access remain denied.
+- Exact ID/status RLS visibility expectations (managers see active rows only).
+- Pending approval → Open → technician claim/start/complete → Chief close through
+  real Auth/API, plus negative approval boundaries and database persistence.
+- Real notification eligibility/event generation, persisted read/clear and
+  recipient isolation; quiet hours/resume/dedup and encrypted delivery to a
+  controlled loopback HTTPS sink. No staff/device alerts.
 
-## Intended checks once execution is authorized
-
-The pinned Supabase CLI starts an ephemeral local Auth/API/Postgres stack and
-applies repository migrations locally. No `link`, `db push`, remote environment
-file, or production credential is used. Seven synthetic accounts represent only
-GM, AGM, FDM, Maintenance Technician, Chief Engineer, Lead Housekeeper and Front
-Desk. Their roles and ordinary grants are fixtures, not changes to app policy.
-
-Playwright signs in through the real password form. Twenty-eight submissions
-cover lamp classification, exact washer numbering (1/2/12), pool classification,
-and manufacturer selection for every account. The browser uses actual app routes
-and local persistence; no fake sessions or app response stubs. SQL independently
-checks the saved asset, category and retained guest comment. Authenticated RLS
-reads and an unauthenticated boundary check follow. Results fail the process if
-any login, submission or expected row is missing.
-
-An ordinary synthetic work-order notification exercises the real dispatch module,
-quiet hours, database persistence, retry deduplication and encrypted Web Push to
-a controlled local HTTPS receiver. It sends nothing to staff. It does not cover
-browser push enrollment, device delivery, or automatic notification creation from
-a ticket. No checkout-time notification is added or tested.
-
-Chief Engineer now persists as `chief_engineer`, while capability checks continue
-to use the existing engineer family. Account creation and explicit role edits
-preserve that identity after their existing authorization checks. Display and
-notification predicates recognize it. Generic `engineer` values remain generic
-and do not gain Chief Engineer notifications.
-
-Migration `20261011230319_cmpri_chief_engineer_role_identity.sql` adds this one
-stored value to the primary/secondary profile constraints while retaining their
-old allowed values. It does not update any account, policy, or grant. It is for
-sandbox testing and production review only: no production application is
-authorized. Existing generic accounts cannot be reclassified without a verified
-assignment and separate production authorization.
-
-The technical-role lifecycle check uses actual local Auth and app APIs to claim,
-start, complete and close a ticket, then verifies persistence and seven-role
-notification API eligibility. It does not exercise detail-page browser controls.
-Both Technician and Chief Engineer controlled encrypted push deliveries are
-checked. Real verified-manual storage/guide refresh and browser push enrollment
-remain coverage gaps. No deployment or complete production verification is claimed.
-
-## Execution and evidence
-
-Use a fresh ephemeral checkout, Node 24, Python 3.12 with Playwright 1.56.0 and its
-Chromium, Docker, OpenSSL, and Supabase CLI 2.81.3. After `npm ci`, run
-`bash tests/sandbox/run.sh` only when compute use is authorized. The script refuses
-an existing `.sandbox` directory or `.env.local`. Disposable local credentials,
-private logs, screenshots and results stay in ignored `.sandbox/`. Only an
-explicit allowlist of sanitized JSON results is printed to GitHub's job summary.
-Never upload the entire directory or its key/session files. The runner destroys
-the stack with its ephemeral VM; no persistent hosted resource is created.
-
-Before the authorized run, this setup was syntax/config checked but not run on GitHub; consult the Actions run for the actual outcome. The original
-cloud executor could not extract the Supabase Postgres image (`no space left on
-device` using Docker VFS). Passing prior mock-based checks did not establish a
-real Auth/Postgres/connected-session E2E pass.
+Only sanitized allowlisted JSON is printed. Local keys, tokens, screenshots,
+raw logs and uploaded bytes never become GitHub artifacts. The private bucket
+is created locally as a fixture because repository SQL does not provision it;
+this verifies application Storage integration, not production bucket policy parity.
+Physical phone push, browser push enrollment, manual refresh, detail-page lifecycle
+buttons and content translation remain gaps. Consult the run, not local syntax
+checks, for actual real-backend results.

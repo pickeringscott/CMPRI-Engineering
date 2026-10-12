@@ -180,7 +180,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(listWindow, /aria-label=\{\`\$\{card\.label\}:/);
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
-  assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImages\.length\}\)/);
+  assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImageError \? "unavailable" : workOrderImages\.length\}\)/);
   assert.match(workOrderDetail, /Upload photo/);
   assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
   assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details<\/summary>/);
@@ -189,4 +189,15 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);
   assert.match(styles, /html\.cmpri-desktop-interacting iframe \{\s*pointer-events: none !important;/);
   assert.match(styles, /container-type: inline-size;/);
+});
+
+test('approval modal removes only redundant controls and hides only an empty approval list', () => {
+ const source=readFileSync(new URL('../src/components/desktop/WorkOrderApprovalsWindow.tsx',import.meta.url),'utf8');
+ assert.doesNotMatch(source,/aria-label="Signed-in account"|Sound on|Sound off|No work orders are waiting/);
+ assert.match(source,/awaitingApproval.length > 0 && <ul aria-label="Work orders awaiting approval"/);
+ assert.match(source,/<span className="font-bold text-slate-400">\{awaitingApproval.length\}/);
+ assert.match(source,/onClick=\{onClearAll\}/);
+ assert.match(source,/onClick=\{\(\) => onClear\(notification.id\)\}/);
+ const list=readFileSync(new URL('../src/components/desktop/WorkOrderListWindow.tsx',import.meta.url),'utf8');
+ assert.equal((list.match(/text-\[calc\(0.78em\+3px\)\]/g)||[]).length,2);
 });

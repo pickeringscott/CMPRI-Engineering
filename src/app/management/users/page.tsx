@@ -6,7 +6,7 @@ import { getValidSession } from "@/lib/supabase/client";
 import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { roleDisplayName } from "@/lib/account-display";
+import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 
 type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[]; active: boolean | null; can_manage: boolean };
 
@@ -140,16 +140,18 @@ export default function UserManagementPage() {
             <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px] md:items-center">
               <div className="min-w-0">
                 <p className="break-words font-semibold">{user.full_name || "Unnamed user"}</p>
+                {user.can_manage && <p className="text-xs text-sky-200">{accountRoleDisplayName(user)}</p>}
                 <p className="mt-1 break-all text-sm text-slate-300">{user.email || "No email on file"}</p>
                 <p className="mt-1 text-xs text-slate-500">{user.active === true ? "Active" : "Inactive"}</p>
               </div>
               {user.can_manage ? (
                 <div className="min-w-0">
+                  <span className="text-xs text-slate-500">Authorization role</span>
                   <SearchableSelect value={user.role || ""} onChange={(value) => void updateUser(user, { role: value })} options={roles.includes(user.role || "") ? roleOptions : [{ value: user.role || "", label: roleDisplayName(user.role || "Unassigned") }, ...roleOptions]} placeholder={`Role for ${user.full_name || "user"}`} disabled={busy} />
                   {Boolean(user.secondary_roles?.length) && <p className="mt-1 text-xs text-slate-500">{roleDisplayName(user.secondary_roles || [])}</p>}
                 </div>
               ) : (
-                <p className="text-sm text-slate-400">{roleDisplayName([user.role || "Unassigned", ...(user.secondary_roles || [])])}</p>
+                <p className="text-sm text-slate-400">{accountRoleDisplayName(user)}</p>
               )}
               {user.can_manage ? (
                 <button disabled={busy} onClick={() => void updateUser(user, { active: user.active !== true })} className={`rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50 ${user.active !== true ? "border-emerald-500/50 text-emerald-200" : "border-red-500/50 text-red-200"}`}>{user.active !== true ? "Reactivate" : "Deactivate"}</button>

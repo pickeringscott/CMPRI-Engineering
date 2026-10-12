@@ -8,6 +8,7 @@ const admin = createClient(keys.API_URL, keys.SERVICE_ROLE_KEY, { auth: { persis
 const hotel = 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6';
 async function ok(query) { const r = await query; if (r.error) throw r.error; return r.data; }
 await ok(admin.from('hotels').insert({ id: hotel, code: 'SYNTHETIC_QA', name: 'Synthetic QA Hotel' }));
+await ok(admin.storage.createBucket('asset-documentation', { public: false, fileSizeLimit: 10 * 1024 * 1024 }));
 const cases = [
   ['General Manager', 'manager', 'manager'],
   ['Assistant General Manager', 'assistant_manager', 'technician'],
@@ -42,6 +43,8 @@ for (const [i, [label, canonicalRole, membership]] of cases.entries()) {
   }
   users.push({ label, role, id, email, password, fixtures });
 }
+// Establish notification cursors before browser submissions so real events can be observed.
+await ok(admin.from('cmpri_dashboard_notification_cursors').insert(users.filter(u=>['technician','chief_engineer'].includes(u.role)).map(u=>({hotel_id:hotel,recipient_user_id:u.id,checked_at:new Date(Date.now()-60000).toISOString()}))));
 // Synthetic local grants only, matching the existing seven-role fixture.
 for (const role of ['Chief Engineer', 'Maintenance Technician']) for (const permission of ['manage_work_orders', 'close_work_orders']) {
   await ok(admin.from('role_permissions').upsert({ role, permission, allowed: true }, { onConflict: 'role,permission' }));
