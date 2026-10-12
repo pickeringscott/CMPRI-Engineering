@@ -5,6 +5,7 @@ import { parseAssetInstallYear } from "@/lib/asset-install-year";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
+import { EQUIPMENT_SELECTION_COLUMNS } from "@/lib/equipment-selection";
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
     const assets: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
       const { data, error } = await auth.admin.from("assets")
-        .select("id, location_id, asset_type, name, active, status")
+        .select(EQUIPMENT_SELECTION_COLUMNS)
         .eq("active", true)
         .order("name", { ascending: true })
         .range(offset, offset + ASSET_PAGE_SIZE - 1);
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
   const assets: Array<Record<string, unknown> & { id: string }> = [];
   for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
     const { data, error } = await auth.admin.from("assets")
-      .select("id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by")
+      .select("id, location_id, asset_type, name, asset_tag, binder_tag, quantity, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by")
       .range(offset, offset + ASSET_PAGE_SIZE - 1)
       .order("name", { ascending: true });
     if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });

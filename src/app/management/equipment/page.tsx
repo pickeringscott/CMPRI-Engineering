@@ -7,6 +7,7 @@ import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-install-year";
 import useEmbeddedModal from "@/components/use-embedded-modal";
+import { equipmentOptionLabel } from "@/lib/equipment-selection";
 
 type Asset = {
   id: string;
@@ -14,6 +15,8 @@ type Asset = {
   asset_type: string;
   name: string;
   asset_tag: string | null;
+  binder_tag?: string | null;
+  quantity?: number | null;
   active: boolean;
   status: string;
   manufacturer: string | null;
@@ -311,9 +314,9 @@ export default function ManageEquipmentPage() {
     : [];
   const assetOptions: SearchableSelectOption[] = assets.map((asset) => ({
     value: asset.id,
-    label: asset.name || asset.asset_type || "Unnamed equipment",
+    label: equipmentOptionLabel({ ...asset, name: asset.name || asset.asset_type || "Unnamed equipment" }),
     group: asset.asset_type || "Equipment",
-    keywords: [asset.asset_type, asset.manufacturer, asset.model_number, asset.serial_number, asset.asset_tag].filter(Boolean) as string[],
+    keywords: [asset.asset_type, asset.manufacturer, asset.model_number, asset.serial_number, asset.asset_tag, asset.binder_tag].filter(Boolean) as string[],
   }));
 
   return (
@@ -368,6 +371,8 @@ export default function ManageEquipmentPage() {
                     ))}
                   </div>
                   <p className="mt-1 text-sm text-slate-400">{verified ? "Verified fields are locked against casual edits." : "Review and save the equipment record before final documentation verification."}</p>
+                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is not offered for room work orders. Engineering must verify whether it represents installed equipment or a shared model before assigning it.</p>}
+                  {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { fetchAllPages } from '../src/lib/server/paginated-query.ts';
+import { EQUIPMENT_SELECTION_COLUMNS } from '../src/lib/equipment-selection.ts';
 import { newlyAvailableTechnicianWork } from '../src/lib/dashboard/technician-work-notifications.ts';
 
 const routePath = new URL('../src/app/api/work-orders/route.ts', import.meta.url);
@@ -67,6 +68,7 @@ function fixture(config = {}) {
       if (name === '@/lib/integrations/spreadsheet-input') return { jsonObject: async () => null };
       if (name === '@/lib/work-order-attribution') return { validFirstName: () => false, workOrderAttribution: () => ({}) };
       if (name === '@/lib/work-order-duplicates') return { likelyDuplicate: () => false };
+      if (name === '@/lib/equipment-selection') return { EQUIPMENT_SELECTION_COLUMNS };
       if (name === '@/lib/work-order-suggestions') return { inferWorkOrder: () => ({}), separateIssueFromReporterNotes: () => ({}) };
       if (name === '@/lib/work-order-categories') return { normalizeWorkOrderCategory: () => null };
       if (name === '@/lib/server/room-ranker') return { processRoomRankerSyncForWorkOrder: async () => ({}) };

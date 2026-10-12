@@ -1,5 +1,7 @@
 "use client";
 
+import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-steps";
+
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -391,59 +393,6 @@ const SYMPTOM_ROUTES: SymptomRoute[] = [
     ],
   },
 ];
-
-function stepWords(value: string) {
-  return new Set(
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((word) => word.length >= 4)
-  );
-}
-
-function troubleshootingStepAlreadyDone(
-  step: string,
-  notesText: string,
-  aiActions: string[]
-) {
-  const actions = [
-    notesText,
-    ...aiActions,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (!actions.trim()) {
-    return false;
-  }
-
-  const stepSet = stepWords(step);
-  const actionSet = stepWords(actions);
-
-  if (!stepSet.size) {
-    return false;
-  }
-
-  let overlap = 0;
-
-  for (const word of stepSet) {
-    if (actionSet.has(word)) {
-      overlap += 1;
-    }
-  }
-
-  /*
-   * Conservative filtering: only hide a fallback step when the technician
-   * note/action text has substantial overlap. This avoids incorrectly
-   * deleting steps merely because both contain generic words like "check".
-   */
-  return (
-    overlap >= 3 &&
-    overlap / stepSet.size >= 0.45
-  );
-}
 
 function symptomRouteTroubleshooting(
   asset: Asset | undefined,

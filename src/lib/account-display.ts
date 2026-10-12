@@ -1,6 +1,6 @@
 const ROLE_LABELS: Record<string, string> = {
   engineer: "Engineer",
-  chief_engineer: "Engineer",
+  chief_engineer: "Chief Engineer",
   engineering_manager: "Engineer",
   regional_maintenance: "Engineer",
   manager: "General Manager",
