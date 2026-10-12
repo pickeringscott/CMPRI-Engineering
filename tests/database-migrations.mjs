@@ -673,7 +673,7 @@ try {
     await db.query("update public.profiles set role='system_admin' where id=$1",[actor]);
     assert.equal(Number((await db.query("update public.pool_daily_logs set ph_am=7.6 where id=$1 returning ph_am",[id])).rows[0].ph_am),7.6);
   });
-  const retestStatusMigration = readFileSync(new URL('../supabase/migrations/20261012205822_cmpri_pool_retest_status.sql', import.meta.url), 'utf8');
+  const retestStatusMigration = readFileSync(new URL('../supabase/migrations/20261012212441_cmpri_pool_retest_status.sql', import.meta.url), 'utf8');
   await check('retest migration is idempotent and does not backfill logs or history', async () => {
     const before=await db.query('select to_jsonb(t) as row from public.pool_daily_logs t order by id');
     const history=await db.query('select * from public.cmpri_pool_log_history order by id');

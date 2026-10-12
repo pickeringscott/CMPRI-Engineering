@@ -18,7 +18,7 @@
     "check:release-schema": "node scripts/check-release-schema.mjs",
     "check:pdf-runtime": "node scripts/check-pdf-runtime.mjs",
     "prepare:vercel-output": "node scripts/prepare-vercel-output.mjs",
-    "test:database": "node tests/database-migrations.mjs && node --test tests/room-ranker-outbox.test.mjs tests/ticket-read-rls.test.mjs"
+    "test:database": "node tests/database-migrations.mjs && node --test tests/room-ranker-outbox.test.mjs tests/ticket-read-rls.test.mjs tests/pool-reconciliation.test.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",
