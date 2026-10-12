@@ -212,12 +212,11 @@ test('shared work-order field policy matches role-specific API and UI permission
   assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: cmpriSession\?\.user\.role,[\s\S]*unassigned: !String\(order\.technician_name \|\| ""\)\.trim\(\),[\s\S]*canClaimUnassigned: canClaimWorkOrder/);
 });
 
-test('every note-only role saves only notes on open tickets',async()=>{
+test('note-only roles cannot replace history through the general ticket endpoint',async()=>{
   for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const f=fixture({profile:{id:'actor',active:true,role},body:{notes:'A permitted operational note'}});
-    assert.equal((await f.run()).status,200,role);
-    assert.deepEqual(Object.keys(f.saved()).sort(),['history_actor_user_id','history_source','notes'],role);
-    assert.equal(f.saved().notes,'A permitted operational note',role);
+    assert.equal((await f.run()).status,403,role);
+    assert.equal(f.saved(),undefined,role);
   }
 });
 

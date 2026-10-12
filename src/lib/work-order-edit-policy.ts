@@ -33,12 +33,13 @@ export function canSubmitWorkOrderNote({
   unassigned?: boolean;
   canClaimUnassigned?: boolean;
 }) {
+  if (canAddNotes && ["Open", "In Progress"].includes(String(status || ""))) return true;
   if (roleKey(role) === "technician") {
     return workOrderEditableFields({
       role,
       canEdit,
       canReview,
-      canAddNotes,
+      canAddNotes: canAddNotes && ["Open", "In Progress"].includes(String(status || "")),
       unassigned,
       canClaimUnassigned,
     }).includes("notes");
@@ -64,7 +65,7 @@ export function workOrderEditableFields({
   canClaimUnassigned: boolean;
 }): readonly WorkOrderEditableField[] {
   if (roleKey(role) === "technician") {
-    if (!canEdit) return [];
+    if (!canEdit) return canAddNotes ? NOTE_ONLY_WORK_ORDER_FIELDS : [];
     if (unassigned) {
       return [
         ...(canClaimUnassigned ? UNASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS : []),

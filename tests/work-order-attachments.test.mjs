@@ -229,8 +229,8 @@ test("attachment ownership and cross-role API access match the role capability b
     fullName: "Morgan Lee",
     technicianName: "Other Technician",
   });
-  assert.equal((await assignedToAnother.get()).status, 403);
-  assert.equal(assignedToAnother.storageCalls.length, 0);
+  assert.equal((await assignedToAnother.get()).status, 200);
+  assert.equal((await assignedToAnother.post(photo())).status, 200);
 
   const pendingForTechnician = fixture({
     role: "Maintenance Technician",
@@ -296,7 +296,7 @@ test("attachment retries reuse a validated upload ID without creating duplicate 
   const route = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
   assert.equal((await route.post(photo(), uploadId)).status, 200);
   const uploaded = route.storageCalls[0];
-  assert.equal(uploaded.path, `${hotelId}/work-orders/${workOrderId}/${uploadId}.png`);
+  assert.equal(uploaded.path, `${hotelId}/work-orders/${workOrderId}/owner_${uploadId}.png`);
   assert.equal(uploaded.uploadOptions.upsert, true);
 
   const invalid = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
@@ -489,7 +489,7 @@ for (const role of ["Lead Housekeeper", "Front Desk"]) {
       });
       const file = photo();
       assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic-token", uploadId), {ok: true});
-      const relativePath = `${hotelId}/work-orders/${workOrderId}/${uploadId}.png`;
+      const relativePath = `${hotelId}/work-orders/${workOrderId}/owner_${uploadId}.png`;
       assert.deepEqual(await readFile(join(directory, relativePath)), Buffer.from(await file.arrayBuffer()));
       assert.equal((await db.query("SELECT status FROM work_orders WHERE id=$1", [workOrderId])).rows[0].status, "Pending Verification");
       assert.deepEqual(methods, ["POST"], "upload completion must not depend on forbidden GET readback");
@@ -505,7 +505,7 @@ for (const role of ["Lead Housekeeper", "Front Desk"]) {
       await db.query("UPDATE work_orders SET status='Open' WHERE id=$1", [workOrderId]);
       const readback = await route.get();
       assert.equal(readback.status, 200);
-      assert.equal(readback.body.images[0].id, `${uploadId}.png`);
+      assert.equal(readback.body.images[0].id, `owner_${uploadId}.png`);
       assert.equal(route.storageCalls.find(call => call.operation === "sign").path, relativePath);
     } finally {
       await db.close(); await rm(directory, {recursive: true, force: true});
@@ -564,3 +564,16 @@ for (const { role } of roleCases) {
     }
   });
 }
+
+
+test("different commenters cannot overwrite each other's upload keys", async () => {
+  const uploadId = "00000000-0000-4000-8000-000000000099";
+  const paths=[];
+  for(const userId of ["actor-a","actor-b"]) {
+    const f=fixture({role:"Maintenance Technician",userId,technicianName:"Other Technician"});
+    assert.equal((await f.post(photo(),uploadId)).status,200);
+    paths.push(f.storageCalls[0].path);
+    assert.equal(f.storageCalls[0].uploadOptions.metadata.uploaded_by,userId);
+  }
+  assert.notEqual(paths[0],paths[1]);
+});

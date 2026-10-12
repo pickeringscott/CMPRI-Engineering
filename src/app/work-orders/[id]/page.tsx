@@ -1344,7 +1344,7 @@ export default function WorkOrderTicketPage() {
       if ((order.status || "Open") !== saveStatus) updatePayload.status = saveStatus;
       if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
     } else if (canAddWorkOrderNotes && capabilities.includes("add_work_order_notes")) {
-      if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
+      if (stagedNoteIds.length) updatePayload.appendNotes = stagedNoteIds.flatMap(line => parseTicketHistory(line).map(entry => entry.text));
     } else if (isTechnician) {
       setMessage("Take this work before editing its details.");
       setSaving(false);
@@ -1367,10 +1367,11 @@ export default function WorkOrderTicketPage() {
     try {
       const session = await getValidSession();
       const token = session?.access_token || "";
-      const response = await fetch(`/api/work-orders/${encodeURIComponent(order.id)}`, {
-        method: "PATCH",
+      const appendOnly = Array.isArray(updatePayload.appendNotes);
+      const response = await fetch(`/api/work-orders/${encodeURIComponent(order.id)}${appendOnly ? "/notes" : ""}`, {
+        method: appendOnly ? "POST" : "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(updatePayload),
+        body: JSON.stringify(appendOnly ? { notes: updatePayload.appendNotes, expected_revision: order.revision } : updatePayload),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Work order update failed.");
@@ -1385,11 +1386,12 @@ export default function WorkOrderTicketPage() {
 
     if (savedRow) setOrder({ ...savedRow, technician_view_entries: order.technician_view_entries });
     if (statusOverride !== undefined) setStatus(saveStatus);
-    setNotes(notesWithChanges);
+    const savedNotes = savedRow?.notes ?? notesWithChanges;
+    setNotes(savedNotes);
     setStagedNoteIds([]);
 
     setInitialFingerprint(JSON.stringify({
-      issue: normalizedIssue, assetId, category, priority, technicianName, status: saveStatus, notes: notesWithChanges,
+      issue: normalizedIssue, assetId, category, priority, technicianName, status: saveStatus, notes: savedNotes,
       actionRootCause, parts, cost, hours, dueBy,
     }));
     setSaving(false);
@@ -1558,7 +1560,7 @@ export default function WorkOrderTicketPage() {
   const canAccessAssignedWork = canAccessWorkOrderByAssignment(cmpriSession?.user.role, cmpriSession?.user.name, order);
   const canEditTicket = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
-  const canAddWorkOrderNotes = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
+  const canAddWorkOrderNotes = Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
   const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
   const canClaimWorkOrder = isTechnician &&

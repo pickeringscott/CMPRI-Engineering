@@ -155,6 +155,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
+  if (!canEdit && !canReview && Object.prototype.hasOwnProperty.call(body, "notes")) {
+    return NextResponse.json({ error: "Use the append-only notes action to add notes without replacing history." }, { status: 403 });
+  }
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
   const db = auth.admin;

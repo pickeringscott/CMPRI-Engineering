@@ -46,3 +46,11 @@ test('one-click approval saves pending edits and changes status to Open in the s
 test('Approve triggers the save operation directly without a second button action',()=>{
   assert.match(source,/<button type="button" onClick=\{\(\) => \{ void saveTicket\("Open"\); \}\}[^>]*>Approve/);
 });
+
+
+test('note-only save uses attributed append endpoint and saved history', async()=>{
+  const f=fixture(null,{canEditField:()=>false,canReviewCurrentTicket:false,canAddWorkOrderNotes:true,isTechnician:true,
+    cmpriSession:{capabilities:['add_work_order_notes']},stagedNoteIds:['staged-line'],parseTicketHistory:()=>[{text:'Actual finding'}],
+    fetch:async(url,options)=>{assert.equal(url,'/api/work-orders/order/notes');assert.equal(options.method,'POST');assert.deepEqual(JSON.parse(options.body),{notes:['Actual finding'],expected_revision:7});return {ok:true,json:async()=>({workOrder:{id:'order',notes:'Server attributed finding'}})}}});
+  await f.run();assert.equal(f.calls.notes[0],'Server attributed finding');assert.equal(JSON.parse(f.calls.fingerprints[0]).notes,'Server attributed finding');
+});

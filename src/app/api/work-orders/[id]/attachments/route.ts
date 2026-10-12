@@ -68,7 +68,8 @@ async function authorizedWorkOrder(request: NextRequest, id: string, mode: "read
     && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
     return { response: NextResponse.json({ error: "This role can only view attachments for open work orders." }, { status: 403 }) };
   }
-  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
+  const sharedOpenPhoto = canComment && ["Open", "In Progress"].includes(String(workOrder.status || ""));
+  if (!sharedOpenPhoto && !canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
     return { response: NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 }) };
   }
   const canAccess = isCreator || (mode === "write"
@@ -104,10 +105,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "The selected file is not a valid supported image." }, { status: 400 });
   }
 
-  const storagePath = `${attachmentPrefix(id)}/${uploadId || crypto.randomUUID()}.${extension}`;
+  const storagePath = `${attachmentPrefix(id)}/${context.auth.principal.identity.id}_${uploadId || crypto.randomUUID()}.${extension}`;
   const { error: uploadError } = await context.auth.admin.storage
     .from(DOCUMENTATION_BUCKET)
-    .upload(storagePath, file, { contentType, upsert: Boolean(uploadId) });
+    .upload(storagePath, file, { contentType, upsert: Boolean(uploadId), metadata: { uploaded_by: context.auth.principal.identity.id, uploader_name: context.auth.principal.profile.full_name || "CMPRI User", uploader_role: context.auth.principal.profile.role } });
   if (uploadError) {
     console.error("Work-order photo upload failed:", uploadError.message);
     return NextResponse.json({ error: "The work-order image could not be stored." }, { status: 503 });
