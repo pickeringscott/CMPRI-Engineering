@@ -1,3 +1,4 @@
+import {failed,requirePrerequisite} from './outcomes.mjs';
 import assert from 'node:assert/strict';
 import {api,users,admin,ok,report,hotel} from './client.mjs';
 const results=[];
@@ -17,6 +18,7 @@ for(const user of users){
 try{
  const technical=users.filter(u=>['chief_engineer','technician'].includes(u.role));
  const order=(await ok(admin.from('work_orders').select('id').limit(1)))[0];
+ requirePrerequisite(order,'At least one persisted work order required for read/clear isolation');
  const key='synthetic-read-clear-isolation';
  await ok(admin.from('cmpri_dashboard_notifications').insert(technical.map(u=>({hotel_id:hotel,recipient_user_id:u.id,notification_key:key,work_order_id:order.id,message:'Synthetic read/clear boundary',recorded_at:new Date().toISOString()}))));
  const chief=technical.find(u=>u.role==='chief_engineer'),tech=technical.find(u=>u.role==='technician');
@@ -28,5 +30,5 @@ try{
  }
  const reload=await api(chief,'/api/dashboard/notifications');assert.equal(reload.status,200);assert.ok(!reload.body.notifications.some(n=>n.id===key));
  results.push({phase:'persisted read/clear, recipient isolation and reload',passed:true});
-}catch(e){results.push({phase:'read/clear persistence',passed:false,error:String(e)});}
+}catch(e){results.push(failed(e,{phase:'read/clear persistence'}));}
 report('notification-state-results.json',results);

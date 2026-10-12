@@ -1,3 +1,4 @@
+import {failed,requirePrerequisite,classified} from './outcomes.mjs';
 import {readJsonResponse} from './http-diagnostics.mjs';
 import {createClient} from '@supabase/supabase-js';
 import {readFileSync,writeFileSync} from 'node:fs';
@@ -7,6 +8,7 @@ const keys=JSON.parse(readFileSync(new URL('local-keys.json',out)));
 assert.match(keys.API_URL,/^http:\/\/(127\.0\.0\.1|localhost):54321$/);
 const users=JSON.parse(readFileSync(new URL('synthetic-users.json',out)));
 const admin=createClient(keys.API_URL,keys.SERVICE_ROLE_KEY,{auth:{persistSession:false}});
+let lifecyclePassed=false;
 const results=[],sessions=new Map(),since=new Date(Date.now()-3600000).toISOString();
 async function api(user,path,body){
   if(!sessions.has(user.id)){
@@ -19,6 +21,9 @@ async function api(user,path,body){
 }
 const chief=users.find(u=>u.role==='chief_engineer'),technician=users.find(u=>u.role==='technician');
 try{
+  const submissions=JSON.parse(readFileSync(new URL('e2e-results.json',out)));
+  const submitted=submissions.find(r=>r.storedRole==='housekeeping'&&r.scenario==='lamp');
+  requirePrerequisite(submitted?.passed&&submitted.rows?.length===1,'Successful Lead Housekeeper submission required for lifecycle');
   const {data,error}=await admin.from('work_orders').select('id,status,revision,technician_name').eq('created_by',users.find(u=>u.role==='housekeeping').id).eq('location_id',users.find(u=>u.role==='housekeeping').fixtures[0].location_id).single();
   assert.ifError(error);assert.ok(data,'Technician submission is a required lifecycle prerequisite');
   let current=data;
@@ -41,18 +46,21 @@ try{
   await change(chief,{status:'Closed'},'chief close');
   const persisted=await admin.from('work_orders').select('status,revision').eq('id',current.id).single();
   assert.ifError(persisted.error);assert.equal(persisted.data.status,'Closed');
-  assert.equal(persisted.data.revision,current.revision);
-}catch(error){results.push({phase:'ticket lifecycle',passed:false,error:String(error)});}
+  assert.equal(persisted.data.revision,current.revision);lifecyclePassed=true;
+}catch(error){results.push(failed(error,{phase:'ticket lifecycle'}));}
 for(const user of users){
   try{
     const response=await api(user,'/api/work-orders/notifications?since='+encodeURIComponent(since));
     const eligible=['chief_engineer','technician'].includes(user.role);
     assert.equal(response.status,eligible?200:403,JSON.stringify(response.body));
     if(eligible)assert.ok(Array.isArray(response.body.notifications));
-    if(user.role==='chief_engineer')assert.ok(response.body.notifications.length>0,'Chief Engineer must receive technician workflow events');
+    if(user.role==='chief_engineer'){
+      if(!lifecyclePassed)results.push(failed(new (await import('./outcomes.mjs')).Blocked('Successful technician lifecycle required'),{phase:'Chief lifecycle event evidence',role:user.label}));
+      else assert.ok(response.body.notifications.length>0,'Chief Engineer must receive technician workflow events');
+    }
     results.push({phase:'notification API eligibility',role:user.label,status:response.status,count:response.body.notifications?.length??0,passed:true});
   }catch(error){results.push({phase:'notification API eligibility',role:user.label,passed:false,error:String(error)});}
 }
-writeFileSync(new URL('lifecycle-results.json',out),JSON.stringify(results,null,2));
+writeFileSync(new URL('lifecycle-results.json',out),JSON.stringify(classified(results),null,2));
 for(const result of results)console.log(JSON.stringify(result));
 assert.ok(results.every(result=>result.passed),'Actual Auth/API/DB lifecycle or notification eligibility failed');

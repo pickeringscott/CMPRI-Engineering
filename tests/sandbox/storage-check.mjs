@@ -1,3 +1,4 @@
+import {failed,requirePrerequisite} from './outcomes.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
@@ -10,7 +11,7 @@ const submissions=JSON.parse(readFileSync(new URL('e2e-results.json',out)));
 for(const user of users.filter(u=>['housekeeping','front_desk'].includes(u.role))){
  try{
   const submission=submissions.find(s=>s.storedRole===user.role&&s.scenario==='lamp');
-  assert.ok(submission?.passed,'Browser photo submission is prerequisite');
+  requirePrerequisite(submission?.passed&&submission.retainedPhotoUploadStatus===200,'Successful browser photo submission is prerequisite');
   const order=submission.rows[0],prefix=`${hotel}/work-orders/${order.id}`;
   const persisted=await ok(admin.from('work_orders').select('id,created_by,status').eq('id',order.id).single());
   assert.equal(persisted.created_by,user.id);assert.equal(persisted.status,'Pending Verification');
@@ -32,12 +33,13 @@ for(const user of users.filter(u=>['housekeeping','front_desk'].includes(u.role)
   const directUpload=await client.storage.from('asset-documentation').upload(prefix+'/'+randomUUID()+'.png',wrong,{contentType:'image/png'});assert.ok(directUpload.error,'Direct Storage write must be denied');
   assert.equal((await ok(admin.storage.from('asset-documentation').list(prefix))).length,1);
   results.push({role:user.label,workOrderId:order.id,status:persisted.status,storageObject:path,sha256:hash(bytes),actualBytes:bytes.length,engineeringSignedReadback:true,wrongPhotoAbsent:true,ownPendingGetDenied:true,otherPendingPostDenied:true,directStorageReadWriteDenied:true,passed:true});
- }catch(e){results.push({role:user.label,passed:false,error:String(e)});}
+ }catch(e){results.push(failed(e,{role:user.label,phase:'photo persistence and boundaries'}));}
 }
 // Assert the entire isolated bucket contains exactly the two retained browser uploads.
 try{
+ requirePrerequisite(results.length===2&&results.every(r=>r.passed),'Both browser photo uploads must pass before exact bucket inventory');
  const {execFileSync}=await import('node:child_process');
  const count=Number(execFileSync('docker',['exec','supabase_db_cmpri-seven-role-isolated-qa','psql','-U','postgres','-d','postgres','-At','-c',"select count(*) from storage.objects where bucket_id='asset-documentation'"],{encoding:'utf8'}).trim());
  assert.equal(count,2);results.push({phase:'bucket inventory excludes removed and cancelled photos',actualObjects:count,passed:true});
-}catch(e){results.push({phase:'bucket inventory',passed:false,error:String(e)});}
+}catch(e){results.push(failed(e,{phase:'bucket inventory'}));}
 report('storage-results.json',results);

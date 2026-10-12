@@ -19,7 +19,7 @@ const cases = [
   ['Front Desk', 'front_desk', 'technician'],
 ];
 const scenarios = [
-  { name: 'lamp', issue: 'desk lamp not working', category: 'Electrical', assets: [{ name: 'Desk lamp', asset_type: 'Desk lamp' }], expected: 0 },
+  { name: 'lamp', issue: 'desk lamp not working', expectedIssue: 'Desk lamp not working', category: 'Electrical', assets: [{ name: 'Desk lamp', asset_type: 'Desk lamp' }], expected: 0 },
   { name: 'washer', issue: 'Washer #2 not draining', category: 'Laundry', assets: [1, 2, 12].map(n => ({ name: `Washer #${n}`, asset_type: 'Washer' })), expected: 1 },
   { name: 'pool', issue: 'Pool filter pressure high', category: 'Pool/Spa', assets: [{ name: 'Sand filter', asset_type: 'Pool Filter' }], expected: 0 },
   { name: 'manufacturer', issue: 'Beta washer not working', category: 'Laundry', assets: ['Alpha', 'Beta'].map(manufacturer => ({ name: 'Washer', asset_type: 'Washer', manufacturer })), expected: 1 },
@@ -39,7 +39,7 @@ for (const [i, [label, canonicalRole, membership]] of cases.entries()) {
     await ok(admin.from('locations').insert({ id: location_id, hotel_id: hotel, area: 'Guest Rooms', name: `Room ${room}`, room_number: room, location_type: 'Guest Room' }));
     const assets = scenario.assets.map(asset => ({ ...asset, id: randomUUID(), hotel_id: hotel, location_id, active: true }));
     await ok(admin.from('assets').insert(assets));
-    fixtures.push({ name: scenario.name, room, location_id, issue: scenario.issue, category: scenario.category, asset_id: assets[scenario.expected].id });
+    fixtures.push({ name: scenario.name, room, location_id, issue: scenario.issue, expected_issue: scenario.expectedIssue || scenario.issue, category: scenario.category, asset_id: assets[scenario.expected].id });
   }
   users.push({ label, role, id, email, password, fixtures });
 }

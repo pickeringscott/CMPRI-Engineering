@@ -1,3 +1,4 @@
+import {classified,HardStop} from './outcomes.mjs';
 import {readJsonResponse,redact} from './http-diagnostics.mjs';
 import {createClient} from '@supabase/supabase-js';
 import {readFileSync,writeFileSync} from 'node:fs';
@@ -25,7 +26,15 @@ export async function api(user,path,method='GET',body){
 }
 export async function ok(query){const {data,error}=await query;assert.ifError(error);return data;}
 export function report(name,results){
- const safe=redact(JSON.stringify(results,null,2));
+ const safe=redact(JSON.stringify(classified(results),null,2));
  writeFileSync(new URL(name,out),safe);console.log(safe);
  if(results.some(r=>r.passed===false))process.exitCode=1;
+}
+
+export async function sharedHealth(){
+ try{
+  const response=await fetch(keys.API_URL+'/auth/v1/settings',{headers:{apikey:keys.ANON_KEY},signal:AbortSignal.timeout(10000)});
+  assert.equal(response.status,200);assert.equal((await response.json()).external?.email,true);
+  const health=await admin.from('profiles').select('id').limit(1);assert.ifError(health.error);
+ }catch(error){throw new HardStop('Shared Auth/database health failed: '+error.constructor.name);}
 }

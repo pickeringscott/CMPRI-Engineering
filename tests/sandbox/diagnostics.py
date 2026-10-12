@@ -22,7 +22,7 @@ def sanitize(value, secrets=()):
     return json.loads(text)
 
 def emit_result(result, secrets=()):
-    fields = ['role', 'storedRole', 'phase', 'scenario', 'passed', 'status', 'error', 'blockedExternal', 'browserErrors']
+    fields = ['role', 'storedRole', 'phase', 'scenario', 'passed', 'status', 'httpStatus', 'errorType', 'error', 'blockedExternal', 'browserErrors']
     diagnostic = {key: result[key] for key in fields if key in result}
     if 'rows' in result:
         diagnostic['savedRowCount'] = len(result['rows'])

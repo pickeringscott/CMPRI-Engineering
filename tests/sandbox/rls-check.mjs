@@ -6,7 +6,11 @@ const out = new URL('../../.sandbox/', import.meta.url);
 const keys = JSON.parse(readFileSync(new URL('local-keys.json', out)));
 const users = JSON.parse(readFileSync(new URL('synthetic-users.json', out)));
 // Browser evidence captures persisted rows before lifecycle changes their status.
-const submissions = JSON.parse(readFileSync(new URL('e2e-results.json', out)));
+const submissions = JSON.parse(readFileSync(new URL('e2e-results.json', out))).filter(r=>r.scenario);
+if(submissions.length!==28 || !submissions.every(r=>r.passed&&r.rows?.length===1)){
+ const blocked=[{phase:'RLS exact visibility',status:'BLOCKED',passed:false,error:'All 28 persisted browser fixtures required'}];
+ writeFileSync(new URL('rls-results.json',out),JSON.stringify(blocked,null,2));console.log(JSON.stringify(blocked));process.exit(1);
+}
 assert.equal(submissions.length, 28);
 assert.ok(submissions.every(result => result.passed && result.rows?.length === 1));
 const fixtureRows = submissions.flatMap(result => result.rows);
@@ -30,7 +34,7 @@ for (const user of users) {
 const anon = createClient(keys.API_URL, keys.ANON_KEY, { auth: { persistSession: false } });
 const anonymous = await anon.from('work_orders').select('id');
 results.push({ role: 'unauthenticated boundary', readCount: anonymous.data?.length ?? null, passed: (!anonymous.error && Array.isArray(anonymous.data) && anonymous.data.length === 0) || anonymous.error?.code === '42501' });
-writeFileSync(new URL('rls-results.json', out), JSON.stringify(results, null, 2));
+writeFileSync(new URL('rls-results.json', out), JSON.stringify(results.map(r=>({...r,status:r.passed?'PASS':'FAIL'})), null, 2));
 for (const result of results) {
   const safe = { ...result, phase: 'rls', error: result.error?.replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[redacted JWT]') };
   console.log(JSON.stringify(safe));

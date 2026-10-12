@@ -10,7 +10,7 @@ permissions:
 jobs:
   sandbox:
     # One bounded post-release run; reruns and subsequent pushes must skip.
-    if: ${{ github.event.before == '18c68cb8c56cec0244ec1172415a4e58e4f4fb9b' && github.run_attempt == 1 }}
+    if: ${{ github.event.before == '99901481c82e6f0f01eabf27d881afd5ab595528' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -45,7 +45,7 @@ jobs:
       - name: Harness predicate and redaction regressions
         run: python -m unittest discover -s tests/sandbox -p 'test_*.py' -v
       - name: Scoped equipment and troubleshooting checks
-        run: node --experimental-strip-types --test tests/equipment-selection.test.mjs tests/troubleshooting-completed-steps.test.mjs tests/work-order-matching.test.mjs tests/chief-engineer-identity.test.mjs tests/work-order-dashboard.test.mjs tests/technician-coverage.test.mjs tests/sandbox/rls-expectations.test.mjs tests/sandbox/http-diagnostics.test.mjs
+        run: node --experimental-strip-types --test tests/equipment-selection.test.mjs tests/troubleshooting-completed-steps.test.mjs tests/work-order-matching.test.mjs tests/chief-engineer-identity.test.mjs tests/work-order-dashboard.test.mjs tests/technician-coverage.test.mjs tests/sandbox/rls-expectations.test.mjs tests/sandbox/http-diagnostics.test.mjs tests/sandbox/outcomes.test.mjs
       - name: Real local Auth, Postgres, RLS, browser submissions and controlled push
         run: bash tests/sandbox/run.sh
       - name: Sanitized evidence (no key files, sessions, raw logs, caches or uploads)
@@ -54,7 +54,7 @@ jobs:
           python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           from pathlib import Path
           print('## Local synthetic sandbox evidence')
-          for name in ['development-browser-preflight-results.json', 'development-browser-diagnostics.json', 'development-server-diagnostics.json', 'setup-diagnostics.json', 'auth-preflight-results.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'lifecycle-results.json', 'notification-db-results.json', 'draft-results.json', 'browser-extra-results.json', 'storage-results.json', 'notification-state-results.json', 'http-diagnostics.json', 'browser-preflight-results.json', 'browser-diagnostics.json', 'server-diagnostics.json']:
+          for name in ['setup-diagnostics.json', 'auth-preflight-results.json', 'summary.json', 'role-gaps.json', 'e2e-results.json', 'rls-results.json', 'lifecycle-results.json', 'notification-db-results.json', 'draft-results.json', 'browser-extra-results.json', 'storage-results.json', 'notification-state-results.json', 'http-diagnostics.json', 'browser-preflight-results.json', 'browser-diagnostics.json', 'server-diagnostics.json']:
               p = Path('.sandbox') / name
               print('\n### ' + name + '\n')
               print('```json\n' + p.read_text() + '\n```' if p.exists() else 'Not produced: setup or a previous phase did not finish.')

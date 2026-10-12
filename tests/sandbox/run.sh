@@ -27,9 +27,8 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout .sandbox/push-key.pem -out .sa
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/seed.mjs
 node tests/sandbox/push-sink.mjs >.sandbox/push-sink.log 2>&1 &
 sink_pid=$!
-node tests/sandbox/launch.mjs development &
-app_pid=$!
-export CMPRI_SANDBOX_PHASE="app startup"
+app_pid=""
+export CMPRI_SANDBOX_PHASE="production build"
 on_exit() {
   local result=$?
   CMPRI_SANDBOX_EXIT="$result" python tests/sandbox/server_diagnostics.py || true
@@ -50,40 +49,31 @@ else:
     raise SystemExit('Local app failed to become ready; inspect private app.log')
 PY
 }
-wait_for_app
-export CMPRI_SANDBOX_PHASE="Auth/session/draft API preflight"
-node --require ./tests/sandbox/network-guard.cjs tests/sandbox/auth-preflight.mjs
-export CMPRI_SANDBOX_PHASE="development browser comparison"
-set +e
-python tests/sandbox/browser_preflight.py
-dev_status=$?
-set -e
-export CMPRI_DEVELOPMENT_PREFLIGHT_EXIT="$dev_status"
-CMPRI_SANDBOX_EXIT=0 python tests/sandbox/server_diagnostics.py
-python - <<'PY'
-from pathlib import Path
-for name in ['browser-preflight-results.json','browser-diagnostics.json','server-diagnostics.json']:
- p=Path('.sandbox')/name
- if p.exists():p.rename(p.with_name('development-'+name))
-PY
-kill "$app_pid"
-wait "$app_pid" || true
-# The launcher waits for Next to exit before closing, so port 3112 is released.
-export CMPRI_SANDBOX_PHASE="production build"
 node tests/sandbox/launch.mjs build
-mv .sandbox/app.log .sandbox/development-and-build.log
+mv .sandbox/app.log .sandbox/production-build.log
 node tests/sandbox/launch.mjs production &
 app_pid=$!
+export CMPRI_SANDBOX_PHASE="production app startup"
 wait_for_app
+export CMPRI_SANDBOX_PHASE="Auth/session/draft API preflight"
+set +e
+node --require ./tests/sandbox/network-guard.cjs tests/sandbox/auth-preflight.mjs
+auth_status=$?
+set -e
+if [ "$auth_status" -ge 2 ]; then exit "$auth_status"; fi
 export CMPRI_SANDBOX_PHASE="production browser login preflight"
+set +e
 python tests/sandbox/browser_preflight.py
+preflight_status=$?
 export CMPRI_SANDBOX_PHASE="draft access prerequisites"
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/drafts-check.mjs
 draft_status=$?
+if [ "$draft_status" -ge 2 ]; then exit "$draft_status"; fi
 export CMPRI_SANDBOX_PHASE="seven-role browser matrix"
 set +e
 python tests/sandbox/e2e.py
 browser_status=$?
+if [ "$browser_status" -ge 2 ]; then exit "$browser_status"; fi
 export CMPRI_SANDBOX_PHASE="backend verification"
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/rls-check.mjs
 rls_status=$?
@@ -96,11 +86,11 @@ notification_status=$?
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/notification-state.mjs
 notification_state_status=$?
 set -e
-node --input-type=module - "$browser_status" "$rls_status" "$notification_status" "$lifecycle_status" "$draft_status" "$storage_status" "$notification_state_status" <<'JS'
+node --input-type=module - "$browser_status" "$rls_status" "$notification_status" "$lifecycle_status" "$draft_status" "$storage_status" "$notification_state_status" "$auth_status" "$preflight_status" <<'JS'
 import {readFileSync,writeFileSync} from 'node:fs';
 const gaps=JSON.parse(readFileSync('.sandbox/role-gaps.json'));
 const statuses=process.argv.slice(2).map(Number);
-const result={runtime:'production',developmentPreflightExit:Number(process.env.CMPRI_DEVELOPMENT_PREFLIGHT_EXIT),browserExit:statuses[0],rlsExit:statuses[1],notificationExit:statuses[2],lifecycleExit:statuses[3],notificationStateExit:statuses[6],draftExit:statuses[4],storageExit:statuses[5],roleGaps:gaps,passed:statuses.every(code=>code===0)&&gaps.length===0,limitations:['No production data or deployed environment tested','No browser push enrollment or device notification delivery','Lifecycle transitions use real Auth/API/DB; detail-page transition controls are not exercised','Spanish-to-English submitted content translation is a launch requirement; it is not implemented or verified by Spanish labels/text preservation','Physical phone push and manual refresh remain separate']};
+const result={runtime:'production',authPreflightExit:statuses[7],browserPreflightExit:statuses[8],browserExit:statuses[0],rlsExit:statuses[1],notificationExit:statuses[2],lifecycleExit:statuses[3],notificationStateExit:statuses[6],draftExit:statuses[4],storageExit:statuses[5],roleGaps:gaps,passed:statuses.every(code=>code===0)&&gaps.length===0,limitations:['No production data or deployed environment tested','No browser push enrollment or device notification delivery','Lifecycle transitions use real Auth/API/DB; detail-page transition controls are not exercised','Spanish-to-English submitted content translation is a launch requirement; it is not implemented or verified by Spanish labels/text preservation','Physical phone push and manual refresh remain separate']};
 writeFileSync('.sandbox/summary.json',JSON.stringify(result,null,2));
 console.log(JSON.stringify(result,null,2));
 if(!result.passed)process.exitCode=1;

@@ -7,7 +7,7 @@ harness and disables Vercel Git deployments. Never merge this override into main
 
 One standard Ubuntu GitHub Actions job is authorized, at most 20 minutes and
 USD 0.25 additional charge. The push guard accepts only the transition from
-`18c68cb8c56cec0244ec1172415a4e58e4f4fb9b`, attempt 1. No automatic reruns,
+`99901481c82e6f0f01eabf27d881afd5ab595528`, attempt 1. No automatic reruns,
 artifacts, caches or additional jobs. Further metered runs need new approval.
 
 The pinned local Supabase stack uses real Auth/Postgres/RLS/Storage and repository
@@ -86,3 +86,35 @@ payloads, cookie values, bearer tokens, request bodies, and user identities are 
 exported. RSC structural metadata is not claimed to prove successful React decoding.
 The comparison distinguishes runtime-sensitive failure from a shared real-auth
 failure and preserves the exact stage if either path stalls.
+
+## Local repair: independent failure collection (not yet run on GitHub)
+
+Browser role login failures block only that role's four submission cases. Each
+scenario and draft/Cancel subcase records PASS, FAIL or BLOCKED, preserves error
+type and field-specific expected/actual evidence, and continues independent work.
+A nonzero aggregate remains mandatory for any failed or blocked check. Broken
+shared Auth/database health and unsafe external traffic stop the entire run;
+missing per-ticket/photo prerequisites block only the dependent backend checks.
+The production GM preflight now contributes to the final result instead of
+automatically excluding the other six roles. No browser assertions are bypassed.
+
+The lamp fixture intentionally submits lowercase input and explicitly expects
+`Desk lamp not working`, the established location-cleanup normalization. Asset,
+location, category, issue and notes comparisons remain exact. Photo listeners are
+registered only for photo cases and removed exactly once in a context manager.
+This prevents the reproduced pyee KeyError from masquerading as a login failure.
+Cancel checks set/read back the synthetic user's profile language using its own
+bearer session and load a fresh form; they no longer race a message event against
+the profile GET. English is restored before independent submission scenarios.
+
+The existing one-run workflow guard remains spent. These repairs are local-only;
+no new hosted attempt is authorized, and none is triggered by this work.
+
+## Authorized collect-all attempt
+
+One new attempt is explicitly authorized after the local collection repair,
+maximum 20 minutes / USD 0.25. The workflow accepts only the transition from
+99901481c82e6f0f01eabf27d881afd5ab595528, attempt 1. It uses production build/start
+only; the established development comparison is not repeated. Shared service
+and isolation failures still stop the run. Individual role and case failures
+remain non-passing while independent cases continue. No automatic rerun.

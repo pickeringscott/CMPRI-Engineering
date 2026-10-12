@@ -13,6 +13,9 @@ try{
  assert.equal(settings.status,200,'Local Auth settings endpoint failed');
  const config=await readJsonResponse(settings,'/auth/v1/settings');
  assert.equal(config.external?.email,true,'Local email/password provider is disabled');
+ const admin=createClient(keys.API_URL,keys.SERVICE_ROLE_KEY,{auth:{persistSession:false}});
+ const health=await admin.from('profiles').select('id').limit(1);assert.ifError(health.error);
+ result.sharedHealthPassed=true;
  const {data,error}=await client.auth.signInWithPassword({email:users[0].email,password:users[0].password});assert.ifError(error);
  result.emailProvider=true;result.passwordSignIn=true;
  const headers={Authorization:'Bearer '+data.session.access_token,'Content-Type':'application/json'};
@@ -28,11 +31,11 @@ try{
  assert.equal(draft.status,200,'Draft POST must return 200');assert.equal(draft.body.draft.created_by,users[0].id);
  // Reuse the one synthetic GM draft in the later matrix; do not create a duplicate.
  writeFileSync(new URL('preflight-draft.json',out),JSON.stringify(draft.body.draft));
- result.passed=true;
-}catch(error){result.error=redact(String(error));}
+ result.passed=true;result.status='PASS';
+}catch(error){result.error=redact(String(error));result.status='FAIL';result.errorType=error.constructor.name;}
 finally{
  await client.auth.signOut();
  writeFileSync(new URL('auth-preflight-results.json',out),JSON.stringify(result,null,2));
  console.log(JSON.stringify(result));
 }
-if(!result.passed)process.exitCode=1;
+if(!result.passed)process.exitCode=result.sharedHealthPassed?1:2;
