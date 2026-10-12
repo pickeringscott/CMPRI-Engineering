@@ -8,7 +8,6 @@ import {
   extractManualPdfText,
   manualPdfMatchesEquipment,
   manualPdfSha256,
-  structureVerifiedManual,
 } from "@/lib/manual-pdf-knowledge";
 import { loadVerifiedCatalogManuals } from "@/lib/server/verified-manual-catalog";
 
@@ -305,6 +304,7 @@ export async function GET(request: NextRequest) {
       documentType: string | null;
       modelFamily: string | null;
       catalogVerified: boolean;
+      knowledgeKey: string | null;
     }> = [];
     if (assetDocumentsVerified && selectedAsset.manufacturer && (selectedAsset.model_family || selectedAsset.model_number)) {
       for (const file of pdfFiles) {
@@ -333,6 +333,7 @@ export async function GET(request: NextRequest) {
             documentType: "Uploaded equipment document",
             modelFamily: selectedAsset.model_family,
             catalogVerified: false,
+            knowledgeKey: null,
           });
         }
       }
@@ -353,6 +354,7 @@ export async function GET(request: NextRequest) {
         documentType: document.documentType,
         modelFamily: document.modelFamily,
         catalogVerified: true,
+        knowledgeKey: document.knowledgeKey,
       })));
     } catch (error) {
       return NextResponse.json({
@@ -369,94 +371,45 @@ export async function GET(request: NextRequest) {
             ? "no_exact_match"
             : "lookup_unavailable";
     } else {
-          const cacheKey = `verified-manual:${assetId}`;
-          const { data: cached, error: cacheReadError } = await dataClient
-            .from("troubleshooting_cache")
-            .select("payload")
-            .eq("hotel_id", HOTEL_ID)
-            .eq("cache_type", "verified_asset_manual")
-            .eq("cache_key", cacheKey)
-            .maybeSingle();
-          if (cacheReadError) {
-            return NextResponse.json({ error: "Verified manual knowledge could not be checked." }, { status: 503 });
-          }
-
-          const documentDigest = matchingDocuments.map((document) => [
-            document.storagePath,
-            document.sha256,
-            document.documentKey || "",
-            document.documentManufacturer,
-            document.modelFamily || "",
-            document.documentType || "",
-          ].join(":")).join("\n");
-          const identityDigest = JSON.stringify({
-            manufacturer: selectedAsset.manufacturer || "",
-            model_family: selectedAsset.model_family,
-            model_number: selectedAsset.model_number,
-          });
-          const cachedKnowledge = cached?.payload as KnowledgePayload | null;
-          const cachedSource = objectRecord(cachedKnowledge?.source);
-          if (
-            cachedSource.document_digest === documentDigest &&
-            cachedSource.identity_digest === identityDigest &&
-            cachedKnowledge &&
-            cachedSource.verified === true &&
-            manualMatchesEquipment(selectedAsset, cachedKnowledge)
-          ) {
-            manualKnowledge = cachedKnowledge;
-          } else {
-            try {
-              const generated = await Promise.all(matchingDocuments.map((document) =>
-                structureVerifiedManual(document.text, {
-                  manufacturer: selectedAsset.manufacturer || "",
-                  model_family: document.modelFamily,
-                  model_number: selectedAsset.model_number,
-                }, document.name, { manufacturerVerifiedByCatalog: document.catalogVerified }),
-              ));
-              const error_codes = generated.flatMap((knowledge) => knowledge.error_codes || []);
-              const symptom_rules = generated.flatMap((knowledge) => knowledge.symptom_rules || []);
-              const manual_tests = generated.flatMap((knowledge) => knowledge.manual_tests || []);
-              const general_checks = Array.from(new Set(generated.flatMap((knowledge) => knowledge.general_checks || [])));
-              if (!error_codes.length && !symptom_rules.length && !manual_tests.length && !general_checks.length) {
-                documentationStatus = "no_guidance";
-              } else {
-                const primaryDocument = matchingDocuments[0];
-                manualKnowledge = {
-                  manufacturer: selectedAsset.manufacturer || "",
-                  model_family: selectedAsset.model_family || matchingDocuments[0].modelFamily || "",
-                  model_number: selectedAsset.model_number || "",
-                  source: {
-                    title: primaryDocument.name,
-                    type: "Verified Manufacturer Manual",
-                    source_file_name: primaryDocument.name,
-                    source_files: matchingDocuments.map((document) => document.name),
-                    document_digest: documentDigest,
-                    identity_digest: identityDigest,
-                    verified: true,
-                  },
-                  error_codes,
-                  symptom_rules,
-                  manual_tests,
-                  general_checks,
-                };
-                const { error: cacheWriteError } = await dataClient.from("troubleshooting_cache").upsert({
-                  hotel_id: HOTEL_ID,
-                  work_order_id: null,
-                  cache_type: "verified_asset_manual",
-                  cache_key: cacheKey,
-                  payload: manualKnowledge,
-                  expires_at: null,
-                }, { onConflict: "hotel_id,cache_type,cache_key" });
-                if (cacheWriteError) {
-                  return NextResponse.json({ error: "Structured guidance from the verified PDF could not be refreshed." }, { status: 503 });
-                }
-              }
-            } catch (error) {
-              return NextResponse.json({
-                error: error instanceof Error ? error.message : "Verified documentation could not be structured.",
-              }, { status: 503 });
-            }
-          }
+      // Read only catalog-linked, pre-ingested knowledge. A GET must never
+      // generate paid AI guidance or substitute generic equipment advice.
+      const reviewed: Array<{ document: typeof matchingDocuments[number]; payload: KnowledgePayload }> = [];
+      for (const document of matchingDocuments) {
+        if (!document.catalogVerified || !document.knowledgeKey) continue;
+        const { data: cached, error } = await dataClient.from("troubleshooting_cache")
+          .select("payload")
+          .eq("hotel_id", HOTEL_ID)
+          .eq("cache_type", "asset_manual_knowledge")
+          .eq("cache_key", document.knowledgeKey)
+          .maybeSingle();
+        if (error) return NextResponse.json({ error: "Reviewed manual guidance could not be loaded." }, { status: 503 });
+        const payload = cached?.payload as KnowledgePayload | null;
+        const source = objectRecord(payload?.source);
+        if (!payload || source.verified !== true || source.source_file_name !== document.name ||
+            !manualMatchesEquipment(selectedAsset, payload)) continue;
+        reviewed.push({ document, payload });
+      }
+      if (!reviewed.length) {
+        documentationStatus = "no_guidance";
+      } else {
+        const primary = reviewed[0];
+        const entries = (key: string) => reviewed.flatMap(({ payload }) => Array.isArray(payload[key]) ? payload[key] as unknown[] : []);
+        manualKnowledge = {
+          manufacturer: selectedAsset.manufacturer || "",
+          model_family: selectedAsset.model_family || primary.document.modelFamily || "",
+          model_number: selectedAsset.model_number || "",
+          source: {
+            ...objectRecord(primary.payload.source),
+            source_file_name: primary.document.name,
+            source_files: reviewed.map(({ document }) => document.name),
+            verified: true,
+          },
+          error_codes: entries("error_codes"),
+          symptom_rules: entries("symptom_rules"),
+          manual_tests: entries("manual_tests"),
+          general_checks: entries("general_checks"),
+        };
+      }
           if (manualKnowledge) {
             const primaryFile = String(objectRecord(manualKnowledge.source).source_file_name || "");
             const primaryDoc = matchingDocuments.find((document) => document.name === primaryFile) || matchingDocuments[0];

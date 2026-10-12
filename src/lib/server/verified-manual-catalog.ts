@@ -10,6 +10,7 @@ type CatalogRow = CatalogManual & {
   document_key: string;
   storage_path: string;
   source_file_name: string | null;
+  troubleshooting_cache_key: string | null;
 };
 
 export type VerifiedCatalogPdf = {
@@ -21,6 +22,7 @@ export type VerifiedCatalogPdf = {
   storagePath: string;
   text: string;
   sha256: string;
+  knowledgeKey: string | null;
 };
 
 export async function loadVerifiedCatalogManuals(
@@ -33,7 +35,7 @@ export async function loadVerifiedCatalogManuals(
 
   const { data: rows, error: catalogError } = await admin
     .from("maintenance_documents")
-    .select("document_key,title,document_type,manufacturer,equipment,model_pattern,storage_path,source_file_name,active,ingestion_status")
+    .select("document_key,title,document_type,manufacturer,equipment,model_pattern,storage_path,source_file_name,active,ingestion_status,troubleshooting_cache_key")
     .eq("hotel_id", HOTEL_ID)
     .eq("active", true)
     .eq("ingestion_status", "complete")
@@ -88,6 +90,7 @@ export async function loadVerifiedCatalogManuals(
       storagePath,
       text,
       sha256: manualPdfSha256(bytes),
+      knowledgeKey: manual.troubleshooting_cache_key || null,
     });
   }
 

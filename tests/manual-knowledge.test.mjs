@@ -162,12 +162,13 @@ test('verified PDFs must contain the exact manufacturer and family or model iden
   assert.equal(matches('Friedrich VPAK-A Service Manual',{manufacturer:'Friedrich',model_family:null,model_number:'VPAK-A'}),true);
   assert.equal(matches('Friedrich VPAK-AB Service Manual',{manufacturer:'Friedrich',model_family:null,model_number:'VPAK-A'}),false);
 });
-test('exact PDF matches refresh structure without relying on a pre-existing cache entry',()=>{
+test('exact PDF matches use reviewed catalog knowledge without paid generation or GET writes',()=>{
   const route=readFileSync(new URL('../src/app/api/maintenance-reference/route.ts',import.meta.url),'utf8');
   assert.match(route,/if \(!matchingDocuments\.length\)/);
   assert.match(route,/\.from\("troubleshooting_cache"\)[\s\S]*?\.maybeSingle\(\)/);
-  assert.match(route,/\.from\("troubleshooting_cache"\)\.upsert\(/);
-  assert.match(route,/document_digest === documentDigest/);
+  assert.match(route,/\.eq\("cache_type", "asset_manual_knowledge"\)/);
+  assert.match(route,/source\.source_file_name !== document\.name/);
+  assert.doesNotMatch(route,/structureVerifiedManual|\.upsert\(/);
   assert.match(route,/loadVerifiedCatalogManuals\(dataClient, selectedAsset\)/);
 });
 
