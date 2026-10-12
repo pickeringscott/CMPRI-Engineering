@@ -7,7 +7,7 @@ harness and disables Vercel Git deployments. Never merge this override into main
 
 One standard Ubuntu GitHub Actions job is authorized, at most 20 minutes and
 USD 0.25 additional charge. The push guard accepts only the transition from
-`5ea7f6cbf2a23b504a41e4aa23205cb298a0887f`, attempt 1. No automatic reruns,
+`ec4ce8ae463758bac4912c255a62a6c59a042b54`, attempt 1. No automatic reruns,
 artifacts, caches or additional jobs. Further metered runs need new approval.
 
 The pinned local Supabase stack uses real Auth/Postgres/RLS/Storage and repository
@@ -43,3 +43,12 @@ this verifies application Storage integration, not production bucket policy pari
 Physical phone push, browser push enrollment, manual refresh, detail-page lifecycle
 buttons and content translation remain gaps. Consult the run, not local syntax
 checks, for actual real-backend results.
+
+## Diagnostic follow-up after run 38204465454
+
+One newly approved run adds HTTP status/content-type/route and structured Next
+exception diagnostics, bounded sanitized server exceptions and browser errors.
+It stops on Auth/session/draft API, browser login or draft prerequisite failure,
+before the seven-role matrix. The GM preflight draft is reused by the matrix.
+No raw HTML, request headers/bodies, credential files or raw server logs are
+published. Local redaction tests use synthetic sensitive strings.

@@ -1,3 +1,4 @@
+import {readJsonResponse} from './http-diagnostics.mjs';
 import {createClient} from '@supabase/supabase-js';
 import {readFileSync,writeFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ async function api(user,path,body){
     assert.ifError(error);sessions.set(user.id,data.session.access_token);
   }
   const response=await fetch('http://127.0.0.1:3112'+path,{method:body?'PATCH':'GET',headers:{Authorization:'Bearer '+sessions.get(user.id),'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
-  return {status:response.status,body:await response.json()};
+  return {status:response.status,body:await readJsonResponse(response,path,body?'PATCH':'GET')};
 }
 const chief=users.find(u=>u.role==='chief_engineer'),technician=users.find(u=>u.role==='technician');
 try{

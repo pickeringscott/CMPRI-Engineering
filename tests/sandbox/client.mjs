@@ -1,3 +1,4 @@
+import {readJsonResponse,redact} from './http-diagnostics.mjs';
 import {createClient} from '@supabase/supabase-js';
 import {readFileSync,writeFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
@@ -20,11 +21,11 @@ export async function clientFor(user){
 export async function api(user,path,method='GET',body){
  const {token}=await clientFor(user);
  const response=await fetch('http://127.0.0.1:3112'+path,{method,headers:{Authorization:'Bearer '+token,...(body instanceof FormData?{}:{'Content-Type':'application/json'})},...(body?{body:body instanceof FormData?body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(45000)});
- return {status:response.status,body:await response.json()};
+ return {status:response.status,body:await readJsonResponse(response,path,method)};
 }
 export async function ok(query){const {data,error}=await query;assert.ifError(error);return data;}
 export function report(name,results){
- const safe=JSON.stringify(results,null,2).replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g,'[redacted JWT]');
+ const safe=redact(JSON.stringify(results,null,2));
  writeFileSync(new URL(name,out),safe);console.log(safe);
  if(results.some(r=>r.passed===false))process.exitCode=1;
 }

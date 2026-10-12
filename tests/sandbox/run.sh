@@ -29,7 +29,14 @@ node tests/sandbox/push-sink.mjs >.sandbox/push-sink.log 2>&1 &
 sink_pid=$!
 node tests/sandbox/launch.mjs &
 app_pid=$!
-trap 'kill "$app_pid" "$sink_pid" 2>/dev/null || true' EXIT
+export CMPRI_SANDBOX_PHASE="app startup"
+on_exit() {
+  local result=$?
+  CMPRI_SANDBOX_EXIT="$result" python tests/sandbox/server_diagnostics.py || true
+  kill "$app_pid" "$sink_pid" 2>/dev/null || true
+  exit "$result"
+}
+trap on_exit EXIT
 python - <<'PY'
 import time, urllib.request
 for attempt in range(120):
@@ -41,12 +48,18 @@ for attempt in range(120):
 else:
     raise SystemExit('Local app failed to become ready; inspect private app.log')
 PY
+export CMPRI_SANDBOX_PHASE="Auth/session/draft API preflight"
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/auth-preflight.mjs
-set +e
+export CMPRI_SANDBOX_PHASE="browser login preflight"
+python tests/sandbox/browser_preflight.py
+export CMPRI_SANDBOX_PHASE="draft access prerequisites"
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/drafts-check.mjs
 draft_status=$?
+export CMPRI_SANDBOX_PHASE="seven-role browser matrix"
+set +e
 python tests/sandbox/e2e.py
 browser_status=$?
+export CMPRI_SANDBOX_PHASE="backend verification"
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/rls-check.mjs
 rls_status=$?
 node --require ./tests/sandbox/network-guard.cjs tests/sandbox/storage-check.mjs

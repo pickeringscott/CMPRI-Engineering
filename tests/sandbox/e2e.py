@@ -2,6 +2,7 @@ import asyncio
 import base64
 from playwright.async_api import expect
 import browser_extras
+from browser_support import diagnose_context,login,save_browser_diagnostics
 import json
 import subprocess
 import urllib.parse
@@ -28,23 +29,10 @@ async def main():
         browser = await playwright.chromium.launch(headless=True)
         for user in users:
             context = await browser.new_context(viewport={'width': 1280, 'height': 1000}, service_workers='block')
-            external, errors = [], []
-            async def guard(route):
-                hostname = urllib.parse.urlparse(route.request.url).hostname
-                if hostname not in ['127.0.0.1', 'localhost']:
-                    external.append(hostname)
-                    return await route.abort()
-                await route.continue_()
-            await context.route('**/*', guard)
-            page = await context.new_page()
-            page.on('pageerror', lambda error: errors.append(str(error)))
+            page,evidence=await diagnose_context(context,OUT,user['label'])
+            external,errors=evidence['blockedExternal'],evidence['pageErrors']
             try:
-                await page.goto('http://127.0.0.1:3112/', timeout=120000)
-                await page.get_by_role('button', name='More…').click()
-                await page.get_by_role('textbox', name='Email', exact=True).fill(user['email'])
-                await page.get_by_role('textbox', name='Password', exact=True).fill(user['password'])
-                await page.get_by_role('button', name='Sign in with Password', exact=True).click()
-                await page.wait_for_url(is_login_landing, timeout=120000)
+                await login(page,user)
                 try:
                     await browser_extras.check_form(page,user)
                 except Exception as error:
@@ -118,6 +106,8 @@ async def main():
                 results.append(result)
                 (OUT / 'e2e-results.json').write_text(json.dumps(sanitize(results, secrets), indent=2))
                 emit_result(result, secrets)
+                await save_browser_diagnostics(page,evidence,OUT)
+                break  # Fundamental login failure: do not repeat it for the remaining roles.
             finally:
                 await context.close()
         await browser.close()
