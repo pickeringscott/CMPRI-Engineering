@@ -195,11 +195,11 @@ export default function WorkOrderListWindow({
               onClick={() => { setFilter(card.key); setQuery(""); }}
               className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-slate-800" : "border-slate-700 bg-slate-900 hover:border-slate-500"}`}
             >
-              <span className="min-w-0 break-words text-[calc(0.78em+5px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
+              <span className="min-w-0 break-words text-[calc(0.78em+3px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
                 <span className="@md:hidden">{card.compactLabel}</span>
                 <span className="hidden @md:inline">{card.label}</span>
               </span>
-              <span className={`shrink-0 text-[calc(0.9em+5px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
             </button>
           );
         })}

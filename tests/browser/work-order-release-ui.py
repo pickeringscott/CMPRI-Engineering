@@ -53,8 +53,15 @@ async def main():
     guides=page.get_by_role('combobox',name='Front Desk Quick Guides')
     if await guides.count() and await guides.is_visible():
      assert await guides.locator('option').count()==4
-     for slug in ['enseo','dormakaba','guest-room']:await guides.select_option(slug)
-     assert await page.evaluate('window.__guideUrls')==['/guides/enseo.pdf','/guides/dormakaba.pdf','/guides/guest-room.pdf']
+     for slug in ['enseo','dormakaba','guest-room']:
+      await guides.select_option(slug)
+      dialog=page.get_by_role('dialog');await expect(dialog).to_be_visible()
+      assert await dialog.locator('[data-guide-pdf]').get_attribute('data-guide-pdf')==f'/guides/{slug}.pdf'
+      await dialog.locator('canvas').first.wait_for(timeout=30000)
+      await expect(dialog.get_by_role('alert')).to_have_count(0)
+      await dialog.get_by_role('button',name='Close guide').click()
+      await expect(guides).to_be_focused()
+     assert await page.evaluate('window.__guideUrls')==[]
     if role=='chief_engineer' and width<640:assert not await guides.is_visible()
     if role=='chief_engineer' and width<640:await page.locator('[data-chief-mobile-menus]').get_by_role('button',name='Work Orders',exact=False).click()
     launch=page.get_by_role('menuitem' if role=='chief_engineer' and width<640 else 'button',name='Work Order List',exact=True)
@@ -63,8 +70,8 @@ async def main():
      kpi=page.locator('#work-order-kpi-filters');await expect(kpi.get_by_role('button')).to_have_count(8)
      for button in await kpi.get_by_role('button').all():
       sizes=await button.evaluate('e=>({base:parseFloat(getComputedStyle(e).fontSize),label:parseFloat(getComputedStyle(e.children[0]).fontSize),count:parseFloat(getComputedStyle(e.children[1]).fontSize),width:e.clientWidth,scroll:e.scrollWidth})')
-      assert abs(sizes['label']-(sizes['base']*.78+5))<.1,sizes
-      assert abs(sizes['count']-(sizes['base']*.9+5))<.1,sizes
+      assert abs(sizes['label']-(sizes['base']*.78+3))<.1,sizes
+      assert abs(sizes['count']-(sizes['base']*.78+3))<.1,sizes
       assert sizes['scroll']<=sizes['width']+1,sizes
      await page.screenshot(path=str(OUT/f'release-kpis-{role}-{width}.png'),full_page=True)
     assert await page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')

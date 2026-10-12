@@ -190,3 +190,14 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(styles, /html\.cmpri-desktop-interacting iframe \{\s*pointer-events: none !important;/);
   assert.match(styles, /container-type: inline-size;/);
 });
+
+test('approval modal removes only redundant controls and hides only an empty approval list', () => {
+ const source=readFileSync(new URL('../src/components/desktop/WorkOrderApprovalsWindow.tsx',import.meta.url),'utf8');
+ assert.doesNotMatch(source,/aria-label="Signed-in account"|Sound on|Sound off|No work orders are waiting/);
+ assert.match(source,/awaitingApproval.length > 0 && <ul aria-label="Work orders awaiting approval"/);
+ assert.match(source,/<span className="font-bold text-slate-400">\{awaitingApproval.length\}/);
+ assert.match(source,/onClick=\{onClearAll\}/);
+ assert.match(source,/onClick=\{\(\) => onClear\(notification.id\)\}/);
+ const list=readFileSync(new URL('../src/components/desktop/WorkOrderListWindow.tsx',import.meta.url),'utf8');
+ assert.equal((list.match(/text-\[calc\(0.78em\+3px\)\]/g)||[]).length,2);
+});

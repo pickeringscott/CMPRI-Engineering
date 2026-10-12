@@ -36,7 +36,7 @@ test("Guest Room guide includes English and Spanish and the guides are rendered 
   assert.match(component, /className=\{styles\.eyebrow\} lang="en">English/);
   assert.match(component, /className=\{styles\.eyebrow\}>Español/);
   assert.match(component, /Guía de Resolución de Problemas para Habitaciones de Huéspedes/);
-  assert.doesNotMatch(component, /<(?:iframe|object|embed)\b/i);
+  assert.match(component, /<GuidePdfViewer key=\{selected.id\} src=\{selected.href\}/);
 });
 
 test("all required timing and numeric details are present in the HTML guide content", () => {
@@ -65,8 +65,11 @@ test("work-order technical guidance never falls back to generic checks", () => {
 
 test("native guide dropdown opens exactly the three local PDF exports", () => {
   assert.match(component, /<select[\s\S]*aria-label="Front Desk Quick Guides"/);
-  assert.match(component, /window.open\(option.href, "_blank", "noopener,noreferrer"\)/);
-  assert.doesNotMatch(component, /aria-haspopup="menu"|createPortal/);
+  assert.doesNotMatch(component, /window.open/);
+  assert.match(component, /dialogRef.current.showModal\(\)/);
+  assert.match(component, /Back to guides/);
+  assert.match(component, /aria-label="Close guide"/);
+  assert.doesNotMatch(component, /aria-haspopup="menu"/);
   for (const slug of ["enseo", "dormakaba", "guest-room"]) {
     assert.ok(component.includes(`/guides/${slug}.pdf`));
     assert.equal(readFileSync(new URL(`../public/guides/${slug}.pdf`, import.meta.url)).subarray(0,5).toString(), "%PDF-");

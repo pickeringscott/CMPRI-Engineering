@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import GuidePdfViewer from "./GuidePdfViewer";
 import styles from "./TroubleshootingGuideDropdown.module.css";
 
 type GuideId = "enseo" | "dormakaba" | "guest-room";
@@ -643,21 +646,48 @@ export function GuideContent({ guide }: { guide: GuideId }) {
   return <GuestRoomGuide />;
 }
 
-/** The PDFs are print exports of GuideContent below; no guide content is rewritten. */
+/** PDF exports of the existing guide content, shown inside CMPRI. */
 export default function TroubleshootingGuideDropdown() {
+  const [selected, setSelected] = useState<(typeof GUIDE_OPTIONS)[number] | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    if (selected && dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
+  }, [selected]);
+  function closeViewer() {
+    dialogRef.current?.close();
+    setSelected(null);
+    selectRef.current?.focus();
+  }
   return (
-    <select
-      aria-label="Front Desk Quick Guides"
-      defaultValue=""
-      onChange={(event) => {
-        const option = GUIDE_OPTIONS.find((guide) => guide.id === event.currentTarget.value);
-        if (option) window.open(option.href, "_blank", "noopener,noreferrer");
-        event.currentTarget.value = "";
-      }}
-      className="min-h-9 max-w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100"
-    >
-      <option value="" disabled>Front Desk Quick Guides</option>
-      {GUIDE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
-    </select>
+    <>
+      <select
+        ref={selectRef}
+        aria-label="Front Desk Quick Guides"
+        defaultValue=""
+        onChange={(event) => {
+          const option = GUIDE_OPTIONS.find((guide) => guide.id === event.currentTarget.value);
+          if (option) setSelected(option);
+          event.currentTarget.value = "";
+        }}
+        className="min-h-9 max-w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+      >
+        <option value="" disabled>Front Desk Quick Guides</option>
+        {GUIDE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
+      </select>
+      {selected && createPortal(
+        <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); closeViewer(); }} onClose={closeViewer} className="fixed inset-0 m-auto h-[90dvh] w-[94vw] max-w-6xl overflow-hidden rounded-xl border border-slate-600 bg-slate-950 p-0 text-white backdrop:bg-black/70">
+          <div className="flex h-full min-h-0 flex-col">
+            <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-700 p-3">
+              <h2 id={titleId} className="mr-auto text-sm font-bold">{selected.title}</h2>
+              <button type="button" onClick={closeViewer} className="rounded border border-slate-600 px-3 py-2 text-sm">Back to guides</button>
+              <button type="button" autoFocus onClick={closeViewer} aria-label="Close guide" className="rounded border border-slate-600 px-3 py-2 text-sm">Close</button>
+            </header>
+            <GuidePdfViewer key={selected.id} src={selected.href} />
+          </div>
+        </dialog>, document.body,
+      )}
+    </>
   );
 }

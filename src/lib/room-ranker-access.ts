@@ -38,6 +38,6 @@ export function canEditRoomRanker(principal: Principal) {
 }
 
 export function canAccessTroubleshootingGuides(profile: RoomRankerProfile) {
-  return roomRankerRoleCanView(profile)
-    || isScottRoomRankerAccount(profile.email ?? null, profile.email);
+  if (profileHasRole(profile, "engineer") || profileHasRole(profile, "technician")) return false;
+  return roomRankerRoleCanView(profile);
 }

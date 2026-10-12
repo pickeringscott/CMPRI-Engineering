@@ -1,7 +1,6 @@
 "use client";
 
 import { unreadWorkOrderNotificationCount, type WorkOrderNotification } from "@/lib/dashboard/work-order-notifications";
-import { accountRoleDisplayName } from "@/lib/account-display";
 import { priorityClass, type DesktopWorkOrder } from "./WorkOrderListWindow";
 import { roomStatusBadge } from "@/lib/room-availability";
 
@@ -12,13 +11,10 @@ function formatWhen(value: string) {
 }
 
 export default function WorkOrderApprovalsWindow({
-  user,
   notifications,
   awaitingApproval,
   canReview,
   notificationError,
-  soundEnabled,
-  onToggleSound,
   onOpenWorkOrder,
   onOpenNotification,
   onClear,
@@ -37,25 +33,15 @@ export default function WorkOrderApprovalsWindow({
   onClearAll: () => void;
 }) {
   return (
-    <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.6em] overflow-auto p-[0.6em]">
-      <div role="group" aria-label="Signed-in account" className="flex shrink-0 flex-wrap items-center gap-x-[0.75em] gap-y-[0.25em] rounded-md border border-slate-800 bg-slate-900/70 px-[0.7em] py-[0.45em]">
-        <span className="font-semibold text-white">{user.name?.trim() || "Name not set"}</span>
-        <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-[0.5em] text-[0.82em] font-semibold text-sky-200">{accountRoleDisplayName(user)}</span>
-        {user.email && <span className="min-w-0 truncate text-[0.88em] text-slate-400">{user.email}</span>}
-        <button type="button" onClick={onToggleSound} aria-pressed={soundEnabled} className="ml-auto rounded border border-slate-700 px-[0.6em] py-[0.15em] text-[0.85em] text-slate-300 hover:border-slate-500">
-          {soundEnabled ? "Sound on" : "Sound off"}
-        </button>
-      </div>
-
-      <div className={`grid min-h-0 flex-1 gap-[0.6em] ${canReview ? "@3xl:grid-cols-2" : ""}`}>
+    <div data-work-order-approvals className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.6em] overflow-auto p-[0.6em]">
+      <div className={`grid min-h-0 flex-1 gap-[0.6em] ${canReview ? "@3xl:grid-cols-2" : ""} ${canReview && awaitingApproval.length === 0 ? "grid-rows-[auto_minmax(0,1fr)] @3xl:grid-rows-1" : ""}`}>
         {canReview && (
-          <div className="flex min-h-[8em] flex-col overflow-hidden rounded-md border border-purple-400/30 bg-slate-900/60">
+          <div className={`flex flex-col overflow-hidden rounded-md border border-purple-400/30 bg-slate-900/60 ${awaitingApproval.length ? "min-h-[8em]" : "self-start"}`}>
             <div className="flex shrink-0 items-center justify-between gap-[0.5em] border-b border-slate-800 px-[0.7em] py-[0.4em]">
               <span className="font-bold text-purple-100">Awaiting approval</span>
-              <span className="text-[0.85em] text-slate-400">{awaitingApproval.length}</span>
+              <span className="font-bold text-slate-400">{awaitingApproval.length}</span>
             </div>
-            <ul className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
-              {awaitingApproval.length === 0 && <li className="p-[0.7em] text-slate-400">No work orders are waiting for approval.</li>}
+            {awaitingApproval.length > 0 && <ul aria-label="Work orders awaiting approval" className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
               {awaitingApproval.map((order) => (
                 <li key={order.id}>
                   <button type="button" onClick={() => onOpenWorkOrder(order.id)} className="flex w-full items-start gap-[0.6em] px-[0.7em] py-[0.45em] text-left hover:bg-slate-800/60">
@@ -68,7 +54,7 @@ export default function WorkOrderApprovalsWindow({
                   </button>
                 </li>
               ))}
-            </ul>
+            </ul>}
           </div>
         )}
 

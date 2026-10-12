@@ -113,7 +113,7 @@ test("Room Ranker policy checks secondary roles and both account email identitie
   viewer.profile.secondary_roles = ["technician"];
   assert.equal(accessPolicy.canViewRoomRanker(viewer), true);
   assert.equal(accessPolicy.canEditRoomRanker(viewer), false);
-  assert.equal(accessPolicy.canAccessTroubleshootingGuides(viewer.profile), true);
+  assert.equal(accessPolicy.canAccessTroubleshootingGuides(viewer.profile), false);
   const scott = principal("System Administrator", "maint.cmpri@hawkeyehotels.com");
   scott.profile.email = "another@example.invalid";
   assert.equal(accessPolicy.canViewRoomRanker(scott), false);
@@ -183,4 +183,13 @@ test("authenticated Room Ranker sync is Scott-only while the server cron path re
     if (priorCronSecret === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = priorCronSecret;
   }
+});
+
+test("guide visibility preserves management roles and excludes engineering and technician identities", () => {
+ for(const role of ["General Manager","Assistant General Manager","Front Desk Manager"]) assert.equal(accessPolicy.canAccessTroubleshootingGuides({role}),true,role);
+ for(const role of ["Engineer","Chief Engineer","Engineering Manager","Regional Maintenance","Technician","Maintenance Technician","System Administrator","Front Desk","Lead Housekeeper"]) assert.equal(accessPolicy.canAccessTroubleshootingGuides({role}),false,role);
+ assert.equal(accessPolicy.canAccessTroubleshootingGuides({role:"system_admin",email:"maint.cmpri@hawkeyehotels.com",secondary_roles:["engineer"]}),false);
+ assert.equal(accessPolicy.canAccessTroubleshootingGuides({role:"manager",secondary_roles:["technician"]}),false);
+ const technician=readFileSync(new URL("../src/app/technician/page.tsx",import.meta.url),"utf8");
+ assert.doesNotMatch(technician,/TroubleshootingGuideDropdown/);
 });
