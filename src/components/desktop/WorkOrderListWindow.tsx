@@ -1,5 +1,7 @@
 "use client";
 
+import WorkOrderImportPill from "@/components/WorkOrderImportPill";
+
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
@@ -9,6 +11,8 @@ import { HOTEL_TIME_ZONE } from "@/lib/constants";
 export type DesktopWorkOrder = Record<string, unknown> & {
   id: string;
   display_id?: string | null;
+  import_source?: string | null;
+  import_external_id?: string | null;
   room?: string | null;
   room_status?: string | null;
   checkout_date?: string | null;
@@ -236,6 +240,7 @@ export default function WorkOrderListWindow({
                           className="h-[1.15em] w-auto rounded-[3px] object-contain"
                         />
                       )}
+                      {!isDraft && <WorkOrderImportPill order={order} />}
                       {occupancy && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
                       {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                     </div>

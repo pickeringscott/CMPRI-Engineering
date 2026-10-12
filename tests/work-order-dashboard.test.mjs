@@ -16,11 +16,12 @@ const dashboardRows = Array.from({ length: 2501 }, (_, index) => ({
 
 function fixture({ failAt, role = "System Administrator", hasDashboard = true } = {}) {
   const ranges = [];
+  const projections = [];
   let allowedStatuses = null;
   const admin = {
     from(table) {
       const query = { from: 0, to: 999 };
-      query.select = () => query;
+      query.select = (columns) => { projections.push(columns); return query; };
       query.eq = () => query;
       query.order = () => query;
       query.in = (_field, values) => { allowedStatuses = values; return query; };
@@ -94,7 +95,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
     },
   });
   const request = { nextUrl: { searchParams: new URLSearchParams() } };
-  return { get: () => exports.GET(request), ranges };
+  return { get: () => exports.GET(request), ranges, projections };
 }
 
 test("dashboard returns every work order beyond the old 2000-row limit", async () => {
@@ -158,4 +159,15 @@ test("technician landing uses the shared desktop shell with the technician-scope
   assert.match(desktop, /roleKey\(role \|\| userRoleRef\.current\) === "technician"/);
   assert.match(desktop, /userRoleRef\.current = session\.user\.role/);
   assert.match(desktop, /technicianDashboard \? "\/api\/work-orders\?mode=technician"/);
+});
+
+ test("authorized dashboard reads include existing provenance fields for the pill", async () => {
+  const route = fixture();
+  const response = await route.get();
+  assert.equal(response.status, 200);
+  assert.ok(route.projections.length > 0);
+  for (const projection of route.projections) {
+    assert.ok(projection.split(", ").includes("import_source"));
+    assert.ok(projection.split(", ").includes("import_external_id"));
+  }
 });
