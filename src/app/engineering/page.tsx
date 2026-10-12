@@ -591,7 +591,6 @@ export default function EngineeringDashboardPage() {
 
   function openApprovals() {
     const canReviewTickets = hasCapability(cmpriSession, "review_tickets");
-    if (!canReviewTickets && inbox.length === 0) return;
     inbox.forEach((notification) => {
       if (!notification.is_read) void markNotificationRead(notification);
     });
