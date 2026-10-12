@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
@@ -73,6 +73,78 @@ export default function ManageEquipmentPage() {
   const [dialogMessage, setDialogMessage] = useState("");
   const [canManage, setCanManage] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newAsset, setNewAsset] = useState<Asset>({ ...blankAsset });
+  const [locations, setLocations] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [createMessage, setCreateMessage] = useState("");
+  const [creating, setCreating] = useState(false);
+  const createPending = useRef(false);
+
+  async function startAdding() {
+    if (!canManage || createPending.current) return;
+    setNewAsset({ ...blankAsset });
+    setCreateMessage("");
+    setLocations([]);
+    setAdding(true);
+    setLoadingLocations(true);
+    try {
+      const access = await token();
+      if (!access) throw new Error("Sign in again to load locations.");
+      const response = await fetch("/api/rooms?mode=create", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(payload.locations)) throw new Error(payload.error || "Locations could not be loaded. Close and reopen Add Asset to retry.");
+      setLocations(payload.locations.filter((location: { active?: boolean }) => location.active !== false));
+    } catch (error) {
+      setCreateMessage(error instanceof Error ? error.message : "Locations could not be loaded.");
+    } finally {
+      setLoadingLocations(false);
+    }
+  }
+
+  async function createAsset(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManage || createPending.current) return;
+    if (!locations.some((location) => location.id === newAsset.location_id) || !newAsset.asset_type.trim()) {
+      setCreateMessage("Select a location and enter an equipment type.");
+      return;
+    }
+    try {
+      parseAssetInstallYear(newAsset.install_year);
+    } catch (error) {
+      setCreateMessage(error instanceof Error ? error.message : "Install year is invalid.");
+      return;
+    }
+    createPending.current = true;
+    setCreating(true);
+    setCreateMessage("");
+    try {
+      const access = await token();
+      if (!access) throw new Error("Sign in again to add equipment.");
+      const response = await fetch("/api/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
+        body: JSON.stringify({ location_id: newAsset.location_id, asset_type: newAsset.asset_type.trim(),
+          asset_tag: newAsset.asset_tag, manufacturer: newAsset.manufacturer, model_family: newAsset.model_family,
+          model_number: newAsset.model_number, serial_number: newAsset.serial_number,
+          generation: newAsset.generation, install_year: newAsset.install_year }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Equipment could not be created.");
+      if (!payload.asset?.id) throw new Error("The save response was incomplete. Reload equipment before retrying.");
+      const created = payload.asset as Asset;
+      setAssets((current) => [...current, created]);
+      selectAsset(created);
+      setAdding(false);
+      setNewAsset({ ...blankAsset });
+      setMessage("Asset added.");
+    } catch (error) {
+      setCreateMessage(error instanceof Error ? error.message : "Equipment could not be created. Check your connection and retry.");
+    } finally {
+      createPending.current = false;
+      setCreating(false);
+    }
+  }
 
   const selected = assets.find((asset) => asset.id === selectedId);
   const verified = Boolean(selected?.documentation_verified || draft.documentation_verified);
@@ -337,7 +409,10 @@ export default function ManageEquipmentPage() {
         <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
           <section className="rounded-2xl border border-slate-800 bg-slate-900">
             <div className="border-b border-slate-800 px-4 py-3">
-              <h2 className="font-bold">All Equipment</h2>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-bold">All Equipment</h2>
+                {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">Add Asset</button>}
+              </div>
               <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
             </div>
             <div className="p-4">
@@ -371,7 +446,7 @@ export default function ManageEquipmentPage() {
                     ))}
                   </div>
                   <p className="mt-1 text-sm text-slate-400">{verified ? "Verified fields are locked against casual edits." : "Review and save the equipment record before final documentation verification."}</p>
-                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is not offered for room work orders. Engineering must verify whether it represents installed equipment or a shared model before assigning it.</p>}
+                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders. Engineering must verify its installed location before assigning it.</p>}
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -397,6 +472,35 @@ export default function ManageEquipmentPage() {
           </section>
         </div>
       </div>
+
+      {adding && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <form onSubmit={createAsset} role="dialog" aria-modal="true" aria-labelledby="add-asset-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="add-asset-title" className="text-xl font-bold">Add Asset</h2>
+            <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">Close</button>
+          </div>
+          <p className="mt-2 text-sm text-slate-400">Choose the installed location and equipment type. Leave unknown specifications blank.</p>
+          {createMessage && <p role="alert" className="mt-3 text-sm text-amber-200">{createMessage}</p>}
+          <fieldset disabled={creating || loadingLocations} className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm">Room / Location
+              <select required value={newAsset.location_id || ""} onChange={(event) => setNewAsset((current) => ({ ...current, location_id: event.target.value || null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3">
+                <option value="">{loadingLocations ? "Loading locations…" : "Select a location"}</option>
+                {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+              </select>
+            </label>
+            {([["asset_type", "Equipment type"], ["asset_tag", "Asset tag"], ["manufacturer", "Manufacturer"], ["model_family", "Exact model family"], ["model_number", "Model number"], ["serial_number", "Serial number"], ["generation", "Generation"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}
+              <input required={key === "asset_type"} maxLength={key === "serial_number" ? 300 : 200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
+            </label>)}
+            <label className="grid gap-1 text-sm">Install year
+              <input type="number" min="1900" max={maximumAssetInstallYear()} value={newAsset.install_year ?? ""} onChange={(event) => setNewAsset((current) => ({ ...current, install_year: event.target.value ? Number(event.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
+            </label>
+          </fieldset>
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-4 py-2 disabled:opacity-50">Cancel</button>
+            <button type="submit" disabled={creating || loadingLocations || !locations.length} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold disabled:opacity-50">{creating ? "Adding…" : "Save Asset"}</button>
+          </div>
+        </form>
+      </div>}
 
       {showDocumentationDialog && selected && canManage && editing && (
         <div className="cmpri-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/75">

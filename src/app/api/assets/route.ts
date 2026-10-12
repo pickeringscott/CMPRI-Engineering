@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
     }));
   return NextResponse.json({
     assets: results.map((result) => result.asset),
-    can_manage: canEditEquipment(auth.principal.profile.role),
+    can_manage: canEditEquipment(auth.principal.profile.role) && allows(auth.principal, "manage_assets"),
     documentation_state_available: !results.some((result) => result.state.error),
   }, { headers: { "Cache-Control": "no-store" } });
 }

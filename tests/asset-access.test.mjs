@@ -119,7 +119,7 @@ function fixture(route, config={}) {
       };
       if(name==='@/lib/server/access')return {
         allows: (principal, cap) => {
-          if (cap === 'manage_assets') return true;
+          if (cap === 'manage_assets') return !config.denyManagement;
           if (cap === 'submit') return true;
           return false;
         },
@@ -341,4 +341,15 @@ test('creation equipment exposes the shared inference fields and distinguishing 
  const f=fixture('route.ts',{assetRows:[asset]});f.request.nextUrl.searchParams.set('mode','create');
  const response=await f.handlers.GET(f.request);assert.equal(response.status,200);assert.ok(f.selections.includes(EQUIPMENT_SELECTION_COLUMNS));
  for(const field of ['manufacturer','model_number','generation','asset_tag','documentation_key','binder_tag','quantity'])assert.equal(response.body.assets[0][field],asset[field]);
+});
+
+test('management controls require both editing role and manage_assets capability', async () => {
+  for (const [role, denied, expected] of [
+    ['Chief Engineer', false, true], ['Chief Engineer', true, false], ['Technician', false, false],
+  ]) {
+    const f = fixture('route.ts', { profile: { active: true, role }, denyManagement: denied });
+    const response = await f.handlers.GET(f.request);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.can_manage, expected);
+  }
 });
