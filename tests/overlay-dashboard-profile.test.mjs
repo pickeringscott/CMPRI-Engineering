@@ -131,7 +131,7 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(engineering, /text-\[14pt\] font-bold leading-none tracking-tight/);
   assert.match(engineering, /<span className="text-amber-300">\{isHousekeepingDashboard \? "Housekeeping" : "Engineering"\}<\/span>/);
   assert.match(engineering, /max-w-\[18rem\] truncate text-\[14pt\] font-semibold tracking-tight text-slate-100/);
-  assert.match(engineering, /mt-1 text-\[9pt\] font-medium text-sky-200\/90">\{displayRole\}/);
+  assert.match(engineering, /data-dashboard-role[\s\S]*?Chief Engineer[\s\S]*?displayRole/);
   assert.ok(engineeringHeader.indexOf('text-[14pt] font-semibold tracking-tight text-slate-100') < engineeringHeader.indexOf('count={notificationCount}'));
   assert.match(engineeringHeader, /pt-\[8pt\]/);
   assert.match(engineering, /const canReviewTickets = hasCapability\(session, "review_tickets"\)/);
@@ -149,11 +149,11 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineeringHeader, /nav aria-label="Open dashboard windows" className="[^"]*gap-0\.5/);
   assert.match(engineeringHeader, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
-  assert.doesNotMatch(engineeringHeader, /<details|<summary|showMobileLauncherDropdown/);
+  assert.match(engineeringHeader, /chiefEngineerMobileLayout \? \([\s\S]*?<details/);
   assert.match(engineeringHeader, /className="hidden min-w-0 flex-wrap items-center gap-0\.5 lg:flex"/);
   assert.match(engineeringHeader, /hidden px-0\.5 text-\[9pt\] font-bold uppercase/);
   assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
-  assert.match(engineering, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);
+  assert.match(engineering, /onLaunch\(launcher, Date\.now\(\)\)/);
   assert.match(engineeringHeader, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0[\s\S]*?lg:hidden/);
   assert.match(engineering, /const LAUNCHER_CLOSE_WINDOW_MS = 5_000/);
   assert.match(engineering, /windowOpenedAtRef\.current\.set\(entry\.key, Date\.now\(\)\)/);
@@ -165,12 +165,14 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.doesNotMatch(workOrders, /dashboardTitleForRole\(cmpriSession\.user\.role\)/);
 });
 
-test('mobile dashboard navigation actions remain directly accessible without dropdowns', () => {
+test('non-Chief mobile navigation retains direct actions while Chief groups use native disclosures', () => {
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const technician = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
 
-  assert.doesNotMatch(engineering, /<details|<summary|showMobileLauncherDropdown/);
+  assert.match(engineering, /chiefEngineerMobileLayout \? \([\s\S]*?data-chief-mobile-group/);
+  assert.match(engineering, /event\.key === "Escape"/);
+  assert.match(engineering, /chiefMobileGroups = visibleLauncherGroups/);
   assert.match(engineering, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
   assert.match(engineering, /label: "\+ Create Work Order"/);
   assert.match(engineering, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0/);

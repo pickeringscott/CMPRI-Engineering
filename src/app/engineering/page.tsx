@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
+import { usesChiefEngineerMobileLayout } from "@/lib/dashboard/chief-engineer-mobile";
 import { roleDisplayName } from "@/lib/account-display";
 import {
   DASHBOARD_NOTIFICATION_POLL_MS,
@@ -86,7 +87,10 @@ function DashboardLauncherButton({
       data-cmpri-desktop-launch={launcher.key}
       data-open={open ? "true" : "false"}
       title={launcher.label}
-      onClick={() => onLaunch(launcher, Date.now())}
+      onClick={(event) => {
+        event.currentTarget.closest("details[data-chief-mobile-group]")?.removeAttribute("open");
+        onLaunch(launcher, Date.now());
+      }}
       className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
     >
       {launcher.label}
@@ -432,6 +436,11 @@ export default function EngineeringDashboardPage() {
     pendingFocusRef.current = "";
     const frame = frameRefs.current.get(key);
     if (frame) frame.focus();
+    else if (key === WORK_ORDER_LIST_KEY && (window.matchMedia("(pointer: coarse)").matches
+      || window.innerWidth < COMPACT_DESKTOP_WIDTH)) {
+      // Keep focus inside the list without opening a touch device's keyboard.
+      desktopRef.current?.querySelector<HTMLElement>("[data-work-order-list-heading]")?.focus();
+    }
     else desktopRef.current?.querySelector<HTMLElement>(`[data-cmpri-desktop-window="${CSS.escape(key)}"] .cmpri-desktop-window-body button, [data-cmpri-desktop-window="${CSS.escape(key)}"] .cmpri-desktop-window-body input`)?.focus();
   }, [zOrder, windows]);
 
@@ -564,6 +573,7 @@ export default function EngineeringDashboardPage() {
   }
 
   const session = cmpriSession;
+  const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
   const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
   const canViewRanker = roomRankerProfileCanView(session.user, session.user.email);
   const canOpenTroubleshootingGuides = canAccessTroubleshootingGuides(session.user);
@@ -684,22 +694,25 @@ export default function EngineeringDashboardPage() {
   const mobileLaunchers = visibleLauncherGroups
     .flatMap((group) => group.items)
     .filter((launcher) => launcher.key !== "/work-orders");
+  const chiefMobileGroups = visibleLauncherGroups
+    .map((group) => ({ ...group, items: group.items.filter((launcher) => launcher.key !== "/work-orders" && launcher.label !== "Connect ChatGPT") }))
+    .filter((group) => group.items.length > 0);
   const createWorkOrderLauncher = visibleLauncherGroups
     .flatMap((group) => group.items)
     .find((launcher) => launcher.key === "/work-orders");
 
   return (
-    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh">
+    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-chief-engineer-mobile={chiefEngineerMobileLayout ? "true" : undefined}>
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:flex-row lg:items-center lg:gap-3 lg:pb-3">
         <div className="flex w-full shrink-0 items-center gap-4 border-b border-slate-800 pb-2 lg:w-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
           <div className="flex min-w-0 flex-col items-start leading-tight">
-            <p className="text-[14pt] font-bold leading-none tracking-tight">
+            <p data-dashboard-title className="text-[14pt] font-bold leading-none tracking-tight">
               <span className="text-amber-300">CMPRI</span>{" "}
               <span className="text-amber-300">{isHousekeepingDashboard ? "Housekeeping" : "Engineering"}</span>
             </p>
-            <div className="mt-2 text-left leading-tight">
+            <div data-dashboard-account className="mt-2 text-left leading-tight">
               <div className="flex min-w-0 items-center gap-2">
-                <p className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
+                <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
                 {(canReviewTickets || inbox.length > 0) && (
                   <DashboardNotificationBell
                     count={notificationCount}
@@ -712,7 +725,7 @@ export default function EngineeringDashboardPage() {
                   />
                 )}
               </div>
-              <p className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
+              <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{chiefEngineerMobileLayout ? <><span className="lg:hidden">Chief Engineer</span><span className="hidden lg:inline">{displayRole}</span></> : displayRole}</p>
             </div>
             {createWorkOrderLauncher && (
               <DashboardLauncherButton
@@ -726,11 +739,35 @@ export default function EngineeringDashboardPage() {
         </div>
 
         <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
+          {chiefEngineerMobileLayout ? (
+            <div className="grid max-h-[40svh] w-full min-w-0 grid-cols-2 items-start gap-1 overflow-y-auto lg:hidden">
+              {chiefMobileGroups.map((group) => (
+                <details key={group.label} data-chief-mobile-group className="min-w-0 rounded-md border border-slate-700 bg-slate-900"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && event.currentTarget.open) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      event.currentTarget.open = false;
+                      event.currentTarget.querySelector("summary")?.focus();
+                    }
+                  }}>
+                  <summary className="min-h-9 cursor-pointer px-2 py-2 text-xs font-semibold text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">{group.label}</summary>
+                  <div role="group" aria-label={group.label} className="flex min-w-0 flex-wrap gap-1 p-1">
+                    {group.items.map((launcher) => (
+                      <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch}
+                        className={`cmpri-desktop-launch min-h-9 max-w-full rounded border px-2 py-1 text-left font-semibold ${launcher.tone}`} />
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          ) : (
           <div className="flex min-w-0 flex-wrap items-center gap-1 lg:hidden">
             {mobileLaunchers.map((launcher) => (
               <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
             ))}
           </div>
+          )}
           <div className="hidden min-w-0 flex-wrap items-center gap-0.5 lg:flex">
           {visibleLauncherGroups.map((group) => (
             <div key={group.label} className="relative">
@@ -748,7 +785,7 @@ export default function EngineeringDashboardPage() {
           ))}
           </div>
         </nav>
-        {canOpenTroubleshootingGuides && <TroubleshootingGuideDropdown />}
+        {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
