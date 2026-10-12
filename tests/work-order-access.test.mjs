@@ -1,3 +1,4 @@
+import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as accountDisplay from "../src/lib/account-display.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,7 +88,7 @@ function fixture(config={}){
       select(){return q;},eq(k,v){filters.push([k,v]);return q;},is(k,v){filters.push([k,v]);return q;},in(){return q;},limit(){return q;},order(){return q;},neq(){return q;},
       async maybeSingle(){
         calls.push({table,filters});
-        if(table==='work_orders')return {data:config.missing?null:{id:'order',created_by:config.createdBy,creator_name:'Historical recorded name',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
+        if(table==='work_orders')return {data:config.missing?null:{id:'order',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',created_by:config.createdBy,creator_name:'Historical recorded name',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
         if(table==='profiles')return {data:config.creatorProfile || null,error:null};
         if(table==='assets')return {data:config.assetMissing?null:{id:'new-asset',location_id:config.template?null:config.wrongRoom?'room-410':'room-409',active:!config.retired,name:'Verified equipment'},error:config.assetError?{message:'failed'}:null};
         return {data:null,error:null};
@@ -140,6 +141,7 @@ function fixture(config={}){
     exports,
     process:{env:{SUPABASE_SERVICE_ROLE_KEY:'fake'}},
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, allows);
       if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
       if(name==='@supabase/supabase-js')return {createClient:()=>db};
@@ -264,16 +266,17 @@ test('limited work-order readers receive ticket history but not purchasing or En
       eq(){return query;},
       order(){return query;},
       limit(){return query;},
-      maybeSingle:async()=>({data:{id:'order',status:'Open',technician_name:null},error:null}),
+      maybeSingle:async()=>({data:{id:'order',hotel_id:'hotel',status:'Open',technician_name:null},error:null}),
       then(resolve,reject){return Promise.resolve({data:[{id:'history-entry'}],error:null}).then(resolve,reject);},
     };
     return query;
   }};
-  const principal={identity:{id:'manager'},profile:{id:'manager',role:'General Manager',full_name:'Audit Manager',active:true}};
+  const principal={hotelId:'hotel',identity:{id:'manager'},profile:{id:'manager',role:'General Manager',full_name:'Audit Manager',active:true}};
   const exports={};
   vm.runInNewContext(activityCode,{
     exports,
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, (_p,c)=>c === "add_work_order_notes" || c === "view_work_orders");
       if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
       if(name==='@/lib/constants')return {HOTEL_ID:'hotel'};
@@ -475,7 +478,7 @@ test('only engineer reviewers and system administrators may delete work orders',
   }
 });
 
-test('detail, activity, and attachment routes all share the technician assignment guard',()=>{
+test('technical mutations and attachments preserve assignment guards while detail/history share the read policy',()=>{
   const routePaths=[
     '../src/app/api/work-orders/[id]/route.ts',
     '../src/app/api/work-orders/[id]/activity/route.ts',
@@ -483,7 +486,8 @@ test('detail, activity, and attachment routes all share the technician assignmen
   ];
   for(const routePath of routePaths){
     const source=readFileSync(new URL(routePath,import.meta.url),'utf8');
-    assert.match(source,/canAccessWorkOrderByAssignment\(/,`${routePath} must enforce technician assignment`);
+    if (routePath.includes("activity")) assert.match(source,/canReadWorkOrder\(/);
+    else assert.match(source,/canAccessWorkOrderByAssignment\(/,`${routePath} must enforce technician assignment`);
   }
 });
 
@@ -515,4 +519,37 @@ test('engineering readback resolves maintenance creator title independently of t
  assert.equal(result.body.workOrder.creator_role,'system_admin');
  assert.equal(result.body.workOrder.creator_name,'Historical recorded name');
  assert.equal(f.writes(),0);
+});
+
+// The new read grant does not grant note/status/photo mutations on closed tickets.
+for (const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']) test(`${role} reads own Closed ticket by creator ID, never matching display name`, async()=>{
+ const profile={id:'actor',active:true,role,full_name:'Historical recorded name'};
+ assert.equal((await fixture({profile,existingStatus:'Closed',createdBy:'actor'}).get()).status,200);
+ assert.equal((await fixture({profile,existingStatus:'Closed',createdBy:'other'}).get()).status,403);
+ for(const status of ['Pending Verification','Completed','Will Not Do']) assert.equal((await fixture({profile,existingStatus:status,createdBy:'actor'}).get()).status,403);
+});
+
+test('new technician reads expose ticket history without expanding purchasing activity access',async()=>{
+ const tables=[];
+ const principal={hotelId:'hotel',identity:{id:'actor'},profile:{role:'technician',full_name:'Reader',active:true}};
+ const allows=(_p,c)=>['view_dashboard','view_work_orders','edit_tickets'].includes(c);
+ const admin={from(table){
+  tables.push(table);
+  const q={select(){return q;},eq(){return q;},order(){return q;},limit(){return q;},
+   maybeSingle:async()=>({data:{id:'order',hotel_id:'hotel',status:'Open',created_by:'other',technician_name:'Another Technician'},error:null}),
+   then(resolve,reject){return Promise.resolve({data:[],error:null}).then(resolve,reject);}};
+  return q;
+ }};
+ const exports={};vm.runInNewContext(activityCode,{exports,require(name){
+  if(name.includes('work-order-read-policy')||name.includes('work-order-reader'))return ticketReadDependency(name,allows);
+  if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
+  if(name==='@/lib/server/access')return {allows};
+  if(name==='@/lib/server/auth')return {requireUser:async()=>({principal,admin})};
+  if(name==='@/lib/server/work-order-assignment')return assignmentExports;
+  if(name==='@/lib/constants')return {HOTEL_ID:'hotel'};
+  if(name==='@/lib/uuid')return {isUuid:()=>true};
+  throw Error(name);
+ }});
+ assert.equal((await exports.GET({}, {params:Promise.resolve({id:'order'})})).status,200);
+ assert.deepEqual(tables,['work_orders','cmpri_work_order_history']);
 });

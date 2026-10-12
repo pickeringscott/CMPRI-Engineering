@@ -1,3 +1,4 @@
+import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as equipmentSelection from "../src/lib/equipment-selection.ts";
 import * as accountDisplay from "../src/lib/account-display.ts";
 import assert from "node:assert/strict";
@@ -96,6 +97,7 @@ function fixture(role, actorId = "actor") {
   vm.runInNewContext(compiled, {
     exports,
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
       if (name === "@/lib/account-display") return accountDisplay;
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200, headers: init.headers }) } };
@@ -161,6 +163,7 @@ function submittedDraftRetryFixture() {
   }).outputText, {
     exports: routeExports,
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
       if (name === "@/lib/account-display") return accountDisplay;
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200, headers: init.headers }) } };

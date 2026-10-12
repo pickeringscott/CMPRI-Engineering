@@ -95,7 +95,7 @@ async def main():
     state['engineering']=True
     await page.goto(f'{BASE}/work-orders/{ID}')
     await page.get_by_role('heading',name='Photos (1)',exact=True).wait_for(timeout=60000)
-    note=await page.get_by_role('heading',name='Technician Notes',exact=True).bounding_box();photos=await page.get_by_role('heading',name='Photos (1)',exact=True).bounding_box();assert photos['y']>note['y']
+    note=await page.get_by_role('heading',name='Notas e historial de la orden' if lang=='es' else 'Notes & Ticket History',exact=True).bounding_box();photos=await page.get_by_role('heading',name='Photos (1)',exact=True).bounding_box();assert photos['y']>note['y']
     await expect(page.get_by_role('button',name='Open work-order photo',exact=True)).to_be_visible()
     await expect(page.get_by_text(row['issue'],exact=True).first).to_be_visible()
     await expect(page.get_by_text(row['notes'],exact=True).first).to_be_visible()

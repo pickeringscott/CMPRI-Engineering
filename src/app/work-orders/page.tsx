@@ -34,6 +34,7 @@ import {
 } from "@/lib/work-order-creation";
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
+import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
 
 type WorkOrderDraft = {
@@ -776,6 +777,9 @@ export default function WorkOrdersPage() {
   ].includes(currentRoleKey);
   const isFrontDeskUser = ["frontdesk", "frontdeskmanager", "assistantgm", "assistantgeneralmanager", "assistantmanager"].includes(currentRoleKey);
   const isSubmitOnlyUser = isSubmitOnlyRole(currentRole);
+  const keepOpenAfterCreate = Boolean(cmpriSession && keepCreateFormOpen(cmpriSession.user, cmpriSession.capabilities.includes("submit")));
+  const submittingRef = useRef(false);
+  const submittedDisplayIdsRef = useRef<string[]>([]);
   const canSetEngineeringFields = Boolean(cmpriSession?.capabilities.includes("edit_tickets") || cmpriSession?.capabilities.includes("review_tickets"));
   const systemAssignedTechnicalFields = isSubmitOnlyUser || !canSetEngineeringFields;
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
@@ -1236,7 +1240,19 @@ export default function WorkOrdersPage() {
     if (photoCameraInputRef.current) photoCameraInputRef.current.value = "";
   }
 
+  function afterSuccessfulCreate(callback: () => void, delay: number) {
+    if (keepOpenAfterCreate) callback();
+    else window.setTimeout(callback, delay);
+  }
+
   function notifyCreateModal(type: "cmpri-work-order-cancelled" | "cmpri-work-order-created", displayId?: string) {
+    if (type === "cmpri-work-order-created" && keepOpenAfterCreate) {
+      resetWorkOrderForm(true);
+      setCreateState("idle");
+      const ids = displayId || submittedDisplayIdsRef.current.join(", ");
+      setMessage(tx(`Submitted successfully${ids ? `: ${ids}` : ""}. Ready for the next ticket.`, `Enviado correctamente${ids ? `: ${ids}` : ""}. Listo para la siguiente orden.`));
+      return true;
+    }
     if (!embedded || window.parent === window || !modalToken) return false;
     window.parent.postMessage(
       { type, modalKind: "create", ...(displayId ? { displayId } : {}), modalToken },
@@ -1528,7 +1544,7 @@ export default function WorkOrdersPage() {
       setMessage(isSubmitOnlyUser
         ? "Request submitted for Engineering verification."
         : "Work order created.");
-      window.setTimeout(() => {
+      afterSuccessfulCreate(() => {
         resetWorkOrderForm();
         setBatchCreateSuggestions([]);
         setCreateState("idle");
@@ -1607,7 +1623,7 @@ export default function WorkOrdersPage() {
       ? `${rows.length} requests submitted for Engineering verification.`
       : `${rows.length} work orders created.`);
 
-    window.setTimeout(() => {
+    afterSuccessfulCreate(() => {
       resetWorkOrderForm();
       setBatchCreateSuggestions([]);
       setCreateState("idle");
@@ -1620,6 +1636,7 @@ export default function WorkOrdersPage() {
     workOrders: CreatedWorkOrder[];
     photoUploadPending: boolean;
   }> {
+    if (submittingRef.current) return { error: { message: "Submission is already in progress." }, workOrders: [], photoUploadPending: false };
     if (pendingPhotoUploads.length > 0) {
       return {
         error: { message: "Retry the pending photo upload before creating more work orders." },
@@ -1627,6 +1644,7 @@ export default function WorkOrdersPage() {
         photoUploadPending: true,
       };
     }
+    submittingRef.current = true;
     try {
       const session = await getValidSession();
       if (!session) {
@@ -1650,6 +1668,10 @@ export default function WorkOrdersPage() {
         };
       }
       const workOrders = Array.isArray(result.work_orders) ? result.work_orders as CreatedWorkOrder[] : [];
+      if (!workOrders.length || workOrders.some((order) => !order.id)) {
+        return { error: { message: "Unable to confirm the saved ticket. Check the list before retrying." }, workOrders: [], photoUploadPending: false };
+      }
+      submittedDisplayIdsRef.current = workOrders.map((order) => order.display_id || order.id);
       let photoUploadPending = false;
       if (photos.length && workOrders.length) {
         for (let photoIndex = 0; photoIndex < photos.length; photoIndex += 1) {
@@ -1687,6 +1709,8 @@ export default function WorkOrdersPage() {
         workOrders: [],
         photoUploadPending: false,
       };
+    } finally {
+      submittingRef.current = false;
     }
   }
 
@@ -1725,7 +1749,7 @@ export default function WorkOrdersPage() {
         setCanReplacePhoto(false);
         setMessage("Photo upload completed successfully.");
         setBatchCreateSuggestions([]);
-        window.setTimeout(() => {
+        afterSuccessfulCreate(() => {
           if (notifyCreateModal("cmpri-work-order-created", pending[0]?.display_id)) return;
           resetWorkOrderForm(true);
           setCreateState("idle");
@@ -1757,7 +1781,7 @@ export default function WorkOrdersPage() {
     setMessage(skippedUploads.length === 1
       ? "Photo upload was skipped. The created work order remains saved."
       : `Photo upload was skipped. The ${skippedUploads.length} created work orders remain saved.`);
-    window.setTimeout(() => {
+    afterSuccessfulCreate(() => {
       if (notifyCreateModal("cmpri-work-order-created", skippedUploads[0]?.display_id)) return;
       resetWorkOrderForm(true);
       setCreateState("idle");
@@ -1766,6 +1790,7 @@ export default function WorkOrdersPage() {
 
   async function createWorkOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current || loading || createState !== "idle") return;
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
       setMessage("Enter your first name before submitting.");
       return;
@@ -1858,7 +1883,7 @@ export default function WorkOrdersPage() {
     setLoading(false);
     setCreateState("created");
 
-    window.setTimeout(() => {
+    afterSuccessfulCreate(() => {
       if (notifyCreateModal("cmpri-work-order-created", displayId)) return;
       resetWorkOrderForm();
       setCreateState("idle");
@@ -2004,6 +2029,7 @@ export default function WorkOrdersPage() {
                 </div>
               )}
               {cmpriSession && embedded && isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mr-auto rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
+              {cmpriSession?.capabilities.includes("view_work_orders") && <ModalNavigationButton href="/engineering" className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Work Orders", "Órdenes de trabajo")}</ModalNavigationButton>}
               <div className="flex flex-wrap items-center justify-end gap-1">
                 <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-10 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">

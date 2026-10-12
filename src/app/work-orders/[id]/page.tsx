@@ -15,6 +15,9 @@ import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { canReadEquipment, roleKey } from "@/lib/server/roles";
+import { accountRoleDisplayName } from "@/lib/account-display";
+import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry } from "@/lib/ticket-note-presentation";
+import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
 import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { isRailwayCnGuestName } from "@/lib/room-operations";
@@ -557,35 +560,6 @@ function cleanTicketReportedIssue(value: string, roomLabel: string) {
   return cleaned.replace(/[A-Za-z]/, (letter) => letter.toUpperCase());
 }
 
-type TicketHistoryEntry = {
-  id: string;
-  timestamp: string;
-  actor: string;
-  kind: "note" | "change" | "system";
-  text: string;
-  staged?: boolean;
-  locked?: boolean;
-};
-
-function parseTicketHistory(raw: string, fallbackTime?: string | null): TicketHistoryEntry[] {
-  const lines = String(raw || "").split("\n").map((line) => line.trim()).filter(Boolean);
-  const entries: TicketHistoryEntry[] = [];
-  const plain: string[] = [];
-  lines.forEach((line, index) => {
-    const match = line.match(/^CMPRI\|([^|]+)\|([^|]*)\|(note|change|system)\|(.*)$/);
-    if (match) {
-      entries.push({ id: `saved-${index}-${match[1]}`, timestamp: match[1], actor: match[2] || "CMPRI User", kind: match[3] as TicketHistoryEntry["kind"], text: match[4] });
-    } else {
-      plain.push(line);
-    }
-  });
-  if (plain.length) entries.push({ id: "legacy-notes", timestamp: fallbackTime || new Date().toISOString(), actor: "Existing ticket", kind: "note", text: plain.join(" ") });
-  return entries.sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-}
-
-function historyLine(entry: TicketHistoryEntry) {
-  return `CMPRI|${entry.timestamp}|${entry.actor.replace(/\|/g, "/")}|${entry.kind}|${entry.text.replace(/\n+/g, " ").replace(/\|/g, "/")}`;
-}
 
 export default function WorkOrderTicketPage() {
   const params = useParams<{ id: string }>();
@@ -593,6 +567,7 @@ export default function WorkOrderTicketPage() {
   const router = useRouter();
 
   const [order, setOrder] = useState<WorkOrder | null>(null);
+
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetDocumentResult, setAssetDocumentResult] = useState<{ assetId: string; documents: AssetDocument[]; error: string } | null>(null);
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
@@ -634,6 +609,15 @@ export default function WorkOrderTicketPage() {
   const [notes, setNotes] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [mentionTickets, setMentionTickets] = useState<MentionTicket[]>([]);
+  const [notesLanguage, setNotesLanguage] = useState<"en" | "es">("en");
+  useEffect(() => {
+    const sync = () => setNotesLanguage(document.documentElement.lang === "es" ? "es" : "en");
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
+    return () => observer.disconnect();
+  }, []);
+
   const [currentActor, setCurrentActor] = useState("CMPRI User");
   const [stagedNoteIds, setStagedNoteIds] = useState<string[]>([]);
   const [actionRootCause, setActionRootCause] = useState("");
@@ -1233,7 +1217,7 @@ export default function WorkOrderTicketPage() {
   function submitTechnicianNote() {
     const text = noteDraft.trim();
     if (!text) return;
-    const entry: TicketHistoryEntry = { id: `staged-${Date.now()}`, timestamp: new Date().toISOString(), actor: currentActor, kind: "note", text, staged: true };
+    const entry: TicketHistoryEntry = { id: `staged-${Date.now()}`, timestamp: new Date().toISOString(), actor: currentActor, authorRole: cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, kind: "note", text, staged: true };
     const encoded = historyLine(entry);
     setNotes((existing) => [existing.trim(), encoded].filter(Boolean).join("\n"));
     // Track the exact staged history line, not a generated parser id. That makes
@@ -1567,9 +1551,10 @@ export default function WorkOrderTicketPage() {
 
   const categoryOptions = workOrderCategoryOptions(category);
   const priorityOptions = ['Urgent','High','Medium','Low'].map((value) => ({ value, label: value }));
-  const canEditTicket = Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
+  const canAccessAssignedWork = canAccessWorkOrderByAssignment(cmpriSession?.user.role, cmpriSession?.user.name, order);
+  const canEditTicket = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
-  const canAddWorkOrderNotes = Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
+  const canAddWorkOrderNotes = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
   const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
   const canClaimWorkOrder = isTechnician &&
@@ -1581,7 +1566,7 @@ export default function WorkOrderTicketPage() {
     role: cmpriSession?.user.role,
     canEdit: canEditTicket,
     canReview: canReviewCurrentTicket,
-    canAddNotes: canAddWorkOrderNotes,
+    canAddNotes: canAddWorkOrderNotes && ["Open", "In Progress"].includes(String(order.status || "")),
     unassigned: !String(order.technician_name || "").trim(),
     canClaimUnassigned: canClaimWorkOrder,
   });
@@ -1704,7 +1689,7 @@ export default function WorkOrderTicketPage() {
     }
   }
   const uniqueHistory = new Map<string, TicketHistoryEntry>();
-  for (const entry of historyEntries) uniqueHistory.set(`${entry.timestamp}|${entry.actor}|${entry.kind}|${entry.text}`, entry);
+  for (const entry of historyEntries) uniqueHistory.set(`${entry.timestamp}|${entry.actor}|${entry.authorRole || ""}|${entry.kind}|${entry.text}`, entry);
   historyEntries.splice(0, historyEntries.length, ...Array.from(uniqueHistory.values()));
   historyEntries.sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const roomOccupancy = roomStatusBadge(order.room_status || roomOperationalContext.roomStatus);
@@ -1743,15 +1728,13 @@ export default function WorkOrderTicketPage() {
                   </div>
                   {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
+                  {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
+                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
                 </div>
                 <div className="mt-1 flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-x-2">
-                  <p className="w-full truncate text-xs leading-tight text-white sm:min-w-0 sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
+                  <p className="w-full min-w-0 break-words text-sm leading-5 text-white sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
                   <p className="w-full truncate text-[11px] leading-tight text-sky-200/75 sm:max-w-[45%] sm:shrink-0 sm:text-right" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
                 </div>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-1">
-                {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
-                <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
               </div>
             </div>
           </div>
@@ -1806,35 +1789,8 @@ export default function WorkOrderTicketPage() {
           </div>
         )}
 
-        {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
-          <section className="mt-2 grid gap-1.5 rounded-xl border border-cyan-500/30 bg-slate-900 p-1.5">
-            {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
-              {roomOperationalContext.checkoutError && <p role="alert" className="text-xs text-red-300">Room checkout details are unavailable: {roomOperationalContext.checkoutError}</p>}
-              {cmpriSession && roomRankerProfileCanView(cmpriSession.user, cmpriSession.user.email) && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <b className="text-sm">Room Ranker</b>
-                    <div className="flex items-center gap-1.5">
-                      <Link href="/engineering/room-ranker" className="text-[11px] font-semibold text-amber-300 hover:underline">Ranker</Link>
-                      <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span>
-                    </div>
-                  </div>
-                  {roomOperationalContext.rankerError
-                    ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.rankerError}</p>
-                    : roomRankerFlags.length
-                      ? <ul className="mt-1 space-y-0.5 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul>
-                      : <p className="mt-1 text-xs text-slate-500">{roomOperationalContext.ranker ? "No Room Ranker flags or notes are recorded for this room." : "No Room Ranker row was returned for this room."}</p>}
-                </div>
-              )}
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
-                <b className="text-sm">PM checks and quarterly room forms</b>
-                {roomOperationalContext.pm?.error
-                  ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
-                  : <p className="mt-1 text-xs leading-tight text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
-                <Link href="/engineering/preventive-maintenance" className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
-              </div>
-            </>}
-          </section>
+        {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.ranker || order?.room) && !roomOperationalContext.loading && roomOperationalContext.checkoutError && (
+          <p role="alert" className="mt-2 text-xs text-red-300">Room checkout details are unavailable: {roomOperationalContext.checkoutError}</p>
         )}
 
         <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
@@ -1878,7 +1834,7 @@ export default function WorkOrderTicketPage() {
                   </div>
                 </>
               ) : (
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-200">{issue || "—"}</p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-5 text-slate-200">{issue || "—"}</p>
               )}
 
               {order.reporter_notes && (
@@ -1925,7 +1881,7 @@ export default function WorkOrderTicketPage() {
 
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-bold tracking-tight text-slate-100">Technician Notes &amp; Ticket History</h2>
+              <h2 className="text-sm font-bold tracking-tight text-slate-100">{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
                   const when = new Date(entry.timestamp);
@@ -1935,7 +1891,7 @@ export default function WorkOrderTicketPage() {
                     <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7rem_6rem_minmax(0,1fr)_auto] items-start gap-1 border-b border-slate-800 px-2 py-1 text-xs leading-tight last:border-b-0">
                       <span className="text-slate-500" title={hoverTime}>{visibleTime}</span>
                       <span className="truncate font-semibold text-sky-200" title={entry.actor}>{entry.actor}</span>
-                      <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
+                      <span className="text-slate-300">{entry.kind === "note" && <span className="mb-0.5 block font-semibold text-slate-400">{noteHeading(entry.authorRole, notesLanguage)}</span>}{renderHistoryText(entry.text)}</span>
                       {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
                       {entry.staged && <button type="button" onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
                     </div>
@@ -1945,7 +1901,7 @@ export default function WorkOrderTicketPage() {
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-bold leading-tight tracking-tight">Technician Notes</h2>
+              <h2 className="text-sm font-bold leading-tight tracking-tight">{noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)}</h2>
               <div className="relative">
                 <textarea
                   id="technician-note-editor"
@@ -2256,7 +2212,7 @@ export default function WorkOrderTicketPage() {
 
                 {displayedSteps.length === 0 && relevantErrorCodes.length === 0 && !manualLoading && (
                   <p className="text-sm text-slate-400">
-                    No symptom-specific troubleshooting matched yet. Add more detail to the reported issue or technician notes.
+                    No symptom-specific troubleshooting matched yet. Add more detail to the reported issue or notes.
                   </p>
                 )}
               </div>
@@ -2391,6 +2347,36 @@ export default function WorkOrderTicketPage() {
 
           </aside>
         </div>
+
+        {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
+          <section className="mt-2 grid gap-1.5 rounded-xl border border-cyan-500/30 bg-slate-900 p-1.5">
+            {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
+              {cmpriSession && roomRankerProfileCanView(cmpriSession.user, cmpriSession.user.email) && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <b className="text-sm">Room Ranker</b>
+                    <div className="flex items-center gap-1.5">
+                      <Link href="/engineering/room-ranker" className="text-[11px] font-semibold text-amber-300 hover:underline">Ranker</Link>
+                      <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span>
+                    </div>
+                  </div>
+                  {roomOperationalContext.rankerError
+                    ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.rankerError}</p>
+                    : roomRankerFlags.length
+                      ? <ul className="mt-1 space-y-0.5 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul>
+                      : <p className="mt-1 text-xs text-slate-500">{roomOperationalContext.ranker ? "No Room Ranker flags or notes are recorded for this room." : "No Room Ranker row was returned for this room."}</p>}
+                </div>
+              )}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
+                <b className="text-sm">PM checks and quarterly room forms</b>
+                {roomOperationalContext.pm?.error
+                  ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
+                  : <p className="mt-1 text-xs leading-tight text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
+                <Link href="/engineering/preventive-maintenance" className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
+              </div>
+            </>}
+          </section>
+        )}
 
       </div>
 

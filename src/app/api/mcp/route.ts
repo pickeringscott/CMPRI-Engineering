@@ -1,3 +1,5 @@
+import { workOrderReadFilter } from "@/lib/work-order-read-policy";
+import { workOrderReader } from "@/lib/server/work-order-reader";
 import { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { mcpIdentity, type McpIdentity } from "@/lib/server/cmpri-mcp";
@@ -28,7 +30,7 @@ const MCP_TOOLS = [
   },
   {
     name: "search_work_orders",
-    description: "Search work orders the signed-in CMPRI user is permitted to view. Technicians see only work assigned to them.",
+    description: "Search authorized work orders in the signed-in user’s hotel: active tickets and their own Closed tickets, plus existing technical read access.",
     inputSchema: {
       type: "object",
       properties: { query: { type: "string", description: "Optional text to match against visible work-order details." } },
@@ -225,8 +227,8 @@ async function runTool(identity: McpIdentity, name: string, args: Record<string,
       .eq("hotel_id", HOTEL_ID)
       .order("created_at", { ascending: false })
       .limit(500);
-    if (identity.readAssignedWorkOrders) query = query.eq("technician_name", principal.profile.full_name?.trim() || "");
-    if (identity.readOwnWorkOrders) query = query.eq("created_by", principal.identity.id);
+    const readFilter = workOrderReadFilter(workOrderReader(principal));
+    if (readFilter) query = query.or(readFilter);
     const { data, error } = await query;
     if (error) throw new Error("CMPRI could not load the work orders available to you.");
     const needle = normalized(stringArgument(args, "query"));
@@ -244,8 +246,8 @@ async function runTool(identity: McpIdentity, name: string, args: Record<string,
       .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at, notes, revision, created_by")
       .eq("hotel_id", HOTEL_ID);
     query = /^[0-9a-f-]{36}$/i.test(id) ? query.eq("id", id) : query.eq("display_id", id);
-    if (identity.readAssignedWorkOrders) query = query.eq("technician_name", principal.profile.full_name?.trim() || "");
-    if (identity.readOwnWorkOrders) query = query.eq("created_by", principal.identity.id);
+    const readFilter = workOrderReadFilter(workOrderReader(principal));
+    if (readFilter) query = query.or(readFilter);
     const { data, error } = await query.maybeSingle();
     if (error || !data) throw new Error("That work order was not found in your CMPRI access scope.");
     return { work_order: data };

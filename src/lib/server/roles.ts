@@ -144,10 +144,10 @@ const TECHNICIAN: readonly Capability[] = [
 
 const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   unknown: [],
-  front_desk: ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"],
+  front_desk: ["submit", "view_work_orders", "add_work_order_notes", "submit_feedback", "view_profiles"],
   front_desk_manager: ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"],
   assistant_manager: ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"],
-  housekeeping: ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"],
+  housekeeping: ["submit", "view_work_orders", "add_work_order_notes", "submit_feedback", "view_profiles"],
   technician: [...TECHNICIAN, "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback"],
   engineer: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
   manager: ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],

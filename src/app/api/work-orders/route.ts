@@ -1,10 +1,12 @@
+import { workOrderReadFilter } from "@/lib/work-order-read-policy";
+import { workOrderReader } from "@/lib/server/work-order-reader";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { authenticatedUser } from "@/lib/server/request-auth";
-import { isFrontDesk, isSubmitOnlyRole, roleAllows, roleKey } from "@/lib/server/roles";
+import { isFrontDesk, isSubmitOnlyRole, roleAllows } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { fetchAllPages } from "@/lib/server/paginated-query";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
@@ -144,25 +146,14 @@ export async function GET(request: NextRequest) {
     const canViewWorkOrders = allows(auth.principal, "view_work_orders");
     const canAddNotes = allows(auth.principal, "add_work_order_notes");
     if (!canViewDashboard && !canViewWorkOrders && !canAddNotes) return NextResponse.json({ error: "Work-order access is required to inspect existing work orders." }, { status: 403 });
-    if (roleKey(auth.principal.profile.role) === "technician") {
-      const { data, error } = await fetchTechnicianWorkOrders(
-        auth.admin,
-        auth.principal.profile.full_name?.trim(),
-      );
-      if (error || !data) return NextResponse.json({ error: "Existing work orders could not be checked for duplicates." }, { status: 503 });
-      const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data);
-      if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
-      return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "private, no-store" } });
-    }
-    const canViewAllStatuses = canViewDashboard
-      && (allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
     let query = auth.admin
       .from("work_orders")
       .select("id, display_id, room, location_id, asset_id, asset_name, category, issue, priority, status")
       .eq("hotel_id", HOTEL_ID)
       .order("created_at", { ascending: false })
       .limit(500);
-    if (!canViewAllStatuses) query = query.in("status", ["Open", "In Progress"]);
+    const readFilter = workOrderReadFilter(workOrderReader(auth.principal));
+    if (readFilter) query = query.or(readFilter);
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: "Existing work orders could not be checked for duplicates." }, { status: 503 });
     const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
@@ -175,18 +166,6 @@ export async function GET(request: NextRequest) {
   if (mode !== "dashboard" || (!canViewDashboard && !allows(auth.principal, "view_work_orders") && !canAddNotes)) {
     return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   }
-  if (roleKey(auth.principal.profile.role) === "technician") {
-    const { data, error } = await fetchTechnicianWorkOrders(
-      auth.admin,
-      auth.principal.profile.full_name?.trim(),
-    );
-    if (error || !data) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
-    const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data);
-    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
-    return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
-  }
-  const canViewAllStatuses = canViewDashboard
-    && (allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
   const { data, error } = await fetchAllPages((from, to) => {
     let query = auth.admin
     .from("work_orders")
@@ -194,7 +173,8 @@ export async function GET(request: NextRequest) {
     .eq("hotel_id", HOTEL_ID)
     .order("created_at", { ascending: false })
     .range(from, to);
-    if (!canViewAllStatuses) query = query.in("status", ["Open", "In Progress"]);
+    const readFilter = workOrderReadFilter(workOrderReader(auth.principal));
+    if (readFilter) query = query.or(readFilter);
     return query;
   });
   if (error) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });

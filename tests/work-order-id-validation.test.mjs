@@ -1,3 +1,4 @@
+import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as accountDisplay from "../src/lib/account-display.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,6 +47,7 @@ function routeFixture(relativePath, config = {}) {
     console,
     process: { env: {} },
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/account-display") return accountDisplay;
       if (name === 'next/server') return { NextResponse: response };
       if (name === '@supabase/supabase-js') return { createClient: () => admin };

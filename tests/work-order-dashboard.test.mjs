@@ -1,3 +1,4 @@
+import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -23,6 +24,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
       query.select = () => query;
       query.eq = () => query;
       query.order = () => query;
+      query.or = () => { allowedStatuses = ["Open", "In Progress"]; return query; };
       query.in = (_field, values) => { allowedStatuses = values; return query; };
       query.range = (from, to) => {
         query.from = from;
@@ -44,7 +46,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
       return query;
     },
   };
-  const principal = { profile: { role } };
+  const principal = { identity: { id: "00000000-0000-4000-8000-000000000001" }, hotelId, profile: { role } };
   const source = readFileSync(new URL("../src/app/api/work-orders/route.ts", import.meta.url), "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -54,6 +56,13 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
     exports,
     process: { env: {} },
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, (_principal, capability) => capability === "view_dashboard"
+          ? hasDashboard
+          : capability === "edit_tickets" || capability === "review_tickets"
+            ? role === "System Administrator"
+          : capability === "add_work_order_notes"
+            ? ["Front Desk", "Housekeeping", "General Manager", "Assistant General Manager", "Front Desk Manager", "Assistant Manager", "Senior Management", "Maintenance Technician", "Engineer", "System Administrator"].includes(role)
+          : capability === "view_work_orders" && role === "General Manager");
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === "@supabase/supabase-js") return { createClient: () => admin };
       if (name === "@/lib/constants") return { HOTEL_ID: hotelId };
@@ -155,7 +164,7 @@ test("technician landing uses the shared desktop shell with the technician-scope
   assert.match(desktop, /roleKey\(session\.user\.role\) === "technician" && \{ key: "\/technician", label: "Technician Dashboard"/);
   assert.match(technician, /data-cmpri-modal-href="\/engineering\/preventive-maintenance"[^>]*>Preventive Maintenance/);
   assert.match(desktop, /const userRoleRef = useRef\(""\)/);
-  assert.match(desktop, /roleKey\(role \|\| userRoleRef\.current\) === "technician"/);
+  assert.match(desktop, /fetch\("\/api\/work-orders",/);
   assert.match(desktop, /userRoleRef\.current = session\.user\.role/);
-  assert.match(desktop, /technicianDashboard \? "\/api\/work-orders\?mode=technician"/);
+  assert.match(technician, /\/api\/work-orders\?mode=technician/);
 });

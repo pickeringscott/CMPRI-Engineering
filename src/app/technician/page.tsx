@@ -300,6 +300,7 @@ export default function TechnicianDashboard() {
           )}
         </div>
 
+        <Link href="/engineering" className="mt-2 inline-flex rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200">All Work Orders</Link>
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
         {inboxOpen && <section aria-label="Work-order notifications" className="mt-3 rounded-lg border border-sky-400/40 bg-sky-950/25 p-3">

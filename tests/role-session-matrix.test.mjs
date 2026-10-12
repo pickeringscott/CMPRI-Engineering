@@ -158,8 +158,8 @@ test("Chief Engineer retains full work-order control without additional membersh
 
 test("CMPRI go-live roles receive only their approved operational capabilities", () => {
   const expected = new Map([
-    ["Housekeeping", ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"]],
-    ["Front Desk", ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"]],
+    ["Housekeeping", ["submit", "view_work_orders", "add_work_order_notes", "submit_feedback", "view_profiles"]],
+    ["Front Desk", ["submit", "view_work_orders", "add_work_order_notes", "submit_feedback", "view_profiles"]],
     ["Front Desk Manager", ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"]],
     ["Assistant General Manager", ["submit", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "receive_pool_closed_notifications", "submit_feedback", "view_profiles"]],
     ["General Manager", ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"]],

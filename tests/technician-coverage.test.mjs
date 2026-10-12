@@ -1,3 +1,4 @@
+import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,6 +27,7 @@ function fixture(config = {}) {
         in(field, value) { filters.push(['in', field, value]); return query; },
         or(expression) { filters.push(['or', expression]); return query; },
         limit() { return query; },
+        range() { return query; },
         order() { return query; },
         then(resolve, reject) {
           calls.push({ table, filters });
@@ -33,6 +35,7 @@ function fixture(config = {}) {
             if (operator === 'eq') return row[field] === value;
             if (operator === 'neq') return row[field] !== value;
             if (operator === 'in') return value.includes(row[field]);
+            if (field.startsWith('status.in.')) return ['Open','In Progress'].includes(row.status) || row.status === 'Closed' && row.created_by === principal.identity.id || row.technician_name == null || row.technician_name === '' || row.technician_name === profile.full_name;
             return row.technician_name == null || row.technician_name === '';
           }));
           return Promise.resolve({
@@ -44,12 +47,13 @@ function fixture(config = {}) {
       return query;
     },
   };
-  const principal = { profile, identity: { id: 'tech-id' } };
+  const principal = { profile, hotelId: 'hotel-id', identity: { id: '00000000-0000-4000-8000-000000000001' } };
   const exports = {};
   vm.runInNewContext(routeCode, {
     exports,
     process: { env: {} },
     require(name) {
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, () => true);
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => db };
       if (name === '@/lib/constants') return { HOTEL_ID: 'hotel-id' };
@@ -124,7 +128,7 @@ test('technician with no profile name still receives unassigned work only', asyn
   assert.equal(f.calls.length, 1);
 });
 
-test('technician dashboard and duplicate API reads exclude other assignments and non-active tickets', async () => {
+test('general technician list includes all active tickets and preserves prior unassigned technical detail reads', async () => {
   const workOrders = [
     { id: 'self', hotel_id: 'hotel-id', technician_name: 'Morgan Lee', status: 'Open' },
     { id: 'unassigned', hotel_id: 'hotel-id', technician_name: null, status: 'In Progress' },
@@ -137,7 +141,7 @@ test('technician dashboard and duplicate API reads exclude other assignments and
     assert.equal(response.status, 200, mode);
     assert.deepEqual(
       Array.from(response.body.work_orders, (order) => order.id).sort(),
-      ['self', 'unassigned'],
+      ['other-tech', 'pending', 'self', 'unassigned'],
       mode,
     );
   }

@@ -1,3 +1,4 @@
+import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -13,6 +14,7 @@ function load(relative, overrides = {}) {
   const filename=path.join(root,relative);
   const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   vm.runInNewContext(source,{exports,URL,Response,TextEncoder,require(name){
+      if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
     if(name==='next/server')return {NextRequest:class NextRequest {}};
@@ -67,11 +69,11 @@ test('MCP exposes Room Ranker writes only to Scott and preserves PM management p
   }
 });
 
-test('MCP grants authorized Ranker reads without widening technician work-order access',()=>{
+test('MCP grants authorized Ranker reads with shared work-order reads and unchanged PM limits',()=>{
   const technician={...identity('Maintenance Technician'),readAllWorkOrders:false,readAssignedWorkOrders:true};
   const views=reads.availableMcpReadViews(technician);
   assert.equal(views.includes('room_ranker'),true);
-  assert.equal(views.includes('work_orders'),false);
+  assert.equal(views.includes('work_orders'),true);
   assert.equal(views.includes('work_order'),true);
   assert.equal(views.includes('corporate_pm'),false);
   const mismatched=identity('System Administrator','maint.cmpri@hawkeyehotels.com');

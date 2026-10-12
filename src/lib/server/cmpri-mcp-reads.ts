@@ -9,7 +9,6 @@ import { canViewRoomRanker } from "@/lib/room-ranker-access";
 import { roleKey } from "@/lib/server/roles";
 
 const DASHBOARD_VIEWS = [
-  "work_orders",
   "rooms",
   "room_operations",
   "purchasing",
@@ -31,6 +30,7 @@ const READ_VIEW_CAPABILITIES = {
 export function availableMcpReadViews(identity: McpIdentity) {
   const views = [
     ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
+    ...(allows(identity.principal, "view_work_orders") ? ["work_orders"] as const : []),
     ...(canViewRoomRanker(identity.principal) ? ["room_ranker"] as const : []),
     ...(identity.readAllWorkOrders || identity.readAssignedWorkOrders || identity.readOwnWorkOrders
       ? ["work_order", "work_order_activity", "work_order_attachments"] as const

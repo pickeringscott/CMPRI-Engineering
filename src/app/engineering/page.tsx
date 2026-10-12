@@ -254,8 +254,7 @@ export default function EngineeringDashboardPage() {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) throw new Error("Sign in again to load the dashboard.");
-      const technicianDashboard = roleKey(role || userRoleRef.current) === "technician";
-      const response = await fetch(technicianDashboard ? "/api/work-orders?mode=technician" : "/api/work-orders", {
+      const response = await fetch("/api/work-orders", {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
@@ -613,7 +612,7 @@ export default function EngineeringDashboardPage() {
     {
       label: "Work Orders",
       items: [
-        hasCapability(session, "view_work_orders") && roleKey(session.user.role) !== "technician" && { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
+        hasCapability(session, "view_work_orders") && { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
         roleKey(session.user.role) === "technician" && { key: "/technician", label: "Technician Dashboard", href: "/technician", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         hasCapability(session, "submit") && { key: "/work-orders", label: "+ Create Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
         canUseEngineeringAdminTools && { key: "/engineering/import-work-orders", label: "Import Existing WOs", href: "/engineering/import-work-orders", tone: "border-fuchsia-400/50 bg-fuchsia-950/30 text-fuchsia-100", accent: "bg-fuchsia-400" },

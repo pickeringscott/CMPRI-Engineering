@@ -1,3 +1,5 @@
+import { canReadWorkOrder } from "@/lib/work-order-read-policy";
+import { workOrderReader } from "@/lib/server/work-order-reader";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
@@ -16,24 +18,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // to this exact CMPRI property. Child tables must never be queried cross-property.
   const { data: workOrder, error: workOrderError } = await auth.admin
     .from("work_orders")
-    .select("id, status, technician_name")
+    .select("id, hotel_id, created_by, status, technician_name")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
   if (workOrderError) return NextResponse.json({ error: "Work-order activity could not be verified." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
+  if (!canReadWorkOrder(workOrderReader(auth.principal), workOrder)) {
+    return NextResponse.json({ error: "This work order is not available to your account." }, { status: 403 });
+  }
   const noteOnlyReader = allows(auth.principal, "add_work_order_notes")
     && !allows(auth.principal, "edit_tickets")
     && !allows(auth.principal, "review_tickets");
-  if ((!allows(auth.principal, "view_dashboard") || noteOnlyReader)
-    && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
-    return NextResponse.json({ error: "This role can only view open work orders." }, { status: 403 });
-  }
-  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
-    return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
-  }
 
-  if (!allows(auth.principal, "view_dashboard") || noteOnlyReader) {
+  if (!allows(auth.principal, "view_dashboard") || noteOnlyReader
+    || !canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
     const { data: history, error } = await auth.admin
       .from("cmpri_work_order_history")
       .select("id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, source, recorded_at")

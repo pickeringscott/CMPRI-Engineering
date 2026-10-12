@@ -1,3 +1,5 @@
+import { canReadWorkOrder, workOrderReadFilter } from "@/lib/work-order-read-policy";
+import { workOrderReader } from "@/lib/server/work-order-reader";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
@@ -53,13 +55,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .maybeSingle();
   if (workOrderError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!workOrder) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  const canViewAllStatuses = allows(auth.principal, "view_dashboard")
-    && (allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets"));
-  if (!canViewAllStatuses && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
-    return NextResponse.json({ error: "This role can only view open work orders." }, { status: 403 });
-  }
-  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
-    return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
+  if (!canReadWorkOrder(workOrderReader(auth.principal), workOrder)) {
+    return NextResponse.json({ error: "This work order is not available to your account." }, { status: 403 });
   }
   const roomStatuses = await loadCurrentRoomStatuses(auth.admin);
   if (roomStatuses.error || !roomStatuses.statuses) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
@@ -129,9 +126,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .neq("id", id)
       .order("created_at", { ascending: false })
       .limit(300);
-    if (roleKey(auth.principal.profile.role) === "technician") {
-      mentionQuery = mentionQuery.eq("technician_name", auth.principal.profile.full_name?.trim() || "");
-    }
+    const readFilter = workOrderReadFilter(workOrderReader(auth.principal));
+    if (readFilter) mentionQuery = mentionQuery.or(readFilter);
     const { data: mentionRows, error: mentionError } = await mentionQuery;
     if (mentionError) return NextResponse.json({ error: "Could not read related work-order references." }, { status: 503 });
     mentionTickets = (mentionRows ?? []) as Array<Record<string, unknown>>;
