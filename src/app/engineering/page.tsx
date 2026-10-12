@@ -711,7 +711,7 @@ export default function EngineeringDashboardPage() {
             <div data-dashboard-account className="mt-2 text-left leading-tight">
               <div className="flex min-w-0 items-center gap-2">
                 <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
-                {(canReviewTickets || inbox.length > 0) && (
+                {(canReviewTickets || hasCapability(session, "receive_pool_closed_notifications") || inbox.length > 0) && (
                   <DashboardNotificationBell
                     count={notificationCount}
                     label={bellLabel}
