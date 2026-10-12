@@ -689,3 +689,5 @@ Use these newer rules when historical files disagree:
 Scott has already spent too much time correcting AI mistakes. Do not make him reconstruct this project again. Verify what exists, identify what is genuinely broken, rewrite the broken implementation cleanly, and keep going until the test environment demonstrates the integrated workflows actually behave as required.
 
 The earlier ChatGPT handoff was incomplete and confusing. **That was my failure, not Scott’s.**
+
+<!-- Vercel deployment retry 2026-10-12: fresh revision after transient Git-provider rate limit. -->
