@@ -359,7 +359,7 @@ test('pool-log UI flags closures, requires daily checks, and has no sample-locat
  const page=readFileSync(new URL('../src/app/engineering/pool-log/page.tsx',import.meta.url),'utf8');
  assert.match(page,/View entire pool log/);
  assert.doesNotMatch(page,/Middle of pool/);
- assert.doesNotMatch(page,/pool-sample_location_|sampleLocations\.map|Sample taken at \(required/);
+ assert.doesNotMatch(page,/pool-sample_location_|sampleLocations\.map|Sample taken at \(required|where the sample was taken/);
  assert.match(page,/one shared water sample/);
  assert.match(page,/The pool must be closed/);
  assert.match(page,/Still needed before saving/);

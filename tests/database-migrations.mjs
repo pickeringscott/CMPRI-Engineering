@@ -348,7 +348,7 @@ try {
     await db.exec(frontDeskManagerPoolLogMigration);
     await db.exec(frontDeskManagerPoolLogMigration);
   });
-  const sharedSampleMigration = readFileSync(new URL('../supabase/migrations/20261012195124_cmpri_pool_shared_sample.sql', import.meta.url), 'utf8');
+  const sharedSampleMigration = readFileSync(new URL('../supabase/migrations/20261012195441_cmpri_pool_shared_sample.sql', import.meta.url), 'utf8');
   await check('shared pool sample migration applies and is idempotent', async () => {
     await db.exec(sharedSampleMigration);
     await db.exec(sharedSampleMigration);

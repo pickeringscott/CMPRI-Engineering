@@ -341,7 +341,7 @@ export default function PoolLogPage() {
             <div><span className="text-slate-400 print:text-black">Required flow</span><div className="font-bold">{CMPRI_POOL.requiredFlowGpm} GPM</div></div>
             <div><span className="text-slate-400 print:text-black">Observed 06/23/2026</span><div className="font-bold">{CMPRI_POOL.observedFlowGpm20260623} GPM</div></div>
           </div>
-          <p className="mt-3 text-xs text-slate-400 print:text-black">One water sample per test. Readings are still taken AM and PM: each sample&apos;s pH + bromine is recorded for both the shallow and deep fields, with where the sample was taken (shallow or deep). Water temperature, flow rate, main drain, and filter backwash are daily checks recorded once per day. The PM sample can be added later without changing the saved AM readings. This page records results only—it does not calculate chemical doses or certify pool opening.</p>
+          <p className="mt-3 text-xs text-slate-400 print:text-black">One water sample per test. Readings are still taken AM and PM: each sample&apos;s pH + bromine is recorded for both the shallow and deep fields, as one shared sample with collection location unspecified. Water temperature, flow rate, main drain, and filter backwash are daily checks recorded once per day. The PM sample can be added later without changing the saved AM readings. This page records results only—it does not calculate chemical doses or certify pool opening.</p>
         </section>
 
         <section className="print:hidden">
