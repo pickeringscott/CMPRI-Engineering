@@ -75,6 +75,7 @@ type WorkOrder = {
   hours?: number | null;
   due_by?: string | null;
   creator_name?: string | null;
+  creator_display_role?: string | null;
   created_at?: string | null;
   technician_view_entries?: {
     id: string;
@@ -739,9 +740,11 @@ export default function WorkOrderTicketPage() {
       const result = resolveWorkOrderImages(response.ok, payload);
       if (result.error) throw new Error(result.error);
       setWorkOrderImages(result.images);
+      return true;
     } catch (error) {
       setWorkOrderImages([]);
       setWorkOrderImageError(error instanceof Error ? error.message : "Work-order images could not be loaded.");
+      return false;
     } finally {
       setWorkOrderImagesLoading(false);
     }
@@ -760,8 +763,8 @@ export default function WorkOrderTicketPage() {
       if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
       const result = await uploadWorkOrderAttachment(id, photo, session.access_token, crypto.randomUUID());
       if (!result.ok) throw new Error(result.message);
-      await loadWorkOrderImages();
-      setPhotoUploadMessage("Photo uploaded.");
+      const readbackConfirmed = await loadWorkOrderImages();
+      setPhotoUploadMessage(readbackConfirmed ? "Photo uploaded." : "Photo stored, but the saved photo list could not be verified. Retry loading photos.");
     } catch (error) {
       setPhotoUploadError(error instanceof Error ? error.message : "The work-order photo could not be uploaded.");
     } finally {
@@ -1856,7 +1859,7 @@ export default function WorkOrderTicketPage() {
                   </button>}
                 </div>
                 <div className="text-right text-[10px] leading-tight text-slate-500">
-                  <div>Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span></div>
+                  <div>Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {order.creator_display_role}</span>}</div>
                   <div>{formatDateTime(order.created_at)}</div>
                 </div>
               </div>
@@ -1920,9 +1923,59 @@ export default function WorkOrderTicketPage() {
               </div>
             </section>
 
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <h2 className="text-sm font-bold tracking-tight text-slate-100">Technician Notes &amp; Ticket History</h2>
+              <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
+                {historyEntries.length ? historyEntries.map((entry) => {
+                  const when = new Date(entry.timestamp);
+                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString([], { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
+                  const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+                  return (
+                    <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7rem_6rem_minmax(0,1fr)_auto] items-start gap-1 border-b border-slate-800 px-2 py-1 text-xs leading-tight last:border-b-0">
+                      <span className="text-slate-500" title={hoverTime}>{visibleTime}</span>
+                      <span className="truncate font-semibold text-sky-200" title={entry.actor}>{entry.actor}</span>
+                      <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
+                      {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
+                      {entry.staged && <button type="button" onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
+                    </div>
+                  );
+                }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+              <h2 className="text-sm font-bold leading-tight tracking-tight">Technician Notes</h2>
+              <div className="relative">
+                <textarea
+                  id="technician-note-editor"
+                  value={noteDraft}
+                  disabled={!canSubmitTicketNote}
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                  rows={2}
+                  placeholder="Document findings, diagnostic codes, readings, tests, work performed, or type @ to mention another ticket..."
+                  className="mt-2 max-h-20 w-full resize-none overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
+                />
+                {mentionMatch && mentionSuggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
+                    {mentionSuggestions.map((ticket) => (
+                      <button key={ticket.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertTicketMention(ticket)} className="block w-full rounded-lg px-2.5 py-2 text-left hover:bg-sky-900/45">
+                        <span className="font-semibold text-sky-200">@{ticketMentionLabel(ticket)}</span>
+                        <span className="ml-2 text-sm text-slate-300">{ticket.room || "No location"}</span>
+                        <span className="ml-2 text-sm text-slate-500">{ticket.issue || "No issue"}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-1 flex justify-end">
+                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
+              </div>
+            </section>
+
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h2 className="mr-auto text-sm font-bold tracking-tight text-slate-100">Photos ({workOrderImagesLoading ? "…" : workOrderImages.length})</h2>
+                <h2 className="mr-auto text-sm font-bold tracking-tight text-slate-100">Photos ({workOrderImagesLoading ? "…" : workOrderImageError ? "unavailable" : workOrderImages.length})</h2>
                 {canSubmitTicketNote && (
                   <>
                     <input
@@ -1983,8 +2036,8 @@ export default function WorkOrderTicketPage() {
               {workOrderImagesLoading && <p role="status" className="mt-1 text-xs text-slate-400">Loading photos…</p>}
               {!workOrderImagesLoading && !workOrderImageError && workOrderImages.length === 0 && <p className="mt-1 text-xs text-slate-500">No photos attached.</p>}
               {!!workOrderImages.length && (
-                <details className="mt-1">
-                  <summary className="w-fit cursor-pointer text-xs font-semibold text-sky-300">View attached photos</summary>
+                <div className="mt-1">
+                  <p className="text-xs font-semibold text-sky-300">Saved attachments</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {workOrderImages.map((image) => (
                       <button key={image.id} type="button" onClick={() => setImagePreview(image)} aria-label={`Open work-order photo${image.uploaded_at ? ` uploaded ${formatDateTime(image.uploaded_at)}` : ""}`} className="relative aspect-[4/3] w-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
@@ -1999,58 +2052,10 @@ export default function WorkOrderTicketPage() {
                       </button>
                     ))}
                   </div>
-                </details>
+                </div>
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-bold tracking-tight text-slate-100">Technician Notes &amp; Ticket History</h2>
-              <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
-                {historyEntries.length ? historyEntries.map((entry) => {
-                  const when = new Date(entry.timestamp);
-                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString([], { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
-                  const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
-                  return (
-                    <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7rem_6rem_minmax(0,1fr)_auto] items-start gap-1 border-b border-slate-800 px-2 py-1 text-xs leading-tight last:border-b-0">
-                      <span className="text-slate-500" title={hoverTime}>{visibleTime}</span>
-                      <span className="truncate font-semibold text-sky-200" title={entry.actor}>{entry.actor}</span>
-                      <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
-                      {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
-                      {entry.staged && <button type="button" onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
-                    </div>
-                  );
-                }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-bold leading-tight tracking-tight">Technician Notes</h2>
-              <div className="relative">
-                <textarea
-                  id="technician-note-editor"
-                  value={noteDraft}
-                  disabled={!canSubmitTicketNote}
-                  onChange={(event) => setNoteDraft(event.target.value)}
-                  rows={2}
-                  placeholder="Document findings, diagnostic codes, readings, tests, work performed, or type @ to mention another ticket..."
-                  className="mt-2 max-h-20 w-full resize-none overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
-                />
-                {mentionMatch && mentionSuggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
-                    {mentionSuggestions.map((ticket) => (
-                      <button key={ticket.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertTicketMention(ticket)} className="block w-full rounded-lg px-2.5 py-2 text-left hover:bg-sky-900/45">
-                        <span className="font-semibold text-sky-200">@{ticketMentionLabel(ticket)}</span>
-                        <span className="ml-2 text-sm text-slate-300">{ticket.room || "No location"}</span>
-                        <span className="ml-2 text-sm text-slate-500">{ticket.issue || "No issue"}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="mt-1 flex justify-end">
-                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
-              </div>
-            </section>
 
             <details className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
               <summary className="list-item cursor-pointer">

@@ -1,0 +1,22 @@
+{
+  "source": "Print exports of existing CMPRI guide content; no new troubleshooting instructions.",
+  "source_commit": "92efff76ba2390094dedd91afc3a9989eecbc56e",
+  "source_file": "src/components/TroubleshootingGuideDropdown.tsx",
+  "files": [
+    {
+      "file": "enseo.pdf",
+      "pages": 2,
+      "sha256": "ef9c2e1fa2039f036468b272a2769b20667089abfa345a0012a5502d98b31693"
+    },
+    {
+      "file": "dormakaba.pdf",
+      "pages": 8,
+      "sha256": "120186ecceb7d601a7af4fd9be318f6c037a7e78af81db8b26181024060daabe"
+    },
+    {
+      "file": "guest-room.pdf",
+      "pages": 4,
+      "sha256": "ea3f4d996c4bd4b981fae9a7853ba7feac262d78f8729a2c91f09038b268e02a"
+    }
+  ]
+}

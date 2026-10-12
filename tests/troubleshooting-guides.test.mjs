@@ -62,3 +62,13 @@ test("work-order technical guidance never falls back to generic checks", () => {
   assert.match(workOrderForm, /No issue-matched troubleshooting steps from verified documentation are available/);
   assert.doesNotMatch(workOrderForm, /GENERAL_TROUBLESHOOTING_CHECKS|Generic troubleshooting/);
 });
+
+test("native guide dropdown opens exactly the three local PDF exports", () => {
+  assert.match(component, /<select[\s\S]*aria-label="Front Desk Quick Guides"/);
+  assert.match(component, /window.open\(option.href, "_blank", "noopener,noreferrer"\)/);
+  assert.doesNotMatch(component, /aria-haspopup="menu"|createPortal/);
+  for (const slug of ["enseo", "dormakaba", "guest-room"]) {
+    assert.ok(component.includes(`/guides/${slug}.pdf`));
+    assert.equal(readFileSync(new URL(`../public/guides/${slug}.pdf`, import.meta.url)).subarray(0,5).toString(), "%PDF-");
+  }
+});

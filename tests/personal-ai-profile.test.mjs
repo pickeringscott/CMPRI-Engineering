@@ -173,7 +173,7 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   assert.match(identity, /role_permissions/);
   assert.match(identity, /allows\(principal, "submit"\)/);
   assert.match(authorizePage, /getValidSession\(\)/);
-  assert.match(authorizePage, /user\.role/);
+  assert.match(authorizePage, /accountRoleDisplayName\(user\)/);
   assert.match(authorizePage, /permissions will be checked on every tool request/);
 });
 

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { accountRoleDisplayName } from "@/lib/account-display";
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import { CMPRI_MCP_RESOURCE } from "@/lib/server/cmpri-mcp-oauth-scope";
 
 type ClientDetails = { client_id: string; client_name: string };
-type CmpriUser = { user: { id: string; name: string | null; email: string; role: string } };
+type CmpriUser = { user: { id: string; name: string | null; email: string; role: string; secondary_roles?: string[] } };
 
 function requestParams() {
   return new URLSearchParams(window.location.search);
@@ -112,7 +113,7 @@ export default function McpAuthorizePage() {
         {error && <p role="alert" className="mt-4 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{error}</p>}
         {client && user ? <>
           <p className="mt-4 text-sm text-slate-200"><strong>{client.client_name}</strong> is requesting {writeRequested ? "read and write" : "read-only"} access to CMPRI as:</p>
-          <p className="mt-2 rounded-lg bg-slate-950 p-3 text-sm">{user.name || user.email} · {user.role}</p>
+          <p className="mt-2 rounded-lg bg-slate-950 p-3 text-sm">{user.name || user.email} · {accountRoleDisplayName(user)}</p>
           <p className="mt-3 text-sm text-slate-300">Tools check your active CMPRI profile, property membership, role, and permissions on every request. ChatGPT cannot use another user’s CMPRI access.</p>
           <p className="mt-3 rounded-lg border border-sky-900 bg-sky-950/40 p-3 text-sm text-sky-100">{writeRequested ? "This connection requests read and write access. CMPRI exposes only actions permitted by your current role; changes run through the same validation and checks as the CMPRI app." : "This connection requests read-only access. Reconnect later if you want to grant CMPRI write access."}</p>
           <div className="mt-5 flex flex-wrap gap-3">

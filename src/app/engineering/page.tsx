@@ -6,7 +6,7 @@ import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { usesChiefEngineerMobileLayout } from "@/lib/dashboard/chief-engineer-mobile";
-import { roleDisplayName } from "@/lib/account-display";
+import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import {
   DASHBOARD_NOTIFICATION_POLL_MS,
   clearServerDashboardNotifications,
@@ -33,6 +33,7 @@ import {
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
 import { roleAllows, roleKey } from "@/lib/server/roles";
+import MobileDashboardMenus from "@/components/desktop/MobileDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
@@ -87,10 +88,7 @@ function DashboardLauncherButton({
       data-cmpri-desktop-launch={launcher.key}
       data-open={open ? "true" : "false"}
       title={launcher.label}
-      onClick={(event) => {
-        event.currentTarget.closest("details[data-chief-mobile-group]")?.removeAttribute("open");
-        onLaunch(launcher, Date.now());
-      }}
+      onClick={() => onLaunch(launcher, Date.now())}
       className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
     >
       {launcher.label}
@@ -266,7 +264,7 @@ export default function EngineeringDashboardPage() {
       const fetched = payload.work_orders as DesktopWorkOrder[];
       setOrders(fetched);
       if (roleAllows(role || userRoleRef.current, "review_tickets")) {
-        const draftResponse = await fetch("/api/work-orders/drafts", {
+        const draftResponse = await fetch("/api/work-orders/drafts?scope=review", {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
@@ -520,7 +518,7 @@ export default function EngineeringDashboardPage() {
       key: `work-order-draft:${draftId}`,
       title: "Review Work-Order Draft",
       kind: "frame",
-      src: desktopFrameHref(`/work-orders?draftId=${encodeURIComponent(draftId)}`, crypto.randomUUID(), origin),
+      src: desktopFrameHref(`/work-orders?draftId=${encodeURIComponent(draftId)}&reviewDraft=1`, crypto.randomUUID(), origin),
       accent: "bg-amber-400",
       preferred: { width: 960, height: 780 },
     });
@@ -580,7 +578,7 @@ export default function EngineeringDashboardPage() {
   const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
   const displayName = session.user.name?.trim() || "Name not set";
-  const displayRole = roleDisplayName(session.user.role);
+  const displayRole = accountRoleDisplayName(session.user);
 
   async function signOut() {
     await signOutDevice();
@@ -725,9 +723,9 @@ export default function EngineeringDashboardPage() {
                   />
                 )}
               </div>
-              <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{chiefEngineerMobileLayout ? <><span className="lg:hidden">Chief Engineer</span><span className="hidden lg:inline">{displayRole}</span></> : displayRole}</p>
+              <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
-            {createWorkOrderLauncher && (
+            {createWorkOrderLauncher && !chiefEngineerMobileLayout && (
               <DashboardLauncherButton
                 launcher={createWorkOrderLauncher}
                 open={openKeys.has(createWorkOrderLauncher.key)}
@@ -736,31 +734,15 @@ export default function EngineeringDashboardPage() {
               />
             )}
           </div>
+          {createWorkOrderLauncher && chiefEngineerMobileLayout && (
+            <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch}
+              className="ml-auto min-h-8 shrink-0 self-start rounded-lg border border-amber-400/60 bg-amber-500 px-2 py-1 text-xs font-bold text-slate-950 shadow-sm lg:hidden" />
+          )}
         </div>
 
         <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
           {chiefEngineerMobileLayout ? (
-            <div className="grid max-h-[40svh] w-full min-w-0 grid-cols-2 items-start gap-1 overflow-y-auto lg:hidden">
-              {chiefMobileGroups.map((group) => (
-                <details key={group.label} data-chief-mobile-group className="min-w-0 rounded-md border border-slate-700 bg-slate-900"
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape" && event.currentTarget.open) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      event.currentTarget.open = false;
-                      event.currentTarget.querySelector("summary")?.focus();
-                    }
-                  }}>
-                  <summary className="min-h-9 cursor-pointer px-2 py-2 text-xs font-semibold text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">{group.label}</summary>
-                  <div role="group" aria-label={group.label} className="flex min-w-0 flex-wrap gap-1 p-1">
-                    {group.items.map((launcher) => (
-                      <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch}
-                        className={`cmpri-desktop-launch min-h-9 max-w-full rounded border px-2 py-1 text-left font-semibold ${launcher.tone}`} />
-                    ))}
-                  </div>
-                </details>
-              ))}
-            </div>
+            <MobileDashboardMenus groups={chiefMobileGroups} onLaunch={launch} />
           ) : (
           <div className="flex min-w-0 flex-wrap items-center gap-1 lg:hidden">
             {mobileLaunchers.map((launcher) => (

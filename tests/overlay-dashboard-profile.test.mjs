@@ -131,7 +131,7 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(engineering, /text-\[14pt\] font-bold leading-none tracking-tight/);
   assert.match(engineering, /<span className="text-amber-300">\{isHousekeepingDashboard \? "Housekeeping" : "Engineering"\}<\/span>/);
   assert.match(engineering, /max-w-\[18rem\] truncate text-\[14pt\] font-semibold tracking-tight text-slate-100/);
-  assert.match(engineering, /data-dashboard-role[\s\S]*?Chief Engineer[\s\S]*?displayRole/);
+  assert.match(engineering, /data-dashboard-role[^>]*>\{displayRole\}/);
   assert.ok(engineeringHeader.indexOf('text-[14pt] font-semibold tracking-tight text-slate-100') < engineeringHeader.indexOf('count={notificationCount}'));
   assert.match(engineeringHeader, /pt-\[8pt\]/);
   assert.match(engineering, /const canReviewTickets = hasCapability\(session, "review_tickets"\)/);
@@ -149,7 +149,7 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineeringHeader, /nav aria-label="Open dashboard windows" className="[^"]*gap-0\.5/);
   assert.match(engineeringHeader, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
-  assert.match(engineeringHeader, /chiefEngineerMobileLayout \? \([\s\S]*?<details/);
+  assert.match(engineeringHeader, /chiefEngineerMobileLayout \? \([\s\S]*?<MobileDashboardMenus/);
   assert.match(engineeringHeader, /className="hidden min-w-0 flex-wrap items-center gap-0\.5 lg:flex"/);
   assert.match(engineeringHeader, /hidden px-0\.5 text-\[9pt\] font-bold uppercase/);
   assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
@@ -165,13 +165,15 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.doesNotMatch(workOrders, /dashboardTitleForRole\(cmpriSession\.user\.role\)/);
 });
 
-test('non-Chief mobile navigation retains direct actions while Chief groups use native disclosures', () => {
+test('non-Chief mobile navigation retains direct actions while Chief groups use plain action menus', () => {
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const technician = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
 
-  assert.match(engineering, /chiefEngineerMobileLayout \? \([\s\S]*?data-chief-mobile-group/);
-  assert.match(engineering, /event\.key === "Escape"/);
+  assert.match(engineering, /chiefEngineerMobileLayout \? \([\s\S]*?<MobileDashboardMenus/);
+  const menus = readFileSync(new URL('../src/components/desktop/MobileDashboardMenus.tsx', import.meta.url), 'utf8');
+  assert.match(menus, /event\.key === "Escape"/);
+  assert.match(menus, /aria-haspopup="menu"/);
   assert.match(engineering, /chiefMobileGroups = visibleLauncherGroups/);
   assert.match(engineering, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
   assert.match(engineering, /label: "\+ Create Work Order"/);
@@ -281,7 +283,7 @@ test('work-order dashboards use 66% desktop width except Front Desk and Housekee
   const roles = readFileSync(new URL('../src/lib/server/roles.ts', import.meta.url), 'utf8');
   assert.match(source, /const isSubmitOnlyUser = isSubmitOnlyRole\(currentRole\)/);
   assert.match(roles, /export const isSubmitOnlyRole = \(role: unknown\) =>\s*\[\s*"front_desk", "housekeeping"\s*\]\.includes\(roleKey\(role\)\)/);
-  assert.match(source, /<div className=\{`mx-auto w-full max-w-none \$\{isSubmitOnlyUser \? "" : "lg:w-\[66vw\]"\}`\}>/);
+  assert.match(source, /data-work-order-form-layout className="mx-auto w-full max-w-none lg:w-\[66vw\]"/);
 });
 
 test('work-order dashboards show the CMPRI Engineering title without a role-specific heading', () => {

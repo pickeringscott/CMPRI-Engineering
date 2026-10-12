@@ -1,3 +1,5 @@
+import * as equipmentSelection from "../src/lib/equipment-selection.ts";
+import * as accountDisplay from "../src/lib/account-display.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -94,7 +96,9 @@ function fixture(role, actorId = "actor") {
   vm.runInNewContext(compiled, {
     exports,
     require(name) {
-      if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
+      if (name === "@/lib/equipment-selection") return equipmentSelection;
+      if (name === "@/lib/account-display") return accountDisplay;
+      if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200, headers: init.headers }) } };
       if (name === "@/lib/constants") return { HOTEL_ID: hotelId };
       if (name === "@/lib/server/auth") return {
         requireCapability: async (_request, capability) => roleExports.roleAllows(role, capability) ? { principal, admin } : null,
@@ -110,7 +114,7 @@ function fixture(role, actorId = "actor") {
   return {
     drafts,
     writes,
-    get: () => exports.GET(request()),
+    get: (params = {}) => exports.GET({ ...request(), nextUrl: { searchParams: new URLSearchParams(params) } }),
     post: (body) => exports.POST(request(body)),
     patch: (body) => exports.PATCH(request(body)),
     delete: (id) => exports.DELETE(request(undefined, id)),
@@ -157,7 +161,9 @@ function submittedDraftRetryFixture() {
   }).outputText, {
     exports: routeExports,
     require(name) {
-      if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
+      if (name === "@/lib/equipment-selection") return equipmentSelection;
+      if (name === "@/lib/account-display") return accountDisplay;
+      if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200, headers: init.headers }) } };
       if (name === "@/lib/constants") return { HOTEL_ID: hotelId };
       if (name === "@/lib/server/access") return { allows: () => true };
       if (name === "@/lib/server/auth") return { requireUser: async () => null };
@@ -190,55 +196,44 @@ function submittedDraftRetryFixture() {
   };
 }
 
-test("dashboard managers see other drafts read-only without mutation controls", async () => {
-  const route = fixture("General Manager");
-  const response = await route.get();
-
-  assert.equal(response.status, 200);
-  assert.equal(response.body.drafts.length, 2);
-  const foreign = response.body.drafts.find((draft) => draft.id === "other-draft");
-  assert.equal(foreign.can_edit, false);
-  assert.equal(foreign.can_delete, false);
-  assert.equal(foreign.issue, "Submitter draft");
-  assert.equal(foreign.room, "Room 101");
-  assert.equal(foreign.notes, "");
-  assert.equal(foreign.staff_first_name, null);
-  assert.equal(foreign.location_id, null);
-  assert.equal(foreign.asset_id, null);
-  assert.equal(foreign.asset_name, "");
-  assert.equal(foreign.category, "General");
-  assert.equal(foreign.priority, "Medium");
-  assert.equal(foreign.creator_role, "");
-
-  const patch = await route.patch({ id: "other-draft", expected_revision: 1, issue: "Changed by manager" });
-  const deletion = await route.delete("other-draft");
-  assert.equal(patch.status, 403);
-  assert.equal(deletion.status, 403);
-  assert.equal(route.writes.length, 0);
-  assert.equal(route.drafts.find((draft) => draft.id === "other-draft").issue, "Submitter draft");
-});
-
-test("work-order viewers receive redacted read-only summaries for foreign drafts", async () => {
-  for (const role of ["Assistant General Manager", "Front Desk Manager", "Maintenance Technician"]) {
-    const response = await fixture(role).get();
-    const foreign = response.body.drafts.find((draft) => draft.id === "other-draft");
-    assert.ok(foreign, role);
-    assert.equal(foreign.can_edit, false, role);
-    assert.equal(foreign.can_delete, false, role);
-    assert.equal(foreign.room, "Room 101", role);
-    assert.equal(foreign.issue, "Submitter draft", role);
-    assert.equal(foreign.notes, "", role);
-    assert.equal(foreign.staff_first_name, null, role);
-    assert.equal(foreign.location_id, null, role);
-    assert.equal(foreign.asset_id, null, role);
-    assert.equal(foreign.asset_name, "", role);
-    assert.equal(foreign.category, "General", role);
-    assert.equal(foreign.priority, "Medium", role);
-    assert.equal(foreign.creator_role, "", role);
+test("creation draft choices are owner-only for every submit-capable role, including accounts stored as Engineer", async () => {
+  for (const role of ["Front Desk", "Lead Housekeeper", "General Manager", "Assistant General Manager", "Front Desk Manager", "Maintenance Technician", "Engineer", "Chief Engineer", "System Administrator"]) {
+    for (const actorId of ["actor", "second-session-user"]) {
+      const route = fixture(role, actorId);
+      const response = await route.get();
+      assert.equal(response.status, 200, role);
+      assert.equal(response.body.drafts.length, 1, role);
+      assert.ok(response.body.drafts.every(draft => draft.created_by === actorId));
+      assert.equal(response.headers["Cache-Control"], "private, no-store");
+      assert.equal(route.writes.length, 0);
+    }
   }
 });
 
-test("General Managers can see foreign pending drafts read-only and cannot set engineering fields", async () => {
+test("review scope and targeted review reject non-reviewers without leaking foreign drafts", async () => {
+  for (const role of ["Front Desk", "Lead Housekeeper", "General Manager", "Assistant General Manager", "Front Desk Manager", "Maintenance Technician"]) {
+    const route = fixture(role);
+    for (const params of [{scope:"review"}, {review_draft_id:"other-draft"}]) assert.equal((await route.get(params)).status,403,role);
+    assert.equal((await route.patch({id:"other-draft", expected_revision:1, issue:"Changed"})).status,403);
+    assert.equal((await route.delete("other-draft")).status,403);
+    assert.equal(route.writes.length,0);
+  }
+});
+
+test("targeted authorized review is separate from own form choices and scoped to the hotel", async () => {
+  const route=fixture("Chief Engineer");
+  const response=await route.get({scope:"own",review_draft_id:"other-draft"});
+  assert.equal(response.body.drafts.length,1);
+  assert.equal(response.body.review_draft.id,"other-draft");
+  assert.equal(response.body.review_draft.can_edit,true);
+  route.drafts.push({id:"other-hotel",created_by:"actor",hotel_id:"elsewhere"});
+  const other=await route.get({scope:"own",review_draft_id:"other-hotel"});
+  assert.equal(other.body.review_draft,null);
+  assert.equal(other.body.drafts.length,1);
+  assert.equal((await route.get({scope:"unknown"})).status,400);
+});
+
+test("General Managers cannot set engineering fields in their own drafts", async () => {
   const route = fixture("General Manager");
   const own = await route.post({
     location_id: "room-1",
@@ -271,7 +266,7 @@ test("General Managers can see foreign pending drafts read-only and cannot set e
 
 test("engineer reviewers may edit and delete another submitter's draft", async () => {
   const route = fixture("Chief Engineer");
-  const listed = await route.get();
+  const listed = await route.get({scope:"review"});
   const foreign = listed.body.drafts.find((draft) => draft.id === "other-draft");
   assert.equal(foreign.can_edit, true);
   assert.equal(foreign.can_delete, true);

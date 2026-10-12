@@ -182,7 +182,7 @@ export default function WorkOrderListWindow({
         </div>
       </header>
 
-      <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-4 gap-[0.2em] @md:grid-cols-8">
+      <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
         {KPI_CARDS.map((card) => {
           const selected = !normalizedQuery && filter === card.key;
           return (
@@ -195,11 +195,11 @@ export default function WorkOrderListWindow({
               onClick={() => { setFilter(card.key); setQuery(""); }}
               className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-slate-800" : "border-slate-700 bg-slate-900 hover:border-slate-500"}`}
             >
-              <span className="min-w-0 truncate text-[0.78em] font-semibold uppercase leading-tight tracking-wide text-slate-300">
+              <span className="min-w-0 break-words text-[calc(0.78em+5px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
                 <span className="@md:hidden">{card.compactLabel}</span>
                 <span className="hidden @md:inline">{card.label}</span>
               </span>
-              <span className={`shrink-0 text-[0.9em] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+              <span className={`shrink-0 text-[calc(0.9em+5px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
             </button>
           );
         })}

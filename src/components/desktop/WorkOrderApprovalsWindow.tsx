@@ -1,7 +1,7 @@
 "use client";
 
 import { unreadWorkOrderNotificationCount, type WorkOrderNotification } from "@/lib/dashboard/work-order-notifications";
-import { roleDisplayName } from "@/lib/account-display";
+import { accountRoleDisplayName } from "@/lib/account-display";
 import { priorityClass, type DesktopWorkOrder } from "./WorkOrderListWindow";
 import { roomStatusBadge } from "@/lib/room-availability";
 
@@ -24,7 +24,7 @@ export default function WorkOrderApprovalsWindow({
   onClear,
   onClearAll,
 }: {
-  user: { name: string | null; email: string | null; role: string };
+  user: { name: string | null; email: string | null; role: string; secondary_roles?: string[] };
   notifications: WorkOrderNotification[];
   awaitingApproval: DesktopWorkOrder[];
   canReview: boolean;
@@ -40,7 +40,7 @@ export default function WorkOrderApprovalsWindow({
     <div className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.6em] overflow-auto p-[0.6em]">
       <div role="group" aria-label="Signed-in account" className="flex shrink-0 flex-wrap items-center gap-x-[0.75em] gap-y-[0.25em] rounded-md border border-slate-800 bg-slate-900/70 px-[0.7em] py-[0.45em]">
         <span className="font-semibold text-white">{user.name?.trim() || "Name not set"}</span>
-        <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-[0.5em] text-[0.82em] font-semibold text-sky-200">{roleDisplayName(user.role)}</span>
+        <span className="rounded-full border border-sky-500/40 bg-sky-950/30 px-[0.5em] text-[0.82em] font-semibold text-sky-200">{accountRoleDisplayName(user)}</span>
         {user.email && <span className="min-w-0 truncate text-[0.88em] text-slate-400">{user.email}</span>}
         <button type="button" onClick={onToggleSound} aria-pressed={soundEnabled} className="ml-auto rounded border border-slate-700 px-[0.6em] py-[0.15em] text-[0.85em] text-slate-300 hover:border-slate-500">
           {soundEnabled ? "Sound on" : "Sound off"}

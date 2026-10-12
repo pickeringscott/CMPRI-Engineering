@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { roleKey } from "@/lib/server/roles";
+import { isSubmitOnlyRole, roleKey } from "@/lib/server/roles";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { isUuid } from "@/lib/uuid";
 
@@ -54,15 +54,23 @@ async function authorizedWorkOrder(request: NextRequest, id: string, mode: "read
   if (!workOrder) return { response: NextResponse.json({ error: "Work order not found." }, { status: 404 }) };
   const canEditOrReview = allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets");
   const canComment = allows(auth.principal, "add_work_order_notes");
+  const isCreator = String(workOrder.created_by || "") === String(auth.principal.identity.id);
+  // Photo submission follows ticket creation while these roles await verification.
+  // This permits only the upload; pending-ticket listing/signing remains restricted.
+  const submittingOwnPendingPhoto = mode === "write"
+    && isCreator
+    && workOrder.status === "Pending Verification"
+    && isSubmitOnlyRole(auth.principal.profile.role)
+    && allows(auth.principal, "submit");
   if ((roleKey(auth.principal.profile.role) === "technician" || !canEditOrReview)
     && (allows(auth.principal, "view_work_orders") || canComment)
+    && !submittingOwnPendingPhoto
     && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
     return { response: NextResponse.json({ error: "This role can only view attachments for open work orders." }, { status: 403 }) };
   }
   if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
     return { response: NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 }) };
   }
-  const isCreator = String(workOrder.created_by || "") === String(auth.principal.identity.id);
   const canAccess = isCreator || (mode === "write"
     ? canEditOrReview || canComment
     : allows(auth.principal, "view_dashboard") || allows(auth.principal, "view_work_orders") || canEditOrReview || canComment);

@@ -34,3 +34,22 @@ export function roleDisplayName(value: string | readonly string[], secondaryRole
 export function dashboardTitleForRole(role: string) {
   return `${roleDisplayName(role)} Dashboard`;
 }
+
+export type AccountDisplayProfile = {
+  email?: string | null;
+  role?: string | null;
+  secondary_roles?: readonly string[];
+};
+
+/** Verified account presentation only; never use this resolver for authorization. */
+export function isMaintenanceChiefDisplay(profile: AccountDisplayProfile): boolean {
+  return profile.email?.trim().toLowerCase() === "maint.cmpri@hawkeyehotels.com"
+    && ["systemadmin", "systemadministrator", "administrator", "admin"].includes((profile.role || "").toLowerCase().replace(/[\s_-]+/g, ""))
+    && profile.secondary_roles?.some(role => role.trim().toLowerCase() === "engineer") === true;
+}
+
+export function accountRoleDisplayName(profile: AccountDisplayProfile): string {
+  return isMaintenanceChiefDisplay(profile)
+    ? "Chief Engineer"
+    : roleDisplayName(profile.role || "", profile.secondary_roles || []);
+}

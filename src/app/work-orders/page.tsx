@@ -41,6 +41,7 @@ type WorkOrderDraft = {
   created_by: string;
   creator_name?: string | null;
   creator_role?: string | null;
+  creator_display_role?: string | null;
   can_edit?: boolean;
   can_delete?: boolean;
   staff_first_name?: string | null;
@@ -94,10 +95,13 @@ type CreatedWorkOrder = { id: string; display_id: string; status: string };
 type SelectedWorkOrderPhoto = { file: File; previewUrl: string; uploadId: string };
 type PendingPhotoUpload = Pick<CreatedWorkOrder, "id" | "display_id"> & { photo: SelectedWorkOrderPhoto };
 
-function WorkOrderPhotoPreview({ photo }: { photo: SelectedWorkOrderPhoto }) {
+function WorkOrderPhotoPreview({ photo, onRemove, removeLabel }: { photo: SelectedWorkOrderPhoto; onRemove?: () => void; removeLabel: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-950/70 p-1.5">
-      <Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 shrink-0 rounded object-cover" />
+      <div className="relative shrink-0">
+        <Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 rounded object-cover" />
+        {onRemove && <button type="button" onClick={onRemove} aria-label={`${removeLabel}: ${photo.file.name}`} title={removeLabel} className="absolute -left-1 -top-1 grid size-6 place-items-center rounded-full border border-red-500/70 bg-slate-950 text-base font-bold leading-none text-red-500 shadow hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-white">×</button>}
+      </div>
       <span className="min-w-0 max-w-40 truncate text-xs text-slate-300" title={photo.file.name}>{photo.file.name}</span>
     </div>
   );
@@ -586,18 +590,22 @@ export default function WorkOrdersPage() {
     knowledge: ManualKnowledge | null;
     error: string;
   } | null>(null);
-  const [formLanguage, setFormLanguage] = useState<"en" | "es">(() => {
-    if (typeof window === "undefined") return "en";
-    try {
-      const saved = window.localStorage.getItem("cmpri:work-order-language");
-      return saved === "es" ? "es" : "en";
-    } catch {
-      return "en";
-    }
-  });
+  const [formLanguage, setFormLanguage] = useState<"en" | "es">("en");
+  useEffect(() => {
+    // Defer browser-only preferences until after the server markup is hydrated.
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem("cmpri:work-order-language");
+        if (saved === "en" || saved === "es") setFormLanguage(saved);
+      } catch {}
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [staffFirstName, setStaffFirstName] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
+  const [reviewDraft, setReviewDraft] = useState<WorkOrderDraft | null>(null);
+  const draftRequestRef = useRef(0);
   const [activeDraftId, setActiveDraftId] = useState("");
   const [activeDraftRevision, setActiveDraftRevision] = useState<number | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
@@ -616,18 +624,28 @@ export default function WorkOrdersPage() {
   }, []);
 
   const loadDrafts = useCallback(async () => {
+    const requestId = ++draftRequestRef.current;
+    setDrafts([]);
+    setReviewDraft(null);
     try {
-      const response = await fetch("/api/work-orders/drafts", {
-        headers: await apiHeaders(),
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Sign in again to load drafts.");
+      const params = new URLSearchParams(window.location.search);
+      const reviewId = params.get("reviewDraft") === "1" ? params.get("draftId") : null;
+      const response = await fetch(`/api/work-orders/drafts?scope=own${reviewId ? `&review_draft_id=${encodeURIComponent(reviewId)}` : ""}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
+      const current = await getValidSession();
+      if (requestId !== draftRequestRef.current || current?.user.id !== session.user.id) return;
       if (!response.ok) throw new Error(payload.error || "Drafts could not be loaded.");
-      setDrafts((payload.drafts || []) as WorkOrderDraft[]);
+      setDrafts(((payload.drafts || []) as WorkOrderDraft[]).filter(draft => draft.created_by === session.user.id));
+      if (reviewId && payload.review_draft?.id === reviewId && payload.review_draft.can_edit) setReviewDraft(payload.review_draft);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Drafts could not be loaded.");
+      if (requestId === draftRequestRef.current) setMessage(error instanceof Error ? error.message : "Drafts could not be loaded.");
     }
-  }, [apiHeaders]);
+  }, []);
 
   async function loadProfilePreference() {
     try {
@@ -1050,12 +1068,12 @@ export default function WorkOrdersPage() {
     if (!cmpriSession) return;
     const requestedDraftId = new URLSearchParams(window.location.search).get("draftId") || "";
     if (!requestedDraftId || requestedDraftId === autoOpenedDraftRef.current) return;
-    const draft = drafts.find((item) => item.id === requestedDraftId);
+    const draft = drafts.find((item) => item.id === requestedDraftId) || (reviewDraft?.id === requestedDraftId ? reviewDraft : null);
     if (!draft) return;
     autoOpenedDraftRef.current = requestedDraftId;
     const timer = window.setTimeout(() => restoreDraft(draft), 0);
     return () => window.clearTimeout(timer);
-  }, [activeDraftId, cmpriSession, drafts, restoreDraft]);
+  }, [activeDraftId, cmpriSession, drafts, reviewDraft, restoreDraft]);
 
   async function saveDraft(automatic = false) {
     if (!locationId || !issue.trim()) {
@@ -1142,6 +1160,7 @@ export default function WorkOrdersPage() {
       return;
     }
     setActiveDraftId("");
+    setReviewDraft(null);
     setActiveDraftRevision(null);
     setStaffFirstName("");
     setLocationId("");
@@ -1168,6 +1187,15 @@ export default function WorkOrdersPage() {
 
     
     setMainWorkOrderCreated(false);
+  }
+
+  function removeSelectedPhoto(uploadId: string) {
+    if (loading || createState !== "idle" || mainWorkOrderCreated || retryingPhotoUpload || pendingPhotoUploads.length > 0) return;
+    const photo = photos.find((selected) => selected.uploadId === uploadId);
+    if (!photo) return;
+    URL.revokeObjectURL(photo.previewUrl);
+    photoPreviewUrlsRef.current.delete(photo.previewUrl);
+    setPhotos((current) => current.filter((selected) => selected.uploadId !== uploadId));
   }
 
   function acceptSelectedPhotos(files: FileList | null, fromCamera = false) {
@@ -1215,17 +1243,13 @@ export default function WorkOrdersPage() {
   }
 
   function finishCancelCreateForm() {
-    if (pendingPhotoUploads.length > 0) {
-      setMessage("Retry the pending photo upload before discarding this created work order.");
-      setShowCancelConfirm(false);
-      return;
-    }
-    resetWorkOrderForm();
+    const leavingCreatedTicket = pendingPhotoUploads.length > 0;
+    resetWorkOrderForm(leavingCreatedTicket);
     setBatchCreateSuggestions([]);
     setShowBatchCreateDialog(false);
     setShowRelatedWorkOrderDialog(false);
     setCreateState("idle");
-    setMessage("");
+    setMessage(leavingCreatedTicket ? tx("The work order and any saved photos were kept. Remaining photo uploads were cancelled.", "Se conservaron la orden y las fotos guardadas. Se cancelaron las cargas de fotos pendientes.") : "");
     setShowCancelConfirm(false);
     if (notifyCreateModal("cmpri-work-order-cancelled")) return;
     if (!isSubmitOnlyUser && cmpriSession?.landing === "/engineering") {
@@ -1234,11 +1258,8 @@ export default function WorkOrdersPage() {
   }
 
   function requestCancelCreateForm() {
-    if (pendingPhotoUploads.length > 0) {
-      setMessage("Retry the pending photo upload before discarding this created work order.");
-      return;
-    }
-    if (createHasUnsavedChanges || activeDraftId) {
+    if (loading || draftBusy || retryingPhotoUpload) return;
+    if (createHasUnsavedChanges || activeDraftId || pendingPhotoUploads.length > 0) {
       setShowCancelConfirm(true);
       return;
     }
@@ -1272,7 +1293,8 @@ export default function WorkOrdersPage() {
   }, []);
 
   async function confirmCancelCreateForm() {
-    if (activeDraftId) {
+    if (loading || draftBusy || retryingPhotoUpload) return;
+    if (activeDraftId && pendingPhotoUploads.length === 0) {
       setDraftBusy(true);
       try {
         const response = await fetch(`/api/work-orders/drafts?id=${encodeURIComponent(activeDraftId)}`, {
@@ -1881,7 +1903,7 @@ export default function WorkOrdersPage() {
       }));
   }, [locations]);
   const createHasUnsavedChanges = Boolean(
-    issue.trim() || locationId || notes.trim() || assetId || staffFirstName.trim()
+    issue.trim() || locationId || notes.trim() || assetId || staffFirstName.trim() || photos.length > 0
   );
   useEffect(() => {
     if (!createHasUnsavedChanges || !locationId || !issue.trim() || loading || draftBusy) return;
@@ -1914,7 +1936,7 @@ export default function WorkOrdersPage() {
   ];
 
   const detectedCreateIssues = issue.trim() ? detectMultipleCreateIssues(issue, locations, selectedLocation) : [];
-  const activeDraft = drafts.find((draft) => draft.id === activeDraftId);
+  const activeDraft = drafts.find((draft) => draft.id === activeDraftId) || (reviewDraft?.id === activeDraftId ? reviewDraft : null);
   const approvingDraft = Boolean(activeDraft && activeDraft.created_by !== cmpriSession?.user.id);
 
   const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true ? troubleshootingKnowledge : null;
@@ -1929,13 +1951,13 @@ export default function WorkOrdersPage() {
 
   return (
     <main className="min-h-[100svh] bg-slate-950 p-1 text-white">
-      <div className={`mx-auto w-full max-w-none ${isSubmitOnlyUser ? "" : "lg:w-[66vw]"}`}>
+      <div data-work-order-form-layout className="mx-auto w-full max-w-none lg:w-[66vw]">
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-white">Saved Drafts</h2>
-                <p className="text-xs text-slate-400">You can edit your own drafts. Engineers and System Administrators may review other pending drafts; other users see a read-only summary.</p>
+                <p className="text-xs text-slate-400">Your saved drafts. Authorized draft review is available from the Engineering dashboard.</p>
               </div>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300">{drafts.length}</span>
             </div>
@@ -1949,7 +1971,7 @@ export default function WorkOrdersPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-slate-100">{draft.room || "Room / Location"} · {draft.issue}</p>
-                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? "Your draft" : `Created by ${draft.creator_name || "another employee"}${draft.creator_role ? ` · ${draft.creator_role}` : ""}`}{draft.updated_at ? ` · Updated ${new Date(draft.updated_at).toLocaleString()}` : ""}</p>
+                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? "Your draft" : `Created by ${draft.creator_name || "another employee"}${draft.creator_display_role ? ` · ${draft.creator_display_role}` : ""}`}{draft.updated_at ? ` · Updated ${new Date(draft.updated_at).toLocaleString()}` : ""}</p>
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {canEditDraft
@@ -1994,7 +2016,7 @@ export default function WorkOrdersPage() {
                   </svg>
                 </label>
                 <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files, true)} className="sr-only" />
-                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || pendingPhotoUploads.length > 0 || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
+                <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="min-h-10 rounded-lg border border-sky-600/70 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
                 <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-lg border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
@@ -2003,7 +2025,7 @@ export default function WorkOrdersPage() {
             </div>
 
             {(photos.length > 0 || photoUploadError) && <div className="space-y-2">
-              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label="Selected photo previews">{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} />)}</div>}
+              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label="Selected photo previews">{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} removeLabel={tx("Remove selected photo", "Quitar foto seleccionada")} onRemove={!loading && createState === "idle" && !mainWorkOrderCreated && !retryingPhotoUpload && pendingPhotoUploads.length === 0 ? () => removeSelectedPhoto(photo.uploadId) : undefined} />)}</div>}
               {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{photoUploadError}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
             </div>}
 
@@ -2181,8 +2203,8 @@ export default function WorkOrdersPage() {
             setShowCancelConfirm(false);
           }}>
             <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
-              <h2 id="create-cancel-title" className="text-xl font-bold">{tx("Cancel work-order creation?", "¿Cancelar la creación de la orden?")}</h2>
-              <p className="mt-2 text-sm text-slate-400">{tx("Your unsaved work will be discarded. Any saved draft for this work will also be deleted.", "Se descartará el trabajo no guardado. También se eliminará cualquier borrador guardado de este trabajo.")}</p>
+              <h2 id="create-cancel-title" className="text-xl font-bold">{pendingPhotoUploads.length > 0 ? tx("Cancel remaining photo uploads?", "¿Cancelar las cargas de fotos pendientes?") : tx("Cancel work-order creation?", "¿Cancelar la creación de la orden?")}</h2>
+              <p className="mt-2 text-sm text-slate-400">{pendingPhotoUploads.length > 0 ? tx("The work order already exists. It and any saved photos will be kept. Photos still waiting to upload will not be saved.", "La orden ya existe. Se conservarán la orden y las fotos guardadas. No se guardarán las fotos pendientes de cargar.") : tx("Your unsaved work and selected photos will be discarded. Any saved draft for this work will also be deleted.", "Se descartarán el trabajo no guardado y las fotos seleccionadas. También se eliminará cualquier borrador guardado de este trabajo.")}</p>
               <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button type="button" autoFocus disabled={draftBusy} onClick={() => setShowCancelConfirm(false)} className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Keep Editing", "Seguir editando")}</button>
                 <button type="button" disabled={draftBusy} onClick={() => void confirmCancelCreateForm()} className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">{draftBusy ? tx("Discarding...", "Descartando...") : tx("Confirm Cancel", "Confirmar cancelación")}</button>

@@ -1,3 +1,4 @@
+import * as accountDisplay from "../src/lib/account-display.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,12 +12,14 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/ro
 const editPolicyExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-edit-policy.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:editPolicyExports,require(name){if(name==='./server/roles')return roleExports;throw new Error(name);}});
+}).outputText,{exports:editPolicyExports,require(name) {
+      if (name === "@/lib/account-display") return accountDisplay;if(name==='./server/roles')return roleExports;throw new Error(name);}});
 const { canSubmitWorkOrderNote, workOrderEditableFields }=editPolicyExports;
 const assignmentExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/work-order-assignment.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:assignmentExports,require(name){if(name==='./roles')return roleExports;throw new Error(name);}});
+}).outputText,{exports:assignmentExports,require(name) {
+      if (name === "@/lib/account-display") return accountDisplay;if(name==='./roles')return roleExports;throw new Error(name);}});
 const { canAccessWorkOrderByAssignment }=assignmentExports;
 const activitySource=readFileSync(new URL('../src/app/api/work-orders/[id]/activity/route.ts',import.meta.url),'utf8');
 const activityCode=ts.transpileModule(activitySource,{
@@ -84,7 +87,8 @@ function fixture(config={}){
       select(){return q;},eq(k,v){filters.push([k,v]);return q;},is(k,v){filters.push([k,v]);return q;},in(){return q;},limit(){return q;},order(){return q;},neq(){return q;},
       async maybeSingle(){
         calls.push({table,filters});
-        if(table==='work_orders')return {data:config.missing?null:{id:'order',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
+        if(table==='work_orders')return {data:config.missing?null:{id:'order',created_by:config.createdBy,creator_name:'Historical recorded name',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
+        if(table==='profiles')return {data:config.creatorProfile || null,error:null};
         if(table==='assets')return {data:config.assetMissing?null:{id:'new-asset',location_id:config.wrongRoom?'room-410':'room-409',active:!config.retired,name:'Verified equipment'},error:config.assetError?{message:'failed'}:null};
         return {data:null,error:null};
       },
@@ -99,7 +103,7 @@ function fixture(config={}){
   }};
 
   const principal=profile&&profile.active===true?{
-    identity:{id:'actor',email:'actor@example.invalid'},
+    identity:{id:'actor',email:config.email || 'actor@example.invalid'},
     profile,
     hotelId:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',
     membership:{user_id:'actor',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',role:null,active:true},
@@ -135,7 +139,8 @@ function fixture(config={}){
   vm.runInNewContext(code,{
     exports,
     process:{env:{SUPABASE_SERVICE_ROLE_KEY:'fake'}},
-    require(name){
+    require(name) {
+      if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
       if(name==='@supabase/supabase-js')return {createClient:()=>db};
       if(name==='server-only')return {};
@@ -268,7 +273,8 @@ test('limited work-order readers receive ticket history but not purchasing or En
   const exports={};
   vm.runInNewContext(activityCode,{
     exports,
-    require(name){
+    require(name) {
+      if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
       if(name==='@/lib/constants')return {HOTEL_ID:'hotel'};
       if(name==='@/lib/server/access')return {allows:(_principal,capability)=>capability==='view_work_orders'};
@@ -477,4 +483,26 @@ test('work-order detail does not request restricted maintenance reference for li
   assert.match(page,/if \(canLoadMaintenanceReference\) void loadMaintenanceReference\(\)/);
   assert.match(page,/canLoadMaintenanceReference = session\.capabilities\.includes\("view_dashboard"\)/);
   assert.match(page,/await loadTicket\(!hadPreview, canLoadMaintenanceReference\)/);
+});
+
+test('maintenance attribution exposes its current display title without rewriting creator or authorization role', async () => {
+ for (const [email,expected] of [['maint.cmpri@hawkeyehotels.com','Chief Engineer'],['pickering.scott@gmail.com','System Administrator + Engineer']]) {
+  const f=fixture({email,createdBy:'actor',profile:{id:'actor',active:true,role:'system_admin',secondary_roles:['engineer']}});
+  const result=await f.get();
+  assert.equal(result.status,200);
+  assert.equal(result.body.workOrder.creator_display_role,expected);
+  assert.equal(result.body.workOrder.creator_role,'system_admin');
+  assert.equal(result.body.workOrder.creator_name,'Historical recorded name');
+  assert.equal(f.writes(),0);
+ }
+});
+
+test('engineering readback resolves maintenance creator title independently of the viewing account', async () => {
+ const f=fixture({email:'pickering.scott@gmail.com',createdBy:'maintenance-author',creatorProfile:{email:'maint.cmpri@hawkeyehotels.com',role:'system_admin',secondary_roles:['engineer']}});
+ const result=await f.get();
+ assert.equal(result.status,200);
+ assert.equal(result.body.workOrder.creator_display_role,'Chief Engineer');
+ assert.equal(result.body.workOrder.creator_role,'system_admin');
+ assert.equal(result.body.workOrder.creator_name,'Historical recorded name');
+ assert.equal(f.writes(),0);
 });

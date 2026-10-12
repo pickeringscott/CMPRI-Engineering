@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
-import { roleDisplayName } from "@/lib/account-display";
+import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import { signOutDevice } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
@@ -91,7 +91,7 @@ export default function ProfilePage() {
   const [phoneMessage, setPhoneMessage] = useState("");
   const [phoneSupported, setPhoneSupported] = useState(false);
   const isSpanish = preferences?.language === "es";
-  const displayedRole = roleDisplayName([data?.profile.role || "", ...(data?.profile.secondary_roles || [])]);
+  const displayedRole = accountRoleDisplayName(data?.profile || {});
   const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
   const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
   const canManageChatgptConnection = !isSubmitOnlyRole(data?.profile.role);

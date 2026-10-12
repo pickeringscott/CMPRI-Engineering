@@ -295,7 +295,7 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
   assert.match(navigation, /visibleLauncherGroups\.map\(\(group\) => \([\s\S]*?group\.items\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
   assert.match(launchers, /hasCapability\(session, "(?:view_dashboard|submit|edit_tickets|manage_assets|manage_rooms|manage_users|review_feedback|view_profiles)"\)/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
-  assert.match(dashboard, /onClick=\{\(event\) => \{[\s\S]*?onLaunch\(launcher, Date\.now\(\)\)/);
+  assert.match(dashboard, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);
 });
 
 test('shared modal navigation controls render buttons instead of links', () => {

@@ -525,7 +525,7 @@ html[data-theme="light"] .cmpri-work-order-list {
   [data-chief-engineer-mobile="true"] [data-dashboard-account] { margin-top: 4px; }
   [data-chief-engineer-mobile="true"] [data-dashboard-name] { font-size: 11pt; }
   [data-chief-engineer-mobile="true"] [data-dashboard-role] { margin-top: 2px; font-size: 8pt; }
-  [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar > div:first-child { padding-bottom: 4px; }
+  [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar > div:first-child { align-items: flex-start; gap: 8px; padding-bottom: 4px; }
   [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar [data-cmpri-desktop-launch="/work-orders"] { min-height: 32px; padding: 4px 8px; }
 }
 

@@ -1,20 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
 import styles from "./TroubleshootingGuideDropdown.module.css";
 
 type GuideId = "enseo" | "dormakaba" | "guest-room";
 
-const GUIDE_OPTIONS: Array<{ id: GuideId; title: string }> = [
-  { id: "enseo", title: "Enseo TV Troubleshooting Guide" },
-  { id: "dormakaba", title: "Dormakaba LED Visual Guide" },
-  { id: "guest-room", title: "Guest Room Troubleshooting Guide" },
+const GUIDE_OPTIONS: Array<{ id: GuideId; title: string; href: string }> = [
+  { id: "enseo", title: "Enseo TV Troubleshooting Guide", href: "/guides/enseo.pdf" },
+  { id: "dormakaba", title: "Dormakaba LED Visual Guide", href: "/guides/dormakaba.pdf" },
+  { id: "guest-room", title: "Guest Room Troubleshooting Guide", href: "/guides/guest-room.pdf" },
 ];
-
-function subscribeToHydration() {
-  return () => {};
-}
 
 type LedColor = "G" | "Y" | "R";
 type SignalGroup = {
@@ -643,192 +637,27 @@ function GuestRoomGuide() {
   );
 }
 
-function GuideContent({ guide }: { guide: GuideId }) {
+export function GuideContent({ guide }: { guide: GuideId }) {
   if (guide === "enseo") return <EnseoGuide />;
   if (guide === "dormakaba") return <DormakabaGuide />;
   return <GuestRoomGuide />;
 }
 
+/** The PDFs are print exports of GuideContent below; no guide content is rewritten. */
 export default function TroubleshootingGuideDropdown() {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [selectedGuide, setSelectedGuide] = useState<GuideId | null>(null);
-  const mounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
-  const selectedOption = GUIDE_OPTIONS.find((option) => option.id === selectedGuide);
-
-  useEffect(() => {
-    if (!menuOpen || selectedGuide) return;
-    function closeOnOutsidePointer(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [menuOpen, selectedGuide]);
-
-  useEffect(() => {
-    if (!selectedGuide || !mounted) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    dialogRef.current?.focus();
-
-    function manageDialogKeys(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSelectedGuide(null);
-        setMenuOpen(false);
-        returnFocusRef.current?.focus();
-      }
-      if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
-      ));
-      if (!focusable.length) {
-        event.preventDefault();
-        dialogRef.current.focus();
-      } else if (event.shiftKey && (document.activeElement === focusable[0] || document.activeElement === dialogRef.current)) {
-        event.preventDefault();
-        focusable.at(-1)?.focus();
-      } else if (!event.shiftKey && document.activeElement === focusable.at(-1)) {
-        event.preventDefault();
-        focusable[0].focus();
-      }
-    }
-    document.addEventListener("keydown", manageDialogKeys);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", manageDialogKeys);
-      returnFocusRef.current?.focus();
-    };
-  }, [mounted, selectedGuide]);
-
-  function openMenu() {
-    setMenuOpen(true);
-    window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']")?.focus());
-  }
-
-  function selectGuide(guide: GuideId) {
-    returnFocusRef.current = triggerRef.current;
-    setSelectedGuide(guide);
-    setMenuOpen(false);
-  }
-
-  function switchGuide() {
-    setSelectedGuide(null);
-    setMenuOpen(true);
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
-  }
-
-  function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='menuitem']"));
-    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setMenuOpen(false);
-      triggerRef.current?.focus();
-      return;
-    }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      items[(currentIndex + delta + items.length) % items.length]?.focus();
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      items[0]?.focus();
-    } else if (event.key === "End") {
-      event.preventDefault();
-      items.at(-1)?.focus();
-    }
-  }
-
-  function toggleMenu() {
-    if (menuOpen) setMenuOpen(false);
-    else openMenu();
-  }
-
   return (
-    <>
-      <div className="relative z-[210] shrink-0" ref={menuRef}>
-        <button
-          ref={triggerRef}
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-controls="troubleshooting-guide-menu"
-          onClick={toggleMenu}
-          className="min-h-9 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
-        >
-          Front Desk Quick Guides
-        </button>
-        {menuOpen && !selectedGuide && (
-          <div
-            id="troubleshooting-guide-menu"
-            role="menu"
-            aria-label="Troubleshooting guides"
-            onKeyDown={handleMenuKeyDown}
-            className="absolute right-0 top-full z-[220] mt-1 w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-600 bg-slate-900 p-1.5 shadow-xl"
-          >
-            {GUIDE_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="menuitem"
-                onClick={() => selectGuide(option.id)}
-                className="block min-h-10 w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
-              >
-                {option.title}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {mounted && selectedGuide && selectedOption && createPortal(
-        <div className={`${styles.backdrop} ${styles.printRoot}`} onPointerDown={(event) => {
-          if (event.target === event.currentTarget) {
-            setSelectedGuide(null);
-            setMenuOpen(false);
-          }
-        }}>
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="guide-title"
-            tabIndex={-1}
-            className={styles.dialog}
-          >
-            <div className={styles.controls}>
-              <div>
-                <p className={styles.modalEyebrow}>Troubleshooting Guide</p>
-                <p className={styles.modalTitle}>{selectedOption.title}</p>
-              </div>
-              <div className={styles.controlButtons}>
-                <button type="button" onClick={switchGuide} className={styles.secondaryButton}>Choose another guide</button>
-                <button type="button" onClick={() => window.print()} className={styles.printButton}>Print this guide</button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedGuide(null);
-                    setMenuOpen(false);
-                  }}
-                  aria-label="Return to dashboard"
-                  className={styles.closeButton}
-                >
-                  Return to dashboard
-                </button>
-              </div>
-            </div>
-            <div className={styles.scrollArea}>
-              <article className={styles.document}>
-                <GuideContent guide={selectedGuide} />
-              </article>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
+    <select
+      aria-label="Front Desk Quick Guides"
+      defaultValue=""
+      onChange={(event) => {
+        const option = GUIDE_OPTIONS.find((guide) => guide.id === event.currentTarget.value);
+        if (option) window.open(option.href, "_blank", "noopener,noreferrer");
+        event.currentTarget.value = "";
+      }}
+      className="min-h-9 max-w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+    >
+      <option value="" disabled>Front Desk Quick Guides</option>
+      {GUIDE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
+    </select>
   );
 }

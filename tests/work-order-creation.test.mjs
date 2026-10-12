@@ -291,3 +291,14 @@ for(const role of equipmentBatchRoles)for(const scenario of [
  const response=await f.handler(f.request);assert.equal(response.status,200,JSON.stringify(response));
  assert.equal(f.writes.length,1);assert.equal(f.writes[0].asset_id,preview.assetId);assert.equal(f.writes[0].category,preview.category);assert.equal(f.writes[0].priority,preview.priority);assert.equal(f.writes[0].notes,'Original technician context');
 });
+
+for (const role of ['Lead Housekeeper', 'Front Desk']) test(`${role} Spanish issue and notes are preserved, not falsely translated`, async () => {
+  const issue = 'La manija de la ducha está rota en 409';
+  const notes = 'Habitación vacía. No se cambió ninguna pieza.';
+  const f = fixture({orders:[{...order, issue, notes}], staff_first_name:'María'}, {profile:{role}});
+  assert.equal((await f.handler(f.request)).status, 200);
+  assert.equal(f.writes[0].location_id, 'location-409');
+  assert.equal(f.writes[0].room, 'Room 409');
+  assert.equal(f.writes[0].issue, issue);
+  assert.equal(f.writes[0].notes, notes);
+});

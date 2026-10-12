@@ -180,7 +180,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(listWindow, /aria-label=\{\`\$\{card\.label\}:/);
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
-  assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImages\.length\}\)/);
+  assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImageError \? "unavailable" : workOrderImages\.length\}\)/);
   assert.match(workOrderDetail, /Upload photo/);
   assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
   assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details<\/summary>/);
