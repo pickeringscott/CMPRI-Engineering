@@ -1,9 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { expectedVisibleRows, matchesVisibleRows } from './rls-expectations.mjs';
 const out = new URL('../../.sandbox/', import.meta.url);
 const keys = JSON.parse(readFileSync(new URL('local-keys.json', out)));
 const users = JSON.parse(readFileSync(new URL('synthetic-users.json', out)));
+// Browser evidence captures persisted rows before lifecycle changes their status.
+const submissions = JSON.parse(readFileSync(new URL('e2e-results.json', out)));
+assert.equal(submissions.length, 28);
+assert.ok(submissions.every(result => result.passed && result.rows?.length === 1));
+const fixtureRows = submissions.flatMap(result => result.rows);
+assert.equal(new Set(fixtureRows.map(row => row.id)).size, 28);
 assert.match(keys.API_URL, /^http:\/\/(127\.0\.0\.1|localhost):54321$/);
 const results = [];
 for (const user of users) {
@@ -11,10 +18,12 @@ for (const user of users) {
   try {
     const { error } = await client.auth.signInWithPassword({ email: user.email, password: user.password });
     assert.ifError(error);
-    const { data, error: readError } = await client.from('work_orders').select('id,hotel_id');
+    const { data, error: readError } = await client.from('work_orders').select('id,hotel_id,status');
     const restricted = ['front_desk', 'housekeeping'].includes(user.role);
-    const passed = restricted ? ((!readError && Array.isArray(data) && data.length === 0) || readError?.code === '42501') : !readError && data?.length === 28 && data.every(row => row.hotel_id === 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6');
-    results.push({ role: user.label, storedRole: user.role, readCount: data?.length ?? null, error: readError?.message, expected: restricted ? 'No rows' : '28 same-hotel rows', passed });
+    const expected = expectedVisibleRows(user.role, fixtureRows);
+    const passed = (!readError && matchesVisibleRows(data, expected)) || (restricted && readError?.code === '42501');
+    const statusCounts = rows => rows.reduce((counts, row) => ({ ...counts, [row.status]: (counts[row.status] ?? 0) + 1 }), {});
+    results.push({ role: user.label, storedRole: user.role, readCount: data?.length ?? null, error: readError?.message, expectedCount: expected.length, expectedStatusCounts: statusCounts(expected), actualStatusCounts: statusCounts(data ?? []), passed });
     await client.auth.signOut();
   } catch (error) { results.push({ role: user.label, passed: false, error: String(error) }); }
 }

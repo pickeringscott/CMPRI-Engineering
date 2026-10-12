@@ -1,4 +1,4 @@
-name: Seven-role sandbox with Auth preflight (one approved run)
+name: Final seven-role release verification (one approved run)
 
 on:
   push:
@@ -9,8 +9,8 @@ permissions:
 
 jobs:
   sandbox:
-    # Third run explicitly approved; only this push and first attempt may execute.
-    if: ${{ github.event.before == 'bd262beee179454a99fb598c8ef5819ac1956ea3' && github.run_attempt == 1 }}
+    # Fourth and final run explicitly approved; only this push and first attempt may execute.
+    if: ${{ github.event.before == '4c4506f32890ad8aa4b38fa509d9cf37b8f962a7' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -43,7 +43,7 @@ jobs:
       - name: Harness predicate and redaction regressions
         run: python -m unittest discover -s tests/sandbox -p test_diagnostics.py -v
       - name: Scoped equipment and troubleshooting checks
-        run: node --experimental-strip-types --test tests/equipment-selection.test.mjs tests/troubleshooting-completed-steps.test.mjs tests/work-order-matching.test.mjs tests/chief-engineer-identity.test.mjs
+        run: node --experimental-strip-types --test tests/equipment-selection.test.mjs tests/troubleshooting-completed-steps.test.mjs tests/work-order-matching.test.mjs tests/chief-engineer-identity.test.mjs tests/work-order-dashboard.test.mjs tests/technician-coverage.test.mjs tests/sandbox/rls-expectations.test.mjs
       - name: Real local Auth, Postgres, RLS, browser submissions and controlled push
         run: bash tests/sandbox/run.sh
       - name: Sanitized evidence (no key files, sessions, raw logs, caches or uploads)
