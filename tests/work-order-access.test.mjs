@@ -89,7 +89,7 @@ function fixture(config={}){
         calls.push({table,filters});
         if(table==='work_orders')return {data:config.missing?null:{id:'order',created_by:config.createdBy,creator_name:'Historical recorded name',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
         if(table==='profiles')return {data:config.creatorProfile || null,error:null};
-        if(table==='assets')return {data:config.assetMissing?null:{id:'new-asset',location_id:config.wrongRoom?'room-410':'room-409',active:!config.retired,name:'Verified equipment'},error:config.assetError?{message:'failed'}:null};
+        if(table==='assets')return {data:config.assetMissing?null:{id:'new-asset',location_id:config.template?null:config.wrongRoom?'room-410':'room-409',active:!config.retired,name:'Verified equipment'},error:config.assetError?{message:'failed'}:null};
         return {data:null,error:null};
       },
       update(value){writes++;saved=value;return q;},
@@ -334,6 +334,16 @@ for(const [config,status] of [[{wrongRoom:true},400],[{assetMissing:true},400],[
 test('equipment change uses verified name and scopes lookup to this hotel',async()=>{
   const f=fixture({body:{asset_id:'new-asset',asset_name:'Spoof'}});assert.equal((await f.run()).status,200);assert.equal(f.saved().asset_name,'Verified equipment');
   assert.ok(f.calls.find(c=>c.table==='assets').filters.some(([k,v])=>k==='hotel_id'&&v==='c81ad01a-7a9f-4880-ac1c-5e849f30bad6'));
+});
+
+test('explicit template selection preserves the unassigned asset and validates active status',async()=>{
+  const f=fixture({template:true,body:{asset_id:'new-asset',asset_name:'Spoof'}});
+  assert.equal((await f.run()).status,200);
+  assert.equal(f.saved().asset_name,'Verified equipment');
+  assert.equal(f.saved().location_id,undefined);
+  const retired=fixture({template:true,retired:true,body:{asset_id:'new-asset'}});
+  assert.equal((await retired.run()).status,400);
+  assert.equal(retired.writes(),0);
 });
 
 test('clearing equipment clears its display name',async()=>{

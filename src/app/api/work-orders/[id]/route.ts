@@ -297,8 +297,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         .eq("id", update.asset_id)
         .maybeSingle();
       if (assetError) return NextResponse.json({ error: "Unable to verify the selected equipment." }, { status: 503 });
-      if (!asset || !existing.location_id || asset.location_id !== existing.location_id || asset.active === false) {
-        return NextResponse.json({ error: "Select active equipment assigned to this ticket's location." }, { status: 400 });
+      if (!asset || !existing.location_id || (asset.location_id !== null && asset.location_id !== existing.location_id) || asset.active === false) {
+        return NextResponse.json({ error: "Select active equipment assigned to this ticket's location or an unassigned template." }, { status: 400 });
       }
       update.asset_name = asset.name;
     }

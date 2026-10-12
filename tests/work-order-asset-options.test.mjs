@@ -18,19 +18,21 @@ const assets = [
   { id: "room-102-active", location_id: "room-102", active: true },
   { id: "room-101-inactive", location_id: "room-101", active: false },
   { id: "moved-current", location_id: "room-102", active: false },
+  { id: "ge-template", location_id: null, active: true },
+  { id: "retired-template", location_id: null, active: false },
 ];
 
-test("work-order asset choices include only active assets from the ticket location", () => {
+test("work-order asset choices include room equipment and active unassigned templates", () => {
   assert.deepEqual(
     assignableAssetsForLocation(assets, "room-101", null).map((asset) => asset.id),
-    ["room-101-active"],
+    ["room-101-active", "ge-template"],
   );
 });
 
 test("the existing inactive or moved asset remains selectable for the current ticket", () => {
   assert.deepEqual(
     assignableAssetsForLocation(assets, "room-101", "moved-current").map((asset) => asset.id),
-    ["room-101-active", "moved-current"],
+    ["room-101-active", "moved-current", "ge-template"],
   );
 });
 

@@ -34,6 +34,13 @@ function catalogFamilyMatchesEquipment(equipment: ManualEquipmentIdentity, manua
 
 export function catalogManualModelFamily(equipment: ManualEquipmentIdentity, manual: CatalogManual) {
   if (manual.model_pattern?.trim()) return manual.model_pattern.trim().replace(/\s+/g, " ");
+  // The reviewed Symmons parts diagram prints "Temptrol® Genuine Replacement
+  // Parts". "Shower Valve" is the catalog's equipment description, not part of
+  // the manufacturer's family name. Keep this alias manufacturer-specific;
+  // do not weaken the exact asset-to-catalog or PDF identity checks generally.
+  if (normalized(manual.manufacturer) === "symmons" &&
+      normalized(manual.equipment) === "temptrol shower valve" &&
+      normalized(equipment.model_family) === "temptrol shower valve") return "Temptrol";
   return normalized(equipment.model_family) && normalized(equipment.model_family) === normalized(manual.equipment)
     ? equipment.model_family?.trim().replace(/\s+/g, " ") || null
     : null;

@@ -275,7 +275,7 @@ function assetsForLocation(
     return [];
   }
 
-  return assets.filter((asset) => asset.location_id === location.id);
+  return assets.filter((asset) => asset.location_id === location.id && asset.active !== false);
 }
 
 function analyzeTechnicianNotes(
@@ -763,7 +763,10 @@ export default function WorkOrdersPage() {
   const selectedLocationStatus = roomStatusBadge(selectedLocation?.room_status);
 
   const locationAssets = assetsForLocation(selectedLocation, assets);
-  const availableAssets = locationAssets;
+  // Templates require an explicit choice; automatic guesses stay room-specific.
+  const availableAssets = selectedLocation
+    ? [...locationAssets, ...assets.filter((asset) => asset.location_id === null && asset.active !== false)]
+    : [];
 
   const normalizedCurrentRole = currentRole.toLowerCase().replace(/[_-]+/g, " ").trim();
   const currentRoleKey = normalizedCurrentRole.replace(/\s+/g, "");
@@ -1923,7 +1926,7 @@ export default function WorkOrdersPage() {
   const createAssetOptions = [
     ...availableAssets.map((asset) => ({
       value: asset.id,
-      label: equipmentOptionLabel(asset),
+      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? " (Template - no room assignment)" : ""}`,
       keywords: [
         asset.asset_type,
         asset.manufacturer ?? "",

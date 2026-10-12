@@ -94,8 +94,9 @@ export async function structureVerifiedManual(
     }),
   });
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Verified manual structuring failed (${response.status}): ${detail.slice(0, 500)}`);
+    // Provider errors can echo credential fragments. Keep the failure explicit
+    // without returning the provider response body to an equipment reader.
+    throw new Error(`Verified manual structuring failed (HTTP ${response.status}).`);
   }
 
   const result = await response.json();

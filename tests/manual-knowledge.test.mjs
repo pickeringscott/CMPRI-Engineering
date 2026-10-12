@@ -19,6 +19,18 @@ vm.runInNewContext(ts.transpileModule(`${catalogFunctions}\nexports.matches=cata
 const catalogManualMatchesEquipment=catalogExports.matches;
 const catalogManualPdfMatchesEquipment=catalogExports.pdfMatches;
 
+test('reviewed Symmons catalog descriptor verifies the printed Temptrol family without inventing a model',()=>{
+  const equipment={manufacturer:'Symmons',model_family:'Temptrol Shower Valve',model_number:null};
+  const manual={manufacturer:'Symmons',equipment:'Temptrol Shower Valve',model_pattern:null,active:true,ingestion_status:'complete'};
+  assert.equal(catalogExports.modelFamily(equipment,manual),'Temptrol');
+  assert.equal(catalogManualPdfMatchesEquipment('PARTS BREAKDOWN Temptrol® Genuine Replacement Parts',equipment,manual),true);
+  assert.equal(catalogManualPdfMatchesEquipment('Other Shower Valve Parts',equipment,manual),false);
+  assert.equal(catalogManualPdfMatchesEquipment('TemptrolX',equipment,manual),false);
+  assert.equal(catalogManualPdfMatchesEquipment('Temptrol', {...equipment,manufacturer:'Other'},manual),false);
+  assert.equal(catalogManualPdfMatchesEquipment('Temptrol', {...equipment,model_family:null},manual),false);
+  assert.equal(catalogManualPdfMatchesEquipment('Temptrol', equipment,{...manual,active:false}),false);
+});
+
 // Execute the shared manual normalizer used by the ticket page.
 const source=readFileSync(new URL('../src/lib/manual-knowledge.ts',import.meta.url),'utf8');
 const ast=ts.createSourceFile('manual-knowledge.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);

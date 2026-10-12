@@ -388,7 +388,7 @@ export async function POST(request: NextRequest) {
     if (assetError) return NextResponse.json({ error: "Unable to verify the selected equipment." }, { status: 503 });
     for (const row of rows) {
       if (!row.asset_id) continue;
-      const asset = assets?.find((item) => item.id === row.asset_id && item.location_id === row.location_id && item.active !== false);
+      const asset = assets?.find((item) => item.id === row.asset_id && (item.location_id === null || item.location_id === row.location_id) && item.active !== false);
       if (!asset) return NextResponse.json({ error: "Equipment does not match the selected location." }, { status: 400 });
       row.asset_name = asset.name;
     }

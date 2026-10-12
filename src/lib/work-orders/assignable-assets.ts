@@ -11,5 +11,5 @@ export function assignableAssetsForLocation<T extends AssetForAssignment>(
 ): T[] {
   return assets.filter((asset) =>
     asset.id === currentAssetId
-    || (Boolean(locationId) && asset.location_id === locationId && asset.active !== false));
+    || (Boolean(locationId) && (asset.location_id === null || asset.location_id === locationId) && asset.active !== false));
 }

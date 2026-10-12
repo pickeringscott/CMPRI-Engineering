@@ -1537,7 +1537,7 @@ export default function WorkOrderTicketPage() {
       const exactLocation = !!order?.location_id && asset.location_id === order.location_id;
       const sameCategory = categoryForAsset(asset) === category;
       const group = !exactLocation
-        ? "Current Ticket Equipment"
+        ? asset.location_id === null ? "Templates - No Room Assignment" : "Current Ticket Equipment"
         : score >= 180
           ? "Best Match — This Location"
           : sameCategory
@@ -1545,7 +1545,7 @@ export default function WorkOrderTicketPage() {
             : "This Location";
       return {
         value: asset.id,
-        label: asset.location_name ? `${asset.name} — ${asset.location_name}` : asset.name,
+          label: asset.location_name ? `${asset.name} - ${asset.location_name}` : `${asset.name}${asset.location_id === null ? " (Template - no room assignment)" : ""}`,
         group,
         keywords: [
           asset.asset_type,

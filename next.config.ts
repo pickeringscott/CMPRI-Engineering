@@ -3,8 +3,13 @@ import type { NextConfig } from "next";
 const CANONICAL_APP_URL = "https://cmpri-engineering.com";
 
 const nextConfig: NextConfig = {
+	// PDF.js uses createRequire(import.meta.url) for its native canvas runtime
+	// and resolves its worker relative to the package. Preserve that boundary.
+	serverExternalPackages: ["pdfjs-dist/legacy", "@napi-rs/canvas"],
 	outputFileTracingIncludes: {
 		"/*": [".next/server/chunks/**/*"],
+		"/api/maintenance-reference": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
+		"/api/assets/documentation": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
 	},
 	outputFileTracingExcludes: {
 		"/*": [".env.example", ".env.local"],
