@@ -401,8 +401,8 @@ export default function EngineeringDashboardPage() {
   }, [cmpriSession]);
 
   useEffect(() => {
-    if (!previousTitleRef.current) previousTitleRef.current = document.title;
-    const baseTitle = previousTitleRef.current;
+    const baseTitle = "CMPRI-Engineering";
+    previousTitleRef.current = baseTitle;
     document.title = inbox.length > 0 ? `(${inbox.length}) ${baseTitle}` : baseTitle;
     return () => { document.title = baseTitle; };
   }, [inbox.length]);
