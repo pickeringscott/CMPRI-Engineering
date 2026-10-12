@@ -4,7 +4,7 @@ import { authenticatedUser } from "@/lib/server/request-auth";
 import { receivesPoolClosedNotifications, roleAllows, roleKey } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
-import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolClosureReasons, validLogDate } from "@/lib/pool-log";
+import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolCurrentClosureReasons, validLogDate } from "@/lib/pool-log";
 import { fetchAllPages } from "@/lib/server/paginated-query";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 
@@ -67,10 +67,30 @@ export async function GET(request: NextRequest) {
     .eq("log_date", date)
     .maybeSingle();
   if (logError) return NextResponse.json({ error: "The daily log could not be loaded. No changes were made." }, { status: 503 });
+  const retests: Record<string, unknown>[] = [];
+  if (log?.retest_submission) {
+    const { data: snapshots, error: historyError } = await fetchAllPages((from, to) => admin.from("cmpri_pool_log_history")
+      .select("actor_id, recorded_at, snapshot")
+      .eq("hotel_id", HOTEL_ID).eq("pool_log_id", log.id)
+      .order("recorded_at", { ascending: true }).order("id", { ascending: true }).range(from, to));
+    if (historyError) return NextResponse.json({ error: "The recorded retest history could not be loaded." }, { status: 503 });
+    const seen = new Set<string>();
+    // Revisions provide ordering even when several audit snapshots share a timestamp.
+    const ordered = [...(snapshots || [])].sort((a, b) =>
+      Number((a.snapshot as Record<string, unknown>)?.revision ?? 0) - Number((b.snapshot as Record<string, unknown>)?.revision ?? 0));
+    for (const entry of ordered) {
+      const snapshot = entry.snapshot as Record<string, unknown> | null;
+      const retest = snapshot?.retest_submission as Record<string, unknown> | null;
+      if (!retest || typeof retest.id !== "string" || seen.has(retest.id)) continue;
+      seen.add(retest.id);
+      retests.push({ ...retest, recorded_at: entry.recorded_at, actor_id: entry.actor_id, revision: snapshot?.revision });
+    }
+  }
   return NextResponse.json({
     facility,
     facilities,
     log,
+    retests,
     date,
     status: poolLogStatus(log),
     can_edit: roleAllows(auth.profile.role, "operate_pool_log"),
@@ -116,7 +136,7 @@ export async function POST(request: NextRequest) {
   // A System Administrator correcting the saved log on the web page replaces it as shown.
   // Every other save (later AM/PM samples, voice logging) is merged into the saved log.
   const replace = !!existing && isSystemAdmin && body.edit_mode === "replace";
-  if (replace && body.expected_revision !== existing.revision) {
+  if ((replace || (body.retest != null && body.expected_revision != null)) && body.expected_revision !== existing?.revision) {
     return NextResponse.json({ error: "This log changed after you opened it. Your entries are still on screen; reload the saved readings before making corrections." }, { status: 409 });
   }
 
@@ -151,8 +171,8 @@ export async function POST(request: NextRequest) {
     const failure = saveFailure(saveError);
     return NextResponse.json({ error: failure.error }, { status: failure.status });
   }
-  const closureReasons = poolClosureReasons(log);
-  const wasClosed = !!existing && (existing.closure_condition === true || poolClosureReasons(existing).length > 0);
+  const closureReasons = poolCurrentClosureReasons(log);
+  const wasClosed = !!existing && (existing.closure_condition === true || poolCurrentClosureReasons(existing).length > 0);
   const isClosed = closureReasons.length > 0 || log.closure_condition === true;
   let notificationsRecorded = true;
   if (!wasClosed && isClosed) {

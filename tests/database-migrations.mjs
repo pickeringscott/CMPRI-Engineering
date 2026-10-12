@@ -673,6 +673,64 @@ try {
     await db.query("update public.profiles set role='system_admin' where id=$1",[actor]);
     assert.equal(Number((await db.query("update public.pool_daily_logs set ph_am=7.6 where id=$1 returning ph_am",[id])).rows[0].ph_am),7.6);
   });
+  const retestStatusMigration = readFileSync(new URL('../supabase/migrations/20261012205822_cmpri_pool_retest_status.sql', import.meta.url), 'utf8');
+  await check('retest migration is idempotent and does not backfill logs or history', async () => {
+    const before=await db.query('select to_jsonb(t) as row from public.pool_daily_logs t order by id');
+    const history=await db.query('select * from public.cmpri_pool_log_history order by id');
+    await db.exec(retestStatusMigration);await db.exec(retestStatusMigration);
+    const after=await db.query("select to_jsonb(t)-'latest_test'-'manual_closure'-'retest_submission' as row from public.pool_daily_logs t order by id");
+    assert.deepEqual(after.rows,before.rows);
+    assert.deepEqual((await db.query('select * from public.cmpri_pool_log_history order by id')).rows,history.rows);
+  });
+  await check('authorized operators automatically clear reading closures on new PM tests and preserve audit evidence', async () => {
+    for (const [index,role] of ['engineer','front_desk_manager','technician','system_admin'].entries()) {
+      await db.query('update public.profiles set role=$2 where id=$1',[actor,role]);
+      const {rows:[saved]}=await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed,closure_reason) values ($1,$1,$3,$2,$2,7.6,'0',84,55,true,false,'AM bromine zero') returning *",[hotel,actor,`2026-10-${String(index+1).padStart(2,'0')}`]);
+      assert.equal(saved.manual_closure,false);assert.equal(saved.closure_condition,true);
+      const {rows:[pm]}=await db.query("update public.pool_daily_logs set ph_pm=7.4,sanitizer_band_pm='3-6' where id=$1 returning *",[saved.id]);
+      assert.equal(pm.closure_condition,false,role);assert.equal(pm.sanitizer_band_am,'0');assert.equal(pm.closure_reason,'AM bromine zero');
+      assert.equal(pm.latest_test.period,'pm');assert.equal(Number(pm.revision),2);
+      const history=await db.query('select snapshot from public.cmpri_pool_log_history where pool_log_id=$1 order by recorded_at,id',[saved.id]);
+      assert.equal(history.rows.length,2);assert.ok(history.rows.some(({snapshot})=>snapshot.closure_condition===true&&snapshot.sanitizer_band_am==='0'));
+    }
+  });
+  await check('retests retain each result, close on failure, deduplicate ids, and reject replay/partial/forged evidence', async () => {
+    await db.query("update public.profiles set role='engineer' where id=$1",[actor]);
+    const {rows:[saved]}=await db.query("select * from public.pool_daily_logs where log_date='2026-10-01'");
+    const failed={id:'00000000-0000-0000-0000-000000000101',ph:8,sanitizer_band:'3-6'};
+    const passing={id:'00000000-0000-0000-0000-000000000102',ph:7.4,sanitizer_band:'3-6'};
+    const submit=async value=>(await db.query('update public.pool_daily_logs set retest_submission=$2::jsonb where id=$1 returning *',[saved.id,JSON.stringify(value)])).rows[0];
+    assert.equal((await submit(failed)).closure_condition,true);
+    const {rows:[edited]}=await db.query("update public.pool_daily_logs set remarks='Retest planned',closure_condition=false,latest_test='{\"period\":\"retest\",\"ph\":7.4,\"sanitizer_band\":\"3-6\"}'::jsonb where id=$1 returning *",[saved.id]);
+    assert.equal(edited.closure_condition,true);assert.equal(Number(edited.latest_test.ph),8);
+    const passed=await submit(passing);assert.equal(passed.closure_condition,false);assert.equal(passed.sanitizer_band_am,'0');assert.equal(passed.closure_reason,'AM bromine zero');
+    assert.equal((await submit(passing)).closure_condition,false);
+    await assert.rejects(()=>submit({...passing,ph:7.6}),/different readings/);
+    await assert.rejects(()=>submit(failed),/already recorded/);
+    for (const value of [{id:'bad',ph:7.4,sanitizer_band:'3-6'},{id:'00000000-0000-0000-0000-000000000103',ph:7.4},{id:'00000000-0000-0000-0000-000000000103',ph:15,sanitizer_band:'3-6'}]) await assert.rejects(()=>submit(value),/retest needs/);
+    const history=await db.query('select snapshot from public.cmpri_pool_log_history where pool_log_id=$1',[saved.id]);
+    assert.ok(history.rows.some(({snapshot})=>snapshot.retest_submission?.id===failed.id&&snapshot.latest_test.ph===8));
+    assert.ok(history.rows.some(({snapshot})=>snapshot.retest_submission?.id===passing.id&&snapshot.latest_test.ph===7.4));
+  });
+  await check('daily failures, manual holds and unclassified legacy closures survive passing retests', async () => {
+    await db.query("update public.profiles set role='system_admin' where id=$1",[actor]);
+    const {rows:[legacy]}=await db.query("select * from public.pool_daily_logs where log_date='2026-09-17'");
+    const submit=(id,seed)=>db.query('update public.pool_daily_logs set retest_submission=$2::jsonb where id=$1 returning closure_condition,manual_closure',[id,JSON.stringify({id:`00000000-0000-0000-0000-${String(seed).padStart(12,'0')}`,ph:7.4,sanitizer_band:'3-6'})]);
+    const legacyRetest=await submit(legacy.id,200);assert.equal(legacyRetest.rows[0].manual_closure,null);assert.equal(legacyRetest.rows[0].closure_condition,true);
+    const {rows:[known]}=await db.query("select * from public.pool_daily_logs where log_date='2026-10-02'");
+    await db.query('update public.pool_daily_logs set manual_closure=true,closure_condition=true where id=$1',[known.id]);
+    await db.query("update public.profiles set role='engineer' where id=$1",[actor]);
+    assert.equal((await submit(known.id,201)).rows[0].closure_condition,true);
+    await assert.rejects(()=>db.query('update public.pool_daily_logs set manual_closure=false where id=$1',[known.id]),/Only System Administrators/);
+    await db.query("update public.profiles set role='system_admin' where id=$1",[actor]);
+    await db.query('update public.pool_daily_logs set manual_closure=false,main_drain_visible=false where id=$1',[known.id]);
+    assert.equal((await submit(known.id,202)).rows[0].closure_condition,true);
+    await db.query('update public.pool_daily_logs set main_drain_visible=true,temperature_f=105 where id=$1',[known.id]);
+    assert.equal((await submit(known.id,203)).rows[0].closure_condition,true);
+    await db.query('update public.pool_daily_logs set temperature_f=84,flow_rate_gpm=40 where id=$1',[known.id]);
+    assert.equal((await db.query('select closure_condition from public.pool_daily_logs where id=$1',[known.id])).rows[0].closure_condition,true);
+    assert.equal((await submit(known.id,204)).rows[0].closure_condition,false);
+  });
   await check('pool database trigger rejects front desk, deactivated and unassigned operators', async () => {
     const insert=()=>db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,updated_by) values ($1,$1,'2026-09-16',$2)",[hotel,actor]);
     await db.query("update public.profiles set role='front_desk_manager',active=true where id=$1",[actor]);

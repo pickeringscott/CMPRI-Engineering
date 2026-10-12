@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { poolLogInput, poolLogTodayDate, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, sampleLocations, sampleLocationLabel } from '../src/lib/pool-log.ts';
+import { poolLogInput, poolLogTodayDate, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, poolCurrentClosureReasons, sampleLocations, sampleLocationLabel } from '../src/lib/pool-log.ts';
 import { fetchAllPages } from '../src/lib/server/paginated-query.ts';
 const facilityId='00000000-0000-0000-0000-000000000001';
 const input={pool_facility_id:facilityId,log_date:'2026-09-15',ph_am:7.4,sanitizer_am:4,sample_location_am:'shallow',temperature_f:84,flow_rate_gpm:60,main_drain_visible:true,filter_backwashed:false,requires_attention:false,closure_condition:false,closure_reason:'',remarks:''};
@@ -173,6 +173,7 @@ function fixture(config={}) {
      return Promise.resolve({data:memberships.filter(({user_id})=>eligible.includes(user_id)),error:config.membershipError?new Error('Unavailable'):null}).then(resolve,reject);
     }
     if(table==='cmpri_dashboard_notifications')return Promise.resolve({error:config.notificationError?new Error('Unavailable'):null}).then(resolve,reject);
+    if(table==='cmpri_pool_log_history')return Promise.resolve({data:config.retestsHistory||[],error:null}).then(resolve,reject);
     if(table!=='pool_daily_logs')return Promise.resolve({data:[],error:null}).then(resolve,reject);
     calls.push({table,filters});
     if(config.historyError&&q.from>=1000)return Promise.resolve({data:null,error:new Error('Unavailable')}).then(resolve,reject);
@@ -364,7 +365,7 @@ test('pool-log UI flags closures, requires daily checks, and has no sample-locat
  assert.match(page,/The pool must be closed/);
  assert.match(page,/Still needed before saving/);
  assert.match(page,/Daily checks/);
- assert.match(page,/Reason pool is closed \(required\)/);
+ assert.match(page,/Closure reason \/ actions \(required\)/);
  assert.match(page,/type="date" max=\{poolLogTodayDate\(\)\}/);
  assert.doesNotMatch(page,/Combined chlorine|Cyanuric acid/i);
 });
@@ -406,7 +407,7 @@ test('database failures are reported instead of a generic conflict',async()=>{
  assert.equal((await unknown.handlers.POST(unknown.request)).status,500);
 });
 
-test('MCP PM shared sample follows the save route without rewriting AM or clearing its closure',async()=>{
+test('MCP PM shared sample clears current automatic closure without rewriting AM',async()=>{
  const existing={...poolLogInput({...input,ph_am:7.6,sanitizer_am:null,sanitizer_band_am:'0',flow_rate_gpm:55,closure_reason:'AM bromine zero; pool closed.'}),id:'saved',revision:4};
  const payload=prepareMcpPoolLogInput({date:input.log_date,pool:'Indoor Pool',ph_pm:7.4,sanitizer_band_pm:'3-6'},[{id:facilityId,pool_name:'Indoor Pool'}]);
  const f=fixture({existing,role:'engineer'});
@@ -418,7 +419,7 @@ test('MCP PM shared sample follows the save route without rewriting AM or cleari
  assert.equal(row.sample_location_am,'shallow');assert.equal(row.sample_location_pm,'shared');
  assert.equal(row.ph_pm,7.4);assert.equal(row.sanitizer_band_pm,'3-6');assert.equal(row.sanitizer_pm,null);
  assert.equal(row.flow_rate_gpm,55);assert.equal(row.temperature_f,84);assert.equal(row.filter_backwashed,false);
- assert.equal(row.closure_condition,true);assert.match(result.body.closure_reasons.join(),/AM bromine/);
+ assert.equal(row.closure_condition,false);assert.equal(result.body.closure_reasons.length,0);assert.match(result.body.status.historical_closure_reasons.join(),/AM bromine/);
  assert.equal(f.notifications.length,0);
 });
 
@@ -442,4 +443,84 @@ test('pool UI completeness requires a paired sample and daily checks, without co
  assert.equal(missing(form,false).length,0);
  assert.match(JSON.stringify(missing({...form,sanitizer_band_am:''},false)),/AM bromine/);
  assert.match(JSON.stringify(missing({...form,flow_rate_gpm:''},false)),/daily check/);
+});
+
+const retestId='00000000-0000-0000-0000-000000000010';
+const passingRetest={id:retestId,ph:7.4,sanitizer_band:'3-6'};
+const closedAutomatic=()=>poolLogInput({...input,sanitizer_am:null,sanitizer_band_am:'0',closure_reason:'AM bromine zero; pool closed.'});
+const updatePool=(saved,body,admin=false)=>poolLogInput(mergePoolLogBody(saved,{log_date:input.log_date,pool_facility_id:facilityId,...body},admin),saved);
+test('any existing pool operator can submit a retest that clears a reading closure',async()=>{
+ for(const role of ['engineer','Chief Engineer','Maintenance Technician','Front Desk Manager','General Manager','Assistant General Manager','system_admin']) {
+  const saved={...closedAutomatic(),id:'saved',revision:2};const f=fixture({existing:saved,role});
+  f.request.json=async()=>({log_date:input.log_date,pool_facility_id:facilityId,retest:passingRetest,expected_revision:2});
+  const result=await f.handlers.POST(f.request);assert.equal(result.status,200,role);
+  assert.equal(result.body.closure_required,false,role);assert.equal(f.writes[0].sanitizer_band_am,'0');
+  assert.equal(f.writes[0].closure_reason,saved.closure_reason);assert.equal(f.writes[0].latest_test.period,'retest');
+ }
+});
+test('remarks, duplicate submissions and administrator corrections cannot reopen',()=>{
+ const saved=closedAutomatic();
+ assert.equal(updatePool(saved,{remarks:'Retest planned'}).closure_condition,true);
+ assert.equal(updatePool(saved,{ph_am:7.4,sanitizer_band_am:'3-6'},true).closure_condition,true);
+ const open=updatePool(saved,{retest:passingRetest});
+ const manual={...open,manual_closure:true,closure_condition:true};
+ assert.equal(updatePool(manual,{retest:passingRetest}).closure_condition,true);
+ assert.throws(()=>updatePool(open,{retest:{...passingRetest,ph:7.6}}),/different readings/);
+});
+test('later failed retest closes again without replacing original readings or reasons',()=>{
+ const saved=updatePool(closedAutomatic(),{retest:passingRetest});
+ const failed=updatePool(saved,{retest:{id:'00000000-0000-0000-0000-000000000011',ph:8,sanitizer_band:'3-6'},closure_reason:'Later retest pH high.'});
+ assert.equal(failed.closure_condition,true);assert.equal(failed.ph_am,7.4);assert.equal(failed.sanitizer_band_am,'0');
+ assert.match(failed.closure_reason,/AM bromine zero; pool closed.\nLater retest pH high/);
+ assert.match(poolCurrentClosureReasons(failed).join(),/RETEST pH 8/);
+});
+test('manual and unclassified legacy holds remain closed after passing retests',()=>{
+ for(const manual_closure of [true,null,undefined]) {
+  const saved={...closedAutomatic(),manual_closure};const row=updatePool(saved,{retest:passingRetest});
+  assert.equal(row.closure_condition,true);assert.equal(row.manual_closure,manual_closure===true?true:null);
+ }
+ assert.throws(()=>updatePool({...closedAutomatic(),manual_closure:true},{manual_closure:false,retest:passingRetest}),PoolLogConflictError);
+});
+test('partial, invalid and stale retests never write',async()=>{
+ for(const retest of [{id:retestId,ph:7.4},{id:retestId,sanitizer_band:'3-6'},{...passingRetest,ph:99},{...passingRetest,sanitizer_band:'invalid'},{...passingRetest,id:'bad'}]) assert.throws(()=>updatePool(closedAutomatic(),{retest}));
+ const f=fixture({existing:{...closedAutomatic(),id:'saved',revision:3}});
+ f.request.json=async()=>({log_date:input.log_date,pool_facility_id:facilityId,retest:passingRetest,expected_revision:2});
+ assert.equal((await f.handlers.POST(f.request)).status,409);assert.equal(f.writes.length,0);
+});
+test('daily failed checks keep closure; low flow keeps its existing warning-only behavior',()=>{
+ for(const checks of [{main_drain_visible:false},{temperature_f:105}]) assert.equal(updatePool({...closedAutomatic(),...checks},{retest:passingRetest}).closure_condition,true);
+ const row=updatePool({...closedAutomatic(),flow_rate_gpm:40},{retest:passingRetest});
+ assert.equal(row.closure_condition,false);assert.equal(poolReadingWarnings(row).length,1);
+});
+test('a historical AM backfill cannot displace PM or a later retest',()=>{
+ const saved=poolLogInput({...input,ph_am:null,sanitizer_am:null,ph_pm:8,sanitizer_band_pm:'3-6',closure_reason:'PM pH high'});
+ const row=updatePool(saved,{ph_am:7.4,sanitizer_band_am:'3-6'});
+ assert.equal(row.latest_test.period,'pm');assert.equal(row.closure_condition,true);
+});
+test('correction of the current sample can close but cannot reopen, and client snapshots cannot forge passing evidence',()=>{
+ const saved=poolLogInput(input);
+ const closed=updatePool(saved,{ph_am:8,closure_reason:'Corrected reading high'},true);
+ assert.equal(closed.closure_condition,true);
+ const corrected=updatePool(closed,{ph_am:7.4},true);assert.equal(corrected.closure_condition,true);
+ const forged=updatePool(closed,{latest_test:{period:'pm',ph:7.4,sanitizer_band:'3-6'},closure_condition:false},true);
+ assert.equal(forged.closure_condition,true);
+});
+test('GET returns distinct recorded retests without writes or turning audit edits into tests',async()=>{
+ const open=updatePool(closedAutomatic(),{retest:passingRetest});
+ const snapshot={...open,revision:2};
+ const f=fixture({existing:{...open,id:'saved',revision:3},retestsHistory:[
+  {snapshot:{...snapshot,revision:3,remarks:'Unrelated edit'},actor_id:'later-actor',recorded_at:'2026-10-12T20:01:00Z'},
+  {snapshot,actor_id:'actor',recorded_at:'2026-10-12T20:00:00Z'},
+ ]});
+ const result=await f.handlers.GET(f.request);assert.equal(result.status,200);
+ assert.equal(result.body.retests.length,1);assert.equal(result.body.retests[0].recorded_at,'2026-10-12T20:00:00Z');
+ assert.equal(result.body.status.closure_required,false);assert.equal(f.writes.length,0);
+});
+test('existing pool operators can add an independent hold but cannot silently clear it',()=>{
+ const saved=poolLogInput(input);
+ const held=updatePool(saved,{manual_closure:true,closure_reason:'Equipment repair pending'});
+ assert.equal(held.manual_closure,true);assert.equal(held.closure_condition,true);
+ assert.throws(()=>updatePool(held,{manual_closure:false}),PoolLogConflictError);
+ const legacyCaller=updatePool(saved,{closure_condition:true,closure_reason:'Equipment repair pending'});
+ assert.equal(legacyCaller.manual_closure,true);assert.equal(legacyCaller.closure_condition,true);
 });

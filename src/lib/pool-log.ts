@@ -323,6 +323,13 @@ export function mergePoolLogBody(
 
   for (const [key, label] of Object.entries(mergeLabels)) take(key, label, body[key]);
 
+  if (existing.manual_closure === true && body.manual_closure === false && !isSystemAdmin) {
+    blocked.push("Manual closure (saved as Yes)");
+  }
+  merged.manual_closure = body.manual_closure !== undefined && body.manual_closure !== null ? body.manual_closure
+    : body.closure_condition === true && existing.closure_condition !== true && poolClosureReasons(body).length === 0
+      ? true : existing.manual_closure ?? null;
+
   for (const key of ["requires_attention", "closure_condition"] as const) {
     const saved = existing[key] === true;
     merged[key] = isSystemAdmin && typeof body[key] === "boolean" ? body[key] : saved || body[key] === true;
@@ -407,8 +414,8 @@ export function poolLogInput(body: Record<string, unknown>, existing: Record<str
     }
     row[key] = body[key] === true;
   }
-  const closureReasons = poolClosureReasons(row);
-  if (closureReasons.length) row.closure_condition = true;
+  applyPoolTestStatus(row, body, existing);
+  const closureReasons = poolCurrentClosureReasons(row);
   const remarks = body.remarks ?? "";
   if (typeof remarks !== "string" || remarks.length > 20_000) throw new Error("Remarks must be text, up to 20,000 characters.");
   row.remarks = remarks.trim();
@@ -416,7 +423,10 @@ export function poolLogInput(body: Record<string, unknown>, existing: Record<str
   if (typeof closureReason !== "string" || closureReason.length > 2_000) {
     throw new Error("Enter a pool-closure reason, up to 2,000 characters.");
   }
-  row.closure_reason = closureReason.trim() || null;
+  const previousReason = typeof existing?.closure_reason === "string" ? existing.closure_reason.trim() : "";
+  const nextReason = closureReason.trim();
+  row.closure_reason = (!nextReason ? previousReason : !previousReason || nextReason.startsWith(previousReason)
+    ? nextReason : `${previousReason}\n${nextReason}`) || null;
   if (row.closure_condition === true && !row.closure_reason) {
     throw new Error(closureReasons.length
       ? `The pool must be closed: ${closureReasons.join("; ")}. Enter the reason the pool is closed and the actions taken before saving.`
@@ -437,13 +447,16 @@ export function poolLogChanged(existing: Record<string, unknown>, row: Record<st
 /** Summary for the web page and voice assistant of what the daily log still needs. */
 export function poolLogStatus(log: Record<string, unknown> | null) {
   const values = log ?? {};
-  const closureReasons = poolClosureReasons(values);
+  const closureReasons = poolCurrentClosureReasons(values);
   return {
     am_sample_recorded: sampleComplete(values, "am"),
     pm_sample_recorded: sampleComplete(values, "pm"),
     daily_checks_missing: dailyPoolChecks.filter(([key]) => values[key] == null).map(([, label]) => label),
     closure_required: closureReasons.length > 0 || values.closure_condition === true,
     closure_reasons: closureReasons,
+    historical_closure_reasons: poolClosureReasons(values),
+    manual_closure: values.manual_closure ?? (values.closure_condition === true ? null : false),
+    latest_test: values.latest_test ?? null,
     warnings: poolReadingWarnings(values),
   };
 }
@@ -451,4 +464,71 @@ export function poolLogStatus(log: Record<string, unknown> | null) {
 export function sampleComplete(log: Record<string, unknown>, period: "am" | "pm") {
   return log[`ph_${period}`] != null
     && (log[`sanitizer_${period}`] != null || log[`sanitizer_band_${period}`] != null);
+}
+
+/** Current assessment uses the recorded test snapshot, never the time of an unrelated edit. */
+export function poolCurrentClosureReasons(log: Record<string, unknown>): string[] {
+  const sample = log.latest_test;
+  if (!sample || typeof sample !== "object" || Array.isArray(sample)) return poolClosureReasons(log);
+  const test = sample as Record<string, unknown>;
+  if (test.ph == null || (test.sanitizer == null && test.sanitizer_band == null)) return ["Latest test is incomplete."];
+  return poolClosureReasons({
+    ph_am: test.ph, sanitizer_am: test.sanitizer, sanitizer_band_am: test.sanitizer_band,
+    main_drain_visible: log.main_drain_visible, temperature_f: log.temperature_f,
+  }).map((reason) => reason.replace(/^AM /, `${String(test.period).toUpperCase()} `));
+}
+
+/** Derive status from a newly submitted complete test. Corrections are not new tests. */
+export function applyPoolTestStatus(row: Record<string, unknown>, body: Record<string, unknown>, existing: Record<string, unknown> | null) {
+  let latest = existing?.latest_test ?? null;
+  let submitted = false;
+  const source = latest as Record<string, unknown> | null;
+  if (source && (source.period === "am" || source.period === "pm")) {
+    const period = source.period;
+    if (!sameReading(source.ph, row[`ph_${period}`]) || !sameReading(source.sanitizer, row[`sanitizer_${period}`])
+      || !sameReading(source.sanitizer_band, row[`sanitizer_band_${period}`])) {
+      latest = { ...source, ph: row[`ph_${period}`], sanitizer: row[`sanitizer_${period}`], sanitizer_band: row[`sanitizer_band_${period}`] };
+    }
+  }
+  // PM follows AM within the daily table; an AM backfill cannot supersede PM or a retest.
+  for (const period of ["am", "pm"] as const) {
+    if (row[`ph_${period}`] != null && !["", "shallow_", "middle_", "deep_"].some((location) => existing?.[`ph_${location}${period}`] != null)
+      && !(period === "am" && existing?.ph_pm != null)
+      && (existing?.latest_test as Record<string, unknown> | null)?.period !== "retest") {
+      latest = { period, ph: row[`ph_${period}`], sanitizer: row[`sanitizer_${period}`],
+        sanitizer_band: row[`sanitizer_band_${period}`], sample_location: row[`sample_location_${period}`] };
+      submitted = true;
+    }
+  }
+  row.retest_submission = existing?.retest_submission ?? null;
+  if (body.retest != null) {
+    if (typeof body.retest !== "object" || Array.isArray(body.retest)) throw new Error("Submit a complete retest object.");
+    const retest = body.retest as Record<string, unknown>;
+    if (typeof retest.id !== "string" || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(retest.id)) {
+      throw new Error("A retest needs a unique submission id (UUID); reuse it only when retrying that same test.");
+    }
+    const ph = numericReading(retest.ph, "ph_retest");
+    const band = bromineBand(retest.sanitizer_band, "retest bromine");
+    if (ph == null || band == null) throw new Error("A retest needs both pH and a bromine range from the same shared sample.");
+    const normalized = { id: retest.id, ph, sanitizer_band: band };
+    const previous = existing?.retest_submission as Record<string, unknown> | null;
+    if (previous?.id === normalized.id) {
+      if (previous.ph !== ph || previous.sanitizer_band !== band) throw new Error("This retest submission id already has different readings.");
+    } else {
+      row.retest_submission = normalized;
+      latest = { period: "retest", ph, sanitizer: null, sanitizer_band: band, sample_location: "shared" };
+      submitted = true;
+    }
+  }
+  row.latest_test = latest;
+  if (body.manual_closure != null && typeof body.manual_closure !== "boolean") throw new Error("Manual closure must be true or false.");
+  // Legacy closed rows have no structured source: never guess from free text.
+  row.manual_closure = existing?.closure_condition === true && existing.manual_closure == null
+    ? body.manual_closure === true ? true : null
+    : typeof body.manual_closure === "boolean" ? body.manual_closure
+      : body.closure_condition === true && existing?.closure_condition !== true && poolCurrentClosureReasons(row).length === 0
+        ? true : existing?.manual_closure ?? false;
+  const reasons = poolCurrentClosureReasons(row);
+  row.closure_condition = reasons.length > 0 || row.manual_closure !== false
+    || (!submitted && existing?.closure_condition === true);
 }

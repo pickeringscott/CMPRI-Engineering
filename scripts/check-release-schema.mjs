@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Read-only release gate. Never prints configuration values or database rows.
 const required = {
-  pool_daily_logs: ['id', 'revision', 'updated_by', 'ph_am', 'ph_pm', 'sanitizer_am', 'sanitizer_pm', 'sanitizer_band_am', 'sanitizer_band_pm', 'sample_location_am', 'sample_location_pm', 'flow_rate_gpm', 'temperature_f', 'main_drain_visible', 'filter_backwashed', 'closure_condition', 'closure_reason', 'remarks'],
+  pool_daily_logs: ['latest_test', 'retest_submission', 'manual_closure', 'id', 'revision', 'updated_by', 'ph_am', 'ph_pm', 'sanitizer_am', 'sanitizer_pm', 'sanitizer_band_am', 'sanitizer_band_pm', 'sample_location_am', 'sample_location_pm', 'flow_rate_gpm', 'temperature_f', 'main_drain_visible', 'filter_backwashed', 'closure_condition', 'closure_reason', 'remarks'],
   cmpri_pool_log_history: ['id', 'pool_log_id', 'snapshot'],
   work_orders: [
     'id', 'hotel_id', 'status', 'submitted_by_name', 'submitted_by_user_id',

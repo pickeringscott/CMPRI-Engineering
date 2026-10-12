@@ -9,6 +9,8 @@ import {
   MAX_POOL_TEMPERATURE_F,
   phReadings,
   poolClosureReasons,
+  poolCurrentClosureReasons,
+  applyPoolTestStatus,
   poolLocationReadings,
   poolLocationValue,
   poolReadingWarnings,
@@ -55,6 +57,10 @@ function emptyForm() {
     ["closure_reason", ""],
     ["requires_attention", false],
     ["closure_condition", false],
+    ["manual_closure", false],
+    ["retest_id", ""],
+    ["retest_ph", ""],
+    ["retest_band", ""],
   ]);
 }
 
@@ -79,6 +85,7 @@ function formFromLog(log: Log | null): Record<string, unknown> {
       : key.startsWith("ph_") ? genericReading(log, key) : log[key];
     result[key] = typeof result[key] === "boolean" ? value === true : value == null ? "" : String(value);
   }
+  result.manual_closure = log.manual_closure ?? (log.closure_condition === true ? null : false);
   return result;
 }
 
@@ -111,6 +118,10 @@ function missingFields(form: Record<string, unknown>, closureRequired: boolean) 
     if (absent.length) missing.push(...absent.map(([key, text]) => [`pool-${key}`, text] as [string, string]));
     else completeSample = true;
   }
+  if (filled(form.retest_id)) {
+    if (!filled(form.retest_ph)) missing.push(["pool-retest_ph", "Retest pH"]);
+    if (!filled(form.retest_band)) missing.push(["pool-retest_band", "Retest bromine"]);
+  }
   if (!completeSample && !missing.length) {
     missing.push(["pool-ph_am", "AM or PM water sample (pH and bromine)"]);
   }
@@ -132,6 +143,21 @@ function bromineOutOfRange(value: unknown) {
   return poolClosureReasons({ sanitizer_band_am: band }).length > 0;
 }
 
+function formPayload(form: Record<string, unknown>, date: string, facilityId: string) {
+  const payload: Record<string, unknown> = { ...form, log_date: date, pool_facility_id: facilityId };
+  for (const key of numericFields) payload[key] = form[key] === "" ? null : Number(form[key]);
+  for (const period of periods) {
+    const band = String(form[`sanitizer_band_${period}`] ?? "");
+    payload[`sanitizer_${period}`] = band.startsWith("legacy:") ? Number(band.slice("legacy:".length)) : null;
+    payload[`sanitizer_band_${period}`] = band && !band.startsWith("legacy:") ? band : null;
+    payload[`sample_location_${period}`] = form[`sample_location_${period}`] || null;
+  }
+  for (const key of ["main_drain_visible", "filter_backwashed"]) payload[key] = form[key] === "" ? null : form[key] === "true";
+  if (form.retest_id) payload.retest = { id: form.retest_id, ph: form.retest_ph === "" ? null : Number(form.retest_ph), sanitizer_band: form.retest_band };
+  for (const key of ["retest_id", "retest_ph", "retest_band"]) delete payload[key];
+  return payload;
+}
+
 export default function PoolLogPage() {
   const embedded = useEmbeddedModal();
   const [date, setDate] = useState(() => poolLogTodayDate());
@@ -139,6 +165,7 @@ export default function PoolLogPage() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [facility, setFacility] = useState<Facility | null>(null);
   const [saved, setSaved] = useState<Log | null>(null);
+  const [retests, setRetests] = useState<Record<string, unknown>[]>([]);
   const [form, setForm] = useState<Record<string, unknown>>(emptyForm);
   const [baseline, setBaseline] = useState("");
   const [canEdit, setCanEdit] = useState(false);
@@ -168,15 +195,15 @@ export default function PoolLogPage() {
         cache: "no-store",
         signal: controller.signal,
       });
-      const result = await response.json() as { error?: string; facilities?: Facility[]; facility?: Facility; log?: Log | null; can_edit?: boolean; can_edit_saved?: boolean };
+      const result = await response.json() as { error?: string; facilities?: Facility[]; facility?: Facility; log?: Log | null; retests?: Record<string, unknown>[]; can_edit?: boolean; can_edit_saved?: boolean };
       if (!response.ok) throw new Error(result.error || "Unable to load pool log.");
       if (controller.signal.aborted) return;
       const values = formFromLog(result.log || null);
-      if (poolClosureReasons(values).length) values.closure_condition = true;
       const savedValues = JSON.stringify(values);
       setFacilities(result.facilities || []);
       setFacility(result.facility || null);
       setSaved(result.log || null);
+      setRetests(result.retests || []);
       setForm(values);
       setBaseline(savedValues);
       setCanEdit(result.can_edit === true);
@@ -201,8 +228,6 @@ export default function PoolLogPage() {
   function change(key: string, value: unknown) {
     setForm((current) => {
       const updated = { ...current, [key]: value };
-      if (key === "closure_condition" && value !== true) updated.closure_reason = "";
-      if (poolClosureReasons(updated).length) updated.closure_condition = true;
       return updated;
     });
   }
@@ -217,7 +242,7 @@ export default function PoolLogPage() {
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!facility || saving || loading || !canEdit) return;
-    const stillNeeded = missingFields(form, poolClosureReasons(form).length > 0 || form.closure_condition === true);
+    const stillNeeded = missingFields(form, closureRequired);
     if (stillNeeded.length) {
       setMessage(`Not saved yet. Still needed: ${stillNeeded.map(([, label]) => label).join("; ")}.`);
       document.getElementById(stillNeeded[0][0])?.focus();
@@ -228,22 +253,9 @@ export default function PoolLogPage() {
     try {
       const session = await getValidSession();
       if (!session) throw new Error("Sign in again before saving. Your readings have not been discarded.");
-      const payload: Record<string, unknown> = {
-        ...form,
-        log_date: date,
-        pool_facility_id: facility.id,
-        expected_revision: saved?.revision ?? null,
-        ...(saved && editingSavedLog ? { edit_mode: "replace" } : {}),
-      };
-      for (const key of numericFields) payload[key] = form[key] === "" ? null : Number(form[key]);
-      for (const period of periods) {
-        const band = String(form[`sanitizer_band_${period}`] ?? "");
-        const legacyValue = band.startsWith("legacy:") ? Number(band.slice("legacy:".length)) : null;
-        payload[`sanitizer_${period}`] = Number.isFinite(legacyValue) ? legacyValue : null;
-        payload[`sanitizer_band_${period}`] = band && !band.startsWith("legacy:") ? band : null;
-        payload[`sample_location_${period}`] = form[`sample_location_${period}`] || null;
-      }
-      for (const key of ["main_drain_visible", "filter_backwashed"]) payload[key] = form[key] === "" ? null : form[key] === "true";
+      const payload = formPayload(form, date, facility.id);
+      payload.expected_revision = saved?.revision ?? null;
+      if (saved && editingSavedLog) payload.edit_mode = "replace";
       const response = await fetch("/api/pool-log", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
@@ -252,7 +264,6 @@ export default function PoolLogPage() {
       const result = await response.json() as { error?: string; log?: Log; unchanged?: boolean; closure_reasons?: string[]; closure_required?: boolean; warnings?: string[]; notifications_recorded?: boolean };
       if (!response.ok || !result.log) throw new Error(result.error || "Unable to save readings.");
       const values = formFromLog(result.log);
-      if (poolClosureReasons(values).length) values.closure_condition = true;
       setSaved(result.log);
       setForm(values);
       setBaseline(JSON.stringify(values));
@@ -262,8 +273,10 @@ export default function PoolLogPage() {
       const notes = [result.unchanged ? "No new readings to save; the pool log is unchanged." : "Pool log saved to the database."];
       if (result.closure_required) notes.push(`THE POOL MUST BE CLOSED${result.closure_reasons?.length ? `: ${result.closure_reasons.join("; ")}` : ""}.`);
       if (result.closure_required && result.notifications_recorded === false) notes.push("Pool-closure notifications could not be recorded; contact the Chief Engineer.");
+      if (result.closure_required === false) notes.push("Current status for this log: open.");
       if (result.warnings?.length) notes.push(`Out of range: ${result.warnings.join("; ")}.`);
       setMessage(notes.join(" "));
+      if (payload.retest) setReload((value) => value + 1);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save readings.");
     } finally {
@@ -301,10 +314,13 @@ export default function PoolLogPage() {
   }
 
   const fieldClass = "mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 p-2 text-white disabled:opacity-70";
-  const closureReasons = poolClosureReasons(form);
-  const readingWarnings = poolReadingWarnings(form);
+  const preview = formPayload(form, date, facility?.id ?? "");
+  try { applyPoolTestStatus(preview, preview, saved); }
+  catch { preview.latest_test = saved?.latest_test; preview.closure_condition = saved?.closure_condition; }
+  const closureReasons = poolCurrentClosureReasons(preview);
+  const readingWarnings = poolReadingWarnings(preview);
   const canEditForm = canEdit;
-  const closureRequired = closureReasons.length > 0 || form.closure_condition === true;
+  const closureRequired = closureReasons.length > 0 || preview.closure_condition === true;
   const locked = (key: string) => !canEditForm || saving || (savedValue(saved, key) && !editingSavedLog);
   const stillNeeded = missingFields(form, closureRequired);
   const flagClass = "mt-1 text-xs font-bold text-red-300";
@@ -355,7 +371,7 @@ export default function PoolLogPage() {
             <form onSubmit={save} noValidate className="mt-4 space-y-4">
               {closureRequired ? <section role="alert" aria-live="assertive" className="rounded-xl border-4 border-red-500 bg-red-950 p-4 text-red-50">
                 <h2 className="text-2xl font-black uppercase tracking-wide">⚠ The pool must be closed</h2>
-                <p className="mt-1 font-semibold">Close the pool now and keep it closed until the readings are back in range and retested. Record the reason and the actions taken below.</p>
+                <p className="mt-1 font-semibold">Current readings or an unresolved closure keep the pool closed. A complete passing test updates status automatically when daily checks pass and no separate hold remains. Earlier failed readings stay in the history.</p>
                 {closureReasons.length ? <ul className="mt-2 list-inside list-disc">{closureReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul> : <p className="mt-2">A closure condition is recorded on this log.</p>}
               </section> : null}
               {readingWarnings.length ? <section role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-950 p-4 text-amber-50">
@@ -383,7 +399,7 @@ export default function PoolLogPage() {
                           {phReadings.map((value) => <option key={value} value={value}>{value}</option>)}
                         </select>
                       </label>
-                      {phOutOfRange(ph) ? <p className={flagClass}>Out of range (7.2–7.8): the pool must be closed.</p> : null}
+                      {phOutOfRange(ph) ? <p className={flagClass}>Outside 7.2–7.8. This result remains in the history.</p> : null}
                       <label className="mt-3 block text-sm">Bromine (ppm, required for this sample)
                         <select id={`pool-sanitizer_band_${period}`} aria-label={`${label} bromine (ppm)`} disabled={locked(`sanitizer_band_${period}`)} value={String(band ?? "")} onChange={(event) => change(`sanitizer_band_${period}`, event.target.value)} className={fieldClass}>
                           <option value="">Select bromine</option>
@@ -393,11 +409,20 @@ export default function PoolLogPage() {
                           {bromineBands.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
                         </select>
                       </label>
-                      {bromineOutOfRange(band) ? <p className={flagClass}>Out of range (above 2 and below 7.5 ppm): the pool must be closed.</p> : null}
+                      {bromineOutOfRange(band) ? <p className={flagClass}>Outside the configured bromine range. This result remains in the history.</p> : null}
                       <p className="mt-2 text-xs text-slate-500">New {label} readings use one shared water sample for both shallow and deep, with collection location unspecified.</p>
                     </section>;
                   })}
                 </div>
+                {saved ? <section className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+                  <h2 className="font-bold">Additional shared test</h2>
+                  {!form.retest_id ? <button type="button" className="mt-2 rounded-lg bg-cyan-700 px-3 py-2" onClick={() => change("retest_id", crypto.randomUUID())}>Record another test</button> : <>
+                    <p className="mt-2 text-sm">A new paired sample updates current status automatically. AM/PM readings and earlier retests are retained.</p>
+                    <label className="mt-3 block text-sm">Retest pH<select id="pool-retest_ph" value={String(form.retest_ph)} onChange={(event) => change("retest_ph", event.target.value)} className={fieldClass}><option value="">Select pH</option>{phReadings.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+                    <label className="mt-3 block text-sm">Retest bromine<select id="pool-retest_band" value={String(form.retest_band)} onChange={(event) => change("retest_band", event.target.value)} className={fieldClass}><option value="">Select bromine</option>{bromineBands.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
+                    <button type="button" className="mt-2 underline" onClick={() => setForm((current) => ({ ...current, retest_id: "", retest_ph: "", retest_band: "" }))}>Cancel additional test</button>
+                  </>}
+                </section> : null}
                 <section className="rounded-xl border border-slate-700 bg-slate-900 p-4">
                   <h2 className="font-bold">Daily checks <span className="text-xs font-normal text-slate-400">(required once per day)</span></h2>
                   <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -420,8 +445,9 @@ export default function PoolLogPage() {
                   </div>
                 </section>
                 <label className="flex gap-2"><input type="checkbox" disabled={saved?.requires_attention === true && !editingSavedLog} checked={form.requires_attention === true} onChange={(event) => change("requires_attention", event.target.checked)} />Attention needed</label>
-                <label className="flex gap-2"><input type="checkbox" disabled={closureReasons.length > 0 || (saved?.closure_condition === true && !editingSavedLog)} checked={closureRequired} onChange={(event) => change("closure_condition", event.target.checked)} />Pool closed / closure condition recorded{closureReasons.length ? " (required by reading)" : ""}</label>
-                {closureRequired ? <label className="block font-semibold text-red-200">Reason pool is closed (required)<textarea id="pool-closure_reason" required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} placeholder="Why the pool is closed and what was done (for example, adjusted chemicals, retest scheduled)." onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
+                <label className="flex gap-2"><input type="checkbox" disabled={saved?.manual_closure === true && !editingSavedLog} checked={form.manual_closure === true} onChange={(event) => change("manual_closure", event.target.checked)} />Keep closed for another reason (independent of test results)</label>
+                {saved?.closure_condition === true && saved.manual_closure == null ? <p className="text-amber-200">This older closure has no recorded source. Its reason must be classified before a passing test can clear it automatically.</p> : null}
+                {(closureRequired || saved?.closure_reason) ? <label className="block font-semibold text-red-200">Closure reason / actions (required)<textarea id="pool-closure_reason" required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} placeholder="Why the pool is closed and what was done (for example, adjusted chemicals, retest scheduled)." onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
                 <label className="block">Remarks / actions taken<textarea value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
               </fieldset>
               {canEditForm && dirty && stillNeeded.length ? <section aria-live="polite" className="rounded-xl border border-amber-400/70 bg-amber-950/40 p-3 text-sm text-amber-100">
@@ -485,8 +511,17 @@ export default function PoolLogPage() {
             const bandLabel = bromineBands.find(([band]) => band === value)?.[1];
             return <tr key={key}><td className="border p-2">{label}</td><td className="border p-2">{value == null ? "Not recorded" : bandLabel ?? String(value)}</td></tr>;
           })}</tbody></table>
+          {retests.length ? <section className="mt-4">
+            <h3 className="font-semibold">Recorded additional tests</h3>
+            <table className="mt-2 w-full border-collapse text-sm"><thead><tr>{["Recorded at (Central)", "pH", "Bromine band", "Sample"].map((label) => <th key={label} className="border p-2 text-left">{label}</th>)}</tr></thead><tbody>{retests.map((test) => <tr key={String(test.id)}>
+              <td className="border p-2">{new Date(String(test.recorded_at)).toLocaleString("en-US", { timeZone: "America/Chicago" })}</td>
+              <td className="border p-2">{String(test.ph)}</td><td className="border p-2">{String(test.sanitizer_band)}</td><td className="border p-2">One shared sample</td>
+            </tr>)}</tbody></table>
+          </section> : null}
           <p className="mt-4 text-sm">Daily checks: water temperature {saved.temperature_f == null ? "not recorded" : `${String(saved.temperature_f)}°F`} · flow rate {saved.flow_rate_gpm == null ? "not recorded" : `${String(saved.flow_rate_gpm)} GPM`} · main drain visible {saved.main_drain_visible === true ? "Yes" : saved.main_drain_visible === false ? "No" : "not recorded"} · filter backwashed {saved.filter_backwashed === true ? "Yes" : saved.filter_backwashed === false ? "No" : "not recorded"}</p>
-          <p className="mt-2 whitespace-pre-wrap text-sm font-semibold">Pool status: {saved.closure_condition === true ? `CLOSED — ${String(saved.closure_reason || "reason not recorded")}` : "Open"}</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm font-semibold">Current status for this log: {saved.closure_condition === true ? "CLOSED" : "Open"}</p>
+          {saved.latest_test && typeof saved.latest_test === "object" ? <p className="mt-2 text-sm">Latest submitted test: {String((saved.latest_test as Record<string, unknown>).period)} · pH {String((saved.latest_test as Record<string, unknown>).ph)} · bromine {String((saved.latest_test as Record<string, unknown>).sanitizer_band ?? (saved.latest_test as Record<string, unknown>).sanitizer)}. One shared sample; earlier tests remain in the audit history.</p> : null}
+          {saved.closure_reason ? <p className="mt-2 whitespace-pre-wrap text-sm">Closure history / actions: {String(saved.closure_reason)}</p> : null}
           <p className="mt-2 whitespace-pre-wrap text-sm">Remarks: {saved.remarks || "None recorded"}</p>
           <p className="mt-2 text-sm">Recorded by: {saved.completed_by_initials} · Saved: {new Date(saved.updated_at).toLocaleString("en-US", { timeZone: "America/Chicago" })} Central · Revision {saved.revision}</p>
         </section> : null}
