@@ -10,7 +10,7 @@ permissions:
 jobs:
   sandbox:
     # One bounded post-release run; reruns and subsequent pushes must skip.
-    if: ${{ github.event.before == 'ec4ce8ae463758bac4912c255a62a6c59a042b54' && github.run_attempt == 1 }}
+    if: ${{ github.event.before == 'b2b087aee87b15037bdcd7b5a017faa713854e67' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

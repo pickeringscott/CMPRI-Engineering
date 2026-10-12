@@ -7,7 +7,7 @@ harness and disables Vercel Git deployments. Never merge this override into main
 
 One standard Ubuntu GitHub Actions job is authorized, at most 20 minutes and
 USD 0.25 additional charge. The push guard accepts only the transition from
-`ec4ce8ae463758bac4912c255a62a6c59a042b54`, attempt 1. No automatic reruns,
+`b2b087aee87b15037bdcd7b5a017faa713854e67`, attempt 1. No automatic reruns,
 artifacts, caches or additional jobs. Further metered runs need new approval.
 
 The pinned local Supabase stack uses real Auth/Postgres/RLS/Storage and repository
@@ -52,3 +52,17 @@ It stops on Auth/session/draft API, browser login or draft prerequisite failure,
 before the seven-role matrix. The GM preflight draft is reused by the matrix.
 No raw HTML, request headers/bodies, credential files or raw server logs are
 published. Local redaction tests use synthetic sensitive strings.
+
+## Navigation-specific follow-up after run 38206410484
+
+One additional approved attempt records path-only request completion, RSC flags,
+pending requests, the allowlisted session landing/role, safe DOM redirect state,
+and server page/compilation status. Direct /engineering navigation is diagnostic
+only: failure of client-side login remains a failure even if the direct load works.
+The full matrix starts only after client navigation, direct navigation and Create
+form readiness all pass. No application code changes or navigation bypass.
+
+Actual phone push is deferred until after go-live. The loopback encrypted receiver
+remains a controlled module/persistence test only. Spanish-to-English submitted
+content is a launch requirement and is NOT implemented or passed by this harness.
+Spanish UI Cancel and verbatim notes preservation do not establish translation.

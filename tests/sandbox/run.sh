@@ -75,7 +75,7 @@ node --input-type=module - "$browser_status" "$rls_status" "$notification_status
 import {readFileSync,writeFileSync} from 'node:fs';
 const gaps=JSON.parse(readFileSync('.sandbox/role-gaps.json'));
 const statuses=process.argv.slice(2).map(Number);
-const result={browserExit:statuses[0],rlsExit:statuses[1],notificationExit:statuses[2],lifecycleExit:statuses[3],notificationStateExit:statuses[6],draftExit:statuses[4],storageExit:statuses[5],roleGaps:gaps,passed:statuses.every(code=>code===0)&&gaps.length===0,limitations:['No production data or deployed environment tested','No browser push enrollment or device notification delivery','Lifecycle transitions use real Auth/API/DB; detail-page transition controls are not exercised','Spanish text preservation and Cancel labels only; content translation is not implemented','Physical phone push and manual refresh remain separate']};
+const result={browserExit:statuses[0],rlsExit:statuses[1],notificationExit:statuses[2],lifecycleExit:statuses[3],notificationStateExit:statuses[6],draftExit:statuses[4],storageExit:statuses[5],roleGaps:gaps,passed:statuses.every(code=>code===0)&&gaps.length===0,limitations:['No production data or deployed environment tested','No browser push enrollment or device notification delivery','Lifecycle transitions use real Auth/API/DB; detail-page transition controls are not exercised','Spanish-to-English submitted content translation is a launch requirement; it is not implemented or verified by Spanish labels/text preservation','Physical phone push and manual refresh remain separate']};
 writeFileSync('.sandbox/summary.json',JSON.stringify(result,null,2));
 console.log(JSON.stringify(result,null,2));
 if(!result.passed)process.exitCode=1;

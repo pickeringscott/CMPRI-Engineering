@@ -32,7 +32,7 @@ async def main():
             page,evidence=await diagnose_context(context,OUT,user['label'])
             external,errors=evidence['blockedExternal'],evidence['pageErrors']
             try:
-                await login(page,user)
+                await login(page,user,evidence)
                 try:
                     await browser_extras.check_form(page,user)
                 except Exception as error:
