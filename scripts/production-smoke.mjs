@@ -11,7 +11,7 @@ const GO_LIVE_ROLES = [
   "senior_management",
   "system_admin",
 ];
-const SUBMIT_ONLY_CAPABILITIES = ["submit", "add_work_order_notes", "submit_feedback", "view_profiles"];
+const SUBMIT_ONLY_CAPABILITIES = ["submit", "view_work_orders", "add_work_order_notes", "submit_feedback", "view_profiles"];
 const NOTE_AND_POOL_CAPABILITIES = [
   "submit",
   "view_pool_log",

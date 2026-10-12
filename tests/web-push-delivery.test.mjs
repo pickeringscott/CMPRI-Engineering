@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import webpush from 'web-push';
 
 function createDeliveryModule(sent) {
   const source = readFileSync(new URL('../src/lib/notifications/web-push.ts', import.meta.url), 'utf8');
@@ -18,8 +19,8 @@ function createDeliveryModule(sent) {
     require(name) {
       if (name === 'web-push') return { default: {
         setVapidDetails: (...args) => vapidCalls.push(args),
-        sendNotification: async (subscription, payload) => {
-          sent.push({ endpoint: subscription.endpoint, payload: JSON.parse(payload) });
+        sendNotification: async (subscription, payload, options) => {
+          sent.push({ endpoint: subscription.endpoint, payload: JSON.parse(payload), options });
         },
       } };
       if (name === '@/lib/constants') return { HOTEL_ID: 'cmpri-hotel' };
@@ -160,4 +161,65 @@ test('work-order push delivery rejects roles outside Chief Engineer and Maintena
     { id: 'history:wo-1', message: 'Status changed' },
   ]);
   assert.deepEqual(sent, []);
+});
+
+test('visible alerts request high urgency for each subscription without resending accepted deliveries', async () => {
+  process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'test-public-key';
+  process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'test-private-key';
+  process.env.WEB_PUSH_VAPID_SUBJECT = 'mailto:test@example.invalid';
+  const sent = [];
+  const { exports } = createDeliveryModule(sent);
+  const { admin, deliveries } = makeAdmin({
+    technician: { timezone: 'UTC', schedule: allDaySchedule(true) },
+  }, ['device-a', 'device-b'].map((id) => ({
+    id, hotel_id: 'cmpri-hotel', recipient_user_id: 'technician', enabled: true,
+    subscription: { endpoint: `https://push.example.invalid/${id}` },
+  })));
+  const notification = { id: 'new-order:local-fixture', message: 'New work order', target_path: '/work-orders/local-fixture' };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await exports.dispatchWebPushNotifications(admin, 'technician', { role: 'Maintenance Technician' }, [notification]);
+  }
+  assert.equal(sent.length, 2);
+  assert.deepEqual(deliveries.map((item) => item.status), ['sent', 'sent']);
+  for (const item of sent) {
+    // Build headers with the installed library, without credentials or network I/O.
+    const request = webpush.generateRequestDetails({ endpoint: item.endpoint }, null, item.options);
+    assert.equal(request.headers.Urgency, 'high');
+    assert.equal(item.payload.url, notification.target_path);
+  }
+});
+
+test('push worker displays the existing payload with no open app and extends its lifetime until display completes', async () => {
+  const handlers = new Map();
+  const shown = [];
+  let finishDisplay;
+  const display = new Promise((resolve) => { finishDisplay = resolve; });
+  // No window, document, open clients, or network API: background display must be independent of the page.
+  vm.runInNewContext(readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8'), {
+    self: {
+      addEventListener: (name, handler) => handlers.set(name, handler),
+      registration: { showNotification: (title, options) => {
+        shown.push({ title, options });
+        return display;
+      } },
+    },
+  });
+  let lifetime;
+  handlers.get('push')({
+    data: { json: () => ({ title: 'CMPRI Engineering', body: 'New work order', url: '/work-orders/local-fixture', tag: 'cmpri-new-order:local-fixture' }) },
+    waitUntil: (promise) => { lifetime = promise; },
+  });
+  assert.equal(lifetime, display);
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].title, 'CMPRI Engineering');
+  assert.equal(shown[0].options.body, 'New work order');
+  assert.equal(shown[0].options.data.url, '/work-orders/local-fixture');
+  assert.equal(shown[0].options.tag, 'cmpri-new-order:local-fixture');
+  assert.notEqual(shown[0].options.silent, true);
+  for (const key of ['icon', 'badge']) {
+    const png = readFileSync(new URL(`../public${shown[0].options[key]}`, import.meta.url));
+    assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  }
+  finishDisplay();
+  await lifetime;
 });

@@ -127,7 +127,12 @@ export async function dispatchWebPushNotifications(
               ? `/work-orders/${encodeURIComponent(notification.id.slice("new-order:".length))}`
               : "/"),
           tag: `cmpri-${notification.id}`,
-        }));
+        }), {
+          // These visible alerts are time-sensitive even when a phone is idle.
+          // The library's default normal urgency allows deferred delivery.
+          urgency: "high",
+        });
+        // "sent" records provider acceptance, not device receipt or display.
         const { error: updateError } = await admin
           .from("cmpri_web_push_deliveries")
           .update({ status: "sent", claimed_at: null })
