@@ -14,7 +14,6 @@ import {
   poolReadingWarnings,
   poolLogTodayDate,
   sampleLocationLabel,
-  sampleLocations,
 } from "@/lib/pool-log";
 import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
@@ -105,7 +104,6 @@ function missingFields(form: Record<string, unknown>, closureRequired: boolean) 
     const parts = [
       [`ph_${period}`, `${label} pH`],
       [`sanitizer_band_${period}`, `${label} bromine`],
-      [`sample_location_${period}`, `${label} sample location (shallow or deep)`],
     ] as const;
     const started = parts.some(([key]) => filled(form[key]));
     if (!started) continue;
@@ -114,7 +112,7 @@ function missingFields(form: Record<string, unknown>, closureRequired: boolean) 
     else completeSample = true;
   }
   if (!completeSample && !missing.length) {
-    missing.push(["pool-ph_am", "AM or PM water sample (pH, bromine, and sample location)"]);
+    missing.push(["pool-ph_am", "AM or PM water sample (pH and bromine)"]);
   }
   for (const [key, label] of dailyPoolChecks) {
     if (!filled(form[key])) missing.push([`pool-${key}`, `${label} (daily check)`]);
@@ -370,8 +368,7 @@ export default function PoolLogPage() {
                     const label = period.toUpperCase();
                     const ph = form[`ph_${period}`];
                     const band = form[`sanitizer_band_${period}`];
-                    const location = String(form[`sample_location_${period}`] ?? "");
-                    const complete = filled(ph) && filled(band) && filled(location);
+                    const complete = filled(ph) && filled(band);
                     return <section key={period} className="rounded-xl border border-slate-700 bg-slate-900 p-4">
                       <div className="flex items-center justify-between">
                         <h2 className="font-bold">{label} water sample</h2>
@@ -397,14 +394,7 @@ export default function PoolLogPage() {
                         </select>
                       </label>
                       {bromineOutOfRange(band) ? <p className={flagClass}>Out of range (above 2 and below 7.5 ppm): the pool must be closed.</p> : null}
-                      <label className="mt-3 block text-sm">Sample taken at (required for this sample)
-                        <select id={`pool-sample_location_${period}`} aria-label={`${label} sample location`} disabled={locked(`sample_location_${period}`)} value={location} onChange={(event) => change(`sample_location_${period}`, event.target.value)} className={fieldClass}>
-                          <option value="">Select shallow or deep</option>
-                          {location === "middle" ? <option value="middle">{sampleLocationLabel("middle")}</option> : null}
-                          {sampleLocations.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-                        </select>
-                      </label>
-                      <p className="mt-2 text-xs text-slate-500">One water sample for the {label} test. Its reading is recorded for both shallow and deep.</p>
+                      <p className="mt-2 text-xs text-slate-500">New {label} readings use one shared water sample for both shallow and deep, with collection location unspecified.</p>
                     </section>;
                   })}
                 </div>
@@ -459,7 +449,7 @@ export default function PoolLogPage() {
                 };
                 const amLocation = entry.sample_location_am;
                 const pmLocation = entry.sample_location_pm;
-                const location = !amLocation || !pmLocation || amLocation === pmLocation
+                const location = amLocation === pmLocation
                   ? sampleLocationLabel(amLocation || pmLocation)
                   : `AM: ${sampleLocationLabel(amLocation)}; PM: ${sampleLocationLabel(pmLocation)}`;
                 const closure = entry.closure_condition === true
@@ -489,7 +479,7 @@ export default function PoolLogPage() {
 
         {saved ? <section className="rounded-lg border border-slate-600 p-3 print:border-black">
           <h2 className="font-semibold">Shallow and deep recording</h2>
-          <p className="text-sm">One water sample per AM/PM test; the same reading is recorded for shallow and deep. Sample taken at: AM {sampleLocationLabel(saved.sample_location_am)} · PM {sampleLocationLabel(saved.sample_location_pm)}.</p>
+          <p className="text-sm">Shared means one sample applied to both shallow and deep, with collection location unspecified. Historical stored readings and attribution are retained. Sample attribution: AM {sampleLocationLabel(saved.sample_location_am)} · PM {sampleLocationLabel(saved.sample_location_pm)}.</p>
           <table className="mt-3 w-full border-collapse text-sm"><thead><tr><th className="border p-2 text-left">Location / measurement</th><th className="border p-2 text-left">Recorded value</th></tr></thead><tbody>{poolLocationReadings.map(([key, label]) => {
             const value = poolLocationValue(saved, key);
             const bandLabel = bromineBands.find(([band]) => band === value)?.[1];

@@ -348,6 +348,11 @@ try {
     await db.exec(frontDeskManagerPoolLogMigration);
     await db.exec(frontDeskManagerPoolLogMigration);
   });
+  const sharedSampleMigration = readFileSync(new URL('../supabase/migrations/20261012195124_cmpri_pool_shared_sample.sql', import.meta.url), 'utf8');
+  await check('shared pool sample migration applies and is idempotent', async () => {
+    await db.exec(sharedSampleMigration);
+    await db.exec(sharedSampleMigration);
+  });
   await check('user-management grants are restored for account managers', async () => {
     const migration = readFileSync(new URL('../supabase/migrations_archive/20260926101000_cmpri_manage_users_grants.sql', import.meta.url), 'utf8');
     await db.exec('create table public.role_permissions (role text not null, permission text not null, allowed boolean not null default false)');
@@ -574,6 +579,45 @@ try {
     const audit=await db.query('select snapshot,actor_id from public.cmpri_pool_log_history where pool_log_id=$1 order by recorded_at,id',[id]);
     assert.equal(audit.rows.length,2);assert.ok(audit.rows.every(row=>row.actor_id===actor));
     assert.deepEqual(audit.rows.map(row=>Number(row.snapshot.revision)).sort(),[1,2]);
+  });
+  await check('shared samples preserve historical values, revisions, audit snapshots and AM closure', async () => {
+    const inserted = await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed,closure_reason) values ($1,$1,'2026-10-12',$2,$2,7.6,'0','deep',84,55,true,false,'AM bromine zero; pool closed') returning id", [hotel,actor]);
+    const id = inserted.rows[0].id;
+    // Isolated legacy fixture: historical per-location values differ from the generic result.
+    await db.exec('alter table public.pool_daily_logs disable trigger cmpri_pool_log_stamp');
+    await db.query('update public.pool_daily_logs set ph_shallow_am=7.2,ph_deep_am=7.6 where id=$1',[id]);
+    await db.exec('alter table public.pool_daily_logs enable trigger cmpri_pool_log_stamp');
+    const before = await db.query('select * from public.pool_daily_logs where id=$1',[id]);
+    const historyBefore = await db.query('select * from public.cmpri_pool_log_history where pool_log_id=$1 order by id',[id]);
+    await db.exec(sharedSampleMigration);
+    assert.deepEqual((await db.query('select * from public.pool_daily_logs where id=$1',[id])).rows,before.rows);
+    assert.deepEqual((await db.query('select * from public.cmpri_pool_log_history where pool_log_id=$1 order by id',[id])).rows,historyBefore.rows);
+    await db.query("update public.profiles set role='engineer' where id=$1",[actor]);
+    const { rows: [row] } = await db.query("update public.pool_daily_logs set ph_pm=7.4,sanitizer_band_pm='3-6' where id=$1 returning *",[id]);
+    assert.equal(row.sample_location_am,'deep'); assert.equal(row.sample_location_pm,'shared');
+    assert.equal(Number(row.ph_am),7.6); assert.equal(row.sanitizer_band_am,'0');
+    assert.equal(Number(row.ph_shallow_am),7.2); assert.equal(Number(row.ph_deep_am),7.6);
+    assert.equal(Number(row.ph_shallow_pm),7.4); assert.equal(Number(row.ph_deep_pm),7.4);
+    assert.equal(row.sanitizer_pm,null); assert.equal(row.sanitizer_band_pm,'3-6');
+    assert.equal(row.ph_middle_pm,null); assert.equal(row.closure_condition,true);
+    assert.equal(Number(row.revision),Number(before.rows[0].revision)+1);
+    const historyAfter = await db.query('select * from public.cmpri_pool_log_history where pool_log_id=$1 order by id',[id]);
+    assert.equal(historyAfter.rows.length,historyBefore.rows.length+1);
+    for (const snapshot of historyBefore.rows) assert.deepEqual(historyAfter.rows.find(item=>item.id===snapshot.id),snapshot);
+    await assert.rejects(()=>db.query("update public.pool_daily_logs set sample_location_am='shared' where id=$1",[id]),/Only System Administrators/);
+    await db.query("update public.profiles set role='system_admin' where id=$1",[actor]);
+    for (const location of [null,'shallow','deep','middle']) {
+      await db.exec('alter table public.pool_daily_logs disable trigger cmpri_pool_log_stamp');
+      await db.query('update public.pool_daily_logs set sample_location_am=$2 where id=$1',[id,location]);
+      await db.exec('alter table public.pool_daily_logs enable trigger cmpri_pool_log_stamp');
+      const legacy = await db.query("update public.pool_daily_logs set remarks='Legacy retained' where id=$1 returning sample_location_am,ph_shallow_am,ph_deep_am",[id]);
+      assert.equal(legacy.rows[0].sample_location_am,location);
+      assert.equal(Number(legacy.rows[0].ph_shallow_am),7.2);assert.equal(Number(legacy.rows[0].ph_deep_am),7.6);
+    }
+    const fresh = await db.query("insert into public.pool_daily_logs(hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed) values ($1,$1,'2026-10-11',$2,$2,7.4,4,84,55,true,false) returning sample_location_am,sample_location_pm,ph_shallow_am,ph_deep_am,sanitizer_shallow_am,sanitizer_deep_am",[hotel,actor]);
+    assert.equal(fresh.rows[0].sample_location_am,'shared');assert.equal(fresh.rows[0].sample_location_pm,null);
+    assert.equal(Number(fresh.rows[0].ph_shallow_am),7.4);assert.equal(Number(fresh.rows[0].ph_deep_am),7.4);
+    assert.equal(Number(fresh.rows[0].sanitizer_shallow_am),4);assert.equal(Number(fresh.rows[0].sanitizer_deep_am),4);
   });
   await check('pool database trigger automatically records a closure condition for unsafe readings', async () => {
     const base = `hotel_id,pool_facility_id,log_date,created_by,updated_by,ph_am,sanitizer_band_am,sample_location_am,temperature_f,flow_rate_gpm,main_drain_visible,filter_backwashed`;

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { poolLogInput, poolLogTodayDate, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, sampleLocations } from '../src/lib/pool-log.ts';
+import { poolLogInput, poolLogTodayDate, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, sampleLocations, sampleLocationLabel } from '../src/lib/pool-log.ts';
 import { fetchAllPages } from '../src/lib/server/paginated-query.ts';
 const facilityId='00000000-0000-0000-0000-000000000001';
 const input={pool_facility_id:facilityId,log_date:'2026-09-15',ph_am:7.4,sanitizer_am:4,sample_location_am:'shallow',temperature_f:84,flow_rate_gpm:60,main_drain_visible:true,filter_backwashed:false,requires_attention:false,closure_condition:false,closure_reason:'',remarks:''};
@@ -43,7 +43,7 @@ test('middle of pool is no longer a sample location; each period records shallow
  const row=poolLogInput({...input,ph_pm:7.5,sanitizer_pm:5,sample_location_pm:'deep'});
  assert.equal(row.sample_location_am,'shallow');
  assert.equal(row.sample_location_pm,'deep');
- assert.throws(()=>poolLogInput({...input,ph_pm:7.5,sanitizer_pm:5}),/PM sample was taken/);
+ assert.equal(poolLogInput({...input,ph_pm:7.5,sanitizer_pm:5}).sample_location_pm,'shared');
  const historical=poolLogInput({...input,sample_location_am:'middle'},{sample_location_am:'middle'});
  assert.equal(historical.sample_location_am,'middle');
 });
@@ -355,11 +355,12 @@ test('pool API blocks saves missing required checks or a closure reason',async()
   assert.equal(f.writes.length,0);
  }
 });
-test('pool-log UI flags closures, requires daily checks, and offers only shallow or deep',()=>{
+test('pool-log UI flags closures, requires daily checks, and has no sample-location dropdown',()=>{
  const page=readFileSync(new URL('../src/app/engineering/pool-log/page.tsx',import.meta.url),'utf8');
  assert.match(page,/View entire pool log/);
  assert.doesNotMatch(page,/Middle of pool/);
- assert.match(page,/sampleLocations\.map/);
+ assert.doesNotMatch(page,/pool-sample_location_|sampleLocations\.map|Sample taken at \(required/);
+ assert.match(page,/one shared water sample/);
  assert.match(page,/The pool must be closed/);
  assert.match(page,/Still needed before saving/);
  assert.match(page,/Daily checks/);
@@ -381,9 +382,16 @@ test('one sample is recorded for both shallow and deep while historical values r
  assert.equal(poolLocationValue(row,'ph_middle_am'),null);
  assert.equal(poolLocationValue({...row,ph_deep_am:7.2},'ph_deep_am'),7.2);
 });
-test('a reading requires a valid sample location',()=>{
- assert.throws(()=>poolLogInput({...input,sample_location_am:''}),/AM sample was taken/);
- assert.throws(()=>poolLogInput({...input,sample_location_am:'both'}),/AM sample was taken/);
+test('a reading defaults to shared without inventing a collection location',()=>{
+ for(const value of [undefined,null,'','shared']) {
+ const row=poolLogInput({...input,sample_location_am:value});
+ assert.equal(row.sample_location_am,'shared');
+ assert.equal(poolLocationValue(row,'ph_shallow_am'),7.4);
+ assert.equal(poolLocationValue(row,'ph_deep_am'),7.4);
+ assert.equal(poolLocationValue(row,'ph_middle_am'),null);
+ }
+ assert.equal(sampleLocationLabel('shared'),'Shared sample (location unspecified)');
+ assert.throws(()=>poolLogInput({...input,sample_location_am:'both'}),/Invalid AM sample attribution/);
 });
 test('database failures are reported instead of a generic conflict',async()=>{
  const missing=fixture({dbError:{code:'PGRST204',message:"Could not find the 'closure_reason' column in the schema cache"}});
@@ -396,4 +404,42 @@ test('database failures are reported instead of a generic conflict',async()=>{
  assert.match(rejectedResult.body.error,/Only a System Administrator/);
  const unknown=fixture({dbError:{code:'XX000',message:'boom'}});
  assert.equal((await unknown.handlers.POST(unknown.request)).status,500);
+});
+
+test('MCP PM shared sample follows the save route without rewriting AM or clearing its closure',async()=>{
+ const existing={...poolLogInput({...input,ph_am:7.6,sanitizer_am:null,sanitizer_band_am:'0',flow_rate_gpm:55,closure_reason:'AM bromine zero; pool closed.'}),id:'saved',revision:4};
+ const payload=prepareMcpPoolLogInput({date:input.log_date,pool:'Indoor Pool',ph_pm:7.4,sanitizer_band_pm:'3-6'},[{id:facilityId,pool_name:'Indoor Pool'}]);
+ const f=fixture({existing,role:'engineer'});
+ f.request.json=async()=>payload;
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);
+ const row=f.writes[0];
+ assert.equal(row.ph_am,7.6);assert.equal(row.sanitizer_band_am,'0');
+ assert.equal(row.sample_location_am,'shallow');assert.equal(row.sample_location_pm,'shared');
+ assert.equal(row.ph_pm,7.4);assert.equal(row.sanitizer_band_pm,'3-6');assert.equal(row.sanitizer_pm,null);
+ assert.equal(row.flow_rate_gpm,55);assert.equal(row.temperature_f,84);assert.equal(row.filter_backwashed,false);
+ assert.equal(row.closure_condition,true);assert.match(result.body.closure_reasons.join(),/AM bromine/);
+ assert.equal(f.notifications.length,0);
+});
+
+test('legacy unknown and attributed samples remain unchanged when adding a shared PM sample',()=>{
+ for(const location of [null,'shallow','deep','middle']) {
+ const existing={...input,sample_location_am:location,ph_shallow_am:7.2,ph_deep_am:7.6};
+ const row=poolLogInput(mergePoolLogBody(existing,{log_date:input.log_date,pool_facility_id:facilityId,ph_pm:7.4,sanitizer_band_pm:'3-6'},false),existing);
+ assert.equal(row.sample_location_am,location);assert.equal(row.sample_location_pm,'shared');
+ assert.equal(poolLocationValue(existing,'ph_shallow_am'),7.2);assert.equal(poolLocationValue(existing,'ph_deep_am'),7.6);
+ }
+ assert.equal(poolLocationValue({ph_am:7.4,sanitizer_am:4},'ph_deep_am'),null);
+});
+
+test('pool UI completeness requires a paired sample and daily checks, without collection location',()=>{
+ const source=readFileSync(new URL('../src/app/engineering/pool-log/page.tsx',import.meta.url),'utf8');
+ const start=source.indexOf('function missingFields(');
+ const end=source.indexOf('\n}\n',start)+2;
+ const code=ts.transpile(source.slice(start,end),{target:ts.ScriptTarget.ES2022});
+ const missing=vm.runInNewContext(`${code}; missingFields`,{periods:['am','pm'],dailyPoolChecks:[['temperature_f','Temperature'],['flow_rate_gpm','Flow'],['main_drain_visible','Drain'],['filter_backwashed','Backwash']],filled:value=>value!=null&&value!==''});
+ const form={...input,sample_location_am:'',sanitizer_band_am:'3-6'};
+ assert.equal(missing(form,false).length,0);
+ assert.match(JSON.stringify(missing({...form,sanitizer_band_am:''},false)),/AM bromine/);
+ assert.match(JSON.stringify(missing({...form,flow_rate_gpm:''},false)),/daily check/);
 });

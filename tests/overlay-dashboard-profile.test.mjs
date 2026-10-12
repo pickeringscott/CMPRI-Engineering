@@ -136,7 +136,7 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(engineeringHeader, /pt-\[8pt\]/);
   assert.match(engineering, /const canReviewTickets = hasCapability\(session, "review_tickets"\)/);
   assert.match(engineering, /const notificationCount = unreadCount \+ \(canReviewTickets \? awaitingApproval\.length : 0\)/);
-  assert.match(engineering, /\(canReviewTickets \|\| inbox\.length > 0\) && \(/);
+  assert.match(engineering, /\(canReviewTickets \|\| hasCapability\(session, "receive_pool_closed_notifications"\) \|\| inbox\.length > 0\) && \(/);
   const approvalsWindow = readFileSync(new URL('../src/components/desktop/WorkOrderApprovalsWindow.tsx', import.meta.url), 'utf8');
   assert.match(approvalsWindow, /canReview && \(/);
   const notificationBell = readFileSync(new URL('../src/components/DashboardNotificationBell.tsx', import.meta.url), 'utf8');

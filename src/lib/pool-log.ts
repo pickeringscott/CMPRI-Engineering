@@ -33,6 +33,7 @@ export const sampleLocations = [
 export const MAX_POOL_TEMPERATURE_F = 104;
 
 export function sampleLocationLabel(value: unknown) {
+  if (value === "shared") return "Shared sample (location unspecified)";
   if (value === "middle") return "Middle of pool (historical)";
   return sampleLocations.find(([option]) => option === value)?.[1] ?? (value == null || value === "" ? "—" : String(value));
 }
@@ -374,15 +375,18 @@ export function poolLogInput(body: Record<string, unknown>, existing: Record<str
     if (ph == null) throw new Error(`${label} sample needs its pH reading. pH and bromine come from the same water sample.`);
     if (bromine == null) throw new Error(`${label} sample needs its bromine reading. pH and bromine come from the same water sample.`);
     const periodLocation = body[`sample_location_${period}`];
-    const location = providedValue(periodLocation) ? periodLocation : body.sample_location;
+    const suppliedLocation = providedValue(periodLocation) ? periodLocation : body.sample_location;
+    // Never invent collection attribution for old samples whose location was not recorded.
+    const location = providedValue(suppliedLocation) ? suppliedLocation
+      : existing?.[`ph_${period}`] != null ? existing[`sample_location_${period}`] ?? null : "shared";
     const historicalMiddle = location === "middle" && existing?.[`sample_location_${period}`] === "middle";
-    if (!historicalMiddle && !sampleLocations.some(([option]) => option === location)) {
-      throw new Error(`Select where the ${label} sample was taken: shallow or deep.`);
+    if (location !== "shared" && !(location == null && existing?.[`ph_${period}`] != null) && !historicalMiddle && !sampleLocations.some(([option]) => option === location)) {
+      throw new Error(`Invalid ${label} sample attribution: use shared, shallow or deep.`);
     }
     row[`sample_location_${period}`] = location;
   }
   if (row.ph_am == null && row.ph_pm == null) {
-    throw new Error("Record the AM or PM water sample (pH, bromine, and sample location) before saving.");
+    throw new Error("Record the AM or PM water sample (pH and bromine) before saving.");
   }
 
   for (const key of ["main_drain_visible", "filter_backwashed"]) {
