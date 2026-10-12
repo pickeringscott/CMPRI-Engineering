@@ -1,5 +1,7 @@
 "use client";
 
+import WorkOrderImportPill from "@/components/WorkOrderImportPill";
+
 import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-steps";
 
 import Link from "next/link";
@@ -60,6 +62,8 @@ type WorkOrder = {
   revision: number;
   id: string;
   display_id?: string | null;
+  import_source?: string | null;
+  import_external_id?: string | null;
   location_id?: string | null;
   asset_id?: string | null;
   room?: string | null;
@@ -1748,6 +1752,7 @@ export default function WorkOrderTicketPage() {
             >
               {order.display_id || "Work Order"}
             </button>
+            <WorkOrderImportPill order={order} />
             <div className="flex items-center gap-1">
               <button
                 type="button"

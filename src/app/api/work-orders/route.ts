@@ -41,7 +41,7 @@ async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: Su
 async function fetchTechnicianWorkOrders(admin: SupabaseClient, technicianName: string | undefined) {
   const query = () => admin
     .from("work_orders")
-    .select("id, display_id, room, location_id, asset_id, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
+    .select("id, display_id, room, location_id, asset_id, asset_name, category, issue, priority, technician_name, status, due_by, created_at, import_source, import_external_id")
     .eq("hotel_id", HOTEL_ID)
     .in("status", ["Open", "In Progress"])
     .order("due_by", { ascending: true, nullsFirst: false })
@@ -169,7 +169,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await fetchAllPages((from, to) => {
     let query = auth.admin
     .from("work_orders")
-    .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at")
+    .select("id, display_id, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at, import_source, import_external_id")
     .eq("hotel_id", HOTEL_ID)
     .order("created_at", { ascending: false })
     .range(from, to);
