@@ -7,7 +7,7 @@ harness and disables Vercel Git deployments. Never merge this override into main
 
 One standard Ubuntu GitHub Actions job is authorized, at most 20 minutes and
 USD 0.25 additional charge. The push guard accepts only the transition from
-`b2b087aee87b15037bdcd7b5a017faa713854e67`, attempt 1. No automatic reruns,
+`18c68cb8c56cec0244ec1172415a4e58e4f4fb9b`, attempt 1. No automatic reruns,
 artifacts, caches or additional jobs. Further metered runs need new approval.
 
 The pinned local Supabase stack uses real Auth/Postgres/RLS/Storage and repository
@@ -66,3 +66,23 @@ Actual phone push is deferred until after go-live. The loopback encrypted receiv
 remains a controlled module/persistence test only. Spanish-to-English submitted
 content is a launch requirement and is NOT implemented or passed by this harness.
 Spanish UI Cancel and verbatim notes preservation do not establish translation.
+
+## Real-auth runtime comparison and production-mode seven-role suite
+
+One new authorized attempt, maximum 20 minutes / USD 0.25; no automatic reruns.
+Development browser preflight is recorded separately, then the same immutable
+application is built and started in production mode against the same isolated
+Supabase stack. A fresh real browser context must pass password login and client
+transition in production before the seven-role suite can start. Development
+failure is retained as developmentPreflightExit and separate evidence; production
+success does not repair or erase it. Summary passed describes the production suite.
+No intercepted Auth/API responses, source changes, forced-navigation login,
+or relaxed assertions. The initial GM draft is reused across the comparison.
+
+New diagnostics retain completed static asset status/timing, bounded script and
+resource paths, router-history/pending-route flags, session storage/expiry flags,
+and RSC byte length/hash/record counts/build ID/static module references. Raw RSC
+payloads, cookie values, bearer tokens, request bodies, and user identities are not
+exported. RSC structural metadata is not claimed to prove successful React decoding.
+The comparison distinguishes runtime-sensitive failure from a shared real-auth
+failure and preserves the exact stage if either path stalls.

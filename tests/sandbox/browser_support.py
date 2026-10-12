@@ -1,4 +1,5 @@
-import json,time
+import json,time,asyncio
+from navigation_probe import rsc_summary,RUNTIME_SNAPSHOT
 import urllib.parse
 from diagnostics import sanitize,is_login_landing,local_secrets
 
@@ -10,8 +11,8 @@ def request_metadata(request,sequence,phase,started):
             'startedMs':round((time.monotonic()-started)*1000)}
 
 async def diagnose_context(context,out,label):
-    evidence={'role':label,'phase':'initial','pageErrors':[],'consoleErrors':[],'failedRequests':[],'httpErrors':[],'blockedExternal':[],'requests':[],'frames':[],'sessionResponses':[],'snapshots':[]}
-    active={};started=time.monotonic();sequence=0
+    evidence={'role':label,'phase':'initial','pageErrors':[],'consoleErrors':[],'failedRequests':[],'httpErrors':[],'blockedExternal':[],'requests':[],'frames':[],'sessionResponses':[],'snapshots':[],'rscResponses':[]}
+    active={};response_tasks=set();evidence['_response_tasks']=response_tasks;started=time.monotonic();sequence=0
     async def guard(route):
         host=urllib.parse.urlparse(route.request.url).hostname
         if host not in ['127.0.0.1','localhost']:
@@ -36,6 +37,12 @@ async def diagnose_context(context,out,label):
         route=urllib.parse.urlparse(response.url).path
         row=active.get(response.request)
         if row:row.update(status=response.status,contentType=response.headers.get('content-type',''),responseMs=round((time.monotonic()-started)*1000))
+        if '_rsc' in urllib.parse.parse_qs(urllib.parse.urlparse(response.url).query):
+            try:
+                body=await response.body()
+                evidence['rscResponses'].append({'phase':row.get('phase') if row else evidence['phase'],'route':route,'status':response.status,'contentType':response.headers.get('content-type',''),**rsc_summary(body)})
+            except Exception:
+                evidence['rscResponses'].append({'route':route,'bodyUnavailable':True})
         if response.status>=400:evidence['httpErrors'].append({'phase':evidence['phase'],'route':route,'status':response.status,'contentType':response.headers.get('content-type','')})
         if route=='/api/session' and response.status==200:
             # Only these two allowlisted fields, never user identity or bearer/session data.
@@ -45,7 +52,9 @@ async def diagnose_context(context,out,label):
                 role=body.get('user',{}).get('role')
                 evidence['sessionResponses'].append({'phase':evidence['phase'],'status':200,'landing':landing if landing in ['/engineering','/technician','/work-orders'] else 'unexpected','role':role if role in ['manager','assistant_manager','front_desk_manager','technician','chief_engineer','housekeeping','front_desk'] else 'unexpected'})
             except Exception:evidence['sessionResponses'].append({'phase':evidence['phase'],'status':200,'jsonParseFailed':True})
-    page.on('request',requested);page.on('requestfinished',finished);page.on('requestfailed',failed);page.on('response',responded)
+    def response_event(response):
+        task=asyncio.create_task(responded(response));response_tasks.add(task);task.add_done_callback(response_tasks.discard)
+    page.on('request',requested);page.on('requestfinished',finished);page.on('requestfailed',failed);page.on('response',response_event)
     page.on('framenavigated',lambda frame:evidence['frames'].append({'phase':evidence['phase'],'main':frame==page.main_frame,'route':urllib.parse.urlparse(frame.url).path,'atMs':round((time.monotonic()-started)*1000)}))
     page.on('pageerror',lambda error:evidence['pageErrors'].append(str(error)[:2000]))
     page.on('console',lambda message:evidence['consoleErrors'].append(message.text[:2000]) if message.type=='error' else None)
@@ -66,6 +75,7 @@ async def redirect_snapshot(page,evidence,label,expected_user_id=None):
         dashboardTitlePresent:Boolean(document.querySelector('[data-dashboard-title]')),
         sessionPresent,sessionUserMatches,userAgent:navigator.userAgent};
     }''',expected_user_id)
+    snapshot['runtime']=await page.evaluate(RUNTIME_SNAPSHOT)
     evidence['snapshots'].append({'label':label,'phase':evidence['phase'],**snapshot})
     return snapshot
 
@@ -83,6 +93,10 @@ async def login(page,user,evidence=None):
     if evidence is not None:await redirect_snapshot(page,evidence,'client navigation passed',user.get('id'))
 
 async def save_browser_diagnostics(page,evidence,out):
+    tasks=evidence.pop('_response_tasks',set())
+    if tasks:
+        _,pending=await asyncio.wait(list(tasks),timeout=3)
+        for task in pending:task.cancel()
     evidence['lastRoute']=urllib.parse.urlparse(page.url).path
     try:await redirect_snapshot(page,evidence,'final')
     except Exception:pass
@@ -90,7 +104,7 @@ async def save_browser_diagnostics(page,evidence,out):
         evidence[key]=evidence[key][-15:]
     # Keep every pending request plus bounded completed navigation/API/chunk records.
     requests=evidence['requests']
-    evidence['requests']=[r for r in requests if r['state']=='pending'][-30:]+[r for r in requests if r['state']!='pending' and (r['rsc'] or r['documentNavigation'] or r['route'].startswith('/api/') or r['route'].startswith('/auth/'))][-60:]
+    evidence['requests']=[r for r in requests if r['state']=='pending'][-30:]+[r for r in requests if r['state']!='pending' and (r['rsc'] or r['documentNavigation'] or r['route'].startswith('/api/') or r['route'].startswith('/auth/') or r['route'].startswith('/_next/static/'))][-180:]
     evidence['frames']=evidence['frames'][-20:]
     path=out/'browser-diagnostics.json'
     prior=json.loads(path.read_text()) if path.exists() else []
