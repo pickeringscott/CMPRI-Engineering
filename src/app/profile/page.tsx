@@ -8,7 +8,8 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
-import { isNotificationScheduleEligibleProfile } from "@/lib/notifications/schedule";
+import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile } from "@/lib/notifications/schedule";
+import PhoneNotificationRow from "@/components/PhoneNotificationRow";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
 type Preferences = {
@@ -349,15 +350,9 @@ export default function ProfilePage() {
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
           {!phoneSupported && <p role="status" className="mt-3 text-sm text-amber-200">{tx("This browser does not support Web Push notifications.", "Este navegador no admite notificaciones Web Push.")}</p>}
           {phoneSupported && !phonePublicKey && <p role="status" className="mt-3 text-sm text-amber-200">{tx("Phone notifications are not configured on this server.", "Las notificaciones del teléfono no están configuradas en este servidor.")}</p>}
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="font-semibold">{tx("Phone Notifications", "Notificaciones del teléfono")}</p>
-              <p className="text-sm text-slate-400">{phoneSubscribed ? tx("Enabled on this device", "Activadas en este dispositivo") : tx("Disabled on this device", "Desactivadas en este dispositivo")}</p>
-            </div>
-            <button type="button" disabled={phoneBusy || (!phoneSubscribed && (!phoneSupported || !phonePublicKey))} onClick={() => void (phoneSubscribed ? disablePhoneNotifications() : enablePhoneNotifications())} className="min-h-10 rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50">
-              {phoneBusy ? tx("Saving…", "Guardando…") : phoneSubscribed ? tx("Disable", "Desactivar") : tx("Enable", "Activar")}
-            </button>
-          </div>
+          <PhoneNotificationRow subscribed={phoneSubscribed} busy={phoneBusy} supported={phoneSupported}
+            configured={!!phonePublicKey} eligible={isWebPushEligibleProfile(data.profile)} userId={data.profile.id}
+            spanish={!!isSpanish} onToggle={() => void (phoneSubscribed ? disablePhoneNotifications() : enablePhoneNotifications())} />
           <div className="mt-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>

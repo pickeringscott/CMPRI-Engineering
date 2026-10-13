@@ -4,6 +4,7 @@ import { HOTEL_ID } from "@/lib/constants";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { profileHasRole, profileIsChiefEngineerOrSystemAdmin, receivesWorkOrderNotifications } from "@/lib/server/roles";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
+import { dispatchDuePhoneNotificationTests } from "@/lib/server/phone-notification-tests";
 import { isWebPushEligibleProfile } from "@/lib/notifications/schedule";
 import {
   dashboardNotificationScanStart,
@@ -259,6 +260,9 @@ export async function GET(request: NextRequest) {
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "Notification service credentials are unavailable." }, { status: 503 });
   try {
+    // Isolated explicit test queue; never replay the normal inbox to run a test.
+    try { await dispatchDuePhoneNotificationTests(admin); }
+    catch { console.error("Explicit phone notification tests could not be checked."); }
     return NextResponse.json({ ok: true, ...(await dispatch(admin)) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Scheduled phone notification dispatch failed.", error);
