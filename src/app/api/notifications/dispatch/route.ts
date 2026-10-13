@@ -5,7 +5,6 @@ import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { profileHasRole, profileIsChiefEngineerOrSystemAdmin, receivesWorkOrderNotifications } from "@/lib/server/roles";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import { dispatchDuePhoneNotificationTests } from "@/lib/server/phone-notification-tests";
-import { isWebPushEligibleProfile } from "@/lib/notifications/schedule";
 import {
   dashboardNotificationScanStart,
   engineerHistoryNotifications,
@@ -73,6 +72,7 @@ async function saveInboxRows(
       target_path: notification.target_path || null,
       message: notification.message,
       recorded_at: notification.recorded_at,
+      push_requested: true,
       read_at: !profileIsChiefEngineerOrSystemAdmin(profile)
         && profileHasRole(profile, "technician")
         && notification.is_read
@@ -149,38 +149,31 @@ async function notificationsForUser(
 }
 
 async function dispatchPendingInboxNotifications(admin: SupabaseClient, profile: PushProfile) {
-  const { data: deliveries, error: deliveriesError } = await admin.from("cmpri_web_push_deliveries")
-    .select("notification_key")
-    .eq("hotel_id", HOTEL_ID)
-    .eq("recipient_user_id", profile.id)
-    .in("status", ["pending", "sending", "suppressed", "failed"]);
-  if (deliveriesError) throw new Error("Pending phone notification deliveries could not be loaded.");
-  const keys = Array.from(new Set((deliveries || []).map((row: { notification_key: string }) => row.notification_key)));
-  if (!keys.length) return 0;
-
-  const { data: rows, error: inboxError } = await admin.from("cmpri_dashboard_notifications")
-    .select("notification_key, work_order_id, target_path, message, recorded_at")
-    .eq("hotel_id", HOTEL_ID)
-    .eq("recipient_user_id", profile.id)
-    .is("cleared_at", null)
-    .is("read_at", null)
-    .in("notification_key", keys);
-  if (inboxError) throw new Error("Pending phone notification messages could not be loaded.");
-  const notifications: WorkOrderNotification[] = (rows || []).map((row: {
-    notification_key: string;
-    work_order_id: string | null;
-    target_path: string | null;
-    message: string;
-    recorded_at: string;
-  }) => ({
-    id: row.notification_key,
-    work_order_id: row.work_order_id,
-    target_path: row.target_path,
-    message: row.message,
-    recorded_at: row.recorded_at,
-  }));
-  await dispatchWebPushNotifications(admin, profile.id, profile, notifications);
-  return notifications.length;
+  // New intent survives later reads/clears. Legacy retries keep their original
+  // unread-only behavior; no historical inbox rows are enrolled on recovery.
+  const deliveries = await scanPages<{ notification_key: string; inbox_id: string | null }>(
+    (from, to) => admin.from("cmpri_web_push_deliveries")
+      .select("notification_key, inbox_id")
+      .eq("hotel_id", HOTEL_ID).eq("recipient_user_id", profile.id)
+      .in("status", ["pending", "sending", "suppressed", "failed"])
+      .order("id").range(from, to),
+  );
+  const durableKeys = new Set(deliveries.filter((row) => row.inbox_id).map((row) => row.notification_key));
+  const keys = Array.from(new Set(deliveries.map((row) => row.notification_key)));
+  let count = 0;
+  for (let index = 0; index < keys.length; index += 200) {
+    const { data: rows, error } = await admin.from("cmpri_dashboard_notifications")
+      .select("notification_key, work_order_id, target_path, message, recorded_at, read_at, cleared_at")
+      .eq("hotel_id", HOTEL_ID).eq("recipient_user_id", profile.id)
+      .in("notification_key", keys.slice(index, index + 200));
+    if (error) throw new Error("Pending phone notification messages could not be loaded.");
+    const notifications = (rows || []).filter((row) =>
+      durableKeys.has(row.notification_key) || (!row.read_at && !row.cleared_at),
+    ).map((row) => ({ ...row, id: row.notification_key }));
+    await dispatchWebPushNotifications(admin, profile.id, profile, notifications);
+    count += notifications.length;
+  }
+  return count;
 }
 
 async function dispatch(admin: SupabaseClient) {
@@ -199,14 +192,14 @@ async function dispatch(admin: SupabaseClient) {
   if (profilesError || membershipError) throw new Error("Phone notification recipients could not be verified.");
   const activeMembers = new Set((memberships || []).map((row: { user_id: string }) => row.user_id));
   const recipients = ((profiles || []) as PushProfile[]).filter((profile) =>
-    activeMembers.has(profile.id)
-      && isWebPushEligibleProfile(profile)
-      && receivesWorkOrderNotifications(profile),
+    activeMembers.has(profile.id),
   );
   const checkedAt = new Date().toISOString();
   let notificationCount = 0;
 
   for (const profile of recipients) {
+    await dispatchPendingInboxNotifications(admin, profile);
+    if (!receivesWorkOrderNotifications(profile)) continue;
     const { data: cursorRow, error: cursorError } = await admin.from("cmpri_dashboard_notification_cursors")
       .select("checked_at")
       .eq("hotel_id", HOTEL_ID)
@@ -218,11 +211,9 @@ async function dispatch(admin: SupabaseClient) {
       const { error } = await admin.from("cmpri_dashboard_notification_cursors")
         .upsert({ hotel_id: HOTEL_ID, recipient_user_id: profile.id, checked_at: checkedAt, updated_at: checkedAt }, { onConflict: "hotel_id,recipient_user_id", ignoreDuplicates: true });
       if (error) throw new Error("Phone notification scan cursor could not be initialized.");
-      await dispatchPendingInboxNotifications(admin, profile);
       continue;
     }
 
-    await dispatchPendingInboxNotifications(admin, profile);
     const candidates = await notificationsForUser(admin, profile, savedCursor, checkedAt);
     const allNotifications = [...candidates.dashboard, ...candidates.technicianHistory];
     await saveInboxRows(admin, profile, allNotifications);

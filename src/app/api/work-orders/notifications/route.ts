@@ -97,6 +97,18 @@ export async function GET(request: NextRequest) {
     resolvedNotificationIds = resolvedViews.map((view) => `technician-view:${view.id}`);
   }
 
+  if (notifications.length) {
+    // Persist live candidate intent before exposing it to a desktop reader.
+    // The database rollout gate excludes historical candidates and imports.
+    const { error } = await auth.admin.from("cmpri_dashboard_notifications").upsert(notifications.map((notification) => ({
+      hotel_id: HOTEL_ID, recipient_user_id: auth.principal.identity.id,
+      notification_key: notification.id, work_order_id: notification.work_order_id,
+      target_path: notification.target_path || null, message: notification.message,
+      recorded_at: notification.recorded_at, push_requested: true,
+      read_at: notification.is_read ? notification.recorded_at : null,
+    })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true });
+    if (error) return NextResponse.json({ error: "Work-order notification intent could not be saved." }, { status: 503 });
+  }
   try {
     await dispatchWebPushNotifications(auth.admin, auth.principal.identity.id, auth.principal.profile, notifications);
   } catch (error) {

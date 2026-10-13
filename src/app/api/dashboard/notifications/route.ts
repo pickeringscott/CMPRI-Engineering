@@ -9,7 +9,7 @@ import {
   receivesWorkOrderNotifications,
 } from "@/lib/server/roles";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
-import { isWebPushEligibleProfile } from "@/lib/notifications/schedule";
+import { receivesEventPush } from "@/lib/notifications/event-eligibility";
 import {
   dashboardNotificationScanStart,
   engineerHistoryNotifications,
@@ -84,6 +84,7 @@ async function recordNotifications(
       target_path: notification.target_path || null,
       message: notification.message,
       recorded_at: notification.recorded_at,
+      push_requested: deliverPush && receivesEventPush(profile, notification),
       read_at: !profileIsChiefEngineerOrSystemAdmin(profile)
         && profileHasRole(profile, "technician")
         && notification.is_read
@@ -92,7 +93,7 @@ async function recordNotifications(
     })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true })
     .select("notification_key");
   if (error) return false;
-  if (deliverPush && inserted?.length && isWebPushEligibleProfile(profile)) {
+  if (deliverPush && inserted?.length) {
     const insertedKeys = new Set(inserted.map((row: { notification_key: string }) => row.notification_key));
     try {
       await dispatchWebPushNotifications(admin, userId, profile, missing.filter((item) =>

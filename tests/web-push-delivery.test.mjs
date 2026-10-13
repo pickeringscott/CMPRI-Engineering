@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import webpush from 'web-push';
+import * as roles from '../src/lib/server/roles.ts';
+const policyExports = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/notifications/event-eligibility.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: policyExports, require: () => roles });
 
 function createDeliveryModule(sent) {
   const source = readFileSync(new URL('../src/lib/notifications/web-push.ts', import.meta.url), 'utf8');
@@ -23,6 +26,7 @@ function createDeliveryModule(sent) {
           sent.push({ endpoint: subscription.endpoint, payload: JSON.parse(payload), options });
         },
       } };
+      if (name === '@/lib/notifications/event-eligibility') return policyExports;
       if (name === '@/lib/constants') return { HOTEL_ID: 'cmpri-hotel' };
       if (name === '@/lib/notifications/schedule') {
         return {
@@ -41,8 +45,10 @@ function createDeliveryModule(sent) {
   return { exports, vapidCalls };
 }
 
-function makeAdmin(schedules, subscriptions) {
-  const deliveries = [];
+function makeAdmin(schedules, subscriptions, keys = ['status-change:wo-1', 'new-order:wo-2', 'new-order:local-fixture']) {
+  const deliveries = subscriptions.flatMap((subscription) => keys.filter((key) =>
+    key === 'new-order:local-fixture' ? subscription.recipient_user_id === 'technician' : key === 'status-change:wo-1' ? subscription.recipient_user_id === 'chief-engineer-account' : subscription.recipient_user_id === 'technician-account'
+  ).map((key) => ({ id: `${subscription.id}:${key}`, hotel_id: subscription.hotel_id, recipient_user_id: subscription.recipient_user_id, subscription_id: subscription.id, notification_key: key, status: 'pending', inbox_id: 'fixture-inbox' })));
   const admin = {
     from(table) {
       let operation = 'select';
@@ -222,4 +228,37 @@ test('push worker displays the existing payload with no open app and extends its
   }
   finishDisplay();
   await lifetime;
+});
+
+test('unqueued history and devices registered after intent capture never create a delivery', async () => {
+  const sent=[]; const { exports }=createDeliveryModule(sent);
+  const {admin,deliveries}=makeAdmin({technician:{timezone:'UTC',schedule:allDaySchedule(true)}},[
+    {id:'later-device',hotel_id:'cmpri-hotel',recipient_user_id:'technician',enabled:true,subscription:{endpoint:'https://push.example.invalid/later'}},
+  ],[]);
+  await exports.dispatchWebPushNotifications(admin,'technician',{role:'Maintenance Technician'},[{id:'new-order:old',message:'old'}]);
+  assert.equal(sent.length,0); assert.equal(deliveries.length,0);
+});
+
+test('concurrent dispatch claims one delivery and subsequent polls do not resend provider-accepted alerts',async()=>{
+  const sent=[]; const {exports}=createDeliveryModule(sent);
+  const {admin,deliveries}=makeAdmin({technician:{timezone:'UTC',schedule:allDaySchedule(true)}},[
+    {id:'device',hotel_id:'cmpri-hotel',recipient_user_id:'technician',enabled:true,subscription:{endpoint:'https://push.example.invalid/device'}},
+  ]);
+  const dispatch=()=>exports.dispatchWebPushNotifications(admin,'technician',{role:'Maintenance Technician'},[{id:'new-order:local-fixture',message:'new'}]);
+  await Promise.all([dispatch(),dispatch(),dispatch()]); await dispatch();
+  assert.equal(sent.length,1); assert.equal(deliveries[0].status,'sent');
+});
+
+test('pool recipient can receive its saved pool intent but not a work-order alert; disabled devices stay silent',async()=>{
+  const sent=[]; const {exports}=createDeliveryModule(sent);
+  const subscriptions=[{id:'device',hotel_id:'cmpri-hotel',recipient_user_id:'fdm',enabled:true,subscription:{endpoint:'https://push.example.invalid/device'}}];
+  const {admin,deliveries}=makeAdmin({fdm:{timezone:'UTC',schedule:allDaySchedule(true)}},subscriptions,[]);
+  for(const key of ['pool-closed:fixture','new-order:fixture']) deliveries.push({id:key,hotel_id:'cmpri-hotel',recipient_user_id:'fdm',subscription_id:'device',notification_key:key,status:'pending'});
+  const notifications=deliveries.map(row=>({id:row.notification_key,message:'fixture'}));
+  subscriptions[0].enabled=false;
+  await exports.dispatchWebPushNotifications(admin,'fdm',{role:'Front Desk Manager'},notifications); assert.equal(sent.length,0);
+  subscriptions[0].enabled=true;
+  await exports.dispatchWebPushNotifications(admin,'fdm',{role:'Front Desk Manager'},notifications);
+  assert.equal(sent.length,1); assert.equal(sent[0].payload.tag,'cmpri-pool-closed:fixture');
+  assert.deepEqual(deliveries.map(row=>row.status),['sent','pending']);
 });

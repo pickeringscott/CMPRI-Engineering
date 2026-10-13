@@ -2,11 +2,11 @@ import webpush from "web-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import {
-  isWebPushEligibleProfile,
   isWithinNotificationSchedule,
   normalizeNotificationSettings,
   type WebPushEligibleProfile,
 } from "@/lib/notifications/schedule";
+import { receivesEventPush } from "@/lib/notifications/event-eligibility";
 
 function configuredVapidKeys() {
   const publicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
@@ -28,7 +28,8 @@ export async function dispatchWebPushNotifications(
   profile: WebPushEligibleProfile,
   notifications: Array<{ id: string; message: string; target_path?: string | null; work_order_id?: string | null }>,
 ) {
-  if (!notifications.length || !isWebPushEligibleProfile(profile)) return;
+  notifications = notifications.filter((notification) => receivesEventPush(profile, notification));
+  if (!notifications.length) return;
   const { data: subscriptions, error: subscriptionsError } = await admin
     .from("cmpri_web_push_subscriptions")
     .select("id, subscription")
@@ -56,32 +57,18 @@ export async function dispatchWebPushNotifications(
   }
   for (const notification of notifications) {
     for (const subscription of subscriptions as Array<{ id: string; subscription: webpush.PushSubscription }>) {
-      const { data: insertedDelivery, error: insertError } = await admin
-        .from("cmpri_web_push_deliveries")
-        .insert({
-          hotel_id: HOTEL_ID,
-          recipient_user_id: recipientUserId,
-          subscription_id: subscription.id,
-          notification_key: notification.id,
-          status: "pending",
-        })
-        .select("id")
+      // Only deliver captured intent. A replayed candidate or a newly registered
+      // device must never create delivery rows for an older inbox event.
+      const existingDelivery = await admin.from("cmpri_web_push_deliveries")
+        .select("id, status, claimed_at")
+        .eq("hotel_id", HOTEL_ID)
+        .eq("recipient_user_id", recipientUserId)
+        .eq("subscription_id", subscription.id)
+        .eq("notification_key", notification.id)
         .maybeSingle();
-      let deliveryId = insertedDelivery?.id as string | undefined;
-      if (insertError && (insertError as { code?: string }).code === "23505") {
-        const existing = await admin.from("cmpri_web_push_deliveries")
-          .select("id, status, claimed_at")
-          .eq("hotel_id", HOTEL_ID)
-          .eq("recipient_user_id", recipientUserId)
-          .eq("subscription_id", subscription.id)
-          .eq("notification_key", notification.id)
-          .maybeSingle();
-        if (existing.error) throw new Error("Phone notification delivery status could not be loaded.");
-        deliveryId = existing.data?.id;
-        if (!deliveryId) continue;
-      } else if (insertError) {
-        throw new Error("Phone notification delivery could not be recorded.");
-      }
+      if (existingDelivery.error) throw new Error("Phone notification delivery status could not be loaded.");
+      const deliveryId = existingDelivery.data?.id;
+      if (!deliveryId) continue;
       if (!scheduledAt) {
         continue;
       }
@@ -148,7 +135,7 @@ export async function dispatchWebPushNotifications(
             .eq("recipient_user_id", recipientUserId);
           if (deleteError) console.error("Expired Web Push subscription could not be removed.", deleteError);
         } else {
-          console.error(`Web Push delivery failed for notification ${notification.id}.`, error);
+          console.error("Web Push provider rejected or did not confirm a delivery.", { statusCode });
         }
         const { error: updateError } = await admin
           .from("cmpri_web_push_deliveries")

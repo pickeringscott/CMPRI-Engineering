@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import { createHash } from "node:crypto";
 import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
@@ -751,7 +752,7 @@ export async function POST(request: NextRequest) {
       }
       if (!recipients.size) notificationsRecorded = false;
       if (recipients.size) {
-        const { error: notificationError } = await auth.admin.from("cmpri_dashboard_notifications")
+        const { data: insertedNotifications, error: notificationError } = await auth.admin.from("cmpri_dashboard_notifications")
           .upsert([...recipients].map((recipient_user_id) => ({
             hotel_id: HOTEL_ID,
             recipient_user_id,
@@ -760,8 +761,17 @@ export async function POST(request: NextRequest) {
             target_path: notification.target_path,
             message: notification.message,
             recorded_at: notification.recorded_at,
-          })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true });
+            push_requested: true,
+          })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true }).select("recipient_user_id");
         if (notificationError) notificationsRecorded = false;
+        else {
+          const insertedIds = new Set((insertedNotifications || []).map((row: { recipient_user_id: string }) => row.recipient_user_id));
+          for (const profile of profiles || []) {
+            if (!insertedIds.has(profile.id)) continue;
+            try { await dispatchWebPushNotifications(auth.admin, profile.id, profile, [notification]); }
+            catch { console.error("Room operations inbox and push intent were saved, but immediate phone dispatch failed."); }
+          }
+        }
       }
     }
   }

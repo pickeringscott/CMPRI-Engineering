@@ -208,6 +208,7 @@ export async function POST(request: NextRequest) {
               target_path: "/engineering/pool-log",
               message: `CMPRI pool closed on ${body.log_date}.${reason ? ` ${reason}` : ""}`,
               recorded_at: new Date().toISOString(),
+              push_requested: true,
             })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true })
             .select("recipient_user_id")
           : { data: [], error: new Error("No active CMPRI notification recipients were found.") };

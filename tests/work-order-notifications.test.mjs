@@ -292,6 +292,7 @@ test('notification read API updates only the signed-in recipient and unread row'
         profileHasRole: () => false,
       };
       if (name === '@/lib/notifications/web-push') return { dispatchWebPushNotifications: async () => undefined, isWebPushEligibleProfile: () => false };
+      if (name === '@/lib/notifications/event-eligibility') return { receivesEventPush: () => false };
       if (name === '@/lib/notifications/schedule') return { isWebPushEligibleProfile: () => false };
       if (name === '@/lib/dashboard/work-order-notifications') return {
         dashboardNotificationScanStart: () => '',
