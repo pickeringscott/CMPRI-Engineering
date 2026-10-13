@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
 	outputFileTracingIncludes: {
 		"/*": [".next/server/chunks/**/*"],
 		"/api/maintenance-reference": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
+		"/api/assets": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
 		"/api/assets/documentation": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
 	},
 	outputFileTracingExcludes: {
