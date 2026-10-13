@@ -9,7 +9,9 @@ export type ManualEquipmentIdentity = {
 
 export async function extractManualPdfText(bytes: Uint8Array) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  // pdf.js transfers ownership of its input buffer. Keep the caller's bytes
+  // intact for storage, hashing, and subsequent reads.
+  const pdf = await pdfjs.getDocument({ data: bytes.slice() }).promise;
   const pageCount = Math.min(pdf.numPages, 40);
   const parts: string[] = [];
   let totalLength = 0;

@@ -24,6 +24,8 @@ type KnowledgePayload = Record<string, unknown> & {
 };
 
 type AssetReference = {
+  documentation_verified_at?: string | null;
+  documentation_revision_id?: string | null;
   id: string;
   location_id: string | null;
   active: boolean | null;
@@ -201,7 +203,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
   const dataClient = auth.admin;
-  const assetFields = "id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key";
+  const assetFields = "id, location_id, asset_type, name, asset_tag, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_revision_id";
   const assetId = request.nextUrl.searchParams.get("assetId")?.trim() || "";
 
   const [{ data: memberships, error: membershipError }, assetResult] = await Promise.all([
@@ -292,7 +294,7 @@ export async function GET(request: NextRequest) {
       .from(DOCUMENTATION_BUCKET)
       .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
     const files = storageError ? [] : storedDocs || [];
-    const assetDocumentsVerified = files.some((file) => String(file.name || "") === VERIFY_MARKER);
+    const assetDocumentsVerified = !selectedAsset.documentation_revision_id && (Boolean(selectedAsset.documentation_verified_at) || files.some((file) => String(file.name || "") === VERIFY_MARKER));
     const pdfFiles = files.filter((file) => String(file.name || "").toLowerCase().endsWith(".pdf"));
     const matchingDocuments: Array<{
       name: string;

@@ -26,6 +26,8 @@ type Asset = {
   generation: string | null;
   install_year: number | null;
   documentation_key: string | null;
+  updated_at?: string;
+  documentation_revision_id?: string | null;
   documentation_verified?: boolean;
   documentation_count?: number;
 };
@@ -148,6 +150,23 @@ export default function ManageEquipmentPage() {
 
   const selected = assets.find((asset) => asset.id === selectedId);
   const verified = Boolean(selected?.documentation_verified || draft.documentation_verified);
+  const editableKeys = ["name", "asset_type", "asset_tag", "manufacturer", "model_family", "model_number", "serial_number", "generation", "install_year", "documentation_key", "active"] as const;
+  const unsavedEquipment = !!selected && editableKeys.some((key) => (selected[key] ?? "") !== (draft[key] ?? ""));
+  const [revisionReason, setRevisionReason] = useState("");
+  const [openingRevision, setOpeningRevision] = useState(false);
+  async function beginRevision() {
+    if (!selected?.updated_at || !verified || !canManage || openingRevision) return;
+    setOpeningRevision(true);
+    try {
+      const access = await token();
+      const response = await fetch("/api/assets", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
+        body: JSON.stringify({ id: selected.id, begin_documentation_revision: true, expected_updated_at: selected.updated_at, revision_reason: revisionReason }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Revision could not be opened.");
+      if (await loadAssets(selected.id)) { setEditing(true); setRevisionReason(""); setMessage("Revision opened. Prior verification and files are preserved. Save your corrections, then verify the reviewed record again."); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Revision could not be opened."); }
+    finally { setOpeningRevision(false); }
+  }
 
   async function token() {
     const session = await getValidSession();
@@ -171,6 +190,12 @@ export default function ManageEquipmentPage() {
       const nextId = preferId || selectedId || "";
       const item = list.find((asset) => asset.id === nextId) || blankAsset;
       selectAsset(item);
+      // A save/revision keeps the same selected id, so the selection effect
+      // will not run again after selectAsset clears the displayed documents.
+      if (item.id && item.id === selectedId) {
+        const result = await loadDocuments(item.id);
+        displayDocuments(result.documents, result.verified, item.id);
+      }
       return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load equipment.");
@@ -193,12 +218,12 @@ export default function ManageEquipmentPage() {
     };
   }
 
-  function displayDocuments(docs: Doc[], verifiedState = false) {
+  function displayDocuments(docs: Doc[], verifiedState = false, assetId = selectedId) {
     setDocuments(docs);
-    setAssets((current) => current.map((asset) => asset.id === selectedId
+    setAssets((current) => current.map((asset) => asset.id === assetId
       ? { ...asset, documentation_verified: verifiedState, documentation_count: docs.length }
       : asset));
-    setDraft((current) => current.id === selectedId
+    setDraft((current) => current.id === assetId
       ? { ...current, documentation_verified: verifiedState, documentation_count: docs.length }
       : current);
     setDocStatuses((current) => {
@@ -226,6 +251,7 @@ export default function ManageEquipmentPage() {
     setExtractedDraft({});
     setDialogMessage("");
     setDocFile(null);
+    setRevisionReason("");
   }
 
   useEffect(() => {
@@ -261,6 +287,7 @@ export default function ManageEquipmentPage() {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
       body: JSON.stringify({
         id: selectedId,
+        expected_updated_at: selected?.updated_at,
         name: draft.name,
         asset_type: draft.asset_type,
         asset_tag: draft.asset_tag,
@@ -353,14 +380,14 @@ export default function ManageEquipmentPage() {
   }
 
   async function verify() {
-    if (!selectedId || !canManage || verifying) return;
+    if (!selectedId || !canManage || verifying || unsavedEquipment) { if (unsavedEquipment) setMessage("Save equipment changes before verification."); return; }
     setVerifying(true);
     setMessage("Confirming equipment against documentation…");
     const access = await token();
     const response = await fetch("/api/assets", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
-      body: JSON.stringify({ id: selectedId, verify_with_documentation: true }),
+      body: JSON.stringify({ id: selectedId, verify_with_documentation: true, expected_updated_at: selected?.updated_at }),
     });
     const payload = await response.json();
     setVerifying(false);
@@ -464,9 +491,16 @@ export default function ManageEquipmentPage() {
                 <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
 
+              {canManage && verified && <div className="mt-4 rounded-lg border border-amber-600/40 p-3">
+                <p className="text-sm text-amber-100">To correct verified equipment, open a documented revision. Prior verification and saved files are retained; the revised record needs verification again.</p>
+                <label className="mt-2 block text-sm">Revision reason<input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} maxLength={2000} className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2" /></label>
+                <button type="button" disabled={openingRevision || revisionReason.trim().length < 5} onClick={() => void beginRevision()} className="mt-2 rounded border border-amber-500 px-3 py-2 disabled:opacity-40">{openingRevision ? "Opening revision…" : "Open Revision & Edit"}</button>
+              </div>}
+              {unsavedEquipment && <p className="mt-3 text-sm text-amber-200">Save equipment changes before confirming documentation.</p>}
+              {selected?.documentation_revision_id && <p className="mt-3 text-sm text-amber-200">Documentation revision in progress. Previous verification remains in the audit history.</p>}
               {canManage && editing && !verified && <div className="mt-8 border-t border-slate-700 pt-6">
                 <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
-                <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
+                <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying || unsavedEquipment || saving} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
               </div>}
             </>}
           </section>

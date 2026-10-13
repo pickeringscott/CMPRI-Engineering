@@ -26,7 +26,7 @@ const WRITE_ACTIONS: WriteAction[] = [
   { action: "work_order_drafts.update", description: "Update your CMPRI work-order draft using its current revision.", capability: "submit" },
   { action: "work_order_drafts.delete", description: "Delete a draft allowed by CMPRI draft ownership and supervisory policy.", capability: "submit" },
   { action: "assets.create", description: "Create equipment under CMPRI equipment-management validation.", capability: "manage_assets" },
-  { action: "assets.update", description: "Update equipment under CMPRI equipment-management validation.", capability: "manage_assets" },
+  { action: "assets.update", description: "Update equipment under CMPRI equipment-management validation. Verified records require an explicit revision: id, begin_documentation_revision: true, expected_updated_at, revision_reason. Prior verification and files are retained; save corrections with expected_updated_at, then verify again.", capability: "manage_assets" },
   { action: "engineering_catalog.create", description: "Create a supported CMPRI engineering catalog record.", capability: "manage_assets" },
   { action: "engineering_catalog.update", description: "Update a supported CMPRI engineering catalog record.", capability: "manage_assets" },
   { action: "engineering_operations.update", description: "Update a permitted CMPRI purchase or shipment operation.", capability: "operate_integrations" },

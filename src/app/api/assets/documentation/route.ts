@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
   const assetId = request.nextUrl.searchParams.get("asset_id")?.trim() || "";
   if (!assetId) return NextResponse.json({ error: "asset_id is required." }, { status: 400 });
   const { data: asset, error: assetError } = await auth.admin.from("assets")
-    .select("id, manufacturer, model_family, model_number")
+    .select("id, manufacturer, model_family, model_number, documentation_verified_at, documentation_revision_id")
     .eq("id", assetId)
     .maybeSingle();
   if (assetError) return NextResponse.json({ error: "Equipment could not be verified." }, { status: 503 });
@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
     assetFiles.push(...(data || []));
     if ((data || []).length < 100) break;
   }
-  const verified = assetFiles.some((file) => file.name === VERIFY_MARKER);
+  const verified = !asset.documentation_revision_id && (Boolean(asset.documentation_verified_at) || assetFiles.some((file) => file.name === VERIFY_MARKER));
   const assetDocuments = await Promise.all(assetFiles.filter((file) => file.name !== VERIFY_MARKER).map(async (file) => {
     const storagePath = `${prefix}/${file.name}`;
     const { data: signed } = await auth.admin.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60);
@@ -207,11 +207,15 @@ export async function POST(request: NextRequest) {
   if (existingPath && documentKey) return NextResponse.json({ error: "Choose one stored document source." }, { status: 400 });
 
   const { data: asset, error: assetError } = await auth.admin.from("assets")
-    .select("id, manufacturer, model_family, model_number")
+    .select("id, manufacturer, model_family, model_number, documentation_verified_at, documentation_revision_id")
     .eq("id", assetId)
     .maybeSingle();
   if (assetError) return NextResponse.json({ error: "Equipment could not be verified." }, { status: 503 });
   if (!asset) return NextResponse.json({ error: "Asset not found." }, { status: 404 });
+
+  if (!existingPath && !documentKey && asset.documentation_verified_at && !asset.documentation_revision_id) {
+    return NextResponse.json({ error: "Open a documented revision before adding files to verified equipment." }, { status: 409 });
+  }
 
   const bucketError = await ensureBucket(auth.admin);
   if (bucketError) return NextResponse.json({ error: `Unable to prepare documentation storage: ${bucketError.message}` }, { status: 500 });
@@ -256,6 +260,7 @@ export async function POST(request: NextRequest) {
     const { data: stored, error: downloadError } = await auth.admin.storage.from(BUCKET).download(existingPath);
     if (downloadError || !stored) return NextResponse.json({ error: "Stored PDF could not be read." }, { status: 400 });
     const bytes = new Uint8Array(await stored.arrayBuffer());
+    if (!bytes.byteLength) return NextResponse.json({ error: "The saved PDF is empty. Upload the original PDF again after opening a revision if the record is verified. The existing file is preserved." }, { status: 422 });
     text = await extractPdfText(bytes);
     storagePath = existingPath;
     originalName = existingPath.split("/").pop()?.replace(/^\d+-/, "") || "documentation.pdf";
@@ -266,7 +271,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Documentation must be a PDF." }, { status: 400 });
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
+    if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") return NextResponse.json({ error: "The selected file is not a PDF." }, { status: 400 });
+    const originalSize = bytes.byteLength;
     text = await extractPdfText(bytes);
+    if (!bytes.byteLength || bytes.byteLength !== originalSize) return NextResponse.json({ error: "PDF bytes changed during processing. Nothing was uploaded." }, { status: 500 });
     originalName = file.name;
     storagePath = `${HOTEL_ID}/${assetId}/${Date.now()}-${safePart(file.name)}`;
     const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(storagePath, bytes, {
