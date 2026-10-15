@@ -27,6 +27,9 @@ function fixture(payload = reviewed, catalog = true) {
     exports,
     fetch: () => { throw Error('GET must not call AI'); },
     require(name) {
+      if (name === '@/lib/server/pre-consolidation/maintenance-reference-route') return { GET: async () => null };
+      if (name === '@/lib/server/consolidation-stage') return { dispatchConsolidation: async () => null };
+      if (name === '@/lib/server/asset-file-register') return { listRegisteredAssetFiles: async () => [] };
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status || 200 }) } };
       if (name === '@/lib/constants') return { HOTEL_ID: 'hotel' };
       if (name === '@/lib/server/auth') return { requireCapability: async () => ({ admin, principal: {} }) };
