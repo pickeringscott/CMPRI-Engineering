@@ -1,3 +1,4 @@
+import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as equipmentSelection from "../src/lib/equipment-selection.ts";
 import * as accountDisplay from "../src/lib/account-display.ts";
@@ -96,7 +97,7 @@ function fixture(role, actorId = "actor") {
   const exports = {};
   vm.runInNewContext(compiled, {
     exports,
-    require(name) {
+    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
       if (name === "@/lib/account-display") return accountDisplay;
@@ -162,7 +163,7 @@ function submittedDraftRetryFixture() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     exports: routeExports,
-    require(name) {
+    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
       if (name === "@/lib/account-display") return accountDisplay;

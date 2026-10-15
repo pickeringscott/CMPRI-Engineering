@@ -1,5 +1,8 @@
 "use client";
 
+import { formatWorkOrder, workOrderNumber, workOrderReferences } from "@/lib/work-order-reference.js";
+import { frontDeskCommonArea, type CommonAreaLocation } from "@/lib/cmpri-location-groups";
+
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 
 import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-steps";
@@ -16,7 +19,7 @@ import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
-import { canReadEquipment, roleKey } from "@/lib/server/roles";
+import { canReadEquipment, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry } from "@/lib/ticket-note-presentation";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
@@ -568,11 +571,15 @@ export default function WorkOrderTicketPage() {
   const [photoUploadMessage, setPhotoUploadMessage] = useState("");
   const photoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ticketReady, setTicketReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  const saveInFlight = useRef(false);
+  const recoveredDraft = useRef(false);
   const [embedded, setEmbedded] = useState(true);
   const [modalToken, setModalToken] = useState("");
   const [message, setMessage] = useState("");
   const [editingIssue, setEditingIssue] = useState(false);
+  const [editingField, setEditingField] = useState<string | null>(null);
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [newAssetType, setNewAssetType] = useState("");
   const [newAssetManufacturer, setNewAssetManufacturer] = useState("");
@@ -584,7 +591,7 @@ export default function WorkOrderTicketPage() {
   const historyScrollRef = useRef<HTMLDivElement | null>(null);
 
   const [locationId, setLocationId] = useState("");
-  const [reportLocations, setReportLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [reportLocations, setReportLocations] = useState<CommonAreaLocation[]>([]);
   const [locationError, setLocationError] = useState("");
   const [issue, setIssue] = useState("");
   const [assetId, setAssetId] = useState("");
@@ -620,9 +627,10 @@ export default function WorkOrderTicketPage() {
   const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: false });
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
+  const cmpriSessionRef = useRef<CmpriClientSession | null>(null);
 
   const storedAsset = assets.find((asset) => asset.id === assetId);
-  const equipmentLocationMismatch = !!storedAsset?.location_id && storedAsset.location_id !== (locationId || order?.location_id);
+  const equipmentLocationMismatch = !!storedAsset?.location_id && storedAsset.location_id !== (locationId || order?.location_id) && !frontDeskCommonArea(reportLocations.find(location => location.id === (locationId || order?.location_id)), reportLocations.find(location => location.id === storedAsset.location_id));
   const selectedAsset = equipmentLocationMismatch ? undefined : storedAsset;
   const manualCurrent = !!selectedAsset && manualResult?.assetId === assetId &&
     manualResult?.documentationKey === selectedAsset?.documentation_key &&
@@ -673,7 +681,18 @@ export default function WorkOrderTicketPage() {
     requestAnimationFrame(() => { pane.scrollTop = pane.scrollHeight; });
   }, [notes, order?.created_at]);
 
-  async function loadMaintenanceReference() {
+  const maintenancePending = useRef<{ key: string; promise: Promise<Asset[]> } | null>(null);
+  function loadMaintenanceReference() {
+    const identity = cmpriSessionRef.current;
+    const key = `${identity?.hotelId}:${identity?.user.id}`;
+    if (maintenancePending.current?.key === key) return maintenancePending.current.promise;
+    const promise = fetchMaintenanceReference().finally(() => {
+      if (maintenancePending.current?.promise === promise) maintenancePending.current = null;
+    });
+    maintenancePending.current = { key, promise };
+    return promise;
+  }
+  async function fetchMaintenanceReference() {
     setAssetReferenceLoading(true);
     setAssetReferenceError("");
     try {
@@ -830,6 +849,7 @@ export default function WorkOrderTicketPage() {
   }
 
   const roomContextGeneration = useRef(0);
+  useEffect(() => { const generation = roomContextGeneration; return () => { generation.current++; }; }, []);
   async function loadRoomOperationalContext(roomLabel?: string | null) {
     const generation = ++roomContextGeneration.current;
     const roomText = String(roomLabel || "");
@@ -840,25 +860,23 @@ export default function WorkOrderTicketPage() {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) {
+        if (generation !== roomContextGeneration.current) return;
         setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "Today's checkout time could not be loaded.", loading: false });
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
-      const current = await loadCmpriSession();
-      const canViewRanker = roomRankerProfileCanView(current.user, current.user.email);
-      let ranker: RoomRankerContext | null = null;
-      let rankerError = "";
-      if (canViewRanker) {
+      const current = cmpriSession;
+      if (!current) return;
+      // Ranker is independent; never hold guest details behind it.
+      if (roomRankerProfileCanView(current.user, current.user.email)) void (async () => {
         try {
-          const rankerResponse = await fetch("/api/room-ranker", { headers, cache: "no-store" });
-          const rankerPayload: unknown = await rankerResponse.json().catch(() => null);
-          const result = resolveRoomRankerContext(rankerResponse.ok, rankerPayload, room);
-          ranker = result.ranker;
-          rankerError = result.error;
+          const response = await fetch("/api/room-ranker", { headers, cache: "no-store" });
+          const result = resolveRoomRankerContext(response.ok, await response.json().catch(() => null), room);
+          if (generation === roomContextGeneration.current) setRoomOperationalContext(previous => ({ ...previous, ranker: result.ranker, rankerError: result.error }));
         } catch (error) {
-          rankerError = error instanceof Error ? error.message : "Room Ranker could not be loaded.";
+          if (generation === roomContextGeneration.current) setRoomOperationalContext(previous => ({ ...previous, rankerError: error instanceof Error ? error.message : "Room Ranker could not be loaded." }));
         }
-      }
+      })();
       let guestName = "";
       let roomStatus = "";
       let checkoutDate = "";
@@ -883,7 +901,7 @@ export default function WorkOrderTicketPage() {
         }
       }
       if (generation !== roomContextGeneration.current) return;
-      setRoomOperationalContext({ ranker, rankerError, pm: {}, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false });
+      setRoomOperationalContext(previous => ({ ...previous, pm: {}, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false }));
     } catch (error) {
       if (generation !== roomContextGeneration.current) return;
       const message = error instanceof Error ? error.message : "Room context could not be loaded.";
@@ -903,8 +921,12 @@ export default function WorkOrderTicketPage() {
   }
 
   useEffect(() => {
-    void Promise.resolve().then(() => loadRoomOperationalContext(order?.room));
-  }, [order?.room]);
+    let cancelled = false;
+    if (cmpriSession) void Promise.resolve().then(() => { if (!cancelled) void loadRoomOperationalContext(order?.room); });
+    return () => { cancelled = true; };
+    // The server authorizes each fresh context request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.room, cmpriSession]);
 
   async function loadExternalActivity() {
     if (!id) return;
@@ -999,6 +1021,25 @@ export default function WorkOrderTicketPage() {
         hours: row.hours == null ? "" : String(row.hours),
         dueBy: normalizedDueBy,
       }));
+      try {
+        const identity = cmpriSessionRef.current;
+        const key = identity ? `cmpri:ticket-draft:${identity.hotelId}:${identity.user.id}:${row.id}` : "";
+        const recovered = key ? JSON.parse(localStorage.getItem(key) || "null") : null;
+        if (recovered?.version === 1 && recovered.fields && Number.isSafeInteger(recovered.revision)) {
+          const f = recovered.fields;
+          setLocationId(f.locationId); setIssue(f.issue); setAssetId(f.assetId); setCategory(f.category);
+          setPriority(f.priority); setTechnicianName(f.technicianName); setStatus(f.status); setNotes(f.notes);
+          setActionRootCause(f.actionRootCause); setParts(f.parts); setCost(f.cost); setHours(f.hours); setDueBy(f.dueBy);
+          setNoteDraft(recovered.noteDraft || ""); setStagedNoteIds(recovered.stagedNoteIds || []);
+          assetSelectionChanged.current = true;
+          if (recovered.revision !== row.revision) {
+            setOrder({ ...row, revision: recovered.revision });
+            setMessage("Recovered draft: this ticket has changed. Your text is preserved. Compare with the saved ticket before combining changes; saving this older version will be rejected.");
+          } else setMessage("Unsaved work recovered on this device.");
+        }
+      } catch { setMessage("The local draft could not be restored."); }
+      recoveredDraft.current = true;
+      setTicketReady(true);
       setSaveState("idle");
 
       // Render the ticket immediately. Reference data can finish loading in the
@@ -1070,6 +1111,7 @@ export default function WorkOrderTicketPage() {
       try {
         const session = await loadCmpriSession();
         setCmpriSession(session);
+        cmpriSessionRef.current = session;
         canLoadMaintenanceReference = session.capabilities.includes("view_dashboard");
         const canViewTicket = session.capabilities.includes("view_dashboard") || session.capabilities.includes("view_work_orders") || session.capabilities.includes("edit_tickets") || session.capabilities.includes("review_tickets") || session.capabilities.includes("add_work_order_notes");
         if (!canViewTicket) {
@@ -1208,7 +1250,20 @@ export default function WorkOrderTicketPage() {
     hours,
     dueBy,
   });
-  const hasUnsavedChanges = !!initialFingerprint && currentFingerprint !== initialFingerprint;
+  const hasUnsavedChanges = !!initialFingerprint && (currentFingerprint !== initialFingerprint || !!noteDraft.trim());
+  useEffect(() => {
+    if (!cmpriSession || !order || !initialFingerprint || !recoveredDraft.current) return;
+    const key = `cmpri:ticket-draft:${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`;
+    try {
+      if (hasUnsavedChanges) localStorage.setItem(key, JSON.stringify({ version: 1, revision: order.revision, fields: JSON.parse(currentFingerprint), noteDraft, stagedNoteIds }));
+      else localStorage.removeItem(key);
+    } catch { /* Storage may be unavailable; current in-memory edits remain intact. */ }
+  }, [cmpriSession, order, initialFingerprint, currentFingerprint, hasUnsavedChanges, noteDraft, stagedNoteIds]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges) event.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasUnsavedChanges]);
   const roomRankerFlags = [roomOperationalContext.ranker?.check1, roomOperationalContext.ranker?.check2, roomOperationalContext.ranker?.check3, roomOperationalContext.ranker?.notes].map((value) => String(value || "").trim()).filter(Boolean);
   const closeEmbeddedTicket = useCallback(() => {
     if (embedded && window.parent !== window) {
@@ -1272,15 +1327,7 @@ export default function WorkOrderTicketPage() {
   }
 
   function submitTechnicianNote() {
-    const text = noteDraft.trim();
-    if (!text) return;
-    const entry: TicketHistoryEntry = { id: `staged-${Date.now()}`, timestamp: new Date().toISOString(), actor: currentActor, authorRole: cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, kind: "note", text, staged: true };
-    const encoded = historyLine(entry);
-    setNotes((existing) => [existing.trim(), encoded].filter(Boolean).join("\n"));
-    // Track the exact staged history line, not a generated parser id. That makes
-    // Edit target the note that was just submitted instead of an older note.
-    setStagedNoteIds((lines) => [...lines, encoded]);
-    setNoteDraft("");
+    void saveTicket(undefined, true);
   }
 
   function editSubmittedNote(entry: TicketHistoryEntry) {
@@ -1338,28 +1385,33 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  async function saveTicket(statusOverride?: string) {
-    if (!order) return;
+  async function saveTicket(statusOverride?: string, notesOnly = false) {
+    if (!order || !ticketReady || saveInFlight.current) return;
+    const editorText = noteDraft.trim();
+    const pendingLines = [...stagedNoteIds];
+    if (editorText) pendingLines.push(historyLine({ id: "", timestamp: new Date().toISOString(), actor: currentActor, authorRole: cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, kind: "note", text: editorText }));
+    const pendingTexts = pendingLines.flatMap(line => parseTicketHistory(line).map(entry => entry.text));
+    const editorNotes = [notes.trim(), ...pendingLines.filter(line => !notes.split("\n").includes(line))].filter(Boolean).join("\n");
     const saveStatus = statusOverride ?? status;
 
     const roomChanged = canEditField("location_id") && locationId !== (order.location_id || "");
-    const otherFieldEdits = stagedNoteIds.length > 0 || assetSelectionChanged.current
+    const otherFieldEdits = pendingLines.length > 0 || assetSelectionChanged.current
       || category !== (order.category || "General") || priority !== (order.priority || "Medium")
       || technicianName !== (order.technician_name || "") || saveStatus !== (order.status || "Open")
       || actionRootCause !== (order.action_root_cause || "")
       || parts !== (order.parts || explicitPartSuggestion(cleanTicketReportedIssue(order.issue || "", order.room || "")))
       || cost !== (order.cost == null ? "" : String(order.cost)) || hours !== (order.hours == null ? "" : String(order.hours))
       || dueBy !== (order.due_by ? String(order.due_by).slice(0,10) : "");
-    if (roomChanged && otherFieldEdits) {
+    if (!notesOnly && roomChanged && otherFieldEdits) {
       setMessage("Save or discard other field edits before correcting Room/Location. Your edits are still here.");
       return;
     }
     const normalizedIssue = cleanTicketReportedIssue(issue, order.room || "");
-    if (canEditField("issue") && !normalizedIssue.trim()) {
+    if (!notesOnly && canEditField("issue") && !normalizedIssue.trim()) {
       setMessage("Reported Issue is required.");
       return;
     }
-    if (normalizedIssue !== issue) setIssue(normalizedIssue);
+    if (!notesOnly && normalizedIssue !== issue) setIssue(normalizedIssue);
 
     setSaving(true);
     setSaveState("saving");
@@ -1376,16 +1428,21 @@ export default function WorkOrderTicketPage() {
     if (originalDue !== dueBy) fieldChanges.push(`Due By: ${originalDue || "None"} → ${dueBy || "None"}`);
     if (cleanTicketReportedIssue(order.issue || "", order.room || "") !== normalizedIssue) fieldChanges.push("Reported Issue updated");
     const changeLines = fieldChanges.map((text, index) => historyLine({ id: `change-${index}`, timestamp: new Date(Date.now() + index).toISOString(), actor: currentActor, kind: "change", text }));
-    const notesWithChanges = [notes.trim(), ...changeLines].filter(Boolean).join("\n");
+    const notesWithChanges = [editorNotes.trim(), ...changeLines].filter(Boolean).join("\n");
 
     const updatePayload: Record<string, unknown> = {
       expected_revision: order.revision,
     };
     const capabilities = typeof cmpriSession !== "undefined" ? (cmpriSession?.capabilities ?? []) : ["edit_tickets"];
-    if (canEditField("issue") && (!canEditTicket || (order.can_correct_report && !otherFieldEdits))) {
-      if (stagedNoteIds.length) {
+    if (notesOnly) {
+      if (!pendingTexts.length) { setSaving(false); setSaveState("idle"); return; }
+      if (canEditField("notes") && (canEditTicket || canReviewCurrentTicket)) updatePayload.notes = editorNotes;
+      else if (canAddWorkOrderNotes) updatePayload.appendNotes = pendingTexts;
+      else { setMessage("This account cannot add notes."); setSaving(false); setSaveState("idle"); return; }
+    } else if (canEditField("issue") && (!canEditTicket || (order.can_correct_report && !otherFieldEdits))) {
+      if (pendingLines.length) {
         if (editingIssue) { setMessage("Finish editing, then save your staged notes before saving the report correction."); setSaving(false); setSaveState("idle"); return; }
-        updatePayload.appendNotes = stagedNoteIds.flatMap(line => parseTicketHistory(line).map(entry => entry.text));
+        updatePayload.appendNotes = pendingTexts;
       } else {
         if (normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || "")) updatePayload.issue = normalizedIssue;
         if (canEditField("location_id") && locationId !== (order.location_id || "")) updatePayload.location_id = locationId;
@@ -1393,8 +1450,8 @@ export default function WorkOrderTicketPage() {
     } else if (canEditField("issue")) {
       Object.assign(updatePayload, {
         issue: normalizedIssue,
-        asset_id: asset?.id ?? null,
-        asset_name: asset?.name ?? "",
+        asset_id: assetId || null,
+        asset_name: asset?.name ?? order.asset_name ?? "",
         category,
         priority,
         technician_name: technicianName.trim(),
@@ -1408,7 +1465,7 @@ export default function WorkOrderTicketPage() {
       });
     } else if (canEditField("asset_id")) {
       Object.assign(updatePayload, {
-        asset_id: asset?.id ?? null,
+        asset_id: assetId || null,
         category,
         status: saveStatus,
         notes: notesWithChanges,
@@ -1417,7 +1474,7 @@ export default function WorkOrderTicketPage() {
       if ((order.status || "Open") !== saveStatus) updatePayload.status = saveStatus;
       if (notesWithChanges !== (order.notes || "")) updatePayload.notes = notesWithChanges;
     } else if (canAddWorkOrderNotes && capabilities.includes("add_work_order_notes")) {
-      if (stagedNoteIds.length) updatePayload.appendNotes = stagedNoteIds.flatMap(line => parseTicketHistory(line).map(entry => entry.text));
+      if (pendingLines.length) updatePayload.appendNotes = pendingTexts;
     } else if (isTechnician) {
       setMessage("Take this work before editing its details.");
       setSaving(false);
@@ -1429,7 +1486,7 @@ export default function WorkOrderTicketPage() {
       setSaveState("idle");
       return;
     }
-    if (canEditTicket && canEditField("location_id") && locationId !== (order.location_id || "")) {
+    if (!notesOnly && canEditTicket && canEditField("location_id") && locationId !== (order.location_id || "")) {
       // Correcting the room must not commit inferred equipment, suggested parts, or defaults.
       for (const key of Object.keys(updatePayload)) {
         if (!["expected_revision", "issue"].includes(key)) delete updatePayload[key];
@@ -1444,6 +1501,7 @@ export default function WorkOrderTicketPage() {
       return;
     }
 
+    saveInFlight.current = true;
     let savedRow: WorkOrder | null = null;
     try {
       const session = await getValidSession();
@@ -1455,25 +1513,33 @@ export default function WorkOrderTicketPage() {
         body: JSON.stringify(appendOnly ? { notes: updatePayload.appendNotes, expected_revision: order.revision } : updatePayload),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Work order update failed.");
+      if (!response.ok || !payload.workOrder || payload.workOrder.id !== order.id || !Number.isSafeInteger(payload.workOrder.revision)) throw new Error(payload.error || "Save could not be confirmed. Your draft is retained; reload to check the saved ticket before retrying.");
       savedRow = (payload.workOrder || null) as WorkOrder | null;
     } catch (error) {
       setMessage(`Save error: ${error instanceof Error ? error.message : "Work order update failed."}`);
       setSaving(false);
       setSaveState("idle");
+      saveInFlight.current = false;
       // Keep unsaved edits and staged notes available for a deliberate retry.
       return;
     }
 
-    if (savedRow && roomChanged) {
+    saveInFlight.current = false;
+    if (savedRow && !notesOnly && roomChanged) {
       roomContextGeneration.current++;
       setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: true });
     }
-    if (savedRow) setOrder({ ...savedRow, can_correct_report: savedRow.can_correct_report, creator_name: order.creator_name, creator_display_role: order.creator_display_role, technician_view_entries: order.technician_view_entries });
+    if (savedRow) setOrder({ ...savedRow, can_correct_report: savedRow.can_correct_report ?? order.can_correct_report, creator_name: order.creator_name, creator_display_role: order.creator_display_role, technician_view_entries: order.technician_view_entries });
     if (statusOverride !== undefined) setStatus(saveStatus);
     const savedNotes = savedRow?.notes ?? notesWithChanges;
     setNotes(savedNotes);
     setStagedNoteIds([]);
+    setNoteDraft("");
+    if (notesOnly) {
+      setInitialFingerprint(previous => { const base = JSON.parse(previous || "{}"); return JSON.stringify({ ...base, notes: savedNotes }); });
+      setSaving(false); setSaveState("idle"); setMessage("Note saved.");
+      return;
+    }
     if (Array.isArray(updatePayload.appendNotes) && (roomChanged || normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || ""))) {
       setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return;
     }
@@ -1483,20 +1549,27 @@ export default function WorkOrderTicketPage() {
       actionRootCause, parts, cost, hours, dueBy,
     }));
     setSaving(false);
-    setSaveState("saved");
+    setMessage("Work order saved.");
+    setSaveState("idle");
+    if (embedded && window.parent !== window) window.parent.postMessage(
+      { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken }, window.location.origin);
 
-    window.setTimeout(() => {
-      if (embedded && window.parent !== window) {
-        window.parent.postMessage(
-          { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken },
-          window.location.origin
-        );
-        return;
-      }
-      router.push("/engineering");
-    }, 1250);
   }
 
+  function exportUnsavedDraft() {
+    const text = JSON.stringify({ workOrder: formatWorkOrder(order?.display_id), expectedRevision: order?.revision, fields: JSON.parse(currentFingerprint), noteDraft }, null, 2);
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url; link.download = "cmpri-work-order-draft.json"; link.click();
+    URL.revokeObjectURL(url);
+  }
+  function discardLocalDraftAndClose() {
+    if (saving || !cmpriSession || !order) return;
+    try {
+      localStorage.removeItem(`cmpri:ticket-draft:${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`);
+      recoveredDraft.current = false;
+      closeEmbeddedTicket();
+    } catch { setMessage("The local draft could not be cleared. Your text is still here."); }
+  }
   const cancelTicket = useCallback(() => {
     if (hasUnsavedChanges) {
       setShowCancelConfirm(true);
@@ -1646,27 +1719,28 @@ export default function WorkOrderTicketPage() {
 
   const categoryOptions = workOrderCategoryOptions(category);
   const priorityOptions = ['Urgent','High','Medium','Low'].map((value) => ({ value, label: value }));
-  const canAccessAssignedWork = canAccessWorkOrderByAssignment(cmpriSession?.user.role, cmpriSession?.user.name, order);
+  const canAccessAssignedWork = canAccessWorkOrderByAssignment(cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user)) ? "Chief Engineer" : cmpriSession?.user.role, cmpriSession?.user.name, order);
   const canEditTicket = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
   const canAddWorkOrderNotes = Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
-  const isTechnician = roleKey(cmpriSession?.user.role) === "technician";
+  const chief = !!cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user));
+  const isTechnician = !chief && roleKey(cmpriSession?.user.role) === "technician";
   const canClaimWorkOrder = isTechnician &&
     canEditTicket &&
     !String(order.technician_name || "").trim() &&
     ["Open", "In Progress"].includes(String(order.status || "Open"));
   const canReviewCurrentTicket = canReviewTicket && order.status === "Pending Verification";
   const editableFields: readonly WorkOrderEditableField[] = [...workOrderEditableFields({
-    role: cmpriSession?.user.role,
+    role: chief ? "Chief Engineer" : cmpriSession?.user.role,
     canEdit: canEditTicket,
     canReview: canReviewCurrentTicket,
     canAddNotes: canAddWorkOrderNotes && ["Open", "In Progress"].includes(String(order.status || "")),
     unassigned: !String(order.technician_name || "").trim(),
     canClaimUnassigned: canClaimWorkOrder,
   }), ...(order.can_correct_report ? ["issue", "location_id"] as const : [])];
-  const canSubmitTicketNote = canSubmitWorkOrderNote({
-    role: cmpriSession?.user.role,
+  const canSubmitTicketNote = ticketReady && canSubmitWorkOrderNote({
+    role: chief ? "Chief Engineer" : cmpriSession?.user.role,
     canEdit: canEditTicket,
     canReview: canReviewCurrentTicket,
     canAddNotes: canAddWorkOrderNotes,
@@ -1674,9 +1748,10 @@ export default function WorkOrderTicketPage() {
     unassigned: !String(order.technician_name || "").trim(),
     canClaimUnassigned: canClaimWorkOrder,
   });
-  const canEditField = (field: WorkOrderEditableField) => editableFields.includes(field);
+  const canEditField = (field: WorkOrderEditableField) => ticketReady && editableFields.includes(field);
   const canEditWorkOrder = editableFields.some((field) => field !== "technician_name" && field !== "notes");
   const statusValues = (() => {
+    if (chief && canEditField("status")) return ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"];
     if (canReviewCurrentTicket && !canEditTicket) {
       return status === "Pending Verification" ? ["Pending Verification", "Open", "Will Not Do"] : [status];
     }
@@ -1690,26 +1765,26 @@ export default function WorkOrderTicketPage() {
     return status === "Pending Verification" ? ["Pending Verification", ...values] : values;
   })();
   const statusOptions = Array.from(new Set(statusValues)).map((value) => ({ value, label: value }));
-  const mentionMatch = noteDraft.match(/(?:^|\s)@([A-Za-z0-9-]*)$/);
+  const mentionMatch = noteDraft.match(/(?:^|\s)@([A-Za-z0-9#-]*)$/);
   const mentionQuery = (mentionMatch?.[1] || "").toLowerCase();
   const mentionSuggestions = mentionMatch
     ? mentionTickets
         .filter((ticket) => {
           if (!mentionQuery) return true;
-          const haystack = [ticket.display_id, ticket.room, ticket.issue, ticket.status, ticket.id.slice(0, 8)].filter(Boolean).join(" ").toLowerCase();
+          const haystack = [ticket.display_id, formatWorkOrder(ticket.display_id), ticket.room, ticket.issue, ticket.status, ticket.id.slice(0, 8)].filter(Boolean).join(" ").toLowerCase();
           return haystack.includes(mentionQuery);
         })
         .slice(0, 6)
     : [];
 
   function ticketMentionLabel(ticket: MentionTicket) {
-    return String(ticket.display_id || `WO-${ticket.id.slice(0, 8)}`).replace(/^@/, "");
+    return formatWorkOrder(ticket.display_id, `WO-${ticket.id.slice(0, 8)}`);
   }
 
   function insertTicketMention(ticket: MentionTicket) {
     if (!mentionMatch) return;
     const label = ticketMentionLabel(ticket);
-    setNoteDraft((draft) => draft.replace(/(?:^|\s)@[A-Za-z0-9-]*$/, (matched) => `${matched.startsWith(" ") ? " " : ""}@${label} `));
+    setNoteDraft((draft) => draft.replace(/(?:^|\s)@[A-Za-z0-9#-]*$/, (matched) => `${matched.startsWith(" ") ? " " : ""}@${label} `));
   }
 
   function openMentionedTicket(ticket: MentionTicket) {
@@ -1724,21 +1799,24 @@ export default function WorkOrderTicketPage() {
   }
 
   function renderHistoryText(text: string) {
-    const pieces = text.split(/(@[A-Za-z0-9-]+)/g);
-    return pieces.map((piece, index) => {
-      if (!piece.startsWith("@")) return <span key={`text-${index}`}>{piece}</span>;
-      const token = piece.slice(1).toLowerCase();
-      const ticket = mentionTickets.find((candidate) => {
-        const label = ticketMentionLabel(candidate).toLowerCase();
-        return label === token || candidate.id.toLowerCase().startsWith(token.replace(/^wo-/, ""));
-      });
-      if (!ticket) return <span key={`mention-${index}`} className="font-semibold text-sky-300">{piece}</span>;
-      return (
-        <button key={`mention-${index}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={`Open ${ticketMentionLabel(ticket)} — ${ticket.room || "No location"}`}>
-          {piece}
-        </button>
-      );
-    });
+    const refs = workOrderReferences(text);
+    // Keep historical internal-ID mentions working without changing their links.
+    for (const match of text.matchAll(/@(?:WO-)?[a-f0-9-]{8,36}\b/gi)) {
+      if (refs.some(ref => match.index! < ref.end && match.index! + match[0].length > ref.start)) continue;
+      const id = match[0].replace(/^@(?:WO-)?/i, "").toLowerCase();
+      const ticket = mentionTickets.find(candidate => candidate.id.toLowerCase().startsWith(id));
+      if (ticket) refs.push({ start: match.index!, end: match.index! + match[0].length, number: ticket.display_id || "", label: ticketMentionLabel(ticket) });
+    }
+    const output: React.ReactNode[] = [];
+    let at = 0;
+    for (const ref of refs.sort((a,b) => a.start - b.start)) {
+      const ticket = mentionTickets.find(candidate => workOrderNumber(candidate.display_id) === ref.number);
+      output.push(<span key={`text-${at}`}>{text.slice(at, ref.start)}</span>);
+      output.push(ticket ? <button key={`mention-${ref.start}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={`Open ${ref.label} - ${ticket.room || "No location"}`}>{ref.label}</button> : <span key={`mention-${ref.start}`} className="text-slate-400">{ref.label}</span>);
+      at = ref.end;
+    }
+    output.push(<span key="remaining">{text.slice(at)}</span>);
+    return output;
   }
   const parsedHistory = parseTicketHistory(notes, order.created_at);
   const stagedLineSet = new Set(stagedNoteIds);
@@ -1815,7 +1893,7 @@ export default function WorkOrderTicketPage() {
                           alt="CN"
                           width={42}
                           height={27}
-                          className="h-4 w-auto shrink-0 rounded-[3px] object-contain"
+                          className="h-[17px] w-auto shrink-0 self-center rounded-[3px] object-contain"
                         />
                       )}
                     </h1>
@@ -1838,10 +1916,10 @@ export default function WorkOrderTicketPage() {
             <button
               type="button"
               title="Copy work order number"
-              onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(order.display_id); }}
+              onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(formatWorkOrder(order.display_id)); }}
               className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
             >
-              {order.display_id || "Work Order"}
+              {formatWorkOrder(order.display_id)}
             </button>
             <WorkOrderImportPill order={order} />
             <div className="flex items-center gap-1">
@@ -1882,6 +1960,7 @@ export default function WorkOrderTicketPage() {
         {message && (
           <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm">
             {message}
+            {hasUnsavedChanges && <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">Download draft copy</button>}
           </div>
         )}
 
@@ -1889,26 +1968,13 @@ export default function WorkOrderTicketPage() {
           <p role="alert" className="mt-2 text-xs text-red-300">Room checkout details are unavailable: {roomOperationalContext.checkoutError}</p>
         )}
 
-        <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
+        <div aria-busy={saving} className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
           <div className="min-w-0 space-y-2">
             <section className="rounded-xl border border-slate-800 bg-slate-900 p-2.5">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue</h2>
-                  {(canEditWorkOrder || canReviewCurrentTicket) && <button
-                    type="button"
-                    onClick={() => {
-                      const next = !editingIssue;
-                      setEditingIssue(next);
-                    }}
-                    className={`rounded-lg border px-2 py-1 text-[11px] font-bold ${editingIssue ? "border-amber-400 bg-amber-950/40 text-amber-100" : "border-slate-700 text-amber-300 hover:bg-slate-800"}`}
-                  >
-                    {editingIssue
-                      ? canReviewCurrentTicket && !canEditTicket ? "Done Reviewing" : "Done Editing"
-                      : canReviewCurrentTicket && !canEditTicket
-                        ? "Review Request"
-                        : isTechnician ? "Edit Work Order" : "✎ Edit Issue"}
-                  </button>}
+                  {editingIssue && <button type="button" onClick={() => setEditingIssue(false)} className="min-h-9 rounded-lg border border-amber-400 px-3 text-xs text-amber-100">Done</button>}
                 </div>
                 <div className="text-right text-[10px] leading-tight text-slate-500">
                   <div>Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {order.creator_display_role}</span>}</div>
@@ -1920,6 +1986,8 @@ export default function WorkOrderTicketPage() {
                 <>
                   <textarea
                     aria-label="Reported Issue"
+                    autoFocus
+                    disabled={saving}
                     required
                     value={issue}
                     onChange={(event) => setIssue(event.target.value)}
@@ -1931,16 +1999,16 @@ export default function WorkOrderTicketPage() {
                   </div>
                 </>
               ) : (
-                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-5 text-slate-200">{issue || "—"}</p>
+                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label="Edit reported issue" className="mt-2 min-h-10 w-full whitespace-pre-wrap break-words text-left text-sm leading-5 text-slate-200">{issue || "No issue"}</button>
               )}
 
               {order.can_correct_report && (
                 <div className="mt-2">
                   <label htmlFor="report-location" className="text-xs font-semibold text-slate-400">Room/Location</label>
-                  {editingIssue ? <select id="report-location" aria-label="Room/Location" value={locationId} onChange={event => setLocationId(event.target.value)} disabled={saving || !reportLocations.length} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm">
+                  {editingField === "location_id" ? <select autoFocus onBlur={() => setEditingField(null)} id="report-location" aria-label="Room/Location" value={locationId} onChange={event => setLocationId(event.target.value)} disabled={saving || !reportLocations.length} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm">
                     {!reportLocations.some(location => location.id === locationId) && <option value={locationId}>{order.room || "Select location"}</option>}
                     {reportLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
-                  </select> : <p className="text-sm">{reportLocations.find(location => location.id === locationId)?.name || order.room}</p>}
+                  </select> : <button type="button" disabled={saving} onClick={() => setEditingField("location_id")} className="min-h-10 text-sm">{reportLocations.find(location => location.id === locationId)?.name || order.room}</button>}
                   {locationError && <p role="alert" className="text-xs text-red-300">{locationError}</p>}
                   {locationId !== (order.location_id || "") && <p className="text-xs text-amber-300">Saving corrects the room and reported issue only. Equipment and other ticket details stay unchanged; Engineering must verify equipment for the corrected room.</p>}
                 </div>
@@ -1963,28 +2031,28 @@ export default function WorkOrderTicketPage() {
               <div className="mt-1 grid gap-1.5 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment</div>
-                  {editingIssue && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <p className="mt-1 text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</p>}
+                  {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</div>
-                  {editingIssue && canEditField("category") ? <div className="mt-1"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{category || "General"}</p>}
+                  {editingField === "category" && canEditField("category") ? <div className="mt-1"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("category") || saving} onClick={() => setEditingField("category")} aria-label="Edit category" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{category || "General"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</div>
-                  {editingIssue && canEditField("priority") ? <div className="mt-1"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{priority || "Medium"}</p>}
+                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician</div>
-                  {editingIssue && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{technicianName || "Unassigned"}</p>}
+                  {editingField === "technician_name" && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("technician_name") || saving} onClick={() => setEditingField("technician_name")} aria-label="Edit technician name" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{technicianName || "Unassigned"}</button>}
                   {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
-                  {editingIssue && canEditField("status") ? <div className="mt-1"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} /></div> : <p className="mt-1 text-sm text-slate-200">{status || "Open"}</p>}
+                  {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By</div>
-                  {editingIssue && canEditField("due_by") ? <input type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <p className="mt-1 text-sm text-slate-200">{dueBy || "No due date"}</p>}
+                  {editingField === "due_by" && canEditField("due_by") ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving} onClick={() => setEditingField("due_by")} aria-label="Edit due by" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{dueBy || "No due date"}</button>}
                 </div>
               </div>
             </section>
@@ -2000,10 +2068,10 @@ export default function WorkOrderTicketPage() {
                   return (
                     <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7rem_6rem_minmax(0,1fr)_auto] items-start gap-1 border-b border-slate-800 px-2 py-1 text-xs leading-tight last:border-b-0">
                       <span className="text-slate-500" title={hoverTime}>{visibleTime}</span>
-                      <span className="truncate font-semibold text-sky-200" title={entry.actor}>{entry.actor}</span>
-                      <span className="text-slate-300">{entry.kind === "note" && <span className="mb-0.5 block font-semibold text-slate-400">{noteHeading(entry.authorRole, notesLanguage)}</span>}{renderHistoryText(entry.text)}</span>
+                      <span className="truncate font-semibold text-sky-200">{entry.actor.trim().split(/\s+/)[0] || "CMPRI"}</span>
+                      <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
                       {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
-                      {entry.staged && <button type="button" onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
+                      {entry.staged && <button type="button" disabled={saving} onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
                     </div>
                   );
                 }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}
@@ -2016,7 +2084,7 @@ export default function WorkOrderTicketPage() {
                 <textarea
                   id="technician-note-editor"
                   value={noteDraft}
-                  disabled={!canSubmitTicketNote}
+                  disabled={saving || !canSubmitTicketNote}
                   onChange={(event) => setNoteDraft(event.target.value)}
                   rows={2}
                   placeholder="Document findings, diagnostic codes, readings, tests, work performed, or type @ to mention another ticket..."
@@ -2035,7 +2103,7 @@ export default function WorkOrderTicketPage() {
                 )}
               </div>
               <div className="mt-1 flex justify-end">
-                <button type="button" onClick={submitTechnicianNote} disabled={!noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
+                <button type="button" onClick={submitTechnicianNote} disabled={saving || !noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
               </div>
             </section>
 
@@ -2364,14 +2432,14 @@ export default function WorkOrderTicketPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   Record the final action and root cause only when closing the ticket.
                 </p>
-                <textarea
+                {editingField === "action_root_cause" ? <textarea autoFocus onBlur={() => setEditingField(null)} aria-label="action root cause"
                   value={actionRootCause}
                   onChange={(event) => setActionRootCause(event.target.value)}
                   disabled={!canEditField("action_root_cause") || saving}
                   rows={3}
                   placeholder="Repair performed, root cause, or reason not completed..."
                   className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-amber-400"
-                />
+                /> : <button type="button" disabled={!canEditField("action_root_cause") || saving} onClick={() => setEditingField("action_root_cause")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{actionRootCause || "None"}</button>}
               </details>
             )}
 
@@ -2443,13 +2511,13 @@ export default function WorkOrderTicketPage() {
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Parts
                 </span>
-                <input
+                {editingField === "parts" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="parts"
                   value={parts}
                   onChange={(event) => setParts(event.target.value)}
                   disabled={!canEditField("parts") || saving}
                   className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
                   placeholder="Parts used / ordered"
-                />
+                /> : <button type="button" disabled={!canEditField("parts") || saving} onClick={() => setEditingField("parts")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{parts || "None"}</button>}
               </label>
 
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -2457,7 +2525,7 @@ export default function WorkOrderTicketPage() {
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Hours
                   </span>
-                  <input
+                  {editingField === "hours" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="hours"
                     type="number"
                     step="0.25"
                     min="0"
@@ -2465,14 +2533,14 @@ export default function WorkOrderTicketPage() {
                     onChange={(event) => setHours(event.target.value)}
                     disabled={!canEditField("hours") || saving}
                     className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  />
+                  /> : <button type="button" disabled={!canEditField("hours") || saving} onClick={() => setEditingField("hours")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{hours || "None"}</button>}
                 </label>
 
                 <label className="block">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Cost
                   </span>
-                  <input
+                  {editingField === "cost" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="cost"
                     type="number"
                     step="0.01"
                     min="0"
@@ -2480,7 +2548,7 @@ export default function WorkOrderTicketPage() {
                     onChange={(event) => setCost(event.target.value)}
                     disabled={!canEditField("cost") || saving}
                     className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  />
+                  /> : <button type="button" disabled={!canEditField("cost") || saving} onClick={() => setEditingField("cost")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{cost || "None"}</button>}
                 </label>
               </div>
             </section>
@@ -2528,23 +2596,24 @@ export default function WorkOrderTicketPage() {
           setShowCancelConfirm(false);
         }}>
           <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
-            <h2 className="text-xl font-bold">Are you sure you want to cancel?</h2>
-            <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be discarded.</p>
+            <h2 className="text-xl font-bold">Close this ticket?</h2>
+            <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be kept as a draft on this device. They have not been saved to the work order.</p>
             <div className="mt-6 flex justify-end gap-3">
+              <button type="button" disabled={saving} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">Discard draft and close</button>
               <button
                 type="button"
                 autoFocus
                 onClick={() => setShowCancelConfirm(false)}
                 className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800"
               >
-                No
+                Keep editing
               </button>
               <button
                 type="button"
                 onClick={closeEmbeddedTicket}
                 className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500"
               >
-                Yes
+                Close and keep draft
               </button>
             </div>
           </div>

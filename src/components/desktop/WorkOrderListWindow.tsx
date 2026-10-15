@@ -1,5 +1,7 @@
 "use client";
 
+import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-reference.js";
+
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 
 import Image from "next/image";
@@ -160,7 +162,7 @@ export default function WorkOrderListWindow({
   const groups = useMemo(() => groupWorkOrders(orders, drafts), [orders, drafts]);
   const normalizedQuery = query.trim().toLowerCase();
   const rows = normalizedQuery
-    ? groups.all.filter((order) => Object.values(order).some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery)))
+    ? groups.all.filter((order) => (workOrderReferenceMatches(order.display_id, normalizedQuery) || [...Object.values(order), formatWorkOrder(order.display_id)].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery))))
     : groups[filter];
 
   return (
@@ -230,7 +232,7 @@ export default function WorkOrderListWindow({
                 >
                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.5em] gap-y-[0.12em]">
                     <div className="flex min-w-0 flex-wrap items-center gap-[0.25em]">
-                      <span className="font-bold leading-tight text-white">{order.room || "No location"}</span>
+                      <span className="font-bold leading-tight text-white">{!isDraft && order.display_id ? `${formatWorkOrder(order.display_id)} · ` : ""}{order.room || "No location"}</span>
                       {!isDraft && order.cn_room && (
                         <Image
                           src="/railway-cn-logo.png"

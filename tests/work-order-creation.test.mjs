@@ -17,7 +17,7 @@ function fixture(body,config={}) {
       const rows = table === 'assets' ? assets : (config.existing || []);
       return Promise.resolve({data: rows.slice(from, to + 1), error: (table === 'assets' ? config.assetLookupError : config.duplicateError) ? {message:'Unavailable'} : null});
     },
-    then(resolve){return Promise.resolve({data:table==='locations'?(config.noLocation?[]:[{id:'location-409',name:'Room 409'}]):assets,error:config.lookupError?{message:'Unavailable'}:null}).then(resolve);},
+    then(resolve){return Promise.resolve({data:table==='locations'?(config.noLocation?[]:(config.locations||[{id:'location-409',name:'Room 409'}])):assets,error:config.lookupError?{message:'Unavailable'}:null}).then(resolve);},
     limit:async()=>({data:table==='assets'?assets:(config.existing||[]),error:(table==='assets'?config.assetLookupError:config.duplicateError)?{message:'Unavailable'}:null}),
     insert:async rows=>{writes.push(...rows);return {error:config.insertError?{message:'Rejected'}:null};},
   };}};
@@ -303,4 +303,16 @@ for (const role of ['Lead Housekeeper', 'Front Desk']) test(`${role} Spanish iss
   assert.equal(f.writes[0].room, 'Room 409');
   assert.equal(f.writes[0].issue, issue);
   assert.equal(f.writes[0].notes, notes);
+});
+
+
+test('Front Desk common-area selection preserves ticket and physical asset locations while guest-room asset is rejected',async()=>{
+ const locations=[{id:'desk',name:'Front Desk',area:'Lobby',active:true},{id:'pbx',name:'PBX Room',area:'Maintenance',active:true},{id:'r137',name:'Room 137',room_number:'137',location_type:'guest_room',active:true}];
+ for(const physical of ['pbx','r137']){
+  const assets=[{id:'selected',location_id:physical,name:physical==='pbx'?'PBX telephone':'Art Sofa A Room137',asset_type:'Electrical',active:true}];
+  const f=fixture({orders:[{location_id:'desk',issue:'Telephone issue',asset_id:'selected',category:'Electrical',priority:'Medium'}]},{locations,assets,profile:{role:'Chief Engineer',full_name:'Engineer'}});
+  const response=await f.handler(f.request);assert.equal(response.status,physical==='pbx'?200:400,JSON.stringify(response.body));
+  if(physical==='pbx'){assert.equal(f.writes[0].location_id,'desk');assert.equal(f.writes[0].asset_id,'selected');assert.equal(assets[0].location_id,'pbx');}
+  else assert.equal(f.writes.length,0);
+ }
 });

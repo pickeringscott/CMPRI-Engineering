@@ -1,5 +1,9 @@
 "use client";
 
+import { formatWorkOrderNotification } from "@/lib/work-order-reference.js";
+
+import { formatWorkOrder } from "@/lib/work-order-reference.js";
+
 import { unreadWorkOrderNotificationCount, type WorkOrderNotification } from "@/lib/dashboard/work-order-notifications";
 import { priorityClass, type DesktopWorkOrder } from "./WorkOrderListWindow";
 import { roomStatusBadge } from "@/lib/room-availability";
@@ -46,7 +50,7 @@ export default function WorkOrderApprovalsWindow({
                 <li key={order.id}>
                   <button type="button" onClick={() => onOpenWorkOrder(order.id)} className="flex w-full items-start gap-[0.6em] px-[0.7em] py-[0.45em] text-left hover:bg-slate-800/60">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold text-white">{order.display_id ? `${order.display_id} · ` : ""}{order.room || "No location"}{roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}</span>
+                      <span className="block truncate font-semibold text-white">{order.display_id ? `${formatWorkOrder(order.display_id)} · ` : ""}{order.room || "No location"}{roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}</span>
                       <span className="block truncate text-[0.88em] text-slate-300">{order.issue || "No issue description"}</span>
                       <span className="block truncate text-[0.8em] text-slate-500">{order.technician_name || "Unassigned"}</span>
                     </span>
@@ -70,11 +74,11 @@ export default function WorkOrderApprovalsWindow({
             {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">No notifications. New ones stay on your account, on every computer, until you clear them.</li>}
             {notifications.map((notification) => (
               <li key={notification.id} className="flex items-start gap-[0.4em] px-[0.7em] py-[0.4em] hover:bg-slate-800/40">
-                <button type="button" onClick={() => onOpenNotification(notification)} className="min-w-0 flex-1 text-left" aria-label={`${notification.is_read ? "Read" : "Unread"} notification: ${notification.message}`}>
-                  <span className={`block hover:underline ${notification.is_read ? "text-slate-400" : "font-semibold text-slate-100"}`}>{notification.message}</span>
+                <button type="button" onClick={() => onOpenNotification(notification)} className="min-w-0 flex-1 text-left" aria-label={`${notification.is_read ? "Read" : "Unread"} notification: ${formatWorkOrderNotification(notification)}`}>
+                  <span className={`block hover:underline ${notification.is_read ? "text-slate-400" : "font-semibold text-slate-100"}`}>{formatWorkOrderNotification(notification)}</span>
                   <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at)}</span>
                 </button>
-                <button type="button" onClick={() => onClear(notification.id)} aria-label={`Clear notification: ${notification.message}`} className="shrink-0 rounded border border-slate-700 px-[0.5em] text-[0.82em] text-slate-300 hover:border-slate-500 hover:text-white">Clear</button>
+                <button type="button" onClick={() => onClear(notification.id)} aria-label={`Clear notification: ${formatWorkOrderNotification(notification)}`} className="shrink-0 rounded border border-slate-700 px-[0.5em] text-[0.82em] text-slate-300 hover:border-slate-500 hover:text-white">Clear</button>
               </li>
             ))}
           </ul>

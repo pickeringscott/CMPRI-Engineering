@@ -1,3 +1,4 @@
+import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as accountDisplay from "../src/lib/account-display.ts";
 import test from 'node:test';
@@ -46,7 +47,7 @@ function routeFixture(relativePath, config = {}) {
     exports,
     console,
     process: { env: {} },
-    require(name) {
+    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/account-display") return accountDisplay;
       if (name === 'next/server') return { NextResponse: response };
@@ -58,7 +59,7 @@ function routeFixture(relativePath, config = {}) {
       if (name === '@/lib/server/auth') return auth;
       if (name === '@/lib/work-order-categories') return { normalizeWorkOrderCategory: value => value };
       if (name === '@/lib/server/room-ranker') return { processRoomRankerSyncForWorkOrder: async () => {} };
-      if (name === '@/lib/server/roles') return { roleKey: value => String(value).toLowerCase() };
+      if (name === '@/lib/server/roles') return { profileIsChiefEngineer: () => false, profileIsEstablishedHoursChief: () => false, roleKey: value => String(value).toLowerCase() };
       if (name === '@/lib/server/work-order-notification-resolution') return {
         isEngineeringWorkOrderActor: () => false,
         recordEngineeringWorkOrderView: async () => undefined,

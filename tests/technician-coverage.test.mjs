@@ -1,3 +1,4 @@
+import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -52,7 +53,7 @@ function fixture(config = {}) {
   vm.runInNewContext(routeCode, {
     exports,
     process: { env: {} },
-    require(name) {
+    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, () => true);
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => db };

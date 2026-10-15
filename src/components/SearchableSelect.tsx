@@ -24,6 +24,7 @@ type Props = {
   onFooterAction?: () => void;
   showSuggestionsOnOpen?: boolean;
   expandOnOpen?: boolean;
+  autoFocus?: boolean;
 };
 
 function normalize(value: string) {
@@ -92,6 +93,7 @@ export default function SearchableSelect({
   onFooterAction,
   showSuggestionsOnOpen = true,
   expandOnOpen = false,
+  autoFocus = false,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const listId = useId();
@@ -99,13 +101,14 @@ export default function SearchableSelect({
   const listboxRef = useRef<HTMLDivElement | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement | null>(null);
   const [query, setQuery] = useState("");
+  const [typing, setTyping] = useState(false);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
 
   const selected = useMemo(() => options.find((option) => option.value === value), [options, value]);
 
-  const browsingCurrentValue = !!selected && normalize(query) === normalize(selected.label);
+  const browsingCurrentValue = !typing && !!selected && normalize(query) === normalize(selected.label);
 
   const ranked = useMemo(() => {
     // When the field first opens with its saved value visible, browse the full
@@ -165,12 +168,14 @@ export default function SearchableSelect({
     if (!option) return;
     onChange(option.value);
     setQuery(option.label);
+    setTyping(false);
     setOpen(false);
     setExpanded(false);
   }
 
   function openBrowse() {
     if (disabled) return;
+    setTyping(false);
     setOpen(true);
     setExpanded(expandOnOpen);
     setHighlightedIndex(0);
@@ -224,6 +229,7 @@ export default function SearchableSelect({
       <div className="relative">
         <input
           ref={inputRef}
+          autoFocus={autoFocus}
           type="text"
           value={open ? query : selected?.label || ""}
           required={required}
@@ -239,7 +245,7 @@ export default function SearchableSelect({
           aria-activedescendant={open && visibleOptions[highlightedIndex] ? `${listId}-${highlightedIndex}` : undefined}
           onClick={() => { if (!open) openBrowse(); }}
           onFocus={() => { if (!open) openBrowse(); }}
-          onChange={(event) => { setQuery(event.target.value); setHighlightedIndex(0); setOpen(true); setExpanded(true); }}
+          onChange={(event) => { setTyping(true); setQuery(event.target.value); setHighlightedIndex(0); setOpen(true); setExpanded(true); }}
           onBlur={(event) => {
             if (!wrapperRef.current?.contains(event.relatedTarget as Node | null)) {
               setOpen(false); setExpanded(false); onDismiss?.();

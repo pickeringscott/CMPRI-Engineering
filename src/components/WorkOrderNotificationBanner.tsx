@@ -1,3 +1,4 @@
+import { formatWorkOrderNotification } from "@/lib/work-order-reference.js";
 import Link from "next/link";
 import type { WorkOrderNotification } from "@/lib/dashboard/work-order-notifications";
 
@@ -28,7 +29,7 @@ export default function WorkOrderNotificationBanner({
         {workOrderNotifications.slice(0, 6).map((notification) => (
           <li key={notification.id}>
             <Link href={`/work-orders/${encodeURIComponent(notification.work_order_id)}`} className="block py-2 text-sm text-sky-100 hover:underline">
-              {notification.message}
+              {formatWorkOrderNotification(notification)}
             </Link>
           </li>
         ))}

@@ -140,6 +140,10 @@ export default function ManageEquipmentPage() {
       setAdding(false);
       setNewAsset({ ...blankAsset });
       setMessage("Asset added.");
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: "cmpri-assets-changed", assetId: created.id,
+          modalToken: new URLSearchParams(window.location.search).get("modalToken") || "" }, window.location.origin);
+      }
     } catch (error) {
       setCreateMessage(error instanceof Error ? error.message : "Equipment could not be created. Check your connection and retry.");
     } finally {

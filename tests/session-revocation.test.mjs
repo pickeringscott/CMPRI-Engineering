@@ -1,3 +1,4 @@
+import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 // Actual modules and route handlers; external auth, database and network are fake.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,7 +36,7 @@ function fixture(config={}) {
     const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
     vm.runInNewContext(source,{exports,URL,Headers,AbortSignal,console,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON:'{}',CMPRI_CORPORATE_PM_SPREADSHEET_ID:'test-sheet',CMPRI_ROOM_RANKER_SPREADSHEET_ID:'test-sheet',CMPRI_ROOM_RANKER_SHEET_NAME:'ROOM RANKER'}},
       fetch:async()=>{calls.push('network');return {ok:true,status:200,text:async()=>'{"ok":true}'};},
-      require(name){
+      require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:()=>db};
         if(name==='openai')return {default:class {constructor(){throw new Error('Unexpected AI provider access');}}};

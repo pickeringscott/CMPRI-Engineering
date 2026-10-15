@@ -103,3 +103,11 @@ test('dropdown scrollbar has an explicit visible track and thumb',()=>{
 test('blur closes uncommitted search and restores selected label',()=>{
   const c=mount('409');c.search('pool');c.input().onBlur({relatedTarget:null});assert.equal(c.input()['aria-expanded'],false);assert.equal(c.input().value,'Room 409');assert.deepEqual(c.calls,[]);
 });
+
+
+test('typing the exact saved Front Desk label remains a search, not browse-all, until explicit selection',()=>{
+ const options=[{value:'desk',label:'Front Desk'},{value:'lobby',label:'Lobby'},{value:'137',label:'Room 137'}];
+ const c=mount('desk',{options});c.search('Front Desk');
+ assert.equal(c.findAllRole('option').length,1);assert.deepEqual(c.calls,[]);
+ c.key('Escape');assert.equal(c.input().value,'Front Desk');assert.deepEqual(c.calls,[]);
+});

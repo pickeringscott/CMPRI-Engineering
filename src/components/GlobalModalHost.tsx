@@ -356,6 +356,16 @@ export default function GlobalModalHost() {
         return;
       }
       if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
+      if (event.data.type === "cmpri-assets-changed" && typeof event.data.assetId === "string" && event.data.assetId
+        && new URL(top.href, window.location.origin).pathname === "/management/equipment") {
+        // Only relay the invalidation; each form fetches its own authorized list.
+        for (const entry of stack.slice(0, -1)) {
+          if (new URL(entry.href, window.location.origin).pathname !== "/work-orders") continue;
+          frameRefs.current.get(entry.id)?.contentWindow?.postMessage({ type: "cmpri-assets-changed",
+            assetId: event.data.assetId, modalToken: entry.modalToken }, window.location.origin);
+        }
+        return; // Keep both screens and the draft mounted.
+      }
       if (event.data.type === "cmpri-profile-ai-updated") {
         const profileModal = stack.at(-2);
         if (profileModal) frameRefs.current.get(profileModal.id)?.contentWindow?.postMessage({ type: "cmpri-profile-ai-updated" }, window.location.origin);

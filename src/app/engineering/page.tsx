@@ -528,8 +528,21 @@ export default function EngineeringDashboardPage() {
       if (event.origin !== window.location.origin || !event.data || typeof event.data.type !== "string") return;
       const key = Array.from(frameRefs.current).find(([, frame]) => frame.contentWindow === event.source)?.[0];
       if (!key) return;
-      const data = event.data as { type: string; href?: unknown; title?: unknown; targetWorkOrderId?: unknown };
+      const data = event.data as { type: string; href?: unknown; title?: unknown; targetWorkOrderId?: unknown; assetId?: unknown; modalToken?: unknown };
       switch (data.type) {
+        case "cmpri-assets-changed": {
+          const source = windowsRef.current.find(entry => entry.key === key);
+          if (key !== "/management/equipment" || !source?.src || typeof data.assetId !== "string" || !data.assetId) return;
+          if (new URL(source.src, window.location.origin).searchParams.get("modalToken") !== data.modalToken) return;
+          for (const entry of windowsRef.current) {
+            if (!entry.src) continue;
+            const target = new URL(entry.src, window.location.origin);
+            if (target.pathname !== "/work-orders") continue;
+            frameRefs.current.get(entry.key)?.contentWindow?.postMessage({ type: "cmpri-assets-changed",
+              assetId: data.assetId, modalToken: target.searchParams.get("modalToken") }, window.location.origin);
+          }
+          return;
+        }
         case "cmpri-open-modal":
           if (typeof data.href === "string") openRoute(data.href, typeof data.title === "string" ? data.title : undefined);
           return;

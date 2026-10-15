@@ -1,3 +1,4 @@
+import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as accountDisplay from "../src/lib/account-display.ts";
 import test from 'node:test';
@@ -13,13 +14,13 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/ro
 const editPolicyExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-edit-policy.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:editPolicyExports,require(name) {
+}).outputText,{exports:editPolicyExports,require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name === "@/lib/account-display") return accountDisplay;if(name==='./work-order-read-policy')return ticketReadDependency('@/lib/work-order-read-policy');if(name==='./server/roles')return roleExports;throw new Error(name);}});
 const { canSubmitWorkOrderNote, workOrderEditableFields }=editPolicyExports;
 const assignmentExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/work-order-assignment.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:assignmentExports,require(name) {
+}).outputText,{exports:assignmentExports,require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name === "@/lib/account-display") return accountDisplay;if(name==='./roles')return roleExports;throw new Error(name);}});
 const { canAccessWorkOrderByAssignment }=assignmentExports;
 const activitySource=readFileSync(new URL('../src/app/api/work-orders/[id]/activity/route.ts',import.meta.url),'utf8');
@@ -34,8 +35,8 @@ test('work-order reviewers can stage notes only while a request is pending revie
   }
   assert.equal(canSubmitWorkOrderNote({canEdit:true,canReview:false,status:'Open'}),true);
   assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,status:'Pending Verification'}),false);
-  assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: cmpriSession\?\.user\.role,[\s\S]*canEdit: canEditTicket,[\s\S]*canReview: canReviewCurrentTicket,[\s\S]*status: order\.status/);
-  assert.match(detailPage,/disabled=\{!canSubmitTicketNote\}/);
+  assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: chief \? "Chief Engineer" : cmpriSession\?\.user\.role,[\s\S]*canEdit: canEditTicket,[\s\S]*canReview: canReviewCurrentTicket,[\s\S]*status: order\.status/);
+  assert.match(detailPage,/disabled=\{saving \|\| !canSubmitTicketNote\}/);
   assert.match(detailPage,/!noteDraft\.trim\(\) \|\| !canSubmitTicketNote/);
 });
 
@@ -142,7 +143,7 @@ function fixture(config={}){
   vm.runInNewContext(code,{
     exports,
     process:{env:{SUPABASE_SERVICE_ROLE_KEY:'fake'}},
-    require(name) {
+    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, allows);
       if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
@@ -212,7 +213,7 @@ test('shared work-order field policy matches role-specific API and UI permission
   assert.deepEqual(Array.from(fields({role:'General Manager',canEdit:false,canReview:false,canAddNotes:true,unassigned:false,canClaimUnassigned:false})),['notes']);
   assert.deepEqual(Array.from(fields({role:'Assistant General Manager',canEdit:false,canReview:false,canAddNotes:true,unassigned:false,canClaimUnassigned:false})),['notes']);
   assert.deepEqual(Array.from(fields({role:'Senior Management',canEdit:false,canReview:false,unassigned:false,canClaimUnassigned:false})),[]);
-  assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: cmpriSession\?\.user\.role,[\s\S]*unassigned: !String\(order\.technician_name \|\| ""\)\.trim\(\),[\s\S]*canClaimUnassigned: canClaimWorkOrder/);
+  assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: chief \? "Chief Engineer" : cmpriSession\?\.user\.role,[\s\S]*unassigned: !String\(order\.technician_name \|\| ""\)\.trim\(\),[\s\S]*canClaimUnassigned: canClaimWorkOrder/);
 });
 
 test('note-only roles cannot replace history through the general ticket endpoint',async()=>{
@@ -278,7 +279,7 @@ test('limited work-order readers receive ticket history but not purchasing or En
   const exports={};
   vm.runInNewContext(activityCode,{
     exports,
-    require(name) {
+    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, (_p,c)=>c === "add_work_order_notes" || c === "view_work_orders");
       if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
@@ -400,7 +401,7 @@ test('work-order labor and parts inputs use field-level permissions',()=>{
   }
   assert.match(source,/disabled=\{!canEditField\("action_root_cause"\) \|\| saving\}/);
   assert.match(source,/const values = \["Open", "In Progress", "Completed"\]/);
-  assert.match(source,/else if \(canEditField\("asset_id"\)\) \{\s*Object\.assign\(updatePayload, \{\s*asset_id: asset\?\.id \?\? null,\s*category,\s*status: saveStatus,\s*notes: notesWithChanges,/);
+  assert.match(source,/else if \(canEditField\("asset_id"\)\) \{\s*Object\.assign\(updatePayload, \{\s*asset_id: assetId \|\| null,\s*category,\s*status: saveStatus,\s*notes: notesWithChanges,/);
 });
 
 test('the observed system_admin role can reopen with explicit editing permission',async()=>{
@@ -543,7 +544,7 @@ test('new technician reads expose ticket history without expanding purchasing ac
    then(resolve,reject){return Promise.resolve({data:[],error:null}).then(resolve,reject);}};
   return q;
  }};
- const exports={};vm.runInNewContext(activityCode,{exports,require(name){
+ const exports={};vm.runInNewContext(activityCode,{exports,require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
   if(name.includes('work-order-read-policy')||name.includes('work-order-reader'))return ticketReadDependency(name,allows);
   if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
   if(name==='@/lib/server/access')return {allows};
@@ -599,4 +600,16 @@ test('shared-name attribution and different original author do not restrict elig
  const f=fixture({profile:{id:'actor',active:true,role:'Front Desk Manager'},createdBy:'other',staffName:'Vaun',body:{issue:'Actual issue'}});
  assert.equal((await f.get()).body.workOrder.can_correct_report,true);
  assert.equal((await f.run()).status,200);
+});
+
+test('Chief and established dual-role Chief can transition every status pair with audit identity',async()=>{
+ const statuses=['Pending Verification','Open','In Progress','Completed','Will Not Do','Closed'];
+ for(const profile of [{active:true,role:'Chief Engineer'},{active:true,role:'system_admin',secondary_roles:['Chief Engineer']},{id:'750f77bf-7d5d-4ca6-8421-e025edea87ba',email:'maint.cmpri@hawkeyehotels.com',active:true,role:'system_admin',secondary_roles:['Engineer']}]){
+  for(const from of statuses)for(const to of statuses){const f=fixture({profile,existingStatus:from,existingTechnician:'',body:{status:to}});assert.equal((await f.run()).status,200,`${profile.role}: ${from} -> ${to}`);assert.equal(f.saved().history_actor_user_id,'actor');assert.equal(f.saved().history_source,'CMPRI app');}
+ }
+});
+test('generic engineer/admin and lookalike chief do not get unrestricted closed transitions',async()=>{
+ for(const profile of [{active:true,role:'Engineer'},{active:true,role:'system_admin'},{id:'other',email:'maint.cmpri@hawkeyehotels.com',active:true,role:'system_admin',secondary_roles:['Engineer']}]){
+ const f=fixture({profile,existingStatus:'Closed',body:{status:'Pending Verification'}});assert.notEqual((await f.run()).status,200);assert.equal(f.writes(),0);
+ }
 });

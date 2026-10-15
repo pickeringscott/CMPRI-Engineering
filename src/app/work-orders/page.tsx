@@ -1,5 +1,7 @@
 "use client";
 
+import { formatWorkOrder } from "@/lib/work-order-reference.js";
+
 import {
   FormEvent,
   useCallback,
@@ -8,6 +10,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { queuedAssetRefresh, isAssetListRefresh } from "@/lib/asset-list-refresh.js";
+import { cmpriLocationSection } from "@/lib/cmpri-location-groups";
+import { creationAssetsForLocation } from "@/lib/work-orders/assignable-assets";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -129,86 +134,6 @@ const CMPRI_LOCATION_SECTION_ORDER: Record<string, number> = {
   "Electrical Closets": 110,
 };
 
-function cmpriLocationSection(location: Location) {
-  const area = (location.area || "").toLowerCase();
-  const name = (location.name || "").toLowerCase();
-  const type = (location.location_type || "").toLowerCase();
-
-  if (type.includes("guest room") || area.includes("guest room") || /^room\s+\d+/i.test(location.name)) return "Guest Rooms";
-  if (area.includes("electrical") || name.includes("electrical closet")) return "Electrical Closets";
-  if (area.includes("elevator") || name.includes("elevator")) return "Elevators / Vertical Transport";
-
-  // Guest Laundry is guest-facing and belongs with public areas, not BOH laundry.
-  if (name === "guest laundry" || area === "guest laundry") return "Main Guest / Public Areas";
-
-  if (
-    area.includes("lobby") ||
-    area.includes("public restroom") ||
-    name.includes("lobby") ||
-    name.includes("front desk") ||
-    name.includes("breakfast area") ||
-    name.includes("study") ||
-    name.includes("public men's restroom") ||
-    name.includes("public women's restroom")
-  ) return "Main Guest / Public Areas";
-
-  if (
-    area.includes("back office") ||
-    name.includes("manager office") ||
-    name.includes("sales office") ||
-    name.includes("back office") ||
-    name.includes("conference room")
-  ) return "Office / Administrative";
-
-  if (
-    area.includes("kitchen") ||
-    area.includes("pantry") ||
-    name.includes("kitchen") ||
-    name.includes("pantry") ||
-    name.includes("breakfast prep")
-  ) return "Food / Service";
-
-  if (area.includes("pool") || area.includes("fitness") || name === "pool area" || name.includes("fitness")) {
-    if (name.includes("pump room") || name.includes("conditioner room")) return "Maintenance / Mechanical";
-    return "Recreation / Amenities";
-  }
-
-  if (
-    area.includes("housekeeping") ||
-    area.includes("laundry") ||
-    area.includes("break room") ||
-    name.includes("housekeeping") ||
-    name.includes("boh laundry") ||
-    name.includes("supply closet") ||
-    name.includes("break room")
-  ) return "Housekeeping / Laundry / BOH";
-
-  if (
-    area.includes("maintenance") ||
-    area.includes("boiler") ||
-    area.includes("pbx") ||
-    area.includes("fire pump") ||
-    name.includes("maintenance shop") ||
-    name.includes("boiler room") ||
-    name.includes("pbx room") ||
-    name.includes("fire pump room") ||
-    name.includes("mechanical")
-  ) return "Maintenance / Mechanical";
-
-  if (
-    area.includes("entrance") ||
-    area.includes("parking") ||
-    area.includes("exterior") ||
-    area.includes("roof") ||
-    name.includes("entry") ||
-    name.includes("parking") ||
-    name.includes("exterior") ||
-    name.includes("roof") ||
-    name.includes("ground floor")
-  ) return "Building Entrances / Exterior";
-
-  return "Other Building Areas";
-}
 
 function cmpriNaturalNumber(value: string | null | undefined) {
   const match = String(value || "").match(/\d+/);
@@ -686,7 +611,8 @@ export default function WorkOrdersPage() {
     }
   }, [apiHeaders]);
 
-  const loadAssets = useCallback(async () => {
+  const [assetRefreshError, setAssetRefreshError] = useState("");
+  const loadAssets = useMemo(() => queuedAssetRefresh(async () => {
     try {
       const response = await fetch("/api/assets?mode=create", {
         headers: await apiHeaders(),
@@ -697,12 +623,21 @@ export default function WorkOrdersPage() {
         throw new Error(payload.error || "Equipment could not be loaded.");
       }
       setAssets((payload.assets as Asset[]).filter((asset) => asset.active !== false));
+      setAssetRefreshError("");
     } catch (error) {
-      setMessage(`Asset error: ${error instanceof Error ? error.message : String(error)}`);
+      setAssetRefreshError(`Equipment list could not be refreshed: ${error instanceof Error ? error.message : String(error)}. Retry the list; do not add the asset again.`);
     } finally {
       setLoadingAssets(false);
     }
-  }, [apiHeaders]);
+  }), [apiHeaders]);
+
+  useEffect(() => {
+    const changed = (event: MessageEvent) => {
+      if (isAssetListRefresh(event, window.location.origin, window.parent, modalToken)) void loadAssets();
+    };
+    window.addEventListener("message", changed);
+    return () => window.removeEventListener("message", changed);
+  }, [loadAssets, modalToken]);
 
   const loadWorkOrders = useCallback(async (canViewCandidates = false) => {
     if (!canViewCandidates) {
@@ -764,11 +699,8 @@ export default function WorkOrdersPage() {
     );
   const selectedLocationStatus = roomStatusBadge(selectedLocation?.room_status);
 
-  const locationAssets = assetsForLocation(selectedLocation, assets);
-  // Templates require an explicit choice; automatic guesses stay room-specific.
-  const availableAssets = selectedLocation
-    ? [...locationAssets, ...assets.filter((asset) => asset.location_id === null && asset.active !== false)]
-    : [];
+  // Front Desk shares the existing common-area groups; guest-room inventory stays excluded.
+  const availableAssets = creationAssetsForLocation(assets, selectedLocation?.id, assetId, locations);
 
   const normalizedCurrentRole = currentRole.toLowerCase().replace(/[_-]+/g, " ").trim();
   const currentRoleKey = normalizedCurrentRole.replace(/\s+/g, "");
@@ -1250,7 +1182,7 @@ export default function WorkOrdersPage() {
     if (type === "cmpri-work-order-created" && keepOpenAfterCreate) {
       resetWorkOrderForm(true);
       setCreateState("idle");
-      const ids = displayId || submittedDisplayIdsRef.current.join(", ");
+      const ids = displayId ? formatWorkOrder(displayId) : submittedDisplayIdsRef.current.join(", ");
       setMessage(tx(`Submitted successfully${ids ? `: ${ids}` : ""}. Ready for the next ticket.`, `Enviado correctamente${ids ? `: ${ids}` : ""}. Listo para la siguiente orden.`));
       return true;
     }
@@ -1453,7 +1385,7 @@ export default function WorkOrdersPage() {
       return;
     }
 
-    const displayIds = result.workOrders.map((item) => item.display_id).filter(Boolean);
+    const displayIds = result.workOrders.filter((item) => item.display_id).map((item) => formatWorkOrder(item.display_id));
     setShowRelatedWorkOrderDialog(false);
     if (result.photoUploadPending) {
       setMessage("Related work orders were created, but their photo upload is pending. Retry the photo upload to finish.");
@@ -1508,7 +1440,7 @@ export default function WorkOrdersPage() {
     const relatedAsset = resolveRelatedAsset(suggestion, location);
     const duplicate = possibleDuplicateFor(suggestion.issue, location, relatedAsset?.id ?? null);
     if (duplicate) {
-      setMessage(`Possible duplicate detected: ${duplicate.display_id || "existing work order"} — ${duplicate.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
+      setMessage(`Possible duplicate detected: ${formatWorkOrder(duplicate.display_id, "existing work order")} — ${duplicate.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
       return;
     }
 
@@ -1598,7 +1530,7 @@ export default function WorkOrdersPage() {
     });
     if (firstDuplicate) {
       const duplicate = possibleDuplicateFor(String(firstDuplicate.issue || ""), locations.find((item) => item.id === firstDuplicate.location_id) ?? location, typeof firstDuplicate.asset_id === "string" ? firstDuplicate.asset_id : null);
-      setMessage(`Possible duplicate detected: ${duplicate?.display_id || "existing work order"} — ${duplicate?.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
+      setMessage(`Possible duplicate detected: ${formatWorkOrder(duplicate?.display_id, "existing work order")} — ${duplicate?.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
       setCreatingBatchWorkOrders(false);
       return;
     }
@@ -1672,7 +1604,7 @@ export default function WorkOrdersPage() {
       if (!workOrders.length || workOrders.some((order) => !order.id)) {
         return { error: { message: "Unable to confirm the saved ticket. Check the list before retrying." }, workOrders: [], photoUploadPending: false };
       }
-      submittedDisplayIdsRef.current = workOrders.map((order) => order.display_id || order.id);
+      submittedDisplayIdsRef.current = workOrders.map((order) => formatWorkOrder(order.display_id));
       let photoUploadPending = false;
       if (photos.length && workOrders.length) {
         for (let photoIndex = 0; photoIndex < photos.length; photoIndex += 1) {
@@ -1689,7 +1621,7 @@ export default function WorkOrdersPage() {
                 })),
               );
               setPendingPhotoUploads(failedUploads);
-              setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
+              setPhotoUploadError(`Photo upload failed for ${formatWorkOrder(workOrder.display_id)}: ${upload.message}`);
               setCanReplacePhoto(upload.canReplace);
               setPhotoToReplaceUploadId(upload.canReplace ? selectedPhoto.uploadId : "");
               photoUploadPending = true;
@@ -1738,7 +1670,7 @@ export default function WorkOrdersPage() {
         const upload = await uploadWorkOrderAttachment(workOrder.id, workOrder.photo.file, session.access_token, workOrder.photo.uploadId);
         if (!upload.ok) {
           failedUploads = pending.slice(index);
-          setPhotoUploadError(`Photo upload failed for ${workOrder.display_id}: ${upload.message}`);
+          setPhotoUploadError(`Photo upload failed for ${formatWorkOrder(workOrder.display_id)}: ${upload.message}`);
           setCanReplacePhoto(upload.canReplace);
           setPhotoToReplaceUploadId(upload.canReplace ? workOrder.photo.uploadId : "");
           break;
@@ -1824,7 +1756,7 @@ export default function WorkOrdersPage() {
 
     const duplicate = possibleDuplicateFor(normalizedIssue, location, assetId || null);
     if (duplicate) {
-      setMessage(`Possible duplicate detected: ${duplicate.display_id || "existing work order"} — ${duplicate.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
+      setMessage(`Possible duplicate detected: ${formatWorkOrder(duplicate.display_id, "existing work order")} — ${duplicate.issue || "similar active issue"}. Review the existing ticket before creating a new one.`);
       setLoading(false);
       setCreateState("idle");
       return;
@@ -1857,7 +1789,7 @@ export default function WorkOrdersPage() {
       return;
     }
 
-    const displayId = result.workOrders[0]?.display_id || "Work order";
+    const displayId = formatWorkOrder(result.workOrders[0]?.display_id);
     await clearSubmittedDraft();
     await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
 
@@ -1952,7 +1884,8 @@ export default function WorkOrdersPage() {
   const createAssetOptions = [
     ...availableAssets.map((asset) => ({
       value: asset.id,
-      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? " (Template - no room assignment)" : ""}`,
+      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? " (Template - no room assignment)" : asset.location_id !== locationId ? ` — ${locations.find(location => location.id === asset.location_id)?.name || "Common area"}` : ""}`,
+      group: asset.location_id !== locationId ? cmpriLocationSection(locations.find(location => location.id === asset.location_id) || selectedLocation!) : undefined,
       keywords: [
         asset.asset_type,
         asset.manufacturer ?? "",
@@ -2071,7 +2004,7 @@ export default function WorkOrdersPage() {
                 required
                 value={locationId}
                 onChange={(value) => handleLocationChange(value)}
-                disabled={loadingLocations || loadingAssets}
+                disabled={loadingLocations}
                 placeholder={loadingLocations ? tx("Loading locations...", "Cargando ubicaciones...") : tx("Room / Location", "Habitación / Ubicación")}
                 options={locationOptions}
                 topSuggestions={2}
@@ -2088,7 +2021,7 @@ export default function WorkOrdersPage() {
               <textarea
                 required
                 value={issue}
-                disabled={loadingLocations || loadingAssets}
+                disabled={loading}
                 onChange={(event) => handleIssueChange(event.target.value)}
                 rows={2}
                 placeholder={tx("Example: 316 not cooling", "Ejemplo: 316 no enfría")}
@@ -2105,6 +2038,7 @@ export default function WorkOrdersPage() {
             <div className="grid gap-2 md:grid-cols-3">
               <label className="block md:col-span-1">
                 <span className="mb-1 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
+                {assetRefreshError && <p role="alert" className="mb-2 text-xs text-amber-200">{assetRefreshError} <button type="button" onClick={() => void loadAssets()} className="underline">Retry equipment list</button></p>}
                 {locationId && issue.trim() && !assetId && <p role="status" className="mb-2 text-xs text-amber-200">{tx("No confirmed equipment match for this location. You can submit; Engineering will verify the equipment.", "No hay equipo confirmado para esta ubicación. Puedes enviar; Ingeniería verificará el equipo.")}</p>}
                 {!canSetEngineeringFields ? (
                   <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
@@ -2168,7 +2102,7 @@ export default function WorkOrdersPage() {
               <span className="mb-1 block text-sm font-medium"> {tx("Notes / Actions Taken", "Notas / Acciones realizadas")} </span>
               <textarea
                 value={notes}
-                disabled={loadingLocations || loadingAssets}
+                disabled={loading}
                 onChange={(event) => handleNotesChange(event.target.value)}
                 rows={3}
                 placeholder={tx("Optional: findings, diagnostic codes, readings, tests, or work already performed", "Opcional: hallazgos, códigos de diagnóstico, lecturas, pruebas o trabajo ya realizado")}
@@ -2304,7 +2238,7 @@ export default function WorkOrdersPage() {
                         <span><span className="text-slate-500">Priority:</span> {suggestion.priority}</span>
                       </div>
                       {duplicate && (
-                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">Possible duplicate: {duplicate.display_id || "existing work order"} — {duplicate.issue || "similar active issue"}</p>
+                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">Possible duplicate: {formatWorkOrder(duplicate.display_id, "existing work order")} — {duplicate.issue || "similar active issue"}</p>
                       )}
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-1 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Submit This</button>

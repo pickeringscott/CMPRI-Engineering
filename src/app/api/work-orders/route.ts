@@ -1,3 +1,4 @@
+import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
 import { NextRequest, NextResponse } from "next/server";
@@ -325,7 +326,7 @@ export async function POST(request: NextRequest) {
   const db = admin;
   const uniqueLocationIds = Array.from(new Set(rows.map((row) => String(row.location_id))));
   const { data: locations, error: locationError } = await db.from("locations")
-    .select("id, name, active")
+    .select("id, name, area, room_number, location_type, active")
     .eq("hotel_id", HOTEL_ID)
     .in("id", uniqueLocationIds);
   if (locationError) return NextResponse.json({ error: "Unable to verify the selected locations." }, { status: 503 });
@@ -366,9 +367,13 @@ export async function POST(request: NextRequest) {
       .eq("hotel_id", HOTEL_ID)
       .in("id", assetIds);
     if (assetError) return NextResponse.json({ error: "Unable to verify the selected equipment." }, { status: 503 });
+    const physicalIds = [...new Set((assets || []).map(asset => asset.location_id).filter(Boolean))];
+    const physical = physicalIds.length ? await db.from("locations").select("id,name,area,room_number,location_type,active")
+      .eq("hotel_id", HOTEL_ID).in("id", physicalIds) : { data: [], error: null };
+    if (physical.error) return NextResponse.json({ error: "Equipment locations could not be verified." }, { status: 503 });
     for (const row of rows) {
       if (!row.asset_id) continue;
-      const asset = assets?.find((item) => item.id === row.asset_id && (item.location_id === null || item.location_id === row.location_id) && item.active !== false);
+      const asset = assets?.find((item) => item.id === row.asset_id && (item.location_id === null || item.location_id === row.location_id || frontDeskCommonArea(locations?.find(location => location.id === row.location_id), physical.data?.find(location => location.id === item.location_id))) && item.active !== false);
       if (!asset) return NextResponse.json({ error: "Equipment does not match the selected location." }, { status: 400 });
       row.asset_name = asset.name;
     }

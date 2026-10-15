@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
       const { data, error } = await auth.admin.from("assets")
         .select(EQUIPMENT_SELECTION_COLUMNS)
+        .eq("hotel_id", HOTEL_ID)
         .eq("active", true)
         .order("name", { ascending: true })
         .range(offset, offset + ASSET_PAGE_SIZE - 1);
