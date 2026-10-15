@@ -45,7 +45,7 @@ export function messageDirection(from: string, account: string): "inbound" | "ou
 }
 
 type RequestStage = "OAuth token exchange" | "Gmail list" | "Gmail retrieval" | "Microsoft messages";
-const SAFE_OAUTH_CODES = new Set(["invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "unsupported_grant_type", "invalid_scope", "temporarily_unavailable", "server_error"]);
+const SAFE_OAUTH_CODES = new Set(["deleted_client", "disabled_client", "invalid_dpop_proof", "use_dpop_nonce", "invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "unsupported_grant_type", "invalid_scope", "temporarily_unavailable", "server_error"]);
 const SAFE_GMAIL_CODES = new Set(["authError", "insufficientPermissions", "accessNotConfigured", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded", "backendError", "notFound", "forbidden", "domainPolicy", "UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED", "INVALID_ARGUMENT", "NOT_FOUND", "UNAVAILABLE", "INTERNAL"]);
 function safeProviderCodes(body: unknown, stage: RequestStage): string[] {
   if (!body || typeof body !== "object" || !("error" in body)) return [];
@@ -77,8 +77,10 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
       const mime = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
       const contentType = !mime ? "missing" : ["application/json", "text/html", "text/plain"].includes(mime) ? mime : "other";
       const hasField = (key: string) => Boolean(body && typeof body === "object" && !Array.isArray(body) && Object.prototype.hasOwnProperty.call(body, key));
+      const errorValue = hasField("error") ? (body as Json).error : undefined;
+      const errorType = !hasField("error") ? "missing" : errorValue === null ? "null" : Array.isArray(errorValue) ? "array" : typeof errorValue;
       // Only fixed keys, booleans and allowlisted MIME labels; never header/body values or URLs.
-      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true })}.`;
+      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true })}.`;
     }
     throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }

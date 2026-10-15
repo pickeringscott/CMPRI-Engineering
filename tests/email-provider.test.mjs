@@ -88,7 +88,7 @@ test('safe mailbox failure stages and allowlisted codes never expose provider te
         throw new Error('Unexpected request after failure');
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false}) + '.' : '';
+        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false}) + '.' : '';
         assert.equal(error.message,scenario.expected + suffix);
         assert.equal(error.cause,undefined);
         assert.equal(String(error).includes('private-'),false);
@@ -111,7 +111,9 @@ test('Google refresh request uses native form serialization and bounded response
   const cases = [
     {name:'recognized JSON with private description and URI',body:JSON.stringify({error:'invalid_client',error_description:'private-secret',error_uri:'https://private.invalid'}),mime:'application/json; private-parameter=secret',type:'application/json',parsed:true,error:true,description:true,uri:true,recognized:true},
     {name:'unrecognized JSON code',body:JSON.stringify({error:'private-unknown-code'}),mime:'application/json',type:'application/json',parsed:true,error:true},
-    {name:'JSON without known fields',body:JSON.stringify({message:'private-body'}),mime:'application/json',type:'application/json',parsed:true},
+    ...['deleted_client','disabled_client','invalid_dpop_proof','use_dpop_nonce'].map(code=>({name:code,body:JSON.stringify({error:code,error_description:'private-secret'}),mime:'application/json',type:'application/json',parsed:true,error:true,description:true,recognized:true,code})),
+    ...[[null,'null'],[{},'object'],[['private-secret'],'array'],[401,'number'],[false,'boolean']].map(([value,errorType])=>({name:'non-string error '+errorType,body:JSON.stringify({error:value,error_description:'private-secret'}),mime:'application/json',type:'application/json',parsed:true,error:true,description:true,errorType})),
+    {name:'JSON without known fields' ,body:JSON.stringify({message:'private-body'}),mime:'application/json',type:'application/json',parsed:true},
     {name:'JSON null',body:'null',mime:'application/json',type:'application/json',parsed:true},
     {name:'HTML redirect response',body:'<html>private-body</html>',mime:'text/html; charset=utf-8',type:'text/html',redirected:true},
     {name:'plain text',body:'private-body',mime:'text/plain',type:'text/plain'},
@@ -147,8 +149,8 @@ test('Google refresh request uses native form serialization and bounded response
         return response;
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected)};
-        assert.equal(error.message,`Mailbox OAuth token exchange failed (401${c.recognized?'; invalid_client':''}). Response shape: ${JSON.stringify(shape)}.`);
+        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorType:c.errorType||(c.error?'string':'missing'),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected)};
+        assert.equal(error.message,`Mailbox OAuth token exchange failed (401${c.recognized?'; '+(c.code||'invalid_client'):''}). Response shape: ${JSON.stringify(shape)}.`);
         assert.equal(error.cause,undefined);
         assert.doesNotMatch(error.stack,/private-|private@|https:\/\//);
         return true;
