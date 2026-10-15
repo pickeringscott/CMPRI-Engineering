@@ -29,6 +29,14 @@ export function workOrderHistoryAction(event: WorkOrderHistoryEvent) {
   const previous = field(event, "previous_technician_name");
   const statusChange = `Status ${event.old_status || "—"} → ${event.new_status || "—"}`;
   switch (event.event_type) {
+    case "report_corrected": {
+      return ["room", "issue"].flatMap(key => {
+        const change = event.changed_fields?.[key];
+        if (!change || typeof change !== "object") return [];
+        const values = change as { old?: unknown; new?: unknown };
+        return [`${key === "room" ? "Room/Location" : "Reported Issue"}: ${String(values.old ?? "—")} → ${String(values.new ?? "—")}`];
+      }).join("; ") || "Report corrected";
+    }
     case "created": return "Work order created";
     case "claimed": {
       const claimer = technician || event.actor_name?.trim() || "a technician";

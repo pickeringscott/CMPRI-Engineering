@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import {PGlite} from '@electric-sql/pglite';
 const require=createRequire(import.meta.url);
 function load(path,deps={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(name)=>name in deps?deps[name]:require(name),console,TextDecoder,TextEncoder,Uint8Array,File,FormData});return exports;}
+const sourceModule=load('../src/lib/manual-source.ts',{'./manual-document-match':load('../src/lib/manual-document-match.ts')});
 const pdfModule=load('../src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{}});
 test('real PDF extraction preserves upload bytes and SHA, including a second read',async()=>{
  const bytes=new Uint8Array(readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url)));
@@ -76,12 +77,12 @@ test('verification accepts a saved readable replacement while retaining an old e
 
 test('normal upload stores the original PDF bytes after real extraction; Retry uses the saved object',async()=>{
  const original=new Uint8Array(readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url)));let saved;
- const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{id:asset},error:null})};return q},storage:{getBucket:async()=>({data:{id:'asset-documentation'},error:null}),from(){return {upload:async(path,bytes)=>{saved={path,bytes:bytes.slice()};return {error:null}},download:async()=>({data:new Blob([saved.bytes]),error:null}),createSignedUrl:async()=>({data:{signedUrl:'https://fixture.invalid/manual.pdf'},error:null})}}}};
- const route=load('../src/app/api/assets/documentation/route.ts',{'next/server':{NextResponse:Response},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/server/auth':{requireCapability:async()=>({admin,principal:{profile:{role:'system_admin'},identity:{id:actor}}})},'@/lib/server/roles':{canEditEquipment:()=>true},'@/lib/manual-pdf-knowledge':pdfModule,'@/lib/manual-document-catalog':{},'@/lib/server/verified-manual-catalog':{}});
+ const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{id:asset},error:null}),upsert:async()=>({error:null})};return q},storage:{getBucket:async()=>({data:{id:'asset-documentation'},error:null}),from(){return {upload:async(path,bytes)=>{saved={path,bytes:bytes.slice()};return {error:null}},download:async()=>({data:new Blob([saved.bytes]),error:null}),createSignedUrl:async()=>({data:{signedUrl:'https://fixture.invalid/manual.pdf'},error:null})}}}};
+ const route=load('../src/app/api/assets/documentation/route.ts',{'next/server':{NextResponse:Response},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/server/auth':{requireCapability:async()=>({admin,principal:{profile:{role:'system_admin'},identity:{id:actor}}})},'@/lib/server/roles':{canEditEquipment:()=>true},'@/lib/manual-pdf-knowledge':pdfModule,'@/lib/manual-source':sourceModule,'@/lib/manual-document-catalog':{},'@/lib/server/verified-manual-catalog':{}});
  const form=new FormData();form.set('asset_id',asset);form.set('file',new File([original],'fixture.pdf',{type:'application/pdf'}));
- const response=await route.POST({formData:async()=>form});assert.equal(response.status,200);assert.equal((await response.json()).processing_status,'processed');assert.deepEqual(saved.bytes,original);
+ const response=await route.POST({formData:async()=>form});assert.equal(response.status,200);assert.equal((await response.json()).processing_status,'pending_identity');assert.deepEqual(saved.bytes,original);
  const retry=new FormData();retry.set('asset_id',asset);retry.set('storage_path',saved.path);
- const second=await route.POST({formData:async()=>retry});assert.equal((await second.json()).processing_status,'processed');assert.deepEqual(saved.bytes,original);
+ const second=await route.POST({formData:async()=>retry});assert.equal((await second.json()).processing_status,'pending_identity');assert.deepEqual(saved.bytes,original);
  saved.bytes=new Uint8Array();const emptyRetry=await route.POST({formData:async()=>retry});assert.equal(emptyRetry.status,422);assert.equal(saved.bytes.byteLength,0);
 });
 

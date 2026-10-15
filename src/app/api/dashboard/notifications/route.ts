@@ -203,6 +203,7 @@ export async function GET(request: NextRequest) {
   const inboxQuery = admin
     .from("cmpri_dashboard_notifications")
     .select("notification_key, work_order_id, target_path, message, recorded_at, read_at")
+    .not("notification_key", "like", "staff-note:%")
     .eq("hotel_id", HOTEL_ID)
     .eq("recipient_user_id", userId)
     .is("cleared_at", null)

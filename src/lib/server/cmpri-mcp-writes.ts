@@ -1,4 +1,6 @@
+import { canUseHoursMcp, saveHoursMcp } from './hours-tracker-mcp';
 import "server-only";
+import { hoursClockEnabled } from "@/lib/server/hours-clock-policy";
 
 import { NextRequest } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
@@ -17,6 +19,9 @@ type WriteAction = {
 };
 
 const WRITE_ACTIONS: WriteAction[] = [
+  { action: "hours_tracker.save_period", description: "Only on explicit request: save your own complete 14-day timesheet period. Read hours_tracker first; preserve every unchanged day and use its current revision. Never infer attendance, overnight work, or historical rate changes. confirmRateChange requires explicit confirmation for that period. No leave-policy/baseline edits or imports." },
+  { action: "hours_tracker.clock_in", description: "Only on explicit user request: start the authenticated actor's own private CMPRI shift now (America/Chicago, minute precision). Not Paycom. Supply unique request_id, reuse it unchanged on retry. Returns shiftId; does not create default attendance. Requires separately activated owner access." },
+  { action: "hours_tracker.clock_out", description: "Only on explicit user request: close the actor's own open shift now. Supply unique request_id and shift_id from clock-in; reuse identical inputs for retry. For a next-day finish ask for confirm_overnight=true; hours belong to the start date. Never overwrite manual data. For DST/forgotten shifts, first read back the recorded start and ask the user for the exact end with timezone offset, elapsed minutes and reason; only after confirmation supply reconciliation {resolution: finish, confirmed: true, reason, end_at, elapsed_minutes}. Alternatively explicitly confirm reconciliation {resolution: discard, confirmed: true, reason}, which closes the timer without recording hours. Never guess ambiguous times or truncate shifts. Not Paycom." },
   { action: "work_orders.create", description: "Submit one or more CMPRI work orders, using the same validation and attribution as the CMPRI form.", capability: "submit" },
   { action: "work_orders.import", description: "Import validated CMPRI work orders from SafetyCulture or a spreadsheet.", capability: "edit_tickets" },
   { action: "room_operations.import", description: "Read room_operations first for its import_contract. ChatGPT reads all supplied photos and extracts the complete report_data using that contract; never send images to server OCR. Include every active room with its exact room_status. Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay; keep incoming guest fields separate. Preserve printed dates, times, and pages; ask for unreadable fields instead of guessing. Older-than-today reports are accepted when newer than stored source data. Validate with validate_only: true, then submit the same data without validate_only only when explicitly asked to import/save. Never claim success from validation alone.", capability: "edit_tickets" },
@@ -46,6 +51,8 @@ const WRITE_ACTIONS: WriteAction[] = [
 ];
 
 function actionAllowed(identity: McpIdentity, action: WriteAction) {
+  if (action.action === "hours_tracker.save_period") return canUseHoursMcp(identity);
+  if (action.action.startsWith("hours_tracker.")) return hoursClockEnabled(identity.principal);
   if (action.action === "integrations.room_ranker.sync" || action.action === "room_ranker.update") {
     return canEditRoomRanker(identity.principal);
   }
@@ -102,6 +109,13 @@ export async function callMcpWriteAction(
   };
 
   switch (actionName) {
+    case "hours_tracker.save_period": return { status: 200, body: await saveHoursMcp(identity, input) };
+    case "hours_tracker.clock_in":
+    case "hours_tracker.clock_out": {
+      if ("action" in input) throw new Error("Do not override the clock action.");
+      const route = await import("@/app/api/hours-tracker/clock/route");
+      return callApi(incoming, "/api/hours-tracker/clock", "POST", bearer, { ...input, action: actionName.endsWith("clock_in") ? "clock_in" : "clock_out" }, route.POST);
+    }
     case "work_orders.create": {
       const route = await import("@/app/api/work-orders/route");
       return callApi(incoming, "/api/work-orders", "POST", bearer, input, route.POST);

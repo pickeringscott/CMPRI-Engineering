@@ -20,6 +20,7 @@ type ModalPanelStyle = CSSProperties & {
 function modalHref(href: string) {
   const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(href);
   const modalRoutes = new Set([
+    "/staff-notes",
     "/work-orders",
     "/management/equipment",
     "/management/rooms",
@@ -31,6 +32,7 @@ function modalHref(href: string) {
     "/engineering/purchasing",
     "/engineering/gss",
     "/engineering/pool-log",
+    "/engineering/hours-tracker",
     "/engineering/room-operations",
     "/engineering/enseo-assignments",
     "/engineering/parts",

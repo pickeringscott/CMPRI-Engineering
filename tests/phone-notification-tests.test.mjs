@@ -157,7 +157,7 @@ test('ownership is enforced for send/status/cancel even with another device endp
 test('anonymous, MCP, and ineligible profiles cannot request tests',async()=>{
   auth={ok:false}; assert.equal((await enqueue()).status,401);
   auth={ok:true,mcp:true,admin,principal:{identity:{id:user},profile:{role:'system_admin'}}};assert.equal((await enqueue()).status,403);
-  auth.mcp=false;auth.principal.profile.role='Front Desk Manager';assert.equal((await enqueue()).status,403);
+  auth.mcp=false;auth.principal.profile.role='Front Desk';assert.equal((await enqueue()).status,403);
   assert.equal(callbacks.length,0);
 });
 

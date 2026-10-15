@@ -1,3 +1,4 @@
+import { canUseHoursMcp, readHoursMcp } from './hours-tracker-mcp';
 import "server-only";
 
 import { ROOM_OPERATIONS_IMPORT_CONTRACT } from "@/lib/server/room-operations-import-schema";
@@ -29,6 +30,7 @@ const READ_VIEW_CAPABILITIES = {
 
 export function availableMcpReadViews(identity: McpIdentity) {
   const views = [
+    ...(canUseHoursMcp(identity) ? ["hours_tracker"] : []),
     ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
     ...(allows(identity.principal, "view_work_orders") ? ["work_orders"] as const : []),
     ...(canViewRoomRanker(identity.principal) ? ["room_ranker"] as const : []),
@@ -100,6 +102,7 @@ export async function callMcpReadView(
   }
 
   switch (view) {
+    case "hours_tracker": return readHoursMcp(identity, args);
     case "work_orders": {
       const route = await import("@/app/api/work-orders/route");
       return callGet(incoming, "/api/work-orders", route.GET);

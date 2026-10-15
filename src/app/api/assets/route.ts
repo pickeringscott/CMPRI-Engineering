@@ -1,3 +1,6 @@
+import * as baseline from "@/lib/server/pre-consolidation/assets-route";
+import { dispatchConsolidation } from "@/lib/server/consolidation-stage";
+import { listRegisteredAssetFiles } from "@/lib/server/asset-file-register";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
@@ -23,21 +26,14 @@ async function readBody(request: NextRequest): Promise<Record<string, unknown> |
 }
 
 async function documentationState(data: SupabaseClient, assetId: string) {
-  const prefix = `${HOTEL_ID}/${assetId}`;
-  const names: string[] = [];
-  for (let offset = 0; ; offset += 100) {
-    const { data: files, error } = await data.storage.from(BUCKET).list(prefix, { limit: 100, offset });
-    if (error) {
-      if (/not found|bucket/i.test(error.message || "")) return { verified: false, documentCount: 0, error: null };
-      return { verified: false, documentCount: 0, error: "Equipment documentation verification is unavailable." };
-    }
-    names.push(...(files || []).map((file) => String(file.name || "")));
-    if ((files || []).length < 100) break;
-  }
+  const { data: files, error } = await listRegisteredAssetFiles(data, assetId);
+  if (error) return { verified: false, documentCount: 0, error: "Equipment documentation verification is unavailable." };
+  const names = files.map(file => file.name);
   return {
     verified: names.includes(VERIFY_MARKER),
     documentCount: names.filter((name) => name && name !== VERIFY_MARKER).length,
     names,
+    files,
     error: null,
   };
 }
@@ -61,6 +57,8 @@ function optionalText(value: unknown, label: string, maximum = 500) {
 }
 
 export async function GET(request: NextRequest) {
+  const staged = await dispatchConsolidation(request, baseline.GET);
+  if (staged) return staged;
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const mode = request.nextUrl.searchParams.get("mode") || "management";
@@ -125,6 +123,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const staged = await dispatchConsolidation(request, baseline.POST);
+  if (staged) return staged;
   const auth = await requireCapability(request, "manage_assets");
   if (!auth) return NextResponse.json({ error: "Equipment editing permission is required." }, { status: 403 });
   if (!canEditEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Only engineers can edit equipment." }, { status: 403 });
@@ -164,6 +164,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const staged = await dispatchConsolidation(request, baseline.PATCH);
+  if (staged) return staged;
   const auth = await requireCapability(request, "manage_assets");
   if (!auth) return NextResponse.json({ error: "Equipment editing permission is required." }, { status: 403 });
   if (!canEditEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Only engineers can edit equipment." }, { status: 403 });
@@ -231,9 +233,10 @@ export async function PATCH(request: NextRequest) {
     // File presence alone is insufficient: historical empty objects are retained
     // for audit, but only a readable, nonempty PDF can support new verification.
     let readable = false;
-    for (const name of state.names || []) {
+    for (const registered of state.files || []) {
+      const name = registered.name;
       if (!name.toLowerCase().endsWith(".pdf")) continue;
-      const { data: file, error } = await auth.admin.storage.from(BUCKET).download(`${HOTEL_ID}/${id}/${name}`);
+      const { data: file, error } = await auth.admin.storage.from(BUCKET).download(registered.storage_path);
       if (error || !file || !file.size || file.size > 50 * 1024 * 1024) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (new TextDecoder().decode(bytes.subarray(0,5)) !== "%PDF-") continue;

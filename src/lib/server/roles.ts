@@ -119,6 +119,23 @@ export function profileIsChiefEngineer(profile: { role: unknown; secondary_roles
       .some((roleLabel) => roleLabel.trim().toLowerCase().replace(/[\s_-]+/g, "") === "chiefengineer"));
 }
 
+/** Eligibility never grants access to another person's hours document. */
+type HoursProfile = { id?: string; email?: string | null; role: unknown; secondary_roles?: readonly unknown[] };
+/** Existing verified legacy assignment; not a display-name or generic-engineer grant. */
+export function profileIsEstablishedHoursChief(profile: HoursProfile): boolean {
+  return profile.id === '750f77bf-7d5d-4ca6-8421-e025edea87ba'
+    && profile.email?.trim().toLowerCase() === 'maint.cmpri@hawkeyehotels.com'
+    && roleKey(profile.role) === 'system_admin'
+    && profile.secondary_roles?.some(role => typeof role === 'string' && role.trim().toLowerCase() === 'engineer') === true;
+}
+export function profileCanUseHoursTracker(profile: HoursProfile): boolean {
+  return profileIsChiefEngineer(profile)
+    || profileIsEstablishedHoursChief(profile)
+    || profileHasRole(profile, "assistant_manager")
+    || profileHasRole(profile, "front_desk_manager")
+    || profileHasRole(profile, "technician");
+}
+
 export function profileIsChiefEngineerOrSystemAdmin(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
   return profileIsChiefEngineer(profile) || profileHasRole(profile, "system_admin");
 }
@@ -265,63 +282,26 @@ export function canChangeAccount(
  * Titles currently available in User Management.
  *
  * Current list:
- * Chief Engineer, Engineering Manager, Regional Maintenance, General Manager,
+ * Chief Engineer, General Manager,
  * Maintenance Technician, Front Desk, Assistant General Manager, Front Desk Manager,
- * Sales Manager, Lead Housekeeper.
+ * Lead Housekeeper.
+ * System Administrator remains a protected internal capability, not a business-role choice.
  *
  * Retired/hidden titles remain in aliases above so historical records continue
  * to resolve safely without making those titles assignable to new users.
  */
 export const ASSIGNABLE_ROLE_LABELS = [
   "Chief Engineer",
-  "Engineering Manager",
-  "Regional Maintenance",
   "General Manager",
   "Maintenance Technician",
   "Front Desk",
   "Assistant General Manager",
   "Front Desk Manager",
-  "Sales Manager",
   "Lead Housekeeper",
 ] as const;
 
-const ENGINEER_TITLES = [
-  "Chief Engineer",
-  "Engineering Manager",
-  "Regional Maintenance",
-];
-
-const MANAGER_TITLES = ["General Manager"];
-
-const SENIOR_TITLES: string[] = [];
-
-const TECHNICIAN_TITLES = ["Maintenance Technician"];
-
-const FRONT_DESK_TITLES = [
-  "Front Desk",
-  "Assistant General Manager",
-  "Front Desk Manager",
-  "Sales Manager",
-];
-
-const HOUSEKEEPING_TITLES = ["Lead Housekeeper"];
-
-const ALL_MANAGEABLE_TITLES = [
-  ...ENGINEER_TITLES,
-  ...MANAGER_TITLES,
-  ...SENIOR_TITLES,
-  ...TECHNICIAN_TITLES,
-  ...FRONT_DESK_TITLES,
-  ...HOUSEKEEPING_TITLES,
-];
-
 export function assignableRoleLabels(callerRole: unknown): string[] {
-  const caller = roleKey(callerRole);
-  if (caller === "system_admin") return ALL_MANAGEABLE_TITLES;
-  if (caller === "engineer" || caller === "manager") {
-    return [...TECHNICIAN_TITLES, ...FRONT_DESK_TITLES, ...HOUSEKEEPING_TITLES];
-  }
-  return [];
+  return ASSIGNABLE_ROLE_LABELS.filter((label) => canManageTargetRole(callerRole, label));
 }
 
 export function roleDisplayTitle(role: string | null | undefined): string {

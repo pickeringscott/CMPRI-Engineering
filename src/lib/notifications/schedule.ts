@@ -15,6 +15,8 @@ export type PhoneNotificationSettings = {
 };
 
 export type WebPushEligibleProfile = {
+  id?: string;
+  email?: string | null;
   role: unknown;
   secondary_roles?: readonly unknown[];
 };
@@ -27,6 +29,7 @@ const WORK_ORDER_PUSH_ROLES = new Set([
   "technician", "maintenancetechnician",
 ]);
 const SCHEDULE_ROLES = new Set([
+  "housekeeping", "leadhousekeeper", "executivehousekeeper",
   "engineer", "engineering", "chiefengineer", "engineeringmanager", "regionalmaintenance", "regionalengineer",
   "technician", "maintenancetechnician",
   "manager", "generalmanager", "gm",
@@ -100,4 +103,9 @@ export function isWithinNotificationSchedule(settings: PhoneNotificationSettings
   const previousDay = DAY_NAMES[(dayIndex + DAY_NAMES.length - 1) % DAY_NAMES.length] as keyof NotificationSchedule;
   const previous = settings.schedule[previousDay];
   return previous.enabled && minute(previous.start) > minute(previous.end) && currentMinute < minute(previous.end);
+}
+
+export function isStaffNotesPushEligibleProfile(profile: WebPushEligibleProfile) {
+  const roles = profileRoleLabels(profile);
+  return !roles.includes("frontdesk") && roles.some(role => SCHEDULE_ROLES.has(role));
 }

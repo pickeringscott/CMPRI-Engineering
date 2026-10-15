@@ -79,7 +79,7 @@ function fixture(options = {}) {
   ].map((permission) => ({ role, permission, allowed: true }));
   const principal = {
     identity: { id: userId },
-    profile: { id: userId, role, full_name: options.fullName || "Test User", active: true },
+    profile: { id: userId, email: options.email, role, secondary_roles: options.secondaryRoles || [], full_name: options.fullName || "Test User", active: true },
     hotelId,
     membership: { user_id: userId, hotel_id: hotelId, role: options.membershipRole || roleModule.membershipRole(role), active: true },
     permissions,
@@ -101,6 +101,7 @@ function fixture(options = {}) {
       from(bucket) {
         assert.equal(bucket, "asset-documentation");
         return {
+          remove: async (paths) => { storageCalls.push({ operation: "remove", paths }); return { error: options.removeError ? new Error("storage unavailable") : null }; },
           upload: async (path, file, uploadOptions) => {
             storageCalls.push({ operation: "upload", path, file, uploadOptions });
             if (options.persistDirectory && !options.uploadError) {
@@ -158,6 +159,7 @@ function fixture(options = {}) {
     filters,
     storageCalls,
     logs,
+    remove: (photoId, id = workOrderId) => exports.DELETE({json: async () => ({photoId})}, {params: Promise.resolve({id})}),
     get: () => exports.GET({}, { params: Promise.resolve({ id: workOrderId }) }),
     post: (file, uploadId) => exports.POST(request(file, uploadId), { params: Promise.resolve({ id: workOrderId }) }),
     getMalformed: () => exports.GET({}, { params: Promise.resolve({ id: "test-id" }) }),
@@ -339,8 +341,8 @@ test("attachment listing returns signed image URLs and surfaces storage/signing 
   assert.equal((await missingUrl.get()).status, 503);
 });
 
-test("attachment route intentionally exposes no delete handler", () => {
-  assert.equal(routeSource.includes("export async function DELETE"), false);
+test("attachment route exposes authenticated removal alongside read and upload", () => {
+  assert.equal(routeSource.includes("export async function DELETE"), true);
   assert.equal(routeSource.includes("export async function POST"), true);
   assert.equal(routeSource.includes("export async function GET"), true);
 });
@@ -356,7 +358,7 @@ test("work-order form accepts multiple gallery photos, camera photos, and previe
 
 test("work-order detail exposes desktop photo upload and mobile camera controls to commenters", () => {
   const detailSource = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(detailSource, /canSubmitTicketNote && \([\s\S]*?id="work-order-detail-photo"[\s\S]*?accept="image\/\*"[\s\S]*?Upload photo/);
+  assert.match(detailSource, /canSubmitTicketNote && \([\s\S]*?id="work-order-detail-photo"[\s\S]*?accept="image\/\*"[\s\S]*?Choose photo/);
   assert.match(detailSource, /id="work-order-detail-camera"[\s\S]*?capture="environment"/);
   assert.match(detailSource, /className="[^"]*\bmd:hidden\b/);
   assert.match(detailSource, />\s*Camera\s*</);
@@ -576,4 +578,78 @@ test("different commenters cannot overwrite each other's upload keys", async () 
     assert.equal(f.storageCalls[0].uploadOptions.metadata.uploaded_by,userId);
   }
   assert.notEqual(paths[0],paths[1]);
+});
+
+const photoOwner = '750f77bf-7d5d-4ca6-8421-e025edea87ba';
+const ownPhoto = photoOwner + '_00000000-0000-4000-8000-000000000099.png';
+test('Chief Engineer removal targets a selected saved photo inside the exact hotel/ticket prefix', async () => {
+ const route=fixture({role:'Chief Engineer',userId:photoOwner});
+ assert.equal((await route.remove(ownPhoto)).status,200);
+ assert.deepEqual(Array.from(route.storageCalls[0].paths),[hotelId+'/work-orders/'+workOrderId+'/'+ownPhoto]);
+ assert.ok(route.filters.some(([k,v])=>k==='hotel_id'&&v===hotelId));
+});
+test('removal rejects paths, encoded traversal and malformed bodies',async()=>{
+ for(const name of ['../'+ownPhoto,ownPhoto+'/x','%2e%2e%2f'+ownPhoto,ownPhoto.replace('.png','.pdf'),null,{},'']){
+  const route=fixture({role:'Chief Engineer',userId:photoOwner});assert.equal((await route.remove(name)).status,403);assert.equal(route.storageCalls.length,0);
+ }
+});
+test('removal enforces sign-in, lookup errors, hotel scope and valid ticket IDs',async()=>{
+ for(const [options,status] of [[{authenticated:false},401],[{lookupError:true},503],[{workOrderHotelId:'other'},404]]){
+  const route=fixture({role:'Chief Engineer',userId:photoOwner,...options});assert.equal((await route.remove(ownPhoto)).status,status);assert.equal(route.storageCalls.length,0);
+ }
+ const route=fixture({userId:photoOwner});assert.equal((await route.remove(ownPhoto,'bad-id')).status,400);assert.equal(route.storageCalls.length,0);
+});
+test('only Chief Engineer can remove saved photos regardless of uploader, creator or ordinary edit capability',async()=>{
+ for(const {role} of roleCases)for(const status of ['Open','In Progress','Closed','Pending Verification'])for(const ownTicket of [true,false]){
+  const options={role,status,userId:photoOwner,createdBy:ownTicket?photoOwner:'other',technicianName:'Another Technician'};
+  const remove=fixture(options);
+  assert.equal((await remove.remove(ownPhoto)).status,role === 'Chief Engineer' ? 200 : 403,role+' '+status+' creator='+ownTicket);
+ }
+});
+test('storage removal failures remain visible and do not report success',async()=>{
+ const route=fixture({role:'Chief Engineer',userId:photoOwner,removeError:true});const response=await route.remove(ownPhoto);assert.equal(response.status,503);assert.match(response.body.error,/could not be removed/);
+});
+test('listing advertises removal only for Chief Engineer and valid photo keys',async()=>{
+ const route=fixture({role:'Chief Engineer',userId:photoOwner,files:[{name:ownPhoto,metadata:{mimetype:'image/png'}},{name:'legacy.png',metadata:{mimetype:'image/png'}}]});
+ const result=await route.get();assert.equal(result.body.images[0].can_remove,true);assert.equal(result.body.images[1].can_remove,false);
+ assert.equal(resolveWorkOrderImages(true,{images:[{id:ownPhoto,name:ownPhoto,url:'https://example.invalid/photo',can_remove:true}]}).images[0].can_remove,true);
+});
+
+test('Chief Engineer can delete other uploaders and legacy saved images; submitters cannot delete their own',async()=>{
+ for(const key of ['00000000-0000-4000-8000-000000000098_00000000-0000-4000-8000-000000000099.png','00000000-0000-4000-8000-000000000099.png']){
+ const chief=fixture({role:'Chief Engineer',userId:photoOwner});assert.equal((await chief.remove(key)).status,200);
+ }
+ for(const role of ['Front Desk','Technician','Maintenance Technician','System Administrator','Engineer','Engineering Manager','Regional Maintenance','Regional Engineer']){
+ const route=fixture({role,userId:photoOwner,createdBy:photoOwner});assert.equal((await route.remove(ownPhoto)).status,403);assert.equal(route.storageCalls.length,0);
+ const read=fixture({role,userId:photoOwner,files:[{name:ownPhoto,metadata:{mimetype:'image/png'}}]});const result=await read.get();if(result.status===200)assert.equal(result.body.images[0].can_remove,false);
+ }
+});
+
+test('every recognized submission role/alias follows upload status policy, including all currently active profile shapes', async () => {
+ const roleText=readFileSync(new URL('../src/lib/server/roles.ts',import.meta.url),'utf8');
+ const aliasBlock=roleText.match(/const aliases:[\s\S]*?= \{([\s\S]*?)\n\};/)[1];
+ const aliases=[...aliasBlock.matchAll(/([a-z]+): "([a-z_]+)"/g)].map(m=>({role:m[1],family:m[2]}));
+ const inventory=[{role:'assistant_manager',membershipRole:'technician'},{role:'front_desk',membershipRole:'technician'},{role:'front_desk_manager',membershipRole:'technician'},{role:'system_admin',membershipRole:'admin'},{role:'system_admin',secondaryRoles:['engineer'],membershipRole:'admin'}];
+ const results=[];
+ for(const options of [...aliases,...inventory]){
+  const family=roleModule.roleKey(options.role);
+  const canSubmit=roleModule.profileAllows({role:options.role,secondary_roles:options.secondaryRoles||[]},'submit')&&roleModule.membershipAllows(options.membershipRole||roleModule.membershipRole(options.role),'submit');
+  const technical=['engineer','system_admin'].includes(family);
+  const submitOnly=['front_desk','housekeeping'].includes(family);
+  const outcomes={};
+  for(const status of ['Pending Verification','Open','In Progress','Completed','Closed','Will Not Do'])for(const owner of [true,false]){
+   const route=fixture({...options,status,userId:'actor',createdBy:owner?'actor':'other'});
+   const expected=technical||['Open','In Progress'].includes(status)||(submitOnly&&owner&&status==='Pending Verification');
+   const response=await route.post(photo());assert.equal(response.status,expected?200:403,options.role+' '+status+' own='+owner);
+   outcomes[status+(owner?' own':' other')]=response.status;
+  }
+  results.push({role:options.role,secondaryRoles:options.secondaryRoles||[],family,canSubmit,outcomes});
+ }
+ await writeFile(new URL('../../upload-role-matrix.json',import.meta.url),JSON.stringify({kind:'offline real route / mocked auth and storage',results},null,2));
+});
+
+test('effective Chief mapping includes Scott exactly and excludes lookalike admin/engineer combinations',async()=>{
+ const scott={userId:photoOwner,email:'maint.cmpri@hawkeyehotels.com',role:'system_admin',secondaryRoles:['engineer']};
+ const cases=[{...scott,allowed:true},{...scott,userId:'00000000-0000-4000-8000-000000000098'},{...scott,email:'other@example.invalid'},{...scott,secondaryRoles:[]},{...scott,role:'Engineer'},{...scott,secondaryRoles:['Regional Engineer']},{userId:photoOwner,role:'Chief Engineer',allowed:true},{userId:photoOwner,role:'system_admin',secondaryRoles:['Chief Engineer'],allowed:true}];
+ for(const item of cases){const route=fixture({...item,files:[{name:ownPhoto,metadata:{mimetype:'image/png'}}]});assert.equal((await route.remove(ownPhoto)).status,item.allowed?200:403,JSON.stringify(item));const read=await route.get();assert.equal(read.body.images[0].can_remove,Boolean(item.allowed));}
 });

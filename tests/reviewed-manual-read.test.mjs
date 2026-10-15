@@ -34,7 +34,7 @@ function fixture(payload = reviewed, catalog = true) {
       if (name === '@/lib/server/roles') return { roleAllows: () => false };
       if (name === '@/lib/manual-document-match') return { manualMatchesEquipment };
       if (name === '@/lib/manual-pdf-knowledge') return {};
-      if (name === '@/lib/server/verified-manual-catalog') return { loadVerifiedCatalogManuals: async () => ({ documents: catalog ? [{ name: 'temptrol.pdf', storagePath: 'Asset Docs/temptrol.pdf', knowledgeKey: 'catalog-key', modelFamily: 'Temptrol', manufacturer: 'Symmons', sha256: 'verified-bytes', text: 'Verified PDF text' }] : [], warnings: [] }) };
+      if (name === '@/lib/server/verified-manual-catalog') return { loadVerifiedCatalogManuals: async () => ({ documents: catalog ? [{ name: 'temptrol.pdf', storagePath: 'Asset Docs/temptrol.pdf', knowledgeKey: 'catalog-key', modelFamily: 'Temptrol', manufacturer: 'Symmons', sha256: 'verified-bytes', text: 'Verified PDF text', knowledge: payload }] : [], warnings: [] }) };
       throw Error(name);
     },
   });
@@ -44,7 +44,7 @@ test('verified catalog-linked guidance keeps source pages without AI or database
   const f = fixture(); const r = await f.run();
   assert.equal(r.status, 200); assert.equal(r.body.documentation_status, 'verified');
   assert.equal(r.body.manualKnowledge.symptom_rules[0].source_pages[0], 4);
-  assert(f.queries.some(q => q.table === 'troubleshooting_cache' && q.filters.some(([key,value]) => key === 'cache_key' && value === 'catalog-key')));
+  assert(!f.queries.some(q => q.table === 'troubleshooting_cache')); // Shared verified loader supplied the linked payload.
 });
 for (const [name, payload] of [
   ['missing knowledge', null],

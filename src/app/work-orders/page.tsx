@@ -35,6 +35,7 @@ import {
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
+import StaffNotes from "@/components/StaffNotes";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
 
 type WorkOrderDraft = {
@@ -2216,6 +2217,7 @@ export default function WorkOrdersPage() {
             )}
 
           </form>
+          {isSubmitOnlyUser && <StaffNotes compact />}
         </div>
 
         {message && (

@@ -14,7 +14,10 @@ function callerCanChangeAccount(
 }
 
 function callerCanAssignRole(callerProfile: { role: unknown; secondary_roles?: readonly unknown[] }, role: unknown): boolean {
-  return canManageTargetProfile(callerProfile, role);
+  // Compatibility aliases still authorize existing accounts, but cannot create new assignments.
+  return typeof role === "string"
+    && (ASSIGNABLE_ROLE_LABELS as readonly string[]).includes(role)
+    && canManageTargetProfile(callerProfile, role);
 }
 
 async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {

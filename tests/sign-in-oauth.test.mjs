@@ -21,7 +21,7 @@ test('only an OAuth flow started in this tab is treated as a sign-in callback', 
 
 test('signing out clears stale OAuth callback state', () => {
   assert.match(supabaseClient, /export const OAUTH_PENDING_KEY = "cmpri:auth:oauth-pending"/);
-  assert.match(supabaseClient, /finally\s*\{\s*try\s*\{\s*window\.sessionStorage\.removeItem\(OAUTH_PENDING_KEY\);\s*\}\s*finally\s*\{\s*clearDeviceSessionStorage\(\);/);
+  assert.match(supabaseClient, /window\.sessionStorage\.removeItem\(OAUTH_PENDING_KEY\);\s*\}\s*finally\s*\{\s*sessionPolicy\(\)\.revoke\(\);/);
 });
 
 test('Google OAuth returns to the browser origin, including the local development port', async () => {

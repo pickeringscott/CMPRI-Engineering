@@ -3,6 +3,7 @@ export type WorkOrderImage = {
   name: string;
   url: string;
   uploaded_at?: string | null;
+  can_remove?: boolean;
 };
 
 export type WorkOrderImageResolution = {
@@ -23,6 +24,7 @@ function workOrderImage(value: unknown): WorkOrderImage | null {
     id: value.id,
     name: value.name,
     url: value.url,
+    ...(typeof value.can_remove === "boolean" ? { can_remove: value.can_remove } : {}),
     ...(typeof value.uploaded_at === "string" ? { uploaded_at: value.uploaded_at } : {}),
   };
 }

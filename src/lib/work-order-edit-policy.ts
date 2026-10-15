@@ -1,4 +1,5 @@
-import { roleKey } from "./server/roles";
+import { ACTIVE_WORK_ORDER_STATUSES } from "./work-order-read-policy";
+import { profileHasRole, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "./server/roles";
 
 export const TECHNICAL_WORK_ORDER_FIELDS = [
   "issue", "asset_id", "asset_name", "category", "priority", "technician_name", "status", "notes",
@@ -10,7 +11,18 @@ export const NOTE_ONLY_WORK_ORDER_FIELDS = ["notes"] as const;
 export const ASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS = ["asset_id", "category", "status", "notes"] as const;
 export const UNASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS = ["technician_name"] as const;
 
+export const REPORT_CORRECTION_FIELDS = ["issue", "location_id"] as const;
+
+/** Correction eligibility is additive; callers must also enforce the existing row read policy. */
+export function canCorrectReport(profile: { id?: string; email?: string | null; role: unknown; secondary_roles?: readonly unknown[] }, status: unknown, canRead: boolean) {
+  if (!canRead) return false;
+  if (profileIsChiefEngineer(profile) || profileIsEstablishedHoursChief(profile)) return true;
+  return ACTIVE_WORK_ORDER_STATUSES.some(value => value === status)
+    && (["front_desk_manager", "assistant_manager", "manager", "technician"] as const).some(role => profileHasRole(profile, role));
+}
+
 export type WorkOrderEditableField =
+  | (typeof REPORT_CORRECTION_FIELDS)[number]
   | (typeof TECHNICAL_WORK_ORDER_FIELDS)[number]
   | (typeof REVIEW_WORK_ORDER_FIELDS)[number]
   | (typeof ASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS)[number]

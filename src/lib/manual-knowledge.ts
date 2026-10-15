@@ -1,14 +1,17 @@
+import type { SourcePassage } from "./manual-source";
 export type ManualErrorCode = {
   code: string;
   problem: string;
   action: string;
   source_pages?: number[];
+  source_url?: string;
 };
 
 export type ManualSymptomRule = {
   match: string[];
   steps: string[];
   source_pages?: number[];
+  source_url?: string;
 };
 
 export type ManualTestEntry = {
@@ -21,11 +24,13 @@ export type ManualTestEntry = {
 };
 
 export type ManualKnowledge = {
+  source_passages?: SourcePassage[];
   manufacturer?: string;
   equipment?: string;
   model_family?: string;
   model_number?: string;
   source?: {
+    sha256?: string;
     type?: string;
     title?: string;
     verified?: boolean;
@@ -101,6 +106,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
             problem: String(item.problem ?? item.description ?? item.meaning ?? "").trim(),
             action: String(item.action ?? item.solution ?? item.corrective_action ?? "").trim(),
             source_pages: pageNumbers(item.source_pages ?? item.pages),
+            ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
         .filter((item) => item.code && (item.problem || item.action))
@@ -116,6 +122,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
             match: Array.isArray(matchRaw) ? matchRaw.map(String) : [String(matchRaw || "")].filter(Boolean),
             steps: Array.isArray(stepsRaw) ? stepsRaw.map(String) : [String(stepsRaw || "")].filter(Boolean),
             source_pages: pageNumbers(item.source_pages ?? item.pages),
+            ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
         .filter((item) => item.steps.length > 0)
@@ -146,6 +153,12 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
       file_url: String(source.file_url ?? payload.file_url ?? ""),
       pdf_url: String(source.pdf_url ?? payload.pdf_url ?? ""),
     },
+    source_passages: Array.isArray(payload.source_passages) ? payload.source_passages.filter((entry): entry is SourcePassage => {
+      if (!entry || typeof entry !== "object") return false;
+      const item = entry as SourcePassage;
+      return Number.isInteger(item.page) && item.page > 0 && typeof item.text === "string" &&
+        (item.kind === "diagnostic" || item.kind === "troubleshooting");
+    }) : [],
     error_codes,
     symptom_rules,
     general_checks,

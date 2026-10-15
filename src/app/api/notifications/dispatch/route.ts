@@ -26,6 +26,7 @@ const MAX_SCAN = 10_000;
 
 type PushProfile = {
   id: string;
+  email?: string | null;
   role: string;
   secondary_roles?: string[];
   full_name: string | null;
@@ -186,7 +187,7 @@ async function dispatch(admin: SupabaseClient) {
   if (!userIds.length) return { users: 0, notifications: 0 };
 
   const [{ data: profiles, error: profilesError }, { data: memberships, error: membershipError }] = await Promise.all([
-    admin.from("profiles").select("id, role, secondary_roles, full_name, active").eq("active", true).in("id", userIds),
+    admin.from("profiles").select("id, email, role, secondary_roles, full_name, active").eq("active", true).in("id", userIds),
     admin.from("hotel_members").select("user_id").eq("hotel_id", HOTEL_ID).eq("active", true).in("user_id", userIds),
   ]);
   if (profilesError || membershipError) throw new Error("Phone notification recipients could not be verified.");

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { profileCanUseHoursTracker } from "@/lib/server/roles";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { signOutDevice } from "@/lib/supabase/client";
@@ -283,6 +284,7 @@ export default function TechnicianDashboard() {
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/staff-notes" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Staff Notes</button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-[9pt] font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
             <Link href="/work-orders" className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
@@ -295,6 +297,9 @@ export default function TechnicianDashboard() {
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-3 py-2 text-xs font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
+          {account && profileCanUseHoursTracker(account) && (
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/hours-tracker" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Hours Tracker</button>
+          )}
           {account && roomRankerProfileCanView(account, account.email) && (
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</button>
           )}

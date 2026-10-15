@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import StaffNotesUnread from "@/components/StaffNotesUnread";
 import GlobalModalHost from "@/components/GlobalModalHost";
 import "./globals.css";
 
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-full flex flex-col">
         {children}
         <GlobalModalHost />
+        <StaffNotesUnread />
       </body>
     </html>
   );

@@ -14,7 +14,7 @@ const editPolicyExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-edit-policy.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText,{exports:editPolicyExports,require(name) {
-      if (name === "@/lib/account-display") return accountDisplay;if(name==='./server/roles')return roleExports;throw new Error(name);}});
+      if (name === "@/lib/account-display") return accountDisplay;if(name==='./work-order-read-policy')return ticketReadDependency('@/lib/work-order-read-policy');if(name==='./server/roles')return roleExports;throw new Error(name);}});
 const { canSubmitWorkOrderNote, workOrderEditableFields }=editPolicyExports;
 const assignmentExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/work-order-assignment.ts',import.meta.url),'utf8'),{
@@ -88,7 +88,8 @@ function fixture(config={}){
       select(){return q;},eq(k,v){filters.push([k,v]);return q;},is(k,v){filters.push([k,v]);return q;},in(){return q;},limit(){return q;},order(){return q;},neq(){return q;},
       async maybeSingle(){
         calls.push({table,filters});
-        if(table==='work_orders')return {data:config.missing?null:{id:'order',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',created_by:config.createdBy,creator_name:'Historical recorded name',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
+        if(table==='work_orders')return {data:config.missing?null:{id:'order',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',created_by:config.createdBy,submitted_by_name:config.staffName,issue:"Fan noisy",room:"409",creator_name:'Historical recorded name',location_id:'room-409',asset_id:'old-asset',asset_name:'Original equipment',revision:config.currentRevision??1,status:existingStatus,technician_name:existingTechnician,last_assigned_technician_name:'Scott'},error:config.lookupError?{message:'failed'}:null};
+        if(table==='locations')return {data:config.locationMissing?null:{id:'00000000-0000-0000-0000-000000000020',name:'Room 410',active:!config.locationInactive},error:config.locationError?{message:'failed'}:null};
         if(table==='profiles')return {data:config.creatorProfile || null,error:null};
         if(table==='assets')return {data:config.assetMissing?null:{id:'new-asset',location_id:config.template?null:config.wrongRoom?'room-410':'room-409',active:!config.retired,name:'Verified equipment'},error:config.assetError?{message:'failed'}:null};
         return {data:null,error:null};
@@ -114,6 +115,7 @@ function fixture(config={}){
   const allows=(p,c)=>{
     if(!p||p.profile?.active!==true||config.permissionError||config.denied)return false;
     const role=p.profile.role;
+    if(c==='submit')return roleExports.roleAllows(role,'submit');
     if(c==='view_dashboard')return ['Engineer','Chief Engineer','General Manager','Senior Management','system_admin'].includes(role);
     if(c==='view_work_orders')return ['Engineer','Chief Engineer','General Manager','Assistant General Manager','Front Desk Manager','Senior Management','system_admin'].includes(role);
     if(c==='add_work_order_notes')return ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management','Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role);
@@ -151,6 +153,7 @@ function fixture(config={}){
       if(name==='@/lib/server/access')return {allows};
       if(name==='@/lib/server/auth')return authModule;
       if(name==='@/lib/server/roles')return {
+        profileIsChiefEngineer:roleExports.profileIsChiefEngineer, profileIsEstablishedHoursChief:roleExports.profileIsEstablishedHoursChief,
         roleKey:value=>{
           const key=typeof value==='string'?value.trim().toLowerCase().replace(/[\s_-]+/g,''):'unknown';
           return key==='maintenancetechnician'?'technician':key;
@@ -224,6 +227,7 @@ test('all note-only roles cannot change status, assignments, or engineering-owne
   for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const profile={id:'actor',active:true,role};
     for(const field of ['status','technician_name','issue','asset_id','asset_name','category','priority','action_root_cause','parts','cost','hours','due_by']){
+      if(field==='issue'&&['General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager'].includes(role)) continue;
       const f=fixture({profile,body:{[field]:field==='cost'||field==='hours'?1:'unauthorized'}});
       assert.equal((await f.run()).status,403,`${role}/${field}`);
       assert.equal(f.writes(),0,`${role}/${field}`);
@@ -303,7 +307,7 @@ test('assigned technician can save allowed fields but cannot send technical-only
   assert.equal((await allowed.run()).status,200);
   assert.equal(allowed.writes(),1);
   assert.equal(allowed.saved().category,'HVAC');
-  for(const field of ['issue','asset_name','priority','technician_name','action_root_cause','parts','cost','hours','due_by']){
+  for(const field of ['asset_name','priority','technician_name','action_root_cause','parts','cost','hours','due_by']){
     const denied=fixture({profile,existingTechnician:'Morgan Lee',body:{expected_revision:1,[field]:field==='cost'||field==='hours'?1:'unauthorized'}});
     assert.equal((await denied.run()).status,403,field);
     assert.equal(denied.writes(),0,field);
@@ -312,12 +316,12 @@ test('assigned technician can save allowed fields but cannot send technical-only
 
 for(const [config,status]of [[{lookupError:true},503],[{missing:true},404]])test(`lookup failure returns ${status} without writes`,async()=>{const f=fixture(config);assert.equal((await f.run()).status,status);assert.equal(f.writes(),0);});
 
-for(const body of [{},{issue:'  '},{issue:null},{notes:{text:'bad'}},{priority:'invented'},{cost:-1},{cost:'5'},{hours:-1},{hours:Infinity},{due_by:'not a date'},{technician_name:42},{created_by:'spoof'}])test(`invalid ticket fields rejected: ${JSON.stringify(body)}`,async()=>{
+for(const body of [{},{issue:'  '},{issue:null},{notes:{text:'bad'}},{priority:'invented'},{cost:-1},{cost:'5'},{hours:-1},{hours:Infinity},{due_by:'not a date'},{technician_name:42}])test(`invalid ticket fields rejected: ${JSON.stringify(body)}`,async()=>{
   const f=fixture({body});assert.equal((await f.run()).status,400);assert.equal(f.writes(),0);
 });
 
-test('valid amounts and optional clearing are retained while protected fields are ignored',async()=>{
-  const f=fixture({body:{cost:0,hours:1.5,notes:'',due_by:null,created_by:'spoof'}});
+test('valid amounts and optional clearing are retained',async()=>{
+  const f=fixture({body:{cost:0,hours:1.5,notes:'',due_by:null}});
   assert.equal((await f.run()).status,200);assert.equal(f.saved().cost,0);assert.equal(f.saved().hours,1.5);assert.equal(f.saved().due_by,null);assert.equal('created_by' in f.saved(),false);
 });
 
@@ -551,4 +555,48 @@ test('new technician reads expose ticket history without expanding purchasing ac
  }});
  assert.equal((await exports.GET({}, {params:Promise.resolve({id:'order'})})).status,200);
  assert.deepEqual(tables,['work_orders','cmpri_work_order_history']);
+});
+
+for (const role of ['Front Desk Manager','Assistant General Manager','General Manager','Maintenance Technician','Chief Engineer']) for (const status of ['Open','In Progress','Closed','Completed','Pending Verification','Will Not Do']) {
+ test(`${role} correction at ${status} follows existing visibility and active statuses`,async()=>{
+  const f=fixture({profile:{id:'actor',active:true,role},createdBy:'other',staffName:'Vaun',existingStatus:status,body:{issue:'Corrected fan report',location_id:'00000000-0000-0000-0000-000000000020'}});
+  const eligible=role==='Chief Engineer'||['Open','In Progress'].includes(status);
+  assert.equal((await f.run()).status,eligible?200:403);
+  if(eligible) {assert.equal(f.saved().room,'Room 410');assert.deepEqual(Object.keys(f.saved()).sort(),['history_actor_user_id','history_source','issue','location_id','room'].sort());}
+  else assert.equal(f.writes(),0);
+ });
+}
+for(const role of ['Front Desk','Housekeeping','Senior Management','Engineer','system_admin']) test(`${role} gains no location correction permission`,async()=>{
+ const f=fixture({profile:{id:'actor',active:true,role},createdBy:'actor',body:{location_id:'00000000-0000-0000-0000-000000000020'}});
+ assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
+});
+for(const field of ['status','priority','asset_id','notes','room','created_by','submitted_by_name','history_actor_user_id','history_source']) test(`eligible manager cannot tamper with ${field}`,async()=>{
+ const f=fixture({profile:{id:'actor',active:true,role:'Front Desk Manager'},body:{issue:'Corrected',[field]:'tampered'}});
+ assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
+});
+for(const config of [{locationMissing:true},{locationInactive:true},{locationError:true}])test(`unavailable correction location ${JSON.stringify(config)}`,async()=>{
+ const f=fixture({profile:{id:'actor',active:true,role:'Chief Engineer'},body:{location_id:'00000000-0000-0000-0000-000000000020'},...config});
+ assert.equal((await f.run()).status,config.locationError?503:400);assert.equal(f.writes(),0);
+});
+test('Chief Engineer corrects another submitter without changing saved equipment',async()=>{
+ const f=fixture({profile:{id:'actor',active:true,role:'Chief Engineer'},createdBy:'other',existingStatus:'Closed',body:{location_id:'00000000-0000-0000-0000-000000000020'}});
+ assert.equal((await f.run()).status,200);assert.equal(f.saved().room,'Room 410');assert.equal(f.saved().asset_id,undefined);
+});
+test('generic engineer does not gain new location permission on another ticket',async()=>{
+ const f=fixture({profile:{id:'actor',active:true,role:'Engineer'},createdBy:'other',body:{location_id:'00000000-0000-0000-0000-000000000020'}});
+ assert.equal((await f.run()).status,403);
+});
+
+test('correction role gate never replaces row visibility and recognizes secondary canonical roles',()=>{
+ const {canCorrectReport}=editPolicyExports;
+ for(const role of ['Front Desk Manager','Assistant General Manager','General Manager','Maintenance Technician','Chief Engineer']) {
+  assert.equal(canCorrectReport({role},'Open',false),false);
+  assert.equal(canCorrectReport({role:'Senior Management',secondary_roles:[role]},'Open',true),true);
+ }
+ assert.equal(canCorrectReport({role:'Senior Management'},'Open',true),false);
+});
+test('shared-name attribution and different original author do not restrict eligible manager',async()=>{
+ const f=fixture({profile:{id:'actor',active:true,role:'Front Desk Manager'},createdBy:'other',staffName:'Vaun',body:{issue:'Actual issue'}});
+ assert.equal((await f.get()).body.workOrder.can_correct_report,true);
+ assert.equal((await f.run()).status,200);
 });

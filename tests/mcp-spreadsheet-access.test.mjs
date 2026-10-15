@@ -17,6 +17,8 @@ function load(relative, overrides = {}) {
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
+    if(name==='./hours-tracker-mcp')return {canUseHoursMcp:()=>false};
+    if(name==='@/lib/server/hours-clock-policy')return {hoursClockEnabled:()=>false};
     if(name==='next/server')return {NextRequest:class NextRequest {}};
     if(name==='@/lib/server/access')return {allows:(principal,capability)=>capability!=='edit_tickets'||['chief engineer','engineering manager','maintenance technician','system administrator'].includes(String(principal.profile.role).trim().toLowerCase())};
     if(name==='@/lib/server/roles')return {roleKey:role=>String(role).trim().toLowerCase()==='system administrator'?'system_admin':String(role).trim().toLowerCase()};
@@ -321,4 +323,52 @@ test('connected import forwards structured data and dry-run unchanged, rejects i
     await assert.rejects(()=>writeRoute.callMcpWriteAction(incoming,identity('Chief Engineer'),'room_operations.import',{images}),/submit verified report_data/);
   }
   assert.equal(calls.length,1);
+});
+
+function mcpRoute(principal, onWrite = async () => ({ status: 200, body: {} }), writeModule = writes) {
+  return load('app/api/mcp/route.ts', {
+    '@/lib/server/cmpri-mcp-oauth-scope': { CMPRI_MCP_RESOURCE: 'https://www.cmpri-engineering.com/api/mcp' },
+    '@/lib/server/cmpri-mcp': { mcpIdentity: async () => principal },
+    '@/lib/server/cmpri-mcp-reads': { availableMcpReadViews: () => [], callMcpReadView: async () => ({}) },
+    '@/lib/server/cmpri-mcp-writes': {
+      availableMcpWriteActions: value => writeModule.availableMcpWriteActions(value), callMcpWriteAction: onWrite,
+    },
+    '@/lib/ai/mcp-work-order-location': { resolveMcpWorkOrderLocation: () => ({ status: 'not_found' }) },
+  });
+}
+
+async function rpc(route, method, params) {
+  const response = await route.POST({
+    headers: { get: () => null }, json: async () => ({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+
+test('clock actions remain hidden by default and expose strict schemas only behind activation',async()=>{
+ const who=identity('Chief Engineer');
+ assert.ok(!writes.availableMcpWriteActions(who).some(x=>x.action.startsWith('hours_tracker.')));
+ const enabled=load('lib/server/cmpri-mcp-writes.ts',{'@/lib/server/hours-clock-policy':{hoursClockEnabled:()=>true}});
+ assert.equal(enabled.availableMcpWriteActions({...who,canWrite:false}).length,0);
+ const response=await rpc(mcpRoute(who,undefined,enabled),'tools/list',{});
+ const tool=response.result.tools.find(t=>t.name==='perform_cmpri_write');
+ for(const action of ['hours_tracker.clock_in','hours_tracker.clock_out']){
+  const branch=tool.inputSchema.oneOf.find(b=>b.properties.action.const===action);
+  assert.ok(branch);assert.equal(branch.properties.input.additionalProperties,false);
+  assert.ok(branch.properties.input.required.includes('request_id'));
+  assert.ok(!('owner_id' in branch.properties.input.properties));
+ }
+});
+test('clock dispatch fixes action and forwards bearer without granting generic hours writes',async()=>{
+ let saved;
+ const enabled=load('lib/server/cmpri-mcp-writes.ts',{
+  '@/lib/server/hours-clock-policy':{hoursClockEnabled:()=>true},
+  'next/server':{NextRequest:class{constructor(url,init){this.nextUrl=new URL(url);this.body=init.body;this.headers=init.headers;}async json(){return JSON.parse(this.body);}}},
+  '@/app/api/hours-tracker/clock/route':{POST:async req=>{saved={body:await req.json(),authorization:req.headers.Authorization,path:req.nextUrl.pathname};return Response.json({ok:true});}}
+ });
+ const req={nextUrl:{origin:'http://localhost'},headers:{get:()=> 'Bearer synthetic-clock-token'}};
+ await enabled.callMcpWriteAction(req,identity('Chief Engineer'),'hours_tracker.clock_in',{request_id:'synthetic-request-001'});
+ assert.deepEqual(saved,{body:{request_id:'synthetic-request-001',action:'clock_in'},authorization:'Bearer synthetic-clock-token',path:'/api/hours-tracker/clock'});
+ await assert.rejects(()=>enabled.callMcpWriteAction(req,identity('Chief Engineer'),'hours_tracker.clock_in',{request_id:'synthetic-request-001',action:'clock_out'}));
 });

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { isSubmitOnlyRole, roleKey } from "@/lib/server/roles";
+import { isSubmitOnlyRole, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { isUuid } from "@/lib/uuid";
 
@@ -26,6 +26,38 @@ type AttachmentContext = {
 
 function attachmentPrefix(workOrderId: string) {
   return `${HOTEL_ID}/work-orders/${workOrderId}`;
+}
+
+// Reuse the existing exact-ID/email/role legacy Chief mapping without broadening role policy.
+function canRemoveSavedPhotos(profile: AttachmentContext["auth"]["principal"]["profile"]) {
+  return profileIsChiefEngineer(profile) || profileIsEstablishedHoursChief(profile);
+}
+
+function validPhotoName(name: string) {
+  const match = /^(?:([0-9a-f-]+)_)?([0-9a-f-]+)\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.exec(name);
+  return Boolean(match && (!match[1] || isUuid(match[1])) && isUuid(match[2]));
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!isUuid(id)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
+  const access = await authorizedWorkOrder(request, id, "write");
+  if ("response" in access) return access.response;
+  if (!canRemoveSavedPhotos(access.context.auth.principal.profile)) {
+    return NextResponse.json({ error: "Only the Chief Engineer can remove saved photos." }, { status: 403 });
+  }
+  const body = await request.json().catch(() => null);
+  const name = body?.photoId;
+  if (typeof name !== "string" || !validPhotoName(name)) {
+    return NextResponse.json({ error: "A valid saved-photo ID is required." }, { status: 403 });
+  }
+  const { error } = await access.context.auth.admin.storage.from(DOCUMENTATION_BUCKET)
+    .remove([`${attachmentPrefix(id)}/${name}`]);
+  if (error) {
+    console.error("Work-order photo removal failed:", error.message);
+    return NextResponse.json({ error: "The photo could not be removed. Retry after checking the connection." }, { status: 503 });
+  }
+  return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
 
 function hasImageSignature(contentType: string, bytes: Uint8Array) {
@@ -144,6 +176,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       id: file.name,
       name: file.name,
       url: signed.signedUrl,
+      can_remove: validPhotoName(file.name) && canRemoveSavedPhotos(context.auth.principal.profile),
       ...(typeof file.created_at === "string" ? { uploaded_at: file.created_at } : {}),
     });
   }

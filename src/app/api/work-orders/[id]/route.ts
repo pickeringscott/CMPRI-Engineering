@@ -12,7 +12,7 @@ import { isEngineeringWorkOrderActor, recordEngineeringWorkOrderView } from "@/l
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 import { isUuid } from "@/lib/uuid";
-import { TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields } from "@/lib/work-order-edit-policy";
+import { canCorrectReport as reportCorrectionAllowed, REPORT_CORRECTION_FIELDS, TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields } from "@/lib/work-order-edit-policy";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
 
@@ -136,6 +136,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({
     workOrder: {
       ...workOrder,
+      can_correct_report: reportCorrectionAllowed(auth.principal.profile, workOrder.status, canReadWorkOrder(workOrderReader(auth.principal), workOrder)),
       room_status: currentRoomStatus(roomStatuses.statuses, workOrder.room),
       creator_role: creatorRole,
       creator_display_role: creatorDisplayRole,
@@ -151,7 +152,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const canEdit = allows(auth.principal, "edit_tickets");
   const canReview = allows(auth.principal, "review_tickets");
   const canAddNotes = allows(auth.principal, "add_work_order_notes");
-  if (!canEdit && !canReview && !canAddNotes) return NextResponse.json({ error: "Work-order editing, notes, or review permission is required." }, { status: 403 });
+  const canSubmit = allows(auth.principal, "submit");
+  if (!canEdit && !canReview && !canAddNotes && !canSubmit) return NextResponse.json({ error: "Work-order editing, notes, or review permission is required." }, { status: 403 });
 
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
@@ -163,17 +165,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const db = auth.admin;
 
   const { data: existing, error: lookupError } = await db.from("work_orders")
-    .select("id, display_id, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, revision")
+    .select("id, display_id, hotel_id, created_by, submitted_by_name, issue, room, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, revision")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
   if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  if (canAddNotes && !canEdit && !canReview && !["Open", "In Progress"].includes(String(existing.status || ""))) {
+  const canCorrectReport = reportCorrectionAllowed(auth.principal.profile, existing.status, canReadWorkOrder(workOrderReader(auth.principal), existing));
+  const correctionOnly = Object.keys(body).every(key => key === "expected_revision" || REPORT_CORRECTION_FIELDS.includes(key as typeof REPORT_CORRECTION_FIELDS[number]));
+  if (canAddNotes && !canEdit && !canReview && !correctionOnly && !["Open", "In Progress"].includes(String(existing.status || ""))) {
     return NextResponse.json({ error: "Notes may only be added to open work orders." }, { status: 403 });
   }
   const technicianEdit = roleKey(auth.principal.profile.role) === "technician";
-  if (!canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, existing)) {
+  const assignmentAccess = canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, existing);
+  if (!assignmentAccess && !(canCorrectReport && correctionOnly)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
   const technicianProfileName = auth.principal.profile.full_name?.trim() || "";
@@ -190,20 +195,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Someone changed this ticket since you opened it. Your edits were not saved. Reload before combining the changes." }, { status: 409 });
   }
 
-  const allowedFields = workOrderEditableFields({
+  const allowedFields = [...workOrderEditableFields({
     role: auth.principal.profile.role,
-    canEdit,
+    canEdit: canEdit && assignmentAccess,
     canReview,
     canAddNotes,
     unassigned: unassignedWorkOrder,
     canClaimUnassigned,
-  });
+  }), ...(canCorrectReport ? REPORT_CORRECTION_FIELDS : [])];
   const allowedFieldSet = new Set(allowedFields);
   const update: Record<string, unknown> = {};
   for (const key of allowedFields) {
     if (Object.prototype.hasOwnProperty.call(body, key)) update[key] = body[key];
   }
-  const attemptedProtected = TECHNICAL_WORK_ORDER_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(body, field) && !allowedFieldSet.has(field));
+  const attemptedProtected = [...TECHNICAL_WORK_ORDER_FIELDS, ...REPORT_CORRECTION_FIELDS, "room", "created_by", "submitted_by_name", "history_actor_user_id", "history_source"].some((field) => Object.prototype.hasOwnProperty.call(body, field) && !allowedFieldSet.has(field as typeof allowedFields[number]));
   if (attemptedProtected) return NextResponse.json({ error: "Your role cannot change technical work-order fields." }, { status: 403 });
   if (
     technicianEdit &&
@@ -221,7 +226,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Technicians may set work only to Open, In Progress, or Completed." }, { status: 403 });
   }
 
-  if (!canEdit && canReview) {
+  if (!canEdit && canReview && !correctionOnly) {
     if (existing.status !== "Pending Verification") {
       return NextResponse.json({ error: "Management review is limited to pending requests." }, { status: 403 });
     }
@@ -281,6 +286,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Supply a valid due date or clear it." }, { status: 400 });
   }
 
+  if ("location_id" in update) {
+    if (typeof update.location_id !== "string" || !isUuid(update.location_id)) return NextResponse.json({ error: "Select a valid Room/Location." }, { status: 400 });
+    const { data: location, error: locationError } = await db.from("locations")
+      .select("id, name, active").eq("hotel_id", HOTEL_ID).eq("id", update.location_id).maybeSingle();
+    if (locationError) return NextResponse.json({ error: "Room/Location could not be verified." }, { status: 503 });
+    if (!location || location.active !== true) return NextResponse.json({ error: "Select an active Room/Location." }, { status: 400 });
+    update.room = location.name;
+  }
+
   if ("asset_name" in update && !("asset_id" in update)) {
     return NextResponse.json({ error: "Select equipment when changing its name on a ticket." }, { status: 400 });
   }
@@ -296,7 +310,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         .eq("id", update.asset_id)
         .maybeSingle();
       if (assetError) return NextResponse.json({ error: "Unable to verify the selected equipment." }, { status: 503 });
-      if (!asset || !existing.location_id || (asset.location_id !== null && asset.location_id !== existing.location_id) || asset.active === false) {
+      if (!asset || !(update.location_id ?? existing.location_id) || (asset.location_id !== null && asset.location_id !== (update.location_id ?? existing.location_id)) || asset.active === false) {
         return NextResponse.json({ error: "Select active equipment assigned to this ticket's location or an unassigned template." }, { status: 400 });
       }
       update.asset_name = asset.name;
@@ -314,10 +328,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     update.technician_name = String(existing.last_assigned_technician_name).trim();
   }
   const resultingTechnician = String(update.technician_name ?? existing.technician_name ?? "").trim();
-  if (resultingStatus === "In Progress" && !resultingTechnician) {
+  if (!correctionOnly && resultingStatus === "In Progress" && !resultingTechnician) {
     return NextResponse.json({ error: "A technician must be assigned while a work order is In Progress." }, { status: 400 });
   }
 
+  const roomStatuses = "location_id" in update ? await loadCurrentRoomStatuses(auth.admin) : null;
+  if (roomStatuses && (roomStatuses.error || !roomStatuses.statuses)) return NextResponse.json({ error: "Current room availability could not be loaded. No correction was saved." }, { status: 503 });
   const mutation = db.from("work_orders")
     .update({ ...update, history_actor_user_id: auth.principal.identity.id, history_source: isMcpRequest(request) ? "ChatGPT" : "CMPRI app" })
     .eq("hotel_id", HOTEL_ID)
@@ -341,7 +357,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
   await processRoomRankerSyncForWorkOrder(auth.admin, id).catch(() => undefined);
-  return NextResponse.json({ workOrder: data });
+  return NextResponse.json({ workOrder: { ...data, can_correct_report: reportCorrectionAllowed(auth.principal.profile, data.status, canReadWorkOrder(workOrderReader(auth.principal), data)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, data.room) } : {}) } });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

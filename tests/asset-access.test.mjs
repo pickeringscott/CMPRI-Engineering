@@ -83,6 +83,15 @@ function fixture(route, config={}) {
   }).outputText;
   vm.runInNewContext(compiled,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'}},
     require(name){
+      if(name==='@/lib/server/consolidation-stage')return {dispatchConsolidation:async()=>null};
+      if(name.startsWith('@/lib/server/pre-consolidation/'))return {};
+      if(name==='@/lib/server/asset-file-register')return {listRegisteredAssetFiles:async(_client,id)=>({data:(config.storageFiles||[]).map(f=>({...f,storage_path:`c81ad01a-7a9f-4880-ac1c-5e849f30bad6/${id}/${f.name}`,preferred:false})),error:config.storageError?{message:'Association lookup unavailable'}:null})};
+      if(name==='@/lib/server/stored-pdf-import')return {};
+      if(name==='@/lib/stored-pdf-link')return {};
+      if(name==='@/lib/manual-source')return {prepareUploadedGuide:()=>{throw Error('Guide generation is outside access tests');}};
+      if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async()=>''};
+      if(name==='@/lib/manual-document-catalog')return {};
+      if(name==='@/lib/server/verified-manual-catalog')return {loadVerifiedCatalogManuals:async()=>({documents:[],warnings:[]})};
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
       if(name==='@supabase/supabase-js')return {createClient:()=>data};
       if(name==='@/lib/engineering-access')return {canEditEngineeringData};
@@ -248,16 +257,20 @@ test('GET still returns asset records when verification storage cannot be read',
   assert.equal(result.body.documentation_state_available,false);
   assert.equal(result.body.assets.length,1);
 });
-test('documentation GET lists stored PDFs for assets with a legacy hotel id',async()=>{
+test('documentation GET lists canonical PDFs for a CMPRI asset',async()=>{
   const f=fixture('documentation/route.ts',{
     profile:{active:true,role:'Maintenance Technician'},
-    assetRow:{id:'test',hotel_id:'legacy-property-id',manufacturer:'Friedrich',model_family:'Verdepac'},
+    assetRow:{id:'test',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',manufacturer:'Friedrich',model_family:'Verdepac'},
     storageFiles:[{id:'document-1',name:'manual.pdf',created_at:'2026-10-01T00:00:00Z'}],
   });
   const result=await f.handlers.GET(f.request);
   assert.equal(result.status,200);
   assert.deepEqual(Array.from(result.body.documents,document=>document.name),['manual.pdf']);
   assert.equal(result.body.documents[0].url,'https://storage.test/c81ad01a-7a9f-4880-ac1c-5e849f30bad6/test/manual.pdf');
+});
+test('documentation GET rejects a non-CMPRI legacy property id',async()=>{
+  const f=fixture('documentation/route.ts',{profile:{active:true,role:'Maintenance Technician'},assetRow:{id:'test',hotel_id:'legacy-property-id'}});
+  assert.equal((await f.handlers.GET(f.request)).status,404);
 });
 test('PATCH fails closed when verification storage cannot be read',async()=>{
   const f=fixture('route.ts',{permission:true,asset:true,storageError:true});

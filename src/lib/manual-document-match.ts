@@ -24,10 +24,12 @@ type ManualIdentity = {
 };
 
 function exactIdentityValue(value: unknown) {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US") : "";
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US").replace(/\bvert[ -]?i?[ -]?pak\b/g, "vertipak") : "";
 }
 
 export function manualTextContainsExactIdentity(text: string, identity: string | null | undefined) {
+  text = text.replace(/\bvert[ -]?i?[ -]?pak\b/gi, "Vertipak");
+  identity = identity?.replace(/\bvert[ -]?i?[ -]?pak\b/gi, "Vertipak");
   const phrase = identity?.trim().replace(/\s+/g, " ");
   if (!phrase) return false;
   const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");

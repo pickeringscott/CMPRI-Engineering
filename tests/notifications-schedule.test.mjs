@@ -59,10 +59,12 @@ test('notification schedules are available only to Group 4 roles and all System 
     'General Manager',
     'System Administrator',
     'System Admin',
+    'Lead Housekeeper',
+    'Housekeeping',
   ]) {
     assert.equal(isNotificationScheduleEligibleProfile({ role }), true, role);
   }
-  for (const role of ['Front Desk', 'Housekeeping', 'Senior Management']) {
+  for (const role of ['Front Desk', 'Senior Management']) {
     assert.equal(isNotificationScheduleEligibleProfile({ role }), false, role);
   }
 });

@@ -30,7 +30,10 @@ import { workOrderHistoryText } from "@/lib/work-order-history";
 import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
-import { assignableAssetsForLocation } from "@/lib/work-orders/assignable-assets";
+import { relevantSourcePassages, reportedDiagnosticCode } from "@/lib/manual-source";
+import { guideRulesForIssue, equipmentSearchAliases } from "@/lib/work-orders/guide-selection";
+import { inferWorkOrder } from "@/lib/work-order-suggestions";
+import { assignableAssetsForLocation, roomAssetsForInference } from "@/lib/work-orders/assignable-assets";
 
 
 type Asset = {
@@ -59,6 +62,7 @@ type AssetDocument = {
   document_type?: string | null;
 };
 type WorkOrder = {
+  can_correct_report?: boolean;
   revision: number;
   id: string;
   display_id?: string | null;
@@ -504,33 +508,6 @@ function normalizeDiagnosticCode(
   return value || null;
 }
 
-function extractReportedErrorCode(
-  issue: string
-) {
-  const text =
-    issue.trim().toLowerCase();
-
-  const matches = [
-    text.match(
-      /\b(?:code|error|fault)\s*[:#-]?\s*((?:[a-z]{1,4}[- ]?)?\d{1,4}[a-z0-9-]{0,6})\b/i
-    ),
-    text.match(
-      /\b(?!(?:room|rm)\s*#?\s*\d)([a-z]{1,4}[- ]?\d{1,4}[a-z0-9-]{0,6})\b/i
-    ),
-  ];
-
-  for (const match of matches) {
-    if (match?.[1]) {
-      return normalizeDiagnosticCode(
-        match[1].replace(/\s+/g, "")
-      );
-    }
-  }
-
-  return null;
-}
-
-
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
@@ -573,17 +550,20 @@ export default function WorkOrderTicketPage() {
   const [order, setOrder] = useState<WorkOrder | null>(null);
 
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [assetDocumentResult, setAssetDocumentResult] = useState<{ assetId: string; documents: AssetDocument[]; error: string } | null>(null);
+  const [assetDocumentResult, setAssetDocumentResult] = useState<{ assetId: string; identity: string; documents: AssetDocument[]; error: string } | null>(null);
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; manufacturer: string | null; modelFamily: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
+  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; manufacturer: string | null; modelFamily: string | null; modelNumber: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
   const [manualPagePreview, setManualPagePreview] = useState<number | null>(null);
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
   const [workOrderImageError, setWorkOrderImageError] = useState("");
   const [imagePreview, setImagePreview] = useState<WorkOrderImage | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [removingPhotoId, setRemovingPhotoId] = useState<string | null>(null);
+  const [stagedPhoto, setStagedPhoto] = useState<{ file: File; uploadId: string; previewUrl: string; workOrderId: string } | null>(null);
+  useEffect(() => () => { if (stagedPhoto) URL.revokeObjectURL(stagedPhoto.previewUrl); }, [stagedPhoto]);
   const [photoUploadError, setPhotoUploadError] = useState("");
   const [photoUploadMessage, setPhotoUploadMessage] = useState("");
   const photoFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -603,8 +583,13 @@ export default function WorkOrderTicketPage() {
   const [newAssetDocument, setNewAssetDocument] = useState<File | null>(null);
   const historyScrollRef = useRef<HTMLDivElement | null>(null);
 
+  const [locationId, setLocationId] = useState("");
+  const [reportLocations, setReportLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [locationError, setLocationError] = useState("");
   const [issue, setIssue] = useState("");
   const [assetId, setAssetId] = useState("");
+  const assetSelectionChanged = useRef(false);
+  const ticketLoadGeneration = useRef(0);
   const [systemGuessAssetId, setSystemGuessAssetId] = useState("");
   const [category, setCategory] = useState("General");
   const [priority, setPriority] = useState("Medium");
@@ -636,18 +621,22 @@ export default function WorkOrderTicketPage() {
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
 
-  const selectedAsset = assets.find((asset) => asset.id === assetId);
-  const manualCurrent = manualResult?.assetId === assetId &&
+  const storedAsset = assets.find((asset) => asset.id === assetId);
+  const equipmentLocationMismatch = !!storedAsset?.location_id && storedAsset.location_id !== (locationId || order?.location_id);
+  const selectedAsset = equipmentLocationMismatch ? undefined : storedAsset;
+  const manualCurrent = !!selectedAsset && manualResult?.assetId === assetId &&
     manualResult?.documentationKey === selectedAsset?.documentation_key &&
     manualResult?.manufacturer === selectedAsset?.manufacturer &&
-    manualResult?.modelFamily === selectedAsset?.model_family;
+    manualResult?.modelFamily === selectedAsset?.model_family &&
+    manualResult?.modelNumber === selectedAsset?.model_number;
   const manualKnowledge = manualCurrent ? manualResult?.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
   const selectedAssetId = selectedAsset?.id;
   const canReadAssetDocuments = canReadEquipment(cmpriSession?.user.role);
-  const assetDocuments = assetDocumentResult && assetDocumentResult.assetId === selectedAssetId ? assetDocumentResult.documents : [];
-  const assetDocumentsError = assetDocumentResult && assetDocumentResult.assetId === selectedAssetId ? assetDocumentResult.error : "";
+  const documentIdentity = JSON.stringify([selectedAssetId, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number, selectedAsset?.documentation_key]);
+  const assetDocuments = assetDocumentResult && assetDocumentResult.identity === documentIdentity ? assetDocumentResult.documents : [];
+  const assetDocumentsError = assetDocumentResult && assetDocumentResult.identity === documentIdentity ? assetDocumentResult.error : "";
 
   useEffect(() => {
     let current = true;
@@ -662,19 +651,21 @@ export default function WorkOrderTicketPage() {
         if (!response.ok) throw new Error(payload.error || "Equipment PDFs could not be loaded.");
         if (current) setAssetDocumentResult({
           assetId: selectedAssetId,
+          identity: documentIdentity,
           documents: Array.isArray(payload.documents) ? payload.documents as AssetDocument[] : [],
           error: "",
         });
       } catch (error) {
         if (current) setAssetDocumentResult({
           assetId: selectedAssetId,
+          identity: documentIdentity,
           documents: [],
           error: error instanceof Error ? error.message : "Equipment PDFs could not be loaded.",
         });
       }
     })();
     return () => { current = false; };
-  }, [canReadAssetDocuments, selectedAssetId]);
+  }, [canReadAssetDocuments, selectedAssetId, documentIdentity]);
 
   useEffect(() => {
     const pane = historyScrollRef.current;
@@ -738,7 +729,45 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  async function uploadWorkOrderPhoto(photo: File) {
+  async function removeSavedPhoto(image: WorkOrderImage) {
+    if (!id || !image.can_remove || photoUploading || removingPhotoId) return;
+    if (!window.confirm("Remove this saved photo from this work order? This cannot be undone.")) return;
+    setRemovingPhotoId(image.id);
+    setPhotoUploadError("");
+    setPhotoUploadMessage("");
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
+      const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/attachments`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ photoId: image.id }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok !== true) throw new Error(payload?.error || "Photo removal could not be confirmed. Reload photos before retrying.");
+      setImagePreview(null);
+      const confirmed = await loadWorkOrderImages();
+      setPhotoUploadMessage(confirmed ? "Photo removed." : "Removal accepted, but the photo list could not be refreshed. Retry loading photos.");
+    } catch (error) {
+      setPhotoUploadError(error instanceof Error ? error.message : "The photo could not be removed.");
+    } finally {
+      setRemovingPhotoId(null);
+    }
+  }
+
+  function stageWorkOrderPhoto(photo: File) {
+    if (!id || photoUploading || removingPhotoId) return;
+    setStagedPhoto({ file: photo, uploadId: crypto.randomUUID(), previewUrl: URL.createObjectURL(photo), workOrderId: id });
+    setPhotoUploadError("");
+    setPhotoUploadMessage("");
+  }
+
+  function removeStagedPhoto() {
+    if (photoUploading) return;
+    setStagedPhoto(null);
+  }
+
+  async function uploadWorkOrderPhoto(photo: File, uploadId: string) {
     if (!id) {
       setPhotoUploadError("This work order could not be identified for photo upload.");
       return;
@@ -749,8 +778,9 @@ export default function WorkOrderTicketPage() {
     try {
       const session = await getValidSession();
       if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
-      const result = await uploadWorkOrderAttachment(id, photo, session.access_token, crypto.randomUUID());
+      const result = await uploadWorkOrderAttachment(id, photo, session.access_token, uploadId);
       if (!result.ok) throw new Error(result.message);
+      setStagedPhoto(null);
       const readbackConfirmed = await loadWorkOrderImages();
       setPhotoUploadMessage(readbackConfirmed ? "Photo uploaded." : "Photo stored, but the saved photo list could not be verified. Retry loading photos.");
     } catch (error) {
@@ -762,6 +792,7 @@ export default function WorkOrderTicketPage() {
 
   function seedTicketPreview(row: WorkOrder) {
     setOrder(row);
+    setLocationId(row.location_id || "");
     const previewIssue = cleanTicketReportedIssue(row.issue || "", row.room || "");
     setIssue(previewIssue);
     setAssetId(row.asset_id || "");
@@ -780,6 +811,7 @@ export default function WorkOrderTicketPage() {
     const previewDueBy = row.due_by ? String(row.due_by).slice(0, 10) : "";
     setDueBy(previewDueBy);
     setInitialFingerprint(JSON.stringify({
+      locationId: row.location_id || "",
       issue: previewIssue,
       assetId: row.asset_id || "",
       category: row.category || "General",
@@ -797,11 +829,13 @@ export default function WorkOrderTicketPage() {
     setLoading(false);
   }
 
+  const roomContextGeneration = useRef(0);
   async function loadRoomOperationalContext(roomLabel?: string | null) {
+    const generation = ++roomContextGeneration.current;
     const roomText = String(roomLabel || "");
     const room = roomText.match(/\b(?:\d{2,4}|MGR)\b/i)?.[0] || "";
     if (!room) { setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: false }); return; }
-    setRoomOperationalContext((current) => ({ ...current, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, loading: true }));
+    setRoomOperationalContext((current) => ({ ...current, ranker: null, rankerError: "", guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, loading: true }));
     try {
       const session = await getValidSession();
       const token = session?.access_token;
@@ -848,8 +882,10 @@ export default function WorkOrderTicketPage() {
           checkoutError = error instanceof Error ? error.message : "Today's checkout time could not be loaded.";
         }
       }
+      if (generation !== roomContextGeneration.current) return;
       setRoomOperationalContext({ ranker, rankerError, pm: {}, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false });
     } catch (error) {
+      if (generation !== roomContextGeneration.current) return;
       const message = error instanceof Error ? error.message : "Room context could not be loaded.";
       setRoomOperationalContext({
         ranker: null,
@@ -890,6 +926,7 @@ export default function WorkOrderTicketPage() {
 
   async function loadTicket(showLoading = true, canLoadMaintenanceReference = true) {
     if (!id) return;
+    const generation = ++ticketLoadGeneration.current;
 
     if (showLoading) setLoading(true);
     setMessage("");
@@ -917,8 +954,19 @@ export default function WorkOrderTicketPage() {
       }
 
       setMentionTickets(((payload.mentionTickets ?? []) as MentionTicket[]).filter((ticket) => !!ticket.id));
+      if (generation !== ticketLoadGeneration.current) return;
       const row = payload.workOrder as WorkOrder;
+      assetSelectionChanged.current = false;
       setOrder(row);
+      setLocationId(row.location_id || "");
+      if (row.can_correct_report) {
+        void fetch("/api/rooms?mode=create", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+          .then(async response => {
+            const result = await response.json();
+            if (!response.ok || !Array.isArray(result.locations)) throw new Error(result.error || "Locations unavailable.");
+            if (generation === ticketLoadGeneration.current) { setReportLocations(result.locations); setLocationError(""); }
+          }).catch(error => { if (generation === ticketLoadGeneration.current) setLocationError(String(error.message)); });
+      }
       const loadedIssue = cleanTicketReportedIssue(row.issue || "", row.room || "");
       setIssue(loadedIssue);
       setAssetId(row.asset_id || "");
@@ -937,6 +985,7 @@ export default function WorkOrderTicketPage() {
       const normalizedDueBy = row.due_by ? String(row.due_by).slice(0, 10) : "";
       setDueBy(normalizedDueBy);
       setInitialFingerprint(JSON.stringify({
+        locationId: row.location_id || "",
         issue: cleanTicketReportedIssue(row.issue || "", row.room || ""),
         assetId: row.asset_id || "",
         category: row.category || "General",
@@ -955,7 +1004,12 @@ export default function WorkOrderTicketPage() {
       // Render the ticket immediately. Reference data can finish loading in the
       // background; the user should not wait on assets/technicians just to read a work order.
       setLoading(false);
-      if (canLoadMaintenanceReference) void loadMaintenanceReference();
+      if (canLoadMaintenanceReference) void loadMaintenanceReference().then(referenceAssets => {
+        if (generation === ticketLoadGeneration.current && !row.asset_id && !assetSelectionChanged.current) {
+          const guess = inferWorkOrder(loadedIssue, roomAssetsForInference(referenceAssets, row.location_id));
+          if (guess.assetId) { setAssetId(guess.assetId); setSystemGuessAssetId(guess.assetId); }
+        }
+      });
     } catch (error) {
       setOrder(null);
       setMessage(`Work order error: ${error instanceof Error ? error.message : String(error)}`);
@@ -987,6 +1041,7 @@ export default function WorkOrderTicketPage() {
         documentationKey: asset.documentation_key,
         manufacturer: asset.manufacturer,
         modelFamily: asset.model_family,
+        modelNumber: asset.model_number,
         knowledge,
         status: documentationStatus,
       });
@@ -1064,9 +1119,12 @@ export default function WorkOrderTicketPage() {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family]);
+  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
 
   function handleAssetChange(newAssetId: string) {
+    assetSelectionChanged.current = true;
+    setManualResult(null);
+    setAssetDocumentResult(null);
     setAssetId(newAssetId);
     setManualPagePreview(null);
 
@@ -1078,23 +1136,17 @@ export default function WorkOrderTicketPage() {
     }
   }
 
-  const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""} ${notes} ${actionRootCause}`.trim();
+  const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
   const completedWorkNotes = `${notes} ${actionRootCause}`.trim();
 
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true;
-  const matchingSymptomRules = trustedManualKnowledge
-    ? manualKnowledge?.symptom_rules?.filter((rule) => {
-        const evidence = combinedDiagnosticText.toLowerCase();
-        if (!rule.match?.length) return true;
-        if (!evidence) return false;
-        return rule.match.some((phrase) => evidence.includes(String(phrase || "").toLowerCase()));
-      }) ?? []
-    : [];
+  const matchingSymptomRules = trustedManualKnowledge ? guideRulesForIssue(manualKnowledge, combinedDiagnosticText) : [];
 
   const manualSteps = Array.from(
     new Set(matchingSymptomRules.flatMap((rule) => rule.steps))
   ).filter((step) => !troubleshootingStepAlreadyDone(step, completedWorkNotes, []));
-  const reportedCode = extractReportedErrorCode(combinedDiagnosticText);
+  const reportedCode = reportedDiagnosticCode(`${issue} ${order?.reporter_notes || ""}`);
+  const sourcePassages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], issue) : [];
   const manualErrorCodes = (() => {
     const byCode = new Map<string, ManualErrorCode>();
     if (trustedManualKnowledge) {
@@ -1142,6 +1194,7 @@ export default function WorkOrderTicketPage() {
   const displayedSteps: ReturnType<typeof generalTroubleshootingFor> = [];
 
   const currentFingerprint = JSON.stringify({
+    locationId,
     issue,
     assetId,
     category,
@@ -1267,7 +1320,7 @@ export default function WorkOrderTicketPage() {
       setOrder({ ...claimed, technician_view_entries: order.technician_view_entries });
       setTechnicianName(assignedName);
       setInitialFingerprint(JSON.stringify({
-        issue, assetId, category, priority, technicianName: assignedName, status, notes,
+        locationId, issue, assetId, category, priority, technicianName: assignedName, status, notes,
         actionRootCause, parts, cost, hours, dueBy,
       }));
       setSaveState("idle");
@@ -1289,6 +1342,18 @@ export default function WorkOrderTicketPage() {
     if (!order) return;
     const saveStatus = statusOverride ?? status;
 
+    const roomChanged = canEditField("location_id") && locationId !== (order.location_id || "");
+    const otherFieldEdits = stagedNoteIds.length > 0 || assetSelectionChanged.current
+      || category !== (order.category || "General") || priority !== (order.priority || "Medium")
+      || technicianName !== (order.technician_name || "") || saveStatus !== (order.status || "Open")
+      || actionRootCause !== (order.action_root_cause || "")
+      || parts !== (order.parts || explicitPartSuggestion(cleanTicketReportedIssue(order.issue || "", order.room || "")))
+      || cost !== (order.cost == null ? "" : String(order.cost)) || hours !== (order.hours == null ? "" : String(order.hours))
+      || dueBy !== (order.due_by ? String(order.due_by).slice(0,10) : "");
+    if (roomChanged && otherFieldEdits) {
+      setMessage("Save or discard other field edits before correcting Room/Location. Your edits are still here.");
+      return;
+    }
     const normalizedIssue = cleanTicketReportedIssue(issue, order.room || "");
     if (canEditField("issue") && !normalizedIssue.trim()) {
       setMessage("Reported Issue is required.");
@@ -1317,7 +1382,15 @@ export default function WorkOrderTicketPage() {
       expected_revision: order.revision,
     };
     const capabilities = typeof cmpriSession !== "undefined" ? (cmpriSession?.capabilities ?? []) : ["edit_tickets"];
-    if (canEditField("issue")) {
+    if (canEditField("issue") && (!canEditTicket || (order.can_correct_report && !otherFieldEdits))) {
+      if (stagedNoteIds.length) {
+        if (editingIssue) { setMessage("Finish editing, then save your staged notes before saving the report correction."); setSaving(false); setSaveState("idle"); return; }
+        updatePayload.appendNotes = stagedNoteIds.flatMap(line => parseTicketHistory(line).map(entry => entry.text));
+      } else {
+        if (normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || "")) updatePayload.issue = normalizedIssue;
+        if (canEditField("location_id") && locationId !== (order.location_id || "")) updatePayload.location_id = locationId;
+      }
+    } else if (canEditField("issue")) {
       Object.assign(updatePayload, {
         issue: normalizedIssue,
         asset_id: asset?.id ?? null,
@@ -1356,6 +1429,14 @@ export default function WorkOrderTicketPage() {
       setSaveState("idle");
       return;
     }
+    if (canEditTicket && canEditField("location_id") && locationId !== (order.location_id || "")) {
+      // Correcting the room must not commit inferred equipment, suggested parts, or defaults.
+      for (const key of Object.keys(updatePayload)) {
+        if (!["expected_revision", "issue"].includes(key)) delete updatePayload[key];
+      }
+      updatePayload.location_id = locationId;
+      if (normalizedIssue === cleanTicketReportedIssue(order.issue || "", order.room || "")) delete updatePayload.issue;
+    }
     if (Object.keys(updatePayload).length === 1) {
       setMessage("There are no changes to save.");
       setSaving(false);
@@ -1384,14 +1465,21 @@ export default function WorkOrderTicketPage() {
       return;
     }
 
-    if (savedRow) setOrder({ ...savedRow, technician_view_entries: order.technician_view_entries });
+    if (savedRow && roomChanged) {
+      roomContextGeneration.current++;
+      setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: true });
+    }
+    if (savedRow) setOrder({ ...savedRow, can_correct_report: savedRow.can_correct_report, creator_name: order.creator_name, creator_display_role: order.creator_display_role, technician_view_entries: order.technician_view_entries });
     if (statusOverride !== undefined) setStatus(saveStatus);
     const savedNotes = savedRow?.notes ?? notesWithChanges;
     setNotes(savedNotes);
     setStagedNoteIds([]);
+    if (Array.isArray(updatePayload.appendNotes) && (roomChanged || normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || ""))) {
+      setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return;
+    }
 
     setInitialFingerprint(JSON.stringify({
-      issue: normalizedIssue, assetId, category, priority, technicianName, status: saveStatus, notes: savedNotes,
+      locationId, issue: normalizedIssue, assetId, category, priority, technicianName, status: saveStatus, notes: savedNotes,
       actionRootCause, parts, cost, hours, dueBy,
     }));
     setSaving(false);
@@ -1539,7 +1627,8 @@ export default function WorkOrderTicketPage() {
         group,
         keywords: [
           asset.asset_type,
-          asset.manufacturer || "",
+          ...equipmentSearchAliases([asset.name, asset.manufacturer, asset.model_family].filter(Boolean).join(" ")),
+          asset.model_family || "",
           asset.model_number || "",
           asset.asset_tag || "",
           asset.location_name || "",
@@ -1568,14 +1657,14 @@ export default function WorkOrderTicketPage() {
     !String(order.technician_name || "").trim() &&
     ["Open", "In Progress"].includes(String(order.status || "Open"));
   const canReviewCurrentTicket = canReviewTicket && order.status === "Pending Verification";
-  const editableFields = workOrderEditableFields({
+  const editableFields: readonly WorkOrderEditableField[] = [...workOrderEditableFields({
     role: cmpriSession?.user.role,
     canEdit: canEditTicket,
     canReview: canReviewCurrentTicket,
     canAddNotes: canAddWorkOrderNotes && ["Open", "In Progress"].includes(String(order.status || "")),
     unassigned: !String(order.technician_name || "").trim(),
     canClaimUnassigned: canClaimWorkOrder,
-  });
+  }), ...(order.can_correct_report ? ["issue", "location_id"] as const : [])];
   const canSubmitTicketNote = canSubmitWorkOrderNote({
     role: cmpriSession?.user.role,
     canEdit: canEditTicket,
@@ -1830,6 +1919,7 @@ export default function WorkOrderTicketPage() {
               {editingIssue && canEditField("issue") ? (
                 <>
                   <textarea
+                    aria-label="Reported Issue"
                     required
                     value={issue}
                     onChange={(event) => setIssue(event.target.value)}
@@ -1843,6 +1933,19 @@ export default function WorkOrderTicketPage() {
               ) : (
                 <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-5 text-slate-200">{issue || "—"}</p>
               )}
+
+              {order.can_correct_report && (
+                <div className="mt-2">
+                  <label htmlFor="report-location" className="text-xs font-semibold text-slate-400">Room/Location</label>
+                  {editingIssue ? <select id="report-location" aria-label="Room/Location" value={locationId} onChange={event => setLocationId(event.target.value)} disabled={saving || !reportLocations.length} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm">
+                    {!reportLocations.some(location => location.id === locationId) && <option value={locationId}>{order.room || "Select location"}</option>}
+                    {reportLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
+                  </select> : <p className="text-sm">{reportLocations.find(location => location.id === locationId)?.name || order.room}</p>}
+                  {locationError && <p role="alert" className="text-xs text-red-300">{locationError}</p>}
+                  {locationId !== (order.location_id || "") && <p className="text-xs text-amber-300">Saving corrects the room and reported issue only. Equipment and other ticket details stay unchanged; Engineering must verify equipment for the corrected room.</p>}
+                </div>
+              )}
+              {equipmentLocationMismatch && <p role="alert" className="mt-2 text-xs text-amber-300">Saved equipment belongs to another location. Its guide is hidden until Engineering verifies the equipment for this room.</p>}
 
               {order.reporter_notes && (
                 <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2">
@@ -1946,39 +2049,39 @@ export default function WorkOrderTicketPage() {
                       id="work-order-detail-photo"
                       type="file"
                       accept="image/*"
-                      disabled={photoUploading || saving}
+                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
                       onChange={(event) => {
                         const photo = event.currentTarget.files?.[0];
                         event.currentTarget.value = "";
-                        if (photo) void uploadWorkOrderPhoto(photo);
+                        if (photo) stageWorkOrderPhoto(photo);
                       }}
                       className="sr-only"
                     />
                     <button
                       type="button"
                       onClick={() => photoFileInputRef.current?.click()}
-                      disabled={photoUploading || saving}
+                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
                       className="whitespace-nowrap rounded-md border border-sky-500/40 bg-sky-950/35 px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {photoUploading ? "Uploading…" : "Upload photo"}
+                      {photoUploading ? "Saving photo…" : "Choose photo"}
                     </button>
                     <input
                       id="work-order-detail-camera"
                       type="file"
                       accept="image/*"
                       capture="environment"
-                      disabled={photoUploading || saving}
+                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
                       onChange={(event) => {
                         const photo = event.currentTarget.files?.[0];
                         event.currentTarget.value = "";
-                        if (photo) void uploadWorkOrderPhoto(photo);
+                        if (photo) stageWorkOrderPhoto(photo);
                       }}
                       className="sr-only"
                     />
                     <button
                       type="button"
                       onClick={() => document.getElementById("work-order-detail-camera")?.click()}
-                      disabled={photoUploading || saving}
+                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
                       className="whitespace-nowrap rounded-md border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 md:hidden"
                     >
                       Camera
@@ -1986,6 +2089,13 @@ export default function WorkOrderTicketPage() {
                   </>
                 )}
               </div>
+              {stagedPhoto && stagedPhoto.workOrderId === id && <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-slate-600 p-2">
+                <Image src={stagedPhoto.previewUrl} alt="Selected photo" width={96} height={72} unoptimized className="h-18 w-24 object-contain" />
+                <span className="max-w-48 truncate text-xs">{stagedPhoto.file.name}</span>
+                <button type="button" disabled={photoUploading || saving} onClick={() => void uploadWorkOrderPhoto(stagedPhoto.file, stagedPhoto.uploadId)} className="rounded bg-sky-700 px-3 py-2 text-sm disabled:opacity-50">{photoUploading ? "Saving…" : "Save photo"}</button>
+                <button type="button" disabled={photoUploading} onClick={removeStagedPhoto} className="rounded border border-red-500 px-3 py-2 text-sm disabled:opacity-50">Remove selected photo</button>
+                <p className="w-full text-xs text-slate-400">You can remove this selection before saving. After saving, only the engineer can delete the photo.</p>
+              </div>}
               {workOrderImageError && (
                 <div role="alert" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-red-200">
                   <span>{workOrderImageError}</span>
@@ -2001,6 +2111,7 @@ export default function WorkOrderTicketPage() {
               {!!workOrderImages.length && (
                 <div className="mt-1">
                   <p className="text-xs font-semibold text-sky-300">Saved attachments</p>
+                  {workOrderImages.some((image) => image.can_remove) && <p className="text-xs text-slate-400">Open a photo to view it or remove it.</p>}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {workOrderImages.map((image) => (
                       <button key={image.id} type="button" onClick={() => setImagePreview(image)} aria-label={`Open work-order photo${image.uploaded_at ? ` uploaded ${formatDateTime(image.uploaded_at)}` : ""}`} className="relative aspect-[4/3] w-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
@@ -2030,7 +2141,7 @@ export default function WorkOrderTicketPage() {
                     {manualLoading
                       ? "Loading equipment documentation..."
                       : manualSteps.length
-                        ? "Verified manufacturer guidance"
+                        ? manualKnowledge?.source?.type === "Verbatim uploaded PDF excerpts" ? "Equipment-matched PDF excerpts" : "Verified manufacturer guidance"
                         : "No exact verified manual match"}
                   </span>
                 )}
@@ -2060,7 +2171,7 @@ export default function WorkOrderTicketPage() {
                 {manualKnowledge?.source?.title && (
                   <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                     <p className="text-sm font-semibold">{manualKnowledge.source.title}</p>
-                    <p className={`mt-1 text-xs ${manualKnowledge?.source?.verified ? "text-emerald-400" : "text-slate-500"}`}>{manualKnowledge?.source?.verified ? "Verified equipment documentation" : "Equipment reference uploaded — verification pending"}</p>
+                    <p className={`mt-1 text-xs ${manualKnowledge?.source?.verified ? "text-emerald-400" : "text-slate-500"}`}>{manualKnowledge?.source?.verified ? (manualKnowledge.source.type === "Verbatim uploaded PDF excerpts" ? "Equipment identity matched to uploaded PDF" : "Verified equipment documentation") : "Equipment reference uploaded — verification pending"}</p>
                     {(manualKnowledge.manufacturer || manualKnowledge.equipment) && (
                       <p className="mt-1 text-xs text-slate-400">{[manualKnowledge.manufacturer, manualKnowledge.equipment].filter(Boolean).join(" · ")}</p>
                     )}
@@ -2108,6 +2219,8 @@ export default function WorkOrderTicketPage() {
                   </div>
                 )}
 
+                {selectedAsset && trustedManualKnowledge && !manualKnowledge?.source_passages?.length && !manualSteps.length && !relevantErrorCodes.length && <p className="mt-3 text-sm text-slate-400">The verified manual has no extracted guidance matching this report. Open the linked PDF to review its troubleshooting section.</p>}
+
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-4 text-sm text-slate-400">
                     Reported code {reportedCode} has no exact matching entry in verified documentation for the selected asset.
@@ -2138,7 +2251,7 @@ export default function WorkOrderTicketPage() {
                             {!!item.source_pages?.length && (
                               <div className="flex flex-wrap gap-1.5">
                                 {item.source_pages.map((page) => (
-                                  <button type="button" key={page} onClick={() => setManualPagePreview(page)} className="rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20">Manual p. {page}</button>
+                                  <a key={page} href={`${item.source_url || manualKnowledge?.source?.file_url || manualKnowledge?.source?.pdf_url}#page=${page}`} target="_blank" rel="noreferrer" className="rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20">Manual p. {page}</a>
                                 ))}
                               </div>
                             )}
@@ -2148,6 +2261,26 @@ export default function WorkOrderTicketPage() {
                       );
                     })}
                   </div>
+                )}
+
+                {!!manualKnowledge?.source_passages?.length && (
+                  <section className="mt-4 space-y-2">
+                    <h3 className="text-sm font-semibold text-sky-300">PDF troubleshooting and diagnostic pages</h3>
+                    <p className="text-xs text-slate-400">Verbatim PDF text. Open the referenced page to see tables and layout. These excerpts do not assert that an action has been performed.</p>
+                    {(sourcePassages.length ? sourcePassages : manualKnowledge.source_passages).map((passage, index) => (
+                      <details key={`${passage.source_file_name}-${passage.page}-${index}`} className="rounded-lg border border-slate-700 p-2">
+                        <summary className="cursor-pointer text-sm">{passage.source_file_name || manualKnowledge.source?.source_file_name} · {passage.kind === "diagnostic" ? "Diagnostic reference" : "Troubleshooting"} · page {passage.page}</summary>
+                        <a className="text-sky-300 underline" href={`${passage.source_url || manualKnowledge.source?.file_url}#page=${passage.page}`} target="_blank" rel="noreferrer">Open original PDF page</a>
+                        <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-slate-300">{passage.text}</pre>
+                      </details>
+                    ))}
+                  </section>
+                )}
+                {!!manualKnowledge?.general_checks?.length && (
+                  <details className="mt-3 rounded-lg border border-slate-700 p-2">
+                    <summary className="cursor-pointer text-sm text-slate-400">Additional manufacturer reference checks</summary>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-300">{manualKnowledge.general_checks.filter(step => !troubleshootingStepAlreadyDone(step, completedWorkNotes, [])).map((step, index) => <li key={index}>{step}</li>)}</ul>
+                  </details>
                 )}
 
                 {manualSteps.length > 0 && (
@@ -2166,7 +2299,7 @@ export default function WorkOrderTicketPage() {
                             {!!sourceRule?.source_pages?.length && (
                               <div className="mt-2 ml-6 flex flex-wrap gap-1.5">
                                 {sourceRule.source_pages.map((page) => (
-                                  <button type="button" key={page} onClick={() => setManualPagePreview(page)} className="rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20">Manual p. {page}</button>
+                                  <a key={page} href={`${sourceRule?.source_url || manualKnowledge?.source?.file_url || manualKnowledge?.source?.pdf_url}#page=${page}`} target="_blank" rel="noreferrer" className="rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20">Manual p. {page}</a>
                                 ))}
                               </div>
                             )}
@@ -2217,7 +2350,7 @@ export default function WorkOrderTicketPage() {
                   </div>
                 )}
 
-                {displayedSteps.length === 0 && relevantErrorCodes.length === 0 && !manualLoading && (
+                {manualSteps.length === 0 && !manualKnowledge?.source_passages?.length && displayedSteps.length === 0 && relevantErrorCodes.length === 0 && !manualLoading && (
                   <p className="text-sm text-slate-400">
                     No symptom-specific troubleshooting matched yet. Add more detail to the reported issue or notes.
                   </p>
@@ -2478,6 +2611,8 @@ export default function WorkOrderTicketPage() {
                 className="object-contain"
               />
             </div>
+            {imagePreview.can_remove && <button type="button" disabled={photoUploading || Boolean(removingPhotoId) || saving} onClick={() => void removeSavedPhoto(imagePreview)} className="absolute bottom-3 left-3 rounded-lg border border-red-500 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-red-200 disabled:opacity-50">{removingPhotoId === imagePreview.id ? "Removing…" : "Remove photo"}</button>}
+            {photoUploadError && <p role="alert" className="absolute bottom-16 left-3 right-3 rounded bg-slate-950 p-2 text-sm text-red-200">{photoUploadError}</p>}
             <button type="button" onClick={() => setImagePreview(null)} className="absolute right-3 top-3 rounded-lg border border-slate-600 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-white">Close</button>
           </div>
         </div>

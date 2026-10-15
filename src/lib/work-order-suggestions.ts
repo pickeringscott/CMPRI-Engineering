@@ -3,7 +3,7 @@ import { normalizeWorkOrderCategory } from "./work-order-categories";
 
 export type SuggestionAsset = {
   id: string; name: string; asset_type: string; location_id?: string | null;
-  manufacturer?: string | null; model_number?: string | null; generation?: string | null;
+  manufacturer?: string | null; model_family?: string | null; model_number?: string | null; generation?: string | null;
   asset_tag?: string | null; documentation_key?: string | null; active?: boolean | null;
   status?: string | null; binder_tag?: string | null; quantity?: number | null;
 };
@@ -14,7 +14,7 @@ function categoryForAsset(asset: SuggestionAsset) {
 }
 
 function normalizedIssueText(value: string) {
-  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\bfrederick\b/g, "friedrich").replace(/\bvert[ -]?i?[ -]?pak\b/g, "vertipak").replace(/\ba\s*\/\s*c\b/g, "ac");
 }
 
 export function assetTermsForPlumbingIssue(issue: string) {
@@ -42,7 +42,7 @@ export function categoryFromIssue(issue: string) {
 
   if (/\b(saflok|door lock|lockset|key card|keycard|rfid lock|door won't lock|door will not lock|door won't unlock|door will not unlock|cerradura|tarjeta llave|tarjeta de acceso|puerta no cierra|puerta no abre)\b/.test(text)) return "Doors/Locks";
   if (/\b(fire|alarm|smoke|sprinkler|life safety|carbon monoxide|co detector|incendio|alarma|humo|rociador|monoxido de carbono)\b/.test(text)) return "Safety";
-  if (/\b(vtac|hvac|ac|heat|heating|cooling|not cooling|not heating|air conditioner|thermostat|compressor|friedrich|carrier|rtu|aire acondicionado|no enfria|no calienta|calefaccion|termostato|cuarto caliente|habitacion caliente|frio|calor)\b/.test(text)) return "HVAC";
+  if (/\b(vertipak|ptac|vtac|hvac|ac|heat|heating|cooling|not cooling|not heating|air conditioner|thermostat|compressor|friedrich|carrier|rtu|aire acondicionado|no enfria|no calienta|calefaccion|termostato|cuarto caliente|habitacion caliente|frio|calor)\b/.test(text)) return "HVAC";
   if (/\b(pool|spa|bromine|chlorine|filter pressure|pool filter|pool pump|piscina|bromo|cloro|filtro de piscina|bomba de piscina)\b/.test(text)) return "Pool/Spa";
   if (/\b(leak|leaking|drain|toilet|sink|faucet|shower|plumbing|water leak|fuga|gotea|goteando|desague|inodoro|lavabo|fregadero|grifo|ducha|plomeria)\b/.test(text)) return "Plumbing";
   if (/\b(light|lighting|lamp|bulb|outlet|breaker|electrical|power outlet|switch|luz|luces|bombilla|foco|enchufe|tomacorriente|interruptor|electrico|electricidad)\b/.test(text)) return "Electrical";
@@ -57,7 +57,7 @@ export function categoryFromIssue(issue: string) {
 function findAssetByTerms(assets: SuggestionAsset[], terms: string[]) {
   for (const term of terms) {
     const matches = assets.filter((asset) =>
-      `${asset.name} ${asset.asset_type}`.toLowerCase().includes(term),
+      normalizedIssueText(`${asset.name} ${asset.asset_type} ${asset.manufacturer || ""} ${asset.model_family || ""}`).includes(term),
     );
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) return undefined;
@@ -65,14 +65,15 @@ function findAssetByTerms(assets: SuggestionAsset[], terms: string[]) {
   return undefined;
 }
 
-function findAirConditioningAsset(assets: SuggestionAsset[]) {
-  const terms = ["vtac", "ptac", "air conditioner", "air conditioning", "friedrich", "carrier", "hvac"];
-  for (const term of terms) {
-    const matches = assets.filter((item) => `${item.name} ${item.asset_type}`.toLowerCase().includes(term));
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) return undefined;
-  }
-  return undefined;
+function findAirConditioningAsset(assets: SuggestionAsset[], issue: string) {
+  const candidates = assets.filter((item) => /\b(ac|hvac|vtac|ptac|vertipak|air conditioner|air conditioning|heat pump)\b/.test(normalizedIssueText(
+    [item.name, item.asset_type, item.model_family].filter(Boolean).join(" "),
+  )));
+  // Never prefer a built-in unit over a portable unit just because of its brand or docs.
+  const matches = /\bportable\b/.test(issue)
+    ? candidates.filter((item) => /\bportable\b/.test(normalizedIssueText(item.name + " " + item.asset_type)))
+    : candidates;
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function smartSuggestionForIssue(issue: string, availableAssets: SuggestionAsset[]): SmartSuggestion {
@@ -80,8 +81,8 @@ export function smartSuggestionForIssue(issue: string, availableAssets: Suggesti
   if (!text) return { assetId: null, category: null, priority: null, reason: "" };
 
   let asset: SuggestionAsset | undefined;
-  if (/\b(friedrich|vert[- ]?i[- ]?pak|vpak|vtac)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["friedrich", "vert-i-pak"]);
-  else if (/\b(?:no|not working|broken|not cooling|stopped|down)\s+(?:the\s+)?(?:ac|air conditioner|air conditioning)\b|\b(?:ac|air conditioner|air conditioning)\s+(?:is\s+)?(?:not working|broken|not cooling|is out|out)\b/.test(text)) asset = findAirConditioningAsset(availableAssets);
+  if (/\b(friedrich|vertipak|vpak|vtac)\b/.test(text)) asset = findAssetByTerms(availableAssets, /vertipak|vpak|vtac/.test(text) ? ["vertipak", "vtac"] : ["friedrich"]);
+  else if (/\b(ac|air conditioner|air conditioning|hvac|ptac)\b/.test(text)) asset = findAirConditioningAsset(availableAssets, text);
   else if (/\b(shower valve|temptrol)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["symmons", "temptrol"]);
   else if (/\b(saflok|door lock|key card|keycard|rfid lock)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["saflok", "dormakaba"]);
   else if (/\b(verdant|room thermostat|energy management thermostat)\b/.test(text)) asset = findAssetByTerms(availableAssets, ["verdant"]);
@@ -123,6 +124,7 @@ export function inferWorkOrder(text: string, assets: SuggestionAsset[]): SmartSu
     .sort((a, b) => a.id.localeCompare(b.id));
   const suggestion = smartSuggestionForIssue(text, available);
   if (suggestion.assetId || !suggestion.category || suggestion.category === "General") return suggestion;
+  if (/\b(ac|air conditioner|air conditioning|hvac|ptac|vtac|vertipak|friedrich)\b/.test(normalizedIssueText(text))) return suggestion;
   const terms = [...new Set(normalizedIssueText(text).split(/[^a-z0-9]+/).filter((term) => term.length >= 3))];
   const candidates = available.filter((asset) => normalizeWorkOrderCategory(classifyAsset(asset)) === suggestion.category).map((asset) => {
     const words = new Set(normalizedIssueText([asset.name, asset.asset_type, asset.manufacturer, asset.model_number, asset.generation, asset.asset_tag].filter(Boolean).join(" ")).split(/[^a-z0-9]+/));

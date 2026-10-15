@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import StagedPdfImporter from "@/components/StagedPdfImporter";
 import { getValidSession } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
@@ -48,7 +49,7 @@ type Doc = {
 type Suggestions = Partial<Pick<Asset, "asset_type" | "manufacturer" | "model_family" | "model_number" | "serial_number" | "generation" | "install_year">> & {
   model_candidates?: string[];
 };
-type DocStatus = { state: "ready" | "reading" | "processed" | "failed"; message?: string };
+type DocStatus = { state: "ready" | "reading" | "processed" | "pending" | "failed"; message?: string };
 
 const blankAsset: Asset = {
   id: "", location_id: null, asset_type: "", name: "", asset_tag: null, active: true, status: "Active",
@@ -67,7 +68,6 @@ export default function ManageEquipmentPage() {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [showDocumentationDialog, setShowDocumentationDialog] = useState(false);
-  const [docFile, setDocFile] = useState<File | null>(null);
   const [docStatuses, setDocStatuses] = useState<Record<string, DocStatus>>({});
   const [processingKey, setProcessingKey] = useState("");
   const [extracted, setExtracted] = useState<Suggestions | null>(null);
@@ -250,7 +250,6 @@ export default function ManageEquipmentPage() {
     setExtracted(null);
     setExtractedDraft({});
     setDialogMessage("");
-    setDocFile(null);
     setRevisionReason("");
   }
 
@@ -351,20 +350,21 @@ export default function ManageEquipmentPage() {
       return;
     }
     const returnedPath = String(payload.document?.storage_path || storagePath || documentKey || "");
-    const state: DocStatus = payload.processing_status === "processed"
+    const state: DocStatus = ["pending_identity", "pending_guidance"].includes(payload.processing_status)
+      ? { state: "pending", message: payload.processing_message }
+      : ["processed", "ready"].includes(payload.processing_status)
       ? { state: "processed", message: payload.processing_message || "Processed" }
       : { state: "failed", message: payload.processing_message || "Equipment information was not loaded." };
     if (returnedPath) setDocStatuses((current) => ({ ...current, [returnedPath]: state }));
     const documentResult = await loadDocuments(selectedId);
     displayDocuments(documentResult.documents, documentResult.verified);
-    setDocFile(null);
     if (payload.suggestions) {
       const suggestions = payload.suggestions as Suggestions;
       setExtracted(suggestions);
-      setExtractedDraft(suggestions);
-      applySuggestions(suggestions);
-      setDialogMessage("Processed. Extracted information was loaded into the equipment fields automatically. Review or correct it, then Save Equipment.");
-      setMessage("PDF information loaded into the equipment fields. Review the values and Save Equipment when ready.");
+      setExtractedDraft(current => ({ ...suggestions, ...current }));
+      // Suggestions require explicit review; never replace user-selected values on re-read.
+      setDialogMessage("Suggestions extracted. Review and edit them, then use Apply Reviewed Values.");
+      setMessage("PDF suggestions are ready for your review. Equipment fields have not been changed.");
     } else {
       setExtracted(null);
       setExtractedDraft({});
@@ -544,11 +544,7 @@ export default function ManageEquipmentPage() {
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>
             </div>
 
-            <div className="mt-5 rounded-xl border border-slate-700 bg-slate-950 p-4">
-              <label className="block text-sm font-semibold text-slate-200">Choose manufacturer/equipment PDF</label>
-              <input type="file" accept="application/pdf,.pdf" onChange={(e) => setDocFile(e.target.files?.[0] || null)} className="mt-2 min-h-11 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm file:mr-2 file:rounded file:border-0 file:bg-cyan-800 file:px-3 file:py-1.5 file:text-white" />
-              <div className="mt-3 flex justify-end"><button type="button" disabled={!docFile || Boolean(processingKey)} onClick={() => docFile && void processDocumentation({ file: docFile })} className={`rounded-lg border px-4 py-2 text-sm font-bold ${processingKey ? "border-cyan-700 bg-cyan-950/60 text-cyan-200" : "border-cyan-500/50 bg-cyan-950/30 text-cyan-100"} disabled:opacity-40`}>{processingKey ? "Reading PDF…" : "Upload & Read"}</button></div>
-            </div>
+            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadAssets(selected.id); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
 
             {dialogMessage && <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${/processed/i.test(dialogMessage) ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-200" : /failed|could not|not configured|not loaded/i.test(dialogMessage) ? "border-red-500/40 bg-red-950/25 text-red-200" : "border-slate-700 bg-slate-950 text-slate-300"}`}>{dialogMessage}</div>}
 
@@ -578,7 +574,7 @@ export default function ManageEquipmentPage() {
                   const key = statusKey(doc);
                   const status = docStatuses[key] || { state: "ready" as const };
                   return <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs">
-                    <div className="min-w-0"><div className="truncate text-slate-300">{doc.name}</div><div className={`mt-1 font-semibold ${status.state === "processed" ? "text-emerald-300" : status.state === "failed" ? "text-red-300" : status.state === "reading" ? "text-cyan-300" : "text-slate-500"}`}>{status.state === "reading" ? "Reading…" : status.state === "processed" ? "Processed" : status.state === "failed" ? "Failed" : "Ready"}</div></div>
+                    <div className="min-w-0"><div className="truncate text-slate-300">{doc.name}</div><div className={`mt-1 font-semibold ${status.state === "processed" ? "text-emerald-300" : status.state === "failed" ? "text-red-300" : status.state === "reading" ? "text-cyan-300" : "text-slate-500"}`}>{status.message || (status.state === "reading" ? "Reading…" : status.state === "processed" ? "Processed" : status.state === "failed" ? "Failed" : status.state === "pending" ? "Pending" : "Ready")}</div></div>
                     {doc.storage_path && <button type="button" disabled={Boolean(processingKey)} onClick={() => void processDocumentation({ storagePath: doc.storage_path })} className="rounded-md border border-slate-600 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{status.state === "failed" ? "Try Again" : "Read Again"}</button>}
                   </div>;
                 }) : <p className="text-xs text-slate-500">No documents uploaded yet.</p>}

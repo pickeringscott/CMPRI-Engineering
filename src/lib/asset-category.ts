@@ -7,7 +7,7 @@ export function classifyAsset(asset: EquipmentIdentity): string {
   const combined = `${type} ${name}`;
 
   // Explicit equipment type takes precedence over incidental location words.
-  if (/\b(hvac|vtac|ptac|vpak|air condition|heat pump|water heating|energy management|rtu)\b/.test(type)) return "HVAC";
+  if (/\b(ac|a\/c|hvac|vtac|ptac|vpak|vert[- ]?i?[- ]?pak|air conditioner|air conditioning|air condition|heat pump|water heating|energy management|rtu)\b/.test(type)) return "HVAC";
   if (/\b(door lock|lockset|saflok|dormakaba|keycard|key card)\b/.test(combined)) return "Doors/Locks";
   if (/\b(camera|surveillance|cctv|fire|access control|sprinkler|alarm)\b/.test(type)) return "Safety";
   if (/\b(tv|television|av|stb|set.top|enseo)\b/.test(type)) return "TV / AV";
@@ -18,7 +18,7 @@ export function classifyAsset(asset: EquipmentIdentity): string {
   if (/pool|spa|bromine/.test(type)) return "Pool/Spa";
   if (/chair|table|desk|sofa|couch|bed|furniture|cabinet/.test(type)) return "Furniture";
 
-  if (/\b(vtac|ptac|vpak|hvac|friedrich|carrier|navien|verdant|heat pump|rtu)\b/.test(name)) return "HVAC";
+  if (/\b(ac|a\/c|vert[- ]?i?[- ]?pak|vtac|ptac|vpak|hvac|friedrich|carrier|navien|verdant|heat pump|rtu)\b/.test(name)) return "HVAC";
   if (/saflok|dormakaba|door lock|keycard|key card/.test(name)) return "Doors/Locks";
   if (/pool|spa|hayward|bromine/.test(name)) return "Pool/Spa";
   if (/washer|dryer|laundry/.test(name)) return "Laundry";

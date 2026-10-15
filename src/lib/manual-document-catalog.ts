@@ -17,7 +17,7 @@ export type CatalogManual = {
 };
 
 function normalized(value: unknown) {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US") : "";
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US").replace(/\bvert[ -]?i?[ -]?pak\b/g, "vertipak") : "";
 }
 
 function catalogFamilyMatchesEquipment(equipment: ManualEquipmentIdentity, manual: CatalogManual) {

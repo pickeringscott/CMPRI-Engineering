@@ -18,6 +18,13 @@ const MAX_MCP_WRITE_INPUT_BYTES = 4_000_000;
 const ROOM_OPERATIONS_REPORTING_INSTRUCTIONS = "When a user reports a daily room-operations import, read the room_operations view for that date and tell the user every room marked out of order (including OOO) and every detected room move. Include each room number and its out-of-order status, and report every move as move_from to move_to room numbers. Do not omit or summarize away these room numbers.";
 const MCP_TOOLS = [
   {
+    name: "get_connection_identity",
+    description: "Read only this connection's authenticated subject UUID and whether its existing scope allows writes. No account selector, tokens, email or role data.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputSchema: { type: "object", properties: { subject_id: { type: "string", format: "uuid" }, can_write: { type: "boolean" } }, required: ["subject_id", "can_write"], additionalProperties: false },
+    annotations: { title: "Read my connection identity", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: "search_locations",
     description: "Find active rooms and locations in CMPRI by room number, name, or area. Use this before creating a work order so the correct location is selected.",
     inputSchema: {
@@ -137,8 +144,31 @@ function toolResult(value: unknown, isError = false) {
 }
 
 function writeInputSchema(actions: string[]) {
-  const otherActions = actions.filter((action) => action !== "room_operations.import");
+  const otherActions = actions.filter((action) => action !== "room_operations.import" && !action.startsWith("hours_tracker."));
   const branches = [];
+  if (actions.includes("hours_tracker.save_period")) {
+    const date = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
+    const minute = { type: "integer", minimum: 0, maximum: 1439 };
+    branches.push({ type: "object", additionalProperties: false, required: ["action", "input"], properties: {
+      action: { type: "string", const: "hours_tracker.save_period" },
+      input: { type: "object", additionalProperties: false, required: ["revision", "period"], properties: {
+        revision: { type: "integer", minimum: 0 }, confirmRateChange: { type: "boolean" },
+        period: { type: "object", additionalProperties: false, required: ["start", "days", "rateCents", "deductionPercent"], properties: {
+          start: date, rateCents: { type: "integer", minimum: 0 }, deductionPercent: { type: "number", minimum: 0, maximum: 100 },
+          days: { type: "array", minItems: 14, maxItems: 14, items: { type: "object", additionalProperties: false, required: ["date", "attendance", "leave"], properties: {
+            date, attendance: { oneOf: [
+              { type: "object", additionalProperties: false, required: ["state"], properties: { state: { type: "string", enum: ["blank", "off"] } } },
+              { type: "object", additionalProperties: false, required: ["state", "start", "end", "nextDay"], properties: {
+                state: { type: "string", const: "work" }, start: minute, end: minute, nextDay: { type: "boolean" },
+                clockSpan: { type: "object", additionalProperties: false, required: ["startAt", "endAt"], properties: { startAt: { type: "string" }, endAt: { type: "string" } } }
+              } }
+            ] },
+            leave: { type: "array", maxItems: 2, items: { type: "object", additionalProperties: false, required: ["kind", "minutes"], properties: { kind: { type: "string", enum: ["company-pto", "illinois-sick"] }, minutes: { type: "integer", minimum: 0, maximum: 1440 } } } }
+          } } }
+        } }
+      } }
+    } });
+  }
   if (actions.includes("room_operations.import")) {
     branches.push({
       type: "object",
@@ -150,6 +180,17 @@ function writeInputSchema(actions: string[]) {
       required: ["action", "input"],
       additionalProperties: false,
     });
+  }
+  for (const action of ["hours_tracker.clock_in", "hours_tracker.clock_out"]) {
+    if (!actions.includes(action)) continue;
+    const out = action.endsWith("clock_out");
+    branches.push({ type: "object", properties: {
+      action: { type: "string", const: action },
+      input: { type: "object", properties: { request_id: { type: "string", pattern: "^[A-Za-z0-9_-]{16,100}$", description: "Unique event identifier; reuse unchanged on retries." }, ...(out ? { shift_id: { type: "string", description: "shiftId returned by clock-in" }, confirm_overnight: { type: "boolean", description: "True only after the user explicitly confirms a next-day clock-out." }, reconciliation: { description: "Only after explicit user confirmation: finish with exact offset-bearing end and elapsed minutes, or discard the open timer without recording hours. Do not guess ambiguous times.", oneOf: [
+        { type: "object", properties: { resolution: { const: "finish" }, confirmed: { const: true }, reason: { type: "string", minLength: 5, maxLength: 500 }, end_at: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:00(?:Z|[+-]\\d{2}:\\d{2})$" }, elapsed_minutes: { type: "integer", minimum: 1, maximum: 1440 } }, required: ["resolution", "confirmed", "reason", "end_at", "elapsed_minutes"], additionalProperties: false },
+        { type: "object", properties: { resolution: { const: "discard" }, confirmed: { const: true }, reason: { type: "string", minLength: 5, maxLength: 500 } }, required: ["resolution", "confirmed", "reason"], additionalProperties: false }
+      ] } } : {}) }, required: out ? ["request_id", "shift_id"] : ["request_id"], additionalProperties: false }
+    }, required: ["action", "input"], additionalProperties: false });
   }
   if (otherActions.length > 0) {
     branches.push({
@@ -365,6 +406,10 @@ export async function POST(request: NextRequest) {
       ? params.arguments as Record<string, unknown>
       : {};
     try {
+      if (params.name === "get_connection_identity") {
+        if (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments) || Object.keys(params.arguments).length !== 0) throw new Error("Use an empty arguments object; identity cannot be selected.");
+        return Response.json({ jsonrpc: "2.0", id: rpc.id, result: toolResult({ subject_id: identity.principal.identity.id, can_write: identity.canWrite }) }, { headers: NO_STORE });
+      }
       if (params.name === "create_work_order") {
         if (!availableMcpWriteActions(identity).some((action) => action.action === "work_orders.create")) {
           throw new Error("Your current CMPRI role cannot create work orders.");

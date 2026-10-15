@@ -7,6 +7,7 @@ export const OAUTH_PENDING_KEY = "cmpri:auth:oauth-pending";
 
 let client: SupabaseClient | undefined;
 let policy: ReturnType<typeof createSessionStoragePolicy> | undefined;
+let signingOut = false;
 
 function sessionPolicy() {
   if (typeof window === "undefined") throw new Error("CMPRI browser sessions are available only in the browser.");
@@ -19,7 +20,13 @@ export function remembersDevice() {
 }
 
 export function setRememberOnDevice(value: boolean) {
+  if (signingOut || policy?.revoked()) {
+    // Keep the old client's adapter revoked if its logout completes late.
+    client = undefined;
+    policy = undefined;
+  }
   sessionPolicy().setRemember(value);
+  signingOut = false;
 }
 
 export function clearDeviceSessionStorage() {
@@ -40,14 +47,23 @@ export function createClient() {
 }
 
 export async function signOutDevice() {
-  const supabase = createClient();
+  signingOut = true;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    await supabase.auth.signOut({ scope: "local" });
+    // Remote revocation is best effort; leaving this device must not wait
+    // indefinitely for initialization, refresh, or the logout network request.
+    await Promise.race([
+      createClient().auth.signOut({ scope: "local" }),
+      new Promise<void>((resolve) => { timeout = setTimeout(resolve, 3000); }),
+    ]);
+  } catch {
+    // Local cleanup below is still required when the SDK rejects.
   } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
     try {
       window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
     } finally {
-      clearDeviceSessionStorage();
+      sessionPolicy().revoke();
     }
   }
 }
@@ -59,8 +75,10 @@ export async function signOutDevice() {
  * so every caller that needs a live token must go through here instead.
  */
 export async function getValidSession() {
+  if (signingOut || sessionPolicy().revoked()) return null;
   const supabase = createClient();
   const { data, error } = await supabase.auth.getSession();
+  if (signingOut || sessionPolicy().revoked()) return null;
   if (error) throw error;
   if (!data.session) return null;
 
@@ -68,6 +86,7 @@ export async function getValidSession() {
   const now = Math.floor(Date.now() / 1000);
   if (expiresAt && expiresAt - now < 60) {
     const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (signingOut || sessionPolicy().revoked()) return null;
     if (refreshError) throw refreshError;
     return refreshed.session;
   }

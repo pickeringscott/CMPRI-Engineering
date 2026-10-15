@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { HOTEL_ID } from "@/lib/constants";
-import { isWebPushEligibleProfile, isWithinNotificationSchedule, normalizeNotificationSettings } from "@/lib/notifications/schedule";
+import { isStaffNotesPushEligibleProfile, isWithinNotificationSchedule, normalizeNotificationSettings } from "@/lib/notifications/schedule";
 import type { PushTest } from "@/lib/notifications/push-test-status";
 
 export const PUSH_TEST_TABLE = "cmpri_web_push_tests";
@@ -48,7 +48,7 @@ export async function dispatchPhoneNotificationTest(admin: SupabaseClient, id: s
       .eq("id", job.subscription_id).eq("recipient_user_id", job.recipient_user_id).eq("enabled", true).maybeSingle(),
   ]);
   if (profile.error || member.error || device.error) throw new Error("Notification test eligibility could not be checked.");
-  if (!profile.data?.active || !member.data?.active || !device.data || !isWebPushEligibleProfile(profile.data)
+  if (!profile.data?.active || !member.data?.active || !device.data || !isStaffNotesPushEligibleProfile(profile.data)
     || !await pushTestScheduleAllows(admin, job.recipient_user_id)) return finishPending("blocked");
   if (!pushTestsConfigured()) throw new Error("Notification tests are not configured.");
 

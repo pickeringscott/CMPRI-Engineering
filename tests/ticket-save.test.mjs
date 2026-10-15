@@ -13,7 +13,7 @@ function fixture(failure,extra={}){
   const calls={reload:0,fetch:0,requests:[],notes:[],staged:[],saving:[],messages:[],fingerprints:[],status:[]};
   const exports={};
   const ctx={exports,order:{id:'order',issue:'Fan noisy',room:'409',status:'Open',revision:7},issue:'Fan noisy',assets:[],assetId:'',category:'General',priority:'Medium',technicianName:'',status:'In Progress',notes:'Unsaved technician note',actionRootCause:'',parts:'',cost:'',hours:'',dueBy:'',currentActor:'Test Engineer',embedded:false,modalToken:'',
-    canEditField:()=>true,
+    locationId:'',assetSelectionChanged:{current:false},roomContextGeneration:{current:0},setRoomOperationalContext:()=>{},explicitPartSuggestion:()=>'',canEditTicket:true,stagedNoteIds:[],editingIssue:false,canEditField:()=>true,
     cleanTicketReportedIssue:value=>value,historyLine:entry=>JSON.stringify(entry),
     setSaving:v=>calls.saving.push(v),setSaveState:()=>{},setMessage:v=>calls.messages.push(v),setIssue:()=>{},setStatus:v=>calls.status.push(v),setOrder:()=>{},setNotes:v=>calls.notes.push(v),setStagedNoteIds:v=>calls.staged.push(v),setInitialFingerprint:v=>calls.fingerprints.push(v),
     loadTicket:async()=>{calls.reload++;},
@@ -53,4 +53,24 @@ test('note-only save uses attributed append endpoint and saved history', async()
     cmpriSession:{capabilities:['add_work_order_notes']},stagedNoteIds:['staged-line'],parseTicketHistory:()=>[{text:'Actual finding'}],
     fetch:async(url,options)=>{assert.equal(url,'/api/work-orders/order/notes');assert.equal(options.method,'POST');assert.deepEqual(JSON.parse(options.body),{notes:['Actual finding'],expected_revision:7});return {ok:true,json:async()=>({workOrder:{id:'order',notes:'Server attributed finding'}})}}});
   await f.run();assert.equal(f.calls.notes[0],'Server attributed finding');assert.equal(JSON.parse(f.calls.fingerprints[0]).notes,'Server attributed finding');
+});
+
+
+test('own closed report correction sends only issue and location with original revision',async()=>{
+ const f=fixture(null,{canEditTicket:false,canEditField:key=>['issue','location_id'].includes(key),order:{id:'order',issue:'Fan noisy',room:'409',location_id:'old-room',status:'Closed',revision:7},issue:'Fan rattles',locationId:'new-room',status:'Closed',notes:'',editingIssue:true});
+ await f.run();assert.deepEqual(f.calls.requests,[{expected_revision:7,issue:'Fan rattles',location_id:'new-room'}]);
+});
+test('unchanged owner save sends no request',async()=>{
+ const f=fixture(null,{canEditTicket:false,canEditField:key=>['issue','location_id'].includes(key),order:{id:'order',issue:'Fan noisy',room:'409',location_id:'old-room',status:'Closed',revision:7},locationId:'old-room',status:'Closed',notes:'',editingIssue:true});
+ await f.run();assert.equal(f.calls.fetch,0);
+});
+test('mixed unrelated edits block room correction without discarding edits',async()=>{
+ const f=fixture(null,{order:{id:'order',issue:'Fan noisy',room:'409',location_id:'old-room',status:'Closed',revision:7},locationId:'new-room',status:'Closed',priority:'Urgent'});
+ await f.run();assert.equal(f.calls.fetch,0);assert.match(f.calls.messages.at(-1),/other field edits/);
+});
+
+
+test('Chief issue-only correction does not submit inferred equipment or other defaults',async()=>{
+ const f=fixture(null,{order:{id:'order',can_correct_report:true,issue:'Fan noisy',room:'409',status:'Closed',revision:7},issue:'Fan rattles',status:'Closed',notes:'',editingIssue:true});
+ await f.run();assert.deepEqual(f.calls.requests,[{expected_revision:7,issue:'Fan rattles'}]);
 });

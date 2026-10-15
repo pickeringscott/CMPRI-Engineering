@@ -8,7 +8,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
-import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile } from "@/lib/notifications/schedule";
+import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile } from "@/lib/notifications/schedule";
 import PhoneNotificationRow from "@/components/PhoneNotificationRow";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
@@ -320,6 +320,7 @@ export default function ProfilePage() {
       <div className="mx-auto max-w-xl">
         {profileHeader}
         <div className="rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
+          <button type="button" onClick={() => void signOut()} className="mb-4 rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>
           {!message && <h2 className="text-xl font-bold">Loading profile…</h2>}
           {message && <p className="text-sm text-slate-300">{message}</p>}
           {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? "Retrying…" : "Retry"}</button>}
@@ -351,7 +352,7 @@ export default function ProfilePage() {
           {!phoneSupported && <p role="status" className="mt-3 text-sm text-amber-200">{tx("This browser does not support Web Push notifications.", "Este navegador no admite notificaciones Web Push.")}</p>}
           {phoneSupported && !phonePublicKey && <p role="status" className="mt-3 text-sm text-amber-200">{tx("Phone notifications are not configured on this server.", "Las notificaciones del teléfono no están configuradas en este servidor.")}</p>}
           <PhoneNotificationRow subscribed={phoneSubscribed} busy={phoneBusy} supported={phoneSupported}
-            configured={!!phonePublicKey} eligible={isWebPushEligibleProfile(data.profile)} userId={data.profile.id}
+            configured={!!phonePublicKey} eligible={isWebPushEligibleProfile(data.profile) || isStaffNotesPushEligibleProfile(data.profile)} userId={data.profile.id}
             spanish={!!isSpanish} onToggle={() => void (phoneSubscribed ? disablePhoneNotifications() : enablePhoneNotifications())} />
           <div className="mt-5">
             <div className="flex flex-wrap items-end justify-between gap-3">

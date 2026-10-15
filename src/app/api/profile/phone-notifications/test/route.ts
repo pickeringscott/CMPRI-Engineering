@@ -2,7 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { setTimeout as delay } from "node:timers/promises";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireUserAttempt } from "@/lib/server/auth";
-import { isWebPushEligibleProfile } from "@/lib/notifications/schedule";
+import { isStaffNotesPushEligibleProfile } from "@/lib/notifications/schedule";
 import { dispatchPhoneNotificationTest, PUSH_TEST_FIELDS, PUSH_TEST_TABLE, publicPushTest, pushTestScheduleAllows, pushTestsConfigured } from "@/lib/server/phone-notification-tests";
 
 export const maxDuration = 60;
@@ -12,7 +12,7 @@ const reply = (body: unknown, status = 200) => NextResponse.json(body, { status,
 export async function POST(request: NextRequest) {
   const auth = await requireUserAttempt(request);
   if (!auth.ok) return reply({ error: "Sign in is required." }, 401);
-  if (auth.mcp || !isWebPushEligibleProfile(auth.principal.profile)) return reply({ error: "Phone notification tests are unavailable for this account." }, 403);
+  if (auth.mcp || !isStaffNotesPushEligibleProfile(auth.principal.profile)) return reply({ error: "Phone notification tests are unavailable for this account." }, 403);
   const raw = await request.text();
   if (raw.length > 4096) return reply({ error: "Invalid test request." }, 400);
   let body;

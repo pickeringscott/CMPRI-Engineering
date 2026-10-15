@@ -1,3 +1,6 @@
+import * as baseline from "@/lib/server/pre-consolidation/maintenance-reference-route";
+import { dispatchConsolidation } from "@/lib/server/consolidation-stage";
+import { listRegisteredAssetFiles } from "@/lib/server/asset-file-register";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
@@ -86,6 +89,7 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
             problem: String(item.problem ?? item.description ?? item.meaning ?? "").trim(),
             action: String(item.action ?? item.solution ?? item.corrective_action ?? "").trim(),
             source_pages: pageList(item.source_pages ?? item.pages),
+            ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
         .filter((item) => item.code && (item.problem || item.action))
@@ -102,6 +106,7 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
             match: Array.isArray(matchRaw) ? matchRaw.map(String) : [String(matchRaw || "")].filter(Boolean),
             steps: Array.isArray(stepsRaw) ? stepsRaw.map(String) : [String(stepsRaw || "")].filter(Boolean),
             source_pages: pageList(item.source_pages ?? item.pages),
+            ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
         .filter((item) => item.steps.length > 0)
@@ -149,13 +154,6 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
 
   const combinedSymptomRules = [...symptom_rules];
 
-  if (general_checks.length) {
-    combinedSymptomRules.push({
-      match: [],
-      steps: general_checks,
-      source_pages: pageList(sourcePayload.source_pages ?? sourcePayload.pages),
-    });
-  }
 
   for (const entry of rawManualTests) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
@@ -174,6 +172,7 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
       match,
       steps,
       source_pages: pageList(item.source_pages ?? item.pages),
+      ...(item.source_url ? { source_url: String(item.source_url) } : {}),
     });
   }
 
@@ -192,6 +191,7 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
       file_url: String(source.file_url ?? sourcePayload.file_url ?? ""),
       pdf_url: String(source.pdf_url ?? sourcePayload.pdf_url ?? ""),
     },
+    source_passages: Array.isArray(sourcePayload.source_passages) ? sourcePayload.source_passages : [],
     error_codes,
     symptom_rules: combinedSymptomRules,
     general_checks,
@@ -200,6 +200,8 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
 }
 
 export async function GET(request: NextRequest) {
+  const staged = await dispatchConsolidation(request, baseline.GET);
+  if (staged) return staged;
   const auth = await requireCapability(request, "view_dashboard");
   if (!auth) return NextResponse.json({ error: "Dashboard access is required." }, { status: 403 });
   const dataClient = auth.admin;
@@ -281,7 +283,7 @@ export async function GET(request: NextRequest) {
 
   let manualKnowledge: KnowledgePayload | null = null;
   let documentationStatus = assetId ? "unresolved" : "no_asset";
-  let documentationWarnings: string[] = [];
+  const documentationWarnings: string[] = [];
   const selectedAsset = assetId ? usableAssets.find((asset) => String(asset.id) === assetId) : undefined;
 
   if (assetId && !selectedAsset) {
@@ -289,11 +291,10 @@ export async function GET(request: NextRequest) {
   }
 
   if (selectedAsset) {
-    const prefix = `${HOTEL_ID}/${assetId}`;
-    const { data: storedDocs, error: storageError } = await dataClient.storage
-      .from(DOCUMENTATION_BUCKET)
-      .list(prefix, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
-    const files = storageError ? [] : storedDocs || [];
+    const { data: storedDocs, error: storageError } = await listRegisteredAssetFiles(dataClient, assetId);
+    if (storageError) return NextResponse.json({ error: "Equipment PDF links could not be loaded." }, { status: 503 });
+    const preferred = storedDocs.find(f => f.preferred);
+    const files = preferred ? storedDocs.filter(f => f.storage_path === preferred.storage_path) : storedDocs;
     const assetDocumentsVerified = !selectedAsset.documentation_revision_id && (Boolean(selectedAsset.documentation_verified_at) || files.some((file) => String(file.name || "") === VERIFY_MARKER));
     const pdfFiles = files.filter((file) => String(file.name || "").toLowerCase().endsWith(".pdf"));
     const matchingDocuments: Array<{
@@ -307,22 +308,26 @@ export async function GET(request: NextRequest) {
       modelFamily: string | null;
       catalogVerified: boolean;
       knowledgeKey: string | null;
+      knowledge?: Record<string, unknown> | null;
+      selectedModel?: string;
     }> = [];
     if (assetDocumentsVerified && selectedAsset.manufacturer && (selectedAsset.model_family || selectedAsset.model_number)) {
       for (const file of pdfFiles) {
-        const storagePath = `${prefix}/${file.name}`;
+        const storagePath = file.storage_path;
         const { data: stored, error: downloadError } = await dataClient.storage
           .from(DOCUMENTATION_BUCKET)
           .download(storagePath);
         if (downloadError || !stored) {
-          return NextResponse.json({ error: `Verified PDF ${file.name} could not be read.` }, { status: 503 });
+          documentationWarnings.push(`${file.name}: saved PDF could not be read.`);
+          continue;
         }
         const bytes = new Uint8Array(await stored.arrayBuffer());
         let text: string;
         try {
           text = await extractManualPdfText(bytes);
         } catch {
-          return NextResponse.json({ error: `Verified PDF ${file.name} could not be read as a PDF.` }, { status: 503 });
+          documentationWarnings.push(`${file.name}: saved file is not a readable PDF.`);
+          continue;
         }
         if (text && manualPdfMatchesEquipment(text, selectedAsset)) {
           matchingDocuments.push({
@@ -345,7 +350,7 @@ export async function GET(request: NextRequest) {
     try {
       const catalog = await loadVerifiedCatalogManuals(dataClient, selectedAsset);
       catalogWarnings = catalog.warnings;
-      documentationWarnings = catalog.warnings;
+      documentationWarnings.push(...catalog.warnings);
       matchingDocuments.push(...catalog.documents.map((document) => ({
         name: document.name,
         text: document.text,
@@ -357,6 +362,8 @@ export async function GET(request: NextRequest) {
         modelFamily: document.modelFamily,
         catalogVerified: true,
         knowledgeKey: document.knowledgeKey,
+        knowledge: document.knowledge,
+        selectedModel: document.selectedModel,
       })));
     } catch (error) {
       return NextResponse.json({
@@ -377,35 +384,37 @@ export async function GET(request: NextRequest) {
       // generate paid AI guidance or substitute generic equipment advice.
       const reviewed: Array<{ document: typeof matchingDocuments[number]; payload: KnowledgePayload }> = [];
       for (const document of matchingDocuments) {
-        if (!document.catalogVerified || !document.knowledgeKey) continue;
-        const { data: cached, error } = await dataClient.from("troubleshooting_cache")
-          .select("payload")
-          .eq("hotel_id", HOTEL_ID)
-          .eq("cache_type", "asset_manual_knowledge")
-          .eq("cache_key", document.knowledgeKey)
-          .maybeSingle();
-        if (error) return NextResponse.json({ error: "Reviewed manual guidance could not be loaded." }, { status: 503 });
-        const payload = cached?.payload as KnowledgePayload | null;
+        if (!document.catalogVerified) continue;
+        const payload = document.knowledge as KnowledgePayload | null;
         const source = objectRecord(payload?.source);
         if (!payload || source.verified !== true || source.source_file_name !== document.name ||
-            !manualMatchesEquipment(selectedAsset, payload)) continue;
+            !manualMatchesEquipment(document.selectedModel ? { ...selectedAsset, manufacturer: document.documentManufacturer, model_number: document.selectedModel, model_family: document.modelFamily } : selectedAsset, payload)) continue;
         reviewed.push({ document, payload });
       }
       if (!reviewed.length) {
         documentationStatus = "no_guidance";
       } else {
         const primary = reviewed[0];
-        const entries = (key: string) => reviewed.flatMap(({ payload }) => Array.isArray(payload[key]) ? payload[key] as unknown[] : []);
+        const sourceUrls = new Map<string, string>();
+        for (const { document } of reviewed) {
+          const { data: signed, error } = await dataClient.storage.from(DOCUMENTATION_BUCKET).createSignedUrl(document.storagePath, 3600);
+          if (error || !signed?.signedUrl) return NextResponse.json({ error: "Verified manual link could not be created." }, { status: 503 });
+          sourceUrls.set(document.name, signed.signedUrl);
+        }
+        const entries = (key: string) => reviewed.flatMap(({ document, payload }) => Array.isArray(payload[key])
+          ? (payload[key] as unknown[]).map(entry => typeof entry === "object" && entry !== null
+            ? { ...entry, source_url: sourceUrls.get(document.name), source_file_name: document.name } : entry) : []);
         manualKnowledge = {
           manufacturer: selectedAsset.manufacturer || "",
           model_family: selectedAsset.model_family || primary.document.modelFamily || "",
-          model_number: selectedAsset.model_number || "",
+          model_number: primary.document.selectedModel || selectedAsset.model_number || "",
           source: {
             ...objectRecord(primary.payload.source),
             source_file_name: primary.document.name,
             source_files: reviewed.map(({ document }) => document.name),
             verified: true,
           },
+          source_passages: entries("source_passages"),
           error_codes: entries("error_codes"),
           symptom_rules: entries("symptom_rules"),
           manual_tests: entries("manual_tests"),

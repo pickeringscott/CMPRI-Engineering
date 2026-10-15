@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
 const exports = {};
 vm.runInNewContext(compiled, { exports });
 
-const { assignableAssetsForLocation } = exports;
+const { assignableAssetsForLocation, roomAssetsForInference } = exports;
 
 const assets = [
   { id: "room-101-active", location_id: "room-101", active: true },
@@ -22,7 +22,7 @@ const assets = [
   { id: "retired-template", location_id: null, active: false },
 ];
 
-test("work-order asset choices include room equipment and active unassigned templates", () => {
+test("work-order asset choices include room equipment and active unassigned catalog templates", () => {
   assert.deepEqual(
     assignableAssetsForLocation(assets, "room-101", null).map((asset) => asset.id),
     ["room-101-active", "ge-template"],
@@ -38,7 +38,16 @@ test("the existing inactive or moved asset remains selectable for the current ti
 
 test("tickets without a location cannot select unrelated assets", () => {
   assert.deepEqual(
-    assignableAssetsForLocation(assets, null, null),
-    [],
+    assignableAssetsForLocation(assets, null, null).map((asset) => asset.id),
+    ["ge-template"],
   );
+});
+
+test("catalog templates stay available globally while inference stays room-only", () => {
+  for (const room of ["room-101", "room-102", "room-410", null]) {
+    assert.ok(assignableAssetsForLocation(assets, room, null).some((asset) => asset.id === "ge-template"));
+    assert.ok(roomAssetsForInference(assets, room).every((asset) => asset.location_id === room && asset.location_id !== null && asset.active !== false));
+  }
+  assert.equal(roomAssetsForInference(assets, "room-410").length, 0);
+  assert.equal(roomAssetsForInference(assets, null).length, 0);
 });

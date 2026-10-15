@@ -139,3 +139,11 @@ test('cron recovers captured intent after desktop read/clear without replaying l
   const h=recoveryHarness(); await h.route.dispatchPendingInboxNotifications(h.admin,{id:user,role:'Chief Engineer'});
   assert.deepEqual(h.sent.map(n=>n.id),['room-operations:read','legacy-unread']);
 });
+
+
+test('report correction push is limited to Chief Engineer and the established legacy Chief account',()=>{
+ for(const role of ['Engineer','Engineering Manager','Technician','system_admin','Front Desk Manager']) assert.equal(policy.receivesEventPush({role},{id:'report-correction:1',work_order_id:'ticket'}),false,role);
+ assert.equal(policy.receivesEventPush({role:'Chief Engineer'},{id:'report-correction:1'}),true);
+ assert.equal(policy.receivesEventPush({role:'manager',secondary_roles:['Chief Engineer']},{id:'report-correction:1'}),true);
+ assert.equal(policy.receivesEventPush({id:'750f77bf-7d5d-4ca6-8421-e025edea87ba',email:'maint.cmpri@hawkeyehotels.com',role:'system_admin',secondary_roles:['engineer']},{id:'report-correction:1'}),true);
+});

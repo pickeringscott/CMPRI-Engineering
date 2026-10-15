@@ -10,10 +10,13 @@ self.addEventListener("push", (event) => {
   const title = typeof payload.title === "string" ? payload.title : "CMPRI Engineering";
   const body = typeof payload.body === "string" ? payload.body : "You have a new CMPRI notification.";
   const url = typeof payload.url === "string" ? payload.url : "/engineering";
+  if (typeof payload.tag === "string" && payload.tag.startsWith("cmpri-staff-note:") && self.navigator.setAppBadge) {
+    event.waitUntil(self.navigator.setAppBadge().catch(() => {}));
+  }
   event.waitUntil(self.registration.showNotification(title, {
     body,
     icon: "/cmpri-engineering-icon-192.png",
-    badge: "/cmpri-engineering-icon-192.png",
+    badge: "/cmpri-notification-badge.png",
     tag: typeof payload.tag === "string" ? payload.tag : undefined,
     data: { url },
   }));

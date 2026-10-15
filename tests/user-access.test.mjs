@@ -298,8 +298,8 @@ test('engineer can invite front desk with validated role and property membership
   assert.deepEqual(f.authRoleUpdates,[{id:'invited',role:'authenticated'}]);
   assert.deepEqual(f.writes,['invite','setAuthRole','upsert','upsert']);
 });
-test('system_admin can create a manager profile when role label is Manager',async()=>{
-  const f=fixture({caller:{id:'caller',role:'system_admin',active:true}, body:{email:'manager@example.invalid',full_name:'Test Manager',role:'Manager'}});
+test('system_admin can create a manager profile with the General Manager business title',async()=>{
+  const f=fixture({caller:{id:'caller',role:'system_admin',active:true}, body:{email:'manager@example.invalid',full_name:'Test Manager',role:'General Manager'}});
   const r=await f.handlers.POST(f.request);
   assert.equal(r.status,200);
   assert.equal(r.body.user.role,'manager');

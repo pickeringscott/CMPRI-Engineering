@@ -94,6 +94,7 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
     {document_key:'unimac-family',title:'UniMac washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/washer.pdf',source_file_name:'washer.pdf',active:true,ingestion_status:'complete'},
     {document_key:'neighbor-family',title:'Neighbor washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T3V',storage_path:'asset docs/neighbor.pdf',source_file_name:'neighbor.pdf',active:true,ingestion_status:'complete'},
     {document_key:'wrong-content',title:'Mismatched washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/mismatch.pdf',source_file_name:'mismatch.pdf',active:true,ingestion_status:'complete'},
+    {document_key:'missing',title:'Missing washer manual',document_type:'Service Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'hotel/asset/missing.pdf',source_file_name:'missing.pdf',active:true,ingestion_status:'complete'},
     {document_key:'inactive',title:'Inactive washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/inactive.pdf',source_file_name:'inactive.pdf',active:false,ingestion_status:'complete'},
   ];
   for (const row of rows) row.hotel_id='hotel';
@@ -111,7 +112,7 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
         select(){return this;},
         eq(field,value){filters[field]=value;return this;},
         order(){return this;},
-        limit(){return this;},
+        range(){return this;},
         then(resolve,reject){return Promise.resolve({data:rows.filter(row=>Object.entries(filters).every(([field,value])=>row[field]===value)),error:null}).then(resolve,reject);},
       };
       return query;
@@ -141,9 +142,9 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
   }});
   const result=await helperExports.loadVerifiedCatalogManuals(admin,{manufacturer:'UniMac',model_family:null,model_number:'UWN065T4VXU4001'});
   assert.deepEqual(Array.from(result.documents,doc=>doc.name),['washer.pdf']);
-  assert.equal(result.documents[0].storagePath,'Asset Docs/washer.pdf');
-  assert.deepEqual(Array.from(result.warnings),['Mismatched washer manual: the PDF content did not verify the exact cataloged model family.']);
-  assert.deepEqual(calls,[['list','Asset Docs'],['download','Asset Docs/washer.pdf'],['download','Asset Docs/mismatch.pdf']]);
+  assert.equal(result.documents[0].storagePath,'asset docs/washer.pdf');
+  assert.deepEqual(Array.from(result.warnings),['Mismatched washer manual: the PDF content did not verify the exact cataloged model family.','Missing washer manual: saved PDF could not be read.']);
+  assert.deepEqual(calls,[['download','asset docs/washer.pdf'],['download','asset docs/mismatch.pdf'],['download','hotel/asset/missing.pdf']]);
 });
 
 test('verified PDFs must contain the exact manufacturer and family or model identifier',()=>{
@@ -165,8 +166,9 @@ test('verified PDFs must contain the exact manufacturer and family or model iden
 test('exact PDF matches use reviewed catalog knowledge without paid generation or GET writes',()=>{
   const route=readFileSync(new URL('../src/app/api/maintenance-reference/route.ts',import.meta.url),'utf8');
   assert.match(route,/if \(!matchingDocuments\.length\)/);
-  assert.match(route,/\.from\("troubleshooting_cache"\)[\s\S]*?\.maybeSingle\(\)/);
-  assert.match(route,/\.eq\("cache_type", "asset_manual_knowledge"\)/);
+  const loader=readFileSync(new URL("../src/lib/server/verified-manual-catalog.ts",import.meta.url),"utf8");
+  assert.match(loader,/\.from\("troubleshooting_cache"\)[\s\S]*?\.maybeSingle\(\)/);
+  assert.match(loader,/\.eq\("cache_type", "asset_manual_knowledge"\)/);
   assert.match(route,/source\.source_file_name !== document\.name/);
   assert.doesNotMatch(route,/structureVerifiedManual|\.upsert\(/);
   assert.match(route,/loadVerifiedCatalogManuals\(dataClient, selectedAsset\)/);
@@ -206,9 +208,8 @@ const manualMatches=guidanceExports.matches;
 test('general checks remain verified equipment guidance without inventing source verification',()=>{
   const result=enrich({source:{verified:true},symptom_rules:[],general_checks:['Verify power.','Inspect filter.']});
   assert.equal(result.source.verified,true);
-  assert.equal(result.symptom_rules.length,1);
-  assert.deepEqual(Array.from(result.symptom_rules[0].match),[]);
-  assert.deepEqual(Array.from(result.symptom_rules[0].steps),['Verify power.','Inspect filter.']);
+  assert.equal(result.symptom_rules.length,0);
+  assert.deepEqual(Array.from(result.general_checks),['Verify power.','Inspect filter.']);
 });
 
 test('manual tests get symptom matches instead of becoming empty-match rules',()=>{
@@ -244,19 +245,11 @@ test('the work-order manual guide is driven only by verified manual knowledge',(
 });
 
 test('reported manufacturer code prefixes are preserved exactly',()=>{
-  const pageSource=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  const pageAst=ts.createSourceFile('page.tsx',pageSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-  const names=new Set(['normalizeDiagnosticCode','extractReportedErrorCode']);
-  const functions=pageAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text));
-  assert.equal(functions.length,2);
-  const exports={};
-  vm.runInNewContext(ts.transpileModule(`${functions.map(node=>node.getText(pageAst)).join('\n')}\nexports.normalize=normalizeDiagnosticCode;exports.extract=extractReportedErrorCode;`,{
-    compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},
-  }).outputText,{exports});
-  assert.equal(exports.extract('Fault code F1 is displayed'),'F1');
-  assert.equal(exports.extract('Error P1 is displayed'),'P1');
-  assert.equal(exports.extract('Room 409 is not cooling'),null);
-  assert.equal(exports.normalize('F1'), 'F1');
-  assert.equal(exports.normalize('P1'), 'P1');
-  assert.notEqual(exports.normalize('F1'), exports.normalize('1'));
+  const source=readFileSync(new URL('../src/lib/manual-source.ts',import.meta.url),'utf8');
+  const ast=ts.createSourceFile('manual-source.ts',source,ts.ScriptTarget.Latest,true);
+  const fn=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='reportedDiagnosticCode');
+  const runtime={};vm.runInNewContext(ts.transpileModule(fn.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:runtime});
+  assert.equal(runtime.reportedDiagnosticCode('Fault code F1 is displayed'),'F1');
+  assert.equal(runtime.reportedDiagnosticCode('Error P1 is displayed'),'P1');
+  for(const issue of ['Room 409 is not cooling','AC not working it is 77','Original source ticket ID: AC-6131','Approved import row IMP-0006']) assert.equal(runtime.reportedDiagnosticCode(issue),null);
 });
