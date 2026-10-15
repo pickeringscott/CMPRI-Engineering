@@ -434,7 +434,7 @@ test('legacy unknown and attributed samples remain unchanged when adding a share
 });
 
 test('pool UI completeness requires a paired sample and daily checks, without collection location',()=>{
- const source=readFileSync(new URL('../src/app/engineering/pool-log/page.tsx',import.meta.url),'utf8');
+ const source=readFileSync(new URL('../src/app/engineering/pool-log/page.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const start=source.indexOf('function missingFields(');
  const end=source.indexOf('\n}\n',start)+2;
  const code=ts.transpile(source.slice(start,end),{target:ts.ScriptTarget.ES2022});

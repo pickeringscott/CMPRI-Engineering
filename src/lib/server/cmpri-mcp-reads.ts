@@ -14,7 +14,6 @@ const DASHBOARD_VIEWS = [
   "room_operations",
   "purchasing",
   "corporate_pm",
-  "pool_log",
   "maintenance_reference",
 ] as const;
 
@@ -32,6 +31,7 @@ export function availableMcpReadViews(identity: McpIdentity) {
   const views = [
     ...(canUseHoursMcp(identity) ? ["hours_tracker"] : []),
     ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
+    ...(allows(identity.principal, "view_dashboard") || allows(identity.principal, "view_pool_log") ? ["pool_log"] as const : []),
     ...(allows(identity.principal, "view_work_orders") ? ["work_orders"] as const : []),
     ...(canViewRoomRanker(identity.principal) ? ["room_ranker"] as const : []),
     ...(identity.readAllWorkOrders || identity.readAssignedWorkOrders || identity.readOwnWorkOrders
