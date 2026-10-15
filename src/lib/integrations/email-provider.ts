@@ -69,8 +69,18 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
   }
   if (!response.ok) {
     let codes: string[] = [];
-    try { codes = safeProviderCodes(await response.json(), stage); } catch { /* Non-JSON errors expose status only. */ }
-    throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).`);
+    let body: unknown;
+    let jsonParsed = false;
+    try { body = await response.json(); jsonParsed = true; codes = safeProviderCodes(body, stage); } catch { /* Never expose parse errors or response text. */ }
+    let shape = "";
+    if (stage === "OAuth token exchange") {
+      const mime = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+      const contentType = !mime ? "missing" : ["application/json", "text/html", "text/plain"].includes(mime) ? mime : "other";
+      const hasField = (key: string) => Boolean(body && typeof body === "object" && !Array.isArray(body) && Object.prototype.hasOwnProperty.call(body, key));
+      // Only fixed keys, booleans and allowlisted MIME labels; never header/body values or URLs.
+      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true })}.`;
+    }
+    throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }
   try { return await response.json() as Json; }
   catch { throw new Error(`Mailbox ${stage} returned invalid JSON.`); }

@@ -88,7 +88,8 @@ test('safe mailbox failure stages and allowlisted codes never expose provider te
         throw new Error('Unexpected request after failure');
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        assert.equal(error.message,scenario.expected);
+        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false}) + '.' : '';
+        assert.equal(error.message,scenario.expected + suffix);
         assert.equal(error.cause,undefined);
         assert.equal(String(error).includes('private-'),false);
         assert.equal(String(error).includes('https://'),false);
@@ -99,5 +100,63 @@ test('safe mailbox failure stages and allowlisted codes never expose provider te
   } finally {
     globalThis.fetch=originalFetch;
     for(const key of Object.keys(fixture)) if(backup[key]===undefined)delete process.env[key];else process.env[key]=backup[key];
+  }
+});
+
+
+test('Google refresh request uses native form serialization and bounded response diagnostics', async t => {
+  const fixture = {CMPRI_EMAIL_PROVIDER:'gmail',CMPRI_GMAIL_CLIENT_ID:'private-id+&= %\u00fc',CMPRI_GMAIL_CLIENT_SECRET:'private-secret+&= %\u00fc',CMPRI_GMAIL_REFRESH_TOKEN:'private-refresh+&= %\u00fc',CMPRI_GMAIL_ADDRESS:'private@example.invalid'};
+  const backup = Object.fromEntries(Object.keys(fixture).map(key=>[key,process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const cases = [
+    {name:'recognized JSON with private description and URI',body:JSON.stringify({error:'invalid_client',error_description:'private-secret',error_uri:'https://private.invalid'}),mime:'application/json; private-parameter=secret',type:'application/json',parsed:true,error:true,description:true,uri:true,recognized:true},
+    {name:'unrecognized JSON code',body:JSON.stringify({error:'private-unknown-code'}),mime:'application/json',type:'application/json',parsed:true,error:true},
+    {name:'JSON without known fields',body:JSON.stringify({message:'private-body'}),mime:'application/json',type:'application/json',parsed:true},
+    {name:'JSON null',body:'null',mime:'application/json',type:'application/json',parsed:true},
+    {name:'HTML redirect response',body:'<html>private-body</html>',mime:'text/html; charset=utf-8',type:'text/html',redirected:true},
+    {name:'plain text',body:'private-body',mime:'text/plain',type:'text/plain'},
+    {name:'unknown MIME hidden',body:'private-body',mime:'application/private-secret',type:'other'},
+    {name:'missing MIME',body:'private-body',type:'missing'},
+    {name:'malformed JSON',body:'{private-body',mime:'application/json',type:'application/json'},
+  ];
+  try {
+    Object.assign(process.env,fixture);
+    for(const c of cases) await t.test(c.name,async()=>{
+      let calls=0;
+      globalThis.fetch=async(url,init)=>{
+        calls++;
+        assert.equal(url,'https://oauth2.googleapis.com/token');
+        const request=new Request(url,init);
+        assert.equal(request.method,'POST');
+        assert.equal(request.headers.get('content-type'),'application/x-www-form-urlencoded');
+        assert.equal(request.headers.has('authorization'),false);
+        const wire=await request.text();
+        const form=new URLSearchParams(wire);
+        assert.deepEqual([...form.keys()].sort(),['client_id','client_secret','grant_type','refresh_token']);
+        assert.equal(form.get('client_id'),fixture.CMPRI_GMAIL_CLIENT_ID);
+        assert.equal(form.get('client_secret'),fixture.CMPRI_GMAIL_CLIENT_SECRET);
+        assert.equal(form.get('refresh_token'),fixture.CMPRI_GMAIL_REFRESH_TOKEN);
+        assert.equal(form.get('grant_type'),'refresh_token');
+        for(const escaped of ['%2B','%26','%3D','%25','%C3%BC']) assert.ok(wire.includes(escaped));
+        const response=new Response(c.body,{status:401});
+        response.headers.delete('content-type');
+        if(c.mime)response.headers.set('content-type',c.mime);
+        response.headers.set('x-private','private-header');
+        Object.defineProperty(response,'redirected',{value:Boolean(c.redirected)});
+        Object.defineProperty(response,'url',{value:'https://private.invalid/secret'});
+        return response;
+      };
+      await assert.rejects(fetchOperationalMessages(),error=>{
+        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected)};
+        assert.equal(error.message,`Mailbox OAuth token exchange failed (401${c.recognized?'; invalid_client':''}). Response shape: ${JSON.stringify(shape)}.`);
+        assert.equal(error.cause,undefined);
+        assert.doesNotMatch(error.stack,/private-|private@|https:\/\//);
+        return true;
+      });
+      assert.equal(calls,1);
+    });
+  } finally {
+    globalThis.fetch=originalFetch;
+    for(const key of Object.keys(fixture))if(backup[key]===undefined)delete process.env[key];else process.env[key]=backup[key];
   }
 });
