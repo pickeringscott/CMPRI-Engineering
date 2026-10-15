@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/server/auth";
 
 import { PURCHASE_STATUSES, SHIPMENT_STATUSES, parentStatusFromShipments } from "@/lib/integrations/operations";
 import { isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
+import { emailDiagnostics } from "@/lib/server/email-diagnostics";
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
     configured: true,
     can_edit: allows(auth.principal, "operate_integrations"),
     safe_mode: isIntegrationsSafeMode(),
+    ...(allows(auth.principal, "operate_integrations") ? { email_diagnostics: emailDiagnostics() } : {}),
     purchases: purchasesResult.data || [],
     enseo: enseoResult.data || [],
     warranties: warrantyResult.data || [],
