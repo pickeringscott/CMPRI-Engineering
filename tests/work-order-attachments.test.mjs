@@ -60,7 +60,29 @@ function fixture(options = {}) {
   const userId = options.userId || "user-a";
   const filters = [];
   const storageCalls = [];
+  let authCalls = 0;
   const logs = [];
+  const objects = options.objects || new Map();
+  const missing = { statusCode: "404", code: "NoSuchKey" };
+  async function stored(path) {
+    if (objects.has(path)) return objects.get(path);
+    if (options.persistDirectory) {
+      try { return new Blob([await readFile(join(options.persistDirectory, path))], { type: "image/png" }); } catch { return null; }
+    }
+    return null;
+  }
+  async function storeObject(path, file, type = file.type) {
+    if (await stored(path)) return { error: { statusCode: "409" } };
+    const bytes = await file.arrayBuffer();
+    if (objects.has(path)) return { error: { statusCode: "409" } };
+    objects.set(path, new Blob([bytes], { type }));
+    if (options.persistDirectory) {
+      const target = join(options.persistDirectory, path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, Buffer.from(await file.arrayBuffer()));
+    }
+    return { error: null };
+  }
   const record = {
     id: workOrderId,
     hotel_id: options.workOrderHotelId || hotelId,
@@ -101,15 +123,30 @@ function fixture(options = {}) {
       from(bucket) {
         assert.equal(bucket, "asset-documentation");
         return {
-          remove: async (paths) => { storageCalls.push({ operation: "remove", paths }); return { error: options.removeError ? new Error("storage unavailable") : null }; },
+          info: async (path) => {
+            storageCalls.push({ operation: "info", path });
+            if (options.infoError) return { data: null, error: { statusCode: "503" } };
+            const file = await stored(path);
+            return file ? { data: { size: file.size, contentType: file.type }, error: null } : { data: null, error: missing };
+          },
+          download: async (path) => { const file = await stored(path); return { data: file, error: file ? null : missing }; },
+          createSignedUploadUrl: async (path, settings) => {
+            storageCalls.push({ operation: "sign-upload", path, settings });
+            assert.equal(settings.upsert, false);
+            return { data: { signedUrl: `https://storage.invalid/upload?path=${encodeURIComponent(path)}&token=synthetic` }, error: null };
+          },
+          remove: async (paths) => {
+            storageCalls.push({ operation: "remove", paths });
+            if (!options.removeError) for (const path of paths) {
+              objects.delete(path);
+              if (options.persistDirectory) await rm(join(options.persistDirectory, path), { force: true });
+            }
+            return { error: options.removeError ? new Error("storage unavailable") : null };
+          },
           upload: async (path, file, uploadOptions) => {
             storageCalls.push({ operation: "upload", path, file, uploadOptions });
-            if (options.persistDirectory && !options.uploadError) {
-              const target = join(options.persistDirectory, path);
-              await mkdir(dirname(target), { recursive: true });
-              await writeFile(target, Buffer.from(await file.arrayBuffer()));
-            }
-            return { error: options.uploadError ? new Error("storage unavailable") : null };
+            if (options.uploadError) return { error: new Error("storage unavailable") };
+            return storeObject(path, file, uploadOptions.contentType);
           },
           list: async (prefix, listOptions) => {
             storageCalls.push({ operation: "list", prefix, listOptions });
@@ -138,7 +175,7 @@ function fixture(options = {}) {
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200, headers: init.headers }) } };
       if (name === "@/lib/constants") return { HOTEL_ID: hotelId };
       if (name === "@/lib/server/access") return accessModule;
-      if (name === "@/lib/server/auth") return { requireUser: async () => options.authenticated === false ? null : { principal, admin } };
+      if (name === "@/lib/server/auth") return { requireUser: async () => options.authenticated === false || ++authCalls === options.revokeOnAuthCall ? null : { principal, admin } };
       if (name === "@/lib/server/roles") return roleModule;
       if (name === "@/lib/server/work-order-assignment") return assignmentModule;
       if (name === "@/lib/uuid") return uuidModule;
@@ -156,6 +193,9 @@ function fixture(options = {}) {
     },
   });
   return {
+    objects,
+    direct: async (url, file) => storeObject(new URL(url).searchParams.get("path"), file),
+    put: (body, id = workOrderId) => exports.PUT({ text: async () => JSON.stringify(body) }, { params: Promise.resolve({ id }) }),
     filters,
     storageCalls,
     logs,
@@ -299,7 +339,7 @@ test("attachment retries reuse a validated upload ID without creating duplicate 
   assert.equal((await route.post(photo(), uploadId)).status, 200);
   const uploaded = route.storageCalls[0];
   assert.equal(uploaded.path, `${hotelId}/work-orders/${workOrderId}/owner_${uploadId}.png`);
-  assert.equal(uploaded.uploadOptions.upsert, true);
+  assert.equal(uploaded.uploadOptions.upsert, false);
 
   const invalid = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
   assert.equal((await invalid.post(photo(), "not-a-uuid")).status, 400);
@@ -375,7 +415,7 @@ test("a failed photo upload can be retried against the same created work order",
       requests.push({ url, options });
       return requests.length === 1
         ? new Response(JSON.stringify({ error: "The work-order image could not be stored." }), { status: 503 })
-        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+        : new Response(JSON.stringify({ ok: true, complete: true }), { status: 200 });
     };
 
     const failed = await uploadWorkOrderAttachment("work-order-123", file, "local-session-token", "00000000-0000-4000-8000-000000000099");
@@ -385,13 +425,13 @@ test("a failed photo upload can be retried against the same created work order",
     assert.deepEqual(retried, { ok: true });
     assert.equal(requests.length, 2);
     assert.ok(requests.every(({ url }) => url === "/api/work-orders/work-order-123/attachments"));
-    assert.ok(requests.every(({ options }) => options.method === "POST"));
+    assert.ok(requests.every(({ options }) => options.method === "PUT"));
     assert.ok(requests.every(({ options }) => options.headers.Authorization === "Bearer local-session-token"));
-    assert.ok(requests.every(({ options }) => options.headers["X-Upload-Id"] === "00000000-0000-4000-8000-000000000099"));
     for (const { options } of requests) {
-      const uploadedFile = options.body.get("photo");
-      assert.equal(uploadedFile.name, "retry.png");
-      assert.deepEqual(Array.from(new Uint8Array(await uploadedFile.arrayBuffer())), [137, 80, 78, 71]);
+      const descriptor = JSON.parse(options.body);
+      assert.equal(descriptor.uploadId, "00000000-0000-4000-8000-000000000099");
+      assert.equal(descriptor.size, file.size);
+      assert.equal(descriptor.action, "prepare");
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -483,20 +523,25 @@ for (const role of ["Lead Housekeeper", "Front Desk"]) {
       const route = fixture({ role, userId: "owner", lookupWorkOrder, persistDirectory: directory });
       const methods = [];
       t.mock.method(globalThis, "fetch", async (url, init) => {
+        if (String(url).startsWith("https://storage.invalid/")) {
+          assert.equal(init.headers.Authorization, undefined);
+          const result = await route.direct(url, init.body);
+          return new Response("{}", { status: result.error ? 409 : 200 });
+        }
         assert.equal(url, `/api/work-orders/${workOrderId}/attachments`);
         assert.equal(init.headers.Authorization, "Bearer synthetic-token");
         methods.push(init.method);
-        const result = await route.post(init.body.get("photo"), init.headers["X-Upload-Id"]);
-        return new Response(JSON.stringify(result.body), {status: result.status});
+        const result = await route.put(JSON.parse(init.body));
+        return new Response(JSON.stringify(result.body), { status: result.status });
       });
       const file = photo();
       assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic-token", uploadId), {ok: true});
       const relativePath = `${hotelId}/work-orders/${workOrderId}/owner_${uploadId}.png`;
       assert.deepEqual(await readFile(join(directory, relativePath)), Buffer.from(await file.arrayBuffer()));
       assert.equal((await db.query("SELECT status FROM work_orders WHERE id=$1", [workOrderId])).rows[0].status, "Pending Verification");
-      assert.deepEqual(methods, ["POST"], "upload completion must not depend on forbidden GET readback");
+      assert.deepEqual(methods, ["PUT", "PUT"], "upload completion must not depend on forbidden GET readback");
       assert.equal((await route.get()).status, 403);
-      assert.equal(route.storageCalls.filter(call => call.operation !== "upload").length, 0);
+      assert.equal(route.storageCalls.filter(call => ["list", "sign"].includes(call.operation)).length, 0);
       assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic-token", uploadId), {ok: true});
       assert.equal((await readdir(dirname(join(directory, relativePath)))).length, 1, "retry keeps one associated object");
       const engineering = fixture({ role: "Chief Engineer", userId: "engineering-reader", lookupWorkOrder, persistDirectory: directory });
@@ -652,4 +697,168 @@ test('effective Chief mapping includes Scott exactly and excludes lookalike admi
  const scott={userId:photoOwner,email:'maint.cmpri@hawkeyehotels.com',role:'system_admin',secondaryRoles:['engineer']};
  const cases=[{...scott,allowed:true},{...scott,userId:'00000000-0000-4000-8000-000000000098'},{...scott,email:'other@example.invalid'},{...scott,secondaryRoles:[]},{...scott,role:'Engineer'},{...scott,secondaryRoles:['Regional Engineer']},{userId:photoOwner,role:'Chief Engineer',allowed:true},{userId:photoOwner,role:'system_admin',secondaryRoles:['Chief Engineer'],allowed:true}];
  for(const item of cases){const route=fixture({...item,files:[{name:ownPhoto,metadata:{mimetype:'image/png'}}]});assert.equal((await route.remove(ownPhoto)).status,item.allowed?200:403,JSON.stringify(item));const read=await route.get();assert.equal(read.body.images[0].can_remove,Boolean(item.allowed));}
+});
+
+const directUploadId = "11111111-1111-4111-8111-111111111111";
+async function description(file, action = "prepare", uploadId = directUploadId) {
+  const sha256 = Buffer.from(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())).toString("hex");
+  return { action, uploadId, name: file.name, type: file.type, size: file.size, sha256 };
+}
+function wireDirectClient(t, route, options = {}) {
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    calls.push({ url, init });
+    if (String(url).startsWith("https://storage.invalid/")) {
+      assert.equal(init.headers.Authorization, undefined);
+      assert.equal(init.credentials, "omit");
+      assert.equal(init.referrerPolicy, "no-referrer");
+      assert.equal(init.headers["x-upsert"], "false");
+      if (options.interruptBeforeStorage) throw new Error("offline");
+      const result = await route.direct(url, init.body);
+      if (options.loseStorageResponse) throw new Error("response lost");
+      return new Response("{}", { status: result.error ? 409 : 200 });
+    }
+    assert.equal(url, `/api/work-orders/${workOrderId}/attachments`);
+    assert.equal(init.method, "PUT");
+    assert.ok(Buffer.byteLength(init.body) < 2048, "No image payload passes through the function");
+    const body = JSON.parse(init.body);
+    const response = await route.put(body);
+    if (options.loseFinalizeResponse && body.action === "finalize") throw new Error("response lost");
+    return new Response(JSON.stringify(response.body), { status: response.status });
+  });
+  return calls;
+}
+
+test("direct original-byte transfer crosses 4.5 MB, includes Scott's 6.71 MB, and accepts inclusive 10 MiB", async t => {
+  for (const size of [4_499_999, 4_500_001, 6_710_000, Math.round(6.71 * 1024 * 1024), 10 * 1024 * 1024 - 1, 10 * 1024 * 1024]) {
+    const route = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner", membershipRole: "technician" });
+    const calls = wireDirectClient(t, route);
+    const file = photo("original.jpg", "image/jpeg", size);
+    assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId), { ok: true });
+    const saved = route.objects.get(`${hotelId}/work-orders/${workOrderId}/owner_${directUploadId}.jpg`);
+    assert.equal(saved.size, size);
+    assert.deepEqual(Buffer.from(await saved.arrayBuffer()), Buffer.from(await file.arrayBuffer()));
+    assert.equal(calls.filter(c => String(c.url).startsWith("https://storage.invalid/")).length, 1);
+    assert.equal(route.objects.size, 1, "verified original saved once; staging cleaned");
+    assert.equal(route.logs.length, 0);
+  }
+});
+
+test("client and server independently reject over 10 MiB; forged size/type/signature/hash never becomes a ticket photo", async t => {
+  const route = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner" });
+  const calls = wireDirectClient(t, route);
+  const over = photo("over.jpg", "image/jpeg", 10 * 1024 * 1024 + 1);
+  assert.equal((await uploadWorkOrderAttachment(workOrderId, over, "synthetic", directUploadId)).canReplace, true);
+  assert.equal(calls.length, 0);
+  assert.equal((await route.put(await description(over))).status, 400);
+  for (const mismatch of ["size", "mime", "signature", "hash"]) {
+    const r = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
+    const file = photo();
+    const body = await description(file);
+    const prepared = await r.put(body);
+    let actual = file;
+    if (mismatch === "size") actual = photo("photo.png", "image/png", 10 * 1024 * 1024 + 1);
+    if (mismatch === "mime") actual = new File([await file.arrayBuffer()], "photo.png", { type: "application/pdf" });
+    if (mismatch === "signature") {
+      actual = new File([new Uint8Array(16)], "photo.png", { type: "image/png" });
+      Object.assign(body, await description(actual));
+      const changed = await r.put(body);
+      prepared.body.signedUrl = changed.body.signedUrl;
+    }
+    if (mismatch === "hash") { const bytes = new Uint8Array(await file.arrayBuffer()); bytes[15] = 1; actual = new File([bytes], "photo.png", { type: "image/png" }); }
+    await r.direct(prepared.body.signedUrl, actual);
+    const result = await r.put({ ...body, action: "finalize" });
+    assert.equal(result.status, 400, mismatch);
+    assert.equal([...r.objects.keys()].filter(path => path.includes("/work-orders/")).length, 0);
+  }
+});
+
+test("signed staging preserves same role, hotel, ticket and current session gates at prepare and finalize", async () => {
+  const file = photo(); const body = await description(file);
+  for (const options of [
+    { authenticated: false },
+    { workOrderHotelId: "other-hotel" },
+    { role: "Front Desk Manager", status: "Closed", createdBy: "other" },
+    { role: "Front Desk", status: "Pending Verification", createdBy: "other" },
+  ]) {
+    const route = fixture(options);
+    assert.ok([401, 403, 404].includes((await route.put(body)).status));
+    assert.ok([401, 403, 404].includes((await route.put({ ...body, action: "finalize" })).status));
+    assert.equal(route.storageCalls.length, 0);
+  }
+  const settings = { role: "Front Desk Manager", userId: "owner", createdBy: "owner" };
+  const route = fixture(settings);
+  const prepared = await route.put(body);
+  await route.direct(prepared.body.signedUrl, file);
+  settings.authenticated = false;
+  assert.equal((await route.put({ ...body, action: "finalize" })).status, 401);
+  assert.equal([...route.objects.keys()].filter(path => path.includes("/work-orders/")).length, 0);
+  settings.authenticated = true;
+  assert.equal((await route.put({ ...body, path: "other-ticket", action: "finalize" })).status, 400);
+  // Same readable ticket, different actor cannot finalize someone else's staging object.
+  const other = fixture({ role: "Chief Engineer", userId: "other", objects: route.objects });
+  assert.equal((await other.put({ ...body, action: "finalize" })).status, 409);
+  const anotherTicket = "22222222-2222-4222-8222-222222222222";
+  assert.equal((await route.put({ ...body, action: "finalize" }, anotherTicket)).status, 409);
+});
+
+test("interruptions, lost responses, and concurrent finalization preserve one immutable photo and never create tickets", async t => {
+  const file = photo("phone.jpg", "image/jpeg", 6_710_000);
+  const route = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner" });
+  wireDirectClient(t, route, { interruptBeforeStorage: true });
+  assert.equal((await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId)).ok, false);
+  wireDirectClient(t, route, { loseStorageResponse: true, loseFinalizeResponse: true });
+  assert.equal((await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId)).ok, false);
+  const retryCalls = wireDirectClient(t, route);
+  assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId), { ok: true });
+  assert.equal(retryCalls.length, 1, "lost final response uses verified existing object");
+  assert.equal(route.objects.size, 1);
+  const body = await description(file);
+  const results = await Promise.all([route.put({ ...body, action: "finalize" }), route.put({ ...body, action: "finalize" })]);
+  assert.ok(results.every(r => r.body.complete));
+  const changed = photo("phone.jpg", "image/jpeg", 20);
+  assert.equal((await route.put(await description(changed))).status, 400, "same upload ID cannot overwrite saved photo");
+  assert.equal(route.objects.size, 1);
+});
+
+test("staged bytes remain invisible until validation; finalization failure retries without a second storage transfer", async t => {
+  const settings = { role: "Front Desk", userId: "owner", createdBy: "owner", status: "Pending Verification", uploadError: true };
+  const route = fixture(settings); const file = photo();
+  wireDirectClient(t, route);
+  assert.equal((await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId)).ok, false);
+  assert.ok([...route.objects.keys()].every(path => path.includes("/work-order-upload-staging/")));
+  assert.equal((await route.get()).status, 403);
+  settings.uploadError = false;
+  const calls = wireDirectClient(t, route);
+  assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId), { ok: true });
+  assert.equal(calls.length, 2, "prepare discovers staged bytes, finalize saves them");
+});
+
+test("revocation during final verification prevents promotion; concurrent first finalizations never overwrite", async () => {
+  const file = photo(); const body = await description(file);
+  const revoked = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner", revokeOnAuthCall: 3 });
+  const prepared = await revoked.put(body);
+  await revoked.direct(prepared.body.signedUrl, file);
+  assert.equal((await revoked.put({ ...body, action: "finalize" })).status, 401);
+  assert.ok([...revoked.objects.keys()].every(path => path.includes("/work-order-upload-staging/")));
+  const route = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner" });
+  await route.direct((await route.put(body)).body.signedUrl, file);
+  const results = await Promise.all([route.put({ ...body, action: "finalize" }), route.put({ ...body, action: "finalize" })]);
+  assert.ok(results.every(result => result.body.complete));
+  assert.equal(route.objects.size, 1);
+  assert.ok(route.storageCalls.filter(call => call.operation === "upload").every(call => call.uploadOptions.upsert === false));
+});
+
+test("staging outage and cleanup failure cannot expose tokens or erase a saved photo; legacy retry cannot overwrite", async () => {
+  const file = photo(); const body = await description(file);
+  const outage = fixture({ role: "Chief Engineer", infoError: true });
+  assert.equal((await outage.put(body)).status, 503);
+  assert.equal(outage.storageCalls.some(call => call.operation === "sign-upload"), false);
+  assert.equal(outage.logs.length, 0);
+  const route = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner", removeError: true });
+  await route.direct((await route.put(body)).body.signedUrl, file);
+  assert.equal((await route.put({ ...body, action: "finalize" })).body.complete, true);
+  assert.ok(route.storageCalls.filter(call => call.operation === "remove").every(call => call.paths.every(path => path.includes("/work-order-upload-staging/"))));
+  assert.equal((await route.post(photo("photo.png", "image/png", 17), directUploadId)).status, 503);
+  assert.equal(route.objects.get(`${hotelId}/work-orders/${workOrderId}/owner_${directUploadId}.png`).size, file.size);
 });
