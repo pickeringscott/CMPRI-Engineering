@@ -44,10 +44,36 @@ export function messageDirection(from: string, account: string): "inbound" | "ou
   return account && addresses.includes(account.trim().toLowerCase()) ? "outbound" : "inbound";
 }
 
-async function jsonRequest(url: string, init: RequestInit): Promise<Json> {
-  const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(20000) });
-  if (!response.ok) throw new Error(`Mailbox provider request failed (${response.status}).`);
-  return await response.json() as Json;
+type RequestStage = "OAuth token exchange" | "Gmail list" | "Gmail retrieval" | "Microsoft messages";
+const SAFE_OAUTH_CODES = new Set(["invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "unsupported_grant_type", "invalid_scope", "temporarily_unavailable", "server_error"]);
+const SAFE_GMAIL_CODES = new Set(["authError", "insufficientPermissions", "accessNotConfigured", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded", "backendError", "notFound", "forbidden", "domainPolicy", "UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED", "INVALID_ARGUMENT", "NOT_FOUND", "UNAVAILABLE", "INTERNAL"]);
+function safeProviderCodes(body: unknown, stage: RequestStage): string[] {
+  if (!body || typeof body !== "object" || !("error" in body)) return [];
+  const error = body.error;
+  if (stage === "OAuth token exchange") return typeof error === "string" && SAFE_OAUTH_CODES.has(error) ? [error] : [];
+  if (!stage.startsWith("Gmail") || !error || typeof error !== "object") return [];
+  const details = error as { status?: unknown; errors?: unknown };
+  const candidates: unknown[] = [details.status];
+  if (Array.isArray(details.errors)) for (const item of details.errors) {
+    if (item && typeof item === "object" && "reason" in item) candidates.push(item.reason);
+  }
+  return [...new Set(candidates.filter((code): code is string => typeof code === "string" && SAFE_GMAIL_CODES.has(code)))];
+}
+async function jsonRequest(url: string, init: RequestInit, stage: RequestStage): Promise<Json> {
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(20000) });
+  } catch {
+    // Native fetch errors may include request URLs. Never propagate their text/cause.
+    throw new Error(`Mailbox ${stage} failed (network).`);
+  }
+  if (!response.ok) {
+    let codes: string[] = [];
+    try { codes = safeProviderCodes(await response.json(), stage); } catch { /* Non-JSON errors expose status only. */ }
+    throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).`);
+  }
+  try { return await response.json() as Json; }
+  catch { throw new Error(`Mailbox ${stage} returned invalid JSON.`); }
 }
 
 async function accessToken(provider: EmailProvider) {
@@ -64,7 +90,7 @@ async function accessToken(provider: EmailProvider) {
   else form.set("refresh_token", refreshToken!);
   const data = await jsonRequest(microsoft ? `https://login.microsoftonline.com/${encodeURIComponent(tenant!)}/oauth2/v2.0/token` : "https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form,
-  });
+  }, "OAuth token exchange");
   if (typeof data.access_token !== "string") throw new Error("Mailbox token response contained no access token.");
   return data.access_token;
 }
@@ -84,10 +110,10 @@ export async function fetchOperationalMessages() {
     do {
       const params = new URLSearchParams({ q: query, maxResults: "100" });
       if (pageToken) params.set("pageToken", pageToken);
-      const list = await jsonRequest(`${base}/messages?${params}`, { headers });
+      const list = await jsonRequest(`${base}/messages?${params}`, { headers }, "Gmail list");
       for (const item of (list.messages || []) as { id: string }[]) {
         if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
-        const row = await jsonRequest(`${base}/messages/${encodeURIComponent(item.id)}?format=full`, { headers });
+        const row = await jsonRequest(`${base}/messages/${encodeURIComponent(item.id)}?format=full`, { headers }, "Gmail retrieval");
         const payload = row.payload as MimePart & { headers?: { name: string; value: string }[] };
         const header = (name: string) => payload?.headers?.find(entry => entry.name.toLowerCase() === name.toLowerCase())?.value || "";
         const from = header("from");
@@ -105,7 +131,7 @@ export async function fetchOperationalMessages() {
       // Never forward mailbox bearer credentials to a provider-supplied foreign host.
       const nextUrl = new URL(next);
       if (nextUrl.origin !== "https://graph.microsoft.com" || !nextUrl.pathname.startsWith("/v1.0/")) throw new Error("Untrusted Microsoft pagination URL.");
-      const page = await jsonRequest(next, { headers });
+      const page = await jsonRequest(next, { headers }, "Microsoft messages");
       for (const row of (page.value || []) as Json[]) {
         if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
         const sender = row.from as { emailAddress?: { name?: string; address?: string } };
