@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { createClient } from "@/lib/supabase/client";
-import { staffMentionMatches, staffMentionCompletion, type StaffMention } from "@/lib/staff-notes";
+import { staffMentionMatches, staffMentionCompletion, staffTicketReferences, type StaffMention } from "@/lib/staff-notes";
 
 type Note = { id: string; author_name: string; body: string; parent_id: string | null; created_at: string };
 type Payload = { notes: Note[]; parents: Note[]; mentions: StaffMention[]; management: boolean; frontDesk: boolean; hotelId: string;
@@ -150,9 +150,9 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
   function content(note: Note) {
     const tokens: Array<{ start: number; end: number; node: React.ReactNode }> = [];
     for (const m of staffMentionMatches(note.body, data?.mentions || [])) tokens.push({ start: m.start, end: m.end, node: <span className="rounded bg-sky-400/10 text-sky-300">{note.body.slice(m.start, m.end)}</span> });
-    for (const m of note.body.matchAll(/(?:@work\s+order\s+|#)(\d{1,12})\b/gi)) {
-      const ticket = data?.tickets[m[1]];
-      tokens.push({ start: m.index!, end: m.index! + m[0].length, node: ticket ? <a href={ticket.href} title={ticket.preview} className="text-sky-400 hover:underline">{m[0]}</a> : <span className="text-slate-500">{m[0]}</span> });
+    for (const reference of staffTicketReferences(note.body)) {
+      const ticket = data?.tickets[reference.number];
+      tokens.push({ start: reference.start, end: reference.end, node: ticket ? <a href={ticket.href} title={ticket.preview} className="text-sky-400 hover:underline">{reference.label}</a> : <span className="text-slate-500">{reference.label}</span> });
     }
     let at = 0;
     const output: React.ReactNode[] = [];

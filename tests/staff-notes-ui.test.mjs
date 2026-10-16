@@ -1,3 +1,4 @@
+import * as workOrderReferences from '../src/lib/work-order-reference.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as roles from '../src/lib/server/roles.ts';
 const mentionPolicy = {};
-vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/staff-notes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:mentionPolicy,require:()=>roles});
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/staff-notes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:mentionPolicy,require:name=>name==='./work-order-reference.js'?workOrderReferences:roles});
 
 const source=readFileSync(new URL('../src/components/StaffNotes.tsx',import.meta.url),'utf8');
 test('typed and pasted full mentions are blue while native draft stays exact',async()=>{
@@ -51,7 +52,7 @@ function harness(management=true) {
  function nodes(tree,predicate){const out=[];function visit(x){if(!x||typeof x!=='object')return;if(Array.isArray(x)){x.forEach(visit);return;}if(predicate(x))out.push(x);visit(x.props?.children);}visit(tree);return out;}
  const find=(tree,type)=>nodes(tree,x=>x.type===type)[0];
  const settle=()=>new Promise(r=>setTimeout(r,15));
- return {render,nodes,find,posts,setFail(v){fail=v;},settle,async initialize(){render();effects[0]();await settle();return render();}};
+ return {payload,render,nodes,find,posts,setFail(v){fail=v;},settle,async initialize(){render();effects[0]();await settle();return render();}};
 }
 test('real component orders by role and places composer at the approved end',async()=>{
  for(const management of [true,false]){
@@ -75,5 +76,20 @@ test('mention acceptance takes Enter or Tab; Shift+Enter and IME do not post',as
  let prevented=false;h.find(tree,'textarea').props.onKeyDown({key:'Enter',nativeEvent:{isComposing:false},preventDefault(){prevented=true;}});
  tree=h.render();assert.equal(h.find(tree,'textarea').props.value,'@Deon ');assert.equal(h.posts.length,0);assert.equal(prevented,true);
  for(const event of [{key:'Enter',shiftKey:true,nativeEvent:{}},{key:'Enter',nativeEvent:{isComposing:true}},{key:'Tab',nativeEvent:{}}]) h.find(tree,'textarea').props.onKeyDown({...event,preventDefault(){throw Error('Should retain native behavior');}});
+ assert.equal(h.posts.length,0);
+});
+
+test('real Staff Notes component completes a first name and displays matching WO tags without rewriting history',async()=>{
+ const h=harness();
+ h.payload.mentions=mentionPolicy.staffMentionDirectory([{id:'scott-id',role:'engineer',full_name:'Scott Reed'}]);
+ h.payload.notes[0].body='Keep #261016311 unchanged';
+ h.payload.tickets['261016311']={href:'/work-orders/existing-id',preview:'Room 311'};
+ let tree=await h.initialize();
+ const link=h.nodes(tree,n=>n.type==='a'&&n.props.href==='/work-orders/existing-id')[0];
+ assert.equal(link.props.children,'WO#261016311');
+ assert.equal(h.payload.notes[0].body,'Keep #261016311 unchanged');
+ h.find(tree,'textarea').props.onChange({target:{value:'@Sc',selectionStart:3}});tree=h.render();
+ h.find(tree,'textarea').props.onKeyDown({key:'Tab',nativeEvent:{},preventDefault(){}});
+ tree=h.render();assert.equal(h.find(tree,'textarea').props.value,'@Scott ');
  assert.equal(h.posts.length,0);
 });

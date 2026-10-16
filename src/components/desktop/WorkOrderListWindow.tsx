@@ -228,8 +228,9 @@ export default function WorkOrderListWindow({
                   type="button"
                   onClick={() => isDraft && sourceDraftId ? onOpenDraft?.(sourceDraftId) : onOpenWorkOrder(order)}
                   aria-label={`${isDraft ? "Review draft" : "Open work order"} for ${order.room || "No location"}: ${order.issue || "No issue description"}`}
-                  className="flex w-full min-w-0 flex-col gap-[0.12em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+                  className="flex w-full min-w-0 items-center gap-x-[0.5em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >
+                  <div className="flex min-w-0 flex-1 flex-col gap-[0.12em]">
                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.5em] gap-y-[0.12em]">
                     <div className="flex min-w-0 flex-wrap items-center gap-[0.25em]">
                       <span className="font-bold leading-tight text-white">{!isDraft && order.display_id ? `${formatWorkOrder(order.display_id)} · ` : ""}{order.room || "No location"}</span>
@@ -243,8 +244,6 @@ export default function WorkOrderListWindow({
                         />
                       )}
                       {!isDraft && <WorkOrderImportPill order={order} />}
-                      {occupancy && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
-                      {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-[0.22em]">
                       {!isDraft && order.priority && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
@@ -257,6 +256,11 @@ export default function WorkOrderListWindow({
                   <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
                   {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">Draft — awaiting Chief Engineer approval{order.potential_duplicate === true ? " · Possible duplicate — review" : ""}</span>}
                   <span className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
+                  </div>
+                  <div data-room-occupancy className="flex shrink-0 items-center self-center gap-[0.25em]">
+                      {occupancy && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
+                      {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
+                  </div>
                 </button>
               );
             })}

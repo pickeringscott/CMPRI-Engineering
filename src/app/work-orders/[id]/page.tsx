@@ -1,5 +1,7 @@
 "use client";
 
+import { pendingTicketField } from "@/lib/work-orders/pending-field";
+
 import { formatWorkOrder, workOrderNumber, workOrderReferences } from "@/lib/work-order-reference.js";
 import { frontDeskCommonArea, type CommonAreaLocation } from "@/lib/cmpri-location-groups";
 
@@ -1725,6 +1727,9 @@ export default function WorkOrderTicketPage() {
   const canAddWorkOrderNotes = Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
   const chief = !!cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user));
+  const pendingField = (key: string) => pendingTicketField(chief, initialFingerprint, currentFingerprint, key)
+    ? <span data-pending-field={key} aria-label="Unsaved change" title="Unsaved change" className="text-red-500" style={{ fontSize: "inherit" }}> !</span>
+    : null;
   const isTechnician = !chief && roleKey(cmpriSession?.user.role) === "technician";
   const canClaimWorkOrder = isTechnician &&
     canEditTicket &&
@@ -1973,7 +1978,7 @@ export default function WorkOrderTicketPage() {
             <section className="rounded-xl border border-slate-800 bg-slate-900 p-2.5">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue</h2>
+                  <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue{pendingField("issue")}</h2>
                   {editingIssue && <button type="button" onClick={() => setEditingIssue(false)} className="min-h-9 rounded-lg border border-amber-400 px-3 text-xs text-amber-100">Done</button>}
                 </div>
                 <div className="text-right text-[10px] leading-tight text-slate-500">
@@ -1986,6 +1991,7 @@ export default function WorkOrderTicketPage() {
                 <>
                   <textarea
                     aria-label="Reported Issue"
+                    onBlur={chief ? () => setEditingIssue(false) : undefined}
                     autoFocus
                     disabled={saving}
                     required
@@ -2004,7 +2010,7 @@ export default function WorkOrderTicketPage() {
 
               {order.can_correct_report && (
                 <div className="mt-2">
-                  <label htmlFor="report-location" className="text-xs font-semibold text-slate-400">Room/Location</label>
+                  <label htmlFor="report-location" className="text-xs font-semibold text-slate-400">Room/Location{pendingField("locationId")}</label>
                   {editingField === "location_id" ? <select autoFocus onBlur={() => setEditingField(null)} id="report-location" aria-label="Room/Location" value={locationId} onChange={event => setLocationId(event.target.value)} disabled={saving || !reportLocations.length} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm">
                     {!reportLocations.some(location => location.id === locationId) && <option value={locationId}>{order.room || "Select location"}</option>}
                     {reportLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
@@ -2030,28 +2036,28 @@ export default function WorkOrderTicketPage() {
 
               <div className="mt-1 grid gap-1.5 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment</div>
-                  {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment{pendingField("assetId")}</div>
+                  {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</div>
-                  {editingField === "category" && canEditField("category") ? <div className="mt-1"><SearchableSelect value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("category") || saving} onClick={() => setEditingField("category")} aria-label="Edit category" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{category || "General"}</button>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category{pendingField("category")}</div>
+                  {editingField === "category" && canEditField("category") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("category") || saving} onClick={() => setEditingField("category")} aria-label="Edit category" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{category || "General"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</div>
-                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority{pendingField("priority")}</div>
+                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician</div>
-                  {editingField === "technician_name" && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("technician_name") || saving} onClick={() => setEditingField("technician_name")} aria-label="Edit technician name" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{technicianName || "Unassigned"}</button>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician{pendingField("technicianName")}</div>
+                  {editingField === "technician_name" && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("technician_name") || saving} onClick={() => setEditingField("technician_name")} aria-label="Edit technician name" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{technicianName || "Unassigned"}</button>}
                   {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
-                  {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status{pendingField("status")}</div>
+                  {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By{pendingField("dueBy")}</div>
                   {editingField === "due_by" && canEditField("due_by") ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving} onClick={() => setEditingField("due_by")} aria-label="Edit due by" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{dueBy || "No due date"}</button>}
                 </div>
               </div>
@@ -2428,7 +2434,7 @@ export default function WorkOrderTicketPage() {
 
             {["Completed", "Closed", "Will Not Do"].includes(status) && (
               <details className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-                <summary className="cursor-pointer text-sm font-semibold">Closure Details</summary>
+                <summary className="cursor-pointer text-sm font-semibold">Closure Details{pendingField("actionRootCause")}</summary>
                 <p className="mt-1 text-xs text-slate-500">
                   Record the final action and root cause only when closing the ticket.
                 </p>
@@ -2509,7 +2515,7 @@ export default function WorkOrderTicketPage() {
 
               <label className="mt-2 block">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Parts
+                  Parts{pendingField("parts")}
                 </span>
                 {editingField === "parts" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="parts"
                   value={parts}
@@ -2523,7 +2529,7 @@ export default function WorkOrderTicketPage() {
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Hours
+                    Hours{pendingField("hours")}
                   </span>
                   {editingField === "hours" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="hours"
                     type="number"
@@ -2538,7 +2544,7 @@ export default function WorkOrderTicketPage() {
 
                 <label className="block">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Cost
+                    Cost{pendingField("cost")}
                   </span>
                   {editingField === "cost" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="cost"
                     type="number"

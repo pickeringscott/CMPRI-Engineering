@@ -1,3 +1,4 @@
+import { workOrderReferences } from "./work-order-reference.js";
 import { profileHasRole, roleKey } from "./server/roles";
 
 export type StaffProfile = { id: string; full_name?: string | null; role: unknown; secondary_roles?: readonly unknown[] };
@@ -50,8 +51,9 @@ export function staffRecipients(body: string, profiles: StaffProfile[]) {
   return profiles.filter(p => staffManagement(p) || mentioned.has(p.id))
     .map(p => ({ user_id: p.id, push: staffPhoneEligible(p) }));
 }
+export const staffTicketReferences = workOrderReferences;
 export function staffTicketNumbers(body: string) {
-  return [...new Set([...body.matchAll(/(?:@work\s+order\s+|#)(\d{1,12})\b/gi)].map(m => m[1]))];
+  return [...new Set(staffTicketReferences(body).map(reference => reference.number))];
 }
 
 /** Completion uses the same canonical directory as recipient resolution. */
@@ -60,6 +62,11 @@ export function staffMentionCompletion(body: string, caret: number, directory: S
   if (!prefix?.[1]) return null;
   const typed = prefix[1];
   if (directory.some(item => item.label.toLowerCase() === typed.toLowerCase())) return null;
-  const mention = directory.find(item => item.label.toLowerCase().startsWith(typed.toLowerCase()));
+  const candidates = directory.filter(item => item.label.toLowerCase().startsWith(typed.toLowerCase()));
+  // Full-name and first-name aliases for one person are one choice; different
+  // recipients remain ambiguous rather than silently selecting the first match.
+  const identities = new Set(candidates.map(item => item.userIds.length ? [...item.userIds].sort().join("|") : item.label));
+  if (identities.size !== 1) return null;
+  const mention = [...candidates].sort((a, b) => a.label.length - b.label.length)[0];
   return mention ? { mention, start: caret - typed.length, typed, suffix: mention.label.slice(typed.length) } : null;
 }

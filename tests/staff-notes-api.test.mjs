@@ -1,3 +1,4 @@
+import * as workOrderReferences from '../src/lib/work-order-reference.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -7,7 +8,7 @@ import * as roles from '../src/lib/server/roles.ts';
 import * as schedule from '../src/lib/notifications/schedule.ts';
 import {canReadWorkOrder} from '../src/lib/work-order-read-policy.ts';
 function module(path,deps){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require(name){if(name in deps)return deps[name];throw Error(name);},console,Date});return exports;}
-const policy=module('../src/lib/staff-notes.ts',{'./server/roles':roles});
+const policy=module('../src/lib/staff-notes.ts',{'./server/roles':roles,'./work-order-reference.js':workOrderReferences});
 test('real route rejects unauthenticated writes, filters ticket previews, derives author and recipients on server, scopes read markers',async()=>{
  const user='00000000-0000-4000-8000-000000000003',id='00000000-0000-4000-8000-000000000004';let auth=null,rpc,queries=[];
  const fixtures={hotel_members:[{user_id:user},{user_id:id}],profiles:[{id:user,role:'Front Desk',full_name:'Front Desk'},{id,role:'Lead Housekeeper',full_name:'Deon'}],cmpri_staff_notes:[{id,body:'#105 and #106',parent_id:null,author_name:'A',created_at:'2026-10-15T10:00:00Z'}],work_orders:[{id:'secret',display_id:'105',hotel_id:'hotel',status:'Draft',issue:'SECRET PREVIEW'},{id:'open',display_id:'106',hotel_id:'hotel',status:'Open',issue:'Safe preview'}],cmpri_dashboard_notifications:[],cmpri_user_notification_schedules:null};

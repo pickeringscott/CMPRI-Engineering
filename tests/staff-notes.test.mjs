@@ -1,3 +1,4 @@
+import * as workOrderReferences from '../src/lib/work-order-reference.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -10,7 +11,7 @@ import {defaultNotificationSchedule,isWithinNotificationSchedule,isStaffNotesPus
 function load(path,deps) {
  const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require(name){if(name in deps)return deps[name];throw Error(name);},console,Date,Set,Map});return exports;
 }
-const policy=load('../src/lib/staff-notes.ts',{'./server/roles':roles});
+const policy=load('../src/lib/staff-notes.ts',{'./server/roles':roles,'./work-order-reference.js':workOrderReferences});
 const push=load('../src/lib/notifications/event-eligibility.ts',{'@/lib/server/roles':roles});
 const management=['Chief Engineer','Maintenance Technician','General Manager','Assistant General Manager','Front Desk Manager'];
 const profiles=[...management.map((role,i)=>({id:`m${i}`,role,full_name:`Manager${i}`})),{id:'fd',role:'Front Desk',full_name:'Front Desk'},{id:'h1',role:'Lead Housekeeper',full_name:'Deon Housekeeper'},{id:'h2',role:'Lead Housekeeper',full_name:'Pat Housekeeper'}];
@@ -70,4 +71,21 @@ test('actual SQL post transaction, duplicates, parent hotel isolation, RLS, and 
  await db.exec('set role anon');await assert.rejects(db.query('select * from cmpri_staff_notes'),/permission denied/);await db.exec('reset role');
  assert.equal((await db.query('select value from untouched')).rows[0].value,'original');
  } finally {await db.close();}
+});
+
+test('personal completion chooses the first-name alias while ambiguous people require selection',()=>{
+ const directory=policy.staffMentionDirectory([{id:'scott',role:'engineer',full_name:'Scott Reed'},{id:'matt',role:'technician',full_name:'Matt Jones'},{id:'mary',role:'manager',full_name:'Mary Smith'}]);
+ assert.equal(policy.staffMentionCompletion('@Sc',3,directory).mention.label,'Scott');
+ assert.deepEqual(Array.from(policy.staffMentionCompletion('@Sc',3,directory).mention.userIds),['scott']);
+ assert.equal(policy.staffMentionCompletion('@ma',3,directory),null);
+ assert.equal(policy.staffMentionMatches('@Scott Reed',directory)[0].mention.userIds[0],'scott');
+ const repeated=policy.staffMentionDirectory([{id:'one',role:'technician',full_name:'Matt Jones'},{id:'two',role:'technician',full_name:'Matt Smith'}]);
+ assert.equal(policy.staffMentionCompletion('@Matt',5,repeated),null);
+});
+test('Staff Notes ticket tags use the actual shared number without changing stored text',()=>{
+ const body='Room 311: #261016001 and @work order 261015002, WO#261014003';
+ const refs=policy.staffTicketReferences(body);
+ assert.deepEqual(Array.from(refs,r=>r.label),['WO#261016001','WO#261015002','WO#261014003']);
+ assert.deepEqual(Array.from(policy.staffTicketNumbers(body)),['261016001','261015002','261014003']);
+ assert.equal(body,'Room 311: #261016001 and @work order 261015002, WO#261014003');
 });

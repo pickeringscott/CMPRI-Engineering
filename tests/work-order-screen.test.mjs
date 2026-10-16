@@ -77,3 +77,23 @@ test('discard affects only the selected local draft and never closes after a sto
  vm.runInNewContext(extract('discardLocalDraftAndClose'),ctx);exports.run();assert.deepEqual(removed,['cmpri:ticket-draft:hotel:actor:ticket']);assert.equal(recovered.current,false);assert.equal(closed,1);
  ctx.localStorage={removeItem(){throw Error('blocked')}};recovered.current=true;exports.run();assert.equal(closed,1);assert.equal(recovered.current,true);assert.match(messages.at(-1),/still here/);
 });
+
+test('Chief Engineer pending markers track saved values, revert and save outcomes only', async () => {
+ const {pendingTicketField}=await import('../src/lib/work-orders/pending-field.ts');
+ const saved=JSON.stringify({category:'General',priority:'Medium',technicianName:'Scott',hours:'1',cost:'2.50',dueBy:'2026-10-16'});
+ for(const key of ['category','priority','technicianName','hours','cost','dueBy']) {
+  assert.equal(pendingTicketField(true,saved,saved,key),false,'focus does not change a value');
+  const draft=JSON.stringify({...JSON.parse(saved),[key]:'changed'});
+  assert.equal(pendingTicketField(true,saved,draft,key),true);
+  assert.equal(pendingTicketField(false,saved,draft,key),false,'other roles have no marker');
+  assert.equal(pendingTicketField(true,saved,saved,key),false,'revert clears');
+  assert.equal(pendingTicketField(true,saved,draft,key),true,'failed save retains old baseline');
+  assert.equal(pendingTicketField(true,draft,draft,key),false,'successful save advances baseline');
+ }
+ assert.equal(pendingTicketField(true,saved,JSON.stringify({...JSON.parse(saved),hours:'1.00'}),'hours'),false);
+ assert.equal(pendingTicketField(true,'',saved,'priority'),false);
+ assert.match(detail,/onBlur=\{chief \? \(\) => setEditingIssue\(false\) : undefined\}/);
+ assert.equal((detail.match(/onDismiss=\{chief \? \(\) => setEditingField\(null\) : undefined\}/g)||[]).length,5);
+ assert.match(detail,/data-pending-field=\{key\}[\s\S]*?fontSize: "inherit"/);
+ assert.doesNotMatch(detail,/onBlur=\{[^}]*saveTicket/);
+});
