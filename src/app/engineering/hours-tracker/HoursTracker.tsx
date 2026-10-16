@@ -15,37 +15,60 @@ const newPeriod = (start: string, personalSetup = false): SavedHoursPeriod => ({
 function currentPeriod(today: string) { return iso(dateTime(PAYROLL_ANCHOR) + Math.floor((dateTime(today)-dateTime(PAYROLL_ANCHOR))/(14*DAY))*14*DAY); }
 function range(start: string, end: string) { return displayDate(start) + '–' + displayDate(end, start.slice(0,7) === end.slice(0,7) ? {day:'numeric'} : {month:'short',day:'numeric'}); }
 
+const DIGIT_SEGMENTS = ['abcdef','bc','abdeg','abcdg','bcfg','acdfg','acdefg','abc','abcdefg','abcdfg'];
+const DIGIT_SHAPES = {a:'2,1 8,1 9,2 8,3 2,3 1,2',b:'8,3 9,2 10,3 10,8 9,9 8,8',c:'8,11 9,10 10,11 10,16 9,17 8,16',d:'2,17 8,17 9,18 8,19 2,19 1,18',e:'0,11 1,10 2,11 2,16 1,17 0,16',f:'0,3 1,2 2,3 2,8 1,9 0,8',g:'2,9 8,9 9,10 8,11 2,11 1,10'};
+function TimeDigits({text}:{text:string}) {
+  return <>{[...text].map((digit,index)=><svg key={index} className={styles.timeDigit} viewBox="0 0 10 20" aria-hidden="true" focusable="false">{Object.entries(DIGIT_SHAPES).map(([segment,points])=><polygon key={segment} className={DIGIT_SEGMENTS[Number(digit)].includes(segment)?styles.timeLit:styles.timeDim} points={points}/>)}</svg>)}</>;
+}
+
 function TimeField({ value, onChange, label }: { value:number; onChange:(value:number)=>void; label:string }) {
-  const input = useRef<HTMLInputElement>(null);
-  const part = useRef(0);
-  const digits = useRef('');
-  const lastKey = useRef(0);
-  const lastWheel = useRef(0);
-  const latest = useRef({value,onChange});
-  useEffect(() => { latest.current={value,onChange}; });
-  const text = `${String(Math.floor(value/60)%12 || 12).padStart(2,'0')}:${String(value%60).padStart(2,'0')} ${value<720?'AM':'PM'}`;
-  function select(index = part.current) { part.current=index; const spans=[[0,2],[3,5],[6,8]]; requestAnimationFrame(()=>input.current?.setSelectionRange(...spans[index] as [number,number])); }
-  function step(direction:number, accelerated = false) { const amount=part.current===0?60:part.current===2?720:accelerated?5:1; onChange((value+direction*amount+1440)%1440); select(); }
-  useEffect(() => {
-    const element=input.current;
-    if (!element) return;
+  const root=useRef<HTMLSpanElement>(null);
+  const segments=useRef<(HTMLSpanElement|null)[]>([]);
+  const part=useRef(0);
+  const digits=useRef('');
+  const lastKey=useRef(0);
+  const lastWheel=useRef(-Infinity);
+  const wheelRun=useRef(0);
+  const wheelDirection=useRef(0);
+  const latest=useRef({value,onChange});
+  useEffect(()=>{latest.current={value,onChange};},[value,onChange]);
+  const texts=[String(Math.floor(value/60)%12||12).padStart(2,'0'),String(value%60).padStart(2,'0'),value<720?'AM':'PM'];
+  function disabled(){return !!root.current?.closest('fieldset:disabled');}
+  function change(next:number){if(disabled())return;latest.current.value=next;latest.current.onChange(next);}
+  function select(index=part.current){segments.current[index]?.focus();}
+  function step(direction:number,accelerated=false){const amount=part.current===0?60:part.current===2?720:accelerated?5:1;change((latest.current.value+direction*amount+1440)%1440);}
+  useEffect(()=>{
+    // Listen at the document so wheel changes follow keyboard focus, not the pointer.
     const wheel=(event:WheelEvent)=>{
-      if(document.activeElement!==element) return;
-      event.preventDefault();
-      const now=performance.now();
-      const amount=part.current===0?60:part.current===2?720:now-lastWheel.current<90?5:1;
-      lastWheel.current=now;
-      latest.current.onChange((latest.current.value+(event.deltaY<0?amount:-amount)+1440)%1440);
+      const active=document.activeElement;
+      if(!segments.current.some(element=>element===active)||root.current?.closest('fieldset:disabled')||!event.deltaY||event.ctrlKey)return;
+      event.preventDefault();digits.current='';
+      const now=performance.now(),direction=event.deltaY<0?1:-1;
+      wheelRun.current=now-lastWheel.current<140&&direction===wheelDirection.current?wheelRun.current+1:1;
+      wheelDirection.current=direction;lastWheel.current=now;
+      const amount=part.current===0?60:part.current===2?720:wheelRun.current>=10?3:wheelRun.current>=5?2:1;
+      const next=(latest.current.value+direction*amount+1440)%1440;
+      latest.current.value=next;latest.current.onChange(next);
     };
-    element.addEventListener('wheel',wheel,{passive:false});
-    return()=>element.removeEventListener('wheel',wheel);
+    const blur=()=>{const active=segments.current.find(element=>element===document.activeElement);active?.blur();};
+    document.addEventListener('wheel',wheel,{passive:false});window.addEventListener('blur',blur);
+    return()=>{document.removeEventListener('wheel',wheel);window.removeEventListener('blur',blur);};
   },[]);
-  return <><span className={styles.desktopTime}><input ref={input} aria-label={label} value={text} onChange={()=>{}} onFocus={()=>select()} onClick={event=>{ const caret=event.currentTarget.selectionStart||0; select(caret<3?0:caret<6?1:2); digits.current=''; }} onKeyDown={event=>{
-    if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();select((part.current+(event.key==='ArrowRight'?1:2))%3);digits.current='';}
-    else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();step(event.key==='ArrowUp'?1:-1,event.repeat);}
-    else if(/^[ap]$/i.test(event.key)){event.preventDefault();onChange(value%720+(event.key.toLowerCase()==='p'?720:0));select(2);}
-    else if(/^\d$/.test(event.key)&&part.current<2){event.preventDefault();const now=performance.now();digits.current=now-lastKey.current<900?(digits.current+event.key).slice(-2):event.key;lastKey.current=now;const number=Number(digits.current);if(part.current===0&&number>=1&&number<=12)onChange((Math.floor(value/720)*720)+(number%12)*60+value%60);if(part.current===1&&number<60)onChange(Math.floor(value/60)*60+number);select();}
-  }}/><span className={styles.arrows}><button type="button" aria-label={`Increase ${label}`} onMouseDown={e=>e.preventDefault()} onClick={()=>{input.current?.focus();step(1);}}>▲</button><button type="button" aria-label={`Decrease ${label}`} onMouseDown={e=>e.preventDefault()} onClick={()=>{input.current?.focus();step(-1);}}>▼</button></span></span><input className={styles.mobileTime} type="time" aria-label={`${label} mobile`} value={`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}`} onChange={e=>{if(e.target.value){const [h,m]=e.target.value.split(':').map(Number);onChange(h*60+m);}}}/></>;
+  return <><span ref={root} className={styles.desktopTime}>
+    {texts.map((text,index)=><span key={index} className={styles.timePart}>
+      {index===1&&<span className={styles.timeColon} aria-hidden="true">:</span>}
+      <span ref={element=>{segments.current[index]=element;}} className={`${styles.timeSegment} ${index===2?styles.timeMeridiem:''}`} role="spinbutton" tabIndex={0} aria-label={`${label} ${['hour','minute','period'][index]}`} aria-valuemin={index===0?1:0} aria-valuemax={index===0?12:index===1?59:1} aria-valuenow={index===2?(value<720?0:1):Number(text)} aria-valuetext={text}
+        onFocus={()=>{if(disabled()){segments.current[index]?.blur();return;}part.current=index;digits.current='';lastKey.current=0;lastWheel.current=-Infinity;wheelRun.current=0;wheelDirection.current=0;}}
+        onKeyDown={event=>{
+          if(disabled()||event.ctrlKey||event.metaKey||event.altKey)return;
+          if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();select((index+(event.key==='ArrowRight'?1:2))%3);}
+          else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();digits.current='';step(event.key==='ArrowUp'?1:-1,event.repeat);}
+          else if(/^[ap]$/i.test(event.key)){event.preventDefault();change(latest.current.value%720+(event.key.toLowerCase()==='p'?720:0));select(2);}
+          else if(/^\d$/.test(event.key)&&index<2){event.preventDefault();const now=performance.now();digits.current=now-lastKey.current<900?(digits.current+event.key).slice(-2):event.key;lastKey.current=now;const number=Number(digits.current),current=latest.current.value;if(index===0&&number>=1&&number<=12)change(Math.floor(current/720)*720+number%12*60+current%60);if(index===1&&number<60)change(Math.floor(current/60)*60+number);}
+        }}>{index===2?text:<TimeDigits text={text}/>}</span>
+    </span>)}
+    <span className={styles.arrows}><button type="button" aria-label={`Increase ${label}`} onMouseDown={event=>event.preventDefault()} onClick={()=>{select();step(1);}}>▲</button><button type="button" aria-label={`Decrease ${label}`} onMouseDown={event=>event.preventDefault()} onClick={()=>{select();step(-1);}}>▼</button></span>
+  </span><input className={styles.mobileTime} type="time" aria-label={`${label} mobile`} value={`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}`} onChange={event=>{if(event.target.value){const [hour,minute]=event.target.value.split(':').map(Number);onChange(hour*60+minute);}}}/></>;
 }
 
 export default function HoursTracker({ owner, initial, persist, onClose, requirePersonalSetup = false, today = new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'}) }: { owner:string; initial:SavedState; persist:(body:unknown)=>Promise<NonNullable<SavedState>>; onClose:()=>void; requirePersonalSetup?:boolean; today?:string }) {

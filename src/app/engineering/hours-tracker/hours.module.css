@@ -26,3 +26,15 @@
 
 
 
+
+/* Approved digital time controls: preserve the tracker column and row geometry. */
+.desktopTime{border:0;background:#0a1425;overflow:visible;align-items:stretch}
+.timePart{display:contents}
+.timeSegment{display:inline-flex;align-items:center;justify-content:center;gap:calc(0.0625 * var(--cmpri-hours-font-size));min-width:0;flex:1;border:calc(0.125 * var(--cmpri-hours-font-size)) solid #26364e;border-radius:calc(0.25 * var(--cmpri-hours-font-size));background:#0a1425;color:#FBBF24;cursor:text;outline:none;font-family:monospace}
+.timeMeridiem{flex:1.15;font-size:calc(0.75 * var(--cmpri-hours-font-size));white-space:nowrap}
+.timeDigit{width:calc(0.5625 * var(--cmpri-hours-font-size));height:calc(1.125 * var(--cmpri-hours-font-size));display:block;flex:none;pointer-events:none}
+.timeLit{fill:#FBBF24}.timeDim{fill:#1e2938}
+.timeSegment:focus{border-color:#FBBF24;box-shadow:inset 0 0 0 calc(0.125 * var(--cmpri-hours-font-size)) #FBBF24;background:#14243b;color:#fff}
+.timeSegment:focus .timeLit{fill:#fff}
+.timeColon{display:inline-flex;align-items:center;justify-content:center;width:calc(0.3125 * var(--cmpri-hours-font-size));color:#FBBF24;font-weight:bold}
+.desktopTime .arrows{flex:none;width:calc(0.875 * var(--cmpri-hours-font-size))}
