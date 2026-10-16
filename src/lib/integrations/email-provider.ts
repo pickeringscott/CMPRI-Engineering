@@ -59,6 +59,15 @@ function safeProviderCodes(body: unknown, stage: RequestStage): string[] {
   }
   return [...new Set(candidates.filter((code): code is string => typeof code === "string" && SAFE_GMAIL_CODES.has(code)))];
 }
+// Exact matches only: never copy or partially match untrusted provider text.
+// Meanings: https://developers.google.com/identity/protocols/oauth2#expiration
+function safeGrantReasons(body: Json) {
+  return {
+    grantDescriptionReason: body.error_description === "Token has been expired or revoked." ? "expired_or_revoked"
+      : body.error_description === "Bad Request" ? "bad_request_unspecified" : "unknown",
+    grantSubtypeReason: body.error_subtype === "invalid_rapt" ? "session_control" : "unknown",
+  };
+}
 async function jsonRequest(url: string, init: RequestInit, stage: RequestStage): Promise<Json> {
   // Public ID supplied by Scott; comparison only, never a configuration fallback.
   const expectedClientId = "880987317943-0oc6a375gfmucu713aq4hff0hbbkp10p.apps.googleusercontent.com";
@@ -66,6 +75,13 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
   // Compare the exact form string passed to fetch, not a later environment lookup.
   const requestBody = gmailTokenRequest ? (init.body as URLSearchParams).toString() : init.body;
   const clientIds = gmailTokenRequest ? new URLSearchParams(requestBody as string).getAll("client_id") : [];
+  const runtimeRefreshToken = gmailTokenRequest ? process.env.CMPRI_GMAIL_REFRESH_TOKEN : undefined;
+  const requestRefreshTokens = gmailTokenRequest ? new URLSearchParams(requestBody as string).getAll("refresh_token") : [];
+  // Snapshot before fetch; diagnostics never normalize or change the sent token.
+  const tokenShape = {
+    refreshTokenHasEdgeWhitespace: typeof runtimeRefreshToken === "string" && runtimeRefreshToken !== runtimeRefreshToken.trim(),
+    requestRefreshTokenMatchesRuntime: typeof runtimeRefreshToken === "string" && requestRefreshTokens.length === 1 && requestRefreshTokens[0] === runtimeRefreshToken,
+  };
   const clientIdCheck = gmailTokenRequest ? {
     runtimeClientIdMatchesExpected: process.env.CMPRI_GMAIL_CLIENT_ID === expectedClientId,
     requestClientIdMatchesExpected: clientIds.length === 1 && clientIds[0] === expectedClientId,
@@ -90,7 +106,7 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
       const errorValue = hasField("error") ? (body as Json).error : undefined;
       const errorType = !hasField("error") ? "missing" : errorValue === null ? "null" : Array.isArray(errorValue) ? "array" : typeof errorValue;
       // Only fixed keys, booleans and allowlisted MIME labels; never header/body values or URLs.
-      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true, ...clientIdCheck })}.`;
+      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true, ...clientIdCheck, ...(gmailTokenRequest && errorValue === "invalid_grant" ? { ...safeGrantReasons(body as Json), ...tokenShape } : {}) })}.`;
     }
     throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }

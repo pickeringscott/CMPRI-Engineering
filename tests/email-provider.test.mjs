@@ -88,7 +88,7 @@ test('safe mailbox failure stages and allowlisted codes never expose provider te
         throw new Error('Unexpected request after failure');
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false,runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false}) + '.' : '';
+        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false,runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false,...(scenario.body.error === 'invalid_grant' ? {grantDescriptionReason:'unknown',grantSubtypeReason:'unknown',refreshTokenHasEdgeWhitespace:false,requestRefreshTokenMatchesRuntime:true} : {})}) + '.' : '';
         assert.equal(error.message,scenario.expected + suffix);
         assert.equal(error.cause,undefined);
         assert.equal(String(error).includes('private-'),false);
@@ -197,5 +197,47 @@ test('client ID equality describes the actual serialized request and reads each 
   } finally {
     globalThis.fetch=originalFetch;
     for(const key of Object.keys(fixture))if(backup[key]===undefined)delete process.env[key];else process.env[key]=backup[key];
+  }
+});
+
+test('grant diagnostics classify exact provider literals and never disclose values', async()=>{
+  const fixture={CMPRI_EMAIL_PROVIDER:'gmail',CMPRI_GMAIL_CLIENT_ID:'private-id',CMPRI_GMAIL_CLIENT_SECRET:'private-secret',CMPRI_GMAIL_REFRESH_TOKEN:'private-refresh',CMPRI_GMAIL_ADDRESS:'private@example.invalid'};
+  const backup=Object.fromEntries(Object.keys(fixture).map(k=>[k,process.env[k]]));
+  const originalFetch=globalThis.fetch;
+  const cases=[
+    ['Token has been expired or revoked.',undefined,'expired_or_revoked','unknown'],
+    ['Bad Request',undefined,'bad_request_unspecified','unknown'],
+    [undefined,'invalid_rapt','unknown','session_control'],
+    ['Token has been expired or revoked.','invalid_rapt','expired_or_revoked','session_control'],
+    ...['private-secret','Token has been expired or revoked. private-secret',' Bad Request','bad request','<script>private-secret</script>',null,42,[],{},'constructor','__proto__'].map(x=>[x,x,'unknown','unknown']),
+  ];
+  try {
+    Object.assign(process.env,fixture);
+    for(const [description,subtype,descriptionReason,subtypeReason] of cases){
+      for(const token of ['private-refresh+&=%ü',' private-refresh','private-refresh\r\n']){
+        process.env.CMPRI_GMAIL_REFRESH_TOKEN=token;
+        let calls=0;
+        globalThis.fetch=async(url,init)=>{
+          calls++;
+          assert.equal(new URLSearchParams(init.body).get('refresh_token'),token);
+          process.env.CMPRI_GMAIL_REFRESH_TOKEN='private-later-token';
+          return Response.json({error:'invalid_grant',error_description:description,error_subtype:subtype,extra:'private-secret'},{status:400});
+        };
+        await assert.rejects(fetchOperationalMessages(),error=>{
+          const shape=JSON.parse(error.message.split(' Response shape: ')[1].slice(0,-1));
+          assert.equal(shape.grantDescriptionReason,descriptionReason);
+          assert.equal(shape.grantSubtypeReason,subtypeReason);
+          assert.equal(shape.refreshTokenHasEdgeWhitespace,token!==token.trim());
+          assert.equal(shape.requestRefreshTokenMatchesRuntime,true);
+          assert.doesNotMatch(error.stack,/private-|<script>|Token has been|Bad Request|invalid_rapt/);
+          assert.equal(error.cause,undefined);
+          return true;
+        });
+        assert.equal(calls,1);
+      }
+    }
+  } finally {
+    globalThis.fetch=originalFetch;
+    for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];
   }
 });
