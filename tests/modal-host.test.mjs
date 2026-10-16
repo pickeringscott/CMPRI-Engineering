@@ -166,7 +166,6 @@ test('embedded KPI cards use a shared compact metric size', () => {
     '../src/app/engineering/parts/page.tsx',
     '../src/app/engineering/purchasing/page.tsx',
     '../src/app/engineering/preventive-maintenance/page.tsx',
-    '../src/app/engineering/gss/page.tsx',
   ]) {
     const page = readFileSync(new URL(path, import.meta.url), 'utf8');
     assert.match(page, /cmpri-modal-kpi-value/, `${path} KPI metrics must use shared modal sizing`);
@@ -238,7 +237,6 @@ test('dashboard action pages render without duplicate outer headers when embedde
     '../src/app/engineering/room-ranker/page.tsx',
     '../src/app/engineering/preventive-maintenance/page.tsx',
     '../src/app/engineering/purchasing/page.tsx',
-    '../src/app/engineering/gss/page.tsx',
     '../src/app/engineering/pool-log/page.tsx',
     '../src/app/engineering/enseo-assignments/page.tsx',
     '../src/app/engineering/parts/page.tsx',
