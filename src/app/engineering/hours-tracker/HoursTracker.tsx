@@ -22,6 +22,9 @@ function TimeDigits({text}:{text:string}) {
 }
 
 function TimeField({ value, onChange, label }: { value:number; onChange:(value:number)=>void; label:string }) {
+  const [touchEdit,setTouchEdit]=useState<{part:number;text:string}|null>(null);
+  const touchRoot=useRef<HTMLSpanElement>(null);
+  const touchFocus=useRef(false);
   const root=useRef<HTMLSpanElement>(null);
   const segments=useRef<(HTMLSpanElement|null)[]>([]);
   const part=useRef(0);
@@ -38,11 +41,67 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
   function select(index=part.current){segments.current[index]?.focus();}
   function step(direction:number,accelerated=false){const amount=part.current===0?60:part.current===2?720:accelerated?5:1;change((latest.current.value+direction*amount+1440)%1440);}
   useEffect(()=>{
+    const element=touchRoot.current;
+    if(!element)return;
+    let gesture:null|{id:number;x:number;y:number;value:number;part:number;active:boolean;target:HTMLElement}=null;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    let suppressContextUntil=0;
+    const pointer=(event:PointerEvent)=>{
+      touchFocus.current=event.pointerType==='touch'||event.pointerType==='pen';
+      suppressContextUntil=touchFocus.current?performance.now()+1500:0;
+    };
+    function cancel(revert=false){
+      clearTimeout(timer);
+      if(gesture)suppressContextUntil=performance.now()+1500;
+      if(revert&&gesture?.active)change(gesture.value);
+      if(gesture?.active)gesture.target.blur();
+      gesture=null;
+    }
+    const start=(event:TouchEvent)=>{
+      cancel(true);
+      if(disabled()||event.touches.length!==1)return;
+      const target=(event.target as HTMLElement).closest<HTMLElement>('[data-time-part]');
+      if(!target)return;
+      touchFocus.current=true;
+      suppressContextUntil=performance.now()+1500;
+      const touch=event.touches[0];
+      gesture={id:touch.identifier,x:touch.clientX,y:touch.clientY,value:latest.current.value,part:Number(target.dataset.timePart),active:false,target};
+      timer=setTimeout(()=>{if(!gesture||disabled()){cancel();return;}gesture.active=true;part.current=gesture.part;setTouchEdit(null);gesture.target.focus();},450);
+    };
+    const move=(event:TouchEvent)=>{
+      if(!gesture)return;
+      const touch=Array.from(event.touches).find(t=>t.identifier===gesture!.id);
+      if(!touch||event.touches.length!==1||disabled()){cancel(true);return;}
+      if(!gesture.active){if(Math.hypot(touch.clientX-gesture.x,touch.clientY-gesture.y)>8)cancel();return;}
+      if(!event.cancelable){cancel(true);return;}
+      event.preventDefault();
+      const steps=Math.trunc((gesture.y-touch.clientY)/12);
+      const amount=gesture.part===0?60:1;
+      change(((gesture.value+steps*amount)%1440+1440)%1440);
+    };
+    const end=(event:TouchEvent)=>{if(gesture?.active&&event.cancelable)event.preventDefault();else if(gesture)setTouchEdit({part:gesture.part,text:''});cancel();};
+    const interrupted=()=>cancel(true);
+    // Windows can emit contextmenu after touchend/touchcancel. Keep the guard
+    // through that delayed event, but let a real mouse right-click reset it.
+    const context=(event:Event)=>{if(gesture||performance.now()<suppressContextUntil)event.preventDefault();};
+    const keyboard=(event:KeyboardEvent)=>{if(event.key==='Tab')touchFocus.current=false;if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))suppressContextUntil=0;};
+    element.addEventListener('pointerdown',pointer);
+    element.addEventListener('keydown',keyboard);
+    element.addEventListener('touchstart',start,{passive:true});
+    element.addEventListener('touchmove',move,{passive:false});
+    element.addEventListener('touchend',end,{passive:false});
+    element.addEventListener('touchcancel',interrupted);
+    element.addEventListener('contextmenu',context);
+    window.addEventListener('blur',interrupted);
+    document.addEventListener('visibilitychange',interrupted);
+    return()=>{cancel();element.removeEventListener('pointerdown',pointer);element.removeEventListener('keydown',keyboard);element.removeEventListener('touchstart',start);element.removeEventListener('touchmove',move);element.removeEventListener('touchend',end);element.removeEventListener('touchcancel',interrupted);element.removeEventListener('contextmenu',context);window.removeEventListener('blur',interrupted);document.removeEventListener('visibilitychange',interrupted);};
+  },[]);
+  useEffect(()=>{
     // Listen at the document so wheel changes follow keyboard focus, not the pointer.
     const wheel=(event:WheelEvent)=>{
       const active=document.activeElement;
-      if(!segments.current.some(element=>element===active)||root.current?.closest('fieldset:disabled')||!event.deltaY||event.ctrlKey)return;
-      event.preventDefault();digits.current='';
+      if((!segments.current.some(element=>element===active)&&!touchRoot.current?.contains(active))||root.current?.closest('fieldset:disabled')||!event.deltaY||event.ctrlKey)return;
+      event.preventDefault();digits.current='';setTouchEdit(null);
       const now=performance.now(),direction=event.deltaY<0?1:-1;
       wheelRun.current=now-lastWheel.current<140&&direction===wheelDirection.current?wheelRun.current+1:1;
       wheelDirection.current=direction;lastWheel.current=now;
@@ -68,7 +127,29 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
         }}>{index===2?text:<TimeDigits text={text}/>}</span>
     </span>)}
     <span className={styles.arrows}><button type="button" aria-label={`Increase ${label}`} onMouseDown={event=>event.preventDefault()} onClick={()=>{select();step(1);}}>▲</button><button type="button" aria-label={`Decrease ${label}`} onMouseDown={event=>event.preventDefault()} onClick={()=>{select();step(-1);}}>▼</button></span>
-  </span><input className={styles.mobileTime} type="time" aria-label={`${label} mobile`} value={`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}`} onChange={event=>{if(event.target.value){const [hour,minute]=event.target.value.split(':').map(Number);onChange(hour*60+minute);}}}/></>;
+  </span><span ref={touchRoot} className={styles.mobileTime}>
+    {[0,1].map(index=><span key={index} className={styles.timePart}>
+      {index===1&&<span className={styles.timeColon} aria-hidden="true">:</span>}
+      <label className={styles.touchSegment} data-time-part={index} tabIndex={-1} title="Tap to type; hold then drag up or down to adjust">
+        <input type="text" inputMode="numeric" autoComplete="off" enterKeyHint="done" maxLength={2}
+          aria-label={`${label} ${index===0?'hour':'minute'}`} value={touchEdit?.part===index?touchEdit.text:texts[index]}
+          placeholder={texts[index]}
+          onFocus={event=>{part.current=index;lastWheel.current=-Infinity;wheelRun.current=0;setTouchEdit({part:index,text:touchFocus.current?'':texts[index]});if(!touchFocus.current)event.currentTarget.select();}}
+          onBlur={()=>setTouchEdit(null)}
+          onKeyDown={event=>{if(event.ctrlKey||event.metaKey||event.altKey)return;if(event.key==='Enter'){event.preventDefault();event.currentTarget.blur();}else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();setTouchEdit(null);step(event.key==='ArrowUp'?1:-1,event.repeat);}}}
+          onChange={event=>{
+            const text=event.target.value;
+            if(disabled()||!/^\d{0,2}$/.test(text))return;
+            const number=Number(text);
+            if(text!==''&&(index===0?number>12:number>59))return;
+            setTouchEdit({part:index,text});
+            if(text!==''&&(index!==0||number>0)){const current=latest.current.value;change(index===0?Math.floor(current/720)*720+number%12*60+current%60:Math.floor(current/60)*60+number);}
+          }}/>
+        <span className={styles.touchDigits} aria-hidden="true"><TimeDigits text={texts[index]}/></span>
+      </label>
+    </span>)}
+    <button type="button" className={styles.touchPeriod} aria-label={`${label} period, ${texts[2]}; tap to toggle`} onFocus={()=>{part.current=2;lastWheel.current=-Infinity;wheelRun.current=0;}} onClick={()=>change((latest.current.value+720)%1440)}>{texts[2]}</button>
+  </span></>;
 }
 
 export default function HoursTracker({ owner, initial, persist, onClose, requirePersonalSetup = false, today = new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'}) }: { owner:string; initial:SavedState; persist:(body:unknown)=>Promise<NonNullable<SavedState>>; onClose:()=>void; requirePersonalSetup?:boolean; today?:string }) {
@@ -145,7 +226,7 @@ export default function HoursTracker({ owner, initial, persist, onClose, require
   },[modalOpen,pending?.kind,decision?.kind]);
   const totals=summary?.weeks[week];
   return <main ref={root} className={styles.tracker} data-cmpri-modal-ignore="true" aria-label="Personal Hours Tracker">
-    <header className={styles.header}><h1>Hours Tracker</h1><span>{owner}</span><button aria-label="Close Hours Tracker" onClick={()=>request({kind:'close'})}>×</button></header>
+    <header className={styles.header}><h1>Hours Tracker</h1><span>{owner}</span></header>
     <div className={styles.period}><select aria-label="Pay period" disabled={busy} value={start} onChange={e=>request({kind:'period',start:e.target.value})}>{periods.map(date=><option key={date} value={date}>Period {range(date,periodDates(date).end)} · {date.slice(0,4)}</option>)}</select><span>Pay date: {displayDate(calendar.payday,{weekday:'short',month:'short',day:'numeric'})}</span></div>
     <fieldset disabled={busy||!!pending||!!configuration||!!decision} className={styles.fields}>
     <div className={styles.estimate}>
@@ -168,6 +249,7 @@ export default function HoursTracker({ owner, initial, persist, onClose, require
     {decision&&<div className={styles.scrim}><section role="dialog" aria-modal="true" aria-label="Confirm Hours Tracker change" className={styles.dialog}><h2>{decision.kind==='rate'?'Change this period’s rate?':decision.kind==='off'?'Mark Day Off?':'Clear this day?'}</h2><p>{decision.kind==='rate'?`Apply ${dollars(draft.rateCents)}/h only to ${range(start,calendar.end)}. Other periods keep their rates.`:decision.kind==='off'?`Remove start/end times for ${displayDate(draft.days[decision.index].date)}? Leave entries remain.`:'Remove this day’s attendance and leave and return it to unentered?'}</p><div><button onClick={()=>setDecision(null)}>Keep editing</button><button onClick={()=>{const confirmed=decision;setDecision(null);if(confirmed.kind==='rate')void save(confirmed.action,true);else changeDay(confirmed.index,confirmed.kind==='off'?{attendance:{state:'off'}}:{attendance:{state:'blank'},leave:[]});}}>Confirm</button></div></section></div>}
   </main>;
 }
+
 
 
 
