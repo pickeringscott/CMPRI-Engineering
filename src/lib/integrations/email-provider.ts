@@ -74,6 +74,16 @@ function safeClientReason(body: Json) {
   return body.error_description === "Unauthorized" ? "unauthorized_unspecified"
     : body.error_description === "The OAuth client was not found." ? "oauth_client_not_found" : "unknown";
 }
+// Exact text labels only: generic authorization wording does not identify a cause.
+function safeUnauthorizedClientReason(body: Json) {
+  switch (body.error_description) {
+    case "Unauthorized": return "unauthorized_unspecified";
+    case "Bad Request": return "bad_request_unspecified";
+    case "Unauthorized client or scope in request.": return "client_or_scope_unspecified";
+    case "The OAuth client was not found.": return "oauth_client_not_found";
+    default: return "unknown";
+  }
+}
 export type MailboxDigestReferences = { clientSecretSha256: string; refreshTokenSha256: string };
 type DigestComparison = { references: MailboxDigestReferences; clientSecret: string; refreshToken: string };
 function digestMatches(value: string | undefined, reference: string) {
@@ -132,7 +142,7 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage, 
       const errorValue = hasField("error") ? (body as Json).error : undefined;
       const errorType = !hasField("error") ? "missing" : errorValue === null ? "null" : Array.isArray(errorValue) ? "array" : typeof errorValue;
       // Only fixed keys, booleans and allowlisted MIME labels; never header/body values or URLs.
-      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true, ...clientIdCheck, ...(gmailTokenRequest && errorValue === "invalid_client" ? { clientDescriptionReason: safeClientReason(body as Json), ...clientSecretShape } : {}), ...(gmailTokenRequest && errorValue === "invalid_grant" ? { ...safeGrantReasons(body as Json), ...tokenShape } : {}) })}.`;
+      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true, ...clientIdCheck, ...(gmailTokenRequest && errorValue === "unauthorized_client" ? { unauthorizedClientDescriptionReason: safeUnauthorizedClientReason(body as Json) } : {}), ...(gmailTokenRequest && errorValue === "invalid_client" ? { clientDescriptionReason: safeClientReason(body as Json), ...clientSecretShape } : {}), ...(gmailTokenRequest && errorValue === "invalid_grant" ? { ...safeGrantReasons(body as Json), ...tokenShape } : {}) })}.`;
     }
     throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }

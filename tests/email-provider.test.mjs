@@ -326,3 +326,25 @@ test('checksum comparison shares fetch boundary, detects source and serializatio
   for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];
  }
 });
+
+
+test('Gmail unauthorized_client descriptions are exact allowlisted labels without cause inference or disclosure',async()=>{
+ const fixture={CMPRI_EMAIL_PROVIDER:'gmail',CMPRI_GMAIL_CLIENT_ID:'private-id',CMPRI_GMAIL_CLIENT_SECRET:'private-secret',CMPRI_GMAIL_REFRESH_TOKEN:'private-refresh',CMPRI_GMAIL_ADDRESS:'private@example.invalid'};
+ const backup=Object.fromEntries(Object.keys(fixture).map(k=>[k,process.env[k]]));const originalFetch=globalThis.fetch;
+ const recognized=[['Unauthorized','unauthorized_unspecified'],['Bad Request','bad_request_unspecified'],['Unauthorized client or scope in request.','client_or_scope_unspecified'],['The OAuth client was not found.','oauth_client_not_found']];
+ const cases=[...recognized,...recognized.flatMap(([text])=>[[text+' private-secret','unknown'],[' '+text,'unknown'],[text.toLowerCase(),'unknown']]),...[undefined,null,42,{},[],true,'private-refresh','a'.repeat(64),'<script>private-secret</script>'].map(v=>[v,'unknown'])];
+ try{
+  Object.assign(process.env,fixture);
+  for(const [description,expected] of cases){
+   let calls=0;
+   globalThis.fetch=async(url,init)=>{calls++;assert.equal(url,'https://oauth2.googleapis.com/token');assert.equal(new URLSearchParams(init.body).get('grant_type'),'refresh_token');return Response.json({error:'unauthorized_client',error_description:description,error_subtype:'private-refresh'},{status:401});};
+   await assert.rejects(fetchOperationalMessages(),error=>{
+    const shape=JSON.parse(error.message.split(' Response shape: ')[1].slice(0,-1));
+    assert.equal(shape.unauthorizedClientDescriptionReason,expected);
+    assert.equal(shape.requestClientIdMatchesRuntime,true);
+    assert.doesNotMatch(error.stack,/private-|private@|<script>|aaaaaa/);
+    assert.equal(error.cause,undefined);return true;
+   });assert.equal(calls,1);
+  }
+ }finally{globalThis.fetch=originalFetch;for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];}
+});
