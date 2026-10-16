@@ -2,6 +2,7 @@
 
 import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-reference.js";
 
+import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 
 import Image from "next/image";
@@ -159,17 +160,27 @@ export default function WorkOrderListWindow({
 }) {
   const [filter, setFilter] = useState<WorkOrderListFilter>("all");
   const [query, setQuery] = useState("");
+  const [sort,setSort] = useState<WorkOrderSort>("created-newest");
   const groups = useMemo(() => groupWorkOrders(orders, drafts), [orders, drafts]);
   const normalizedQuery = query.trim().toLowerCase();
-  const rows = normalizedQuery
+  const matchingRows = normalizedQuery
     ? groups.all.filter((order) => (workOrderReferenceMatches(order.display_id, normalizedQuery) || [...Object.values(order), formatWorkOrder(order.display_id)].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery))))
     : groups[filter];
+  const rows = sortWorkOrders(matchingRows,sort);
 
   return (
     <div className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
         <h1 data-work-order-list-heading tabIndex={-1} className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
+          <label className="flex min-w-0 items-center gap-[0.3em] text-[0.85em] text-slate-300">Sort
+            <select aria-label="Sort work orders" value={sort} onChange={event=>setSort(event.target.value as WorkOrderSort)} className="min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-900 px-[0.4em] py-[0.45em] text-white focus:border-sky-400">
+              <option value="created-newest">Created: newest first</option>
+              <option value="created-oldest">Created: oldest first</option>
+              <option value="due-earliest">Due: earliest first</option>
+              <option value="due-latest">Due: latest first</option>
+            </select>
+          </label>
           <div className="relative min-w-[12em] flex-1 @md:max-w-[32em]">
             <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute left-[0.65em] top-1/2 size-[1em] -translate-y-1/2 fill-none stroke-slate-400" strokeWidth="1.7">
               <circle cx="8.5" cy="8.5" r="5.5" />

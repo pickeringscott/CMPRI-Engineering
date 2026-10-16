@@ -64,6 +64,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
           : capability === "add_work_order_notes"
             ? ["Front Desk", "Housekeeping", "General Manager", "Assistant General Manager", "Front Desk Manager", "Assistant Manager", "Senior Management", "Maintenance Technician", "Engineer", "System Administrator"].includes(role)
           : capability === "view_work_orders" && role === "General Manager");
+      if (name === "@/lib/cmpri-location-groups") return { frontDeskCommonArea: () => null };
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === "@supabase/supabase-js") return { createClient: () => admin };
       if (name === "@/lib/constants") return { HOTEL_ID: hotelId };

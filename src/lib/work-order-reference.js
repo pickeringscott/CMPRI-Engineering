@@ -3,7 +3,7 @@
 export function workOrderNumber(value) {
   if (typeof value !== "string" && typeof value !== "number") return null;
   if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) return null;
-  const match = String(value).trim().match(/^@?(?:(?:WO\s*[#-]?\s*|work\s+order\s*#?\s*|#))?(\d+)$/i);
+  const match = String(value).trim().match(/^@?(?:(?:workorder_|WO\s*[#-]?\s*|work\s+order\s*#?\s*|#))?(\d+)$/i);
   return match?.[1] || null;
 }
 

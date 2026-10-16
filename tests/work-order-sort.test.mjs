@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict';import {sortWorkOrders} from '../src/lib/work-order-sort.ts';
+const rows=[{id:'missing',created_at:null,due_by:null},{id:'b',created_at:'2026-10-16T10:00:00Z',due_by:'2026-10-20'},{id:'a',created_at:'2026-10-16T05:00:00-05:00',due_by:'2026-10-19'},{id:'old',created_at:'2025-12-31T00:00:00Z',due_by:'2026-11-01'},{id:'invalid',created_at:'bad',due_by:'bad'}];
+const before=JSON.stringify(rows),ids=sort=>sortWorkOrders(rows,sort).map(r=>r.id);
+assert.deepEqual(ids('created-newest'),['a','b','old','invalid','missing']);assert.deepEqual(ids('created-oldest'),['old','a','b','invalid','missing']);assert.deepEqual(ids('due-earliest'),['a','b','old','invalid','missing']);assert.deepEqual(ids('due-latest'),['old','b','a','invalid','missing']);assert.equal(JSON.stringify(rows),before);assert.deepEqual(sortWorkOrders(rows.filter(r=>r.id==='b'),'created-newest').map(r=>r.id),['b']);
+console.log('PASS four date orders, equivalent timezone timestamps, stable ID ties, missing/invalid dates last, immutable input and filtered membership.');

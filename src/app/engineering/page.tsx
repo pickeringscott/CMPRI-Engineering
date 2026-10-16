@@ -1,4 +1,5 @@
 "use client";
+import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -120,6 +121,7 @@ function writeSoundPreference(enabled: boolean) {
 export default function EngineeringDashboardPage() {
   const router = useRouter();
   const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
   const [orders, setOrders] = useState<DesktopWorkOrder[]>([]);
   const [drafts, setDrafts] = useState<DesktopWorkOrderDraft[]>([]);
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
@@ -246,8 +248,8 @@ export default function EngineeringDashboardPage() {
 
   // ---------- Data loading ----------
 
-  const loadDashboard = useCallback(async (silent = false, role?: string) => {
-    if (refreshInFlightRef.current) return;
+  const loadDashboard = useCallback(async function refreshDashboard(silent = false, role?: string): Promise<void> {
+    if (refreshInFlightRef.current) { refreshQueuedRef.current = true; return; }
     refreshInFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
@@ -261,7 +263,7 @@ export default function EngineeringDashboardPage() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Dashboard work orders could not be loaded.");
       const fetched = payload.work_orders as DesktopWorkOrder[];
-      setOrders(fetched);
+      setOrders(previous => reconcileWorkOrderList(previous,fetched));
       if (roleAllows(role || userRoleRef.current, "review_tickets")) {
         const draftResponse = await fetch("/api/work-orders/drafts?scope=review", {
           headers: { Authorization: `Bearer ${token}` },
@@ -281,6 +283,7 @@ export default function EngineeringDashboardPage() {
     } finally {
       setLoading(false);
       refreshInFlightRef.current = false;
+      if (refreshQueuedRef.current) { refreshQueuedRef.current = false; void refreshDashboard(true, role); }
     }
   }, []);
 
@@ -528,7 +531,15 @@ export default function EngineeringDashboardPage() {
       if (event.origin !== window.location.origin || !event.data || typeof event.data.type !== "string") return;
       const key = Array.from(frameRefs.current).find(([, frame]) => frame.contentWindow === event.source)?.[0];
       if (!key) return;
-      const data = event.data as { type: string; href?: unknown; title?: unknown; targetWorkOrderId?: unknown; assetId?: unknown; modalToken?: unknown };
+      const data = event.data as { type: string; href?: unknown; title?: unknown; targetWorkOrderId?: unknown; assetId?: unknown; modalToken?: unknown; workOrder?: unknown; workOrderId?: unknown };
+      if (data.type === "cmpri-work-order-loaded" || data.type === "cmpri-work-order-saved") {
+        const source = windowsRef.current.find(entry => entry.key === key);
+        if (!source?.src || new URL(source.src,window.location.origin).searchParams.get("modalToken") !== data.modalToken) return;
+        const sourceId = /^\/work-orders\/([^/]+)$/.exec(key)?.[1];
+        if (!sourceId || decodeURIComponent(sourceId) !== data.workOrderId) return;
+        if (data.workOrder && typeof data.workOrder === 'object' && 'id' in data.workOrder && data.workOrder.id === data.workOrderId) setOrders(previous => mergeConfirmedWorkOrder(previous,data.workOrder));
+        if (data.type === "cmpri-work-order-loaded") return;
+      }
       switch (data.type) {
         case "cmpri-assets-changed": {
           const source = windowsRef.current.find(entry => entry.key === key);

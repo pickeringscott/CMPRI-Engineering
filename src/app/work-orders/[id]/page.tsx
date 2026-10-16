@@ -1,4 +1,5 @@
 "use client";
+import {workOrderListSnapshot} from "@/lib/work-order-list-sync";
 
 import { pendingTicketField } from "@/lib/work-orders/pending-field";
 
@@ -841,7 +842,7 @@ export default function WorkOrderTicketPage() {
       status: row.status || "Open",
       notes: row.notes || "",
       actionRootCause: row.action_root_cause || "",
-      parts: row.parts || "",
+      parts: row.parts || explicitPartSuggestion(previewIssue),
       cost: row.cost == null ? "" : String(row.cost),
       hours: row.hours == null ? "" : String(row.hours),
       dueBy: previewDueBy,
@@ -980,6 +981,8 @@ export default function WorkOrderTicketPage() {
       setMentionTickets(((payload.mentionTickets ?? []) as MentionTicket[]).filter((ticket) => !!ticket.id));
       if (generation !== ticketLoadGeneration.current) return;
       const row = payload.workOrder as WorkOrder;
+      const loadedSearch = new URLSearchParams(window.location.search);
+      if (loadedSearch.get("embedded") === "1" && window.parent !== window) window.parent.postMessage({type:"cmpri-work-order-loaded",workOrderId:row.id,workOrder:workOrderListSnapshot(row),modalToken:loadedSearch.get("modalToken")||""},window.location.origin);
       assetSelectionChanged.current = false;
       setOrder(row);
       setLocationId(row.location_id || "");
@@ -1018,7 +1021,7 @@ export default function WorkOrderTicketPage() {
         status: row.status || "Open",
         notes: row.notes || "",
         actionRootCause: row.action_root_cause || "",
-        parts: row.parts || "",
+        parts: row.parts || explicitPartSuggestion(loadedIssue),
         cost: row.cost == null ? "" : String(row.cost),
         hours: row.hours == null ? "" : String(row.hours),
         dueBy: normalizedDueBy,
@@ -1050,7 +1053,14 @@ export default function WorkOrderTicketPage() {
       if (canLoadMaintenanceReference) void loadMaintenanceReference().then(referenceAssets => {
         if (generation === ticketLoadGeneration.current && !row.asset_id && !assetSelectionChanged.current) {
           const guess = inferWorkOrder(loadedIssue, roomAssetsForInference(referenceAssets, row.location_id));
-          if (guess.assetId) { setAssetId(guess.assetId); setSystemGuessAssetId(guess.assetId); }
+          if (guess.assetId) {
+            setAssetId(guess.assetId); setSystemGuessAssetId(guess.assetId);
+            // Reference hydration is a displayed default, not a user edit.
+            setInitialFingerprint(previous => {
+              const baseline = JSON.parse(previous || '{}');
+              return JSON.stringify({...baseline,assetId:guess.assetId});
+            });
+          }
         }
       });
     } catch (error) {
@@ -1554,7 +1564,7 @@ export default function WorkOrderTicketPage() {
     setMessage("Work order saved.");
     setSaveState("idle");
     if (embedded && window.parent !== window) window.parent.postMessage(
-      { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken }, window.location.origin);
+      { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, workOrder:workOrderListSnapshot(savedRow), modalToken }, window.location.origin);
 
   }
 
@@ -1573,12 +1583,13 @@ export default function WorkOrderTicketPage() {
     } catch { setMessage("The local draft could not be cleared. Your text is still here."); }
   }
   const cancelTicket = useCallback(() => {
+    if (saving) return;
     if (hasUnsavedChanges) {
       setShowCancelConfirm(true);
       return;
     }
     closeEmbeddedTicket();
-  }, [closeEmbeddedTicket, hasUnsavedChanges]);
+  }, [closeEmbeddedTicket, hasUnsavedChanges, saving]);
 
   useEffect(() => {
     if (!embedded) return;
@@ -2602,8 +2613,8 @@ export default function WorkOrderTicketPage() {
           setShowCancelConfirm(false);
         }}>
           <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
-            <h2 className="text-xl font-bold">Close this ticket?</h2>
-            <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be kept as a draft on this device. They have not been saved to the work order.</p>
+            <h2 className="text-xl font-bold">Leave this ticket view?</h2>
+            <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be kept as a draft on this device. They have not been saved to the work order. Leaving this view does not change the ticket status.</p>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" disabled={saving} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">Discard draft and close</button>
               <button
@@ -2617,6 +2628,7 @@ export default function WorkOrderTicketPage() {
               <button
                 type="button"
                 onClick={closeEmbeddedTicket}
+                disabled={saving}
                 className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500"
               >
                 Close and keep draft
