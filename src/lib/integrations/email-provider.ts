@@ -60,9 +60,19 @@ function safeProviderCodes(body: unknown, stage: RequestStage): string[] {
   return [...new Set(candidates.filter((code): code is string => typeof code === "string" && SAFE_GMAIL_CODES.has(code)))];
 }
 async function jsonRequest(url: string, init: RequestInit, stage: RequestStage): Promise<Json> {
+  // Public ID supplied by Scott; comparison only, never a configuration fallback.
+  const expectedClientId = "880987317943-0oc6a375gfmucu713aq4hff0hbbkp10p.apps.googleusercontent.com";
+  const gmailTokenRequest = stage === "OAuth token exchange" && url === "https://oauth2.googleapis.com/token" && init.body instanceof URLSearchParams;
+  // Compare the exact form string passed to fetch, not a later environment lookup.
+  const requestBody = gmailTokenRequest ? (init.body as URLSearchParams).toString() : init.body;
+  const clientIds = gmailTokenRequest ? new URLSearchParams(requestBody as string).getAll("client_id") : [];
+  const clientIdCheck = gmailTokenRequest ? {
+    runtimeClientIdMatchesExpected: process.env.CMPRI_GMAIL_CLIENT_ID === expectedClientId,
+    requestClientIdMatchesExpected: clientIds.length === 1 && clientIds[0] === expectedClientId,
+  } : {};
   let response: Response;
   try {
-    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(20000) });
+    response = await fetch(url, { ...init, body: requestBody, cache: "no-store", signal: AbortSignal.timeout(20000) });
   } catch {
     // Native fetch errors may include request URLs. Never propagate their text/cause.
     throw new Error(`Mailbox ${stage} failed (network).`);
@@ -80,7 +90,7 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
       const errorValue = hasField("error") ? (body as Json).error : undefined;
       const errorType = !hasField("error") ? "missing" : errorValue === null ? "null" : Array.isArray(errorValue) ? "array" : typeof errorValue;
       // Only fixed keys, booleans and allowlisted MIME labels; never header/body values or URLs.
-      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true })}.`;
+      shape = ` Response shape: ${JSON.stringify({ contentType, jsonParsed, errorPresent: hasField("error"), errorType, errorDescriptionPresent: hasField("error_description"), errorUriPresent: hasField("error_uri"), codeRecognized: codes.length > 0, redirected: response.redirected === true, ...clientIdCheck })}.`;
     }
     throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }

@@ -88,7 +88,7 @@ test('safe mailbox failure stages and allowlisted codes never expose provider te
         throw new Error('Unexpected request after failure');
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false}) + '.' : '';
+        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false,runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false}) + '.' : '';
         assert.equal(error.message,scenario.expected + suffix);
         assert.equal(error.cause,undefined);
         assert.equal(String(error).includes('private-'),false);
@@ -149,7 +149,7 @@ test('Google refresh request uses native form serialization and bounded response
         return response;
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorType:c.errorType||(c.error?'string':'missing'),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected)};
+        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorType:c.errorType||(c.error?'string':'missing'),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected),runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false};
         assert.equal(error.message,`Mailbox OAuth token exchange failed (401${c.recognized?'; '+(c.code||'invalid_client'):''}). Response shape: ${JSON.stringify(shape)}.`);
         assert.equal(error.cause,undefined);
         assert.doesNotMatch(error.stack,/private-|private@|https:\/\//);
@@ -157,6 +157,43 @@ test('Google refresh request uses native form serialization and bounded response
       });
       assert.equal(calls,1);
     });
+  } finally {
+    globalThis.fetch=originalFetch;
+    for(const key of Object.keys(fixture))if(backup[key]===undefined)delete process.env[key];else process.env[key]=backup[key];
+  }
+});
+
+
+test('client ID equality describes the actual serialized request and reads each invocation', async()=>{
+  const expected='880987317943-0oc6a375gfmucu713aq4hff0hbbkp10p.apps.googleusercontent.com';
+  const fixture={CMPRI_EMAIL_PROVIDER:'gmail',CMPRI_GMAIL_CLIENT_ID:expected,CMPRI_GMAIL_CLIENT_SECRET:'private-secret',CMPRI_GMAIL_REFRESH_TOKEN:'private-refresh',CMPRI_GMAIL_ADDRESS:'private@example.invalid'};
+  const backup=Object.fromEntries(Object.keys(fixture).map(key=>[key,process.env[key]]));
+  const originalFetch=globalThis.fetch;
+  try {
+    Object.assign(process.env,fixture);
+    for(const [id,matches] of [[expected,true],['private-stale-id',false],[' '+expected,false],[expected+'\n',false],[expected.toUpperCase(),false],[expected,true]]) {
+      process.env.CMPRI_GMAIL_CLIENT_ID=id;
+      let calls=0;
+      globalThis.fetch=async(url,init)=>{
+        calls++;
+        assert.equal(url,'https://oauth2.googleapis.com/token');
+        assert.equal(typeof init.body,'string');
+        const wire=await new Request(url,init).text();
+        assert.equal(wire,init.body);
+        assert.deepEqual(new URLSearchParams(wire).getAll('client_id'),[id]);
+        // A later environment change must not change the recorded request comparison.
+        process.env.CMPRI_GMAIL_CLIENT_ID='private-later-id';
+        return Response.json({error:'deleted_client',error_description:'private-body'},{status:401});
+      };
+      await assert.rejects(fetchOperationalMessages(),error=>{
+        const shape=JSON.parse(error.message.split(' Response shape: ')[1].slice(0,-1));
+        assert.equal(shape.runtimeClientIdMatchesExpected,matches);
+        assert.equal(shape.requestClientIdMatchesExpected,matches);
+        assert.doesNotMatch(error.message,/private|880987317943|googleusercontent/);
+        return true;
+      });
+      assert.equal(calls,1);
+    }
   } finally {
     globalThis.fetch=originalFetch;
     for(const key of Object.keys(fixture))if(backup[key]===undefined)delete process.env[key];else process.env[key]=backup[key];
