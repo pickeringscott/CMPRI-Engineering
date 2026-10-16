@@ -88,7 +88,7 @@ test('safe mailbox failure stages and allowlisted codes never expose provider te
         throw new Error('Unexpected request after failure');
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false,runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false,...(scenario.body.error === 'invalid_grant' ? {grantDescriptionReason:'unknown',grantSubtypeReason:'unknown',refreshTokenHasEdgeWhitespace:false,requestRefreshTokenMatchesRuntime:true} : {})}) + '.' : '';
+        const suffix = scenario.at === 1 ? ' Response shape: ' + JSON.stringify({contentType:'application/json',jsonParsed:true,errorPresent:true,errorType:'string',errorDescriptionPresent:true,errorUriPresent:false,codeRecognized:scenario.body.error !== 'private-secret-code',redirected:false,runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false,...(scenario.body.error === 'invalid_client' ? {clientDescriptionReason:'unknown',clientSecretHasEdgeWhitespace:false,requestClientSecretMatchesRuntime:true} : {}),...(scenario.body.error === 'invalid_grant' ? {grantDescriptionReason:'unknown',grantSubtypeReason:'unknown',refreshTokenHasEdgeWhitespace:false,requestRefreshTokenMatchesRuntime:true} : {})}) + '.' : '';
         assert.equal(error.message,scenario.expected + suffix);
         assert.equal(error.cause,undefined);
         assert.equal(String(error).includes('private-'),false);
@@ -149,7 +149,7 @@ test('Google refresh request uses native form serialization and bounded response
         return response;
       };
       await assert.rejects(fetchOperationalMessages(),error=>{
-        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorType:c.errorType||(c.error?'string':'missing'),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected),runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false};
+        const shape={contentType:c.type,jsonParsed:Boolean(c.parsed),errorPresent:Boolean(c.error),errorType:c.errorType||(c.error?'string':'missing'),errorDescriptionPresent:Boolean(c.description),errorUriPresent:Boolean(c.uri),codeRecognized:Boolean(c.recognized),redirected:Boolean(c.redirected),runtimeClientIdMatchesExpected:false,requestClientIdMatchesExpected:false,...(c.recognized && (!c.code || c.code === 'invalid_client') ? {clientDescriptionReason:'unknown',clientSecretHasEdgeWhitespace:false,requestClientSecretMatchesRuntime:true} : {})};
         assert.equal(error.message,`Mailbox OAuth token exchange failed (401${c.recognized?'; '+(c.code||'invalid_client'):''}). Response shape: ${JSON.stringify(shape)}.`);
         assert.equal(error.cause,undefined);
         assert.doesNotMatch(error.stack,/private-|private@|https:\/\//);
@@ -165,7 +165,7 @@ test('Google refresh request uses native form serialization and bounded response
 
 
 test('client ID equality describes the actual serialized request and reads each invocation', async()=>{
-  const expected='880987317943-0oc6a375gfmucu713aq4hff0hbbkp10p.apps.googleusercontent.com';
+  const expected='880987317943-b4fqinbu5l4ugp6nh6ngalq392r0n6ov.apps.googleusercontent.com';
   const fixture={CMPRI_EMAIL_PROVIDER:'gmail',CMPRI_GMAIL_CLIENT_ID:expected,CMPRI_GMAIL_CLIENT_SECRET:'private-secret',CMPRI_GMAIL_REFRESH_TOKEN:'private-refresh',CMPRI_GMAIL_ADDRESS:'private@example.invalid'};
   const backup=Object.fromEntries(Object.keys(fixture).map(key=>[key,process.env[key]]));
   const originalFetch=globalThis.fetch;
@@ -237,6 +237,58 @@ test('grant diagnostics classify exact provider literals and never disclose valu
       }
     }
   } finally {
+    globalThis.fetch=originalFetch;
+    for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];
+  }
+});
+
+test('client authentication diagnostics preserve request contract and suppress arbitrary provider text',async()=>{
+  const expected='880987317943-b4fqinbu5l4ugp6nh6ngalq392r0n6ov.apps.googleusercontent.com';
+  const fixture={CMPRI_EMAIL_PROVIDER:'gmail',CMPRI_GMAIL_CLIENT_ID:expected,CMPRI_GMAIL_CLIENT_SECRET:'private-secret',CMPRI_GMAIL_REFRESH_TOKEN:'private-token',CMPRI_GMAIL_ADDRESS:'private@example.invalid'};
+  const backup=Object.fromEntries(Object.keys(fixture).map(k=>[k,process.env[k]]));
+  const originalFetch=globalThis.fetch;
+  const originalSerialize=URLSearchParams.prototype.toString;
+  const cases=[['Unauthorized','unauthorized_unspecified'],['The OAuth client was not found.','oauth_client_not_found'],...['Unauthorized private-secret','The OAuth client was not found. private-token',' Unauthorized','unauthorized','<script>private-secret</script>',null,{},[],42,'constructor','__proto__'].map(x=>[x,'unknown'])];
+  try {
+    Object.assign(process.env,fixture);
+    for(const [description,reason] of cases)for(const secret of ['private-secret+&=%ü',' private-secret','private-secret\r\n'])for(const mutation of ['none','different','duplicate','missing']){
+      process.env.CMPRI_GMAIL_CLIENT_SECRET=secret;
+      URLSearchParams.prototype.toString=function(){
+        const form=new URLSearchParams(originalSerialize.call(this));
+        if(mutation==='different')form.set('client_secret','private-altered');
+        if(mutation==='duplicate')form.append('client_secret',secret);
+        if(mutation==='missing')form.delete('client_secret');
+        return originalSerialize.call(form);
+      };
+      let calls=0;
+      globalThis.fetch=async(url,init)=>{
+        calls++;
+        assert.equal(url,'https://oauth2.googleapis.com/token');
+        assert.equal(init.method,'POST');
+        assert.equal(init.headers['content-type'],'application/x-www-form-urlencoded');
+        const form=new URLSearchParams(await new Request(url,init).text());
+        assert.equal(form.get('client_id'),expected);
+        assert.equal(form.get('grant_type'),'refresh_token');
+        assert.equal(form.get('refresh_token'),fixture.CMPRI_GMAIL_REFRESH_TOKEN);
+        if(mutation==='none')assert.deepEqual(form.getAll('client_secret'),[secret]);
+        process.env.CMPRI_GMAIL_CLIENT_SECRET='private-later';
+        return Response.json({error:'invalid_client',error_description:description,error_subtype:'private-subtype'},{status:401});
+      };
+      await assert.rejects(fetchOperationalMessages(),error=>{
+        const shape=JSON.parse(error.message.split(' Response shape: ')[1].slice(0,-1));
+        assert.equal(shape.clientDescriptionReason,reason);
+        assert.equal(shape.clientSecretHasEdgeWhitespace,secret!==secret.trim());
+        assert.equal(shape.requestClientSecretMatchesRuntime,mutation==='none');
+        assert.equal(shape.runtimeClientIdMatchesExpected,true);
+        assert.equal(shape.requestClientIdMatchesExpected,true);
+        assert.doesNotMatch(error.stack,/private-|<script>|880987317943|Unauthorized|OAuth client was/);
+        assert.equal(error.cause,undefined);
+        return true;
+      });
+      assert.equal(calls,1);
+    }
+  }finally{
+    URLSearchParams.prototype.toString=originalSerialize;
     globalThis.fetch=originalFetch;
     for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];
   }
