@@ -9,7 +9,7 @@ function load(relative, env, imports = {}) {
   const code = ts.transpileModule(readFileSync(new URL('../src/' + relative, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  vm.runInNewContext(code, { exports, process: { env }, require(name) {
+  vm.runInNewContext(code, { URLSearchParams, exports, process: { env }, require(name) {
     if (name === 'server-only') return {};
     if (name in imports) return imports[name];
     throw new Error('Unexpected import: ' + name);
@@ -22,6 +22,7 @@ function diagnostic(env) {
     './integrations-safe-mode': load('lib/server/integrations-safe-mode.ts', env),
   }).emailDiagnostics;
 }
+const emptyShape = { quoteWrapped:false, jsonWrapped:false, hasEdgeWhitespace:false, hasInternalWhitespace:false, hasControlCharacters:false, hasLiteralEscapedNewline:false };
 const clean = value => JSON.parse(JSON.stringify(value));
 
 test('diagnostic allowlist exposes only identities, booleans and normalized classification', () => {
@@ -37,6 +38,11 @@ test('diagnostic allowlist exposes only identities, booleans and normalized clas
   assert.deepEqual(result, {
     deployment: { id: 'dpl_Test123', url: 'example-123.vercel.app', commit: 'a'.repeat(40), environment: 'production' },
     provider: 'gmail', safe_mode: false, gmail_public_client_id: null,
+    gmail_credential_shape: {
+      client_secret: emptyShape, refresh_token: emptyShape,
+      dryRunClientSecretSerializationMatchesRuntime: true,
+      dryRunRefreshTokenSerializationMatchesRuntime: true,
+    },
     configuration_present: {
       CMPRI_EMAIL_PROVIDER: true, CMPRI_GMAIL_CLIENT_ID: true, CMPRI_GMAIL_CLIENT_SECRET: true,
       CMPRI_GMAIL_REFRESH_TOKEN: true, CMPRI_GMAIL_ADDRESS: true,
@@ -122,4 +128,39 @@ test('authenticated diagnostic returns only well-formed public client ID and rea
   }
   env.CMPRI_GMAIL_CLIENT_ID=id;
   assert.equal(read().gmail_public_client_id,id);
+});
+
+
+test('credential shape checks use synthetic values, expose booleans only, and never mutate configuration or call Google', () => {
+  const env = {};
+  const read = diagnostic(env);
+  const cases = [
+    [undefined, {}], ['', {}], ['synthetic+&=%ü', {}],
+    ['"synthetic"', {quoteWrapped:true,jsonWrapped:true}],
+    ["'synthetic'", {quoteWrapped:true}],
+    ['{"refresh_token":"synthetic"}', {jsonWrapped:true}],
+    ['["synthetic"]', {jsonWrapped:true}],
+    [' synthetic ', {hasEdgeWhitespace:true}],
+    ['syn thetic', {hasInternalWhitespace:true}],
+    ['syn\tthetic', {hasInternalWhitespace:true,hasControlCharacters:true}],
+    ['synthetic\r\n', {hasEdgeWhitespace:true,hasControlCharacters:true}],
+    ['syn\u0001thetic', {hasControlCharacters:true}],
+    [String.raw`synthetic\n`, {hasLiteralEscapedNewline:true}],
+    [String.raw`synthetic\r\n`, {hasLiteralEscapedNewline:true}],
+    ['synthetic"unterminated', {}],
+  ];
+  for (const [value, flags] of cases) {
+    env.CMPRI_GMAIL_CLIENT_SECRET=value;
+    env.CMPRI_GMAIL_REFRESH_TOKEN=value;
+    const result=clean(read().gmail_credential_shape);
+    assert.deepEqual(result, {
+      client_secret:{...emptyShape,...flags}, refresh_token:{...emptyShape,...flags},
+      dryRunClientSecretSerializationMatchesRuntime:typeof value==='string',
+      dryRunRefreshTokenSerializationMatchesRuntime:typeof value==='string',
+    });
+    assert.equal(env.CMPRI_GMAIL_CLIENT_SECRET,value);
+    assert.equal(env.CMPRI_GMAIL_REFRESH_TOKEN,value);
+    assert.doesNotMatch(JSON.stringify(result),/synthetic|unterminated/);
+    for(const entry of Object.values(result)) for(const flag of typeof entry==='object'?Object.values(entry):[entry]) assert.equal(typeof flag,'boolean');
+  }
 });
