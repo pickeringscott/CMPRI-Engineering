@@ -3,7 +3,8 @@ import { configuredEmailProvider } from "../integrations/email-provider";
 import { isIntegrationsSafeMode } from "./integrations-safe-mode";
 
 // Read on every request, in the runtime that would execute the mailbox scan.
-// Never return arbitrary environment entries or credential-derived metadata.
+// Only the explicitly public OAuth client identifier may be returned, after format validation.
+// Never return client secrets, tokens, or arbitrary environment entries.
 export function emailDiagnostics() {
   let provider: "gmail" | "microsoft365" | "unset" | "invalid";
   try {
@@ -21,6 +22,7 @@ export function emailDiagnostics() {
       environment: identity(process.env.VERCEL_ENV, /^(production|preview|development)$/),
     },
     provider,
+    gmail_public_client_id: identity(process.env.CMPRI_GMAIL_CLIENT_ID, /^[0-9]{6,30}-[a-z0-9]{10,100}\.apps\.googleusercontent\.com$/),
     configuration_present: {
       CMPRI_EMAIL_PROVIDER: Boolean(process.env.CMPRI_EMAIL_PROVIDER),
       CMPRI_GMAIL_CLIENT_ID: Boolean(process.env.CMPRI_GMAIL_CLIENT_ID),

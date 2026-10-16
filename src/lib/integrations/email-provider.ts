@@ -74,8 +74,6 @@ function safeClientReason(body: Json) {
     : body.error_description === "The OAuth client was not found." ? "oauth_client_not_found" : "unknown";
 }
 async function jsonRequest(url: string, init: RequestInit, stage: RequestStage): Promise<Json> {
-  // Public ID supplied by Scott; comparison only, never a configuration fallback.
-  const expectedClientId = "880987317943-b4fqinbu5l4ugp6nh6ngalq392r0n6ov.apps.googleusercontent.com";
   const gmailTokenRequest = stage === "OAuth token exchange" && url === "https://oauth2.googleapis.com/token" && init.body instanceof URLSearchParams;
   // Compare the exact form string passed to fetch, not a later environment lookup.
   const requestBody = gmailTokenRequest ? (init.body as URLSearchParams).toString() : init.body;
@@ -94,8 +92,7 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
     requestClientSecretMatchesRuntime: typeof runtimeClientSecret === "string" && requestClientSecrets.length === 1 && requestClientSecrets[0] === runtimeClientSecret,
   };
   const clientIdCheck = gmailTokenRequest ? {
-    runtimeClientIdMatchesExpected: process.env.CMPRI_GMAIL_CLIENT_ID === expectedClientId,
-    requestClientIdMatchesExpected: clientIds.length === 1 && clientIds[0] === expectedClientId,
+    requestClientIdMatchesRuntime: clientIds.length === 1 && clientIds[0] === process.env.CMPRI_GMAIL_CLIENT_ID,
   } : {};
   let response: Response;
   try {

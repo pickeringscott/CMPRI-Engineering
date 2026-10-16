@@ -36,7 +36,7 @@ test('diagnostic allowlist exposes only identities, booleans and normalized clas
   const result = clean(diagnostic(env)());
   assert.deepEqual(result, {
     deployment: { id: 'dpl_Test123', url: 'example-123.vercel.app', commit: 'a'.repeat(40), environment: 'production' },
-    provider: 'gmail', safe_mode: false,
+    provider: 'gmail', safe_mode: false, gmail_public_client_id: null,
     configuration_present: {
       CMPRI_EMAIL_PROVIDER: true, CMPRI_GMAIL_CLIENT_ID: true, CMPRI_GMAIL_CLIENT_SECRET: true,
       CMPRI_GMAIL_REFRESH_TOKEN: true, CMPRI_GMAIL_ADDRESS: true,
@@ -107,4 +107,19 @@ for (const operate of [false, true]) test('existing reader access and hotel filt
   assert.equal(f.calls.length, 6);
   assert.equal(f.filters.length, 6);
   for (const filter of f.filters) assert.deepEqual(filter, ['hotel_id', 'current-hotel']);
+});
+
+test('authenticated diagnostic returns only well-formed public client ID and reads runtime changes',()=>{
+  const id='880987317943-e16mlfpc6oqb355dnlfc91046jo7n42m.apps.googleusercontent.com';
+  const env={CMPRI_GMAIL_CLIENT_ID:id,CMPRI_GMAIL_CLIENT_SECRET:'private-secret',CMPRI_GMAIL_REFRESH_TOKEN:'private-token'};
+  const read=diagnostic(env);
+  assert.equal(read().gmail_public_client_id,id);
+  for(const value of [undefined,'', ' '+id,id+'\n','private-secret','<script>private-token</script>',id+'?token=private-token']){
+    env.CMPRI_GMAIL_CLIENT_ID=value;
+    const result=read();
+    assert.equal(result.gmail_public_client_id,null);
+    assert.doesNotMatch(JSON.stringify(result),/private-secret|private-token|<script>/);
+  }
+  env.CMPRI_GMAIL_CLIENT_ID=id;
+  assert.equal(read().gmail_public_client_id,id);
 });
