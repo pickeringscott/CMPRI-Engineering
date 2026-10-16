@@ -1,4 +1,6 @@
 import test from "node:test";
+import { createHash } from "node:crypto";
+import { compareGmailCredentialDigests } from "../src/lib/integrations/email-provider.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { configuredEmailProvider, gmailText, htmlToText, messageDirection, fetchOperationalMessages } from "../src/lib/integrations/email-provider.ts";
@@ -292,4 +294,35 @@ test('client authentication diagnostics preserve request contract and suppress a
     globalThis.fetch=originalFetch;
     for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];
   }
+});
+
+
+test('checksum comparison shares fetch boundary, detects source and serialization changes, and discloses booleans only',async()=>{
+ const fixture={CMPRI_GMAIL_CLIENT_ID:'synthetic-id',CMPRI_GMAIL_CLIENT_SECRET:'synthetic-secret+&=%',CMPRI_GMAIL_REFRESH_TOKEN:'synthetic-token+&=%',CMPRI_GMAIL_ADDRESS:'synthetic@example.invalid'};
+ const backup=Object.fromEntries(Object.keys(fixture).map(k=>[k,process.env[k]]));
+ const digest=value=>createHash('sha256').update(value,'utf8').digest('hex');
+ const refs={clientSecretSha256:digest(fixture.CMPRI_GMAIL_CLIENT_SECRET),refreshTokenSha256:digest(fixture.CMPRI_GMAIL_REFRESH_TOKEN)};
+ const fetch=globalThis.fetch, serialize=URLSearchParams.prototype.toString;
+ const logs=[];const methods=['log','warn','error'];const originals=methods.map(k=>console[k]);
+ try{
+  Object.assign(process.env,fixture);
+  globalThis.fetch=()=>{throw new Error('No fetch permitted');};
+  methods.forEach(k=>console[k]=(...args)=>logs.push(args));
+  const exact={sourceClientSecretMatchesReference:true,outgoingClientSecretMatchesReference:true,sourceRefreshTokenMatchesReference:true,outgoingRefreshTokenMatchesReference:true};
+  assert.deepEqual(await compareGmailCredentialDigests(refs),exact);
+  process.env.CMPRI_GMAIL_REFRESH_TOKEN+='x';
+  assert.deepEqual(await compareGmailCredentialDigests(refs),{...exact,sourceRefreshTokenMatchesReference:false,outgoingRefreshTokenMatchesReference:false});
+  Object.assign(process.env,fixture);
+  process.env.CMPRI_GMAIL_CLIENT_SECRET+='x';
+  assert.deepEqual(await compareGmailCredentialDigests(refs),{...exact,sourceClientSecretMatchesReference:false,outgoingClientSecretMatchesReference:false});
+  Object.assign(process.env,fixture);
+  URLSearchParams.prototype.toString=function(){const form=new URLSearchParams(serialize.call(this));form.set('client_secret','synthetic-changed');form.set('refresh_token','synthetic-changed');return serialize.call(form);};
+  assert.deepEqual(await compareGmailCredentialDigests(refs),{...exact,outgoingClientSecretMatchesReference:false,outgoingRefreshTokenMatchesReference:false});
+  await assert.rejects(compareGmailCredentialDigests({clientSecretSha256:'secret-invalid',refreshTokenSha256:refs.refreshTokenSha256}),{message:'Invalid comparison references.'});
+  assert.deepEqual(logs,[]);
+ }finally{
+  globalThis.fetch=fetch;URLSearchParams.prototype.toString=serialize;
+  methods.forEach((k,i)=>console[k]=originals[i]);
+  for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];
+ }
 });

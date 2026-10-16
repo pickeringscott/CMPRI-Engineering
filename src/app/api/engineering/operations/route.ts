@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/server/auth";
 
 import { PURCHASE_STATUSES, SHIPMENT_STATUSES, parentStatusFromShipments } from "@/lib/integrations/operations";
 import { isIntegrationsSafeMode } from "@/lib/server/integrations-safe-mode";
+import { compareGmailCredentialDigests } from "@/lib/integrations/email-provider";
 import { emailDiagnostics } from "@/lib/server/email-diagnostics";
 
 export async function GET(request: NextRequest) {
@@ -125,4 +126,25 @@ export async function PATCH(request: NextRequest) {
   }
 
   return NextResponse.json({ error: "kind must be purchase or shipment." }, { status: 400 });
+}
+
+
+// Transient operator diagnostic. Reference digests belong in the POST body only.
+export async function POST(request: NextRequest) {
+  const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
+  const auth = await requireUser(request);
+  if (!auth) return reply({ error: "Sign in is required." }, 401);
+  if (!allows(auth.principal, "view_engineering_operations") || !allows(auth.principal, "operate_integrations")) return reply({ error: "Email integration access is required." }, 403);
+  try {
+    const raw = await request.text();
+    if (raw.length > 512) return reply({ error: "Invalid comparison request." }, 400);
+    const body: unknown = JSON.parse(raw);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return reply({ error: "Invalid comparison request." }, 400);
+    const fields = body as Record<string, unknown>;
+    if (Object.keys(fields).length !== 2 || typeof fields.clientSecretSha256 !== "string" || typeof fields.refreshTokenSha256 !== "string" || !/^[a-f0-9]{64}$/.test(fields.clientSecretSha256) || !/^[a-f0-9]{64}$/.test(fields.refreshTokenSha256)) return reply({ error: "Invalid comparison request." }, 400);
+    return reply(await compareGmailCredentialDigests({clientSecretSha256:fields.clientSecretSha256,refreshTokenSha256:fields.refreshTokenSha256}));
+  } catch {
+    // Never return parser, crypto, or request text, even on failure.
+    return reply({ error: "Mailbox comparison unavailable." }, 400);
+  }
 }

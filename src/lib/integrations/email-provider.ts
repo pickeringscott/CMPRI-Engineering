@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 /** Read-only mailbox adapters. The only POST is an OAuth token exchange. */
 export type EmailProvider = "gmail" | "microsoft365";
 export type OperationalMessage = { id: string; threadId?: string; subject: string; from: string; to: string; text: string; messageAt: string; direction: "inbound" | "outbound" };
@@ -73,7 +74,13 @@ function safeClientReason(body: Json) {
   return body.error_description === "Unauthorized" ? "unauthorized_unspecified"
     : body.error_description === "The OAuth client was not found." ? "oauth_client_not_found" : "unknown";
 }
-async function jsonRequest(url: string, init: RequestInit, stage: RequestStage): Promise<Json> {
+export type MailboxDigestReferences = { clientSecretSha256: string; refreshTokenSha256: string };
+type DigestComparison = { references: MailboxDigestReferences; clientSecret: string; refreshToken: string };
+function digestMatches(value: string | undefined, reference: string) {
+  if (typeof value !== "string") return false;
+  return timingSafeEqual(createHash("sha256").update(value, "utf8").digest(), Buffer.from(reference, "hex"));
+}
+async function jsonRequest(url: string, init: RequestInit, stage: RequestStage, comparison?: DigestComparison): Promise<Json> {
   const gmailTokenRequest = stage === "OAuth token exchange" && url === "https://oauth2.googleapis.com/token" && init.body instanceof URLSearchParams;
   // Compare the exact form string passed to fetch, not a later environment lookup.
   const requestBody = gmailTokenRequest ? (init.body as URLSearchParams).toString() : init.body;
@@ -94,6 +101,17 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
   const clientIdCheck = gmailTokenRequest ? {
     requestClientIdMatchesRuntime: clientIds.length === 1 && clientIds[0] === process.env.CMPRI_GMAIL_CLIENT_ID,
   } : {};
+  // Diagnostic exits at the SAME serialization boundary as the normal fetch.
+  // No Google request, logging, digest output, or persistence on this branch.
+  if (comparison) {
+    if (!gmailTokenRequest) throw new Error("Mailbox comparison unavailable.");
+    return {
+      sourceClientSecretMatchesReference: digestMatches(comparison.clientSecret, comparison.references.clientSecretSha256),
+      outgoingClientSecretMatchesReference: requestClientSecrets.length === 1 && digestMatches(requestClientSecrets[0], comparison.references.clientSecretSha256),
+      sourceRefreshTokenMatchesReference: digestMatches(comparison.refreshToken, comparison.references.refreshTokenSha256),
+      outgoingRefreshTokenMatchesReference: requestRefreshTokens.length === 1 && digestMatches(requestRefreshTokens[0], comparison.references.refreshTokenSha256),
+    };
+  }
   let response: Response;
   try {
     response = await fetch(url, { ...init, body: requestBody, cache: "no-store", signal: AbortSignal.timeout(20000) });
@@ -122,7 +140,7 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage):
   catch { throw new Error(`Mailbox ${stage} returned invalid JSON.`); }
 }
 
-async function accessToken(provider: EmailProvider) {
+async function tokenExchange(provider: EmailProvider, references?: MailboxDigestReferences): Promise<Json> {
   const microsoft = provider === "microsoft365";
   const clientId = process.env[microsoft ? "CMPRI_MS_CLIENT_ID" : "CMPRI_GMAIL_CLIENT_ID"];
   const clientSecret = process.env[microsoft ? "CMPRI_MS_CLIENT_SECRET" : "CMPRI_GMAIL_CLIENT_SECRET"];
@@ -134,9 +152,18 @@ async function accessToken(provider: EmailProvider) {
   const form = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: microsoft ? "client_credentials" : "refresh_token" });
   if (microsoft) form.set("scope", "https://graph.microsoft.com/.default");
   else form.set("refresh_token", refreshToken!);
-  const data = await jsonRequest(microsoft ? `https://login.microsoftonline.com/${encodeURIComponent(tenant!)}/oauth2/v2.0/token` : "https://oauth2.googleapis.com/token", {
+  return jsonRequest(microsoft ? `https://login.microsoftonline.com/${encodeURIComponent(tenant!)}/oauth2/v2.0/token` : "https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form,
-  }, "OAuth token exchange");
+  }, "OAuth token exchange", references ? { references, clientSecret, refreshToken: refreshToken! } : undefined);
+}
+
+export async function compareGmailCredentialDigests(references: MailboxDigestReferences) {
+  if (!references || !/^[a-f0-9]{64}$/.test(references.clientSecretSha256) || !/^[a-f0-9]{64}$/.test(references.refreshTokenSha256)) throw new Error("Invalid comparison references.");
+  return tokenExchange("gmail", references);
+}
+
+async function accessToken(provider: EmailProvider) {
+  const data = await tokenExchange(provider);
   if (typeof data.access_token !== "string") throw new Error("Mailbox token response contained no access token.");
   return data.access_token;
 }

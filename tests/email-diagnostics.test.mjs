@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as crypto from 'node:crypto';
 
 function load(relative, env, imports = {}) {
   const exports = {};
@@ -11,6 +12,7 @@ function load(relative, env, imports = {}) {
   }).outputText;
   vm.runInNewContext(code, { URLSearchParams, exports, process: { env }, require(name) {
     if (name === 'server-only') return {};
+    if (name === 'node:crypto') return crypto;
     if (name in imports) return imports[name];
     throw new Error('Unexpected import: ' + name);
   }, fetch() { throw new Error('Diagnostic must not access network'); } });
@@ -79,13 +81,14 @@ test('runtime changes, absent/empty settings, and invalid provider values are re
   assert.deepEqual(clean(read().deployment), { id: null, url: null, commit: null, environment: null });
 });
 
-function routeFixture({ signedIn = true, view = true, operate = true } = {}) {
+function routeFixture({ signedIn = true, view = true, operate = true, compare = async()=>({sourceClientSecretMatchesReference:true}) } = {}) {
   const calls = [], filters = [];
   let diagnosticCalls = 0;
   const query = { select() { return query; }, eq(...args) { filters.push(args); return query; }, order() { return query; }, async limit() { return { data: [], error: null }; } };
   const auth = signedIn ? { principal: {}, admin: { from(table) { calls.push(table); return query; } } } : null;
   const route = load('app/api/engineering/operations/route.ts', {}, {
-    'next/server': { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } },
+    'next/server': { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200, headers: init.headers }) } },
+    '@/lib/integrations/email-provider': {compareGmailCredentialDigests:compare},
     '@/lib/constants': { HOTEL_ID: 'current-hotel' },
     '@/lib/server/access': { allows: (_, capability) => capability === 'operate_integrations' ? operate : view },
     '@/lib/server/auth': { requireUser: async () => auth },
@@ -163,4 +166,26 @@ test('credential shape checks use synthetic values, expose booleans only, and ne
     assert.doesNotMatch(JSON.stringify(result),/synthetic|unterminated/);
     for(const entry of Object.values(result)) for(const flag of typeof entry==='object'?Object.values(entry):[entry]) assert.equal(typeof flag,'boolean');
   }
+});
+
+
+test('checksum POST enforces both existing capabilities before reading body and sanitizes every response',async()=>{
+ for(const options of [{signedIn:false},{view:false},{operate:false}]){
+  const f=routeFixture({...options,compare:()=>{throw new Error('Must not compare');}});
+  const r=await f.route.POST({text(){throw new Error('Must not read');}});
+  assert.equal(r.status,options.signedIn===false?401:403);
+ }
+ const reference={clientSecretSha256:'a'.repeat(64),refreshTokenSha256:'b'.repeat(64)};
+ let calls=0;
+ const f=routeFixture({compare:async args=>{calls++;assert.deepEqual(clean(args),reference);return {sourceClientSecretMatchesReference:true,outgoingClientSecretMatchesReference:true,sourceRefreshTokenMatchesReference:false,outgoingRefreshTokenMatchesReference:false};}});
+ const success=await f.route.POST({text:async()=>JSON.stringify(reference)});
+ assert.equal(success.status,200);assert.equal(calls,1);assert.equal(success.headers["Cache-Control"],"no-store");
+ assert.deepEqual(Object.values(success.body),[true,true,false,false]);
+ for(const raw of ['private-secret','null','[]',JSON.stringify({...reference,extra:'private-secret'}),'x'.repeat(513),JSON.stringify({...reference,clientSecretSha256:'private-secret'})]){
+  const r=await f.route.POST({text:async()=>raw});assert.equal(r.status,400);assert.doesNotMatch(JSON.stringify(r),/private-secret|aaaaaa|bbbbbb/);
+ }
+ assert.equal(calls,1);
+ const failure=routeFixture({compare:async()=>{throw new Error('private-secret '+reference.clientSecretSha256);}});
+ const r=await failure.route.POST({text:async()=>JSON.stringify(reference)});
+ assert.equal(r.status,400);assert.doesNotMatch(JSON.stringify(r),/private-secret|aaaaaa/);
 });
