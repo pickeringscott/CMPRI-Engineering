@@ -659,7 +659,7 @@ export default function EngineeringDashboardPage() {
       items: [
         hasCapability(session, "manage_assets") && { key: "/management/equipment", label: "Manage Equipment", href: "/management/equipment", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
         hasCapability(session, "manage_assets") && { key: "/engineering/parts", label: "Parts & Vendors", href: "/engineering/parts", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
-        canUseEngineeringAdminTools && { key: "/engineering/purchasing", label: "Purchasing & Email", href: "/engineering/purchasing", tone: "border-orange-400/50 bg-orange-950/30 text-orange-100", accent: "bg-orange-400" },
+        canUseEngineeringAdminTools && { key: "/engineering/purchasing", label: "POs", href: "/engineering/purchasing", tone: "border-orange-400/50 bg-orange-950/30 text-orange-100", accent: "bg-orange-400" },
       ],
     },
     {

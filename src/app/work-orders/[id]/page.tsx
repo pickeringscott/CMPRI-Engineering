@@ -1,5 +1,8 @@
 "use client";
 import {workOrderListSnapshot} from "@/lib/work-order-list-sync";
+import PlainTextLinks from '@/components/PlainTextLinks';
+import {plainTextParts} from '@/lib/plain-text-links';
+import WorkOrderSupplies from "@/components/WorkOrderSupplies";
 
 import { pendingTicketField } from "@/lib/work-orders/pending-field";
 
@@ -1815,9 +1818,10 @@ export default function WorkOrderTicketPage() {
   }
 
   function renderHistoryText(text: string) {
-    const refs = workOrderReferences(text);
+    const urlRanges = plainTextParts(text).filter(part => part.href); const refs = workOrderReferences(text).filter(ref => !urlRanges.some(url => ref.start < url.end && ref.end > url.start));
     // Keep historical internal-ID mentions working without changing their links.
     for (const match of text.matchAll(/@(?:WO-)?[a-f0-9-]{8,36}\b/gi)) {
+      if (urlRanges.some(url => match.index! < url.end && match.index! + match[0].length > url.start)) continue;
       if (refs.some(ref => match.index! < ref.end && match.index! + match[0].length > ref.start)) continue;
       const id = match[0].replace(/^@(?:WO-)?/i, "").toLowerCase();
       const ticket = mentionTickets.find(candidate => candidate.id.toLowerCase().startsWith(id));
@@ -1827,11 +1831,11 @@ export default function WorkOrderTicketPage() {
     let at = 0;
     for (const ref of refs.sort((a,b) => a.start - b.start)) {
       const ticket = mentionTickets.find(candidate => workOrderNumber(candidate.display_id) === ref.number);
-      output.push(<span key={`text-${at}`}>{text.slice(at, ref.start)}</span>);
+      output.push(<span key={`text-${at}`}><PlainTextLinks text={text.slice(at, ref.start)} /></span>);
       output.push(ticket ? <button key={`mention-${ref.start}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={`Open ${ref.label} - ${ticket.room || "No location"}`}>{ref.label}</button> : <span key={`mention-${ref.start}`} className="text-slate-400">{ref.label}</span>);
       at = ref.end;
     }
-    output.push(<span key="remaining">{text.slice(at)}</span>);
+    output.push(<span key="remaining"><PlainTextLinks text={text.slice(at)} /></span>);
     return output;
   }
   const parsedHistory = parseTicketHistory(notes, order.created_at);
@@ -2035,7 +2039,7 @@ export default function WorkOrderTicketPage() {
               {order.reporter_notes && (
                 <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reporter Notes</div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-300">{order.reporter_notes}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-300"><PlainTextLinks text={order.reporter_notes} /></p>
                 </div>
               )}
 
@@ -2523,6 +2527,7 @@ export default function WorkOrderTicketPage() {
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
               <h2 className="text-sm font-semibold">Labor & Parts</h2>
+              {order?.id && cmpriSession?.capabilities.includes("manage_assets") && <WorkOrderSupplies key={order.id} jobId={order.id}/> }
 
               <label className="mt-2 block">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">

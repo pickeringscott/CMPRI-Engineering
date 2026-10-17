@@ -1,0 +1,42 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {PGlite} from '@electric-sql/pglite';
+import {planPurchasingHistory,canonicalHistory} from '../src/lib/purchasing-history.ts';
+const source={gmail_message_id:'aaaaaaaaaaaaaaaa',subject:'Supplier only order'};
+const sample={source_index:[source],supplier_order_history:{orders:[{supplier:'Example',supplier_order_id:'00001',po_numbers:[],source_gmail_ids:[source.gmail_message_id],items:[]}],events:[],scope:'test',quality_checks:{},unparsed_or_empty_message_ids:[]},other_supplier_receipts:{records:[]},ibuy_acceptances:[],cassie_order_evidence:[],amazon_historical_catalog:[],reconciliation_notes:'Unknown receipt quantity.',readme:'Synthetic fixture',supplier_findings:'No stock inferred'};
+const actual=process.argv[2];const bundle=actual?JSON.parse(fs.readFileSync(actual,'utf8')):sample;
+const plan=planPurchasingHistory(bundle),digest=createHash('sha256').update(canonicalHistory(plan)).digest('hex');
+assert.ok(plan.records.every(r=>r.currentOnHand===null));
+const duplicated=structuredClone(bundle);duplicated.source_index.push(duplicated.source_index[0]);assert.equal(canonicalHistory(planPurchasingHistory(duplicated)),canonicalHistory(plan));
+const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table cmpri_inventory_items(id int,quantity_on_hand numeric);insert into cmpri_inventory_items values(1,7);create table cmpri_po_receipts(id int);');
+const migration=fs.readdirSync('supabase/migrations').filter(n=>n.endsWith('_cmpri_purchasing_history.sql'));assert.equal(migration.length,1);await db.exec(fs.readFileSync('supabase/migrations/'+migration[0],'utf8'));
+const hotel='00000000-0000-0000-0000-000000000001',actor='00000000-0000-0000-0000-000000000002',other='00000000-0000-0000-0000-000000000003';
+const run=(p=plan,h=hotel)=>db.query('select cmpri_import_purchasing_history($1,$2,$3,$4,$5::jsonb)',[h,actor,'fixture-mailbox',digest,JSON.stringify(p)]);
+const count=async table=>Number((await db.query(`select count(*) n from ${table}`)).rows[0].n);
+await db.exec('set role service_role');await run();await run();
+assert.equal(await count('cmpri_purchasing_history_records'),plan.records.length);assert.equal(await count('cmpri_purchasing_history_sources'),plan.sources.length);assert.equal(await count('cmpri_purchasing_history_batches'),1);
+const stored=(await db.query('select record from cmpri_purchasing_history_records order by record_key')).rows.map(r=>r.record).sort((a,b)=>a.key.localeCompare(b.key));assert.equal(canonicalHistory(stored),canonicalHistory(plan.records));
+const conflicting=structuredClone(plan);conflicting.records[0].payload={changed:true};await assert.rejects(run(conflicting),/requires reconciliation/);
+const bad=structuredClone(plan);bad.records[bad.records.length-1].sourceIds.push('bbbbbbbbbbbbbbbb');await assert.rejects(run(bad,other),/foreign key/);assert.equal(await count('cmpri_purchasing_history_records'),plan.records.length);assert.equal(await count('cmpri_purchasing_history_sources'),plan.sources.length);
+const stockInference=structuredClone(plan);stockInference.records[0].currentOnHand=2;await assert.rejects(run(stockInference,other),/stock inference/);
+await db.exec('reset role;set role anon');await assert.rejects(run(),/permission denied/);await assert.rejects(db.query('select * from cmpri_purchasing_history_records'),/permission denied/);
+await db.exec('reset role;set role authenticated');await assert.rejects(run(),/permission denied/);await db.exec('reset role');
+assert.equal((await db.query('select quantity_on_hand from cmpri_inventory_items')).rows[0].quantity_on_hand,'7');assert.equal(await count('cmpri_po_receipts'),0);
+if(actual){
+ const byKind=k=>plan.records.filter(r=>r.kind===k);
+ assert.equal(plan.sources.length,441);assert.equal(byKind('supplier-order').length,62);assert.equal(byKind('order-line').length,242);assert.equal(byKind('acceptance').length,126);assert.equal(byKind('catalog').filter(r=>r.supplier==='Amazon').length,70);
+ assert.equal(byKind('supplier-order').filter(r=>r.status==='cancelled').length,4);assert.equal(byKind('order-line').filter(r=>r.payload.shipment_sum_unreconciled).length,5);
+ assert.equal(byKind('supplier-order').filter(r=>r.payload.po_numbers.length===0).length,2);assert.equal(byKind('order-line').filter(r=>r.orderedQuantity===null).length,25);
+ assert.ok(byKind('supplier-event').some(r=>r.status==='damaged_arrival_and_return_request'&&r.payload.items[0].return_completed===null));
+ assert.ok(byKind('reconciliation-note').some(r=>r.title.includes('only one received')));assert.ok(byKind('reconciliation-note').some(r=>r.title.includes('Scott disputed')));
+ assert.equal(plan.records.length,885);
+ const adhesive=byKind('catalog').find(r=>r.reference==='B000I1VF64');assert.ok(adhesive);assert.equal(adhesive.orderedQuantity,null);assert.equal(adhesive.currentOnHand,null);assert.ok(byKind('acceptance').some(r=>r.reference==='37249725170'));assert.ok(byKind('reconciliation-note').some(r=>r.title.includes('no exact cross-reference')));
+ const keys=byKind('purchase-document').filter(r=>r.supplier==='Minute Key');assert.equal(keys.length,3);assert.equal(new Set(keys.map(r=>r.reference)).size,3);
+ assert.equal(byKind('purchase-document').filter(r=>r.reference==='393163').length,1);
+ console.log('PASS actual bundle: 441 sources, 885 records, 62 orders, 242 lines, 256 catalog items (70 Amazon), 126 acceptances; 4 cancellations, 5 shipment conflicts, 2 supplier-only orders, 25 unknown order quantities, disputed/partial receipt and RMA evidence retained.');
+}
+await db.exec('set role service_role');
+const first=plan.sources[0];
+if(first){const minimal={version:1,sources:[{gmail_message_id:first.gmail_message_id}],records:[]};await run(minimal,other);await run({...minimal,sources:[first]},other);await run(minimal,other);assert.equal(canonicalHistory((await db.query('select payload from cmpri_purchasing_history_sources where hotel_id=$1',[other])).rows[0].payload),canonicalHistory(first));const changed={...first,gmail_message_id:first.gmail_message_id,subject:'Conflicting altered subject'};if(first.subject)await assert.rejects(run({...minimal,sources:[changed]},other),/requires reconciliation/);}
+console.log('PASS PostgreSQL atomic import/replay, exact payload roundtrip, source dedup/enrichment, conflicting overwrite rejection, property rollback, browser-role denial, null stock and zero physical receipts.');await db.close();

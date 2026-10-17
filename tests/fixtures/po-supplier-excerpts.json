@@ -1,0 +1,74 @@
+[
+  {
+    "id": "19e421d02ca66163",
+    "from": "Grainger <Grainger@service.grainger.com>",
+    "subject": "Shipping Confirmation #1586191738 PO #36720536020",
+    "text": "FedEx | 490496382255 | MSA\n\r\n \r\n | \n\r\n \r\n \r\n \r\n \r\nFull Body Harness, V-form, 2xl\r\n \r\n \n\r\n \r\n | \n\r\n \r\n \r\n \r\n Item # 197DM6\r\n \r\n \n\r\n | \r\n \n\r\n \r\n | \r\n \r\n | \r\n \r\n \r\n \r\n \r\n QTY Shipped 1\r\n \n\r\n \r\n | \n\r\n \r\n | \r\n \r\n \n\r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n | \n\r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n | \r\n \r\n MSA\n\r\n \r\n | \n\r\n \r\n \r\n \r\n \r\nFull Body Harness, V-form, M\r\n \r\n \n\r\n \r\n | \n\r\n \r\n \r\n \r\n Item # 197DM3\r\n \r\n \n\r\n | \r\n \n\r\n \r\n | \r\n \r\n | \r\n \r\n \r\n \r\n \r\n QTY Shipped 1\r\n \n\r\n \r\n | \n\r\n \r\n | \r\n \r\n \n\r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n | \n\r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n | \r\n \r\n CONDOR\n\r\n \r\n | \n\r\n \r\n \r\n \r\n \r\nShock-absorbing Lanyard, Black\r\n \r\n \n\r\n \r\n | \n\r\n \r\n \r\n \r\n Item # 45J289\r\n \r\n \n\r\n | \r\n \n\r\n \r\n | \r\n \r\n | \r\n \r\n \r\n \r\n \r\n QTY Shipped 2\r\n \n\r\n \r\n | \n\r\n \r\n | \r\n \r\n \n\r\n \r\n \r\n | \n\r\n \r\n | \r\n \n\r\n \r\n \r\n | \n\r\n \r\n | \r\n \n\r\n\r\n\r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n \n \r\n \r\n | \n\r\n \r\n \r\n | \n\r\n \r\n \r\n | \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Order #1586191738\r\n \n\r\n \r\n | \n\r\n \r\n \r\n PO #36720536020",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "197a8dfd5d356f65",
+    "from": "Menards <order@orders.menards.com>",
+    "subject": "Your Order is Ready for Pick Up - CHAM98606",
+    "text": "YOUR ORDER IS READY FOR PICK UP | Order #CHAM98606 | Order Date: 06-25-2025",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "1a0d9fed903e6c63",
+    "from": "Minute Key <info@minutekey.com>",
+    "subject": "Minute Key Receipt",
+    "text": "\r\n\r\n\r\n \r\n \r\n \r\n \r\n\r\n Minute Key Receipt\r\n \r\n\r\n\r\n\r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n | \r\n \n\r\n \r\n | \r\n \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n Your September 25, 2026 order:\r\n | \r\n \n\r\n \r\n \r\n | \r\n \n\r\n \r\n \r\n \r\n \r\n 1x\r\n | \r\n \r\n Brass Key\r\n | \r\n \r\n $6.00\r\n | \r\n \n\r\n \r\n \r\n \r\n \r\n \r\n \r\n | \r\n \n\r\n \r\n | \r\n \n\r\n \r\n Subtotal\r\n | \r\n \r\n $6.00\r\n | \r\n \n\r\n \r\n Tax\r\n | \r\n \r\n $0.54\r\n | \r\n \n\r\n \r\n \r\n \r\n \r\n | \r\n \n\r\n \r\n \r\n Total\r\n | \r\n \r\n $6.54\r\n | \r\n \n\r\n\r\n \r\n \r\n \r\n \r\n \r\n  | Transaction: FLLOXW6TJO",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "19d6d9954c1c83a6",
+    "from": "\"Lowe's Home Improvement\" <do-not-reply@receipt.lowes.com>",
+    "subject": "Your Lowe's Purchase Receipt",
+    "text": "Transaction # :\n 602033405\n | \n \n\n \n Order # :\n 200080097261540525\n | \n \n\n \n Order Date :\n 04/08/26 09:57:27\n | \n \n\n \n \n | \n \n\n \n \n \n \n \n \n\n \n \n \n \n Item\n\n | \n \n Price\n\n | \n \n\n \n \n \n BH HWH SELF DRL 14X1 25-C\n \n\n | \n \n \n \n $ 7.98\n \n\n | \n \n\n\n \n \n Item #: \n 59188\n \n\n | \n | \n \n\n \n \n \n \n \n 1 @ 7.98\n \n\n | \n | \n \n\n \n\n \n\n \n \n \n \n Invoice 81676 Subtotal\n \n\n | \n \n \n $ 7.98\n \n\n | \n \n\n \n | \n \n\n \n \n \n \n \n \n \n \n Invoice 81676 Subtotal\n\n | \n \n \n $ 7.98\n \n\n | \n \n\n \n \n Subtotal\n\n | \n \n \n $ 7.98\n \n\n | \n \n\n \n \n Total Tax\n\n | \n \n \n $ 0.74\n \n\n | \n \n\n \n \n Total\n\n | \n \n \n $ 8.72\n \n\n | \n \n\n \n \n \n | \n \n\n \n \n \n \n \n \n \n Total # of items purchased: 1\n \n \n\n | \n \n\n \n \n Excludes fees, services and special order items \n\n | \n \n\n \n \n \n | \n \n\n \n \n \n \n \n \n \n ",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "19a8441cd609f3fa",
+    "from": "Residence Inn Champaign Maintenance <maint.cmpri@hawkeyehotels.com>",
+    "subject": "Re: DESI Telephone Labels Inc Invoice #393163",
+    "text": "> PART# QTY PRODUCT UNIT PRICE UNIT DISCOUNT EXT.\r\n> UNIT PRICE TOTAL\r\n> 400000 112 Custom Faceplates $2.66 $0.00 $2.66 $297.92\r\n>\r\n\nSUBTOTAL $297.92\nSHIPPING $18.00\nGRAND TOTAL $315.92",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "1a13c3fa00c9eb92",
+    "from": "Cassandra Rule <cassandra.rule@hawkeyehotels.com>",
+    "subject": "Re: New PO Submitted by Scott Pickering - Maintenance from Residence Inn Champaign, ()",
+    "text": "   - [image: Ginsco 580 pcs 2:1 Heat Shrink Tubing Kit 6 Colors 11 Sizes\r\n   Assorted Sleeving Tube Wrap Cable Wire Kit for DIY]\r\n\r\n   <https://www.amazon.com/dp/B01MFA3OFA>\r\n   - [image: In The Swim 1 Inch Bromine Plus Tablets - 50 Pounds]\r\n\r\n   <https://www.amazon.com/dp/B0D14TZ1Y1>\r\n\r\n\nTO ACCEPT THIS ORDER — acceptance URL withheld",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "19ead2df0d154517",
+    "from": "\"Scott P. Chief Engineer - CMPRI\" <maint.cmpri@hawkeyehotels.com>",
+    "subject": "Re: New PO Submitted by Scott Pickering - Maintenance from Residence Inn Champaign, ()",
+    "text": "The only thing in that box was the chlorine reducer. Which I have received.\r\nThe flow meter would not have fit in that box.\r\n\r\n\r\n",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "19f610475b46939c",
+    "from": "\"Scott P. Chief Engineer - CMPRI\" <maint.cmpri@hawkeyehotels.com>",
+    "subject": "Re: New PO Submitted by Scott Pickering - Maintenance from Residence Inn Champaign, ()",
+    "text": "Good Morning Cassie,\r\n\r\nI received only one Schrader valve removal tool. 2 are necessary for the\r\nA/C repair project. These took a week to receive. I checked, and I can have\r\nanother tool here tomorrow.\r\n\r\nHow would you like to proceed?\r\n\r\n\r\n\r\n\r\n",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  },
+  {
+    "id": "19a7ecf6e5911441",
+    "from": "Cassandra Rule <cassandra.rule@hawkeyehotels.com>",
+    "subject": "Re: Return of Cooktop to HDSupply",
+    "text": "Hello,\r\nPlease reach out to HD Supply customer service directly. They will be able\r\nto assist you.\r\nThank you\r\n\r\nOn Thu, Nov 13, 2025 at 1:17 PM Residence Inn Champaign Maintenance <\r\n[email omitted]> wrote:\r\n\r\n> Hello Cassie,\r\n>\r\n> I received this cooktop (part #309557) from PO# 36098713812 broken. (see\r\n> image)\r\n>\r\n> Could we start an RMA for it?\r\n>\r\n> Thanks.\r\n>\r\n> ",
+    "account": "fixture",
+    "messageAt": "2026-10-16T00:00:00Z"
+  }
+]

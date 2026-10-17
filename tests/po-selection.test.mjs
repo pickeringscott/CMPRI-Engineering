@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {resolvePoSelection} from '../src/lib/po-selection.ts';
+const ids=['fixture','manual'];
+assert.deepEqual(resolvePoSelection(ids,'','manual'),{id:'manual',missingLink:false});
+assert.deepEqual(resolvePoSelection(ids,'manual','fixture'),{id:'manual',missingLink:false});
+assert.deepEqual(resolvePoSelection([...ids,'new-order'],'manual','fixture'),{id:'manual',missingLink:false});
+assert.deepEqual(resolvePoSelection(ids,'fixture','manual'),{id:'fixture',missingLink:false});
+assert.deepEqual(resolvePoSelection(ids,'','missing'),{id:'',missingLink:true});
+assert.deepEqual(resolvePoSelection(ids,'manual','missing'),{id:'manual',missingLink:false});
+assert.deepEqual(resolvePoSelection(ids,'removed',null),{id:'fixture',missingLink:false});
+assert.deepEqual(resolvePoSelection([],'manual',null),{id:'',missingLink:false});
+console.log('PASS initial deep links, refresh/save reload persistence, intentional selection, missing links, removed orders and empty results');

@@ -1,0 +1,24 @@
+// Execute the real route with a local authorization fixture and real isolated PostgreSQL RPC.
+import fs from 'node:fs';import path from 'node:path';import {pathToFileURL} from 'node:url';
+import assert from 'node:assert/strict';import ts from 'typescript';import {PGlite} from '@electric-sql/pglite';
+const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role bypassrls;');
+await db.exec(fs.readFileSync('supabase/migrations/20261016214526_cmpri_purchasing_history.sql','utf8'));
+const hotel='00000000-0000-0000-0000-000000000001',actor='00000000-0000-0000-0000-000000000002';
+let allowed=false;globalThis.__historyAuth=async(_request,capability)=>allowed&&capability==='operate_integrations'?{principal:{identity:{id:actor}},admin:{rpc:async(_name,p)=>{try{const r=await db.query('select cmpri_import_purchasing_history($1,$2,$3,$4,$5::jsonb) result',[p.p_hotel,p.p_actor,p.p_account,p.p_digest,JSON.stringify(p.p_plan)]);return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message}};}}}}:null;
+globalThis.__historySafe=false;
+const data=s=>'data:text/javascript;base64,'+Buffer.from(s).toString('base64');
+let source=fs.readFileSync('src/app/api/engineering/purchasing-history/route.ts','utf8');
+const mappings={'@/lib/server/auth':data('export const requireCapability=(...a)=>globalThis.__historyAuth(...a);'),'@/lib/server/integrations-safe-mode':data('export const isIntegrationsSafeMode=()=>globalThis.__historySafe;'),'@/lib/constants':data(`export const HOTEL_ID=${JSON.stringify(hotel)}`),'@/lib/purchasing-history':pathToFileURL(path.resolve('src/lib/purchasing-history.ts')).href,'next/server':pathToFileURL(path.resolve('node_modules/next/server.js')).href};
+for(const [name,url]of Object.entries(mappings))source=source.replaceAll(`'${name}'`,JSON.stringify(url));
+const route=await import(data(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText));
+const bundle=process.argv[2]?JSON.parse(fs.readFileSync(process.argv[2],'utf8')):{source_index:[],supplier_order_history:{orders:[],events:[],scope:'test',quality_checks:{},unparsed_or_empty_message_ids:[]},other_supplier_receipts:{records:[]},ibuy_acceptances:[],cassie_order_evidence:[],amazon_historical_catalog:[],reconciliation_notes:'No quantities',readme:'Test',supplier_findings:'None'};
+const post=body=>route.POST(new Request('http://localhost/api/engineering/purchasing-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
+process.env.CMPRI_PO_ENABLED='true';process.env.CMPRI_PO_IMPORT_ENABLED='true';process.env.CMPRI_GMAIL_ADDRESS='isolated-fixture@example.test';
+assert.equal((await post({action:'review',bundle})).status,403);allowed=true;
+const review=await post({action:'review',bundle});assert.equal(review.status,200);const reviewed=await review.json();assert.equal((await db.query('select count(*)::int n from cmpri_purchasing_history_records')).rows[0].n,0);
+assert.equal((await post({action:'import',bundle,reviewed:true,digest:'0'.repeat(64)})).status,409);
+globalThis.__historySafe=true;assert.equal((await post({action:'import',bundle,reviewed:true,digest:reviewed.digest})).status,409);globalThis.__historySafe=false;
+const saved=await post({action:'import',bundle,reviewed:true,digest:reviewed.digest});assert.equal(saved.status,200);assert.equal((await saved.json()).inventoryChanged,false);
+assert.equal((await post({action:'import',bundle,reviewed:true,digest:reviewed.digest})).status,200);
+assert.equal((await db.query('select count(*)::int n from cmpri_purchasing_history_records')).rows[0].n,reviewed.records.length);
+console.log(`PASS real review/import route -> isolated PostgreSQL: ${reviewed.sourceCount} sources; authorization denial, read-only review, changed digest denial, safe-mode denial, atomic import and idempotent replay.`);await db.close();delete globalThis.__historyAuth;delete globalThis.__historySafe;

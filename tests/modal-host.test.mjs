@@ -164,7 +164,6 @@ test('embedded KPI cards use a shared compact metric size', () => {
   for (const path of [
     '../src/app/engineering/room-operations/page.tsx',
     '../src/app/engineering/parts/page.tsx',
-    '../src/app/engineering/purchasing/page.tsx',
     '../src/app/engineering/preventive-maintenance/page.tsx',
   ]) {
     const page = readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -236,7 +235,6 @@ test('dashboard action pages render without duplicate outer headers when embedde
   const pages = [
     '../src/app/engineering/room-ranker/page.tsx',
     '../src/app/engineering/preventive-maintenance/page.tsx',
-    '../src/app/engineering/purchasing/page.tsx',
     '../src/app/engineering/pool-log/page.tsx',
     '../src/app/engineering/enseo-assignments/page.tsx',
     '../src/app/engineering/parts/page.tsx',
@@ -304,7 +302,6 @@ test('shared modal navigation controls render buttons instead of links', () => {
     '../src/app/profile/page.tsx',
     '../src/app/management/rooms/page.tsx',
     '../src/app/engineering/room-operations/page.tsx',
-    '../src/app/engineering/purchasing/page.tsx',
     '../src/app/engineering/import-work-orders/page.tsx',
     '../src/app/work-orders/page.tsx',
   ];
@@ -331,3 +328,4 @@ test('room operations import form and commit workflow live in the Daily Room Ope
   assert.match(importer, /async function commitImport/);
   assert.match(importer, /snapshotMatches/);
 });
+test('approved PO workspace has one inline title and no removed summary cards',()=>{const page=readFileSync(new URL('../src/app/engineering/purchasing/page.tsx',import.meta.url),'utf8');const workspace=readFileSync(new URL('../src/app/engineering/purchasing/PurchaseOrders.tsx',import.meta.url),'utf8');assert.doesNotMatch(page,/<header|<h1|cmpri-modal-kpi-value/);assert.equal((workspace.match(/<h1>/g)||[]).length,1);assert.doesNotMatch(workspace,/className=\{styles.metrics\}/);});

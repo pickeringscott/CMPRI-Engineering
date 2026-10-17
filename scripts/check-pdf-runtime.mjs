@@ -2,13 +2,13 @@
 // Materialize only traced PDF dependencies outside the checkout to catch
 // accidental resolution against the developer's full node_modules directory.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, mkdir, copyFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, mkdir, copyFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const pdfs = process.argv.slice(2).map(file => path.resolve(file));
-for (const route of ['maintenance-reference', 'assets/documentation', 'assets']) {
+for (const route of ['maintenance-reference', 'assets/documentation', 'assets', 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed']) {
   const tracePath = path.resolve(`.next/server/app/api/${route}/route.js.nft.json`);
   const trace = JSON.parse(await readFile(tracePath, 'utf8'));
   const runtimeFiles = trace.files.map(file => path.resolve(path.dirname(tracePath), file))
@@ -18,6 +18,7 @@ for (const route of ['maintenance-reference', 'assets/documentation', 'assets'])
   assert(runtimeFiles.some(file => /canvas[\\/]index\.js$/.test(file)), `${route}: canvas loader missing`);
   assert(runtimeFiles.some(file => /\.node$/.test(file)), `${route}: canvas native binary missing`);
   const isolated = await mkdtemp(path.join(tmpdir(), 'cmpri-pdf-runtime-'));
+  try {
   const stream = 'BT /F1 12 Tf 20 100 Td (CMPRI PDF runtime verification) Tj ET';
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -62,4 +63,5 @@ for (const route of ['maintenance-reference', 'assets/documentation', 'assets'])
   const result = spawnSync(process.execPath, ['probe.mjs', fixturePath, ...pdfs], { cwd: isolated, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   console.log(JSON.stringify({ route, runtimeFiles: runtimeFiles.length, extraction: result.stdout.trim() }));
+  } finally { await rm(isolated,{recursive:true,force:true}); }
 }

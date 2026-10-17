@@ -95,11 +95,14 @@ test('dropdown stays inside the modal viewport and opens above when that gives m
   const above=position({top:210,bottom:250,left:20,width:280},{width:400,height:300});
   assert.deepEqual({...above},{top:8,left:20,width:280,maxHeight:198});
 });
-test('dropdown scrollbar has an explicit visible track and thumb',()=>{
+test('dropdown uses the shared translucent scrollbar with native forced-color fallback',()=>{
   const css=readFileSync(new URL('../src/app/globals.css',import.meta.url),'utf8');
-  assert.match(css,/\.cmpri-searchable-select-listbox::-webkit-scrollbar\s*\{\s*width:\s*12px/);
-  assert.match(css,/\.cmpri-searchable-select-listbox::-webkit-scrollbar-thumb/);
+  assert.ok(css.includes('*::-webkit-scrollbar { width: 8px; height: 8px;'));
+  assert.ok(css.includes('var(--cmpri-gold) 40%, transparent'));
+  assert.ok(css.includes('*::-webkit-scrollbar-button { display: none;'));
+  assert.ok(css.includes('@media (forced-colors: none)'));
 });
+
 test('blur closes uncommitted search and restores selected label',()=>{
   const c=mount('409');c.search('pool');c.input().onBlur({relatedTarget:null});assert.equal(c.input()['aria-expanded'],false);assert.equal(c.input().value,'Room 409');assert.deepEqual(c.calls,[]);
 });

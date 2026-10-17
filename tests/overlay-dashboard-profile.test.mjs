@@ -80,7 +80,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/room-operations", label: "Daily Room Ops"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/gss", label: "GSS Reports"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/enseo-assignments"/);
-  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/purchasing", label: "Purchasing & Email"/);
+  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/purchasing", label: "POs"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/import-work-orders"/);
   assert.match(engineering, /hasCapability\(session, "view_work_orders"\) && \{ key: WORK_ORDER_LIST_KEY/);
   assert.match(engineering, /hasCapability\(session, "manage_rooms"\) && \{ key: "\/management\/rooms"/);

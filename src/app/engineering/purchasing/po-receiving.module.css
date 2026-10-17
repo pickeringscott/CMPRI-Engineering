@@ -1,0 +1,134 @@
+.surface{font:14px/1.45 Arial,sans-serif;background:#080f1d;color:#dce5f2;padding:24px;max-width:1450px;margin:auto;color-scheme:dark}.surface *{box-sizing:border-box}.surface h1,.surface h2,.surface h3,.surface p{margin:0}.surface h1{font-size:30px;color:#fbbf24}.surface h2{font-size:18px}.surface h3{font-size:14px}.surface button,.surface input,.surface select{font:inherit}.surface button{cursor:pointer;border:1px solid #3b4b63;border-radius:7px;background:#182439;color:#e6ecf5;padding:9px 12px}.surface button:disabled{cursor:not-allowed;opacity:.4}.surface button:focus-visible,.surface input:focus-visible,.surface select:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}.surface .primary{background:#fbbf24;color:#172033;border-color:#fbbf24;font-weight:bold}.header,.sectionHead{display:flex;align-items:center;justify-content:space-between;gap:16px}.header p,.sectionHead p,.catalog p{color:#94a4bb}.eyebrow{font-size:10px!important;font-weight:bold;letter-spacing:.17em;color:#8b9fba!important;margin-bottom:4px!important}.actions{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}.review{border:1px solid #665225;background:#282216;color:#e5ca87;border-radius:7px;margin:18px 0;padding:10px 12px;font-size:12px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.metrics>div{background:#111c2d;border:1px solid #26354c;padding:14px 18px;border-radius:9px}.metrics span{display:block;color:#9cabc0;font-size:12px}.metrics b{display:block;font-size:26px;color:#f4f7fc;margin-top:4px}.workspace{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px}.orders,.detail,.catalog{background:#101a2a;border:1px solid #29384f;border-radius:10px;padding:18px}.orders .sectionHead{align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}.filter{font-size:11px;color:#9cabc0;display:flex;align-items:center;gap:6px}.surface select,.surface input{background:#08111f;color:#e5edf8;border:1px solid #3c4d67;padding:8px;border-radius:5px;min-width:0}.order{width:100%;text-align:left;display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:13px!important;background:#0b1423!important}.orderTop{display:flex;align-items:center;justify-content:space-between;gap:5px;width:100%;font-size:12px}.selected{border-color:#fbbf24!important;box-shadow:inset 3px 0 #fbbf24}.surface small{display:block;color:#8fa1ba;font-size:11px}.accepted,.pending{display:inline-block;border-radius:12px;padding:4px 8px;font-size:10px;white-space:nowrap}.accepted{color:#86e3bd;background:#15372c}.pending{color:#e9c984;background:#382f1d}.inbound{margin:17px 0!important;padding:10px 12px;background:#17273d;border-left:3px solid #6396d7;border-radius:4px}.inbound span{display:block;font-size:11px;color:#9bb2cc;margin-top:3px}.notice{padding:12px;background:#332a19;color:#ebcf93;border-radius:6px;margin-bottom:14px!important}.tableScroll{overflow:auto}.surface table{width:100%;border-collapse:collapse;min-width:570px}.surface th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#94a6bf;text-align:left;padding:10px 8px;border-bottom:1px solid #34435a}.surface td{padding:14px 8px;border-bottom:1px solid #28374d;font-size:13px}.surface td small{margin-top:4px}.surface td:first-child{width:35%}.surface td button{font-size:11px}.received{color:#7fe0b5}.subheading{margin:20px 0 9px!important}.evidence{list-style:none;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}.evidence li,.history{background:#0b1422;border:1px solid #26364b;border-radius:6px;padding:10px;font-size:12px}.evidence li>span{text-transform:uppercase;font-size:9px;letter-spacing:.06em;color:#7bb2e7}.evidence p{margin:5px 0}.history{margin-top:7px!important}.muted{color:#91a2ba;font-size:12px}.catalog{margin-top:16px}.catalogGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}.catalogGrid>div{border:1px solid #2c3d54;padding:12px;border-radius:6px}.catalogGrid b{font-size:22px;color:#f3f6fc}.form{padding:16px;background:#132239;border:1px solid #52759e;border-radius:8px;margin:16px 0}.form p{color:#afbed2;font-size:12px;margin:5px 0 14px}.formGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.form label{display:flex;flex-direction:column;gap:5px;font-size:12px}.form .check{flex-direction:row;align-items:center;margin:14px 0}.form .actions{margin-top:14px}.message{padding:11px;border:1px solid #5b789b;border-radius:6px;background:#18304c;margin:12px 0!important}.catalog li{margin:8px 0;color:#b1c0d4}@media(max-width:800px){.surface{padding:14px}.header{align-items:flex-start;flex-direction:column}.workspace{grid-template-columns:1fr}.orders{display:flex;gap:8px;overflow:auto;padding:12px}.orders .sectionHead{min-width:125px;align-content:center;margin:0}.order{min-width:245px;max-width:245px;margin:0}.metrics{gap:7px}.metrics>div{padding:10px}.metrics span{font-size:10px}.metrics b{font-size:21px}.detail{padding:13px}.detail .sectionHead{align-items:flex-start}.evidence{grid-template-columns:1fr}}@media(max-width:450px){.metrics{grid-template-columns:1fr 1fr}.formGrid,.catalogGrid{grid-template-columns:1fr}.detail .sectionHead{flex-direction:column;gap:7px}}
+
+.reviewLabel{display:flex;flex-direction:column;gap:6px;margin:12px 0;color:#a9b7cb;font-size:12px}.reviewLabel output{padding:10px;font-size:18px;color:#fbbf24}.surface a{color:#85bfff}.surface .metrics{margin-top:14px}
+
+/* Compact CMPRI spacing: existing work-order p-2 / gap-2 / text-sm scale. */
+.surface{font-size:13px;line-height:1.3;padding:8px;max-width:1450px}.surface h1{font-size:22px}.surface h2{font-size:14px}.surface h3{font-size:13px}.header,.sectionHead{gap:8px}.actions{gap:6px}.surface button{padding:5px 8px}.surface input,.surface select{padding:5px 7px}.review{margin:8px 0;padding:6px 8px;font-size:11px}.surface .metrics{gap:8px;margin:8px 0}.metrics>div{padding:7px 10px}.metrics span{font-size:11px}.metrics b{font-size:20px;margin-top:2px}.workspace{grid-template-columns:250px minmax(0,1fr);gap:8px;align-items:start}.orders,.detail,.catalog{padding:8px;border-radius:8px}.orders .sectionHead{margin-bottom:6px}.order{gap:4px;margin-top:6px;padding:8px!important}.inbound{margin:8px 0!important;padding:6px 8px}.notice{padding:7px 8px;margin-bottom:8px!important}.surface th{padding:6px}.surface td{padding:7px 6px;font-size:12px}.surface td small{margin-top:2px}.subheading{margin:10px 0 5px!important}.evidence{gap:6px}.evidence li,.history{padding:6px 8px;font-size:11px}.evidence p{margin:3px 0}.history{margin-top:5px!important}.catalog{margin-top:8px}.catalogGrid{gap:8px;margin-top:6px}.catalogGrid>div{padding:7px 8px}.catalogGrid b{font-size:18px}.form{padding:8px;margin:8px 0}.form p{margin:4px 0 7px;font-size:11px}.formGrid{gap:8px}.form label{gap:3px}.form .check{margin:8px 0}.form .actions{margin-top:8px}.message{padding:6px 8px;margin:8px 0!important}.reviewLabel{gap:4px;margin:6px 0}.reviewLabel output{padding:5px;font-size:16px}.catalog li{margin:5px 0}@media(max-width:800px){.workspace{grid-template-columns:1fr}.surface{padding:8px}.orders,.detail{padding:8px}.order{min-width:220px;max-width:220px}.metrics>div{padding:7px}.metrics b{font-size:18px}}
+/* Inline summaries match compact embedded CMPRI typography; no dashboard tiles. */
+.surface .header{gap:6px;min-height:0;align-items:center}.surface .header>div:first-child{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.surface .header .eyebrow{display:none}.surface .header h1{font-size:16px;line-height:20px}.surface .header p{font-size:11px;line-height:16px}.surface .header button,.surface .header a{font-size:11px;padding:3px 7px;line-height:16px}.surface .review{font-size:10px;line-height:14px;padding:3px 6px;margin:4px 0;border-radius:3px}.surface .metrics{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:4px 0 6px;padding:3px 0;background:transparent;border-top:1px solid #29384f;border-bottom:1px solid #29384f}.surface .metrics>div{display:inline-flex;align-items:baseline;gap:6px;background:none;border:0;border-radius:0;padding:0 12px;min-height:0}.surface .metrics>div:first-child{padding-left:0}.surface .metrics>div+div{border-left:1px solid #34435a}.surface .metrics span{display:inline;font-size:11px;line-height:16px}.surface .metrics b{display:inline;font-size:13px;line-height:16px;margin:0;color:#fbbf24}.surface .reviewLabel output{padding:2px 0;font-size:13px}.surface .sectionHead h2{font-size:13px}.surface .sectionHead .eyebrow{font-size:9px!important;margin-bottom:2px!important}@media(max-width:800px){.surface .header{flex-direction:row;flex-wrap:wrap}.surface .metrics>div{padding:1px 8px}.surface .metrics b{font-size:13px}.surface .metrics span{font-size:10px}}
+
+/* One-window PO workspace, with independently scrollable list and inline content. */
+.poWorkspace{height:100dvh;max-width:none;display:flex;flex-direction:column;overflow:hidden}.poWorkspace .workspace{flex:1;min-height:0;grid-template-columns:280px minmax(0,1fr);align-items:stretch}.poWorkspace .orders{overflow:auto;border-radius:4px}.poWorkspace .detail{min-height:0;display:flex;flex-direction:column;overflow:auto;border-radius:4px}.poWorkspace .order{border-radius:3px;gap:2px;padding:7px!important}.poWorkspace .order small{font-size:10px}.poWorkspace .panelNav{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid #34435a;margin-top:8px;padding-bottom:6px}.panelNav button{font-size:11px}.panelNav button[aria-pressed=true]{background:#fbbf24;color:#172033;border-color:#fbbf24}.panelBody{overflow:auto;min-height:0;flex:1;padding-top:4px}.poWorkspace .catalog{margin-top:0;margin-bottom:8px}.poWorkspace .form{flex-shrink:0}.poWorkspace .evidence{grid-template-columns:1fr 1fr}.poWorkspace .sectionHead{flex-shrink:0}.poWorkspace .message{flex-shrink:0}.poWorkspace .orders .sectionHead{position:sticky;top:0;background:#101a2a;padding-bottom:5px}.poWorkspace .tableScroll table{min-width:500px}@media(max-width:800px){.poWorkspace .workspace{grid-template-columns:210px minmax(0,1fr)}.poWorkspace .orders{display:block}.poWorkspace .order{min-width:0;max-width:none;margin-top:5px}.poWorkspace .orders .sectionHead{min-width:0}.poWorkspace .evidence{grid-template-columns:1fr}}@media(max-width:560px){.poWorkspace .workspace{grid-template-columns:1fr;grid-template-rows:140px minmax(0,1fr)}.poWorkspace .orders{display:flex;align-items:stretch;gap:5px}.poWorkspace .orders .sectionHead{position:static;min-width:110px}.poWorkspace .order{min-width:180px;max-width:180px;margin:0}.poWorkspace .detail .sectionHead{flex-direction:row}.poWorkspace .header p{display:none}.poWorkspace .review{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.poWorkspace .panelNav{gap:3px}.poWorkspace .panelNav button{padding:4px;font-size:10px}}
+.poWorkspace{box-sizing:border-box}
+@media(max-width:560px){.poWorkspace .orders{display:block}.poWorkspace .orders .sectionHead{display:flex;align-items:center;justify-content:space-between;min-width:0;margin:0 0 4px}.poWorkspace .order{min-width:0;max-width:none;width:100%;margin:3px 0;padding:4px 6px!important;display:grid;grid-template-columns:1fr 100px;align-items:center}.poWorkspace .orderTop{font-size:10px}.poWorkspace .order>span:nth-child(2){font-size:10px;text-align:right}.poWorkspace .order small{display:none}.poWorkspace .order .accepted,.poWorkspace .order .pending{font-size:8px;padding:2px 4px}.poWorkspace .tableScroll table{min-width:0}.poWorkspace th{font-size:8px;letter-spacing:0;padding:5px 2px}.poWorkspace td{font-size:10px;padding:5px 2px}.poWorkspace td small{font-size:9px}.poWorkspace td button{font-size:9px;padding:3px}.poWorkspace td:first-child{width:32%}}
+/* Reuse globals.css embedded modal heading tokens (title 1.5rem, scale .9). */ .poWorkspace .header h1{font-size:calc(var(--cmpri-text-title,1.5rem) * var(--cmpri-modal-type-scale,.9));line-height:var(--cmpri-modal-line-height,1.3);font-weight:700;letter-spacing:-.025em}
+
+.surface textarea{font:inherit;background:#08111f;color:#e5edf8;border:1px solid #3c4d67;padding:5px 7px;border-radius:5px;min-width:0;width:100%;resize:vertical}.surface textarea:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}
+/* Evidence identifiers and file controls must fit the narrow history panel. */
+.poWorkspace .panelBody{min-width:0}
+.poWorkspace .history{min-width:0;overflow-wrap:anywhere}
+.poWorkspace .panelBody form,.poWorkspace .panelBody select{max-width:100%;min-width:0}
+.poWorkspace .panelBody input[type=file]{width:100%;max-width:100%}
+/* Keep the surrounding window independent of each tab's intrinsic content size. */
+.poWorkspace{width:100%;min-width:0;flex-shrink:0}
+.poWorkspace .workspace{min-width:0;grid-template-rows:minmax(0,1fr)}
+.poWorkspace .detail{min-width:0}
+.poWorkspace .panelNav{flex-shrink:0}
+.poWorkspace .panelBody{scrollbar-gutter:stable;overscroll-behavior:contain}
+@media(max-width:560px){.poWorkspace .workspace{grid-template-rows:140px minmax(0,1fr)}}
+.poWorkspace .receiptQuantity{width:7ch;min-width:4.5rem;max-width:100%;align-self:flex-start}
+.poWorkspace .panelBody .receiptForm{width:100%;max-width:25rem;padding:6px;margin:4px 0}
+.receiptGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 6px;margin-top:4px}
+.quantityField{display:flex;flex-direction:column;gap:3px;min-width:0}
+.quantityControl{display:flex;align-items:center;gap:0;width:max-content;max-width:100%}
+.poWorkspace .quantityControl .receiptQuantity{width:5ch;min-width:3rem;height:32px;padding:3px;text-align:right;border-radius:5px}
+.receiptNote{grid-column:1/-1}
+.poWorkspace .receiptForm label{font-size:12px;gap:2px}
+.poWorkspace .receiptForm .receiptNote{display:grid;grid-template-columns:5.5rem minmax(0,1fr);align-items:center}
+.poWorkspace .receiptForm input[type=date]{width:100%;min-height:32px;padding:3px 4px}
+.poWorkspace .receiptForm textarea{padding:3px 4px;min-height:32px}
+.poWorkspace .receiptForm .check{margin:4px 0;align-items:center;min-height:28px}
+.poWorkspace .receiptForm .actions{margin-top:4px;gap:4px}
+.poWorkspace .receiptForm .actions button{min-height:32px;padding:3px 6px}
+
+/* Dense purchasing workspace: bounded window, content-sized lists and controls. */
+.poWorkspace{--cmpri-control-height:28px;height:min(24rem,100dvh);max-width:900px;margin:0;padding:4px;gap:4px}
+.poWorkspace .header{gap:4px}
+.poWorkspace .header .actions{gap:4px}
+.poWorkspace button{padding:3px 6px;min-height:28px}
+.poWorkspace input,.poWorkspace select{padding:3px 5px}
+.poWorkspace .workspace{grid-template-columns:180px minmax(0,1fr);gap:4px}
+.poWorkspace .orders{align-self:start;max-height:100%;padding:4px}
+.poWorkspace .orders .sectionHead{padding:0;margin:0 0 3px;gap:4px;flex-wrap:wrap}
+.poWorkspace .orders select{width:120px}
+.poWorkspace .order{padding:4px 5px!important;margin-top:3px;gap:1px}
+.poWorkspace .detail{padding:4px;border-radius:3px}
+.poWorkspace .detail>.sectionHead{gap:4px}
+.poWorkspace .detail>.sectionHead>div{display:flex;align-items:baseline;gap:4px 8px;flex-wrap:wrap}
+.poWorkspace .panelNav{margin-top:4px;padding-bottom:3px;gap:3px}
+.poWorkspace .panelNav button{padding:3px 5px}
+.poWorkspace .panelBody{padding-top:3px}
+.poWorkspace .inbound{margin:3px 0!important;padding:3px 5px}
+.poWorkspace .notice{padding:3px 5px;margin-bottom:4px!important}
+.poWorkspace th{padding:3px 4px}
+.poWorkspace td{padding:4px}
+.poWorkspace td small{margin-top:1px}
+.poWorkspace .subheading{margin:5px 0 3px!important}
+.poWorkspace .history{padding:3px 5px;margin-top:3px!important;border-radius:3px}
+.poWorkspace .form{padding:5px;margin:4px 0}
+.poWorkspace .formGrid{gap:4px 6px}
+.poWorkspace .form .actions{margin-top:4px;gap:4px}
+.poWorkspace .sourcePanel>p{margin:3px 0}
+.poWorkspace .sourcePanel>label{display:inline-flex;align-items:center;gap:4px}
+.poWorkspace .sourcePanel>.actions{justify-content:flex-start;align-items:center;gap:6px;margin-top:4px}
+.poWorkspace .panelBody .uploadForm{display:flex;align-items:flex-end;flex-wrap:wrap;gap:4px;max-width:100%;padding:4px;margin:4px 0}
+.poWorkspace .uploadForm label{display:flex;flex-direction:column;gap:2px;min-width:0;flex:0 1 260px}
+.poWorkspace .panelBody .uploadForm input[type=file]{width:260px;max-width:100%;padding:2px}
+.poWorkspace .uploadForm button{flex:none}
+@media(min-width:561px){
+ .poWorkspace .order{display:grid;grid-template-columns:minmax(0,1fr) auto}
+ .poWorkspace .orderTop{display:contents}
+ .poWorkspace .orderTop strong{grid-column:1/-1}
+ .poWorkspace .orderTop>span{grid-column:2;grid-row:2}
+ .poWorkspace .order>span:nth-child(2){grid-column:1;grid-row:2}
+ .poWorkspace .order small{grid-column:1/-1}
+}
+@media(max-width:800px){.poWorkspace .workspace{grid-template-columns:180px minmax(0,1fr)}.poWorkspace .orders .sectionHead{flex-wrap:wrap}}
+@media(max-width:560px){
+ .poWorkspace{height:min(34rem,100dvh);max-width:100%}
+ .poWorkspace .header{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start}
+ .poWorkspace .header .actions{justify-content:flex-end}
+ .poWorkspace .header button{min-height:28px}
+ .poWorkspace .workspace{grid-template-columns:1fr;grid-template-rows:80px minmax(0,1fr)}
+ .poWorkspace .orders{align-self:stretch;padding:3px}
+ .poWorkspace .orders .sectionHead{flex-wrap:nowrap;margin-bottom:2px}
+ .poWorkspace .order{grid-template-columns:minmax(0,1fr) 100px;padding:3px 4px!important;margin-top:2px}
+ .poWorkspace .detail>.sectionHead{align-items:flex-start}
+ .poWorkspace .detail>.sectionHead>div{gap:1px}
+ .poWorkspace .panelNav{margin-top:3px;gap:2px}
+ .poWorkspace .panelNav button{padding:3px 4px}
+ .poWorkspace th{padding:3px 2px}
+ .poWorkspace td{padding:3px 2px}
+ .poWorkspace .panelBody .uploadForm{padding:3px}
+ .poWorkspace .uploadForm label{flex:1 1 220px}
+}
+
+/* Narrow, content-sized purchasing window; keep controls beside their content. */
+.poWorkspace{max-width:720px;height:min(28rem,100dvh)}
+.poWorkspace .header{align-items:flex-start}
+.poWorkspace .header p{display:none}
+.poWorkspace .workspace{grid-template-columns:150px minmax(0,1fr)}
+.poWorkspace .orders select{width:100%}
+.poWorkspace .orderTop strong{overflow-wrap:anywhere}
+.poWorkspace .orderTop>span{align-self:center}
+.poWorkspace .detail>.sectionHead>div{gap:2px 6px}
+.poWorkspace .tableScroll table{width:100%;min-width:0}
+.poWorkspace .panelBody .receiptForm{width:100%;max-width:none}
+.receiptGrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.poWorkspace .receiptForm input[type=date]{max-width:10rem}
+.poWorkspace .receiptForm .actions{justify-content:flex-start}
+.poWorkspace .panelNav{gap:2px}
+.poWorkspace .panelNav button{padding:3px 4px}
+@media(max-width:560px){.poWorkspace{max-width:100%;height:min(34rem,100dvh)}.poWorkspace .workspace{grid-template-columns:1fr;grid-template-rows:80px minmax(0,1fr)}}
+.poWorkspace .quantityInput{width:8ch;min-width:4.5rem;max-width:100%;align-self:flex-start;text-align:right;padding:3px;border-radius:5px}
+.poWorkspace .tableScroll table{table-layout:fixed}
+.poWorkspace .mappingForm{display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:4px 6px;max-width:100%;min-width:0;margin:0}
+.poWorkspace .mappingForm label{display:flex;flex-direction:column;align-items:flex-start;max-width:100%;gap:2px}
+.poWorkspace .mappingForm select{width:16rem;max-width:100%;min-width:0}
+.poWorkspace .mappingForm button{max-width:100%;white-space:normal}
+.poWorkspace .tableScroll th:first-child{width:35%}
+@media(max-width:560px){.poWorkspace .mappingForm select{width:100%}}
+
+
+/* Combined workflow and origin badge fits the compact order column. */
+@media(min-width:561px){.poWorkspace .order{grid-template-columns:minmax(0,1fr)}.poWorkspace .orderTop>span{grid-column:1;grid-row:2;justify-self:start;max-width:100%;white-space:normal;overflow-wrap:anywhere}.poWorkspace .order>span:nth-child(2){grid-column:1;grid-row:3}.poWorkspace .order small{overflow-wrap:anywhere}}

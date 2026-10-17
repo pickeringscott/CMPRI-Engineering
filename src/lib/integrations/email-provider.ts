@@ -1,7 +1,8 @@
+import type {PdfEvidence} from "../po-attachment-intake";
 import { createHash, timingSafeEqual } from "node:crypto";
 /** Read-only mailbox adapters. The only POST is an OAuth token exchange. */
 export type EmailProvider = "gmail" | "microsoft365";
-export type OperationalMessage = { id: string; threadId?: string; subject: string; from: string; to: string; text: string; messageAt: string; direction: "inbound" | "outbound" };
+export type OperationalMessage = { id: string; threadId?: string; subject: string; from: string; to: string; text: string; html?: string; labelIds?: string[]; pdfEvidence?: PdfEvidence[]; messageAt: string; direction: "inbound" | "outbound" };
 type Json = Record<string, unknown>;
 const MAX_MESSAGES = 500;
 
@@ -24,7 +25,10 @@ export function htmlToText(html: string) {
     .replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/[ \t]+/g, " ").trim();
 }
 
-type MimePart = { mimeType?: string; body?: { data?: string }; parts?: MimePart[] };
+type MimePart = { partId?: string; filename?: string; mimeType?: string; body?: { data?: string; size?: number; attachmentId?: string }; parts?: MimePart[] };
+function gmailHtml(part?: MimePart): string {
+ const chunks:string[]=[];const visit=(p?:MimePart)=>{if(p?.mimeType==='text/html'&&p.body?.data)chunks.push(Buffer.from(p.body.data,'base64url').toString('utf8'));for(const child of p?.parts||[])visit(child);};visit(part);return chunks.join('\n');
+}
 export function gmailText(part?: MimePart): string {
   const plain: string[] = [], html: string[] = [];
   function visit(node?: MimePart) {
@@ -45,7 +49,7 @@ export function messageDirection(from: string, account: string): "inbound" | "ou
   return account && addresses.includes(account.trim().toLowerCase()) ? "outbound" : "inbound";
 }
 
-type RequestStage = "OAuth token exchange" | "Gmail list" | "Gmail retrieval" | "Microsoft messages";
+type RequestStage = "OAuth token exchange" | "Gmail list" | "Gmail retrieval" | "Gmail PDF attachment" | "Microsoft messages";
 const SAFE_OAUTH_CODES = new Set(["deleted_client", "disabled_client", "invalid_dpop_proof", "use_dpop_nonce", "invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "unsupported_grant_type", "invalid_scope", "temporarily_unavailable", "server_error"]);
 const SAFE_GMAIL_CODES = new Set(["authError", "insufficientPermissions", "accessNotConfigured", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded", "backendError", "notFound", "forbidden", "domainPolicy", "UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED", "INVALID_ARGUMENT", "NOT_FOUND", "UNAVAILABLE", "INTERNAL"]);
 function safeProviderCodes(body: unknown, stage: RequestStage): string[] {
@@ -146,7 +150,21 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage, 
     }
     throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }
-  try { return await response.json() as Json; }
+  try {
+    if (stage === "Gmail PDF attachment") {
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Missing attachment body');
+      const chunks: Uint8Array[] = []; let size = 0;
+      while (true) {
+        const {done,value} = await reader.read(); if (done) break;
+        size += value.length;
+        if (size > 14 * 1024 * 1024) { await reader.cancel(); throw new Error('Attachment limit'); }
+        chunks.push(value);
+      }
+      return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Json;
+    }
+    return await response.json() as Json;
+  }
   catch { throw new Error(`Mailbox ${stage} returned invalid JSON.`); }
 }
 
@@ -178,33 +196,39 @@ async function accessToken(provider: EmailProvider) {
   return data.access_token;
 }
 
-export async function fetchOperationalMessages() {
+export async function fetchOperationalMessages(options: { scope?: "po-label" | "po-history"; pageToken?: string; withPdfAttachments?: boolean } = {}) {
   const provider = configuredEmailProvider();
   if (!provider) return { provider, messages: [] as OperationalMessage[], truncated: false };
+  if (options.scope && provider !== "gmail") throw new Error("PO label review requires the existing work Gmail provider.");
   const token = await accessToken(provider);
   const headers = { authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"' };
   const messages: OperationalMessage[] = [];
+  const messageLimit=options.withPdfAttachments?25:MAX_MESSAGES;
   let truncated = false;
+  let continuation: string | undefined;
   if (provider === "gmail") {
     const base = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(process.env.CMPRI_GMAIL_USER || "me")}`;
     // Include ordinary replies and sent messages so established vendor threads remain visible.
-    const query = process.env.CMPRI_GMAIL_QUERY || "newer_than:14d";
-    let pageToken = "";
+    const query = options.scope === 'po-history' ? 'in:anywhere' : options.scope === "po-label" ? 'label:"POs"' : process.env.CMPRI_GMAIL_QUERY || "newer_than:14d";
+    let pageToken = options.scope==='po-history'?options.pageToken||"":"";
     do {
-      const params = new URLSearchParams({ q: query, maxResults: "100" });
+      const params = new URLSearchParams({ q: query, maxResults: String(Math.min(100,messageLimit)) });
       if (pageToken) params.set("pageToken", pageToken);
+      if(options.scope==='po-history')params.set("includeSpamTrash","true");
       const list = await jsonRequest(`${base}/messages?${params}`, { headers }, "Gmail list");
       for (const item of (list.messages || []) as { id: string }[]) {
-        if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
+        if (messages.length >= messageLimit) { truncated = true; break; }
         const row = await jsonRequest(`${base}/messages/${encodeURIComponent(item.id)}?format=full`, { headers }, "Gmail retrieval");
         const payload = row.payload as MimePart & { headers?: { name: string; value: string }[] };
         const header = (name: string) => payload?.headers?.find(entry => entry.name.toLowerCase() === name.toLowerCase())?.value || "";
         const from = header("from");
-        messages.push({ id: item.id, threadId: String(row.threadId || item.id), subject: header("subject"), from, to: header("to"), text: gmailText(payload), messageAt: new Date(Number(row.internalDate)).toISOString(), direction: messageDirection(from, process.env.CMPRI_GMAIL_ADDRESS || "") });
+        const pdfEvidence=options.withPdfAttachments?await (await import("../po-attachment-intake")).inspectGmailPdfs(payload,async id=>{if(!id||id.length>4096)throw Error('Invalid attachment identity');const result=await jsonRequest(base+'/messages/'+encodeURIComponent(item.id)+'/attachments/'+encodeURIComponent(id),{headers,redirect:'error',signal:AbortSignal.timeout(20000)},'Gmail PDF attachment');if(typeof result.data!=='string'||result.data.length>14*1024*1024)throw Error('PDF exceeds limit');return new Uint8Array(Buffer.from(result.data,'base64url'));},{from,subject:header('subject')}):undefined;
+        messages.push({ id: item.id, threadId: String(row.threadId || item.id), subject: header("subject"), from, to: header("to"), text: gmailText(payload), ...(pdfEvidence?{pdfEvidence}:{}), ...(options?.scope?{html:gmailHtml(payload),labelIds:Array.isArray(row.labelIds)?row.labelIds as string[]:[]}:{}), messageAt: new Date(Number(row.internalDate)).toISOString(), direction: messageDirection(from, process.env.CMPRI_GMAIL_ADDRESS || "") });
       }
       pageToken = String(list.nextPageToken || "");
-      if (pageToken && messages.length >= MAX_MESSAGES) truncated = true;
+      if (pageToken && messages.length >= messageLimit) truncated = true;
     } while (pageToken && !truncated);
+    if(options.scope==='po-history')continuation=pageToken||undefined;
   } else {
     const mailbox = process.env.CMPRI_MS_MAILBOX!;
     const since = new Date(Date.now() - 14 * 86400000).toISOString();
@@ -216,7 +240,7 @@ export async function fetchOperationalMessages() {
       if (nextUrl.origin !== "https://graph.microsoft.com" || !nextUrl.pathname.startsWith("/v1.0/")) throw new Error("Untrusted Microsoft pagination URL.");
       const page = await jsonRequest(next, { headers }, "Microsoft messages");
       for (const row of (page.value || []) as Json[]) {
-        if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
+        if (messages.length >= messageLimit) { truncated = true; break; }
         const sender = row.from as { emailAddress?: { name?: string; address?: string } };
         const from = sender?.emailAddress?.address || "";
         const body = row.body as { content?: string; contentType?: string };
@@ -224,10 +248,10 @@ export async function fetchOperationalMessages() {
         messages.push({ id: `microsoft365:${row.id}`, threadId: `microsoft365:${row.conversationId || row.id}`, subject: String(row.subject || ""), from, to: (recipients || []).map(item => item.emailAddress?.address || "").join(", "), text: body?.contentType?.toLowerCase() === "html" ? htmlToText(body.content || "") : body?.content || "", messageAt: new Date(String(row.receivedDateTime)).toISOString(), direction: messageDirection(from, mailbox) });
       }
       next = String(page["@odata.nextLink"] || "");
-      if (next && messages.length >= MAX_MESSAGES) truncated = true;
+      if (next && messages.length >= messageLimit) truncated = true;
     } while (next && !truncated);
   }
   // Chronological ingestion prevents old updates replacing newer state and discovers outbound threads first.
   messages.sort((a, b) => a.messageAt.localeCompare(b.messageAt));
-  return { provider, messages, truncated };
+  return { provider, messages, truncated, nextPageToken:continuation };
 }
