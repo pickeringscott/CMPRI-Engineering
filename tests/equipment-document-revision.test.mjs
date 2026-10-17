@@ -7,7 +7,8 @@ import ts from 'typescript';
 import vm from 'node:vm';
 import {PGlite} from '@electric-sql/pglite';
 const require=createRequire(import.meta.url);
-function load(path,deps={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(name)=>name in deps?deps[name]:require(name),console,TextDecoder,TextEncoder,Uint8Array,File,FormData});return exports;}
+let routeDeps={};
+function load(path,deps={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(name)=>name in deps?deps[name]:name in routeDeps?routeDeps[name]:require(name),console,TextDecoder,TextEncoder,Uint8Array,File,FormData});return exports;}
 const sourceModule=load('../src/lib/manual-source.ts',{'./manual-document-match':load('../src/lib/manual-document-match.ts')});
 const pdfModule=load('../src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{}});
 test('real PDF extraction preserves upload bytes and SHA, including a second read',async()=>{
@@ -17,6 +18,15 @@ test('real PDF extraction preserves upload bytes and SHA, including a second rea
  assert.ok(text.length>5000);assert.equal(bytes.byteLength,length);assert.equal(hash(),before);
  assert.equal(await pdfModule.extractManualPdfText(bytes),text);assert.equal(hash(),before);
 });
+const unexpectedLegacy=()=>{throw Error('Canonical route test must not invoke the legacy route');};
+routeDeps={
+ '@/lib/server/pre-consolidation/assets-route':{GET:unexpectedLegacy,PATCH:unexpectedLegacy},
+ '@/lib/server/pre-consolidation/documentation-route':{GET:unexpectedLegacy,POST:unexpectedLegacy},
+ '@/lib/server/consolidation-stage':{dispatchConsolidation:async()=>null},
+ '@/lib/server/asset-file-register':load('../src/lib/server/asset-file-register.ts'),
+ '@/lib/server/stored-pdf-import':{inspectStoredPdf:()=>{throw Error('Upload/retry fixture must not enter stored-import branch');}},
+ '@/lib/stored-pdf-link':load('../src/lib/stored-pdf-link.ts'),
+};
 const hotel='00000000-0000-4000-8000-000000000001',actor='00000000-0000-4000-8000-000000000002',asset='00000000-0000-4000-8000-000000000003';
 async function database(){const db=new PGlite();await db.exec(`
  create role anon;create role authenticated;create role service_role bypassrls;
@@ -62,7 +72,7 @@ test('revision rejects browser RPC access, stale snapshots, ineligible/inactive 
 });
 function routeFixture({files=[],body={},role='system_admin',verified=false,revision=false}={}){
  const row={id:asset,hotel_id:hotel,documentation_revision_id:revision?'fixture-revision':null,updated_at:'2026-10-13T00:00:00Z',documentation_verified_at:verified?'2026-10-12T00:00:00Z':null};const rpc=[];
- const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:row,error:null})};return q;},storage:{from(){return {list:async()=>({data:files.map((f,i)=>({name:`${i}.pdf`})),error:null}),download:async(path)=>({data:files[Number(path.split('/').pop().split('.')[0])],error:null})}}},rpc:async(name,args)=>{rpc.push({name,args});return {data:'fixture-revision',error:null}}};
+ const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:row,error:null})};return q;},storage:{from(){return {list:async()=>({data:files.map((f,i)=>({name:`${i}.pdf`})),error:null}),download:async(path)=>({data:files[Number(path.split('/').pop().split('.')[0])],error:null})}}},rpc:async(name,args)=>{if(name==='cmpri_list_asset_files'){assert.equal(args.p_asset_id,asset);return {data:files.map((f,i)=>({name:`${i}.pdf`,storage_path:`${hotel}/${asset}/${i}.pdf`})),error:null};}rpc.push({name,args});return {data:'fixture-revision',error:null}}};
  const auth={admin,principal:{profile:{role},identity:{id:actor}}};
  const mod=load('../src/app/api/assets/route.ts',{'next/server':{NextResponse:Response},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/asset-install-year':{},'@/lib/server/access':{},'@/lib/server/auth':{requireCapability:async()=>auth},'@/lib/server/roles':{canEditEquipment:r=>r==='system_admin'},'@/lib/equipment-selection':{},'@/lib/manual-pdf-knowledge':pdfModule});
  return {rpc,run:()=>mod.PATCH({json:async()=>({id:asset,verify_with_documentation:true,expected_updated_at:row.updated_at,...body})})};
@@ -76,11 +86,11 @@ test('verification accepts a saved readable replacement while retaining an old e
 });
 
 test('normal upload stores the original PDF bytes after real extraction; Retry uses the saved object',async()=>{
- const original=new Uint8Array(readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url)));let saved;
- const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{id:asset},error:null}),upsert:async()=>({error:null})};return q},storage:{getBucket:async()=>({data:{id:'asset-documentation'},error:null}),from(){return {upload:async(path,bytes)=>{saved={path,bytes:bytes.slice()};return {error:null}},download:async()=>({data:new Blob([saved.bytes]),error:null}),createSignedUrl:async()=>({data:{signedUrl:'https://fixture.invalid/manual.pdf'},error:null})}}}};
+ const original=new Uint8Array(readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url)));let saved;const registered=new Set();const catalogWrites=[];
+ const admin={rpc:async(name,args)=>{assert.equal(args.p_asset_id,asset);if(name==='cmpri_upsert_asset_catalog'){catalogWrites.push(args.p_record);return {error:null};}if(name==='cmpri_register_asset_file'){registered.add(args.p_storage_path);return {error:null};}assert.equal(name,'cmpri_list_asset_files');return {data:[...registered].map(storage_path=>({storage_path,name:storage_path.split('/').pop()})),error:null};},from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{id:asset},error:null}),upsert:async()=>({error:null})};return q},storage:{getBucket:async()=>({data:{id:'asset-documentation'},error:null}),from(){return {upload:async(path,bytes)=>{saved={path,bytes:bytes.slice()};return {error:null}},download:async()=>({data:new Blob([saved.bytes]),error:null}),createSignedUrl:async()=>({data:{signedUrl:'https://fixture.invalid/manual.pdf'},error:null})}}}};
  const route=load('../src/app/api/assets/documentation/route.ts',{'next/server':{NextResponse:Response},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/server/auth':{requireCapability:async()=>({admin,principal:{profile:{role:'system_admin'},identity:{id:actor}}})},'@/lib/server/roles':{canEditEquipment:()=>true},'@/lib/manual-pdf-knowledge':pdfModule,'@/lib/manual-source':sourceModule,'@/lib/manual-document-catalog':{},'@/lib/server/verified-manual-catalog':{}});
  const form=new FormData();form.set('asset_id',asset);form.set('file',new File([original],'fixture.pdf',{type:'application/pdf'}));
- const response=await route.POST({formData:async()=>form});assert.equal(response.status,200);assert.equal((await response.json()).processing_status,'pending_identity');assert.deepEqual(saved.bytes,original);
+ const response=await route.POST({formData:async()=>form});assert.equal(response.status,200);assert.equal((await response.json()).processing_status,'pending_identity');assert.deepEqual(saved.bytes,original);assert.deepEqual([...registered],[saved.path]);assert.equal(catalogWrites.length,1);assert.equal(catalogWrites[0].storage_path,saved.path);assert.equal(catalogWrites[0].ingestion_status,'pending');
  const retry=new FormData();retry.set('asset_id',asset);retry.set('storage_path',saved.path);
  const second=await route.POST({formData:async()=>retry});assert.equal((await second.json()).processing_status,'pending_identity');assert.deepEqual(saved.bytes,original);
  saved.bytes=new Uint8Array();const emptyRetry=await route.POST({formData:async()=>retry});assert.equal(emptyRetry.status,422);assert.equal(saved.bytes.byteLength,0);

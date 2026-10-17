@@ -52,6 +52,11 @@ export async function loadVerifiedCatalogManuals(
     const manualChoice = link.applicability === "confirmed_model" && Boolean(link.selected_model);
     if (manualChoice && link.storage_path) {
       const row = { ...original, document_key: link.document_key || `manual-${link.object_id}`, title: link.title || original?.title || "Selected PDF", storage_path: link.storage_path, source_file_name: link.storage_path.split("/").pop() || null, manufacturer: link.manufacturer || original?.manufacturer || "", document_type: original?.document_type || "User-reviewed PDF", equipment: link.selected_model || "", model_pattern: link.selected_model || "", active: true, ingestion_status: original?.ingestion_status || "complete", troubleshooting_cache_key: original?.troubleshooting_cache_key || null } as CatalogRow;
+      // A saved choice does not authorize guidance for a subsequently changed asset.
+      if (!catalogManualMatchesEquipment(equipment, row)) {
+        warnings.push(`${row.title}: selected guide no longer matches the current manufacturer and model. Review the association.`);
+        continue;
+      }
       overrides.set(row.document_key, link); candidates.push(row);
     } else if (!link.sha256 && original && link.legacy_sources?.includes("legacy_candidate") && catalogManualMatchesEquipment(equipment, original)) {
       candidates.push(original);
@@ -103,7 +108,7 @@ export async function loadVerifiedCatalogManuals(
       warnings.push(`${manual.title}: the catalog PDF could not be read.`);
       continue;
     }
-    if (!override && (!text || !catalogManualPdfMatchesEquipment(text, equipment, manual))) {
+    if (!text || !catalogManualPdfMatchesEquipment(text, equipment, manual)) {
       warnings.push(`${manual.title}: the PDF content did not verify the exact cataloged model family.`);
       continue;
     }
