@@ -3,8 +3,9 @@ import {requireCapability} from '@/lib/server/auth';
 import {isIntegrationsSafeMode} from '@/lib/server/integrations-safe-mode';
 import {readPoReviewRequest,reviewPoMailboxBatch} from '@/lib/server/po-review-batch';
 import {historyFromMailboxReview} from '@/lib/purchasing-history';
+import {persistReviewedPoPlan} from '@/lib/server/po-import';
 import {HOTEL_ID} from '@/lib/constants';
-/** Import only the exact reverified batch; no active orders, stock or receipts. */
+/** Explicit reviewed import: verified PO identities plus history; never stock or receipts. */
 export async function POST(request:NextRequest){
  const auth=await requireCapability(request,'operate_integrations');if(!auth)return NextResponse.json({error:'Integration-operator permission required.'},{status:403});
  if(process.env.CMPRI_PO_ENABLED!=='true'||process.env.CMPRI_PO_IMPORT_ENABLED!=='true'||isIntegrationsSafeMode())return NextResponse.json({error:'Reviewed PO imports are not enabled.'},{status:409});
@@ -16,6 +17,7 @@ export async function POST(request:NextRequest){
   const history=historyFromMailboxReview(batch.plan);
   const saved=await auth.admin.rpc('cmpri_import_purchasing_history',{p_hotel:HOTEL_ID,p_actor:auth.principal.identity.id,p_account:account,p_digest:batch.digest,p_plan:history});
   if(saved.error)return NextResponse.json({error:'Source conflict requires reconciliation. This batch was not saved.'},{status:409});
-  return NextResponse.json({recordsSaved:history.records.length,sourceCount:history.sources.length,nextPageToken:batch.nextPageToken,complete:batch.complete,inventoryChanged:false,receiptsCreated:0},{headers:{'Cache-Control':'no-store'}});
+  const active=await persistReviewedPoPlan(auth.admin,HOTEL_ID,auth.principal.identity.id,batch.plan);
+  return NextResponse.json({activeOrders:active.orders,held:active.held,recordsSaved:history.records.length,sourceCount:history.sources.length,nextPageToken:batch.nextPageToken,complete:batch.complete,inventoryChanged:false,receiptsCreated:0},{headers:{'Cache-Control':'no-store'}});
  }catch{return NextResponse.json({error:'Batch import could not be confirmed. Retrying the reviewed batch is idempotent.'},{status:502});}
 }

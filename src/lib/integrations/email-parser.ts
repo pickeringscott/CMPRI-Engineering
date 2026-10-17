@@ -88,7 +88,7 @@ export function parseOperationalEmail(input: EmailForParsing): ParsedEmail {
   ]);
 
   const orderNumber = firstMatch(combined, [
-    /\b(?:purchase order|po)\s*(?:number|no\.?|#)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,})\b/i,
+    /\b(?:purchase order|po)\s*(?:number|no\.?|#)\s*[:#-]?\s*((?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{3,})\b/i,
     /\border\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,})\b/i,
   ]);
 

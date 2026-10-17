@@ -1,0 +1,33 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {PGlite} from '@electric-sql/pglite';
+import {parseOperationalEmail} from '../src/lib/integrations/email-parser.ts';
+import {parsePoSource} from '../src/lib/po-source-parser.ts';
+import {planPoBatch} from '../src/lib/po-evidence.ts';
+import {persistReviewedPoPlan} from '../src/lib/server/po-import.ts';
+const db=new PGlite();
+await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table work_orders(id uuid primary key,hotel_id uuid);');
+const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
+for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inventory_movements']){const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${table}" (`);await db.exec(baseline.slice(start,baseline.indexOf('\n);',start)+3));await db.exec(`alter table ${table} add primary key(id);`);}
+await db.exec(readFileSync('supabase/migrations/20261016211655_cmpri_po_receiving.sql','utf8'));
+await db.exec(readFileSync(process.env.PO_IDENTITY_MIGRATION||'supabase/migrations/20261017184618_cmpri_reviewed_po_identities.sql','utf8'));
+const hotel='00000000-0000-0000-0000-000000000001',actor='00000000-0000-0000-0000-000000000002';
+const refs=['37193699802','37237886735','37249725170'];
+const sources=refs.map((ref,i)=>({account:'fixture@example.test',id:(0x1000000000000000n+BigInt(i)).toString(16),subject:`PO ACCEPTED: Your PO #${ref} regarding fixture has been accepted.`,from:'iBuyEfficientAlerts@avendra.com',text:`Action: OFFLINE SUPPLIER has accepted PO # ${ref} which occurred on 10/16/2026 2:58:44 PM PST`,messageAt:'2026-10-16T22:00:00Z'}));
+for(const s of sources)assert.equal(parseOperationalEmail(s).orderNumber,s.subject.match(/#(\d+)/)[1]);
+assert.equal(parseOperationalEmail({subject:'New PO Submitted',text:'iBuyEfficient'}).orderNumber,undefined);
+assert.equal(parseOperationalEmail({subject:'PO ACCEPTED',text:'PO number: windy city'}).orderNumber,undefined);
+const plan=planPoBatch(sources.map(parsePoSource));assert.equal(plan.orders.length,3);
+const admin={rpc:async(name,p)=>{try{return {data:(await db.query('select cmpri_import_po_order($1,$2,$3::jsonb) id',[p.p_hotel,p.p_actor,JSON.stringify(p.p_order)])).rows[0].id};}catch(e){return {error:{message:e.message}};}}};
+await db.exec('set role service_role');
+const first=await persistReviewedPoPlan(admin,hotel,actor,plan),second=await persistReviewedPoPlan(admin,hotel,actor,plan);assert.deepEqual(second,first);assert.ok(first.orders.every(o=>o.id),JSON.stringify(first));
+await db.exec('reset role');
+assert.deepEqual((await db.query('select external_reference from cmpri_po_orders order by external_reference')).rows.map(r=>r.external_reference),refs);
+for(const table of ['cmpri_po_lines','cmpri_po_receipts','cmpri_inventory_items','cmpri_inventory_movements'])assert.equal((await db.query(`select count(*)::int n from ${table}`)).rows[0].n,0);
+assert.equal((await db.query('select count(*)::int n from cmpri_po_sources')).rows[0].n,3);
+assert.ok((await db.query('select review_status from cmpri_po_sources')).rows.every(r=>r.review_status==='identity-verified-details-unresolved'));
+const conflict=structuredClone(plan.orders[0]);conflict.evidence[0].messageAt='2020-01-01';assert.ok((await admin.rpc('',{p_hotel:hotel,p_actor:actor,p_order:conflict})).error);
+const invalid=structuredClone(plan.orders[0]);invalid.externalPo='9999999';invalid.evidence=[];assert.ok((await admin.rpc('',{p_hotel:hotel,p_actor:actor,p_order:invalid})).error);
+await db.exec('set role anon');assert.ok((await admin.rpc('',{p_hotel:hotel,p_actor:actor,p_order:plan.orders[0]})).error);
+await db.close();console.log('PASS identity parsing, 3 distinct active headers, retry IDs, source conflicts, evidence guard, role denial, zero invented lines/receipts/inventory.');
+

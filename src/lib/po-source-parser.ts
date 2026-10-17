@@ -20,7 +20,7 @@ export function parsePoSource(source:PoSource):OrderEvidence{
  if(sender.toLowerCase()==='ibuyefficientalerts@avendra.com'&&/^PO ACCEPTED:/i.test(source.subject)){
   const subject=source.subject.match(/Your PO #(\d+)\b/i),action=text.match(/^Action:\s*(.+?) has accepted PO #\s*(\d+) which occurred on (.+)$/mi);
   if(!subject||!action||subject[1]!==action[2])return {...e,kind:'company-accepted',incomplete:true};
-  return {...e,kind:'company-accepted',externalPo:subject[1],eventTimeLiteral:action[3].trim()};
+  return {...e,kind:'company-accepted',externalPo:subject[1],sourceSubject:source.subject,eventTimeLiteral:action[3].trim()};
  }
  if(/TO ACCEPT THIS ORDER|accept and retrieve/i.test(text))return {...e,hasActionLink:true,incomplete:true};
  if(sender.toLowerCase()!=='donotreply@tx.hdsupply-email.com')return intake.length||source.pdfEvidence?.length||/\b(PO|purchase|order|invoice|receipt|shipment)\b/i.test(source.subject)?{...e,incomplete:true}:e;
