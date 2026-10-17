@@ -2,10 +2,11 @@
 import { useRef, useState } from "react";
 import { pdfImportResponse, uploadPdfDirect } from "@/lib/pdf-direct-upload";
 import type { PdfReview, StoredPdf } from "@/lib/stored-pdf-link";
+import { pdfReviewSuggestions, type EquipmentSuggestions } from "@/lib/equipment-pdf-suggestions";
 import { preservePdfReview } from "@/lib/stored-pdf-link";
 
 type SavedLink = StoredPdf & PdfReview & { sha256: string; document_id?: string };
-type Review = { file: StoredPdf; sha256: string; url: string; saved_fields: SavedLink | null; suggestions: { manufacturer?: string; model_number?: string; model_candidates?: string[] } | null; readable_text: boolean; updated_at: string };
+type Review = { file: StoredPdf; sha256: string; url: string; saved_fields: SavedLink | null; suggestions: EquipmentSuggestions | null; readable_text: boolean; updated_at: string };
 const blank: PdfReview = { title:"", manufacturer:"", models:[], selected_model:"", applicability:"reference", notes:"", reason:"", extracted_fields:{} };
 
 export default function StoredPdfImporter({ assetId, assetName, token, onSaved }: { assetId:string; assetName:string; token:()=>Promise<string | null>; onSaved:()=>void }) {
@@ -45,8 +46,9 @@ export default function StoredPdfImporter({ assetId, assetName, token, onSaved }
         setObjectId(next.file.object_id);setReview(next);setUpdatedAt(next.updated_at);setConfirmed(false);
         // Re-reading the same document never replaces in-progress edits. Saved overrides
         // take priority when opening a different document; extracted candidates stay suggestions.
+        const suggested=pdfReviewSuggestions(next.file.title,next.suggestions);
         const knownModel=assetId==="a1a64c82-93f2-4ecb-96b8-23601b13f448"?"AZ95E12DACK1":"";
-        setFields(preservePdfReview(review?.file.object_id||null,next.file.object_id,fields,next.saved_fields ? {...blank,...next.saved_fields} : null,{...blank,title:next.file.title,manufacturer:next.suggestions?.manufacturer||"",models:Array.from(new Set([...(next.suggestions?.model_candidates||[]),...(knownModel?[knownModel]:[])]))}));
+        setFields(preservePdfReview(review?.file.object_id||null,next.file.object_id,fields,next.saved_fields ? {...blank,...next.saved_fields} : null,{...suggested,models:Array.from(new Set([...suggested.models,...(knownModel?[knownModel]:[])]))}));
         setMessage(next.readable_text?"Review the original and edit its fields. Model selection is yours.":"The PDF opens, but has no readable text. Enter and confirm applicability manually from the original.");
         if(action==="upload"){setUpload(null);if(fileInput.current)fileInput.current.value="";await load();}
       } else {
@@ -64,9 +66,10 @@ export default function StoredPdfImporter({ assetId, assetName, token, onSaved }
     <label className="grid gap-1 text-sm">Add another PDF (up to 50 MiB)<input ref={fileInput} className={inputClass} disabled={busy} type="file" accept="application/pdf,.pdf" onChange={e=>setUpload(e.target.files?.[0]||null)}/></label>
     <button type="button" disabled={busy||!upload} onClick={()=>void run("upload")} className="rounded border px-3 py-2">Upload original for review</button>
     {uploading&&<button type="button" onClick={()=>uploadController.current?.abort()} className="ml-2 rounded border px-3 py-2">Cancel upload</button>}
-    {review&&<fieldset disabled={busy} className="space-y-3">
+    {review&&<fieldset disabled={busy} className="min-w-0 space-y-3">
       <a className="text-cyan-300 underline" href={review.url} target="_blank" rel="noreferrer">Open the selected original PDF</a>
-      {review.suggestions&&<p className="text-xs text-slate-400">Extracted suggestions (unverified): {JSON.stringify(review.suggestions)}. Re-reading does not replace your edits.</p>}
+      {review.suggestions?.manufacturer_source==="asset"&&<p className="text-xs text-amber-100">Manufacturer defaults to the existing equipment record, not extracted PDF text. Confirm it against the original. Model choices do not establish exact variant compatibility.</p>}
+      {review.suggestions&&<p className="text-xs text-slate-400" style={{overflowWrap:"anywhere"}}>Review suggestions (unverified): {JSON.stringify(review.suggestions)}. Re-reading does not replace your edits.</p>}
       <label className="grid gap-1 text-sm">Document title<input className={inputClass} value={fields.title} onChange={e=>{setFields({...fields,title:e.target.value});setConfirmed(false);}}/></label>
       <label className="grid gap-1 text-sm">Manufacturer<input className={inputClass} value={fields.manufacturer} onChange={e=>{setFields({...fields,manufacturer:e.target.value});setConfirmed(false);}}/></label>
       {([['asset_type','Equipment type'],['model_family','Model family'],['serial_number','Serial number'],['generation','Generation'],['install_year','Install year']] as const).map(([key,label])=><label key={key} className="grid gap-1 text-sm">{label}<input className={inputClass} value={fields.extracted_fields?.[key]||""} onChange={e=>{setFields({...fields,extracted_fields:{...fields.extracted_fields,[key]:e.target.value}});setConfirmed(false);}}/></label>)}

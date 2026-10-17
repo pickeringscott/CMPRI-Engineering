@@ -1,5 +1,6 @@
 // Executes actual route handlers against a fake Supabase boundary; no live data.
 import test from 'node:test';
+import {extractEquipmentSuggestions} from '../src/lib/equipment-pdf-suggestions.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -86,6 +87,7 @@ function fixture(route, config={}) {
       if(name==='@/lib/server/consolidation-stage')return {dispatchConsolidation:async()=>null};
       if(name.startsWith('@/lib/server/pre-consolidation/'))return {};
       if(name==='@/lib/server/asset-file-register')return {listRegisteredAssetFiles:async(_client,id)=>({data:(config.storageFiles||[]).map(f=>({...f,storage_path:`c81ad01a-7a9f-4880-ac1c-5e849f30bad6/${id}/${f.name}`,preferred:false})),error:config.storageError?{message:'Association lookup unavailable'}:null})};
+      if(name==='@/lib/equipment-pdf-suggestions')return {};
       if(name==='@/lib/server/pdf-direct-upload')return {};
       if(name==='@/lib/server/stored-pdf-import')return {};
       if(name==='@/lib/stored-pdf-link')return {};
@@ -310,19 +312,6 @@ for (const role of ['Front Desk','Housekeeping','Unknown']) {
     const f=fixture(route,{profile:{active:true,role},permission:true});assert.equal((await f.handlers[method](f.request)).status,403);assert.equal(f.calls.includes('assets'),false);
   });
 }
-
-const documentationSource=readFileSync(new URL('../src/app/api/assets/documentation/route.ts',import.meta.url),'utf8');
-const documentationAst=ts.createSourceFile('documentation-route.ts',documentationSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
-const extractorNames=new Set(['cleanPhrase','firstCapture','extractEquipmentSuggestions']);
-const extractorFunctions=documentationAst.statements
-  .filter(node=>ts.isFunctionDeclaration(node)&&extractorNames.has(node.name?.text))
-  .map(node=>node.getText(documentationAst)).join('\n');
-assert.equal(documentationAst.statements.filter(node=>ts.isFunctionDeclaration(node)&&extractorNames.has(node.name?.text)).length,3);
-const extractorExports={};
-vm.runInNewContext(ts.transpileModule(extractorFunctions+'\nexports.extract=extractEquipmentSuggestions;',{
-  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:extractorExports});
-const extractEquipmentSuggestions=extractorExports.extract;
 
 test('equipment PDF extractor reads explicitly labelled fields',()=>{
   const result=extractEquipmentSuggestions('PAGE 1 Equipment Type: Pool Conditioner Manufacturer: Maritime Geothermal Ltd. Model Number: PC-55-P-15-T-KDERS-13 Serial No: 12345-AB Generation: 2 Installation Year: 2024 Voltage: 208V');

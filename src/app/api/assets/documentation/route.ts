@@ -1,3 +1,4 @@
+import { extractEquipmentSuggestions, withAssetManufacturer } from "@/lib/equipment-pdf-suggestions";
 import * as baseline from "@/lib/server/pre-consolidation/documentation-route";
 import { dispatchConsolidation } from "@/lib/server/consolidation-stage";
 import { listRegisteredAssetFiles, registerAssetFile } from "@/lib/server/asset-file-register";
@@ -18,89 +19,9 @@ const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
-type Suggestions = {
-  asset_type?: string;
-  manufacturer?: string;
-  model_family?: string;
-  model_number?: string;
-  model_candidates?: string[];
-  serial_number?: string;
-  generation?: string;
-  install_year?: number;
-};
-
 function safePart(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 140) || "document.pdf";
 }
-
-function cleanPhrase(value: string) {
-  return value
-    .replace(/\s+/g, " ")
-    .replace(/^[\s:;,#=-]+|[\s:;,=-]+$/g, "")
-    .trim();
-}
-
-function firstCapture(text: string, patterns: RegExp[]) {
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    const value = cleanPhrase(String(match?.[1] || ""));
-    if (value) return value;
-  }
-  return "";
-}
-
-/**
- * Extract only explicitly labelled equipment identifiers from readable PDF
- * text. This is deliberately conservative: it does not guess a model,
- * manufacturer or serial number from arbitrary numbers in a manual.
- */
-function extractEquipmentSuggestions(text: string): Suggestions | null {
-  const flattened = text.replace(/\bPAGE\s+\d+\b/gi, " ").replace(/\s+/g, " ").trim();
-  if (!flattened) return null;
-
-  const model = firstCapture(flattened, [
-    /\bmodel(?:\s+(?:number|no\.?))?\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,60})/i,
-    /\bmodel\s+id\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,60})/i,
-  ]);
-  const serial = firstCapture(flattened, [
-    /\bserial(?:\s+(?:number|no\.?))?\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,80})/i,
-    /\bs\/n\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{2,80})/i,
-  ]);
-  const manufacturer = firstCapture(flattened, [
-    /\bmanufacturer(?:\s+name)?\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|s\/n|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
-    /\bmanufactured\s+by\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|s\/n|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
-  ]);
-  const modelFamily = firstCapture(flattened, [
-    /\b(?:model|equipment)\s+family\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9&.'()\/ -]{1,100}?)(?=\s+(?:model|serial|s\/n|manufacturer|generation|gen|install(?:ed|ation)|voltage|power|equipment|product|unit)\b|[.;]|$)/i,
-  ]);
-  const generation = firstCapture(flattened, [
-    /\bgeneration\s*[:#=-]?\s*([A-Za-z0-9][A-Za-z0-9._\/-]{0,30})/i,
-    /\bgen(?:eration)?\.?\s*[:#=-]?\s*(\d+[A-Za-z]?)/i,
-  ]);
-  const assetType = firstCapture(flattened, [
-    /\b(?:equipment|product|unit)\s+type\s*[:#=-]?\s*([A-Za-z][A-Za-z0-9&.'()\/ -]{1,80}?)(?=\s+(?:model|serial|manufacturer|generation|gen|install(?:ed|ation)|voltage|power)\b|[.;]|$)/i,
-  ]);
-  const installYearText = firstCapture(flattened, [
-    /\b(?:installation\s+year|year\s+installed|installed\s+in)\s*[:#=-]?\s*((?:19|20)\d{2})\b/i,
-  ]);
-
-  const result: Suggestions = {};
-  const modelListMatch = flattened.match(/\b(?:applicable\s+)?models?\s*[:#=-]\s*([A-Za-z0-9][A-Za-z0-9._/-]*(?:\s*[,;]\s*[A-Za-z0-9][A-Za-z0-9._/-]*){1,20})/i);
-  const modelCandidates = modelListMatch?.[1]
-    .split(/[,;]/)
-    .map((value) => cleanPhrase(value))
-    .filter(Boolean) || [];
-  if (assetType) result.asset_type = assetType;
-  if (manufacturer) result.manufacturer = manufacturer;
-  if (modelFamily) result.model_family = modelFamily;
-  if (model) result.model_number = model;
-  if (modelCandidates.length > 1) result.model_candidates = Array.from(new Set(modelCandidates));
-  if (serial) result.serial_number = serial;
-  if (generation) result.generation = generation;
-  if (installYearText) result.install_year = Number(installYearText);
-  return Object.keys(result).length ? result : null;
-}
-
 async function extractPdfText(bytes: Uint8Array) {
   try {
     return await extractManualPdfText(bytes);
@@ -211,7 +132,7 @@ export async function POST(request: NextRequest) {
   if (importAction) {
     if (!["review", "save", "unlink", "upload", "upload_prepare", "upload_complete"].includes(importAction)) return NextResponse.json({ error: "Unknown importer action." }, { status: 400 });
     const assetId = String(form.get("asset_id") || "");
-    const { data: asset, error: assetError } = await auth.admin.from("assets").select("id,updated_at,pdf_import_links,documentation_verified_at,documentation_revision_id").eq("id", assetId).eq("hotel_id", HOTEL_ID).maybeSingle();
+    const { data: asset, error: assetError } = await auth.admin.from("assets").select("id,manufacturer,updated_at,pdf_import_links,documentation_verified_at,documentation_revision_id").eq("id", assetId).eq("hotel_id", HOTEL_ID).maybeSingle();
     if (assetError) return NextResponse.json({ error: "The stored-PDF importer database update is unavailable." }, { status: 503 });
     if (!asset) return NextResponse.json({ error: "Asset not found." }, { status: 404 });
     try {
@@ -249,7 +170,7 @@ export async function POST(request: NextRequest) {
       const expectedHash = importAction === "save" || importAction === "upload_complete" ? String(form.get("sha256") || "") : null;
       if (importAction === "save" && !/^[a-f0-9]{64}$/.test(expectedHash || "")) throw new Error("Open and review the stored PDF before saving its association.");
       const inspected = await inspectStoredPdf(auth.admin, objectId, expectedHash);
-      if (importAction !== "save") return NextResponse.json({ file: inspected.file, sha256: inspected.sha256, url: inspected.url, saved_fields: prior || null, suggestions: extractEquipmentSuggestions(inspected.text), readable_text: Boolean(inspected.text.trim()), updated_at: asset.updated_at });
+      if (importAction !== "save") return NextResponse.json({ file: inspected.file, sha256: inspected.sha256, url: inspected.url, saved_fields: prior || null, suggestions: withAssetManufacturer(extractEquipmentSuggestions(inspected.text), asset.manufacturer), readable_text: Boolean(inspected.text.trim()), updated_at: asset.updated_at });
       if (form.get("review_confirmed") !== "true") throw new Error("Confirm that you reviewed this document and selected its intended asset and model.");
       const fields = reviewPdfFields(JSON.parse(String(form.get("fields") || "null")));
       const link = { ...inspected.file, ...fields, sha256: inspected.sha256, compatibility_basis: fields.applicability === "confirmed_model" ? "user_confirmed" : "general_reference", file_verified: true };
