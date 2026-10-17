@@ -24,7 +24,7 @@ routeDeps={
  '@/lib/server/pre-consolidation/documentation-route':{GET:unexpectedLegacy,POST:unexpectedLegacy},
  '@/lib/server/consolidation-stage':{dispatchConsolidation:async()=>null},
  '@/lib/server/asset-file-register':load('../src/lib/server/asset-file-register.ts'),
- '@/lib/server/stored-pdf-import':{inspectStoredPdf:()=>{throw Error('Upload/retry fixture must not enter stored-import branch');}},
+ '@/lib/server/pdf-direct-upload':{},'@/lib/server/stored-pdf-import':{inspectStoredPdf:()=>{throw Error('Upload/retry fixture must not enter stored-import branch');}},
  '@/lib/stored-pdf-link':load('../src/lib/stored-pdf-link.ts'),
 };
 const hotel='00000000-0000-4000-8000-000000000001',actor='00000000-0000-4000-8000-000000000002',asset='00000000-0000-4000-8000-000000000003';

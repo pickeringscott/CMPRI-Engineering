@@ -2,6 +2,7 @@ import * as baseline from "@/lib/server/pre-consolidation/documentation-route";
 import { dispatchConsolidation } from "@/lib/server/consolidation-stage";
 import { listRegisteredAssetFiles, registerAssetFile } from "@/lib/server/asset-file-register";
 import { inspectStoredPdf } from "@/lib/server/stored-pdf-import";
+import { prepareDirectPdf } from "@/lib/server/pdf-direct-upload";
 import { reviewPdfFields, sameReviewedFields } from "@/lib/stored-pdf-link";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -208,13 +209,19 @@ export async function POST(request: NextRequest) {
 
   const importAction = String(form.get("import_action") || "");
   if (importAction) {
-    if (!["review", "save", "unlink", "upload"].includes(importAction)) return NextResponse.json({ error: "Unknown importer action." }, { status: 400 });
+    if (!["review", "save", "unlink", "upload", "upload_prepare", "upload_complete"].includes(importAction)) return NextResponse.json({ error: "Unknown importer action." }, { status: 400 });
     const assetId = String(form.get("asset_id") || "");
     const { data: asset, error: assetError } = await auth.admin.from("assets").select("id,updated_at,pdf_import_links,documentation_verified_at,documentation_revision_id").eq("id", assetId).eq("hotel_id", HOTEL_ID).maybeSingle();
     if (assetError) return NextResponse.json({ error: "The stored-PDF importer database update is unavailable." }, { status: 503 });
     if (!asset) return NextResponse.json({ error: "Asset not found." }, { status: 404 });
     try {
       let objectId = String(form.get("object_id") || "");
+      if (importAction === "upload_prepare" || importAction === "upload_complete") {
+        if (asset.documentation_verified_at) throw new Error("Open an equipment revision before adding a PDF.");
+        const direct = await prepareDirectPdf(auth.admin, HOTEL_ID, assetId, form, importAction === "upload_complete");
+        if (importAction === "upload_prepare") return NextResponse.json(direct, { headers: { "Cache-Control": "no-store" } });
+        objectId = direct.object_id || "";
+      }
       if (importAction === "upload") {
         if (asset.documentation_verified_at) throw new Error("Open an equipment revision before adding a PDF.");
         const file = form.get("file");
@@ -239,7 +246,7 @@ export async function POST(request: NextRequest) {
         if (error) return NextResponse.json({ error: error.message }, { status: 409 });
         return NextResponse.json({ ...data, removed: true, original_preserved: true });
       }
-      const expectedHash = importAction === "save" ? String(form.get("sha256") || "") : null;
+      const expectedHash = importAction === "save" || importAction === "upload_complete" ? String(form.get("sha256") || "") : null;
       if (importAction === "save" && !/^[a-f0-9]{64}$/.test(expectedHash || "")) throw new Error("Open and review the stored PDF before saving its association.");
       const inspected = await inspectStoredPdf(auth.admin, objectId, expectedHash);
       if (importAction !== "save") return NextResponse.json({ file: inspected.file, sha256: inspected.sha256, url: inspected.url, saved_fields: prior || null, suggestions: extractEquipmentSuggestions(inspected.text), readable_text: Boolean(inspected.text.trim()), updated_at: asset.updated_at });
