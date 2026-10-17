@@ -6,6 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
+import * as nodeCrypto from 'node:crypto';
 import ts from 'typescript';
 
 const root=fileURLToPath(new URL('../src/',import.meta.url));
@@ -41,6 +42,7 @@ function fixture(config={}) {
         if(name==='@supabase/supabase-js')return {createClient:()=>db};
         if(name==='openai')return {default:class {constructor(){throw new Error('Unexpected AI provider access');}}};
         if(name==='server-only')return {};
+        if(name==='node:crypto')return nodeCrypto;
         if(name==='@/lib/server/room-ranker')return {callRoomRanker:async()=>({ok:true,rooms:[]})};
         if(name==='@/lib/server/integrations-safe-mode')return {isIntegrationsSafeMode:()=>config.safeMode!==false};
         if(name==='@/lib/integrations/email-provider')return {fetchOperationalMessages:async()=>{calls.push('email-provider');return {provider:null,messages:[],truncated:false};}};

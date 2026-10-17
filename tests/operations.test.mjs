@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
 import { mergedPurchaseStatus, parentStatusFromShipments, matchEnseoWorkOrder } from "../src/lib/integrations/operations.ts";
 import { parseOperationalEmail } from "../src/lib/integrations/email-parser.ts";
 
@@ -29,11 +31,65 @@ test("closed TV work order remains unlinked", () => assert.equal(matchEnseoWorkO
 test("wrong STB suffix remains unlinked", () => assert.equal(matchEnseoWorkOrder([{...tv, issue: "TV 103B"}], "103", "103A"), null));
 test("matching suffixed room preserved", () => assert.equal(matchEnseoWorkOrder([{...tv, room: "103A"}], "103", "103A"), "tv"));
 test("unrelated room remains unlinked", () => assert.equal(matchEnseoWorkOrder([tv], "104"), null));
+// Execute the actual page with deterministic hook state; never run effects or contact providers.
+function purchasingTree(canEdit, embedded, safeMode = false) {
+  const source = readFileSync(new URL("../src/app/engineering/purchasing/page.tsx", import.meta.url), "utf8");
+  const data = { can_edit: canEdit, safe_mode: safeMode, configured: true,
+    purchases: ["Ordered", "Received", "Installed / Used"].map((status, index) => ({
+      id: `purchase-${index}`, status,
+      cmpri_purchase_shipments: index === 0 ? [{ id: "shipment", status: "Shipped" }] : [],
+    })), enseo: [], warranties: [], followups: [] };
+  const states = [data, "", false, true, false, null];
+  let stateIndex = 0;
+  const element = (type, props) => ({ type, props });
+  const dependencies = {
+    react: { useState: () => [states[stateIndex++], () => {}], useCallback: (fn) => fn, useEffect: () => {} },
+    "react/jsx-runtime": { jsx: element, jsxs: element },
+    "@/lib/supabase/client": { getValidSession: async () => { throw new Error("Unexpected session access"); } },
+    "@/components/use-embedded-modal": { default: () => embedded },
+    "@/components/MailboxChecksumComparison": { default: "mailbox-checksum" },
+    "@/components/ModalDashboardLink": { default: "dashboard-link" },
+    "@/components/ModalNavigationButton": { default: "navigation-link" },
+    "@/lib/auth/session-preference": {},
+    "@/lib/auth/client-session": {},
+  };
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  }}).outputText, { exports, require(name) {
+    assert.ok(Object.hasOwn(dependencies, name), `Unexpected page dependency: ${name}`);
+    return dependencies[name];
+  }, fetch() { throw new Error("Unexpected network access"); } });
+  const tree = exports.default();
+  assert.equal(stateIndex, states.length, "Update the fixture when page hook state changes");
+  const nodes = [];
+  function visit(node) {
+    if (Array.isArray(node)) return node.forEach(visit);
+    if (!node || typeof node !== "object") return;
+    nodes.push(node);
+    visit(node.props?.children);
+  }
+  visit(tree);
+  return nodes;
+}
+
 test("purchasing mutation controls are rendered only for integration operators", () => {
-  const page = readFileSync(new URL("../src/app/engineering/purchasing/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /const canEdit = data\?\.can_edit === true/);
-  assert.equal((page.match(/\{canEdit &&/g) || []).length, 6);
-  assert.doesNotMatch(page, /disabled=\{data\?\.can_edit !== true/);
+  for (const embedded of [false, true]) {
+    for (const permission of [false, undefined, null, "true"]) {
+      const nodes = purchasingTree(permission, embedded);
+      assert.equal(nodes.filter(node => node.type === "button").length, 0, `Denied permission ${permission}`);
+      assert.equal(nodes.some(node => node.type === "mailbox-checksum"), false);
+      assert.ok(nodes.some(node => node.props?.children === "Orders & Shipments"), "Read-only activity remains visible");
+    }
+    const nodes = purchasingTree(true, embedded);
+    const buttons = nodes.filter(node => node.type === "button");
+    assert.deepEqual(buttons.map(node => node.props.children).sort(),
+      ["Scan Email Now", "Mark Received", "Mark Received", "Mark Installed / Used", "Complete", "Mark Delivered"].sort());
+    assert.ok(buttons.every(node => typeof node.props.onClick === "function" && !node.props.disabled));
+    assert.equal(nodes.filter(node => node.type === "mailbox-checksum").length, 1);
+    const safeScan = purchasingTree(true, embedded, true).find(node => node.type === "button" && node.props.children === "Email Scanning Disabled (Safe Mode)");
+    assert.equal(safeScan?.props.disabled, true);
+  }
 });
 test("restricted engineering pages and data APIs require explicit engineering-operations capability", () => {
   const pagePaths = [

@@ -181,9 +181,11 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
   assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImageError \? "unavailable" : workOrderImages\.length\}\)/);
-  assert.match(workOrderDetail, /Upload photo/);
+  assert.match(workOrderDetail, /Choose photo/);
+  assert.match(workOrderDetail, /onClick=\{\(\) => photoFileInputRef\.current\?\.click\(\)\}/);
+  assert.match(workOrderDetail, /if \(photo\) stageWorkOrderPhoto\(photo\)/);
   assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
-  assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details<\/summary>/);
+  assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details\{pendingField\("actionRootCause"\)\}<\/summary>/);
   assert.match(workOrderDetail, /uploadWorkOrderAttachment\(id, photo, session\.access_token/);
   assert.match(workOrderDetail, /image\.uploaded_at[\s\S]*?text: "Photo uploaded"/);
   assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);

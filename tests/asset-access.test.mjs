@@ -237,15 +237,16 @@ test('GET includes assets assigned to another hotel id in the single-property as
   assert.equal(result.status,200);
   assert.deepEqual(Array.from(result.body.assets,asset=>asset.id),['asset-current-property','asset-legacy-property']);
 });
-test('work-order creation asset mode includes assets assigned to another hotel id',async()=>{
+test('work-order creation asset mode excludes other-property and inactive assets',async()=>{
   const f=fixture('route.ts',{permission:true,assetRows:[
     {id:'asset-current-property',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
     {id:'asset-legacy-property',hotel_id:'legacy-property-id',active:true},
+    {id:'asset-inactive',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:false},
   ]});
   f.request.nextUrl.searchParams.set('mode','create');
   const result=await f.handlers.GET(f.request);
   assert.equal(result.status,200);
-  assert.deepEqual(Array.from(result.body.assets,asset=>asset.id),['asset-current-property','asset-legacy-property']);
+  assert.deepEqual(Array.from(result.body.assets,asset=>asset.id),['asset-current-property']);
 });
 test('authorized editor passes permission gate to scoped asset lookup',async()=>{
   const f=fixture('route.ts',{permission:true});assert.equal((await f.handlers.PATCH(f.request)).status,404);assert.equal(f.calls.includes('assets'),true);

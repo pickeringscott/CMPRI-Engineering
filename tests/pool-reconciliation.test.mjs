@@ -7,6 +7,9 @@ const sql=readFileSync(new URL('../scripts/reconcile-pool-20261012.sql',import.m
 const migration=readFileSync(new URL('../supabase/migrations/20261012212441_cmpri_pool_retest_status.sql',import.meta.url),'utf8');
 async function fixture(tamper) {
  const db=new PGlite();
+ // Match the UTC audit snapshot regardless of the host timezone. JSONB timestamp
+ // equality is intentionally strict in the unchanged reconciliation guard.
+ await db.exec("SET TIME ZONE 'UTC'");
  const types=Object.entries(source).map(([key,value])=>{
   const type=key==='revision'?'integer':key.endsWith('_id')||['id','created_by','updated_by'].includes(key)?'uuid':key.endsWith('_at')?'timestamptz':key==='log_date'?'date':typeof value==='boolean'?'boolean':typeof value==='number'||(/^(ph_|sanitizer_)/.test(key)&&!key.startsWith('sanitizer_band'))||['cyanuric_acid_ppm','combined_chlorine_ppm'].includes(key)?'numeric':'text';
   return `"${key}" ${type}`;
