@@ -1,5 +1,7 @@
 // Isolated production-server smoke checks. No real account or production data.
 import { spawn } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
 const port = 3110;
 const cleanupSecret = 'cmpri-local-cleanup-test-secret';
 const anonymousDenied = [401, 403];
@@ -31,62 +33,88 @@ const cases = [
   ...apiPaths.map(path => ({ path, method: 'GET', expected: path === '/api/session' ? anonymousDenied : apiReachable })),
   ...mutationCases.map(([path, method]) => ({ path, method, expected: anonymousDenied })),
 ];
-const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start',
-  '--hostname', '127.0.0.1', '--port', String(port)], {
-  env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'cmpri-local-test-placeholder',
-    SUPABASE_SERVICE_ROLE_KEY: '', CRON_SECRET: cleanupSecret},
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-let started = false;
-let finished = false;
-const deadline = setTimeout(() => {
-  console.error('FAIL: production server test deadline exceeded');
-  process.exitCode = 1;
-  server.kill();
-}, 45000);
-server.stderr.on('data', d => process.stderr.write(d));
-server.on('error', e => { console.error(e); process.exitCode = 1; clearTimeout(deadline); });
-server.on('exit', () => {
-  clearTimeout(deadline);
-  if (!finished) process.exitCode = 1;
-});
-server.stdout.on('data', async chunk => {
-  if (started || !chunk.toString().includes('Ready')) return;
-  started = true;
-  let failures = 0;
-  try {
-    for (const test of cases) {
-      const response = await fetch(`http://127.0.0.1:${port}${test.path}`, {
-        method: test.method, signal: AbortSignal.timeout(10000),
-        ...(test.method !== 'GET' ? {headers: {'Content-Type': 'application/json'}, body: '{}'} : {}),
-      });
-      const passed = test.expected.includes(response.status);
-      failures += Number(!passed);
-      console.log(JSON.stringify({...test, actual: response.status, result: passed ? 'PASS' : 'FAIL'}));
+
+const equipmentCases = [
+  ['/api/assets', 'GET'], ['/api/assets/documentation', 'GET'],
+  ['/api/maintenance-reference', 'GET'], ['/api/assets', 'POST'], ['/api/assets', 'PATCH'],
+  ['/api/assets/documentation', 'POST'],
+].map(([path, method]) => ({path, method, expected: anonymousDenied}));
+const isEquipment = test => equipmentCases.some(item => item.path === test.path && item.method === test.method);
+const configurationError = 'Equipment database configuration is unavailable.';
+// This preload exists only in the spawned smoke process. The actual route/auth
+// code runs unchanged. Only the read-only release marker RPC is stubbed; every
+// other outbound fetch fails the test, including attempted auth/data/provider I/O.
+const preload = `
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+    const method = (init?.method || input.method || 'GET').toUpperCase();
+    if (method === 'POST' && url.pathname === '/rest/v1/rpc/cmpri_consolidation_ready'
+        && process.env.CMPRI_SMOKE_GATE !== 'missing') {
+      console.log('CMPRI_SMOKE_RPC');
+      return process.env.CMPRI_SMOKE_GATE === 'legacy'
+        ? Response.json({code:'PGRST202',message:'Fixture: marker function absent'}, {status:404})
+        : Response.json(true);
     }
-    const cleanupResponse = await fetch(`http://127.0.0.1:${port}/api/room-operations/cleanup`, {
-      method: 'GET',
-      headers: {Authorization: `Bearer ${cleanupSecret}`},
-      signal: AbortSignal.timeout(10000),
+    console.error('CMPRI_SMOKE_UNEXPECTED_FETCH');
+    throw new Error('Unexpected outbound request in isolated HTTP smoke');
+  };
+`;
+const preloadUrl = `data:text/javascript;base64,${Buffer.from(preload).toString('base64')}`;
+let checks = 0;
+async function runPhase(mode) {
+  const server = spawn(process.execPath, ['--import', preloadUrl, 'node_modules/next/dist/bin/next', 'start',
+    '--hostname', '127.0.0.1', '--port', String(port)], {
+    env: {...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'cmpri-local-test-placeholder',
+      SUPABASE_SERVICE_ROLE_KEY: mode === 'missing' ? '' : 'cmpri-smoke-not-a-real-key',
+      CRON_SECRET: cleanupSecret, CMPRI_SMOKE_GATE: mode},
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  let timedOut = false;
+  const exited = once(server, 'exit');
+  const deadline = setTimeout(() => { timedOut = true; server.kill(); }, 45000);
+  server.stdout.on('data', chunk => { output += chunk.toString(); });
+  server.stderr.on('data', chunk => { output += chunk.toString(); });
+  try {
+    await new Promise((resolve, reject) => {
+      server.on('error', reject);
+      server.on('exit', () => reject(new Error(`Smoke server exited before ready (${mode}): ${output}`)));
+      server.stdout.on('data', () => { if (output.includes('Ready')) resolve(); });
     });
-    const cleanupPassed = cleanupResponse.status === 503;
-    failures += Number(!cleanupPassed);
-    console.log(JSON.stringify({
-      path: '/api/room-operations/cleanup',
-      method: 'GET',
-      expected: 503,
-      actual: cleanupResponse.status,
-      result: cleanupPassed ? 'PASS' : 'FAIL',
-    }));
-    console.log(`${cases.length - failures}/${cases.length} HTTP checks passed. Not authenticated workflow or browser tests.`);
-    process.exitCode = failures ? 1 : 0;
-  } catch (error) {
-    console.error(error);
-    process.exitCode = 1;
+    const phaseCases = mode === 'missing' ? [
+      ...cases.map(test => isEquipment(test) ? {...test, expected:[503], error:configurationError} : test),
+      ...equipmentCases.filter(test => !cases.some(item => item.path === test.path && item.method === test.method))
+        .map(test => ({...test, expected:[503], error:configurationError})),
+      {path:'/api/room-operations/cleanup', method:'GET', expected:[503],
+        authorization:`Bearer ${cleanupSecret}`, error:'Room Operations cleanup is disabled until a retention policy is confirmed.'},
+    ] : equipmentCases;
+    for (const test of phaseCases) {
+      const response = await fetch(`http://127.0.0.1:${port}${test.path}`, {
+        method:test.method, signal:AbortSignal.timeout(10000),
+        headers:{...(test.method !== 'GET' ? {'Content-Type':'application/json'} : {}),
+          ...(test.authorization ? {Authorization:test.authorization} : {})},
+        ...(test.method !== 'GET' ? {body:'{}'} : {}),
+      });
+      assert.ok(test.expected.includes(response.status), `${mode} ${test.method} ${test.path}: expected ${test.expected}, got ${response.status}`);
+      if (test.error) assert.deepEqual(await response.json(), {error:test.error});
+      checks++;
+      console.log(JSON.stringify({phase:mode,path:test.path,method:test.method,expected:test.expected,actual:response.status,result:'PASS'}));
+    }
   } finally {
-    finished = true;
     clearTimeout(deadline);
     server.kill();
+    await exited;
   }
-});
+  assert.equal(timedOut, false, `${mode} server exceeded its deadline`);
+  assert.ok(!output.includes('CMPRI_SMOKE_UNEXPECTED_FETCH'), `${mode}: unexpected outbound request`);
+  assert.equal((output.match(/CMPRI_SMOKE_RPC/g) || []).length, mode === 'missing' ? 0 : equipmentCases.length,
+    `${mode}: each equipment request must reach exactly one release-marker check before authentication`);
+}
+try {
+  for (const mode of ['missing', 'current', 'legacy']) await runPhase(mode);
+  console.log(`${checks}/${checks} HTTP checks passed. Configuration failures and anonymous denial checked separately; no real account or database used.`);
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+}

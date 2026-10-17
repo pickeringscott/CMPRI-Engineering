@@ -103,8 +103,7 @@ test("Room Ranker page entry points and work-order context use the shared viewer
   const detail = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
   assert.match(engineering, /canViewRanker && \{ key: "\/engineering\/room-ranker"/);
   assert.match(technician, /roomRankerProfileCanView\(account, account\.email\) && \([\s\S]*?data-cmpri-modal-href="\/engineering\/room-ranker"/);
-  assert.match(detail, /const canViewRanker = roomRankerProfileCanView\(current\.user, current\.user\.email\)/);
-  assert.match(detail, /if \(canViewRanker\) \{[\s\S]*?fetch\("\/api\/room-ranker"/);
+  assert.match(detail, /if \(roomRankerProfileCanView\(current\.user, current\.user\.email\)\) void \(async \(\) => \{\s*try \{\s*const response = await fetch\("\/api\/room-ranker"/);
   assert.match(detail, /roomRankerProfileCanView\(cmpriSession\.user, cmpriSession\.user\.email\) && \(/);
 });
 
