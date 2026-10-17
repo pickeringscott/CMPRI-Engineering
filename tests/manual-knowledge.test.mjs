@@ -97,7 +97,7 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
     {document_key:'missing',title:'Missing washer manual',document_type:'Service Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'hotel/asset/missing.pdf',source_file_name:'missing.pdf',active:true,ingestion_status:'complete'},
     {document_key:'inactive',title:'Inactive washer manual',document_type:'Parts Manual',manufacturer:'UniMac',equipment:'Commercial Washer',model_pattern:'UWN065T4V',storage_path:'asset docs/inactive.pdf',source_file_name:'inactive.pdf',active:false,ingestion_status:'complete'},
   ];
-  for (const row of rows) row.hotel_id='hotel';
+  for (const row of rows) {row.hotel_id='hotel';row.id=row.document_key;}
   const contentByName=new Map([
     ['washer.pdf','Applicable models UWN065T4V.'],
     ['neighbor.pdf','Applicable models UWN065T3V.'],
@@ -106,11 +106,13 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
   const calls=[];
   const admin={
     from(table){
+      if(table==='assets'){const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:{pdf_import_links:rows.map(row=>({document_id:row.id,legacy_sources:['legacy_candidate']}))},error:null})};return q;}
       assert.equal(table,'maintenance_documents');
       const filters={};
       const query={
         select(){return this;},
         eq(field,value){filters[field]=value;return this;},
+        in(field,values){assert.equal(field,'id');assert.deepEqual(Array.from(values),rows.map(row=>row.id));return this;},
         order(){return this;},
         range(){return this;},
         then(resolve,reject){return Promise.resolve({data:rows.filter(row=>Object.entries(filters).every(([field,value])=>row[field]===value)),error:null}).then(resolve,reject);},
@@ -140,7 +142,9 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
     if(name==='@/lib/manual-document-catalog')return {catalogManualMatchesEquipment:catalogRuntime.matches,catalogManualModelFamily:catalogRuntime.modelFamily,catalogManualPdfMatchesEquipment:catalogRuntime.pdfMatches};
     throw new Error(`Unexpected import ${name}`);
   }});
-  const result=await helperExports.loadVerifiedCatalogManuals(admin,{manufacturer:'UniMac',model_family:null,model_number:'UWN065T4VXU4001'});
+  assert.equal((await helperExports.loadVerifiedCatalogManuals(admin,{manufacturer:'UniMac',model_number:'UWN065T4VXU4001'})).documents.length,0);
+  assert.equal(calls.length,0);
+  const result=await helperExports.loadVerifiedCatalogManuals(admin,{id:'local-washer',manufacturer:'UniMac',model_family:null,model_number:'UWN065T4VXU4001'});
   assert.deepEqual(Array.from(result.documents,doc=>doc.name),['washer.pdf']);
   assert.equal(result.documents[0].storagePath,'asset docs/washer.pdf');
   assert.deepEqual(Array.from(result.warnings),['Mismatched washer manual: the PDF content did not verify the exact cataloged model family.','Missing washer manual: saved PDF could not be read.']);
