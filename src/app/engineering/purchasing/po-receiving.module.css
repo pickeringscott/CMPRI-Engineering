@@ -150,7 +150,7 @@
 .compactMenu{position:relative;width:fit-content;max-width:100%}
 .compactMenu summary{list-style:none;cursor:pointer;border:1px solid #3c4d67;border-radius:3px;padding:0 1px;background:#08111f}
 .compactMenu summary::after{content:' ▾'}.compactMenu summary::-webkit-details-marker{display:none}
-.menuOptions{position:absolute;top:100%;left:0;z-index:20;width:max-content;max-width:100%;background:#101a2a;border:1px solid #3c4d67;max-height:160px;overflow:auto}
+.menuOptions{position:absolute;top:100%;left:0;z-index:20;width:max-content;background:#101a2a;border:1px solid #3c4d67;max-height:160px;overflow:auto}
 .poWorkspace .menuOptions button{display:block;width:100%;min-height:0;padding:0 2px;border:0;border-radius:0;text-align:left;font:inherit;background:transparent}
 .poWorkspace .menuOptions button:hover{background:#26354c}.compactMenu[open]{z-index:10}
 .paneDivider{min-width:0;min-height:0;cursor:col-resize;touch-action:none;position:relative;align-self:stretch}
@@ -165,3 +165,4 @@
 .poWorkspace .inlineReceipt button{padding:0 2px;min-height:0;line-height:inherit;margin-left:4px}
 .orderTotal{padding:6px 0;border-top:1px solid #34435a;text-align:right}.spending{margin-left:auto;display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:560px){.poWorkspace{height:100dvh}.poWorkspace .workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--po-orders-height,230px) 10px minmax(0,1fr);row-gap:0}.paneDivider{cursor:row-resize}.paneDivider::before{inset:4px 0}}
+@media(max-width:560px){.poWorkspace .order{align-items:stretch}.poWorkspace .order small{display:block}.poWorkspace .order>span:nth-child(2){text-align:left}}
