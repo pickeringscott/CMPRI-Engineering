@@ -91,6 +91,12 @@ const CHIEF_ENGINEER_WORK_ORDER_CAPABILITIES: readonly Capability[] = [
  */
 export function allows(principal: Principal, capability: Capability): boolean {
   if (principal.profile.active !== true || principal.membership.active !== true) return false;
+  if (capability === "view_work_orders") {
+    return Boolean(principal.identity.id && principal.hotelId
+      && principal.profile.id === principal.identity.id
+      && principal.membership.user_id === principal.identity.id
+      && principal.membership.hotel_id === principal.hotelId);
+  }
   if (profileIsChiefEngineer(principal.profile) && CHIEF_ENGINEER_WORK_ORDER_CAPABILITIES.includes(capability)) return true;
   if (!membershipAllows(principal.membership.role, capability)) return false;
   if (!profileAllows(principal.profile, capability)) return false;

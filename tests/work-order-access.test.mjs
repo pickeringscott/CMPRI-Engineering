@@ -118,7 +118,7 @@ function fixture(config={}){
     const role=p.profile.role;
     if(c==='submit')return roleExports.roleAllows(role,'submit');
     if(c==='view_dashboard')return ['Engineer','Chief Engineer','General Manager','Senior Management','system_admin'].includes(role);
-    if(c==='view_work_orders')return ['Engineer','Chief Engineer','General Manager','Assistant General Manager','Front Desk Manager','Senior Management','system_admin'].includes(role);
+    if(c==='view_work_orders')return !!principal;
     if(c==='add_work_order_notes')return ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management','Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role);
     if(c==='view_pm')return ['Engineer','Chief Engineer','General Manager','Maintenance Technician','Senior Management','system_admin'].includes(role);
     if(c==='edit_tickets')return ['Engineer','Chief Engineer','Maintenance Technician','system_admin'].includes(role);
@@ -239,13 +239,13 @@ test('all note-only roles cannot change status, assignments, or engineering-owne
   }
 });
 
-test('note-only roles can open active tickets but cannot read completed or closed tickets',async()=>{
+test('note-only roles can read every same-hotel ticket state',async()=>{
   for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const active=fixture({profile:{id:'actor',active:true,role},existingStatus:'Open'});
     assert.equal((await active.get()).status,200,`${role}/open`);
     for(const existingStatus of ['Completed','Closed','Will Not Do','Pending Verification']){
       const blocked=fixture({profile:{id:'actor',active:true,role},existingStatus});
-      assert.equal((await blocked.get()).status,403,`${role}/${existingStatus}`);
+      assert.equal((await blocked.get()).status,200,`${role}/${existingStatus}`);
     }
   }
 });
@@ -526,11 +526,11 @@ test('engineering readback resolves maintenance creator title independently of t
 });
 
 // The new read grant does not grant note/status/photo mutations on closed tickets.
-for (const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']) test(`${role} reads own Closed ticket by creator ID, never matching display name`, async()=>{
+for (const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']) test(`${role} reads own and other creators Closed tickets`, async()=>{
  const profile={id:'actor',active:true,role,full_name:'Historical recorded name'};
  assert.equal((await fixture({profile,existingStatus:'Closed',createdBy:'actor'}).get()).status,200);
- assert.equal((await fixture({profile,existingStatus:'Closed',createdBy:'other'}).get()).status,403);
- for(const status of ['Pending Verification','Completed','Will Not Do']) assert.equal((await fixture({profile,existingStatus:status,createdBy:'actor'}).get()).status,403);
+ assert.equal((await fixture({profile,existingStatus:'Closed',createdBy:'other'}).get()).status,200);
+ for(const status of ['Pending Verification','Completed','Will Not Do']) assert.equal((await fixture({profile,existingStatus:status,createdBy:'actor'}).get()).status,200);
 });
 
 test('new technician reads expose ticket history without expanding purchasing activity access',async()=>{

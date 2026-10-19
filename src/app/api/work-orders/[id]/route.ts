@@ -1,5 +1,5 @@
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
-import { canReadWorkOrder, workOrderReadFilter } from "@/lib/work-order-read-policy";
+import { canReadWorkOrder, canReadWorkOrderForMutation, workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { NextRequest, NextResponse } from "next/server";
@@ -116,10 +116,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   let mentionTickets: Array<Record<string, unknown>> = [];
-  const noteOnlyReader = allows(auth.principal, "add_work_order_notes")
-    && !allows(auth.principal, "edit_tickets")
-    && !allows(auth.principal, "review_tickets");
-  if (includeMentions && !noteOnlyReader) {
+  if (includeMentions) {
     let mentionQuery = auth.admin
       .from("work_orders")
       .select("id, display_id, room, issue, status, created_at")
@@ -137,7 +134,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({
     workOrder: {
       ...workOrder,
-      can_correct_report: reportCorrectionAllowed(auth.principal.profile, workOrder.status, canReadWorkOrder(workOrderReader(auth.principal), workOrder)),
+      can_correct_report: reportCorrectionAllowed(auth.principal.profile, workOrder.status, canReadWorkOrderForMutation(workOrderReader(auth.principal), workOrder)),
       room_status: currentRoomStatus(roomStatuses.statuses, workOrder.room),
       creator_role: creatorRole,
       creator_display_role: creatorDisplayRole,
@@ -173,7 +170,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .maybeSingle();
   if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  const canCorrectReport = reportCorrectionAllowed(auth.principal.profile, existing.status, canReadWorkOrder(workOrderReader(auth.principal), existing));
+  const canCorrectReport = reportCorrectionAllowed(auth.principal.profile, existing.status, canReadWorkOrderForMutation(workOrderReader(auth.principal), existing));
   const correctionOnly = Object.keys(body).every(key => key === "expected_revision" || REPORT_CORRECTION_FIELDS.includes(key as typeof REPORT_CORRECTION_FIELDS[number]));
   if (canAddNotes && !canEdit && !canReview && !correctionOnly && !["Open", "In Progress"].includes(String(existing.status || ""))) {
     return NextResponse.json({ error: "Notes may only be added to open work orders." }, { status: 403 });

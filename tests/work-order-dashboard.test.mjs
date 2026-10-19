@@ -63,7 +63,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
             ? role === "System Administrator"
           : capability === "add_work_order_notes"
             ? ["Front Desk", "Housekeeping", "General Manager", "Assistant General Manager", "Front Desk Manager", "Assistant Manager", "Senior Management", "Maintenance Technician", "Engineer", "System Administrator"].includes(role)
-          : capability === "view_work_orders" && role === "General Manager");
+          : capability === "view_work_orders");
       if (name === "@/lib/cmpri-location-groups") return { frontDeskCommonArea: () => null };
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === "@supabase/supabase-js") return { createClient: () => admin };
@@ -76,7 +76,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
             ? role === "System Administrator"
           : capability === "add_work_order_notes"
             ? ["Front Desk", "Housekeeping", "General Manager", "Assistant General Manager", "Front Desk Manager", "Assistant Manager", "Senior Management", "Maintenance Technician", "Engineer", "System Administrator"].includes(role)
-          : capability === "view_work_orders" && role === "General Manager",
+          : capability === "view_work_orders",
       };
       if (name === "@/lib/server/auth") return { requireUser: async () => ({ principal, admin }) };
       if (name === "@/lib/server/request-auth") return { authenticatedUser: async () => null };
@@ -131,31 +131,31 @@ test("dashboard reports a later-page query failure instead of returning partial 
   assert.deepEqual(route.ranges, [[0, 999], [1000, 1999]]);
 });
 
-test("note-only General Managers can list active open work orders but not closed orders", async () => {
+test("note-only General Managers list open and closed work orders", async () => {
   const route = fixture({ role: "General Manager", hasDashboard: false });
   const response = await route.get();
 
   assert.equal(response.status, 200);
   assert.ok(response.body.work_orders.length > 0);
-  assert.ok(response.body.work_orders.every((order) => ["Open", "In Progress"].includes(order.status)));
+  assert.ok(response.body.work_orders.some((order) => order.status === "Closed"));
 });
 
-test("every role with note access can list active tickets without full dashboard access", async () => {
-  for (const role of ["Front Desk", "Housekeeping", "Assistant Manager", "Senior Management"]) {
+test("every active role can list all tickets without full dashboard access", async () => {
+  for (const role of ["Front Desk", "Housekeeping", "Assistant Manager", "Senior Management", "Maintenance Technician", "Engineer", "Chief Engineer", "System Administrator", "General Manager", "Front Desk Manager"]) {
     const route = fixture({ role, hasDashboard: false });
     const response = await route.get();
     assert.equal(response.status, 200, role);
-    assert.ok(response.body.work_orders.length > 0, role);
-    assert.ok(response.body.work_orders.every((order) => ["Open", "In Progress"].includes(order.status)), role);
+    assert.equal(response.body.work_orders.length, 2501, role);
+    assert.ok(response.body.work_orders.some((order) => order.status === "Closed"), role);
   }
 });
 
-test("General Manager dashboard layout remains available but lists only active authorized tickets", async () => {
+test("General Manager dashboard layout lists all same-hotel tickets", async () => {
   const route = fixture({ role: "General Manager", hasDashboard: true });
   const response = await route.get();
   assert.equal(response.status, 200);
   assert.ok(response.body.work_orders.length > 0);
-  assert.ok(response.body.work_orders.every((order) => ["Open", "In Progress"].includes(order.status)));
+  assert.ok(response.body.work_orders.some((order) => order.status === "Closed"));
 });
 
 test("technician landing uses the shared desktop shell with the technician-scoped dashboard launcher", () => {

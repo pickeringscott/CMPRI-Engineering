@@ -34,10 +34,13 @@ test('two lead housekeepers use independent schedules; no Front Desk phone enrol
  assert.equal(isStaffNotesPushEligibleProfile({role:'Lead Housekeeper'}),true);
  assert.equal(isStaffNotesPushEligibleProfile({role:'Front Desk'}),false);
 });
-test('ticket references share the real policy for link and preview; hidden statuses do not leak',()=>{
+test('ticket references share all-state read access and retain hotel isolation',()=>{
  assert.deepEqual(Array.from(policy.staffTicketNumbers('😀 #105 @work order 106 #105')),['105','106']);
  const reader={userId:'self',hotelId:'h',canRead:true,canViewAllStatuses:false,technician:false,technicianName:''};
- for(const status of ['Draft','Pending Verification','Completed']) assert.equal(canReadWorkOrder(reader,{hotel_id:'h',status,created_by:'other'}),false);
+ for(const status of ['Draft','Pending Verification','Completed','Closed']) {
+  assert.equal(canReadWorkOrder(reader,{hotel_id:'h',status,created_by:'other'}),true);
+  assert.equal(canReadWorkOrder(reader,{hotel_id:'other',status,created_by:'other'}),false);
+ }
  assert.equal(canReadWorkOrder(reader,{hotel_id:'h',status:'Open'}),true);
  assert.equal(canReadWorkOrder(reader,{hotel_id:'other',status:'Open'}),false);
  assert.equal(canReadWorkOrder(reader,{hotel_id:'h',status:'Closed',created_by:'self'}),true);

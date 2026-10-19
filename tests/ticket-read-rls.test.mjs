@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
-const migration=readFileSync(new URL('../supabase/migrations/20261012205937_cmpri_ticket_read_access.sql',import.meta.url),'utf8');
+const migration=readFileSync(new URL('../supabase/migrations/20261019195949_cmpri_all_member_work_order_reads.sql',import.meta.url),'utf8');
 const hotel='00000000-0000-4000-8000-000000000001', otherHotel='00000000-0000-4000-8000-000000000002';
 const user='00000000-0000-4000-8000-000000000003', other='00000000-0000-4000-8000-000000000004';
 const statuses=['Open','In Progress','Closed','Completed','Will Not Do','Pending Verification','Draft','Unknown'];
 const roles=['front_desk','housekeeping','front_desk_manager','assistant_manager','manager','senior_management','technician','engineer','chief_engineer','system_admin'];
 const db=new PGlite();
-test('actual PostgreSQL RLS adds only active and creator-owned Closed reads, with hotel/activation isolation and unchanged grants',async()=>{
+test('actual PostgreSQL RLS allows all same-hotel ticket states and creators, with hotel/activation isolation and unchanged grants',async()=>{
  try {
  await db.exec(`create role authenticated; create role anon; create role service_role;
  create schema auth;
@@ -38,12 +38,15 @@ test('actual PostgreSQL RLS adds only active and creator-owned Closed reads, wit
   await db.exec('set role authenticated');
   try {return (await db.query('select * from work_orders order by id')).rows;} finally {await db.exec('reset role');}
  }
+ await db.exec(readFileSync(new URL('../supabase/migrations/20261012205937_cmpri_ticket_read_access.sql',import.meta.url),'utf8'));
+ const grantsBefore=(await db.query("select grantee,privilege_type from information_schema.role_table_grants where table_name='work_orders' order by grantee,privilege_type")).rows;
  const before=new Map();for(const role of roles) before.set(role,await visible(role));
  await db.exec(migration);await db.exec(migration); // Idempotence.
+ assert.deepEqual((await db.query("select grantee,privilege_type from information_schema.role_table_grants where table_name='work_orders' order by grantee,privilege_type")).rows,grantsBefore);
  for(const role of roles) {
   const rows=await visible(role);const prior=before.get(role);
   const expected=new Set(prior.map(row=>row.id));
-  for(const creator of [user,other]) for(const status of ['Open','In Progress']) expected.add(`${hotel}/${creator}/${status}`);
+  for(const creator of [user,other]) for(const status of statuses) expected.add(`${hotel}/${creator}/${status}`);
   expected.add(`${hotel}/${user}/Closed`);
   assert.deepEqual(rows.map(row=>row.id).sort(),[...expected].sort(),role);
   assert.ok(rows.every(row=>row.hotel_id===hotel && row.notes==='Engineering notes remain readable'),role);

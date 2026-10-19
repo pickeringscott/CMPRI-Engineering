@@ -1,4 +1,5 @@
 "use client";
+import { workOrderReferenceTargets } from "@/lib/work-order-reference-targets";
 import {workOrderListSnapshot} from "@/lib/work-order-list-sync";
 import PlainTextLinks from '@/components/PlainTextLinks';
 import {plainTextParts} from '@/lib/plain-text-links';
@@ -952,6 +953,42 @@ export default function WorkOrderTicketPage() {
     }
   }
 
+  const [referenceTickets, setReferenceTickets] = useState<MentionTicket[]>([]);
+  const [referencePrefixes, setReferencePrefixes] = useState<Record<string, string>>({});
+  const [referenceError, setReferenceError] = useState("");
+  const referenceText = [order?.notes || "", ...(externalActivity.history || []).map(event => workOrderHistoryText(event, event.recorded_at))].join("\n");
+  useEffect(() => {
+    const controller = new AbortController();
+    setReferenceTickets([]);
+    setReferencePrefixes({});
+    setReferenceError("");
+    const targets = workOrderReferenceTargets(referenceText);
+    if (!targets.length) return () => controller.abort();
+    void (async () => {
+      try {
+        const headers = await authorizationHeaders();
+        const tickets: MentionTicket[] = [];
+        const prefixes: Record<string, string> = {};
+        for (let offset = 0; offset < targets.length; offset += 100) {
+          const query = new URLSearchParams();
+          for (const target of targets.slice(offset, offset + 100)) query.append("target", target);
+          const response = await fetch(`/api/work-orders/references?${query}`, { headers, cache: "no-store", signal: controller.signal });
+          const payload = await response.json();
+          if (!response.ok) throw new Error("Ticket links could not be loaded. Reload the ticket to retry.");
+          tickets.push(...(payload.tickets || []));
+          Object.assign(prefixes, payload.resolvedPrefixes || {});
+        }
+        if (!controller.signal.aborted) {
+          setReferenceTickets(Array.from(new Map(tickets.map(ticket => [ticket.id, ticket])).values()));
+          setReferencePrefixes(prefixes);
+        }
+      } catch {
+        if (!controller.signal.aborted) setReferenceError("Ticket links could not be loaded. Reload the ticket to retry.");
+      }
+    })();
+    return () => controller.abort();
+  }, [id, referenceText]);
+
   async function loadTicket(showLoading = true, canLoadMaintenanceReference = true) {
     if (!id) return;
     const generation = ++ticketLoadGeneration.current;
@@ -1824,13 +1861,15 @@ export default function WorkOrderTicketPage() {
       if (urlRanges.some(url => match.index! < url.end && match.index! + match[0].length > url.start)) continue;
       if (refs.some(ref => match.index! < ref.end && match.index! + match[0].length > ref.start)) continue;
       const id = match[0].replace(/^@(?:WO-)?/i, "").toLowerCase();
-      const ticket = mentionTickets.find(candidate => candidate.id.toLowerCase().startsWith(id));
-      if (ticket) refs.push({ start: match.index!, end: match.index! + match[0].length, number: ticket.display_id || "", label: ticketMentionLabel(ticket) });
+      const resolvedId = referencePrefixes[id.replaceAll("-", "")];
+      const ticket = referenceTickets.find(candidate => candidate.id === resolvedId);
+      if (ticket) refs.push({ start: match.index!, end: match.index! + match[0].length, number: workOrderNumber(ticket.display_id) || "", label: ticketMentionLabel(ticket) });
     }
-    const output: React.ReactNode[] = [];
+    const output: React.ReactNode[] = referenceError ? [<span key="reference-error" role="status" className="block text-xs text-amber-300">{referenceError}</span>] : [];
     let at = 0;
     for (const ref of refs.sort((a,b) => a.start - b.start)) {
-      const ticket = mentionTickets.find(candidate => workOrderNumber(candidate.display_id) === ref.number);
+      const matches = referenceTickets.filter(candidate => workOrderNumber(candidate.display_id) === ref.number);
+      const ticket = matches.length === 1 ? matches[0] : undefined;
       output.push(<span key={`text-${at}`}><PlainTextLinks text={text.slice(at, ref.start)} /></span>);
       output.push(ticket ? <button key={`mention-${ref.start}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={`Open ${ref.label} - ${ticket.room || "No location"}`}>{ref.label}</button> : <span key={`mention-${ref.start}`} className="text-slate-400">{ref.label}</span>);
       at = ref.end;

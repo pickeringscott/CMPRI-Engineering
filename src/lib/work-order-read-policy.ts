@@ -10,7 +10,13 @@ export type WorkOrderReader = {
   technicianName: string;
 };
 
-export function canReadWorkOrder(reader: WorkOrderReader, row: {
+/** All ticket states are readable by active members of the ticket's hotel. */
+export function canReadWorkOrder(reader: WorkOrderReader, row: { hotel_id: string }) {
+  return Boolean(reader.canRead && reader.userId && reader.hotelId && row.hotel_id === reader.hotelId);
+}
+
+/** Preserve the pre-expansion row eligibility wherever reads gate a mutation. */
+export function canReadWorkOrderForMutation(reader: WorkOrderReader, row: {
   hotel_id: string;
   status?: unknown;
   created_by?: unknown;
@@ -24,14 +30,7 @@ export function canReadWorkOrder(reader: WorkOrderReader, row: {
   return reader.canViewAllStatuses && (!reader.technician || !assigned || (!!reader.technicianName && assigned === reader.technicianName));
 }
 
-/** Applied before pagination/limits. Hotel scope must also be applied by the caller. */
+/** Hotel scope must also be applied by the caller, before pagination. */
 export function workOrderReadFilter(reader: WorkOrderReader): string | null {
-  if (!reader.canRead || !/^[0-9a-f-]{36}$/i.test(reader.userId)) return "id.is.null";
-  if (reader.canViewAllStatuses && !reader.technician) return null;
-  const clauses = [`status.in.(Open,In Progress)`, `and(status.eq.Closed,created_by.eq.${reader.userId})`];
-  if (reader.canViewAllStatuses && reader.technician) {
-    clauses.push("technician_name.is.null", 'technician_name.eq.""');
-    if (reader.technicianName) clauses.push(`technician_name.eq.${JSON.stringify(reader.technicianName)}`);
-  }
-  return clauses.join(",");
+  return reader.canRead && reader.hotelId && /^[0-9a-f-]{36}$/i.test(reader.userId) ? null : "id.is.null";
 }

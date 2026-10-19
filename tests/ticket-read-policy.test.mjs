@@ -9,14 +9,14 @@ const user='00000000-0000-4000-8000-000000000001';
 const hotel='00000000-0000-4000-8000-000000000002';
 const roles=['engineer','chief_engineer','system_admin','technician','manager','senior_management','front_desk_manager','assistant_manager','front_desk','housekeeping'];
 function principal(role) {return {identity:{id:user},hotelId:hotel,profile:{id:user,role,active:true,full_name:'Same Display Name'},membership:{hotel_id:hotel,user_id:user,active:true,role:'admin'},permissions:[{role,permission:'manage_work_orders',allowed:true}]};}
-for(const role of roles) test(`${role}: active tickets and own closed reads preserve hotel and ownership boundaries`,()=>{
+for(const role of roles) test(`${role}: all ticket states and creators preserve hotel and activation boundaries`,()=>{
  const reader=workOrderReader(principal(role));
  for(const status of ['Open','In Progress']) for(const created_by of [user,'other',null]) {
   assert.equal(canReadWorkOrder(reader,{hotel_id:hotel,status,created_by,technician_name:'Another Technician'}),true);
   assert.equal(canReadWorkOrder(reader,{hotel_id:'other-hotel',status,created_by,technician_name:'Same Display Name'}),false);
  }
  assert.equal(canReadWorkOrder(reader,{hotel_id:hotel,status:'Closed',created_by:user,technician_name:'Another Technician'}),true);
- const broad=['engineer','chief_engineer','system_admin'].includes(role);
+ const broad=true;
  assert.equal(canReadWorkOrder(reader,{hotel_id:hotel,status:'Closed',created_by:'other',creator_name:'Same Display Name',technician_name:'Another Technician'}),broad);
  for(const status of ['Pending Verification','Completed','Will Not Do','Draft','Unknown','']) assert.equal(canReadWorkOrder(reader,{hotel_id:hotel,status,created_by:user,technician_name:'Another Technician'}),broad,`${role}/${status}`);
  const p=principal(role);p.membership.active=false;
@@ -32,9 +32,8 @@ test('technician existing assigned technical detail reads remain broader without
  assert.equal(allows(p,'review_tickets'),false);
  assert.equal(roleKey(p.profile.role),'technician');
 });
-test('limited list query adds exactly active statuses plus authenticated creator Closed, never status != Closed',()=>{
+test('active members list all states; denied readers still fail closed',()=>{
  const filter=workOrderReadFilter(workOrderReader(principal('front_desk')));
- assert.equal(filter,`status.in.(Open,In Progress),and(status.eq.Closed,created_by.eq.${user})`);
- assert.doesNotMatch(filter,/neq|Pending|Completed|Will Not Do|creator_name/);
+ assert.equal(filter,null);
  assert.equal(workOrderReadFilter({...workOrderReader(principal('front_desk')),canRead:false}),'id.is.null');
 });

@@ -18,7 +18,7 @@ const apiPaths = [
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
   '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
   '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-operations/cleanup', '/api/room-ranker',
-  '/api/rooms', '/api/users', '/api/work-orders', '/api/work-orders/test-id',
+  '/api/rooms', '/api/users', '/api/work-orders', '/api/work-orders/references?target=number:123', '/api/work-orders/test-id',
   '/api/work-orders/test-id/activity', '/api/work-orders/drafts', '/api/work-orders/import',
 ];
 const mutationCases = [
