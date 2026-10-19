@@ -135,3 +135,33 @@
 
 .order .orderReview { grid-column: 1 / -1; display: block; color: #fbbf24; font-size: .72rem; line-height: 1.35; white-space: normal; }
 
+
+/* Approved responsive PO workspace; preserve CMPRI typography and global gold scrollbars. */
+.poWorkspace{width:100%;max-width:none;height:100dvh;min-height:0}
+.poWorkspace .workspace{grid-template-columns:var(--po-orders-width,150px) 10px minmax(0,1fr);column-gap:0}
+.poWorkspace .orders{display:flex;flex-direction:column;align-self:stretch;overflow:hidden;padding:0}
+.poWorkspace .orders .sectionHead{position:relative;z-index:5;background:#101a2a;padding:3px;flex-shrink:0;margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.orderList{overflow:auto;min-height:0;padding:3px;scrollbar-gutter:stable}
+.poWorkspace .order{display:flex;max-width:none;min-width:0}
+.poWorkspace .orderTop{display:flex;flex-direction:column;align-items:flex-start}
+.poWorkspace .selected{border-color:#3b4b63!important;box-shadow:none;background:#332a19!important}
+.surface .primary,.poWorkspace .panelNav button[aria-pressed=true]{border-color:transparent;box-shadow:none;outline:none}
+.poWorkspace button:focus-visible,.poWorkspace summary:focus-visible{outline:1px dotted currentColor;outline-offset:-3px;box-shadow:none}
+.compactMenu{position:relative;width:fit-content;max-width:100%}
+.compactMenu summary{list-style:none;cursor:pointer;border:1px solid #3c4d67;border-radius:3px;padding:0 1px;background:#08111f}
+.compactMenu summary::after{content:' ▾'}.compactMenu summary::-webkit-details-marker{display:none}
+.menuOptions{position:absolute;top:100%;left:0;z-index:20;width:max-content;max-width:100%;background:#101a2a;border:1px solid #3c4d67;max-height:160px;overflow:auto}
+.poWorkspace .menuOptions button{display:block;width:100%;min-height:0;padding:0 2px;border:0;border-radius:0;text-align:left;font:inherit;background:transparent}
+.poWorkspace .menuOptions button:hover{background:#26354c}.compactMenu[open]{z-index:10}
+.paneDivider{min-width:0;min-height:0;cursor:col-resize;touch-action:none;position:relative;align-self:stretch}
+.paneDivider::before{content:'';position:absolute;inset:0 4px;background:#34435a;border-radius:2px}
+.paneDivider:hover::before,.paneDivider:focus-visible::before{background:var(--cmpri-scroll-thumb,#a38535)}
+.paneDivider:focus-visible{outline:1px dotted #94a6bf;outline-offset:-2px}
+.poWorkspace .tableScroll table{table-layout:auto;min-width:600px}
+.inlineReceipt label{display:block}.inlineReceipt span{display:block}
+.poWorkspace .inlineCount{width:4ch;min-width:0;padding:0 2px;border:0;border-bottom:1px solid #3c4d67;border-radius:0;background:transparent;appearance:textfield;box-shadow:none}
+.poWorkspace .inlineCount:focus{outline:none;border-bottom-color:#fbbf24}.inlineCount::selection{background:transparent;color:inherit}
+.inlineCount::-webkit-inner-spin-button,.inlineCount::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.poWorkspace .inlineReceipt button{padding:0 2px;min-height:0;line-height:inherit;margin-left:4px}
+.orderTotal{padding:6px 0;border-top:1px solid #34435a;text-align:right}.spending{margin-left:auto;display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:560px){.poWorkspace{height:100dvh}.poWorkspace .workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--po-orders-height,230px) 10px minmax(0,1fr);row-gap:0}.paneDivider{cursor:row-resize}.paneDivider::before{inset:4px 0}}

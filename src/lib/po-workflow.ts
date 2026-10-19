@@ -38,3 +38,29 @@ export function poOrderBadge(order: {origin:string;acceptance:string;cancelled?:
   const status=order.cancelled?'Cancelled':order.acceptance==='accepted'?'Accepted':order.acceptance==='submitted'?'Submitted':order.origin==='manual'?'Recorded':'Awaiting Acceptance';
   return order.origin==='manual'?status+' · Manually Entered':status;
 }
+
+export function poHotelDate(now:Date,timeZone:string) {
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  return ['year','month','day'].map(type=>parts.find(p=>p.type===type)!.value).join('-');
+}
+export function receivedPoSpending(lines:{id:string;purchase_unit_price_cents?:number|null}[],receipts:{id:string;line_id:string;quantity:number;received_date:string}[],now:Date,timeZone:string) {
+  const today=poHotelDate(now,timeZone),year=today.slice(0,4),month=Number(today.slice(5,7));
+  const starts={MTD:`${today.slice(0,7)}-01`,QTD:`${year}-${String(Math.floor((month-1)/3)*3+1).padStart(2,'0')}-01`,YTD:`${year}-01-01`};
+  const prices=new Map(lines.map(l=>[l.id,l.purchase_unit_price_cents]));
+  return Object.fromEntries(Object.entries(starts).map(([period,start])=>{
+    let milliCents=BigInt(0),known=0,missing=0;const seen=new Set<string>();
+    for(const receipt of receipts){
+      if(seen.has(receipt.id))continue;seen.add(receipt.id);
+      const date=receipt.received_date;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date){missing++;continue;}
+      if(date<start||date>today)continue;
+      // The PO purchase-unit price is the recorded source snapshot, not today's inventory cost.
+      // Receipt quantity uses that same purchase unit; stock conversion must not multiply its value.
+      const price=prices.get(receipt.line_id),quantity=Number(receipt.quantity),thousandths=Math.round(quantity*1000);
+      if(price==null||!Number.isSafeInteger(Number(price))||Number(price)<0||!Number.isSafeInteger(thousandths)||quantity<=0||Math.abs(quantity*1000-thousandths)>1e-6){missing++;continue;}
+      milliCents+=BigInt(thousandths)*BigInt(price);known++;
+    }
+    const cents=(milliCents+BigInt(500))/BigInt(1000),overflow=cents>BigInt(Number.MAX_SAFE_INTEGER);
+    return [period,{value:overflow||(!known&&missing)?null:Number(cents)/100,missing:missing+(overflow?known:0)}];
+  })) as Record<'MTD'|'QTD'|'YTD',{value:number|null;missing:number}>;
+}

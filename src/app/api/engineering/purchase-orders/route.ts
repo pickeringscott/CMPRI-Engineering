@@ -1,7 +1,7 @@
-import {wholePoCount} from '@/lib/po-workflow';
+import {wholePoCount,poHotelDate,receivedPoSpending} from '@/lib/po-workflow';
 import {NextRequest,NextResponse} from 'next/server';
 import {requireCapability} from '@/lib/server/auth';
-import {HOTEL_ID} from '@/lib/constants';
+import {HOTEL_ID,HOTEL_TIME_ZONE} from '@/lib/constants';
 import {fetchAllPages} from '@/lib/server/paginated-query';
 const enabled=()=>process.env.CMPRI_PO_ENABLED==='true';
 const tables=['cmpri_po_orders','cmpri_po_lines','cmpri_po_receipts','cmpri_po_shipments','cmpri_po_sources','cmpri_inventory_items'] as const;
@@ -11,7 +11,8 @@ export async function GET(request:NextRequest){
  if(!enabled())return NextResponse.json({error:'PO receiving is not enabled for release.'},{status:409});
  const results=await Promise.all(tables.map(table=>fetchAllPages((from,to)=>auth.admin.from(table).select('*').eq('hotel_id',HOTEL_ID).order('id').range(from,to))));
  if(results.some(r=>r.error))return NextResponse.json({error:'PO data is unavailable. Confirm the receiving migration is installed.'},{status:503});
- return NextResponse.json(Object.fromEntries(tables.map((name,i)=>[name,results[i].data||[]])),{headers:{'Cache-Control':'no-store'}});
+ const data=Object.fromEntries(tables.map((name,i)=>[name,results[i].data||[]]));
+ return NextResponse.json({...data,spending:receivedPoSpending(data.cmpri_po_lines,data.cmpri_po_receipts,new Date(),HOTEL_TIME_ZONE)},{headers:{'Cache-Control':'no-store'}});
 }
 const text=(v:unknown,max=1000)=>{if(typeof v!=='string'||v.length>max)throw Error('Invalid text');return v.trim();};
 const uuid=(v:unknown)=>{const s=text(v,36);if(!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(s))throw Error('Invalid identifier');return s;};
@@ -20,6 +21,7 @@ export async function POST(request:NextRequest){
  const auth=await requireCapability(request,'manage_assets');
  if(!auth)return NextResponse.json({error:'Parts-management permission required.'},{status:403});
  if(!enabled())return NextResponse.json({error:'PO receiving is not enabled for release.'},{status:409});
+ let receiptRpcStarted=false;
  try{
   const body=await request.json();const common={p_hotel:HOTEL_ID,p_actor:auth.principal.identity.id,p_id:uuid(body.id)};
   let result;
@@ -33,8 +35,17 @@ export async function POST(request:NextRequest){
    const priorReceipts=await auth.admin.from('cmpri_po_receipts').select('quantity').eq('hotel_id',HOTEL_ID).eq('line_id',uuid(body.lineId));
    if(priorReceipts.error)throw Error('Could not verify previous receipts');
    if((priorReceipts.data||[]).some(r=>!Number.isInteger(Number(r.quantity))))throw Error('Existing fractional receipt quantity requires review; it has not been rounded.');
-   const date=text(body.date,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||new Date(date).toISOString().slice(0,10)!==date)throw Error('Invalid receipt date');
-   result=await auth.admin.rpc('cmpri_receive_po',{...common,p_line:uuid(body.lineId),p_quantity:wholePoCount(body.quantity),p_date:date,p_note:text(body.note)});
+   let date:string;
+   if(body.receiveNow===true){
+    // Retain the original server date for an uncertain retry, including across midnight.
+    const prior=await auth.admin.from('cmpri_po_receipts').select('received_date').eq('hotel_id',HOTEL_ID).eq('id',common.p_id);
+    if(prior.error)throw Error('Could not verify receipt retry');
+    date=prior.data?.[0]?.received_date||poHotelDate(new Date(),HOTEL_TIME_ZONE);
+   }else date=text(body.date,10);
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||new Date(date).toISOString().slice(0,10)!==date)throw Error('Invalid receipt date');
+   const params={...common,p_line:uuid(body.lineId),p_quantity:wholePoCount(body.quantity),p_date:date,p_note:body.receiveNow===true?'Physically counted and put away via PO Confirm.':text(body.note)};
+   receiptRpcStarted=true;
+   result=await auth.admin.rpc('cmpri_receive_po',params);
   }else if(body.action==='link'){
    result=await auth.admin.rpc('cmpri_link_po_line',{p_hotel:HOTEL_ID,p_line:common.p_id,p_item:uuid(body.itemId),p_factor:quantity(body.factor)});
   }else if(body.action==='accept'){
@@ -44,7 +55,7 @@ export async function POST(request:NextRequest){
    const note=text(body.note);if(!note)throw Error('Company approval evidence is required');
    result=await auth.admin.from('cmpri_po_orders').update({acceptance:'accepted',acceptance_note:note,accepted_by:common.p_actor,accepted_at:new Date().toISOString()}).eq('hotel_id',HOTEL_ID).eq('id',common.p_id).select('id').single();
   }else return NextResponse.json({error:'Unsupported PO action.'},{status:400});
-  if(result.error)return NextResponse.json({error:result.error.message},{status:400});
+  if(result.error)return NextResponse.json({error:result.error.message},{status:receiptRpcStarted&&!/^(P0001|22|23)/.test(result.error.code||'')?503:400});
   return NextResponse.json({id:result.data});
- }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Invalid request'},{status:400});}
+ }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Invalid request'},{status:receiptRpcStarted?503:400});}
 }

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {amazonItemUrl,poDisplayMetadata,poLineValue,poMoney,paneBounds} from '../src/lib/po-presentation.ts';
+assert.equal(amazonItemUrl('https://www.amazon.com/dp/TEST'),'https://www.amazon.com/dp/TEST');
+for(const bad of ['', 'javascript:alert(1)','https://amazon.com.evil.test/x','https://user@amazon.com/x','http://amazon.com/x','https://amazon.com:999/x','https://ama\nzon.com/x'])assert.equal(amazonItemUrl(bad),null);
+assert.deepEqual(poDisplayMetadata('1',[{order_id:'1',kind:'company-accepted',source_note:JSON.stringify({sourceSubject:'Original email subject',messageAt:'2026-10-19T12:00:00Z'})}]),{subject:'Original email subject',date:'2026-10-19'});
+assert.deepEqual(poDisplayMetadata('missing',[]),{subject:null,date:null});
+assert.deepEqual(poDisplayMetadata('1',[{order_id:'1',kind:'company-accepted',source_note:'broken JSON'}]),{subject:null,date:null});
+assert.equal(poLineValue({ordered:3,purchase_unit_price_cents:125}),3.75);assert.equal(poLineValue({ordered:5}),null);assert.equal(poMoney(null),'Unknown');
+assert.deepEqual(paneBounds(1000,false),{min:120,max:750});assert.deepEqual(paneBounds(180,true),{min:68,max:85});
+console.log('PASS PO source-backed labels, safe Amazon links, prices and responsive pane bounds');
