@@ -22,6 +22,40 @@ function fixture(id='12345678901',name='Product NAME',description='https://www.a
 }
 const order=parseOfflinePoPages(fixture());assert.equal(order.lines[0].sku,'Product NAME');assert.equal(order.lines[0].quantity,2);
 assert.equal(order.lines[0].description,'https://www.amazon.com/dp/B000I1VF64?th=1');
+// Observed variable-width iBuy table, including a URL wrapped across PDF cells.
+const resized=fixture(),header=resized[0].findIndex(c=>c.text==='#');
+const hx=[59.25,80.75,106.5,139.2,266.925,429.125,493.975,532.6];
+const hw=[4.736,13,20,23.975,43.0375,31,18.0375,18.2875];
+for(let i=0;i<8;i++)Object.assign(resized[0][header+i],{x:hx[i],width:hw[i]});
+const rx=[59.75,85.25,112,134.5,174.6375,409,487,525.75];
+for(let i=0;i<8;i++)resized[0][header+8+i].x=rx[i];
+resized[0][header+12].text='https://www.amazon.com/dp/';
+resized[0].splice(header+13,0,cell('B000I1VF64?th=1',174.6375,509));
+assert.deepEqual(parseOfflinePoPages(resized),order);
+const totalsPage=structuredClone(resized),totalStart=totalsPage[0].findIndex(c=>c.text==='Subtotal');
+totalsPage.push(totalsPage[0].splice(totalStart));
+assert.deepEqual(parseOfflinePoPages(totalsPage),order);
+const clipped=structuredClone(resized);clipped[0].splice(header+6,2);
+assert.equal(parseOfflinePoPages(clipped),null);
+const unknown=structuredClone(totalsPage);unknown[1].push(cell('Unverified extra line'));
+assert.equal(parseOfflinePoPages(unknown),null);
+// A uniformly scaled compact template must retain the same line values.
+const compact=structuredClone(resized);
+const compactHeaders=[54.25,66,85.75,117.2,244.925,407.125,471.975,510.6];
+// Keep all columns after UOM shifted by 22, with a wider Description column
+// so the table retains its verified overall width.
+compactHeaders[4]+=22;compactHeaders[5]+=44;compactHeaders[6]+=44;compactHeaders[7]+=44;
+for(let i=0;i<8;i++)compact[0][header+i].x=compactHeaders[i];
+const positions=[54.75,70.5,91.25,112.5,152.6375,431,509,547.75];
+for(const c of compact[0].slice(header+8)){
+ if(c.y<568&&c.y>400){
+  const col=rx.indexOf(c.x);
+  if(col>=0)c.x=positions[col];
+ }
+}
+const scale=0.9213,offset=24.1;
+for(const c of compact[0]){c.x=c.x*scale+offset;if(c.width!==undefined)c.width*=scale;}
+assert.deepEqual(parseOfflinePoPages(compact),order);
 const multi=fixture(),start=multi[0].findIndex(c=>c.text==='Subtotal');
 multi[0].splice(start,0,...['2','1','BX','Second product','Non-Amazon description','113280 - Engineering','$2.00','$2.00'].map((t,i)=>cell(t,[59.75,85.25,112,134.5,191.6375,403.2125,501.5375,535.75][i],470)));
 for(const label of ['Subtotal','Grand Total'])multi[0][multi[0].findIndex(c=>c.text===label)+1].text='$49.98';

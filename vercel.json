@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/integrations/drive-po/maintenance",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/notifications/dispatch",
       "schedule": "* * * * *"
     },

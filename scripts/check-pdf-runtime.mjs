@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const pdfs = process.argv.slice(2).map(file => path.resolve(file));
-for (const route of ['maintenance-reference', 'assets/documentation', 'assets', 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed']) {
+for (const route of ['maintenance-reference', 'assets/documentation', 'assets', 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed', 'integrations/drive-po/notify', 'integrations/drive-po/control', 'integrations/drive-po/maintenance']) {
   const tracePath = path.resolve(`.next/server/app/api/${route}/route.js.nft.json`);
   const trace = JSON.parse(await readFile(tracePath, 'utf8'));
   const runtimeFiles = trace.files.map(file => path.resolve(path.dirname(tracePath), file))

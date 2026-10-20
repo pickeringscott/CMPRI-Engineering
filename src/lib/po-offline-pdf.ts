@@ -1,7 +1,7 @@
 import type {EvidenceLine, ImportPlan, OrderEvidence} from './po-evidence';
 import {planPoEvidence} from './po-evidence';
 
-export type PdfCell={text:string;x:number;y:number};
+export type PdfCell={text:string;x:number;y:number;width?:number};
 export type OfflinePo={externalPo:string;supplier:string;acceptedAt:string;subject:string;lines:EvidenceLine[];subtotalCents:number;totalCents:number};
 const clean=(s:string)=>s.replace(/\s+/g,' ').trim();
 const cents=(s:string)=>/^\$[\d,]+\.\d{2}$/.test(s)?Math.round(Number(s.replace(/[$,]/g,''))*100):NaN;
@@ -19,26 +19,51 @@ export function parseOfflinePoPages(pages:PdfCell[][]):OfflinePo|null{
  const supplier=flat[supplierIndex+1]?.text,subject=flat[subjectIndex+1]?.text;
  if(!acceptedAt||supplierIndex<0||subjectIndex<0||!supplier||!subject)return null;
  const rows:string[][]=[];
- for(const page of pages){
+ for(const originalPage of pages){
+  let page=originalPage;
+  const first=page.findIndex(c=>c.text==='#'),initial=page.slice(first,first+8);
+  // The same compact template can be uniformly scaled by the PDF printer.
+  // Confirm all three fixed-column anchors before normalizing coordinates.
+  if(first>=0&&initial[2]?.width&&initial[2].text==='UOM'){
+   const scale=initial[2].width/20,offset=initial[0].x-54.25*scale;
+   if(scale>=0.5&&scale<=1.1&&[54.25,66,85.75].every((x,i)=>Math.abs(initial[i].x-(x*scale+offset))<0.1)){
+    page=page.map(c=>({...c,x:(c.x-offset)/scale,width:c.width===undefined?undefined:c.width/scale}));
+   }
+  }
   const start=page.findIndex(c=>c.text==='#');
-  if(start<0)return null;
+  if(start<0){
+   // A complete table may be followed by a page containing only its totals.
+   if(!rows.length||!page.every(c=>/^(Subtotal|Discount|Taxes|Shipping|Grand Total|\$[\d,]+\.\d{2}|Page \d+ of \d+)$/.test(c.text)||c.text.startsWith('Document Transmitted:')))return null;
+   continue;
+  }
   const headers=page.slice(start,start+8);
   if(headers.map(c=>c.text).join('|')!=='#|Qty|UOM|Item #|Description|GL Code|Price|Total')return null;
-  // This source's fixed-width iBuy template. Reject shifted/reflowed layouts.
+  // iBuy resizes the final five columns. Their centered headers determine
+  // boundaries; the first three columns must still match the verified template.
   const expected=[59.25,80.75,106.5,147.7,272.525,430.7625,500.775,534.875];
-  if(headers.some((c,i)=>Math.abs(c.x-expected[i])>2))return null;
+  const edges=[72.5,101.5,131.5,188,400,492,527,562];
+  if(headers.every(c=>Number.isFinite(c.width))){
+   const compact=[54.25,66,85.75];
+   if(headers.slice(0,3).every((c,i)=>Math.abs(c.x-compact[i])<1)){
+    edges.splice(0,3,62.5,82.5,109.5);
+   }else if(headers.slice(0,3).some((c,i)=>Math.abs(c.x-expected[i])>2))return null;
+   for(let i=3;i<8;i++)edges[i]=2*(headers[i].x+headers[i].width!/2)-edges[i-1];
+   if(edges.some((e,i)=>i>0&&e<=edges[i-1])||edges[7]>999||edges[7]<550)return null;
+  }else if(headers.some((c,i)=>Math.abs(c.x-expected[i])>2))return null;
   let row:string[]|null=null;
   for(const cell of page.slice(start+8)){
    if(cell.text==='Subtotal'||cell.text.startsWith('Document Transmitted:')||/^Page \d+ of \d+$/.test(cell.text))break;
    if(cell.y>=headers[0].y)continue;
-   const col=[72.5,101.5,131.5,188,400,492,527,562].findIndex(edge=>cell.x<edge);
+   const col=edges.findIndex(edge=>cell.x<edge);
    if(col<0)return null;
    if(col===0){
     if(!/^\d+$/.test(cell.text))return null;
     row=Array(8).fill('');rows.push(row);
    }
    if(!row)return null;
-   row[col]=clean(`${row[col]} ${cell.text}`);
+   // PDF line wrapping is not part of a URL. Preserve ordinary prose spacing.
+   row[col]=col===4&&/^https?:\/\/\S+$/.test(row[col])&&/^\S+$/.test(cell.text)
+    ?row[col]+cell.text:clean(`${row[col]} ${cell.text}`);
   }
  }
  const lines:EvidenceLine[]=[];
