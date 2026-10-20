@@ -56,3 +56,12 @@ test('saved notes render staff and full roles, preserve URLs, and keep numeric a
  vm.runInNewContext(program,{exports:e,require:()=>({jsx,jsxs:jsx}),plainTextParts:links.plainTextParts,...references,referencePrefixes:{abcdef12:tickets[0].id},referenceTickets:tickets,referenceError:'',mentionDirectory:mentions,ticketMentionLabel:t=>references.formatWorkOrder(t.display_id,`WO-${t.id.slice(0,8)}`),openMentionedTicket:t=>opened.push(t.id),PlainTextLinks:'links',WorkOrderMentionText:'mentions'});
  const result=e.run('@Scott @WO#123 @WO-abcdef12');const buttons=nodes(result,n=>n.type==='button');assert.equal(buttons.length,2);buttons.forEach(b=>b.props.onClick());assert.deepEqual(opened,['ticket-number',tickets[0].id]);
 });
+
+
+test('fully typed first names, full role titles and ticket labels close suggestions so posting stays accessible',()=>{
+ const h=harness();
+ for(const value of ['@Scott','@Scott ','@Front Desk Manager','@Front Desk Manager ','@WO#123']){
+  const tree=h.type(value);assert.equal(h.input(tree).props.value,value);assert.equal(nodes(tree,n=>n.props?.role==='option').length,0,value);assert.ok(nodes(tree,n=>n.props?.['data-composer-mention']!==undefined).length,value);
+ }
+ const partial=h.type('@Front Desk M');assert.ok(nodes(partial,n=>n.props?.role==='option').length>0);
+});

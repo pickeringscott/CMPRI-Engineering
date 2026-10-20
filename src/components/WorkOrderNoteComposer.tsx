@@ -31,7 +31,7 @@ export default function WorkOrderNoteComposer({ value, onChange, mentions, ticke
     }
   }
   // Completed mentions need no dropdown; typing a longer role title still works.
-  const exact = range && choices.some(choice => choice.label.toLocaleLowerCase() === range.query.trim()) && range.query.endsWith(" ");
+  const exact = range && [...mentions, ...choices].some(choice => choice.label.toLocaleLowerCase() === range.query.trim());
   const suggestions = exact ? [] : choices;
   const active = Math.min(selected, Math.max(0, suggestions.length - 1));
 
