@@ -1,3 +1,4 @@
+import { persistMentionedWorkOrder } from "@/lib/server/work-order-mentions";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { canReadWorkOrder, canReadWorkOrderForMutation, workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
@@ -164,7 +165,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const db = auth.admin;
 
   const { data: existing, error: lookupError } = await db.from("work_orders")
-    .select("id, display_id, hotel_id, created_by, submitted_by_name, issue, room, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, revision")
+    .select("id, display_id, hotel_id, created_by, submitted_by_name, issue, room, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, notes, revision")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
@@ -341,12 +342,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const roomStatuses = "location_id" in update ? await loadCurrentRoomStatuses(auth.admin) : null;
   if (roomStatuses && (roomStatuses.error || !roomStatuses.statuses)) return NextResponse.json({ error: "Current room availability could not be loaded. No correction was saved." }, { status: 503 });
-  const mutation = db.from("work_orders")
-    .update({ ...update, history_actor_user_id: auth.principal.identity.id, history_source: isMcpRequest(request) ? "ChatGPT" : "CMPRI app" })
-    .eq("hotel_id", HOTEL_ID)
-    .eq("id", id)
-    .eq("revision", body.expected_revision);
-  const { data, error } = await mutation.select("*").single();
+  const validatedUpdate = { ...update, history_actor_user_id: auth.principal.identity.id, history_source: isMcpRequest(request) ? "ChatGPT" : "CMPRI app" };
+  let mentionSave;
+  try {
+    mentionSave = await persistMentionedWorkOrder(db, {
+      hotelId: HOTEL_ID, id, actorId: auth.principal.identity.id, revision: body.expected_revision,
+      beforeNotes: String(existing.notes || ""), update: validatedUpdate,
+    });
+  } catch {
+    return NextResponse.json({ error: "Mention recipients could not be verified. Your changes were not saved." }, { status: 503 });
+  }
+  const { data, error } = mentionSave || await db.from("work_orders")
+    .update(validatedUpdate).eq("hotel_id", HOTEL_ID).eq("id", id).eq("revision", body.expected_revision).select("*").single();
   if (error) {
     if ((error as { code?: string }).code === "PGRST116") {
       return NextResponse.json({ error: "This ticket changed while you were saving. Your edits were not saved. Reload before combining the changes." }, { status: 409 });

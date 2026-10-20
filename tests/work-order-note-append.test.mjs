@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import {loadTs} from './helpers/load-ts.mjs';
 const roles=loadTs('src/lib/server/roles.ts');
 const hotel='hotel';const id='00000000-0000-4000-8000-000000000042';
-function fixture({role='technician',status='Open',otherHotel=false,race=false,authenticated=true}={}) {
+function fixture({role='technician',status='Open',otherHotel=false,race=false,authenticated=true,mentionResult=null,mentionFailure=false}={}) {
  const writes=[];const filters=[];const existing={id,notes:'Original requester\nCMPRI|2026-01-01|Other Person|note|Existing finding',status,revision:7};
  const admin={from(table){assert.equal(table,'work_orders');let mutation;const q={select(){return q},eq(k,v){filters.push([k,v]);return q},in(k,v){filters.push([k,Array.from(v)]);return q},update(v){mutation=v;writes.push(v);return q},async maybeSingle(){return {data:mutation?(race?null:{...existing,...mutation,revision:8}):(otherHotel?null:existing),error:null}}};return q}};
  const principal={identity:{id:'actor-id'},profile:{role,full_name:'Actual Author'},hotelId:hotel};
  const route=loadTs('src/app/api/work-orders/[id]/notes/route.ts',{
  'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status??200})}},
+ '@/lib/server/work-order-mentions':{persistMentionedWorkOrder:async()=>{if(mentionFailure)throw Error("directory offline");return mentionResult;}},
  '@/lib/constants':{HOTEL_ID:hotel},'@/lib/server/auth':{requireUser:async()=>authenticated?{principal,admin}:null},
  '@/lib/server/access':{allows:(_,cap)=>roles.roleAllows(role,cap)},'@/lib/uuid':loadTs('src/lib/uuid.ts'),
  '@/lib/account-display':loadTs('src/lib/account-display.ts'),'@/lib/ticket-note-presentation':loadTs('src/lib/ticket-note-presentation.ts')});
@@ -31,4 +32,11 @@ test('technician collaboration does not enable Closed or pending composers',()=>
  const policy=loadTs('src/lib/work-order-edit-policy.ts');
  for(const status of ['Closed','Pending Verification','Completed','Will Not Do']) assert.equal(policy.canSubmitWorkOrderNote({role:'technician',canEdit:false,canReview:false,canAddNotes:true,status}),false,status);
  for(const status of ['Open','In Progress']) assert.equal(policy.canSubmitWorkOrderNote({role:'technician',canEdit:false,canReview:false,canAddNotes:true,status}),true,status);
+});
+
+
+test('append-only saves consume atomic mention results, retain stale/failed notes and never double-save',async()=>{
+ const saved=fixture({mentionResult:{data:{id,revision:8},error:null}});assert.equal((await saved.run({notes:['@Scott'],expected_revision:7})).status,200);assert.equal(saved.writes.length,0);
+ const stale=fixture({mentionResult:{data:null,error:null}});assert.equal((await stale.run({notes:['@Scott'],expected_revision:7})).status,409);assert.equal(stale.writes.length,0);
+ const offline=fixture({mentionFailure:true});assert.equal((await offline.run({notes:['@Scott'],expected_revision:7})).status,503);assert.equal(offline.writes.length,0);
 });

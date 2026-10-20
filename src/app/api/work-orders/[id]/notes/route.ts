@@ -1,3 +1,4 @@
+import { persistMentionedWorkOrder } from "@/lib/server/work-order-mentions";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireUser } from "@/lib/server/auth";
@@ -40,10 +41,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     actor: profile.full_name?.trim() || "CMPRI User", authorRole: accountRoleDisplayName(profile),
   }));
   const notes = String(existing.notes || "") + (existing.notes ? "\n" : "") + lines.join("\n");
-  const { data, error } = await auth.admin.from("work_orders").update({
+  const update = {
     notes, history_actor_user_id: auth.principal.identity.id,
-    history_source: /^Bearer\s+cmpri_mcp_/i.test(request.headers.get("authorization") || "") ? "ChatGPT" : "CMPRI app",
-  }).eq("hotel_id", HOTEL_ID).eq("id", id).eq("revision", body.expected_revision)
+    history_source: /^Bearer\\s+cmpri_mcp_/i.test(request.headers.get("authorization") || "") ? "ChatGPT" : "CMPRI app",
+  };
+  let mentionSave;
+  try {
+    mentionSave = await persistMentionedWorkOrder(auth.admin, {
+      hotelId: HOTEL_ID, id, actorId: auth.principal.identity.id, revision: body.expected_revision,
+      beforeNotes: String(existing.notes || ""), update, openOnly: true,
+    });
+  } catch {
+    return NextResponse.json({ error: "Mention recipients could not be verified. Your notes were not saved." }, { status: 503 });
+  }
+  const { data, error } = mentionSave || await auth.admin.from("work_orders").update(update)
+    .eq("hotel_id", HOTEL_ID).eq("id", id).eq("revision", body.expected_revision)
     .in("status", ["Open", "In Progress"]).select("*").maybeSingle();
   if (error) return NextResponse.json({ error: "The notes could not be saved." }, { status: 503 });
   if (!data) return NextResponse.json({ error: "This ticket changed. Your notes were not saved; reload before retrying." }, { status: 409 });

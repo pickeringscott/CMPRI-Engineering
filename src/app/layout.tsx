@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import WorkOrderMentionsInbox from "@/components/WorkOrderMentionsInbox";
 import StaffNotesUnread from "@/components/StaffNotesUnread";
 import GlobalModalHost from "@/components/GlobalModalHost";
 import "./globals.css";
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {children}
         <GlobalModalHost />
         <StaffNotesUnread />
+        <WorkOrderMentionsInbox />
       </body>
     </html>
   );
