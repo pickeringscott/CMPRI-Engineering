@@ -1,4 +1,7 @@
 "use client";
+import WorkOrderNoteComposer from "@/components/WorkOrderNoteComposer";
+import WorkOrderMentionText from "@/components/WorkOrderMentionText";
+import type { WorkOrderMention } from "@/lib/work-order-mentions";
 import { workOrderReferenceTargets } from "@/lib/work-order-reference-targets";
 import {workOrderListSnapshot} from "@/lib/work-order-list-sync";
 import PlainTextLinks from '@/components/PlainTextLinks';
@@ -612,6 +615,20 @@ export default function WorkOrderTicketPage() {
   const [notes, setNotes] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [mentionTickets, setMentionTickets] = useState<MentionTicket[]>([]);
+  const [mentionDirectory, setMentionDirectory] = useState<WorkOrderMention[]>([]);
+  const [mentionDirectoryError, setMentionDirectoryError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch("/api/work-orders/mentions?directory=1", { headers: await authorizationHeaders(), cache: "no-store", signal: controller.signal });
+        const payload = await response.json();
+        if (!response.ok) throw new Error("Staff mentions could not be loaded. Reload the ticket to retry.");
+        if (!controller.signal.aborted) { setMentionDirectory(payload.mentions || []); setMentionDirectoryError(""); }
+      } catch { if (!controller.signal.aborted) setMentionDirectoryError("Staff mentions could not be loaded. Reload the ticket to retry."); }
+    })();
+    return () => controller.abort();
+  }, [id]);
   const [notesLanguage, setNotesLanguage] = useState<"en" | "es">("en");
   useEffect(() => {
     const sync = () => setNotesLanguage(document.documentElement.lang === "es" ? "es" : "en");
@@ -1821,26 +1838,8 @@ export default function WorkOrderTicketPage() {
     return status === "Pending Verification" ? ["Pending Verification", ...values] : values;
   })();
   const statusOptions = Array.from(new Set(statusValues)).map((value) => ({ value, label: value }));
-  const mentionMatch = noteDraft.match(/(?:^|\s)@([A-Za-z0-9#-]*)$/);
-  const mentionQuery = (mentionMatch?.[1] || "").toLowerCase();
-  const mentionSuggestions = mentionMatch
-    ? mentionTickets
-        .filter((ticket) => {
-          if (!mentionQuery) return true;
-          const haystack = [ticket.display_id, formatWorkOrder(ticket.display_id), ticket.room, ticket.issue, ticket.status, ticket.id.slice(0, 8)].filter(Boolean).join(" ").toLowerCase();
-          return haystack.includes(mentionQuery);
-        })
-        .slice(0, 6)
-    : [];
-
   function ticketMentionLabel(ticket: MentionTicket) {
     return formatWorkOrder(ticket.display_id, `WO-${ticket.id.slice(0, 8)}`);
-  }
-
-  function insertTicketMention(ticket: MentionTicket) {
-    if (!mentionMatch) return;
-    const label = ticketMentionLabel(ticket);
-    setNoteDraft((draft) => draft.replace(/(?:^|\s)@[A-Za-z0-9#-]*$/, (matched) => `${matched.startsWith(" ") ? " " : ""}@${label} `));
   }
 
   function openMentionedTicket(ticket: MentionTicket) {
@@ -1856,6 +1855,7 @@ export default function WorkOrderTicketPage() {
 
   function renderHistoryText(text: string) {
     const urlRanges = plainTextParts(text).filter(part => part.href); const refs = workOrderReferences(text).filter(ref => !urlRanges.some(url => ref.start < url.end && ref.end > url.start));
+    const legacyTargets = new Map<number, MentionTicket>();
     // Keep historical internal-ID mentions working without changing their links.
     for (const match of text.matchAll(/@(?:WO-)?[a-f0-9-]{8,36}\b/gi)) {
       if (urlRanges.some(url => match.index! < url.end && match.index! + match[0].length > url.start)) continue;
@@ -1863,18 +1863,21 @@ export default function WorkOrderTicketPage() {
       const id = match[0].replace(/^@(?:WO-)?/i, "").toLowerCase();
       const resolvedId = referencePrefixes[id.replaceAll("-", "")];
       const ticket = referenceTickets.find(candidate => candidate.id === resolvedId);
-      if (ticket) refs.push({ start: match.index!, end: match.index! + match[0].length, number: workOrderNumber(ticket.display_id) || "", label: ticketMentionLabel(ticket) });
+      if (ticket) {
+        legacyTargets.set(match.index!, ticket);
+        refs.push({ start: match.index!, end: match.index! + match[0].length, number: workOrderNumber(ticket.display_id) || "", label: ticketMentionLabel(ticket) });
+      }
     }
     const output: React.ReactNode[] = referenceError ? [<span key="reference-error" role="status" className="block text-xs text-amber-300">{referenceError}</span>] : [];
     let at = 0;
     for (const ref of refs.sort((a,b) => a.start - b.start)) {
       const matches = referenceTickets.filter(candidate => workOrderNumber(candidate.display_id) === ref.number);
-      const ticket = matches.length === 1 ? matches[0] : undefined;
-      output.push(<span key={`text-${at}`}><PlainTextLinks text={text.slice(at, ref.start)} /></span>);
+      const ticket = legacyTargets.get(ref.start) || (matches.length === 1 ? matches[0] : undefined);
+      output.push(<span key={`text-${at}`}><WorkOrderMentionText text={text.slice(at, ref.start)} mentions={mentionDirectory} /></span>);
       output.push(ticket ? <button key={`mention-${ref.start}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={`Open ${ref.label} - ${ticket.room || "No location"}`}>{ref.label}</button> : <span key={`mention-${ref.start}`} className="text-slate-400">{ref.label}</span>);
       at = ref.end;
     }
-    output.push(<span key="remaining"><PlainTextLinks text={text.slice(at)} /></span>);
+    output.push(<span key="remaining"><WorkOrderMentionText text={text.slice(at)} mentions={mentionDirectory} /></span>);
     return output;
   }
   const parsedHistory = parseTicketHistory(notes, order.created_at);
@@ -2141,26 +2144,8 @@ export default function WorkOrderTicketPage() {
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
               <h2 className="text-sm font-bold leading-tight tracking-tight">{noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)}</h2>
               <div className="relative">
-                <textarea
-                  id="technician-note-editor"
-                  value={noteDraft}
-                  disabled={saving || !canSubmitTicketNote}
-                  onChange={(event) => setNoteDraft(event.target.value)}
-                  rows={2}
-                  placeholder="Document findings, diagnostic codes, readings, tests, work performed, or type @ to mention another ticket..."
-                  className="mt-2 max-h-20 w-full resize-none overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
-                />
-                {mentionMatch && mentionSuggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
-                    {mentionSuggestions.map((ticket) => (
-                      <button key={ticket.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertTicketMention(ticket)} className="block w-full rounded-lg px-2.5 py-2 text-left hover:bg-sky-900/45">
-                        <span className="font-semibold text-sky-200">@{ticketMentionLabel(ticket)}</span>
-                        <span className="ml-2 text-sm text-slate-300">{ticket.room || "No location"}</span>
-                        <span className="ml-2 text-sm text-slate-500">{ticket.issue || "No issue"}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <WorkOrderNoteComposer disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
+                {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{mentionDirectoryError}</p>}
               </div>
               <div className="mt-1 flex justify-end">
                 <button type="button" onClick={submitTechnicianNote} disabled={saving || !noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>

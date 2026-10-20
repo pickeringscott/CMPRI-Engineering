@@ -14,13 +14,13 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/ro
 const editPolicyExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/work-order-edit-policy.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:editPolicyExports,require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+}).outputText,{exports:editPolicyExports,require(name) {if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name === "@/lib/account-display") return accountDisplay;if(name==='./work-order-read-policy')return ticketReadDependency('@/lib/work-order-read-policy');if(name==='./server/roles')return roleExports;throw new Error(name);}});
 const { canSubmitWorkOrderNote, workOrderEditableFields }=editPolicyExports;
 const assignmentExports={};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/work-order-assignment.ts',import.meta.url),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
-}).outputText,{exports:assignmentExports,require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+}).outputText,{exports:assignmentExports,require(name) {if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name === "@/lib/account-display") return accountDisplay;if(name==='./roles')return roleExports;throw new Error(name);}});
 const { canAccessWorkOrderByAssignment }=assignmentExports;
 const activitySource=readFileSync(new URL('../src/app/api/work-orders/[id]/activity/route.ts',import.meta.url),'utf8');
@@ -143,7 +143,7 @@ function fixture(config={}){
   vm.runInNewContext(code,{
     exports,
     process:{env:{SUPABASE_SERVICE_ROLE_KEY:'fake'}},
-    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+    require(name) {if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>{if(config.mentionFailure)throw Error("directory offline");return config.mentionResult||null;}};if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, allows);
       if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
@@ -279,7 +279,7 @@ test('limited work-order readers receive ticket history but not purchasing or En
   const exports={};
   vm.runInNewContext(activityCode,{
     exports,
-    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+    require(name) {if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, (_p,c)=>c === "add_work_order_notes" || c === "view_work_orders");
       if (name === "@/lib/account-display") return accountDisplay;
       if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
@@ -544,7 +544,7 @@ test('new technician reads expose ticket history without expanding purchasing ac
    then(resolve,reject){return Promise.resolve({data:[],error:null}).then(resolve,reject);}};
   return q;
  }};
- const exports={};vm.runInNewContext(activityCode,{exports,require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+ const exports={};vm.runInNewContext(activityCode,{exports,require(name) {if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
   if(name.includes('work-order-read-policy')||name.includes('work-order-reader'))return ticketReadDependency(name,allows);
   if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
   if(name==='@/lib/server/access')return {allows};
@@ -612,4 +612,12 @@ test('generic engineer/admin and lookalike chief do not get unrestricted closed 
  for(const profile of [{active:true,role:'Engineer'},{active:true,role:'system_admin'},{id:'other',email:'maint.cmpri@hawkeyehotels.com',active:true,role:'system_admin',secondary_roles:['Engineer']}]){
  const f=fixture({profile,existingStatus:'Closed',body:{status:'Pending Verification'}});assert.notEqual((await f.run()).status,200);assert.equal(f.writes(),0);
  }
+});
+
+
+test('technical note saves use atomic mention results and do not fall through to another update',async()=>{
+ const note='CMPRI2|2026-10-20T10:00:00Z|Author|Chief Engineer|note|@Scott';
+ const f=fixture({body:{notes:note},mentionResult:{data:{id:'order',status:'Open'},error:null}});assert.equal((await f.run()).status,200);assert.equal(f.writes(),0);
+ const stale=fixture({body:{notes:note},mentionResult:{data:null,error:null}});assert.equal((await stale.run()).status,409);assert.equal(stale.writes(),0);
+ const fail=fixture({body:{notes:note},mentionFailure:true});assert.equal((await fail.run()).status,503);assert.equal(fail.writes(),0);
 });
