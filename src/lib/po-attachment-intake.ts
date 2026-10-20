@@ -13,7 +13,7 @@ export async function inspectGmailPdfs(payload:PdfPart,load:(id:string)=>Promise
    const bytes=part.body?.data?new Uint8Array(Buffer.from(part.body.data,'base64url')):part.body?.attachmentId?await load(part.body.attachmentId):null;
    if(!bytes)throw Error('Missing PDF bytes');bytesRead+=bytes.length;if(bytesRead>20*1024*1024||bytes.length>10*1024*1024){reports.push({...base,status:'blocked-limit'});continue;}
    const pdf=await inspectPoPdf(bytes),text=pdf.pages.map(p=>p.text).join('\n');
-   const observations=parsePdfPurchasingText(text,source);
+   const observations=pdf.offlineOrder?[{kind:'ibuy-offline-order',supplier:pdf.offlineOrder.supplier,reference:pdf.offlineOrder.externalPo,status:'document-review-required',lines:pdf.offlineOrder.lines.map(l=>({...l,unitPriceCents:l.unitPriceCents??null,extendedPriceCents:Math.round(l.quantity*l.unitPriceCents!)})),facts:{acceptedAt:pdf.offlineOrder.acceptedAt,subject:pdf.offlineOrder.subject,subtotalCents:pdf.offlineOrder.subtotalCents,totalCents:pdf.offlineOrder.totalCents,physicalReceiptQuantity:null}}]:parsePdfPurchasingText(text,source);
    reports.push({...base,status:!text.trim()?'ocr-required':observations.length?'parsed':'needs-review',sha256:pdf.sha256,pageCount:pdf.pages.length,observations});
   }catch{reports.push({...base,status:'failed'});}
  }

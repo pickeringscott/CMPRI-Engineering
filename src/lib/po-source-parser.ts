@@ -1,6 +1,7 @@
 import {parseSupplierIntake} from "./po-supplier-intake";
 import type {PdfEvidence} from "./po-attachment-intake";
 import type {OrderEvidence,EvidenceLine} from './po-evidence';
+import {offlinePoSourceLinks} from './po-source-links';
 export type PoSource={pdfEvidence?:PdfEvidence[];account:string;id:string;subject:string;from:string;text:string;html?:string;labelIds?:string[];messageAt:string};
 /** Text-only transform: does not execute HTML, load images, resolve redirects or fetch links. */
 export function poTableText(html:string){return html.replace(/<(style|script)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<!--[\s\S]*?-->/g,'').replace(/<\/(?:td|th)>/gi,' | ').replace(/<\/(?:tr|p|div)>|<br\s*\/?>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&zwnj;|\u200c/g,'');}
@@ -22,7 +23,7 @@ export function parsePoSource(source:PoSource):OrderEvidence{
   if(!subject||!action||subject[1]!==action[2])return {...e,kind:'company-accepted',incomplete:true};
   return {...e,kind:'company-accepted',externalPo:subject[1],sourceSubject:source.subject,eventTimeLiteral:action[3].trim()};
  }
- if(/TO ACCEPT THIS ORDER|accept and retrieve/i.test(text))return {...e,hasActionLink:true,incomplete:true};
+ if(/TO ACCEPT THIS ORDER|accept and retrieve/i.test(text))return {...e,sourceDocumentLinks:offlinePoSourceLinks(source),hasActionLink:true,incomplete:true};
  if(sender.toLowerCase()!=='donotreply@tx.hdsupply-email.com')return intake.length||source.pdfEvidence?.length||/\b(PO|purchase|order|invoice|receipt|shipment)\b/i.test(source.subject)?{...e,incomplete:true}:e;
  const confirmation=source.subject.match(/^Order Confirmation #(\d+)$/i),shipping=source.subject.match(/^Shipping Confirmation #(\d+)$/i);
  if(!confirmation&&!shipping)return {...e,incomplete:true};
