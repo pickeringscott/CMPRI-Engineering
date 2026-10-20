@@ -4,7 +4,7 @@ import {HOTEL_ID} from '../constants';
 import {inspectPoPdf} from '../po-pdf';
 import type {OfflinePo} from '../po-offline-pdf';
 import {isIntegrationsSafeMode} from './integrations-safe-mode';
-import {DRIVE_PO_FOLDER as FOLDER,DRIVE_PO_ACCOUNT as ACCOUNT,DRIVE_PO_ACTOR as ACTOR,DRIVE_PO_CALLBACK,channelToken,secretEqual,existingDriveToken,inspectDriveAccess,listDrivePoFiles,readDrivePoPdf,driveRequest,DriveAccessError,type DrivePoFile} from './drive-po-api';
+import {DRIVE_PO_FOLDER as FOLDER,DRIVE_PO_ACCOUNT as ACCOUNT,DRIVE_PO_ACTOR as ACTOR,DRIVE_PO_CALLBACK,channelToken,secretEqual,diagnoseDriveAccess,existingDriveToken,inspectDriveAccess,listDrivePoFiles,readDrivePoPdf,driveRequest,DriveAccessError,type DrivePoFile} from './drive-po-api';
 type Channel={id:string;folder_id:string;resource_id:string|null;expires_at:string;status:string;sync_received_at:string|null};
 type Cached={file_id:string;version:string;document_sha256:string|null;metadata:DrivePoFile;document:OfflinePo|null;external_po:string|null;reason:string|null};
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
@@ -141,6 +141,6 @@ export async function drivePoStatus(admin:SupabaseClient,checkAccess=false){
  const queue=await admin.from('cmpri_drive_po_events').select('*',{count:'exact',head:true}).is('processed_at',null);
  if(channels.error||queue.error)throw Error('Drive status unavailable');
  let access:unknown;
- if(checkAccess){try{access=await inspectDriveAccess(await existingDriveToken());}catch(e){access={error:safeError(e)};}}
+ if(checkAccess)access=await diagnoseDriveAccess();
  return {checkedAt:new Date().toISOString(),folderId:FOLDER,enabled:s.enabled,integrationEnabled:drivePoEnabled(),channels:channels.data,pendingEvents:queue.count,lastRun:s.last_run_at,lastResult:s.last_result,lastError:s.last_error,...(checkAccess?{access}:{}),commit:process.env.VERCEL_GIT_COMMIT_SHA||null};
 }

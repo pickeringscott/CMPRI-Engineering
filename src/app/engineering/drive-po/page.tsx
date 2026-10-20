@@ -3,7 +3,7 @@ import {useCallback,useEffect,useState} from 'react';
 import {getValidSession} from '@/lib/supabase/client';
 type Status={checkedAt:string;enabled:boolean;integrationEnabled:boolean;pendingEvents:number;lastRun:string|null;lastError:string|null;error?:string;
  channels:{id:string;status:string;expires_at:string;sync_received_at:string|null}[];
- access?:{account?:string;folderName?:string;error?:string};
+ access?:{account?:string;folderName?:string;error?:string;accountVerified?:boolean;scopeMetadata?:{reported:boolean;recognized:string[]}};
  lastResult?:{insertedLines:number;ordersEnriched:number;held:{po?:string;fileId?:string;reason:string}[]}|null};
 export default function DrivePoIntakePage(){
  const [status,setStatus]=useState<Status|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -34,6 +34,7 @@ export default function DrivePoIntakePage(){
    {active&&<p>Watch expires: {new Date(active.expires_at).toLocaleString()}. Renewal is automatic.</p>}
    <p>Pending notifications: {status.pendingEvents}. Last completed run: {status.lastRun?new Date(status.lastRun).toLocaleString():'None'}.</p>
    {status.access&&<p>{status.access.error||`Access verified for ${status.access.account}: ${status.access.folderName}`}</p>}
+   {status.access?.scopeMetadata&&<p>Google account verified: {status.access.accountVerified?'Yes':'Not yet'}. Drive scopes reported by existing token refresh: {status.access.scopeMetadata.reported?(status.access.scopeMetadata.recognized.join(', ')||'None'):'Not supplied by Google'}.</p>}
    {status.lastError&&<p role="alert">{status.lastError}</p>}
    <div className="flex gap-3">
     <button className="rounded border px-3 py-2" disabled={busy} onClick={()=>action(false)}>Check access and refresh</button>
