@@ -28,6 +28,7 @@ function modalHref(href: string) {
     "/profile",
     "/profile/ai-connection",
     "/engineering/room-ranker",
+    "/engineering/room-ranking",
     "/engineering/preventive-maintenance",
     "/engineering/purchasing",
     "/engineering/gss",
@@ -454,8 +455,9 @@ export default function GlobalModalHost() {
         const entryPath = entry.href.replace(/^https?:\/\/[^/]+/, "");
         const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(entryPath);
         const isPurchasing = entryPath === "/engineering/purchasing";
+        const isRoomRanking = entryPath.split("?")[0] === "/engineering/room-ranking";
           const panelStyle: ModalPanelStyle = {
-          "--cmpri-modal-width": `min(${(isPurchasing ? 94 : (isWorkOrderDetail ? 94 : 66)) * scale}vw, ${(isPurchasing ? 88 : (isWorkOrderDetail ? 88 : 72)) * scale}rem)`,
+          "--cmpri-modal-width": `min(${(isRoomRanking ? 100 : (isPurchasing ? 94 : (isWorkOrderDetail ? 94 : 66))) * scale}vw, ${(isRoomRanking ? 120 : (isPurchasing ? 88 : (isWorkOrderDetail ? 88 : 72))) * scale}rem)`,
           "--cmpri-modal-height": `calc(${(isWorkOrderDetail ? 82 : 100) * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
           "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
           "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,

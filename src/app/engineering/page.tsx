@@ -98,6 +98,8 @@ function DashboardLauncherButton({
 }
 
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
+  "/engineering/room-ranking": { title: "Room Ranker", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
+  "/engineering/room-ranker": { title: "Room Ranker old", accent: "bg-amber-400" },
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
   "/profile": { title: "Manage Profile", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
   "/profile/ai-connection": { title: "ChatGPT Connection", accent: "bg-sky-400", preferred: { width: 760, height: 640 } },
@@ -650,7 +652,8 @@ export default function EngineeringDashboardPage() {
         canUseEngineeringAdminTools && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         canUseEngineeringAdminTools && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
         canUseEngineeringAdminTools && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        canViewRanker && { key: "/engineering/room-ranker", label: "Room Ranker", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
+        { key: "/engineering/room-ranking", label: "Room Ranker", href: "/engineering/room-ranking", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
+        canViewRanker && { key: "/engineering/room-ranker", label: "Room Ranker old", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
         hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
       ],
     },

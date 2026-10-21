@@ -38,18 +38,18 @@ function load(relative, overrides = {}) {
 const reads=load('lib/server/cmpri-mcp-reads.ts');
 const writes=load('lib/server/cmpri-mcp-writes.ts');
 function identity(role,email=`${role.toLowerCase().replace(/[^a-z]+/g,'-')}@example.invalid`) {
-  return {canWrite:true,readAllWorkOrders:true,readAssignedWorkOrders:false,readOwnWorkOrders:false,principal:{identity:{email},profile:{role,email}}};
+  return {canWrite:true,readAllWorkOrders:true,readAssignedWorkOrders:false,readOwnWorkOrders:false,principal:{identity:{email},profile:{role,email,secondary_roles:email==='maint.cmpri@hawkeyehotels.com'?['engineer']:[]}}};
 }
 
-test('MCP exposes Ranker reads to authorized viewers and Scott while preserving room PM reads',()=>{
+test('MCP restricts legacy Ranker reads to engineer assignments while preserving room PM reads',()=>{
   const engineerViews=reads.availableMcpReadViews(identity('Chief Engineer'));
   const adminViews=reads.availableMcpReadViews(identity('System Administrator','pickering.scott@gmail.com'));
   const viewerViews=reads.availableMcpReadViews(identity('General Manager'));
   const scottViews=reads.availableMcpReadViews(identity('System Administrator','maint.cmpri@hawkeyehotels.com'));
-  assert.equal(engineerViews.includes('room_ranker'),false);
+  assert.equal(engineerViews.includes('room_ranker'),true);
   assert.equal(engineerViews.includes('corporate_pm'),true);
   assert.equal(adminViews.includes('room_ranker'),false);
-  assert.equal(viewerViews.includes('room_ranker'),true);
+  assert.equal(viewerViews.includes('room_ranker'),false);
   assert.equal(scottViews.includes('room_ranker'),true);
 });
 
@@ -74,13 +74,13 @@ test('MCP exposes Room Ranker writes only to Scott and preserves PM management p
 test('MCP grants authorized Ranker reads with shared work-order reads and unchanged PM limits',()=>{
   const technician={...identity('Maintenance Technician'),readAllWorkOrders:false,readAssignedWorkOrders:true};
   const views=reads.availableMcpReadViews(technician);
-  assert.equal(views.includes('room_ranker'),true);
+  assert.equal(views.includes('room_ranker'),false);
   assert.equal(views.includes('work_orders'),true);
   assert.equal(views.includes('work_order'),true);
   assert.equal(views.includes('corporate_pm'),false);
   const mismatched=identity('System Administrator','maint.cmpri@hawkeyehotels.com');
   mismatched.principal.profile.email='another@example.invalid';
-  assert.equal(reads.availableMcpReadViews(mismatched).includes('room_ranker'),false);
+  assert.equal(reads.availableMcpReadViews(mismatched).includes('room_ranker'),true);
   assert.equal(writes.availableMcpWriteActions(mismatched).some(({action})=>action==='room_ranker.update'),false);
 });
 

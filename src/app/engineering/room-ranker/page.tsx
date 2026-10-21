@@ -69,7 +69,7 @@ export default function RoomRankerPage() {
         cache: "no-store",
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to load Room Ranker.");
+      if (!response.ok) throw new Error(result.error || "Unable to load Room Ranker old.");
       setRooms(Array.isArray(result.rooms) ? result.rooms : []);
       setCanEdit(result.can_edit === true);
       setSafeMode(result.safeMode === true);
@@ -123,7 +123,7 @@ export default function RoomRankerPage() {
         }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to save Room Ranker.");
+      if (!response.ok) throw new Error(result.error || "Unable to save Room Ranker old.");
 
       setRooms((current) => current.map((item) => item.rowNumber === row.rowNumber
         ? { ...item, [field]: value }
@@ -161,7 +161,7 @@ export default function RoomRankerPage() {
     <main className="flex min-h-screen flex-col bg-white text-slate-800">
       <header className="flex min-h-7 flex-wrap items-center justify-between gap-1 border-b border-slate-200 bg-white px-1.5 py-0.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <h1 className="!text-xs truncate font-medium text-slate-800">Room Ranker</h1>
+          <h1 className="!text-xs truncate font-medium text-slate-800">Room Ranker old</h1>
           {embedded && (
             <ModalDashboardLink className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-50">
               ← Dashboard
@@ -175,7 +175,7 @@ export default function RoomRankerPage() {
         </p>
       </header>
 
-      <section aria-label="Room Ranker spreadsheet" className="flex min-h-0 flex-1 flex-col">
+      <section aria-label="Room Ranker old spreadsheet" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-max min-w-full border-collapse text-xs">
             <thead className="sticky top-0 z-20">
@@ -255,7 +255,7 @@ export default function RoomRankerPage() {
           </table>
         </div>
         <div className="flex h-5 shrink-0 items-center border-t border-slate-200 bg-slate-50 px-1.5">
-          <span className="border-b-2 border-blue-600 bg-white px-1.5 text-[9px] font-medium text-blue-700">🔒 Room Ranker</span>
+          <span className="border-b-2 border-blue-600 bg-white px-1.5 text-[9px] font-medium text-blue-700">🔒 Room Ranker old</span>
         </div>
       </section>
     </main>

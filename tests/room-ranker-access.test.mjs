@@ -86,7 +86,7 @@ const syncRoute = load("app/api/integrations/room-ranker/sync/route.ts", {
 function principal(role, email = `${role.toLowerCase().replace(/[^a-z]+/g, "-")}@example.invalid`) {
   return {
     identity: { id: `account-${role}`, email },
-    profile: { id: `account-${role}`, email, role, secondary_roles: [], active: true, full_name: role },
+    profile: { id: `account-${role}`, email, role, secondary_roles: email === "maint.cmpri@hawkeyehotels.com" ? ["engineer"] : [], active: true, full_name: role },
     hotelId: "test-hotel",
     membership: { user_id: `account-${role}`, hotel_id: "test-hotel", active: true, role: "admin" },
     permissions: [],
@@ -115,21 +115,19 @@ test("Room Ranker policy checks secondary roles and both account email identitie
   assert.equal(accessPolicy.canAccessTroubleshootingGuides(viewer.profile), false);
   const scott = principal("System Administrator", "maint.cmpri@hawkeyehotels.com");
   scott.profile.email = "another@example.invalid";
-  assert.equal(accessPolicy.canViewRoomRanker(scott), false);
+  assert.equal(accessPolicy.canViewRoomRanker(scott), true, "engineer secondary role grants legacy read regardless of email");
   assert.equal(accessPolicy.canEditRoomRanker(scott), false);
 });
 
-test("Room Ranker read access is limited to the four requested roles and Scott's mapped account", async () => {
+test("Room Ranker old read access is limited to the engineer role", async () => {
   roomRankerCalls = [];
   for (const role of ["Front Desk Manager", "Assistant General Manager", "Maintenance Technician", "General Manager"]) {
     authenticate(role);
-    const response = await apiRoute.GET({});
-    assert.equal(response.status, 200, role);
-    assert.equal((await response.json()).can_edit, false, role);
+    assert.equal((await apiRoute.GET({})).status, 403, role);
   }
 
   authenticate("Chief Engineer");
-  assert.equal((await apiRoute.GET({})).status, 403, "other Chief Engineers must not be granted access");
+  assert.equal((await apiRoute.GET({})).status, 200, "engineer is the authorized legacy viewer role");
   authenticate("System Administrator", "pickering.scott@gmail.com");
   assert.equal((await apiRoute.GET({})).status, 403, "other system administrators must not be granted access");
 
@@ -137,7 +135,7 @@ test("Room Ranker read access is limited to the four requested roles and Scott's
   const scottResponse = await apiRoute.GET({});
   assert.equal(scottResponse.status, 200);
   assert.equal((await scottResponse.json()).can_edit, true);
-  assert.equal(roomRankerCalls.length, 5);
+  assert.equal(roomRankerCalls.length, 2);
   assert.ok(roomRankerCalls.every((call) => call.action === "read"));
 });
 

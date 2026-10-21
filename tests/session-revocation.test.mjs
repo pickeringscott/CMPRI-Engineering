@@ -92,7 +92,7 @@ for(const [route,method] of routes)for(const config of [{active:false},{profileE
   assert.equal(r.status,401);assert.ok(f.calls.every(v=>v==='profiles'),'No downstream data, network or provider access');
 });
 for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
-  const f=fixture({role:'System Administrator',email:route.includes('room-ranker')?'maint.cmpri@hawkeyehotels.com':'same-user@example.invalid',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,route.includes('corporate-pm')?false:true);
+  const f=fixture({role:route.includes('room-ranker')?'Chief Engineer':'System Administrator',email:route.includes('room-ranker')?'maint.cmpri@hawkeyehotels.com':'same-user@example.invalid',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,route.includes('corporate-pm')?false:true);
   f.state.active=false;f.calls.length=0;
   assert.equal((await handlers.GET(f.request)).status,401);assert.equal(f.calls.includes('network'),false);
 });
@@ -110,20 +110,19 @@ for(const config of [{noMembership:true},{membershipActive:false},{membershipErr
 test('the same token is rejected after property membership revocation',async()=>{
  const f=fixture(),auth=f.load('lib/server/request-auth.ts');assert.ok(await auth.authenticatedUser(f.request));f.state.membershipActive=false;assert.equal(await auth.authenticatedUser(f.request),null);
 });
-test('Room Ranker is available to the requested viewers and Scott, but not other engineer/admin accounts',async()=>{
+test('Room Ranker old requires an engineer assignment and retains existing write ownership',async()=>{
  for (const role of ['Front Desk Manager','Assistant General Manager','Maintenance Technician','General Manager']) {
    const f=fixture({role});
    const response=await f.load('api/room-ranker/route.ts').GET(f.request);
-   assert.equal(response.status,200,role);
-   assert.equal(response.body.can_edit,false,role);
+   assert.equal(response.status,403,role);
    assert.equal(f.calls.includes('network'),false,role);
  }
  for (const role of ['Chief Engineer','System Administrator']) {
    const f=fixture({role,email:role==='System Administrator'?'pickering.scott@gmail.com':'same-user@example.invalid'});
-   assert.equal((await f.load('api/room-ranker/route.ts').GET(f.request)).status,403,role);
+   assert.equal((await f.load('api/room-ranker/route.ts').GET(f.request)).status,role==='Chief Engineer'?200:403,role);
    assert.equal(f.calls.includes('network'),false,role);
  }
- const scott=fixture({role:'System Administrator',email:'maint.cmpri@hawkeyehotels.com'});
+ const scott=fixture({role:'Chief Engineer',email:'maint.cmpri@hawkeyehotels.com'});
  const scottResponse=await scott.load('api/room-ranker/route.ts').GET(scott.request);
  assert.equal(scottResponse.status,200);
  assert.equal(scottResponse.body.can_edit,true);
