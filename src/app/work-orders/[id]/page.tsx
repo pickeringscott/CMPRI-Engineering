@@ -2608,7 +2608,7 @@ export default function WorkOrderTicketPage() {
               {cmpriSession && roomRankerProfileCanView(cmpriSession.user, cmpriSession.user.email) && (
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <b className="text-sm">Room Ranker</b>
+                    <b className="text-sm">Room Ranker old</b>
                     <div className="flex items-center gap-1.5">
                       <Link href="/engineering/room-ranker" className="text-[11px] font-semibold text-amber-300 hover:underline">Ranker</Link>
                       <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span>

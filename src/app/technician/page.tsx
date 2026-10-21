@@ -300,8 +300,9 @@ export default function TechnicianDashboard() {
           {account && profileCanUseHoursTracker(account) && (
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/hours-tracker" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Hours Tracker</button>
           )}
+          <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranking" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Room Ranker</button>
           {account && roomRankerProfileCanView(account, account.email) && (
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker</button>
+            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker old</button>
           )}
         </div>
 

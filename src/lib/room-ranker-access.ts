@@ -25,8 +25,10 @@ export function roomRankerRoleCanView(profile: RoomRankerProfile) {
   return ROOM_RANKER_VIEW_ROLES.some((role) => profileHasRole(profile, role));
 }
 
-export function roomRankerProfileCanView(profile: RoomRankerProfile, identityEmail: string | null) {
-  return roomRankerRoleCanView(profile) || isScottRoomRankerAccount(identityEmail, profile.email);
+export function roomRankerProfileCanView(profile: RoomRankerProfile, _identityEmail: string | null) {
+  // Keep existing callers compatible; legacy visibility is now role-based only.
+  void _identityEmail;
+  return profileHasRole(profile, "engineer");
 }
 
 export function canViewRoomRanker(principal: Principal) {
@@ -34,7 +36,7 @@ export function canViewRoomRanker(principal: Principal) {
 }
 
 export function canEditRoomRanker(principal: Principal) {
-  return isScottRoomRankerAccount(principal.identity.email, principal.profile.email);
+  return canViewRoomRanker(principal) && isScottRoomRankerAccount(principal.identity.email, principal.profile.email);
 }
 
 export function canAccessTroubleshootingGuides(profile: RoomRankerProfile) {
