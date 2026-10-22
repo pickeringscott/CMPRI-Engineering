@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { createTicketWriteQueue } from '../src/lib/work-orders/write-queue.ts';
 const source=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('page.tsx',source,99,true,4);
-let save;
-function walk(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='saveTicket')save=n.getText(ast);ts.forEachChild(n,walk);}walk(ast);
+let save='';
+function walk(n){if(ts.isFunctionDeclaration(n)&&['saveTicket','persistTicket'].includes(n.name?.text))save+=n.getText(ast)+'\n';ts.forEachChild(n,walk);}walk(ast);
 assert.ok(save);
 const code=ts.transpileModule(save+'\nexports.save=saveTicket;', {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 function fixture(failure,extra={}){
@@ -21,6 +22,8 @@ function fixture(failure,extra={}){
     supabase:{auth:{getSession:async()=>({data:{session:{access_token:'fake'}}})}},
     fetch:async(url,options)=>{calls.fetch++;calls.requests.push(JSON.parse(options.body));if(failure==='network')throw Error('Network unavailable');return {ok:failure!=='api',json:async()=>failure==='api'?{error:'Save rejected'}:{workOrder:{id:'order',revision:8}}};},
     window:{setTimeout:()=>{}},router:{push:()=>{}},...extra};
+  ctx.orderRef={current:ctx.order};ctx.ticketWrites={current:createTicketWriteQueue()};
+  const originalSetOrder=ctx.setOrder;ctx.setOrder=row=>{ctx.orderRef.current=row;originalSetOrder(row)};
   vm.runInNewContext(code,ctx);return {calls,run:exports.save};
 }
 for(const failure of ['api','network','session'])test(`${failure} failure keeps edits and staged notes and restores Save`,async()=>{
