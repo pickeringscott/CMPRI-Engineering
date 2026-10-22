@@ -132,11 +132,11 @@ export default function PartsVendorsPage() {
     proposal: "Record Proposal",
   };
 
-  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100">{embedded && <ModalDashboardLink className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}<p>Loading parts and vendors…</p></main>;
+  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-slate-100">{embedded && <ModalDashboardLink className="mb-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>}<p>Loading inventory…</p></main>;
 
   return <main className="min-h-screen bg-slate-950 p-4 text-slate-100 sm:p-6"><div className="mx-auto w-full">
     {!embedded && <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="text-xs font-bold uppercase tracking-[.22em] text-amber-400">CMPRI Engineering</p><h1 className="mt-1 text-3xl font-bold">Parts, Order Ideas & Vendors</h1><p className="mt-2 max-w-3xl text-sm text-slate-400">Inventory, compatible parts, order ideas, vendor contacts and repair/replace proposals.</p></div>
+      <div><p className="text-xs font-bold uppercase tracking-[.22em] text-amber-400">CMPRI Engineering</p><h1 className="mt-1 text-3xl font-bold">Inventory</h1><p className="mt-2 max-w-3xl text-sm text-slate-400">Inventory, compatible parts, order ideas, vendor contacts and repair/replace proposals.</p></div>
       <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink>
     </header>}
     {embedded && <div className="mb-4"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></div>}

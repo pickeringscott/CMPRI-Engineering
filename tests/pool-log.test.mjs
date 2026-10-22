@@ -161,9 +161,9 @@ test('MCP pool save rejects ambiguous pool names and non-ISO dates before saving
 });
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 function fixture(config={}) {
- const calls=[],writes=[],notifications=[];
+ const calls=[],writes=[],notifications=[],pushes=[];
  const db={from(table){const filters=[];let changed;
-  const q={select(){return q;},eq(key,value){filters.push([key,value]);return q;},in(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
+  const q={like(){return q;},limit(){return q;},select(){return q;},eq(key,value){filters.push([key,value]);return q;},in(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
    range(from,to){q.from=from;q.to=to;return q;},
    then(resolve,reject){
     if(table==='profiles')return Promise.resolve({data:config.profiles||[],error:config.profileListError?new Error('Unavailable'):null}).then(resolve,reject);
@@ -172,7 +172,7 @@ function fixture(config={}) {
      const memberships=config.memberships||[];
      return Promise.resolve({data:memberships.filter(({user_id})=>eligible.includes(user_id)),error:config.membershipError?new Error('Unavailable'):null}).then(resolve,reject);
     }
-    if(table==='cmpri_dashboard_notifications')return Promise.resolve({error:config.notificationError?new Error('Unavailable'):null}).then(resolve,reject);
+    if(table==='cmpri_dashboard_notifications')return Promise.resolve({data:[{notification_key:'pool-closed:status:test:1',message:'Pool closed',target_path:'/pool'}],error:config.notificationError?new Error('Unavailable'):null}).then(resolve,reject);
     if(table==='cmpri_pool_log_history')return Promise.resolve({data:config.retestsHistory||[],error:null}).then(resolve,reject);
     if(table!=='pool_daily_logs')return Promise.resolve({data:[],error:null}).then(resolve,reject);
     calls.push({table,filters});
@@ -191,13 +191,13 @@ function fixture(config={}) {
    if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
    if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'actor'},profile:{role:config.role||'system_admin',full_name:'Scott Pickering'},admin:db}};
    if(name==='@/lib/server/paginated-query')return {fetchAllPages};
-   if(name==='@/lib/notifications/web-push')return {dispatchWebPushNotifications:async()=>undefined};
+   if(name==='@/lib/notifications/web-push')return {dispatchWebPushNotifications:async(_admin,id)=>{pushes.push(id);}};
    if(name==='server-only')return {};
    if(name==='@supabase/supabase-js')return {createClient:function(){return {auth:{getUser:function(){return {data:{user:{id:'actor'}},error:null}}}}}};
    let target=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(file),name);if(!existsSync(target))target+='.ts';return load(target);
   }});return exports;
  }
- return {handlers:load(path.join(root,'app/api/pool-log/route.ts')),calls,writes,notifications,request:{nextUrl:new URL('https://test.invalid/api/pool-log?date=2026-09-15'),headers:new Headers({authorization:'Bearer fake'}),json:async()=>({...input,...config.body})}};
+ return {handlers:load(path.join(root,'app/api/pool-log/route.ts')),calls,writes,notifications,pushes,request:{nextUrl:new URL('https://test.invalid/api/pool-log?date=2026-09-15'),headers:new Headers({authorization:'Bearer fake'}),json:async()=>({...input,...config.body})}};
 }
 for(const config of [{unauthorized:true},{role:'Front Desk'},{role:'Housekeeping'}])test(`pool writes reject unavailable authority ${JSON.stringify(config)}`,async()=>{
  const f=fixture(config);assert.equal((await f.handlers.POST(f.request)).status,config.unauthorized?401:403);assert.equal(f.writes.length,0);
@@ -216,7 +216,7 @@ test('pool API persists selected bromine ranges and forces closure for unsafe re
  assert.match(result.body.closure_reasons.join(),/AM bromine/);
  assert.equal(f.writes[0].closure_condition,true);
 });
-test('a new pool closure notifies only active CMPRI recipients from the five authorized roles',async()=>{
+test('pool route preserves existing phone recipients while the database owns in-app notification writes',async()=>{
  const profiles=[
   {id:'housekeeping',role:'Housekeeping',active:true},
   {id:'front-desk',role:'Front Desk',active:true},
@@ -233,11 +233,10 @@ test('a new pool closure notifies only active CMPRI recipients from the five aut
  const result=await f.handlers.POST(f.request);
  assert.equal(result.status,200);
  assert.equal(result.body.notifications_recorded,true);
- assert.deepEqual(f.notifications.map(({recipient_user_id})=>recipient_user_id).sort(),[
+ assert.deepEqual(f.pushes.sort(),[
   'assistant-manager','chief-engineer','front-desk-manager','general-manager','technician',
  ]);
- assert.ok(f.notifications.every(({work_order_id,target_path,notification_key})=>
-  work_order_id===null&&target_path==='/engineering/pool-log'&&notification_key.startsWith('pool-closed:')));
+ assert.equal(f.notifications.length,0);
 });
 test('an already-closed pool log does not create duplicate closure notifications',async()=>{
  const closed=poolLogInput({...input,temperature_f:105,closure_reason:'Water temperature exceeded the operating limit.'});

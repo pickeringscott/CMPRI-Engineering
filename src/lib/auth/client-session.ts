@@ -11,7 +11,7 @@ export type CmpriClientSession = {
     secondary_roles?: string[];
   };
   hotelId: string;
-  landing: "/work-orders" | "/technician" | "/engineering";
+  landing: "/work-orders" | "/technician" | "/engineering" | "/front-desk";
   capabilities: string[];
 };
 

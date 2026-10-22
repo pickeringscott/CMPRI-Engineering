@@ -16,7 +16,7 @@ export async function POST(request:NextRequest){
  const auth=await requireCapability(request,'manage_assets');if(!auth)return NextResponse.json({error:'Parts-management permission required.'},{status:403});
  if(process.env.CMPRI_PO_ENABLED!=='true')return NextResponse.json({error:'Supply receiving and usage are not enabled.'},{status:409});
  try{const b=await request.json();if(!validId(b.id)||!validId(b.job)||!validId(b.item)||typeof b.quantity!=='number'||!Number.isFinite(b.quantity)||b.quantity<=0||typeof b.note!=='string'||!b.note.trim()||b.note.length>1000||b.confirmed!==true)return NextResponse.json({error:'Confirm supply, quantity and usage note.'},{status:400});
- const r=await auth.admin.rpc('cmpri_use_supply',{p_hotel:HOTEL_ID,p_actor:auth.principal.identity.id,p_id:b.id,p_job:b.job,p_item:b.item,p_quantity:b.quantity,p_note:b.note.trim()});
+ const r=await auth.admin.rpc(b.unit?'cmpri_use_supply_unit':'cmpri_use_supply',{p_hotel:HOTEL_ID,p_actor:auth.principal.identity.id,p_id:b.id,p_job:b.job,p_item:b.item,p_quantity:b.quantity,p_note:b.note.trim(),...(b.unit?{p_unit:b.unit}:{})});
  if(r.error)return NextResponse.json({error:r.error.message},{status:400});return NextResponse.json({id:r.data});
  }catch{return NextResponse.json({error:'Invalid supply-use request.'},{status:400});}
 }

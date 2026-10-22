@@ -40,6 +40,7 @@ await db.exec(fs.readFileSync('supabase/migrations/20261016211655_cmpri_po_recei
 const aclBefore=(await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl;
 await db.exec(fs.readFileSync('supabase/proposals/manual-order-receiving.sql','utf8'));
 assert.equal((await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl,aclBefore);
+await db.exec(fs.readFileSync('supabase/migrations/20261022062702_cmpri_cumulative_receipt_guard.sql','utf8'));
 await db.query('insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand,active) values($1,$2,$3,7,true)',[item,hotel,'Isolated supply']);
 let rpcCalls=0,loseRpcResponse=false;
 const admin={
@@ -54,7 +55,7 @@ const admin={
       }catch(e){return {data:null,error:{message:e.message,code:e.code}};}
     }};return q;
   },
-  async rpc(name,p){rpcCalls++;try{const args={cmpri_create_manual_po:['p_hotel','p_actor','p_id','p_supplier','p_reference','p_description','p_quantity','p_uom'],cmpri_link_po_line:['p_hotel','p_line','p_item','p_factor'],cmpri_receive_po:['p_hotel','p_actor','p_id','p_line','p_quantity','p_date','p_note']}[name];assert.ok(args);const r=await db.query(`select ${name}(${args.map((_,i)=>`$${i+1}`).join(',')}) result`,args.map(k=>p[k]));if(loseRpcResponse){loseRpcResponse=false;return {data:null,error:{message:"Simulated database response loss"}};}return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message,code:e.code}};}}
+  async rpc(name,p){rpcCalls++;try{const args={cmpri_receive_po_total:['p_hotel','p_actor','p_id','p_line','p_total','p_expected','p_date'],cmpri_create_manual_po:['p_hotel','p_actor','p_id','p_supplier','p_reference','p_description','p_quantity','p_uom'],cmpri_link_po_line:['p_hotel','p_line','p_item','p_factor'],cmpri_receive_po:['p_hotel','p_actor','p_id','p_line','p_quantity','p_date','p_note']}[name];assert.ok(args);const r=await db.query(`select ${name}(${args.map((_,i)=>`$${i+1}`).join(',')}) result`,args.map(k=>p[k]));if(loseRpcResponse){loseRpcResponse=false;return {data:null,error:{message:"Simulated database response loss"}};}return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message,code:e.code}};}}
 };
 globalThis.__poWorkflowAuth={admin,principal:{identity:{id:actor}}};
 const data=s=>'data:text/javascript;base64,'+Buffer.from(s).toString('base64');
@@ -79,27 +80,30 @@ const React=await import('react');const {createRoot}=await import('react-dom/cli
 const {createRequire}=await import('node:module');const require=createRequire(import.meta.url);const vm=await import('node:vm');
 const presentation=await import('../src/lib/po-presentation.ts');const workflow=await import('../src/lib/po-workflow.ts');const selection=await import('../src/lib/po-selection.ts');
 const css=new Proxy({},{get:(_,key)=>String(key)});
-function component(file){const exports={};const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);if(name.endsWith('.module.css'))return css;if(name==='@/lib/po-presentation')return presentation;if(name==='@/lib/po-workflow')return workflow;if(name==='@/lib/po-selection')return selection;if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({})};if(name==='./PoPaneDivider')return {default:component('src/app/engineering/purchasing/PoPaneDivider.tsx'),__esModule:true};if(name==='./PoCompactMenu')return {default:component('src/app/engineering/purchasing/PoCompactMenu.tsx'),__esModule:true};if(name==='@/components/PlainTextLinks')return {default:({text})=>React.createElement('span',null,text),__esModule:true};if(['./PoSourceReview','./PurchasingHistory'].includes(name))return {default:()=>null,__esModule:true};throw Error(name);},window,document,ResizeObserver:globalThis.ResizeObserver,crypto:globalThis.crypto,URL,fetch:(...args)=>globalThis.fetch(...args),console});return exports.default;}
+function component(file){const exports={};const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);if(name.endsWith('.module.css'))return css;if(name==='@/lib/po-presentation')return presentation;if(name==='@/lib/po-workflow')return workflow;if(name==='@/lib/po-selection')return selection;if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({})};if(name==='./PoPaneDivider')return {default:component('src/app/engineering/purchasing/PoPaneDivider.tsx'),__esModule:true};if(name==='./PoCompactMenu')return {default:component('src/app/engineering/purchasing/PoCompactMenu.tsx'),__esModule:true};if(name==='@/components/PlainTextLinks')return {default:({text})=>React.createElement('span',null,text),__esModule:true};if(['./PoSourceReview','./PurchasingHistory','./AddItem'].includes(name))return {default:()=>null,__esModule:true};throw Error(name);},window,document,ResizeObserver:globalThis.ResizeObserver,crypto:globalThis.crypto,URL,fetch:(...args)=>globalThis.fetch(...args),console});return exports.default;}
 const payloads=[];let loseResponse=false;
 globalThis.fetch=async(_url,options={})=>{if(options.method==='POST'){const body=JSON.parse(options.body);payloads.push(body);const response=await post(body);if(loseResponse){loseResponse=false;throw Error('Simulated lost response');}return response;}return route.GET(new Request('http://isolated.test/api/engineering/purchase-orders'));};
 const App=component('src/app/engineering/purchasing/PurchaseOrders.tsx');const root=createRoot(document.getElementById('root'));
 await act(async()=>{root.render(React.createElement(App));});
 assert.match(document.body.textContent,/Fixture PO subject/);assert.ok(!document.body.textContent.includes('Physical receipt:'));
-const field=()=>document.querySelector('input[aria-label="This delivery for Fixture supply"]');
-const button=()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Confirm');
-async function type(value){await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(field(),value);field().dispatchEvent(new window.Event('input',{bubbles:true}));});}
-await type('5');await act(async()=>{button().click();button().click();});
-assert.equal(payloads.length,1);assert.equal(payloads[0].quantity,5);assert.equal(payloads[0].receiveNow,true);assert.ok(!('date' in payloads[0]));
-assert.match(document.body.textContent,/MTD \$6\.25/);assert.match(document.body.textContent,/5 received so far/);assert.equal(document.querySelector('tbody tr').children[3].textContent,'10');
+const field=()=>document.querySelector('input[aria-label="Received total for Fixture supply"]');
+const editButton=()=>document.querySelector('button[aria-label="Edit received total for Fixture supply"]');
+const button=()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Retry saved attempt');
+async function blur(){await act(async()=>{field().dispatchEvent(new window.FocusEvent('focusout',{bubbles:true}));});}
+async function type(value){if(!field())await act(async()=>editButton().click());await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(field(),value);field().dispatchEvent(new window.Event('input',{bubbles:true}));});}
+await type('5');await act(async()=>{field().dispatchEvent(new window.FocusEvent('focusout',{bubbles:true}));field().dispatchEvent(new window.FocusEvent('focusout',{bubbles:true}));});
+assert.equal(payloads.length,1);assert.equal(payloads[0].total,5);assert.equal(payloads[0].expectedReceived,0);assert.equal(payloads[0].physicallyReceived,true);assert.ok(!('date' in payloads[0]));
+assert.match(document.body.textContent,/MTD \$6\.25/);assert.equal(editButton().textContent,'5');assert.equal(document.querySelector('tbody tr').children[3].textContent,'10');
 assert.equal(Number((await db.query('select quantity_on_hand from cmpri_inventory_items')).rows[0].quantity_on_hand),17);
 assert.equal((await db.query('select count(*)::int n from cmpri_po_receipts')).rows[0].n,1);
-await type('2');loseResponse=true;await act(async()=>button().click());assert.match(document.body.textContent,/Outcome may already be saved/);assert.equal(field().disabled,true);
-await act(async()=>button().click());assert.equal(payloads.at(-1).id,payloads.at(-2).id);assert.match(document.body.textContent,/MTD \$8\.75/);assert.match(document.body.textContent,/7 received so far/);assert.equal(document.querySelector('tbody tr').children[3].textContent,'8');
+await type('7');loseResponse=true;await blur();assert.match(document.body.textContent,/Outcome may already be saved/);assert.ok(button());
+await act(async()=>button().click());assert.equal(payloads.at(-1).id,payloads.at(-2).id);assert.match(document.body.textContent,/MTD \$8\.75/);assert.equal(editButton().textContent,'7');assert.equal(document.querySelector('tbody tr').children[3].textContent,'8');
 assert.equal((await db.query('select count(*)::int n from cmpri_po_receipts')).rows[0].n,2);assert.equal(Number((await db.query('select quantity_on_hand from cmpri_inventory_items')).rows[0].quantity_on_hand),21);
-await type('1');loseRpcResponse=true;await act(async()=>button().click());assert.match(document.body.textContent,/Outcome may already be saved/);assert.equal(field().disabled,true);
-await act(async()=>button().click());assert.equal(payloads.at(-1).id,payloads.at(-2).id);assert.match(document.body.textContent,/MTD \$10\.00/);assert.match(document.body.textContent,/8 received so far/);
+await type('8');loseRpcResponse=true;await blur();assert.match(document.body.textContent,/Outcome may already be saved/);assert.ok(button());
+await act(async()=>button().click());assert.equal(payloads.at(-1).id,payloads.at(-2).id);assert.match(document.body.textContent,/MTD \$10\.00/);assert.equal(editButton().textContent,'8');
 assert.equal((await db.query('select count(*)::int n from cmpri_po_receipts')).rows[0].n,3);assert.equal(Number((await db.query('select quantity_on_hand from cmpri_inventory_items')).rows[0].quantity_on_hand),23);
-for(const n of ['0','-1','1.5','99']){const before=payloads.length;await type(n);await act(async()=>button().click());assert.equal(payloads.length,before);}
+for(const n of ['0','-1','1.5','99']){const before=payloads.length;await type(n);await blur();assert.equal(payloads.length,before);}
+const unchanged=payloads.length;await type('8');await blur();assert.equal(payloads.length,unchanged);
 assert.equal(document.querySelectorAll('[role=separator]').length,1);
 const divider=document.querySelector('[role=separator]');
 divider.parentElement.getBoundingClientRect=()=>({width:1000,height:700});
@@ -125,4 +129,4 @@ await choose(filterMenu,'Accepted');
 assert.equal(document.querySelectorAll('#po-orders-pane button > span').length,0);
 await choose(filterMenu,'All orders');assert.match(document.getElementById('po-orders-pane').textContent,/FIXTURE-PO/);
 await act(async()=>root.unmount());await db.close();dom.window.close();delete globalThis.__poWorkflowAuth;
-console.log('PASS mounted real React input/Confirm -> real API -> isolated PostgreSQL -> refreshed counts/history/stock, double-click, lost-response exact retry, invalid quantities. DOM simulation, not a browser render.');
+console.log('PASS mounted real React received-total input/blur -> real API -> isolated PostgreSQL -> refreshed counts/history/stock, duplicate blur, lost-response exact retry, invalid quantities. DOM simulation, not a browser render.');

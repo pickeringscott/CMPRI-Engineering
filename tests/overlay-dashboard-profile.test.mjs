@@ -40,7 +40,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(canEditEquipment('Maintenance Technician'), false);
   assert.equal(canReadEquipment('Front Desk'), false);
   assert.equal(canEditEquipment('Chief Engineer'), true);
-  assert.equal(landingPath('Front Desk'), '/work-orders');
+  assert.equal(landingPath('Front Desk'), '/front-desk');
   assert.equal(landingPath('Front Desk Manager'), '/engineering');
   assert.equal(landingPath('Lead Housekeeper'), '/work-orders');
   assert.equal(landingPath('system_admin'), '/engineering');
@@ -81,7 +81,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/gss", label: "GSS Reports"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/enseo-assignments"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/purchasing", label: "POs"/);
-  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/import-work-orders"/);
+  assert.doesNotMatch(engineering, /key: "\/engineering\/import-work-orders"/);
   assert.match(engineering, /hasCapability\(session, "view_work_orders"\) && \{ key: WORK_ORDER_LIST_KEY/);
   assert.match(engineering, /hasCapability\(session, "manage_rooms"\) && \{ key: "\/management\/rooms"/);
   assert.match(engineering, /hasCapability\(session, "manage_users"\) && \{ key: "\/management\/users"/);
@@ -129,7 +129,7 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   const headerStart = engineering.indexOf('<header className="cmpri-desktop-topbar');
   const engineeringHeader = engineering.slice(headerStart, engineering.indexOf('</header>', headerStart));
   assert.match(engineering, /text-\[14pt\] font-bold leading-none tracking-tight/);
-  assert.match(engineering, /<span className="text-amber-300">\{isHousekeepingDashboard \? "Housekeeping" : "Engineering"\}<\/span>/);
+  assert.match(engineering, /<span className="text-amber-300">\{frontDeskLayout \? "Front Desk" : isHousekeepingDashboard \? "Housekeeping" : "Engineering"\}<\/span>/);
   assert.match(engineering, /max-w-\[18rem\] truncate text-\[14pt\] font-semibold tracking-tight text-slate-100/);
   assert.match(engineering, /data-dashboard-role[^>]*>\{displayRole\}/);
   assert.ok(engineeringHeader.indexOf('text-[14pt] font-semibold tracking-tight text-slate-100') < engineeringHeader.indexOf('count={notificationCount}'));
@@ -174,7 +174,7 @@ test('non-Chief mobile navigation retains direct actions while Chief groups use 
   const menus = readFileSync(new URL('../src/components/desktop/MobileDashboardMenus.tsx', import.meta.url), 'utf8');
   assert.match(menus, /event\.key === "Escape"/);
   assert.match(menus, /aria-haspopup="menu"/);
-  assert.match(engineering, /chiefMobileGroups = visibleLauncherGroups/);
+  assert.match(engineering, /groups=\{visibleLauncherGroups\}/);
   assert.match(engineering, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
   assert.match(engineering, /label: "\+ Create Work Order"/);
   assert.match(engineering, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0/);

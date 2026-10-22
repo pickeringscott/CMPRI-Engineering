@@ -148,10 +148,12 @@ const ROW_LIMIT = 200;
 export default function WorkOrderListWindow({
   orders,
   drafts = [],
+  frontDeskLayout = false,
   loading,
   onOpenWorkOrder,
   onOpenDraft,
 }: {
+  frontDeskLayout?: boolean;
   orders: DesktopWorkOrder[];
   drafts?: DesktopWorkOrderDraft[];
   loading: boolean;
@@ -169,7 +171,7 @@ export default function WorkOrderListWindow({
   const rows = sortWorkOrders(matchingRows,sort);
 
   return (
-    <div className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
+    <div data-front-desk-list={frontDeskLayout || undefined} className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
         <h1 data-work-order-list-heading tabIndex={-1} className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
@@ -199,7 +201,7 @@ export default function WorkOrderListWindow({
         </div>
       </header>
 
-      <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
+      {!frontDeskLayout && <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
         {KPI_CARDS.map((card) => {
           const selected = !normalizedQuery && filter === card.key;
           return (
@@ -220,7 +222,7 @@ export default function WorkOrderListWindow({
             </button>
           );
         })}
-      </div>
+      </div>}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (

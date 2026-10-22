@@ -546,3 +546,51 @@ html[data-theme="light"] .cmpri-work-order-list {
     --color-red-100: var(--color-red-800);
   }
 }
+
+/* Approved Front Desk list presentation; other role layouts retain their controls. */
+[data-front-desk-list] > header {display:flex;flex-direction:column;align-items:stretch}
+[data-front-desk-list] > header > div {display:flex;flex-wrap:nowrap;justify-content:space-between;width:100%;gap:5px}
+[data-front-desk-list] > header > div > div {order:0;min-width:0;max-width:none}
+[data-front-desk-list] > header > div > label {order:1;flex-shrink:0}
+[data-front-desk-list] input[type=search],[data-front-desk-list] select {height:32px;box-sizing:border-box;border-radius:6px;padding-top:0;padding-bottom:0}
+
+.cmpri-desktop-window:has([data-pool-state="open"]) { border-color: #22c55e; }
+.cmpri-desktop-window:has([data-pool-state="closed"]) { border-color: #ef4444; }
+
+[data-cmpri-desktop-launch="/work-orders"] { border-radius:9999px !important; }
+@media (width < 64rem) {
+ [data-dashboard-responsive="true"] .cmpri-desktop-topbar { flex-direction:row; flex-wrap:wrap; gap:6px; padding:8px; }
+ [data-dashboard-responsive="true"] [data-dashboard-name] { max-width:calc(100vw - 80px); }
+ [data-dashboard-responsive="true"] .cmpri-desktop-topbar nav { flex-basis:100%; }
+ [data-dashboard-responsive="true"] .cmpri-desktop-topbar nav button { min-height:36px; }
+ [data-dashboard-responsive="true"] .cmpri-desktop-window { left:4px !important; top:4px !important; width:calc(100% - 8px) !important; max-height:calc(100% - 8px); }
+ [data-dashboard-responsive="true"] .cmpri-desktop-window:has([data-pool-state]) { height:min(320px,calc(100% - 8px)) !important; }
+ [data-dashboard-responsive="true"] [data-pool-state] { overflow-y:auto; }
+ [data-dashboard-responsive="true"] [data-pool-state] form { gap:6px; }
+ [data-dashboard-responsive="true"] [data-pool-state] form input { flex-basis:100%; min-height:36px; }
+ [data-dashboard-responsive="true"] [data-pool-state] form button { min-height:36px; padding:4px 8px; }
+}
+
+[data-front-desk-colors="true"] > span { color:var(--cmpri-gold); }
+.cmpri-front-desk-create { background-color:var(--cmpri-gold); }
+
+.cmpri-front-desk-create { color:#000; }
+
+[data-cmpri-desktop-launch="/work-orders"].bg-amber-500, a[href="/work-orders"].bg-amber-500 { color:#000; }
+
+.cmpri-header-status-pill,
+.cmpri-desktop-topbar .cmpri-front-desk-create,
+[data-cmpri-desktop-launch="/work-orders"].bg-amber-500,
+a[href="/work-orders"].bg-amber-500 {
+ display:inline-flex; align-items:center; justify-content:center;
+ box-sizing:border-box; min-height:38px; padding:8px 14px;
+ font-size:14px !important; line-height:20px !important;
+ color:#000; white-space:nowrap; max-width:100%;
+}
+
+/* Keep approved black-on-color pills intact under browser automatic darkening. */
+.cmpri-header-status-pill, .cmpri-header-status-pill *,
+.cmpri-front-desk-create, .cmpri-front-desk-create * {
+ color-scheme:only light; color:#000 !important;
+ -webkit-text-fill-color:#000 !important; text-shadow:none;
+}

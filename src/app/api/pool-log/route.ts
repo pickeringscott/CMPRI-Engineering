@@ -174,63 +174,17 @@ export async function POST(request: NextRequest) {
   const closureReasons = poolCurrentClosureReasons(log);
   const wasClosed = !!existing && (existing.closure_condition === true || poolCurrentClosureReasons(existing).length > 0);
   const isClosed = closureReasons.length > 0 || log.closure_condition === true;
-  let notificationsRecorded = true;
+  // In-app recipients and their deduplicated event are committed by the log trigger.
+  const notificationsRecorded = true;
   if (!wasClosed && isClosed) {
-    const { data: profiles, error: profilesError } = await admin.from("profiles")
-      .select("id, role, secondary_roles, active")
-      .eq("active", true);
-    if (profilesError) {
-      notificationsRecorded = false;
-      console.error("Pool closure recipients could not be loaded", profilesError);
-    } else {
-      const eligibleProfiles = (profiles || []).filter(receivesPoolClosedNotifications);
-      const eligibleIds = eligibleProfiles.map((profile) => profile.id);
-      const { data: memberships, error: membershipError } = eligibleIds.length
-        ? await admin.from("hotel_members")
-          .select("user_id")
-          .eq("hotel_id", HOTEL_ID)
-          .eq("active", true)
-          .in("user_id", eligibleIds)
-        : { data: [], error: null };
-      if (membershipError) {
-        notificationsRecorded = false;
-        console.error("Pool closure recipient memberships could not be loaded", membershipError);
-      } else {
-        const recipients = [...new Set((memberships || []).map((membership) => membership.user_id))];
-        const reason = typeof log.closure_reason === "string" ? log.closure_reason.trim() : "";
-        const { data: recordedNotifications, error: notificationError } = recipients.length
-          ? await admin.from("cmpri_dashboard_notifications")
-            .upsert(recipients.map((recipient_user_id) => ({
-              hotel_id: HOTEL_ID,
-              recipient_user_id,
-              notification_key: `pool-closed:${facility.id}:${body.log_date}:${log.revision}`,
-              work_order_id: null,
-              target_path: "/engineering/pool-log",
-              message: `CMPRI pool closed on ${body.log_date}.${reason ? ` ${reason}` : ""}`,
-              recorded_at: new Date().toISOString(),
-              push_requested: true,
-            })), { onConflict: "hotel_id,recipient_user_id,notification_key", ignoreDuplicates: true })
-            .select("recipient_user_id")
-          : { data: [], error: new Error("No active CMPRI notification recipients were found.") };
-        if (notificationError) {
-          notificationsRecorded = false;
-          console.error("Pool closure notifications could not be recorded", notificationError);
-        } else if (recordedNotifications?.length) {
-          const recordedIds = new Set(recordedNotifications.map((notification: { recipient_user_id: string }) => notification.recipient_user_id));
-          const phoneRecipients = eligibleProfiles.filter((profile) => recordedIds.has(profile.id));
-          for (const recipient of phoneRecipients) {
-            try {
-              await dispatchWebPushNotifications(admin, recipient.id, recipient, [{
-                id: `pool-closed:${facility.id}:${body.log_date}:${log.revision}`,
-                target_path: "/engineering/pool-log",
-                message: `CMPRI pool closed on ${body.log_date}.${reason ? ` ${reason}` : ""}`,
-              }]);
-            } catch (deliveryError) {
-              console.error("Pool closure was recorded, but a phone alert could not be delivered.", deliveryError);
-            }
-          }
-        }
-      }
+    const {data: profiles} = await admin.from("profiles").select("id,role,secondary_roles,active").eq("active",true);
+    const eligible=(profiles||[]).filter(receivesPoolClosedNotifications);
+    const {data:memberships}=eligible.length?await admin.from("hotel_members").select("user_id").eq("hotel_id",HOTEL_ID).eq("active",true).in("user_id",eligible.map(p=>p.id)):{data:[]};
+    const activeMembers=new Set((memberships||[]).map(m=>m.user_id));
+    for (const profile of eligible.filter(p=>activeMembers.has(p.id))) {
+      const {data: notice} = await admin.from("cmpri_dashboard_notifications").select("notification_key,message,target_path")
+        .eq("hotel_id",HOTEL_ID).eq("recipient_user_id",profile.id).like("notification_key",`pool-closed:status:${facility.id}:%`).order("recorded_at",{ascending:false}).limit(1);
+      if(notice?.[0]) { try { await dispatchWebPushNotifications(admin,profile.id,profile,[{id:notice[0].notification_key,message:notice[0].message,target_path:notice[0].target_path}]); } catch(error) { console.error("Pool notification recorded; phone delivery deferred",error); } }
     }
   }
   return NextResponse.json({

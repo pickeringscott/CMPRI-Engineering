@@ -49,7 +49,6 @@ test('dashboard action screens receive modal context while ordinary routes do no
     '/engineering/room-operations',
     '/engineering/enseo-assignments',
     '/engineering/parts',
-    '/engineering/import-work-orders',
     '/management/equipment',
     '/management/rooms',
   ]) {
@@ -279,7 +278,6 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
     '/management/equipment',
     '/engineering/enseo-assignments',
     '/engineering/parts',
-    '/engineering/import-work-orders',
     '/management/rooms',
     '/management/users',
     '/profile',
@@ -288,7 +286,7 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
     assert.match(launchers, new RegExp(`href: "${route.replaceAll('/', '\\/')}"`));
   }
   assert.match(dashboard, /function DashboardLauncherButton[\s\S]*?<button[\s\S]*?data-cmpri-desktop-launch=\{launcher\.key\}/);
-  assert.match(dashboard, /const visibleLauncherGroups = launcherGroups[\s\S]*?group\.items\.filter\(\(item\): item is Launcher => Boolean\(item\)\)[\s\S]*?group\.items\.length > 0/);
+  assert.match(dashboard, /const visibleLauncherGroups = presentationGroups[\s\S]*?group\.items\.filter\(\(item\): item is Launcher => Boolean\(item\)\)[\s\S]*?group\.items\.length > 0/);
   assert.match(navigation, /visibleLauncherGroups\.map\(\(group\) => \([\s\S]*?group\.items\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
   assert.match(launchers, /hasCapability\(session, "(?:view_dashboard|submit|edit_tickets|manage_assets|manage_rooms|manage_users|review_feedback|view_profiles)"\)/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);

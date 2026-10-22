@@ -428,7 +428,7 @@ export default function ManageEquipmentPage() {
         {!embedded && <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">CMPRI Engineering</p>
-            <h1 className="mt-1 text-3xl font-bold">Manage Equipment</h1>
+            <h1 className="mt-1 text-3xl font-bold">Assets</h1>
             <p className="mt-1 text-sm text-slate-400">Equipment records, manufacturer documentation, and verified information.</p>
           </div>
           <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>

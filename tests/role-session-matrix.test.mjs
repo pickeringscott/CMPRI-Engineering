@@ -69,7 +69,7 @@ const roleCases = [
   { role: "General Manager", landing: "/engineering", membership: "manager" },
   { role: "Assistant Manager", landing: "/engineering", membership: "technician" },
   { role: "Assistant General Manager", landing: "/engineering", membership: "technician" },
-  { role: "Front Desk", landing: "/work-orders", membership: "technician" },
+  { role: "Front Desk", landing: "/front-desk", membership: "technician" },
   { role: "Front Desk Manager", landing: "/engineering", membership: "technician" },
   { role: "Housekeeping", landing: "/work-orders", membership: "technician" },
   { role: "Lead Housekeeper", landing: "/work-orders", membership: "technician" },

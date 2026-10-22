@@ -5,9 +5,9 @@ export function wholePoCount(value: unknown): number {
   return value;
 }
 
-export function receiptBlock(input: {ordered:number;received:number;origin?:string;accepted:boolean;mapped:boolean;active:boolean;cancelled?:boolean}) {
+export function receiptBlock(input: {ordered:number;received:number;weightUnit?:boolean;origin?:string;accepted:boolean;mapped:boolean;active:boolean;cancelled?:boolean}) {
   if (input.cancelled) return 'Cancelled order cannot receive.';
-  if (!Number.isInteger(Number(input.ordered)) || !Number.isInteger(input.received)) return 'Existing fractional order or receipt quantity requires review; values have not been rounded.';
+  if (!input.weightUnit && (!Number.isInteger(Number(input.ordered)) || !Number.isInteger(input.received))) return 'Existing fractional order or receipt quantity requires review; values have not been rounded.';
   if (input.received >= Number(input.ordered)) return 'Fully received.';
   const missing=[];
   if (input.origin !== 'manual' && !input.accepted) missing.push('company approval');

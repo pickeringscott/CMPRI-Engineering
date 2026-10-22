@@ -1120,7 +1120,7 @@ export default function PreventiveMaintenancePage() {
                   <p className="mt-1 text-xs text-amber-100/70">The PM record is saved first. The work order will include the form source, inspection period, marked deficiencies, and your follow-up notes.</p>
                   <div className="mt-3 flex flex-wrap items-end gap-3">
                     <label className="min-w-[240px] flex-1"><span className="text-xs font-semibold text-slate-300">Work-order location</span><select value={deficiencyLocationId} onChange={(event) => setDeficiencyLocationId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Select location…</option>{locations.map((location) => <option key={location.id} value={location.id}>{[location.area, location.room_number, location.name].filter(Boolean).join(" · ")}</option>)}</select></label>
-                    <button type="button" disabled={!activeCanEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? "Creating…" : "Save & create work order"}</button>
+                    <button type="button" disabled={!activeCanEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? "Creating…" : "Save & create work order"}</button>
                   </div>
                 </div>
               )}

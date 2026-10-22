@@ -2,10 +2,11 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
-type Action = { key: string; label: string };
+type Action = { key: string; label: string; tone?: string };
 
 /** Presentation only: callers supply the already permission-filtered actions. */
-export default function MobileDashboardMenus<T extends Action>({ groups, onLaunch }: {
+export default function MobileDashboardMenus<T extends Action>({ groups, onLaunch, desktop = false }: {
+  desktop?: boolean;
   groups: Array<{ label: string; items: T[] }>;
   onLaunch: (action: T, clickedAt: number) => void;
 }) {
@@ -31,11 +32,11 @@ export default function MobileDashboardMenus<T extends Action>({ groups, onLaunc
     };
   }, [open]);
 
-  return <div ref={root} data-chief-mobile-menus className="relative flex w-full min-w-0 flex-wrap gap-1 lg:hidden"
+  return <div ref={root} data-chief-mobile-menus className={desktop ? "relative hidden min-w-0 flex-wrap gap-1 lg:flex" : "relative flex w-full min-w-0 flex-wrap gap-1 lg:hidden"}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(null); }}>
     {groups.map((group, index) => {
       const expanded = open === group.label;
-      return <div key={group.label}>
+      return <div key={group.label} className={desktop ? "relative" : undefined}>
         <button type="button" id={`${id}-trigger-${index}`} ref={(node) => { if (node) triggers.current.set(group.label, node); else triggers.current.delete(group.label); }}
           aria-haspopup="menu" aria-expanded={expanded} aria-controls={expanded ? `${id}-menu-${index}` : undefined}
           className="min-h-8 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-semibold text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
@@ -46,7 +47,7 @@ export default function MobileDashboardMenus<T extends Action>({ groups, onLaunc
             }
           }}>{group.label} <span aria-hidden="true">▾</span></button>
         {expanded && <div role="menu" id={`${id}-menu-${index}`} aria-labelledby={`${id}-trigger-${index}`}
-          className="absolute inset-x-0 top-full z-10 mt-1 max-h-[45svh] overflow-y-auto rounded-md border border-slate-700 bg-slate-900 p-1 text-slate-200 shadow-xl"
+          className={`${desktop ? "absolute left-0 w-max max-w-[min(320px,90vw)]" : "absolute inset-x-0"} top-full z-10 mt-1 max-h-[45svh] overflow-y-auto rounded-md border border-slate-700 bg-slate-900 p-1 text-slate-200 shadow-xl`}
           onKeyDown={(event) => {
             const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
             const current = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -63,8 +64,8 @@ export default function MobileDashboardMenus<T extends Action>({ groups, onLaunc
               candidates.find(item => item.textContent?.trim().toLowerCase().startsWith(event.key.toLowerCase()))?.focus();
             }
           }}>
-          {group.items.map(action => <button key={`${action.key}:${action.label}`} type="button" role="menuitem" tabIndex={-1}
-            className="block min-h-9 w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800 focus:bg-slate-800 focus:outline-none"
+          {group.items.map(action => <button key={`${action.key}:${action.label}`} type="button" role="menuitem" data-cmpri-desktop-launch={action.key} tabIndex={-1}
+            className={desktop ? `cmpri-desktop-launch my-0.5 block w-full whitespace-nowrap rounded border px-1 py-0.5 text-left font-semibold shadow-sm shadow-black/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 ${action.tone || ""}` : `my-0.5 block min-h-10 w-full rounded border px-3 py-2 text-left text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 ${action.tone || "text-slate-200"}`}
             onClick={() => { setOpen(null); onLaunch(action, Date.now()); }}>{action.label}</button>)}
         </div>}
       </div>;

@@ -26,7 +26,19 @@ export async function POST(request:NextRequest){
   const body=await request.json();const common={p_hotel:HOTEL_ID,p_actor:auth.principal.identity.id,p_id:uuid(body.id)};
   let result;
   if(body.action==='manual')result=await auth.admin.rpc('cmpri_create_manual_po',{...common,p_supplier:text(body.supplier,200),p_reference:text(body.reference||'',200),p_description:text(body.description,1000),p_quantity:wholePoCount(body.quantity),p_uom:text(body.uom,30)});
-  else if(body.action==='receive'){
+  else if(body.action==='add-item'){
+   result=await auth.admin.rpc('cmpri_po_add_item',{...common,p_order:uuid(body.orderId),p_item:body.itemId?uuid(body.itemId):null,p_description:text(body.description,1000),p_quantity:quantity(body.quantity),p_unit:text(body.uom,10),p_package:body.packageSize==null?null:quantity(body.packageSize),p_content:body.contentUnit?text(body.contentUnit,10):null,p_sku:text(body.sku||'',200),p_price:body.price==null?null:body.price});
+  }else if(body.action==='receive-total'){
+   if(body.physicallyReceived!==true)throw Error('Confirm physical receipt');
+   const total=body.total,expected=body.expectedReceived;
+   if(typeof total!=='number'||typeof expected!=='number'||!Number.isFinite(total)||!Number.isFinite(expected)||expected<0||total<expected||total>999999999||Math.abs(total*1000-Math.round(total*1000))>1e-6||Math.abs(expected*1000-Math.round(expected*1000))>1e-6)throw Error('Invalid cumulative physical count');
+   const line=await auth.admin.from('cmpri_po_lines').select('uom').eq('hotel_id',HOTEL_ID).eq('id',uuid(body.lineId)).single();
+   if(line.error||!line.data)throw Error('Order line not found');
+   if(!['LB','OZ','G','KG'].includes(line.data.uom)&&(!Number.isSafeInteger(total)||!Number.isSafeInteger(expected)))throw Error('Packages require whole received counts');
+   receiptRpcStarted=true;
+   result=await auth.admin.rpc('cmpri_receive_po_total',{...common,p_line:uuid(body.lineId),p_total:total,p_expected:expected,p_date:poHotelDate(new Date(),HOTEL_TIME_ZONE)});
+   if(result.error?.code==='40001')return NextResponse.json({error:result.error.message},{status:409});
+  }else if(body.action==='receive'){
    if(body.physicallyReceived!==true)throw Error('Confirm physical receipt');
    wholePoCount(body.quantity);
    const lineCheck=await auth.admin.from('cmpri_po_lines').select('ordered').eq('hotel_id',HOTEL_ID).eq('id',uuid(body.lineId)).single();

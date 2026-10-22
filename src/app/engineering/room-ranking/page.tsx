@@ -89,8 +89,8 @@ export default function TicketRoomRankerPage() {
       {floors.map((floor) => {
         const list = shown.filter((room) => room.floor === floor);
         const open = floorsOpen[floor] === true;
-        return <section key={floor} className={styles.floor} aria-label={`Floor ${floor}`}>
-          <button type="button" className={styles.floorHeader} aria-expanded={open} aria-controls={`floor-${floor}`} onClick={() => toggleFloor(floor)}><span>{open ? "▾" : "▸"} Floor {floor}</span><span>{list.length} rooms</span></button>
+        return <section key={floor} className={styles.floor} aria-label={`${({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor} Floor`}>
+          <button type="button" className={styles.floorHeader} aria-expanded={open} aria-controls={`floor-${floor}`} onClick={() => toggleFloor(floor)}><span>{open ? "▾" : "▸"} {({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor} Floor</span><span>{list.length} rooms</span></button>
           <div id={`floor-${floor}`} hidden={!open}>
             <div className={styles.columns}><span>Room</span><span>Rank</span><span>Issue</span><span /></div>
             {list.map((room) => <div key={room.id} className={styles.row} data-room={room.number} data-rank={room.rank}>

@@ -1,4 +1,5 @@
 "use client";
+import PoolStatus from "@/components/desktop/PoolStatus";
 
 import { formatWorkOrder } from "@/lib/work-order-reference.js";
 
@@ -18,6 +19,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
+
 import AccountSummary from "@/components/AccountSummary";
 
 import SearchableSelect from "@/components/SearchableSelect";
@@ -1963,7 +1965,9 @@ export default function WorkOrdersPage() {
                 </div>
               )}
               {cmpriSession && embedded && isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mr-auto rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
-              {cmpriSession?.capabilities.includes("view_work_orders") && <ModalNavigationButton href="/engineering" className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Work Orders", "Órdenes de trabajo")}</ModalNavigationButton>}
+              {cmpriSession?.capabilities.includes("view_work_orders") && <ModalNavigationButton href={cmpriSession.landing === "/front-desk" ? "/front-desk" : "/engineering"} className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{cmpriSession.landing === "/front-desk" ? "Front Desk" : tx("Work Orders", "Órdenes de trabajo")}</ModalNavigationButton>}
+
+              {cmpriSession && !embedded && <><PoolStatus controlOnly/><ModalNavigationButton href="/pool" className="rounded border border-cyan-400/50 px-2 py-1 text-xs">Pool</ModalNavigationButton></>}
               <div className="flex flex-wrap items-center justify-end gap-1">
                 <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-10 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
@@ -1981,7 +1985,7 @@ export default function WorkOrdersPage() {
                 <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files, true)} className="sr-only" />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="min-h-10 rounded-lg border border-sky-600/70 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
-                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-lg border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
+                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>
