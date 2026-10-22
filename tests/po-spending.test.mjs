@@ -8,6 +8,8 @@ assert.equal(poHotelDate(new Date('2026-07-01T04:59:59Z'),zone),'2026-06-30');
 assert.equal(poHotelDate(new Date('2026-07-01T05:00:00Z'),zone),'2026-07-01');
 const receipts=[r('last-year','2025-12-31',100),r('jan','2026-01-01',2),r('prior-quarter','2026-03-31',3),r('april','2026-04-01',4),r('june','2026-06-01',5),r('partial','2026-06-30',2),r('future','2026-07-01',100)];
 const at=new Date('2026-07-01T04:59:59Z');
+assert.deepEqual(receivedPoSpending(lines,[r('historical',null,554)],at,zone).MTD,{value:null,missing:1});
+assert.deepEqual(receivedPoSpending(lines,[r('historical',null,554),r('dated','2026-06-30',2)],at,zone).MTD,{value:2.5,missing:1});
 assert.deepEqual(receivedPoSpending(lines,receipts,at,zone),{MTD:{value:8.75,missing:0},QTD:{value:13.75,missing:0},YTD:{value:20,missing:0}});
 assert.deepEqual(receivedPoSpending(lines,[...receipts,receipts[5]],at,zone),receivedPoSpending(lines,receipts,at,zone));
 assert.deepEqual(receivedPoSpending(lines,receipts,new Date('2026-07-01T05:00:00Z'),zone),{MTD:{value:125,missing:0},QTD:{value:125,missing:0},YTD:{value:145,missing:0}});
