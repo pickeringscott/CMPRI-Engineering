@@ -92,7 +92,7 @@ test('Chief Engineer pending markers track saved values, revert and save outcome
  }
  assert.equal(pendingTicketField(true,saved,JSON.stringify({...JSON.parse(saved),hours:'1.00'}),'hours'),false);
  assert.equal(pendingTicketField(true,'',saved,'priority'),false);
- assert.match(detail,/onBlur=\{chief \? \(\) => setEditingIssue\(false\) : undefined\}/);
+ assert.match(detail,/onBlur=\{\(event\) => \{ void saveReportedIssue\(event.currentTarget.value\); \}\}/);
  assert.equal((detail.match(/onDismiss=\{chief \? \(\) => setEditingField\(null\) : undefined\}/g)||[]).length,5);
  assert.match(detail,/data-pending-field=\{key\}[\s\S]*?fontSize: "inherit"/);
  assert.doesNotMatch(detail,/onBlur=\{[^}]*saveTicket/);

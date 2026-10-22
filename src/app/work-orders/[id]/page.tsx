@@ -8,6 +8,7 @@ import PlainTextLinks from '@/components/PlainTextLinks';
 import {plainTextParts} from '@/lib/plain-text-links';
 import WorkOrderSupplies from "@/components/WorkOrderSupplies";
 
+import { createTicketWriteQueue } from "@/lib/work-orders/write-queue";
 import { pendingTicketField } from "@/lib/work-orders/pending-field";
 
 import { formatWorkOrder, workOrderNumber, workOrderReferences } from "@/lib/work-order-reference.js";
@@ -560,7 +561,16 @@ export default function WorkOrderTicketPage() {
   const id = params?.id;
   const router = useRouter();
 
-  const [order, setOrder] = useState<WorkOrder | null>(null);
+  const [order, setOrderState] = useState<WorkOrder | null>(null);
+  const orderRef = useRef<WorkOrder | null>(null);
+  const ticketWrites = useRef(createTicketWriteQueue());
+  const [issueSaving, setIssueSaving] = useState(false);
+  const issueSaveCount = useRef(0);
+  function setOrder(next: WorkOrder | null) {
+    // Publish the confirmed revision before another queued callback can run.
+    orderRef.current = next;
+    setOrderState(next);
+  }
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetDocumentResult, setAssetDocumentResult] = useState<{ assetId: string; identity: string; documents: AssetDocument[]; error: string } | null>(null);
@@ -1409,11 +1419,21 @@ export default function WorkOrderTicketPage() {
   }
 
   async function claimUnassignedWorkOrder() {
-    if (!order) return;
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSaving(true);
+    try { await ticketWrites.current.enqueue(() => persistClaim(order?.id)); }
+    catch { setMessage("Assignment error: Your changes could not be confirmed. Your draft is retained."); setSaving(false); }
+    finally { saveInFlight.current = false; setSaving(false); }
+  }
+
+  async function persistClaim(ticketId?: string) {
+    const order = orderRef.current;
+    if (!order || order.id !== ticketId) return false;
     const assignedName = cmpriSession?.user.name?.trim();
     if (!assignedName) {
       setMessage("Your profile needs a name before you can take an unassigned work order.");
-      return;
+      return false;
     }
     setSaving(true);
     setMessage("");
@@ -1429,16 +1449,13 @@ export default function WorkOrderTicketPage() {
         }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.workOrder) {
+      if (!response.ok || !payload.workOrder || payload.workOrder.id !== order.id || !Number.isSafeInteger(payload.workOrder.revision)) {
         throw new Error(payload.error || "This work order could not be assigned to you.");
       }
       const claimed = payload.workOrder as WorkOrder;
       setOrder({ ...claimed, technician_view_entries: order.technician_view_entries });
       setTechnicianName(assignedName);
-      setInitialFingerprint(JSON.stringify({
-        locationId, issue, assetId, category, priority, technicianName: assignedName, status, notes,
-        actionRootCause, parts, cost, hours, dueBy,
-      }));
+      setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), technicianName: assignedName }));
       setSaveState("idle");
       setMessage("This work order is now assigned to you.");
       if (embedded && window.parent !== window) {
@@ -1447,8 +1464,10 @@ export default function WorkOrderTicketPage() {
           window.location.origin,
         );
       }
+      return true;
     } catch (error) {
       setMessage(`Assignment error: ${error instanceof Error ? error.message : "This work order could not be assigned to you."}`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -1456,6 +1475,72 @@ export default function WorkOrderTicketPage() {
 
   async function saveTicket(statusOverride?: string, notesOnly = false) {
     if (!order || !ticketReady || saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSaving(true);
+    setSaveState("saving");
+    try {
+      await ticketWrites.current.enqueue(() => persistTicket(statusOverride, notesOnly, order.id));
+    } catch {
+      setMessage("Save error: Your changes could not be confirmed. Your draft is retained.");
+      setSaving(false); setSaveState("idle");
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false); setSaveState("idle");
+    }
+  }
+
+  async function saveReportedIssue(text = issue) {
+    if (!order || !ticketReady || !canEditField("issue")) return;
+    setEditingIssue(false);
+    issueSaveCount.current++;
+    setIssueSaving(true);
+    try {
+      await ticketWrites.current.enqueue(async () => {
+        const current = orderRef.current;
+        if (!current || current.id !== order.id) return false;
+        const normalized = cleanTicketReportedIssue(text, current.room || "");
+        if (!normalized.trim() || normalized.length > 4000) {
+          setMessage(!normalized.trim() ? "Reported Issue is required." : "Reported Issue must be 4,000 characters or fewer.");
+          return false;
+        }
+        if (normalized === cleanTicketReportedIssue(current.issue || "", current.room || "")) return true;
+        setMessage("");
+        try {
+          const session = await getValidSession();
+          const response = await fetch(`/api/work-orders/${encodeURIComponent(current.id)}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${session?.access_token || ""}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ expected_revision: current.revision, issue: normalized }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          const saved = payload.workOrder as WorkOrder | undefined;
+          if (!response.ok || !saved || saved.id !== current.id || !Number.isSafeInteger(saved.revision)) {
+            throw new Error(payload.error || "Save could not be confirmed. Your draft is retained; check the saved ticket before retrying.");
+          }
+          setOrder({ ...current, ...saved, can_correct_report: saved.can_correct_report ?? current.can_correct_report });
+          // Only this field was committed. Retain other drafts and text typed during the request.
+          setIssue(latest => latest === text ? normalized : latest);
+          setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), issue: normalized }));
+          setMessage("Reported Issue saved.");
+          if (embedded && window.parent !== window) window.parent.postMessage(
+            { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: current.id, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin);
+          return true;
+        } catch (error) {
+          setMessage(`Save error: ${error instanceof Error ? error.message : "Reported Issue update failed."}`);
+          return false;
+        }
+      });
+    } catch {
+      setMessage("Save error: Reported Issue could not be confirmed. Your draft is retained.");
+    } finally {
+      issueSaveCount.current--;
+      setIssueSaving(issueSaveCount.current > 0);
+    }
+  }
+
+  async function persistTicket(statusOverride?: string, notesOnly = false, ticketId?: string) {
+    const order = orderRef.current;
+    if (!order || !ticketReady || order.id !== ticketId) return false;
     const editorText = noteDraft.trim();
     const pendingLines = [...stagedNoteIds];
     if (editorText) pendingLines.push(historyLine({ id: "", timestamp: new Date().toISOString(), actor: currentActor, authorRole: cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, kind: "note", text: editorText }));
@@ -1473,12 +1558,12 @@ export default function WorkOrderTicketPage() {
       || dueBy !== (order.due_by ? String(order.due_by).slice(0,10) : "");
     if (!notesOnly && roomChanged && otherFieldEdits) {
       setMessage("Save or discard other field edits before correcting Room/Location. Your edits are still here.");
-      return;
+      return false;
     }
     const normalizedIssue = cleanTicketReportedIssue(issue, order.room || "");
     if (!notesOnly && canEditField("issue") && !normalizedIssue.trim()) {
       setMessage("Reported Issue is required.");
-      return;
+      return false;
     }
     if (!notesOnly && normalizedIssue !== issue) setIssue(normalizedIssue);
 
@@ -1504,13 +1589,13 @@ export default function WorkOrderTicketPage() {
     };
     const capabilities = typeof cmpriSession !== "undefined" ? (cmpriSession?.capabilities ?? []) : ["edit_tickets"];
     if (notesOnly) {
-      if (!pendingTexts.length) { setSaving(false); setSaveState("idle"); return; }
+      if (!pendingTexts.length) { setSaving(false); setSaveState("idle"); return true; }
       if (canEditField("notes") && (canEditTicket || canReviewCurrentTicket)) updatePayload.notes = editorNotes;
       else if (canAddWorkOrderNotes) updatePayload.appendNotes = pendingTexts;
-      else { setMessage("This account cannot add notes."); setSaving(false); setSaveState("idle"); return; }
+      else { setMessage("This account cannot add notes."); setSaving(false); setSaveState("idle"); return false; }
     } else if (canEditField("issue") && (!canEditTicket || (order.can_correct_report && !otherFieldEdits))) {
       if (pendingLines.length) {
-        if (editingIssue) { setMessage("Finish editing, then save your staged notes before saving the report correction."); setSaving(false); setSaveState("idle"); return; }
+        if (editingIssue) { setMessage("Finish editing, then save your staged notes before saving the report correction."); setSaving(false); setSaveState("idle"); return false; }
         updatePayload.appendNotes = pendingTexts;
       } else {
         if (normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || "")) updatePayload.issue = normalizedIssue;
@@ -1548,12 +1633,12 @@ export default function WorkOrderTicketPage() {
       setMessage("Take this work before editing its details.");
       setSaving(false);
       setSaveState("idle");
-      return;
+      return false;
     } else {
       setMessage("This account is view-only.");
       setSaving(false);
       setSaveState("idle");
-      return;
+      return false;
     }
     if (!notesOnly && canEditTicket && canEditField("location_id") && locationId !== (order.location_id || "")) {
       // Correcting the room must not commit inferred equipment, suggested parts, or defaults.
@@ -1567,10 +1652,9 @@ export default function WorkOrderTicketPage() {
       setMessage("There are no changes to save.");
       setSaving(false);
       setSaveState("idle");
-      return;
+      return true;
     }
 
-    saveInFlight.current = true;
     let savedRow: WorkOrder | null = null;
     try {
       const session = await getValidSession();
@@ -1588,12 +1672,10 @@ export default function WorkOrderTicketPage() {
       setMessage(`Save error: ${error instanceof Error ? error.message : "Work order update failed."}`);
       setSaving(false);
       setSaveState("idle");
-      saveInFlight.current = false;
       // Keep unsaved edits and staged notes available for a deliberate retry.
-      return;
+      return false;
     }
 
-    saveInFlight.current = false;
     if (savedRow && !notesOnly && roomChanged) {
       roomContextGeneration.current++;
       setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: true });
@@ -1607,10 +1689,10 @@ export default function WorkOrderTicketPage() {
     if (notesOnly) {
       setInitialFingerprint(previous => { const base = JSON.parse(previous || "{}"); return JSON.stringify({ ...base, notes: savedNotes }); });
       setSaving(false); setSaveState("idle"); setMessage("Note saved.");
-      return;
+      return true;
     }
     if (Array.isArray(updatePayload.appendNotes) && (roomChanged || normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || ""))) {
-      setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return;
+      setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return true;
     }
 
     setInitialFingerprint(JSON.stringify({
@@ -1623,6 +1705,7 @@ export default function WorkOrderTicketPage() {
     if (embedded && window.parent !== window) window.parent.postMessage(
       { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, workOrder:workOrderListSnapshot(savedRow), modalToken }, window.location.origin);
 
+    return true;
   }
 
   function exportUnsavedDraft() {
@@ -1640,7 +1723,7 @@ export default function WorkOrderTicketPage() {
     } catch { setMessage("The local draft could not be cleared. Your text is still here."); }
   }
   const cancelTicket = useCallback(() => {
-    if (saving) return;
+    if (saving || issueSaveCount.current > 0 || saveInFlight.current) return;
     if (hasUnsavedChanges) {
       setShowCancelConfirm(true);
       return;
@@ -1988,7 +2071,7 @@ export default function WorkOrderTicketPage() {
               <button
                 type="button"
                 onClick={cancelTicket}
-                disabled={saving}
+                disabled={saving || issueSaving}
                 className="min-h-9 whitespace-nowrap rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
               >
                 Cancel
@@ -2036,7 +2119,8 @@ export default function WorkOrderTicketPage() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue{pendingField("issue")}</h2>
-                  {editingIssue && <button type="button" onClick={() => setEditingIssue(false)} className="min-h-9 rounded-lg border border-amber-400 px-3 text-xs text-amber-100">Done</button>}
+                  {issueSaving && <span role="status" className="text-xs text-sky-200">Saving issue...</span>}
+                  {editingIssue && <button type="button" onClick={() => { void saveReportedIssue(); }} className="min-h-9 rounded-lg border border-amber-400 px-3 text-xs text-amber-100">Done</button>}
                 </div>
                 <div className="text-right text-[10px] leading-tight text-slate-500">
                   <div>Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {order.creator_display_role}</span>}</div>
@@ -2048,7 +2132,7 @@ export default function WorkOrderTicketPage() {
                 <>
                   <textarea
                     aria-label="Reported Issue"
-                    onBlur={chief ? () => setEditingIssue(false) : undefined}
+                    onBlur={(event) => { void saveReportedIssue(event.currentTarget.value); }}
                     autoFocus
                     disabled={saving}
                     required
