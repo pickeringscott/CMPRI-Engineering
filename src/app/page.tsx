@@ -12,7 +12,7 @@ import {
 } from "@/lib/supabase/client";
 import { APP_TITLE } from "@/lib/constants";
 
-async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering"> {
+async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering" | "/front-desk"> {
   const response = await fetch("/api/session", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -25,7 +25,7 @@ async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"
   }
   if (!response.ok) throw new Error("Unable to verify CMPRI access. Please try again.");
   const result = await response.json() as { landing?: unknown };
-  if (result.landing !== "/work-orders" && result.landing !== "/technician" && result.landing !== "/engineering") {
+  if (result.landing !== "/work-orders" && result.landing !== "/technician" && result.landing !== "/engineering" && result.landing !== "/front-desk") {
     throw new Error("CMPRI returned an invalid account destination.");
   }
   return result.landing;
