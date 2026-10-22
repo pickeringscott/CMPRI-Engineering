@@ -171,3 +171,42 @@
 
 .addItemDialog{position:fixed;inset:0;margin:auto;width:306px;max-width:calc(100vw - 16px);max-height:90vh;overflow:auto;padding:10px;border:1px solid #475569;border-radius:8px;background:#0f172a;color:#e2e8f0;z-index:1000;box-shadow:0 20px 70px #000b}
 .addItemDialog h3{font-size:13px;margin:0 0 8px}.addItemDialog label{display:flex;flex-direction:column;gap:3px;font-size:10px;min-width:0}.addItemDialog input,.addItemDialog select{min-width:0;width:100%;height:26px;padding:3px;border:1px solid #475569;border-radius:4px;background:#020617;color:#e2e8f0;font-size:11px}.addItemDialog p{font-size:10px;margin:7px 0;color:#94a3b8}.itemEntryRow{display:grid;grid-template-columns:minmax(0,1fr) 44px 55px;gap:5px;margin-top:7px}.packageFields{display:grid;grid-template-columns:minmax(0,1fr) 60px;gap:5px;margin-top:7px}.itemPriceRow{display:flex;gap:6px;margin-top:7px}.itemPriceRow>label:first-child{flex:1}.costField{display:flex;align-items:center;gap:2px}.addItemDialog .costField input{min-width:40px;max-width:130px;caret-color:auto}.addItemDialog input:focus{outline:1px solid #64748b;background:#020617;box-shadow:none}.addActions{display:flex;justify-content:flex-end;gap:5px;margin-top:8px}.addActions button{font-size:11px;padding:4px 7px}
+
+/* Approved PO preview: supplier heading, narrow list and paired upper-right actions. */
+.poWorkspace{--po-orders-width:230px}
+.poWorkspace .orders .sectionHead{gap:4px;padding:4px}
+.orders input{width:100%;font-size:11px!important}
+.tiny{font-size:10px;color:#94a4bb;font-weight:400}
+.poWorkspace .orderTop{gap:3px}
+.poWorkspace .orderTop strong{font-size:12px;color:inherit}
+.remaining{display:block;align-self:flex-end;text-align:right;margin-top:4px;font-size:10px;color:#ebcf93}
+.remaining b{color:#fbbf24}
+.poWorkspace .selectedPoHeading{min-height:28px;display:flex;align-items:center;justify-content:flex-start;gap:8px}
+.poWorkspace .selectedPoHeading h2{font-size:13px;font-weight:700}
+.selectedPoNumber{color:#94a4bb;font-size:11px}
+.orderToolbar{position:relative;flex-shrink:0}
+.orderToolbar .panelNav{padding-right:160px}
+.receivingActions{position:absolute;right:11px;top:0;display:flex;gap:10px;align-items:center}
+.poWorkspace .receiveAll{background:#fbbf24;color:#000;border-color:#fbbf24;font-size:11px;white-space:nowrap}
+.receivingActions button{flex:none;margin:0}
+.poWorkspace .accepted,.poWorkspace .pending,.poWorkspace .cancelled{font-size:10px;padding:2px 5px;border-radius:10px;white-space:nowrap}
+.poWorkspace .cancelled{color:#ffb7b7;background:#641f2b}
+.surface td:first-child{width:39%}
+
+.packageEditor{font-size:10px;margin-top:3px}.packageEditor form{display:flex;gap:4px;flex-wrap:wrap;align-items:flex-end}.packageEditor label{display:flex;flex-direction:column}.packageEditor input{width:7ch}.packageEditor summary{cursor:pointer;color:#94a4bb}
+.addItemDialog{width:306px;padding:4px;background:#132239;border:1px solid #52759e;box-shadow:none;color:#dce5f2}
+.addItemDialog::backdrop{background:rgba(0,0,0,.55)}
+.addItemDialog h3{margin:0;font-size:13px}
+.addItemDialog label{gap:1px;font-size:12px}
+.addItemDialog input,.addItemDialog select{background:#08111f;color:#e5edf8;border-color:#3c4d67;height:auto;padding:3px 5px;font:inherit}
+.addItemDialog .itemEntryRow{grid-template-columns:minmax(0,210px) 32px 48px;gap:3px;max-width:296px;margin-top:3px}
+.addItemDialog .itemEntryRow label:last-child{font-size:10px;white-space:nowrap}
+.addItemDialog .itemEntryRow select{width:43px;padding:1px;height:22px;font-size:11px}
+.addItemDialog .packageFields{grid-template-columns:160px 43px;gap:3px;margin-top:3px}
+.addItemDialog .packageFields select{width:43px;padding:1px;height:24px;font-size:11px}
+.addItemDialog .itemPriceRow{display:grid;grid-template-columns:minmax(0,170px) 123px;gap:3px;max-width:296px;margin-top:3px}
+.addItemDialog .costField{width:max-content;max-width:100%;gap:0;padding-left:2px;border:1px solid #3c4d67;border-radius:5px;background:#08111f}
+.addItemDialog .costField input{border:0;background:transparent;padding:2px 1px}
+.addItemDialog p{margin:3px 0;font-size:10px;line-height:1.3;color:#afbed2}
+.addItemDialog input:focus{outline:none;box-shadow:none;background:#08111f}
+.addActions{gap:3px;margin-top:3px}

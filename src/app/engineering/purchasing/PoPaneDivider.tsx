@@ -6,7 +6,7 @@ export default function PoPaneDivider(){
  const ref=useRef<HTMLDivElement>(null);
  useEffect(()=>{
   const el=ref.current,workspace=el?.parentElement;if(!el||!workspace)return;
-  let width=150,height=230,drag:{id:number;start:number;value:number;vertical:boolean}|null=null;
+  let width=230,height=230,drag:{id:number;start:number;value:number;vertical:boolean}|null=null;
   const stacked=()=>window.matchMedia('(max-width:560px)').matches;
   const apply=(value:number)=>{const vertical=!stacked(),rect=workspace.getBoundingClientRect(),b=paneBounds(vertical?rect.width:rect.height,!vertical),current=Math.max(b.min,Math.min(b.max,value));if(vertical)width=current;else height=current;workspace.style.setProperty(vertical?'--po-orders-width':'--po-orders-height',`${current}px`);el.setAttribute('aria-orientation',vertical?'vertical':'horizontal');el.setAttribute('aria-valuemin',String(Math.round(b.min)));el.setAttribute('aria-valuemax',String(Math.round(b.max)));el.setAttribute('aria-valuenow',String(Math.round(current)));};
   const down=(e:PointerEvent)=>{if(e.button!==0)return;e.preventDefault();el.focus();const vertical=!stacked();drag={id:e.pointerId,start:vertical?e.clientX:e.clientY,value:vertical?width:height,vertical};el.setPointerCapture(e.pointerId);};

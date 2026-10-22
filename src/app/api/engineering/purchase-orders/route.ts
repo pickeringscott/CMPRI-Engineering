@@ -28,6 +28,9 @@ export async function POST(request:NextRequest){
   if(body.action==='manual')result=await auth.admin.rpc('cmpri_create_manual_po',{...common,p_supplier:text(body.supplier,200),p_reference:text(body.reference||'',200),p_description:text(body.description,1000),p_quantity:wholePoCount(body.quantity),p_uom:text(body.uom,30)});
   else if(body.action==='add-item'){
    result=await auth.admin.rpc('cmpri_po_add_item',{...common,p_order:uuid(body.orderId),p_item:body.itemId?uuid(body.itemId):null,p_description:text(body.description,1000),p_quantity:quantity(body.quantity),p_unit:text(body.uom,10),p_package:body.packageSize==null?null:quantity(body.packageSize),p_content:body.contentUnit?text(body.contentUnit,10):null,p_sku:text(body.sku||'',200),p_price:body.price==null?null:body.price});
+  }else if(body.action==='edit-package'){
+   result=await auth.admin.rpc('cmpri_po_edit_package',{...common,p_line:uuid(body.lineId),p_package:quantity(body.packageSize),p_content:text(body.contentUnit,10),p_expected:body.expectedPackage==null?null:quantity(body.expectedPackage),p_expected_content:body.expectedContent==null?null:text(body.expectedContent,10)});
+   if(result.error?.code==='40001')return NextResponse.json({error:result.error.message},{status:409});
   }else if(body.action==='receive-total'){
    if(body.physicallyReceived!==true)throw Error('Confirm physical receipt');
    const total=body.total,expected=body.expectedReceived;

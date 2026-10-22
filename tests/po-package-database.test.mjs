@@ -40,5 +40,21 @@ await consumeSupply();await consumeSupply();assert.equal(Number((await itemRow(2
 assert.match((await db.query('select note from cmpri_supply_uses where id=$1',[id(220)])).rows[0].note,/Entered usage: 1 OZ/);
 await db.exec('set role authenticated');await assert.rejects(add(207,'EA',null,null),/permission denied/);await db.exec('reset role');
 console.log('PASS package persistence, zero stock, stable identity, per-order package sizes, ounce/gram conversion, retained exact conversion inputs, cumulative receipts, replay, stale/overreceipt and role denial');
+await q(readFileSync('supabase/migrations/20261022162727_cmpri_po_package_edit.sql','utf8'));
+await add(300,'CS',50,'LB',null,3);
+const edit=(attempt,size,expected=50,content='LB',expectedContent='LB')=>db.query('select cmpri_po_edit_package($1,$2,$3,$4,$5,$6,$7,$8)',[h,actor,id(attempt),id(300),size,content,expected,expectedContent]);
+const sameItem=(await itemRow(300)).id;
+await edit(301,25);
+await edit(301,25);
+assert.equal((await itemRow(300)).id,sameItem);
+assert.equal(Number((await itemRow(300)).quantity_on_hand),0);
+await assert.rejects(edit(302,10),/changed/);
+await assert.rejects(edit(303,10,25,'EA'),/match inventory/);
+await receive(300,3,0,304);
+assert.equal(Number((await itemRow(300)).quantity_on_hand),75);
+await assert.rejects(edit(305,10,25),/cannot change after receiving/);
+assert.equal(Number((await itemRow(300)).quantity_on_hand),75);
+await db.exec('set role authenticated');await assert.rejects(edit(306,10,25),/permission denied/);await db.exec('reset role');
+console.log('PASS editable per-order package contents, same inventory identity, zero-stock edit, exact retry, stale edit and incompatible units rejected, three 25-LB packages receive 75 LB, receipt history protected');
 await db.close();
 
