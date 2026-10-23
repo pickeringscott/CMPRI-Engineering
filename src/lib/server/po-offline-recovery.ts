@@ -4,6 +4,7 @@ import {inspectPoPdf} from '../po-pdf';
 import {offlinePoSourceLinks} from '../po-source-links';
 import type {PoSource} from '../po-source-parser';
 import type {OfflinePo} from '../po-offline-pdf';
+import {normalizePoProductFields} from '../po-import-field-review';
 
 export type BoundOfflineDocument={
  account:string;sourceMessageId:string;sourceMessageAt:string;
@@ -30,11 +31,13 @@ export function offlineRecoveryDigest(documents:BoundOfflineDocument[]){return h
 export async function persistReviewedOfflineRecovery(admin:SupabaseClient,hotelId:string,actorId:string,documents:BoundOfflineDocument[],reviewedDigest:string){
  if(!hotelId||!actorId||!documents.length||documents.length>1000||offlineRecoveryDigest(documents)!==reviewedDigest)throw Error('Review the exact recovery batch before saving.');
  for(const document of documents){
+  const issue=document.order.lines.map(line=>normalizePoProductFields({sourceFormat:'ibuy-offline',itemNumber:line.sku,description:line.description})).find(line=>line.reviewRequired);
+  if(issue)throw Error(issue.reason||'Product fields require review.');
   if(hash(document.sourceUrl)!==document.sourceUrlSha256||!offlinePoSourceLinks({text:document.sourceUrl}).some(link=>link.url===document.sourceUrl)||!/^[a-f0-9]{64}$/.test(document.documentSha256))throw Error('Invalid document binding.');
  }
  const results=[];
  for(const document of documents){
-  const result=await admin.rpc('cmpri_recover_offline_po_lines',{p_hotel:hotelId,p_actor:actorId,p_document:document});
+  const result=await admin.rpc('cmpri_recover_offline_po_lines_v2',{p_hotel:hotelId,p_actor:actorId,p_document:document});
   results.push({externalPo:document.order.externalPo,...(result.error?{error:result.error.message}:{result:result.data})});
  }
  return {results,inventoryChanged:false,receiptsCreated:0};

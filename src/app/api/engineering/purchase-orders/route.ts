@@ -16,6 +16,7 @@ export async function GET(request:NextRequest){
 }
 const text=(v:unknown,max=1000)=>{if(typeof v!=='string'||v.length>max)throw Error('Invalid text');return v.trim();};
 const uuid=(v:unknown)=>{const s=text(v,36);if(!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(s))throw Error('Invalid identifier');return s;};
+const mappingFactor=(v:unknown)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<=0||v>999999999)throw Error('Invalid mapping factor');return v;};
 const quantity=(v:unknown)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<=0||v>999999999||Math.abs(v*1000-Math.round(v*1000))>1e-6)throw Error('Invalid quantity');return v;};
 export async function POST(request:NextRequest){
  const auth=await requireCapability(request,'manage_assets');
@@ -28,6 +29,10 @@ export async function POST(request:NextRequest){
   if(body.action==='manual')result=await auth.admin.rpc('cmpri_create_manual_po',{...common,p_supplier:text(body.supplier,200),p_reference:text(body.reference||'',200),p_description:text(body.description,1000),p_quantity:wholePoCount(body.quantity),p_uom:text(body.uom,30)});
   else if(body.action==='add-item'){
    result=await auth.admin.rpc('cmpri_po_add_item',{...common,p_order:uuid(body.orderId),p_item:body.itemId?uuid(body.itemId):null,p_description:text(body.description,1000),p_quantity:quantity(body.quantity),p_unit:text(body.uom,10),p_package:body.packageSize==null?null:quantity(body.packageSize),p_content:body.contentUnit?text(body.contentUnit,10):null,p_sku:text(body.sku||'',200),p_price:body.price==null?null:body.price});
+  }else if(body.action==='edit-item'){
+   if(typeof body.expectedReceived!=='number'||!Number.isFinite(body.expectedReceived)||body.expectedReceived<0)throw Error('Invalid expected received quantity');
+   result=await auth.admin.rpc('cmpri_po_edit_item',{...common,p_line:uuid(body.lineId),p_description:text(body.description,1000),p_expected_description:text(body.expectedDescription,1000),p_expected_item:body.expectedItem?uuid(body.expectedItem):null,p_expected_factor:body.expectedFactor==null?null:mappingFactor(body.expectedFactor),p_item:body.itemId?uuid(body.itemId):null,p_create:body.createItem===true,p_unit:body.stockUnit?text(body.stockUnit,10):null,p_factor:body.factor==null?null:mappingFactor(body.factor),p_expected_received:body.expectedReceived,p_keep:body.keepMapping===true});
+   if(result.error?.code==='40001')return NextResponse.json({error:result.error.message},{status:409});
   }else if(body.action==='edit-package'){
    result=await auth.admin.rpc('cmpri_po_edit_package',{...common,p_line:uuid(body.lineId),p_package:quantity(body.packageSize),p_content:text(body.contentUnit,10),p_expected:body.expectedPackage==null?null:quantity(body.expectedPackage),p_expected_content:body.expectedContent==null?null:text(body.expectedContent,10)});
    if(result.error?.code==='40001')return NextResponse.json({error:result.error.message},{status:409});

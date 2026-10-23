@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {poHasUnresolvedLines} from '../src/lib/po-line-review.ts';
+const items=[{id:'i',active:true},{id:'inactive',active:false}];
+const base={order_id:'valid',description:'Filter',ordered:10,inventory_item_id:'i',units_per_order_unit:1};
+const lines=[base,{...base,order_id:'length',description:'12 inch'},{...base,order_id:'url',description:'https://example.com/product'},{...base,order_id:'mapping',inventory_item_id:null},{...base,order_id:'inactive',inventory_item_id:'inactive'}];
+const before=JSON.stringify({lines,items});
+assert.equal(poHasUnresolvedLines('valid',lines,items),false);
+assert.equal(poHasUnresolvedLines('no-lines',lines,items),false);
+for(const id of ['length','url','mapping','inactive'])assert.equal(poHasUnresolvedLines(id,lines,items),true);
+assert.equal(JSON.stringify({lines,items}),before);
+console.log('PASS unresolved-line filtering: missing name, link-only, missing/inactive mapping, resolved and no-line orders distinguished, input data unchanged');

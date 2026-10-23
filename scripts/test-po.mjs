@@ -1,5 +1,7 @@
 import {spawnSync} from 'node:child_process';
 const cases=[
+ 'tests/po-import-field-review.test.mjs',
+ 'tests/po-line-review.test.mjs','tests/po-item-edit-database.test.mjs',
  'tests/po-historical-database.test.mjs',
  'tests/drive-po-diagnostics.test.mjs',
  'tests/drive-po-push.test.mjs',

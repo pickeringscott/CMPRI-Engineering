@@ -1,0 +1,64 @@
+
+
+import {PGlite} from '@electric-sql/pglite';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const db=new PGlite();const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
+const h=id(1),actor=id(2),order=id(3),line=id(4),item=id(5),job=id(6);
+const q=sql=>db.exec(sql);const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
+await q('create role anon;create role authenticated;create role service_role bypassrls;create table work_orders(id uuid primary key,hotel_id uuid);');
+for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inventory_movements']){const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${table}" (`);await q(baseline.slice(start,baseline.indexOf('\n);',start)+3));await q(`alter table ${table} add primary key(id);grant all on ${table} to service_role;`);}
+await q(readFileSync('supabase/migrations/20261016211655_cmpri_po_receiving.sql','utf8'));
+await q(`insert into work_orders values('${job}','${h}');grant select on work_orders to service_role;insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand) values('${item}','${h}','Filter',4);insert into cmpri_po_orders(id,hotel_id,supplier,origin,created_by) values('${order}','${h}','Doug','manual','${actor}');insert into cmpri_po_lines(id,hotel_id,order_id,description,ordered,uom,inventory_item_id,units_per_order_unit) values('${line}','${h}','${order}','Filter',10,'EA','${item}',1);`);
+await q(readFileSync('supabase/migrations/20261017181912_cmpri_manual_order_receiving.sql','utf8'));
+await q(readFileSync('supabase/migrations/20261022062702_cmpri_cumulative_receipt_guard.sql','utf8'));
+
+await q('alter table cmpri_po_lines add column if not exists purchase_unit_price_cents bigint');
+await q(readFileSync('supabase/migrations/20261022063156_cmpri_po_package_units.sql','utf8'));
+await q(readFileSync('supabase/migrations/20261023043743_cmpri_po_line_description_review.sql','utf8'));
+const edit=(key,description,expected='Filter',target=item,create=false,unit=null,factor=1,expectedItem=item,expectedFactor=1,targetLine=line,expectedReceived=0)=>db.query('select cmpri_po_edit_item($1,$2,$3,$4,$5,$6,$7,$8,$9, $10,$11,$12,$13)',[h,actor,id(key),targetLine,description,expected,expectedItem,expectedFactor,target,create,unit,factor,expectedReceived]);
+await db.query('select cmpri_receive_po_total($1,$2,$3,$4,$5,$6,$7)',[h,actor,id(100),line,5,0,'2026-10-22']);
+await db.query('select cmpri_use_supply_precise($1,$2,$3,$4,$5,$6,$7)',[h,actor,id(101),job,item,2,'Fixture usage']);
+const ledger=async()=>JSON.stringify((await db.query('select (select jsonb_agg(r) from cmpri_po_receipts r) receipts,(select jsonb_agg(i) from cmpri_inventory_items i) items,(select jsonb_agg(m) from cmpri_inventory_movements m) movements,(select jsonb_agg(u) from cmpri_supply_uses u) uses')).rows);
+const before=await ledger();
+await edit(102,'Corrected filter');await edit(102,'Corrected filter');
+assert.equal(await ledger(),before);
+assert.equal((await db.query('select description from cmpri_po_lines where id=$1',[line])).rows[0].description,'Corrected filter');
+await assert.rejects(edit(103,'Stale correction'),/changed/);
+await assert.rejects(edit(104,'New catalog item','Corrected filter',null,true,'EA',1,item,1,line,5),/Usage or returns/);
+assert.equal(await ledger(),before);
+await q(`insert into cmpri_po_lines(id,hotel_id,order_id,description,ordered,uom,sku) values('${id(20)}','${h}','${order}','12 inch',2,'EA','FIXTURE')`);
+await edit(105,'New named item','12 inch',null,true,'EA',1,null,null,id(20));
+await edit(105,'New named item','12 inch',null,true,'EA',1,null,null,id(20));
+const newItem=(await db.query('select i.* from cmpri_inventory_items i join cmpri_po_lines l on l.inventory_item_id=i.id where l.id=$1',[id(20)])).rows[0];
+assert.equal(Number(newItem.quantity_on_hand),0);
+assert.equal((await db.query("select count(*)::int n from cmpri_inventory_items where item_name='New named item'")).rows[0].n,1);
+await q(`insert into cmpri_po_lines(id,hotel_id,order_id,description,ordered,uom) values('${id(21)}','${h}','${order}','link',1,'EA')`);
+await assert.rejects(edit(106,'New named item','link',null,true,'EA',1,null,null,id(21)),/Select the existing/);
+await edit(107,'Existing item selected','link',newItem.id,false,null,1,null,null,id(21));
+assert.equal((await db.query('select inventory_item_id from cmpri_po_lines where id=$1',[id(21)])).rows[0].inventory_item_id,newItem.id);
+assert.equal((await db.query('select count(*)::int n from cmpri_po_receipts')).rows[0].n,1);
+await q('set role authenticated');await assert.rejects(edit(108,'Unauthorized','Corrected filter'),/permission denied/);await q('reset role');
+console.log('PASS same-line partial-receipt rename, unchanged receipts/stock/usage, stale edit, protected received mapping, zero-stock creation without supplier, exact retry, duplicate rejection, existing selection and permissions');
+// A separate partially received fixture has no usage: move its first five, not five new receipts.
+await db.query('select cmpri_po_add_item($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[h,actor,id(30),order,null,'Wrong catalog',10,'EA',null,null,'PART',null]);
+const oldId=(await db.query('select inventory_item_id from cmpri_po_lines where id=$1',[id(30)])).rows[0].inventory_item_id;
+await db.query('select cmpri_receive_po_total($1,$2,$3,$4,$5,$6,$7)',[h,actor,id(31),id(30),5,0,'2026-10-20']);
+const receiptsBefore=JSON.stringify((await db.query('select * from cmpri_po_receipts order by id')).rows);
+await assert.rejects(edit(32,'Correct catalog','Wrong catalog',null,true,'EA',1,oldId,1,id(30),4),/Received quantity changed/);
+await q(`update cmpri_inventory_items set quantity_reserved=1 where id='${oldId}'`);
+await assert.rejects(edit(32,'Correct catalog','Wrong catalog',null,true,'EA',1,oldId,1,id(30),5),/Insufficient/);
+await q(`update cmpri_inventory_items set quantity_reserved=0 where id='${oldId}'`);
+await assert.rejects(edit(32,'Correct catalog','Wrong catalog',null,true,'LB',1,oldId,1,id(30),5),/same inventory unit/);
+assert.equal((await db.query("select count(*)::int n from cmpri_inventory_items where item_name='Correct catalog'")).rows[0].n,0);
+await edit(33,'Correct catalog','Wrong catalog',null,true,'EA',1,oldId,1,id(30),5);
+await edit(33,'Correct catalog','Wrong catalog',null,true,'EA',1,oldId,1,id(30),5);
+const corrected=(await db.query('select i.* from cmpri_inventory_items i join cmpri_po_lines l on i.id=l.inventory_item_id where l.id=$1',[id(30)])).rows[0];
+assert.equal(Number(corrected.quantity_on_hand),5);
+assert.equal(Number((await db.query('select quantity_on_hand from cmpri_inventory_items where id=$1',[oldId])).rows[0].quantity_on_hand),0);
+assert.equal(JSON.stringify((await db.query('select * from cmpri_po_receipts order by id')).rows),receiptsBefore);
+assert.deepEqual((await db.query("select count(*)::int n,sum(quantity_change)::int net from cmpri_inventory_movements where movement_type='Adjustment'")).rows[0],{n:2,net:0});
+await db.query('select cmpri_receive_po_total($1,$2,$3,$4,$5,$6,$7)',[h,actor,id(34),id(30),7,5,'2026-10-22']);
+assert.equal(Number((await db.query('select quantity_on_hand from cmpri_inventory_items where id=$1',[corrected.id])).rows[0].quantity_on_hand),7);
+console.log('PASS atomic prior-stock correction, original receipts/dates retained, net-zero audit pair, replay, future receipts, stale receipt guard, reserved stock and incompatible unit rollback');
+await db.close();
