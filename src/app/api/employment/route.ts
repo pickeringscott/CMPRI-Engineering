@@ -7,7 +7,9 @@ import { validateEmployment } from "@/lib/employment-validation.mjs";
 const headers = { "Cache-Control": "private, no-store" };
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
-  if (origin !== request.nextUrl.origin) return NextResponse.json({ error: "Invalid origin." }, { status: 403, headers });
+  let sameOrigin = false;
+  try { const source = new URL(origin || ""); sameOrigin = source.host === request.headers.get("host") && (source.protocol === "https:" || (process.env.NODE_ENV !== "production" && source.protocol === "http:")); } catch { /* Reject missing or malformed origins. */ }
+  if (!sameOrigin) return NextResponse.json({ error: "Invalid origin." }, { status: 403, headers });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON required." }, { status: 415, headers });
   // Bound the stream, including requests without Content-Length.
   const reader = request.body?.getReader();
