@@ -29,7 +29,8 @@ const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_basel
 for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inventory_movements']){const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${table}" (`);await db.exec(baseline.slice(start,baseline.indexOf('\n);',start)+3));await db.exec(`alter table ${table} add primary key(id);grant all on ${table} to service_role;`);}
 for(const file of ['20261016211655_cmpri_po_receiving.sql','20261017184618_cmpri_reviewed_po_identities.sql','20261020040540_cmpri_offline_po_recovery.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
 await db.exec(readFileSync('supabase/migrations/20261020040540_cmpri_offline_po_recovery.sql','utf8')); // Migration replay.
-const admin={rpc:async(name,args)=>{assert.equal(name,'cmpri_recover_offline_po_lines');try{return {data:(await db.query('select cmpri_recover_offline_po_lines($1,$2,$3::jsonb) result',[args.p_hotel,args.p_actor,JSON.stringify(args.p_document)])).rows[0].result};}catch(error){return {error:{message:error.message}};}}};
+await db.exec(readFileSync('docs/PO-IMPORT-FIELDS-PROPOSAL.sql','utf8'));
+const admin={rpc:async(name,args)=>{assert.equal(name,'cmpri_recover_offline_po_lines_v2');try{return {data:(await db.query('select cmpri_recover_offline_po_lines_v2($1,$2,$3::jsonb) result',[args.p_hotel,args.p_actor,JSON.stringify(args.p_document)])).rows[0].result};}catch(error){return {error:{message:error.message}};}}};
 const recover=(d=doc,h=hotel,a=recoveryActor)=>persistReviewedOfflineRecovery(admin,h,a,[d],offlineRecoveryDigest([d]));
 await assert.rejects(persistReviewedOfflineRecovery(admin,hotel,recoveryActor,[doc],'wrong'),/exact recovery/);
 const original={externalPo:doc.order.externalPo,supplier:null,lines:[],evidence:[{account:source.account,messageId:'acceptance-email',kind:'company-accepted',externalPo:doc.order.externalPo}],accepted:true,vendorOrders:[],shipments:{}};
@@ -43,7 +44,10 @@ assert.equal((await recover(doc,hotel,actor)).results[0].result.insertedLines,0)
 await db.exec('reset role');
 assert.deepEqual(await snapshot('cmpri_po_orders'),header);
 assert.deepEqual((await snapshot('cmpri_po_sources')).filter(s=>s.message_id==='acceptance-email'),history);
-const line=(await snapshot('cmpri_po_lines'))[0];
+const allImported=await snapshot('cmpri_po_lines');
+const normalized=allImported.find(l=>l.sku==='Product NAME');
+assert.equal(normalized.description,'Product NAME');assert.equal(normalized.product_url,doc.order.lines[0].description);assert.equal(normalized.supplier_sku,null);assert.equal(normalized.source_item_number,'Product NAME');assert.equal(normalized.source_description,doc.order.lines[0].description);
+const line=allImported[0];
 await db.exec(`insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand) values('${item}','${hotel}','Mapped supply',4);update cmpri_po_lines set inventory_item_id='${item}',units_per_order_unit=1,backorder_note='Keep me' where id='${line.id}';`);
 await db.query('select cmpri_receive_po($1,$2,$3,$4,1,$5,$6)',[hotel,actor,id(10),line.id,'2026-10-16','Counted original receipt']);
 const protectedTables=['cmpri_po_orders','cmpri_po_lines','cmpri_po_receipts','cmpri_inventory_items','cmpri_inventory_movements','cmpri_po_sources'];
