@@ -17,7 +17,7 @@ export default function EmploymentReview() {
       setMessage("");
     } catch {setMessage("Unable to load questionnaires. Please retry.");}
   }
-  useEffect(()=>{void load();},[]);
+  useEffect(()=>{const timer = window.setTimeout(()=>void load(),0);return ()=>window.clearTimeout(timer);},[]);
   function display(value: unknown): string {
     if(value === "Personally performed") return "Perform";
     if(Array.isArray(value)) return value.map(display).join(", ");
@@ -33,3 +33,4 @@ export default function EmploymentReview() {
     {selected ? <dl>{Object.entries(selected.answers || {}).map(([key,value])=><div key={key} style={{padding:"5px 0",borderBottom:"1px solid #344359"}}><dt style={{fontSize:12,color:"#b6c4d7"}}>{labels[key]||key}</dt><dd style={{margin:"2px 0",whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{display(value)}</dd></div>)}</dl> : <div>{!message && list.length===0 && <p>No questionnaires yet.</p>}{list.map(item=><button key={item.id} onClick={()=>void load(item.id)} style={{display:"block",width:"100%",textAlign:"left",padding:"7px 4px",borderBottom:"1px solid #344359",overflowWrap:"anywhere"}}><strong>{item.name}</strong> · {item.email}<br/><small>{new Date(item.created_at).toLocaleString()}</small></button>)}</div>}
   </main>;
 }
+
