@@ -317,7 +317,7 @@ test('room operations import form and commit workflow live in the Daily Room Ope
   assert.match(page, /importOpen && hasCapability\(session, "edit_tickets"\)/);
   assert.match(page, /<RoomOperationsImport date=\{date\} onDateChange=\{setDate\} onCommitted=\{handleImportCommitted\}/);
   assert.doesNotMatch(dashboard, /Import Room Ops|showRoomOpsImport|Import Daily Room Operations/);
-  assert.match(importer, /Upload today(?:&apos;|')s printed Room Status Report and optional Expected Departures report/);
+  assert.match(importer, /Upload Room Status and optional Expected Departures, or the new PMS Room status CSV together with In House Guest List Details/);
   assert.match(importer, /Upload RoomStatus Images \(ChatGPT Auto-Import\)/);
   assert.match(importer, /Upload Images & Auto-Import/);
   assert.match(importer, /complete room coverage/);

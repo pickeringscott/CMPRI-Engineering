@@ -6,7 +6,7 @@ import { requireCapability } from "@/lib/server/auth";
 import { detectRoomMoves } from "@/lib/room-operations";
 import { roomOperationsNotification } from "@/lib/dashboard/room-operations-notifications";
 import { profileHasRole } from "@/lib/server/roles";
-import { normalizePrintedTime, parsePrintedReport, reportReplacementError, hotelDateAt, type AcceptedReportVersion, type PrintedReport } from "@/lib/room-operations-reports";
+import { isPmsRoomStatus, preparePmsReportPair, pmsFilenameReport, normalizePrintedTime, parsePrintedReport, reportReplacementError, hotelDateAt, type AcceptedReportVersion, type PrintedReport } from "@/lib/room-operations-reports";
 import { loadEffectiveRoomOperationsSnapshot } from "@/lib/server/cmpri-room-operations-snapshot";
 
 function hotelDate() {
@@ -111,7 +111,6 @@ function reserved(value: unknown, label = "reservation indicator") {
 function missingCurrentGuestFields(rows: Record<string, unknown>[]) {
   const requiredFields = [
     ["guest_name", "guest name"],
-    ["guest_code", "guest code"],
     ["room_type", "room type"],
     ["guest_arrival_date", "current guest arrival date"],
     ["checkout_date", "current guest departure date"],
@@ -329,6 +328,11 @@ export async function POST(request: NextRequest) {
       : typeof body.file === "string"
       ? body.file
       : "";
+    try {
+    if (isPmsRoomStatus(csvContent)) {
+      reportData = preparePmsReportPair(csvContent, departuresCsv,
+        String(body.status_filename || ""), String(body.departures_filename || ""));
+    } else {
     const statusMeta = parsePrintedReport(statusCsv || csvContent, "Room Status Report");
     if (statusMeta.error || !statusMeta.report) {
       return NextResponse.json({ error: statusMeta.error || "Room Status Report printed date cannot be verified. Nothing was replaced." }, { status: 422 });
@@ -347,6 +351,10 @@ export async function POST(request: NextRequest) {
       room_status: { ...statusMeta.report, pages: [1], rows: parseCsvToRows(statusCsv || csvContent) },
       expected_departures: departureMeta ? { ...departureMeta, pages: [1], rows: departureRows } : null,
     };
+    }
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "CSV validation failed. Nothing was replaced." }, { status: 422 });
+    }
   }
 
   const roomStatusReport = reportData.room_status && typeof reportData.room_status === "object" && !Array.isArray(reportData.room_status)
@@ -360,6 +368,13 @@ export async function POST(request: NextRequest) {
     const timeValue = typeof value.printed_time === "string" ? value.printed_time.trim() : "";
     if (!validDate(date)) return { report: null, error: `${label} printed date is missing or invalid. Nothing was replaced.` };
     if (timeValue && !normalizePrintedTime(timeValue)) return { report: null, error: `${label} printed generation time is present but cannot be verified. Nothing was replaced.` };
+    if (value.report_kind === "pms_room_status" || value.report_kind === "pms_in_house") {
+      try {
+        const source = pmsFilenameReport(String(value.source_filename || ""), value.report_kind);
+        if (source.printed_date !== date || source.printed_time !== normalizePrintedTime(timeValue)) throw new Error("PMS filename timestamp does not match report metadata.");
+        return { report: source, error: null };
+      } catch (error) { return { report: null, error: error instanceof Error ? error.message : "Invalid PMS metadata." }; }
+    }
     return { report: { printed_date: date, printed_time: normalizePrintedTime(timeValue) }, error: null };
   };
   const statusMetadata = normalizeReportMetadata(roomStatusReport, "Room Status Report");
@@ -390,6 +405,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Expected Departures is printed for ${expectedMetadata.printed_date}; it must match the Room Status printed date ${reportDate}. Nothing was replaced.` }, { status: 422 });
     }
   }
+  if (statusMetadata.report.report_kind === "pms_room_status" && expectedMetadata?.report_kind !== "pms_in_house") {
+    return NextResponse.json({ error: "PMS Room Status requires its matching In House Guest List." }, { status: 422 });
+  }
   const statusFingerprint = createHash("sha256").update(JSON.stringify({
     report: statusMetadata.report,
     pages: roomStatusReport.pages,
@@ -414,7 +432,7 @@ export async function POST(request: NextRequest) {
 
   let expectedWasCarried = false;
   let expectedUploadedAt = "";
-  if (!expectedReport && latestImport?.expected_departures_printed_date === reportDate && Array.isArray(latestImport.departures_rows)) {
+  if (!expectedReport && latestImport?.expected_departures_printed_date === reportDate && Array.isArray(latestImport.departures_rows) && !latestImport.departures_rows.some((row: Record<string, unknown>) => row.source_report_kind === "pms_in_house")) {
     expectedReport = {
       printed_date: String(latestImport.expected_departures_printed_date),
       printed_time: latestImport.expected_departures_printed_time,
@@ -518,8 +536,11 @@ export async function POST(request: NextRequest) {
       const arrivalTime = arrivalTimeText ? normalizePrintedTime(arrivalTimeText) : null;
       if (arrivalTimeText && !arrivalTime) throw new Error(`Room ${room} incoming arrival time on source page ${sourcePage} could not be verified.`);
       const guestName = shortText(row.guest_name ?? row.guestName ?? row["Guest Name"], `Room ${room} guest name`, 200);
-      const roomType = shortText(row.room_type ?? row.roomType ?? row["Room Type"], `Room ${room} room type`, 80);
+      const roomType = shortText(row.room_type ?? row.roomType ?? row["Room Type"], `Room ${room} room type`, 200);
       const guestCode = shortText(row.guest_code ?? row.guestCode ?? row["Guest Code"] ?? row.Code, `Room ${room} guest code`, 80);
+      if (guestCode === "[UNREADABLE]") throw new Error(`Room ${room} supplied guest code is unreadable.`);
+      const nextReservationDate = normalizedDate(row.next_reservation_date, reportDate);
+      if (row.next_reservation_date && !nextReservationDate) throw new Error(`Room ${room} next reservation date is invalid.`);
       const guestArrivalRaw = row.guest_arrival_date ?? row.guestArrivalDate ?? row["Guest Arrival"] ?? row["Guest Arrival Date"] ?? row["ARV Date"] ?? row.ARV;
       const guestArrivalDate = normalizedDate(guestArrivalRaw, reportDate);
       if (guestArrivalRaw && !guestArrivalDate) throw new Error(`Room ${room} current guest arrival date on source page ${sourcePage} could not be verified.`);
@@ -550,7 +571,6 @@ export async function POST(request: NextRequest) {
       if (/\boccupied\b/i.test(roomStatus)) {
         const required = [
           ["guest name", guestName],
-          ["guest code", guestCode],
           ["room type", roomType],
           ["current guest arrival date", guestArrivalDate],
           ["current guest departure date", checkoutDate],
@@ -562,6 +582,12 @@ export async function POST(request: NextRequest) {
       }
 
       rows.push({
+        source_reports: [statusMetadata.report, expectedMetadata].filter(Boolean),
+        next_reservation_date: nextReservationDate,
+        source_inventory_status: row.source_inventory_status || "",
+        source_hk_condition: row.source_hk_condition || "",
+        source_block_status: row.source_block_status || "",
+        source_room_type: row.source_room_type || "",
         room,
         checkout_date: checkoutDate,
         checkout_time: checkoutTime,
@@ -614,7 +640,7 @@ export async function POST(request: NextRequest) {
   if (missingGuestFields.length) {
     const details = missingGuestFields.slice(0, 20).join("; ");
     return NextResponse.json({
-      error: `Current guest details are incomplete for occupied rooms (${details}${missingGuestFields.length > 20 ? `; and ${missingGuestFields.length - 20} more rooms` : ""}). Nothing was saved. Include the current guest's name, code, arrival date, and departure date, then retry.`,
+      error: `Current guest details are incomplete for occupied rooms (${details}${missingGuestFields.length > 20 ? `; and ${missingGuestFields.length - 20} more rooms` : ""}). Nothing was saved. Include the current guest's name, arrival date, and departure date, then retry.`,
     }, { status: 422 });
   }
 

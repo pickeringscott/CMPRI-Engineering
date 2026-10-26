@@ -4,7 +4,7 @@ import { useState } from "react";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { formatCheckoutRoomWorkOrders, summarizeRoomOperations, type CheckoutRoomWorkOrder } from "@/lib/room-operations";
-import { parsePrintedReport, type PrintedReport } from "@/lib/room-operations-reports";
+import { isPmsRoomStatus, preparePmsReportPair, parsePrintedReport, type PrintedReport } from "@/lib/room-operations-reports";
 import {
   extractAndValidateRoomOperations,
   isRecoverableRoomOperationsValidationError,
@@ -41,6 +41,7 @@ type DepartureRow = {
   checkoutTime: string;
 };
 type ValidatedRow = {
+  next_reservation_date?: string;
   room: string;
   checkout_date: string;
   checkout_time: string;
@@ -393,6 +394,20 @@ export default function RoomOperationsImport({
   const today = hotelDate();
 
   async function handleImageUpload(files: FileList | File[]) {
+    const pmsFiles = Array.from(files);
+    if (pmsFiles.some(file => /^(?:Room status|In House Guest List Details - AR)_CMPRI_/i.test(file.name))) {
+      if (pmsFiles.length !== 2 || !pmsFiles.every(file => /\.csv$/i.test(file.name))) {
+        setMessage("Choose both original PMS CSV files together, or use the two report file inputs below.");
+        return;
+      }
+      const status = pmsFiles.find(file => /^Room status_CMPRI_/i.test(file.name));
+      const guests = pmsFiles.find(file => /^In House Guest List Details - AR_CMPRI_/i.test(file.name));
+      if (!status || !guests) { setMessage("Choose one Room status CSV and one In House Guest List CSV."); return; }
+      await loadFile(status, "status");
+      await loadFile(guests, "departures");
+      setMessage("PMS CSV pair loaded. Prepare the preview below to validate before saving.");
+      return;
+    }
     const fileList = Array.from(files);
     if (!fileList.length) return;
     if (!date) {
@@ -585,6 +600,19 @@ export default function RoomOperationsImport({
       return;
     }
     try {
+      if (isPmsRoomStatus(statusText)) {
+        const report_data = preparePmsReportPair(statusText, departuresText, statusFileName, departuresFileName);
+        const response = await fetch("/api/room-operations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...await authorizationHeaders() },
+          body: JSON.stringify({ source: "file", report_data, validate_only: true }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok || !Array.isArray(payload.rows)) throw new Error(payload.error || "PMS validation failed.");
+        setPreview({ date: payload.date, source: "file", rows: payload.rows, report_data });
+        setMessage(payload.rows.length + " rooms validated. Guest codes are optional. Next reservation dates do not identify incoming guests. Review before saving.");
+        return;
+      }
       const statusReportDate = parsePrintedReport(statusText, "Room Status Report");
       if (statusReportDate.error || !statusReportDate.report) throw new Error(statusReportDate.error || "Room Status Report printed date cannot be verified.");
       const departuresMetadata = departuresText.trim()
@@ -690,7 +718,7 @@ export default function RoomOperationsImport({
     <section aria-label="Import Daily Room Operations" className="space-y-3 rounded-xl border border-emerald-500/35 bg-slate-900/70 p-3">
       <div>
         <h2 className="text-lg font-semibold">Daily Room Ops Upload</h2>
-        <p className="mt-1 text-sm text-slate-400">Upload today&apos;s printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to 11:00 AM.</p>
+        <p className="mt-1 text-sm text-slate-400">Upload Room Status and optional Expected Departures, or the new PMS Room status CSV together with In House Guest List Details. Keep the original PMS filenames so export dates and times can be verified. Guest code is optional; supplied codes are preserved. A missing checkout time defaults to 11:00 AM.</p>
       </div>
 
       <div className="rounded-xl border border-sky-500/40 bg-sky-950/25 p-3">
@@ -730,7 +758,7 @@ export default function RoomOperationsImport({
           <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "status"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
         <label className="block text-xs font-semibold text-slate-300">
-          Expected Departures {departuresFileName ? `· ${departuresFileName}` : ""}
+          Expected Departures / In House Guest List {departuresFileName ? `· ${departuresFileName}` : ""}
           <textarea value={departuresText} onChange={(event) => { setDeparturesText(event.target.value); setDeparturesFileName(""); setPreview(null); }} rows={8} placeholder={"Printed Date: 10/10/2026\nPrinted Time: 8:20 AM\nRoom\tCheckout Date\tCheckout Time\tGuest Name\n316\t10/11/2026\t2:00 PM\tGuest Name"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
           <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "departures"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
@@ -742,6 +770,7 @@ export default function RoomOperationsImport({
           <div>
             <h3 className="font-bold text-amber-100">Validated preview · {preview.date} · {preview.rows.length} rooms</h3>
             <p className="mt-1 text-xs text-amber-100">Commit replaces this day&apos;s complete snapshot. Moves will be detected by comparing today&apos;s guest rooms with yesterday&apos;s snapshot.</p>
+            {preview.report_data.room_status.report_kind === "pms_room_status" ? <p className="mt-1 text-xs text-amber-100">Sources: {preview.report_data.room_status.source_filename} ({preview.report_data.room_status.printed_time}) and {preview.report_data.expected_departures?.source_filename} ({preview.report_data.expected_departures?.printed_time}). Next reservation dates, when present, are retained as partial source evidence without an incoming guest: {preview.rows.filter(row => row.next_reservation_date).map(row => `${row.room}: ${row.next_reservation_date}`).join("; ") || "none reported"}.</p> : null}
           </div>
           <div className="max-h-[45vh] overflow-auto rounded-lg border border-slate-700">
             <table className="w-full min-w-[48rem] text-left text-xs">

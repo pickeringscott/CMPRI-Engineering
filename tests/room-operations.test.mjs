@@ -649,7 +649,7 @@ test("server import rejects occupied rows missing any current guest field", () =
   ]);
   assert.deepEqual(Array.from(missing), [
     "Room 103: guest name, room type, length of stay",
-    "Room 104: guest code, room type, length of stay",
+    "Room 104: room type, length of stay",
     "Room 105: room type, current guest arrival date, length of stay",
     "Room 106: room type, current guest departure date, length of stay",
   ]);

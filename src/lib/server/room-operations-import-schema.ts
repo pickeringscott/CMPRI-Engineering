@@ -33,7 +33,7 @@ const roomStatusRowSchema = {
     room_status: { type: "string", minLength: 1, description: "Required exact occupancy/housekeeping/condition status as printed (for example Occupied, Vacant Ready, Vacant Dirty, Out of Order, or OOO)." },
     room_type: { type: "string", description: "Current room/guest Type field as printed." },
     guest_name: { type: "string", description: "Current guest Name field, not the incoming/block Name. Required for occupied rooms." },
-    guest_code: { type: "string", description: "Current guest PP Code/Code field as printed. Required for occupied rooms." },
+    guest_code: { type: "string", description: "Optional current guest PP Code/Code field as printed. Preserve supplied RCNA; never invent a code or use PMS Guest Type or Room Type as a code." },
     guest_arrival_date: dateValue,
     checkout_date: { ...dateValue, description: "Current guest departure date. For a matching Expected Departures row, that report's checkout_date takes precedence." },
     checkout_time: { ...timeValue, description: "Explicit current guest checkout time. A matching Expected Departures checkout_time takes precedence. When checkout_date exists but neither report supplies a time, CMPRI stores 11:00 AM (11:00:00) and sets its generated checkout_time_explicit flag to false; a verified supplied time is marked explicit." },
@@ -68,10 +68,9 @@ const roomStatusRowSchema = {
       required: ["room_status"],
     },
     then: {
-      required: ["guest_name", "guest_code", "room_type", "guest_arrival_date", "checkout_date", "stay_nights"],
+      required: ["guest_name", "room_type", "guest_arrival_date", "checkout_date", "stay_nights"],
       properties: {
         guest_name: { type: "string", minLength: 1 },
-        guest_code: { type: "string", minLength: 1 },
         room_type: { type: "string", minLength: 1 },
         guest_arrival_date: { type: "string", minLength: 1 },
         checkout_date: { type: "string", minLength: 1 },
@@ -159,7 +158,7 @@ const reportDataSchema = {
           items: roomStatusRowSchema,
           minItems: 1,
           maxItems: 500,
-          description: "Complete Current Room Status rows; occupied rooms require guest_name, guest_code, room_type, guest_arrival_date, checkout_date, and stay_nights.",
+          description: "Complete Current Room Status rows; occupied rooms require guest_name, room_type, guest_arrival_date, checkout_date, and stay_nights.",
         },
       },
       required: [...printedReportMetadata.required, "rows"],
@@ -186,6 +185,8 @@ const reportDataSchema = {
 };
 
 const commonInputProperties = {
+  status_filename: { type: "string", description: "Original Room status_CMPRI_YYYY-MM-DD_HH-MM-SS.csv filename, required for the new PMS pair." },
+  departures_filename: { type: "string", description: "Original In House Guest List Details - AR_CMPRI_YYYY-MM-DD_HH-MM-SS.csv filename, required for the new PMS pair." },
   source: {
     type: "string",
     enum: ["paste", "file"],
@@ -205,7 +206,7 @@ const commonInputProperties = {
 const csvHeaders = [
   "Canonical headers are Room; Room Status; Room Type; Guest Name; Guest Code; Guest Arrival Date; Checkout Date; Checkout Time; LOS; Reserved; Arrival Date; Arrival Time; Incoming Arrival Date; Incoming Arrival Time; Incoming Guest Name; Incoming Room Type; Incoming Guest Code; Incoming Block Indicator; Incoming Reserved; Move From; Move To; Source Page.",
   "All recognized header aliases (case-insensitive, whitespace-normalized, with substring matching for aliases at least four characters long): Room: ROOM, ROOM #, ROOM NUMBER, RM #, RM. Room status: ROOM STATUS, HOUSEKEEPING STATUS, HK STATUS, ROOM CONDITION, CONDITION, STATUS. Current guest name: GUEST NAME, GUEST / NAME, GUEST, NAME. Room type: ROOM TYPE, RM TYPE, ROOM TYPE CODE, TYPE. LOS: LOS, LENGTH OF STAY, NIGHTS. Current reservation: RESERVED, BLOCKED, BLK, BLK'D, BLK’D, BLKD. Checkout date: CHECKOUT DATE, CHECK OUT DATE, DEPARTURE DATE, DEP DATE, DEP. Checkout time: CHECKOUT TIME, CHECK OUT TIME, DEPARTURE TIME, DEP TIME, DPLM, TIME. Incoming arrival date: INCOMING ARRIVAL DATE (exact match), DUE IN, CHECKIN DATE, CHECK-IN DATE, ARRIVAL DATE. Incoming arrival time: INCOMING ARRIVAL TIME, CHECKIN TIME, CHECK-IN TIME, ARRIVAL TIME. Current guest code: GUEST CODE, GUEST TYPE CODE, RATE CODE, MEMBER CODE, CODE. Current guest arrival: CURRENT GUEST ARRIVAL DATE, GUEST ARRIVAL DATE, GUEST ARRIVAL, ARV DATE, ARV. Incoming name: INCOMING GUEST NAME, BLOCK NAME, INCOMING NAME. Incoming type: INCOMING ROOM TYPE, BLOCK TYPE, INCOMING TYPE. Incoming code: INCOMING GUEST CODE, BLOCK CODE, INCOMING CODE. Incoming block indicator: INCOMING BLOCK INDICATOR, BLOCK INDICATOR, RESERVATION INDICATOR. Incoming reservation: INCOMING RESERVED, INCOMING BLOCKED, INCOMING BLOCK, RESERVATION. Source page: SOURCE PAGE, PAGE. Move from: MOVE FROM, MOVED FROM, FROM ROOM. Move to: MOVE TO, MOVED TO, TO ROOM.",
-  "Include a printed-date line (Printed Date, Print Date, or Date Printed) in each CSV. Add a printed-time line (Printed Time, Print Time, Printed Generation Time, or Generation Time) when printed. Date line format must be YYYY-MM-DD, M/D/YYYY, or Month D, YYYY; normalize compact printed dates such as 10Oct26 to ISO (2026-10-10).",
+  "Legacy CSVs require a printed-date line (Printed Date, Print Date, or Date Printed). Add a printed-time line (Printed Time, Print Time, Printed Generation Time, or Generation Time) when printed. Date line format must be YYYY-MM-DD, M/D/YYYY, or Month D, YYYY; normalize compact printed dates such as 10Oct26 to ISO (2026-10-10). New PMS Room status plus In House Guest List CSVs start with headers: submit the unmodified pair as status_csv/departures_csv with their original status_filename/departures_filename. Their filename timestamps establish provenance; do not fabricate printed preambles or guest codes.",
 ].join(" ");
 
 const csvValue = {
@@ -230,7 +231,7 @@ export const ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA = {
     }, ["report_data"]),
     inputOptions({
       status_csv: csvValue,
-      departures_csv: { ...csvValue, description: `Optional separate Expected Departures CSV. ${csvHeaders}` },
+      departures_csv: { ...csvValue, description: `Optional separate Expected Departures CSV, or required In House Guest List CSV for the new PMS Room Status export. New PMS pairs use status_filename/departures_filename timestamps and explicit room-number joins. INVENTORY STATUS plus HK CONDITION establish status; ARRIVAL/DEPARTURE identify current stay. Guest Type, Room Type and Reservation Alias are never guest codes or reservation flags. Conflicts are rejected; next reservation date alone does not identify an incoming guest. ${csvHeaders}` },
     }, ["status_csv"]),
     inputOptions({
       csv: csvValue,

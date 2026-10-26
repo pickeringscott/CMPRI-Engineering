@@ -222,7 +222,7 @@ test('Room Ops import contract discovery returns all modes and source-backed val
   ]) assert.ok(rowFields[field],`missing documented room-operation input field ${field}`);
   assert.deepEqual(
     Array.from(structured.properties.room_status.properties.rows.items.allOf[0].then.required),
-    ['guest_name','guest_code','room_type','guest_arrival_date','checkout_date','stay_nights'],
+    ['guest_name','room_type','guest_arrival_date','checkout_date','stay_nights'],
   );
   assert.deepEqual(
     Array.from(structured.properties.room_status.properties.rows.items.allOf[1].then.required),
