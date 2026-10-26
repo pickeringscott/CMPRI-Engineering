@@ -19,7 +19,12 @@ function fixture(body,config={}) {
     },
     then(resolve){return Promise.resolve({data:table==='locations'?(config.noLocation?[]:(config.locations||[{id:'location-409',name:'Room 409'}])):assets,error:config.lookupError?{message:'Unavailable'}:null}).then(resolve);},
     limit:async()=>({data:table==='assets'?assets:(config.existing||[]),error:(table==='assets'?config.assetLookupError:config.duplicateError)?{message:'Unavailable'}:null}),
-    insert:async rows=>{writes.push(...rows);return {error:config.insertError?{message:'Rejected'}:null};},
+    insert:async rows=>{
+      writes.push(...rows);
+      const data=rows.map((row,index)=>({...row,id:`fixture-${writes.length}-${index}`,display_id:`WO-${writes.length}-${index}`}));
+      if(config.persist && !config.insertError) config.existing.push(...data);
+      return {data,error:config.insertError?{message:'Rejected'}:null};
+    },
   };}};
   function load(file) {
     const exports={};
@@ -368,4 +373,83 @@ test('batch rejection keeps reviewed items and exposes the API error', async () 
   assert.deepEqual(messages,['','Submission rejected for review']);
   assert.deepEqual(busy,[true,false]);
   assert.equal(JSON.stringify(suggestions),original);
+});
+
+test('Room 133 reported duplicate wording is blocked against the existing ticket', async () => {
+ const f=fixture({orders:[{...order,issue:'Toilet tank cracked'}],staff_first_name:'Scott'}, {assets:[],existing:[{...order,id:'original-toilet',issue:'CRACK IN TANK OF TOILET (Working)',status:'Open'}]});
+ const result=await f.handler(f.request);
+ assert.equal(result.status,409);
+ assert.equal(result.body.existing_work_order_id,'original-toilet');
+ assert.equal(f.writes.length,0);
+});
+test('near duplicates with extra detail inside a report are blocked atomically', async () => {
+ for (const issues of [['Sink leaking','Sink leaking under cabinet'],['Toilet tank cracked','CRACK IN TANK OF TOILET (Working)']]) {
+  const f=fixture({orders:issues.map(issue=>({...order,issue})),staff_first_name:'Scott'},{assets:[]});
+  assert.equal((await f.handler(f.request)).status,409);
+  assert.equal(f.writes.length,0);
+ }
+});
+
+test('rendered batch dialog and API reject the real wording with a stale candidate list; removal submits distinct items',async()=>{
+ const {mountBatchFlow}=await import('./helpers/batch-dialog-flow.mjs');
+ const distinct=['Shower handle falling off','Reading light out','Stove light out.','Cupboard glass missing'];
+ const flow=await mountBatchFlow(fixture,['Toilet tank cracked',...distinct],[{...order,id:'old-toilet',issue:'CRACK IN TANK OF TOILET (Working)',status:'Open'}],true);
+ try{
+  await flow.click('Submit All');
+  assert.match(flow.alert(),/Possible duplicate/);
+  assert.equal(flow.f.writes.length,0);
+  assert.equal(flow.inputs().length,5);
+  await flow.click('Remove',0);
+  assert.deepEqual(flow.inputs().map(input=>input.value),distinct);
+  await flow.click('Submit All');
+  assert.equal(flow.f.writes.length,4);
+  assert.deepEqual(flow.f.writes.map(row=>row.issue),distinct);
+  await flow.reopen(['Reading light out','Stove light out.']);
+  await flow.click('Submit All');
+  assert.match(flow.alert(),/Possible duplicate/);
+  assert.equal(flow.f.writes.length,4);
+ }finally{await flow.close();}
+});
+
+test('rendered batch editing restores near duplicate rejection and partial submission refreshes candidates',async()=>{
+ const {mountBatchFlow}=await import('./helpers/batch-dialog-flow.mjs');
+ const flow=await mountBatchFlow(fixture,['Sink leaking','Door sticks','Cupboard glass missing']);
+ try{
+  await flow.edit(1,'Sink leaking under cabinet');
+  assert.equal(flow.state().batchCreateSuggestions[1].issue,'Sink leaking under cabinet');
+  await flow.click('Submit All');
+  assert.match(flow.alert(),/overlapping/);
+  assert.equal(flow.f.writes.length,0);
+  await flow.click('Submit This',0);
+  assert.equal(flow.f.writes.length,1);
+  assert.equal(flow.state().workOrders.length,1);
+  assert.match(flow.text(),/Possible duplicate/);
+  const posts=flow.calls.filter(call=>call.method==='POST').length;
+  await flow.click('Submit This',0);
+  assert.match(flow.alert(),/Possible duplicate/);
+  assert.equal(flow.calls.filter(call=>call.method==='POST').length,posts);
+  assert.equal(flow.f.writes.length,1);
+  await flow.edit(0,'Reading light out');
+  await flow.click('Submit All');
+  assert.equal(flow.f.writes.length,3);
+ }finally{await flow.close();}
+});
+
+test('API rejects exact and near repeats after success even with no frontend candidate check',async()=>{
+ const config={assets:[],existing:[],persist:true};
+ const f=fixture({orders:[{...order,issue:'Toilet tank cracked'}],staff_first_name:'Scott'},config);
+ assert.equal((await f.handler(f.request)).status,200);
+ for(const issue of ['Toilet tank cracked','CRACK IN TANK OF TOILET (Working)']){
+  const response=await f.handler({...f.request,json:async()=>({orders:[{...order,issue}],staff_first_name:'Scott',override_duplicate:true})});
+  assert.equal(response.status,409);
+  assert.equal(f.writes.length,1);
+ }
+});
+
+test('existing different light does not block another fixture with the same failure',async()=>{
+ for(const [first,second] of [['Reading light out','Stove light out.'],['Reading light not working','Light under microwave not working']]){
+  const f=fixture({orders:[{...order,issue:second}],staff_first_name:'Scott'},{assets:[],existing:[{...order,id:'other-light',issue:first,status:'Open'}]});
+  assert.equal((await f.handler(f.request)).status,200);
+  assert.equal(f.writes.length,1);
+ }
 });

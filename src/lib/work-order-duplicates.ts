@@ -1,6 +1,6 @@
 type Candidate = { location_id?: unknown; asset_id?: unknown; issue?: unknown; status?: unknown };
 const terminal = new Set(["completed", "done", "closed", "cancelled", "canceled", "will not do", "duplicate"]);
-const ignored = new Set(["a", "an", "the", "is", "are", "in", "at", "room", "unit", "issue", "problem", "please", "guest", "reported", "needs", "need", "with"]);
+const ignored = new Set(["a", "an", "the", "is", "are", "in", "at", "of", "room", "unit", "issue", "problem", "please", "guest", "reported", "needs", "need", "with"]);
 const negation = new Set(["not", "no", "never", "isnt", "wont", "cannot", "cant", "sin"]);
 const synonym: Record<string, string> = {
   ac: "hvac",
@@ -18,6 +18,9 @@ const synonym: Record<string, string> = {
   leaks: "leak",
   leaking: "leak",
   leaked: "leak",
+  cracked: "crack",
+  cracks: "crack",
+  cracking: "crack",
   clogged: "clog",
   clogging: "clog",
   faucets: "faucet",
@@ -43,15 +46,10 @@ function canonicalWords(issue: unknown) {
     .filter((word) => !ignored.has(word))
     .map((word) => synonym[word] || word);
 }
-// A single report can contain separate fixtures with the same symptom. Only
-// equivalent descriptions should block the entire batch; fuzzy matches remain
-// useful when checking against already-saved tickets.
+// Apply the same issue comparison within a report and against saved tickets.
+// Proposed rows have no terminal history to exclude.
 export function duplicateWithinReport(a: Candidate, b: Candidate) {
-  if (!a.location_id || a.location_id !== b.location_id) return false;
-  if (a.asset_id && b.asset_id && a.asset_id !== b.asset_id) return false;
-  const left = new Set(canonicalWords(a.issue));
-  const right = new Set(canonicalWords(b.issue));
-  return left.size > 0 && left.size === right.size && [...left].every(word => right.has(word));
+  return likelyDuplicate(a, { ...b, status: "Open" });
 }
 
 export function likelyDuplicate(a: Candidate, b: Candidate) {
@@ -68,5 +66,9 @@ export function likelyDuplicate(a: Candidate, b: Candidate) {
 
   const symptomWords = new Set(["cool", "heat", "leak", "clog", "display", "picture", "signal", "light", "faucet", "drain", "lock", "door", "power"]);
   const sharedSymptoms = [...x].filter((word) => y.has(word) && symptomWords.has(word));
-  return sharedSymptoms.length >= 1 && [...x].some((word) => y.has(word) && !symptomWords.has(word));
+  // "Light" + "not working" or "out" describes many separate fixtures.
+  // The symptom fallback needs a shared identifying word, not generic failure
+  // language. Keep the similarity/containment check above for near duplicates.
+  const genericFailure = new Set(["not", "no", "never", "sin", "working", "work", "works", "broken", "out", "faulty", "damaged", "off", "on", "stopped", "failing", "repair", "fix", "replace"]);
+  return sharedSymptoms.length >= 1 && [...x].some((word) => y.has(word) && !symptomWords.has(word) && !genericFailure.has(word));
 }

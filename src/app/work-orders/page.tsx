@@ -1463,6 +1463,9 @@ export default function WorkOrdersPage() {
     }
 
     const remaining = batchCreateSuggestions.filter((item) => item.key !== suggestion.key);
+    // Refresh even when split items remain, so the next row is checked against
+    // the ticket just created. The API still checks current records on every POST.
+    await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
     if (result.photoUploadPending) {
       setBatchCreateSuggestions(remaining);
       setShowBatchCreateDialog(false);
@@ -1472,7 +1475,6 @@ export default function WorkOrdersPage() {
     }
     if (remaining.length === 0) {
       await clearSubmittedDraft();
-      await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
       setShowBatchCreateDialog(false);
       setBatchCreateSuggestions([]);
       setCreateState("created");
