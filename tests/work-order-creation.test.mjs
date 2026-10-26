@@ -316,3 +316,56 @@ test('Front Desk common-area selection preserves ticket and physical asset locat
   else assert.equal(f.writes.length,0);
  }
 });
+
+test('distinct same-room fixtures survive batch validation with and without a toilet leak', async () => {
+  for (const issues of [
+    ['Shower handle', 'Reading light', 'Light under microwave', 'Glass missing cupboard cabinet'],
+    ['Shower handle broken', 'Reading light not working', 'Light under microwave not working', 'Glass missing cupboard cabinet'],
+    ['Toilet tank leaking', 'Shower handle broken', 'Reading light not working', 'Light under microwave not working', 'Glass missing cupboard cabinet'],
+  ]) {
+    const f = fixture({orders: issues.map(issue => ({...order, issue})), staff_first_name:'Scott'}, {assets:[]});
+    const result = await f.handler(f.request);
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(f.writes.length, issues.length);
+    assert.deepEqual(f.writes.map(row => row.issue), issues);
+  }
+});
+
+test('existing toilet leak still blocks the report before any insert', async () => {
+  const f = fixture({orders:['Toilet tank leaking','Shower handle','Reading light','Light under microwave','Glass missing cupboard cabinet'].map(issue => ({...order,issue})),staff_first_name:'Scott'}, {assets:[],existing:[{...order,id:'existing-toilet',issue:'Toilet tank leaking',status:'Open'}]});
+  const result=await f.handler(f.request);
+  assert.equal(result.status,409);
+  assert.equal(result.body.existing_work_order_id,'existing-toilet');
+  assert.equal(f.writes.length,0);
+});
+
+test('batch review exposes submission messages inside its dialog', () => {
+  const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
+  const dialog=source.slice(source.indexOf('<h2 id="batch-work-orders-title"'),source.indexOf('{showRelatedWorkOrderDialog &&'));
+  assert.match(dialog, /<p role="alert"[^>]*>\{message\}<\/p>/);
+  const failure=source.slice(source.indexOf('const result = await submitWorkOrders(rows);'));
+  assert.match(failure,/if \(result.error\) \{\s*setMessage\(result.error.message\);\s*setCreatingBatchWorkOrders\(false\);\s*return;/);
+});
+
+test('batch rejection keeps reviewed items and exposes the API error', async () => {
+  const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
+  const start=source.indexOf('  async function createBatchWorkOrders()');
+  const end=source.indexOf('  async function submitWorkOrders(',start);
+  const exports={}, messages=[], busy=[];
+  const suggestions=[{issue:'Reading light not working'},{issue:'Light under microwave not working'}];
+  const original=JSON.stringify(suggestions);
+  vm.runInNewContext(ts.transpileModule(source.slice(start,end)+'\nexports.run=createBatchWorkOrders;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, {
+    exports,isFrontDeskUser:false,locations:[{id:'test'}],locationId:'test',batchCreateSuggestions:suggestions,
+    setCreatingBatchWorkOrders:value=>busy.push(value),setMessage:value=>messages.push(value),
+    resolveSuggestionLocation:()=>({id:'test'}),resolveRelatedAsset:()=>null,notes:'Original report',
+    possibleDuplicateFor:()=>null,
+    submitWorkOrders:async()=>({error:{message:'Submission rejected for review'}}),
+    clearSubmittedDraft:()=>assert.fail('must preserve draft'),
+    setShowBatchCreateDialog:()=>assert.fail('must keep review open'),
+    setBatchCreateSuggestions:()=>assert.fail('must preserve reviewed items'),
+  });
+  await exports.run();
+  assert.deepEqual(messages,['','Submission rejected for review']);
+  assert.deepEqual(busy,[true,false]);
+  assert.equal(JSON.stringify(suggestions),original);
+});

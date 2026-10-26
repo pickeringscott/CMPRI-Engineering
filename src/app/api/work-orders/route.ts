@@ -12,7 +12,7 @@ import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { fetchAllPages } from "@/lib/server/paginated-query";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { validFirstName, workOrderAttribution } from "@/lib/work-order-attribution";
-import { likelyDuplicate } from "@/lib/work-order-duplicates";
+import { duplicateWithinReport, likelyDuplicate } from "@/lib/work-order-duplicates";
 import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
 import { EQUIPMENT_SELECTION_COLUMNS } from "@/lib/equipment-selection";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
@@ -380,7 +380,7 @@ export async function POST(request: NextRequest) {
   }
 
   for (let index = 0; index < rows.length; index += 1) {
-    if (rows.slice(0, index).some((previous) => likelyDuplicate(rows[index], previous))) {
+    if (rows.slice(0, index).some((previous) => duplicateWithinReport(rows[index], previous))) {
       return NextResponse.json({ error: "This report contains overlapping work orders for the same location. Combine them before submitting." }, { status: 409 });
     }
   }

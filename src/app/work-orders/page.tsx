@@ -2192,6 +2192,9 @@ export default function WorkOrdersPage() {
           }}>
             <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
               <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} work orders detected</h2>
+              {message && (
+                <p role="alert" className="mt-2 rounded-lg border border-orange-500/40 bg-orange-950/30 p-3 text-sm text-orange-200">{message}</p>
+              )}
               <p className="mt-1 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
 
               <div className="mt-2 max-h-[58vh] space-y-1.5 overflow-y-auto pr-1">

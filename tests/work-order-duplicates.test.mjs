@@ -19,3 +19,21 @@ test('domain synonyms and inflections match',()=>{
   assert.equal(likelyDuplicate({...a,asset_id:'vtac',issue:'AC not cooling'},{...a,asset_id:'vtac',issue:"Air conditioner isn't cool"}),true);
   assert.equal(likelyDuplicate({...a,asset_id:'tv',issue:'TV no signal'},{...a,asset_id:'tv',issue:'Television no picture'}),true);
 });
+
+import { duplicateWithinReport } from '../src/lib/work-order-duplicates.ts';
+for (const [left, right, expected] of [
+  ['Reading light not working', 'Light under microwave not working', false],
+  ['Shower handle broken', 'Cabinet handle broken', false],
+  ['Sink leaking', 'The sink is leaking!', true],
+  ['AC not cooling', "Air conditioner isn't cool", true],
+  ['TV no signal', 'Television no picture', true],
+  ['Reading light', 'Reading light', true],
+  ['Light working', 'Light not working', false],
+  ['', '', false],
+]) test(`intra-report comparison: ${left} / ${right}`, () => {
+  assert.equal(duplicateWithinReport({...a,issue:left},{...a,issue:right}), expected);
+});
+test('intra-report comparison respects room and equipment boundaries', () => {
+  assert.equal(duplicateWithinReport(a,{...a,location_id:'410'}),false);
+  assert.equal(duplicateWithinReport(a,{...a,asset_id:'shower'}),false);
+});

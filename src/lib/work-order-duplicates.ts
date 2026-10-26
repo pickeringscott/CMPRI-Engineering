@@ -43,6 +43,17 @@ function canonicalWords(issue: unknown) {
     .filter((word) => !ignored.has(word))
     .map((word) => synonym[word] || word);
 }
+// A single report can contain separate fixtures with the same symptom. Only
+// equivalent descriptions should block the entire batch; fuzzy matches remain
+// useful when checking against already-saved tickets.
+export function duplicateWithinReport(a: Candidate, b: Candidate) {
+  if (!a.location_id || a.location_id !== b.location_id) return false;
+  if (a.asset_id && b.asset_id && a.asset_id !== b.asset_id) return false;
+  const left = new Set(canonicalWords(a.issue));
+  const right = new Set(canonicalWords(b.issue));
+  return left.size > 0 && left.size === right.size && [...left].every(word => right.has(word));
+}
+
 export function likelyDuplicate(a: Candidate, b: Candidate) {
   if (!a.location_id || a.location_id !== b.location_id || terminal.has(String(b.status || "Open").toLowerCase().trim())) return false;
   if (a.asset_id && b.asset_id && a.asset_id !== b.asset_id) return false;
