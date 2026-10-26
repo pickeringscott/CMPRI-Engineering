@@ -37,3 +37,11 @@ test('intra-report comparison respects room and equipment boundaries', () => {
   assert.equal(duplicateWithinReport(a,{...a,location_id:'410'}),false);
   assert.equal(duplicateWithinReport(a,{...a,asset_id:'shower'}),false);
 });
+
+test('shared failure boilerplate cannot merge distinct fixtures',()=>{
+ for(const compare of [likelyDuplicate,duplicateWithinReport]){
+  assert.equal(compare({...a,asset_id:null,issue:'Reading light not working at all'},{...a,asset_id:null,issue:'Microwave light not working at all'}),false);
+  assert.equal(compare({...a,asset_id:null,issue:'Reading light does not work'},{...a,asset_id:null,issue:'Microwave light does not work'}),false);
+  assert.equal(compare({...a,asset_id:null,issue:'Reading light does not work'},{...a,asset_id:null,issue:'The reading light still does not work'}),true);
+ }
+});

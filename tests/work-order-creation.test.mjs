@@ -453,3 +453,36 @@ test('existing different light does not block another fixture with the same fail
   assert.equal(f.writes.length,1);
  }
 });
+
+test('duplicate policy is reusable across issue families, rooms, future requests and partial batches',async()=>{
+ const families=[
+  ['Sink leaking','The sink leaks under cabinet'],
+  ['AC not cooling',"Air conditioner isn't cool"],
+  ['TV no signal','Television no picture'],
+  ['Refrigerator cooling poorly','Fridge cooled poorly'],
+  ['Shower drain clogged','The shower drain clogging'],
+  ['Kitchen faucet leaking','Kitchen taps leak'],
+ ];
+ for(const [original,repeat] of families){
+  const config={assets:[],existing:[],persist:true,locations:[{id:'location-409',name:'Room 409'},{id:'location-410',name:'Room 410'}]};
+  const f=fixture({orders:[{...order,issue:original}],staff_first_name:'Scott'},config);
+  assert.equal((await f.handler(f.request)).status,200,original);
+  const send=orders=>f.handler({...f.request,json:async()=>({orders,staff_first_name:'Scott'})});
+  assert.equal((await send([{...order,issue:repeat}])).status,409,repeat);
+  assert.equal((await send([{...order,issue:'Cupboard glass missing'},{...order,issue:repeat}])).status,409,'atomic rejection: '+repeat);
+  assert.equal(f.writes.length,1);
+  assert.equal((await send([{...order,location_id:'location-410',issue:repeat}])).status,200,'other room: '+repeat);
+  const batch=fixture({orders:[{...order,issue:original},{...order,issue:repeat}],staff_first_name:'Scott'},{assets:[]});
+  assert.equal((await batch.handler(batch.request)).status,409,'same batch: '+repeat);
+  assert.equal(batch.writes.length,0);
+ }
+});
+
+test('API accepts distinct fixtures despite repeated failure boilerplate in batches and saved history',async()=>{
+ const issues=['Reading light not working at all','Microwave light not working at all'];
+ const f=fixture({orders:issues.map(issue=>({...order,issue})),staff_first_name:'Scott'},{assets:[]});
+ assert.equal((await f.handler(f.request)).status,200);
+ assert.equal(f.writes.length,2);
+ const next=fixture({orders:[{...order,issue:issues[1]}],staff_first_name:'Scott'},{assets:[],existing:[{...order,id:'reading-light',issue:issues[0],status:'Open'}]});
+ assert.equal((await next.handler(next.request)).status,200);
+});
