@@ -1,5 +1,6 @@
 "use client";
 import { canReviewEmployment } from "@/lib/employment-access";
+import { canUseWinterPreparedness } from "@/lib/winter-preparedness-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -654,6 +655,7 @@ export default function EngineeringDashboardPage() {
     {
       label: "Operations",
       items: [
+        canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400", preferred: { width: 960, height: 780 } },
         canReviewEmployment(session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
         { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
         (hasCapability(session, "view_dashboard") || hasCapability(session, "view_pool_log")) && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },

@@ -1,0 +1,40 @@
+.page { min-height: 100vh; padding: 20px; background: #071321; color: #e7eff7; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; max-width: 900px; margin: 0 auto; font-size: 14px; }
+.toolbar > div { display: flex; gap: 8px; }
+.toolbar button { border: 1px solid #7c98b0; border-radius: 6px; background: #122b40; padding: 8px 16px; cursor: pointer; }
+.toolbar button:disabled { opacity: .5; cursor: wait; }
+.toolbar button:focus-visible, .task input:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+.feedback { min-height: 38px; max-width: 900px; margin: 8px auto; font-size: 13px; color: #b8ccdc; }
+.feedback [role=alert] { color: #ffbbb5; }
+.sheet { max-width: 900px; margin: 0 auto; border: 1px solid #294358; border-radius: 10px; padding: 28px; background: #0c1c2c; }
+.sheet header { border-bottom: 1px solid #294358; padding-bottom: 18px; margin-bottom: 16px; }
+.sheet h1 { font-size: 26px; font-weight: 700; margin: 4px 0 12px; line-height: 1.2; }
+.sheet header p { font-size: 13px; line-height: 1.5; }
+.sheet .eyebrow { color: #8cd7f7; text-transform: uppercase; letter-spacing: .09em; font-size: 12px; font-weight: 700; }
+.list, .list ul { list-style: none; padding: 0; margin: 0; }
+.list > li { padding: 12px 0; border-bottom: 1px solid #23394b; }
+.list > li:last-child { border: 0; }
+.list ul { padding-left: 32px; margin-top: 12px; }
+.list ul li { padding: 7px 0; }
+.page .task { display: flex; align-items: flex-start; gap: 12px; font-size: 15px !important; line-height: 1.6 !important; cursor: pointer; }
+.task input { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 3px; accent-color: #38bdf8; }
+.attribution { color: #a9c1d3; font-size: 12px; margin: 4px 0 0 32px; }
+.printBox { display: none; }
+@media (max-width: 500px) { .page { padding: 12px; } .sheet { padding: 18px; } .sheet h1 { font-size: 23px; } .toolbar button { padding: 8px 12px; } }
+@media print {
+  @page { size: auto; margin: 14mm; }
+  :global(html):has(.page), :global(body):has(.page) { height: auto !important; min-height: 0 !important; background: white !important; color: black !important; display: block !important; overflow: visible !important; }
+  :global(body):has(.page) > :not(.page) { display: none !important; }
+  .page { padding: 0; background: white; color: black; min-height: 0; }
+  .toolbar, .feedback, .attribution, .task input { display: none !important; }
+  .sheet { max-width: none; padding: 0; margin: 0; border: 0; border-radius: 0; background: white; }
+  .sheet header { border-color: #999; padding-bottom: 10px; margin-bottom: 8px; }
+  .sheet .eyebrow { color: black; }
+  .sheet h1 { font-size: 20pt; }
+  .sheet header p { font-size: 9pt; }
+  .list > li { padding: 5pt 0; border: 0; }
+  .page .task { font-size: 10pt !important; line-height: 1.35 !important; gap: 8pt; break-inside: avoid; }
+  .printBox { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 10pt; width: 10pt; height: 10pt; border: 1px solid black; margin-top: 2pt; font-size: 10pt; line-height: 1; }
+  .list ul { margin-top: 4pt; padding-left: 24pt; }
+  .list ul li { padding: 3pt 0; }
+}

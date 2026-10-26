@@ -34,6 +34,7 @@ function modalHref(href: string) {
     "/engineering/gss",
     "/engineering/pool-log",
     "/engineering/hours-tracker",
+    "/engineering/winter-preparedness",
     "/engineering/room-operations",
     "/engineering/enseo-assignments",
     "/engineering/parts",
