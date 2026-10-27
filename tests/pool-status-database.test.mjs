@@ -2,7 +2,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 const db=new PGlite();const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-const h=id(1),f=id(2),eng=id(3),fd=id(4),log=id(5);
+const h=id(1),f=id(2),eng=id(3),fd=id(4),log=id(5),tester=id(6),admin=id(7);
 const source=JSON.parse(readFileSync('tests/fixtures/pool-reconciliation-20261012.json','utf8'));
 const columns=Object.entries(source).map(([key,value])=>{
  const type=key==='revision'?'bigint':key.endsWith('_id')||['id','created_by','updated_by'].includes(key)?'uuid':key.endsWith('_at')?'timestamptz':key==='log_date'?'date':typeof value==='boolean'?'boolean':typeof value==='number'||(/^(ph_|sanitizer_)/.test(key)&&!key.startsWith('sanitizer_band'))||['cyanuric_acid_ppm','combined_chlorine_ppm'].includes(key)?'numeric':'text';return `"${key}" ${type}`;
@@ -39,6 +39,49 @@ await db.query(`update pool_daily_logs set retest_submission=$1,closure_reason='
 assert.equal((await snapshot()).closed,true);await assert.rejects(act(eng,21,'open'),/testing/);
 assert.ok((await db.query(`select message from cmpri_dashboard_notifications where recipient_user_id='${fd}'`)).rows.some(r=>/bromine/i.test(r.message)));
 const before=await count();await db.query(`select cmpri_pool_reconcile('${h}','${f}',true)`);assert.equal(await count(),before);
+const beforeMigration=await snapshot();
+await db.exec(readFileSync('supabase/migrations/20261026203833_cmpri_pool_passing_retest_reopen.sql','utf8'));
+assert.deepEqual(await snapshot(),beforeMigration,'Installing the fix must not change existing state or readings');
+await db.exec(`insert into profiles values('${tester}','front_desk_manager','{}',true),('${admin}','system_admin','{}',true);
+insert into hotel_members values('${tester}','${h}',true),('${admin}','${h}',true);`);
+// Passing retests resolve testing closures for any authorized test writer, without
+// invoking the Engineering-only manual action or replacing historical readings.
+const retest=async(key,band='2-4')=>db.query(`update pool_daily_logs set retest_submission=$1,updated_by=$2 where id=$3`,[{id:id(key),ph:7.4,sanitizer_band:band},tester,log]);
+await retest(40);
+assert.equal((await snapshot()).closed,false);
+assert.equal((await snapshot()).reopen_pending,false);
+assert.equal((await snapshot()).log.updated_by,tester);
+assert.equal((await snapshot()).log.closure_reason,'Bromine below safe range');
+// Replaying the same sample or editing notes cannot release a manual reopen latch.
+await act(fd,41,'close','Maintenance');
+await retest(42);assert.equal((await snapshot()).closed,true);
+await act(eng,43,'clear-manual');
+await retest(44);assert.equal((await snapshot()).closed,true);
+await retest(44);assert.equal((await snapshot()).closed,true);
+await db.query(`update pool_daily_logs set remarks='Notes only',updated_by=$1 where id=$2`,[eng,log]);
+assert.equal((await snapshot()).closed,true);
+await act(eng,45,'open');
+await retest(46,'0');assert.equal((await snapshot()).closed,true);
+await clock('2026-10-24T03:00:00Z');
+await retest(47);assert.equal((await snapshot()).closed,true);
+assert.equal((await snapshot()).hours_closed,true);
+await clock('2026-10-24T12:00:00Z');assert.equal((await snapshot()).closed,false);
+await retest(48,'0');
+await db.query(`update pool_daily_logs set main_drain_visible=false,updated_by=$1 where id=$2`,[admin,log]);
+await retest(49);assert.equal((await snapshot()).closed,true);
+await db.query(`update pool_daily_logs set main_drain_visible=true,manual_closure=true,updated_by=$1 where id=$2`,[admin,log]);
+await retest(50);assert.equal((await snapshot()).closed,true);
+await db.query(`update pool_daily_logs set manual_closure=null,updated_by=$1 where id=$2`,[admin,log]);
+// A legacy/unclassified closed log is also never treated as a passing release.
+await db.exec('alter table pool_daily_logs disable trigger cmpri_pool_log_stamp');
+await db.query(`update pool_daily_logs set manual_closure=null where id=$1`,[log]);
+await db.exec('alter table pool_daily_logs enable trigger cmpri_pool_log_stamp');
+await retest(51);assert.equal((await snapshot()).closed,true);
+await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure,closure_reason) values($1,$2,$3,'2026-10-24',8,1,true,false,80,50,$4,$4,true,false,'Newer failed sample')`,[id(60),h,f,eng]);
+await db.query(`update pool_daily_logs set manual_closure=false,updated_by=$1 where id=$2`,[admin,log]);
+await retest(52);assert.equal((await snapshot()).closed,true);
+assert.equal((await snapshot()).log.id,id(60));
+assert.equal((await snapshot()).reopen_pending,true);
 await db.exec('set role authenticated');await assert.rejects(db.query(`select cmpri_pool_action('${h}','${f}','${eng}','${id(30)}','open','',0)`),/permission denied/);await db.exec('reset role');
-console.log('PASS real PostgreSQL: persisted manual close, reason validation, Engineering-only open/clear, overnight denials, clear without reopen, testing-triggered closure/recipient record, repeated-reconcile dedup, direct-role denial');
+console.log('PASS real PostgreSQL: no migration backfill, passing retest reopens, actor/history preservation, failed retest/drain and manual/legacy holds stay closed, manual-clear latch retained, overnight schedule, historical retest isolation, role denial and notification dedup');
 await db.close();
