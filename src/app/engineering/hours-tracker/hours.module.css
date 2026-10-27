@@ -49,4 +49,10 @@
 @media (any-pointer:coarse){.desktopTime{display:none}.mobileTime{display:inline-flex;align-items:stretch;width:138px;max-width:100%;vertical-align:middle}.week [role="tabpanel"]{overflow-x:auto}.week table{min-width:720px}.mobileTime .timeDigit{width:calc(10px + 1pt);height:calc(20px + 2pt)}.mobileTime .timeColon{width:6px}:global(html) .tracker.tracker.tracker .touchSegment input{font-size:16px!important}}
 
 .timeSegment:focus-visible::after,.touchSegment:focus-within::after,.touchPeriod:focus-visible::after{content:'';position:absolute;left:20%;right:20%;bottom:0;height:2px;background:#FBBF24;pointer-events:none}
+.bank{padding-bottom:0.75em}
+.bank small{display:block;line-height:1.4;overflow-wrap:anywhere}
+.dialog details{margin-block:0.75em}
+.dialog summary{cursor:pointer}
+.dialog label input[type="checkbox"]{width:1.1em;min-width:1.1em;height:1.1em;flex:none}
+.combined{flex-wrap:wrap;gap:0.4em}
 :global(html) .tracker.tracker.tracker .touchSegment input:focus-visible,:global(html) .tracker.tracker.tracker .touchPeriod:focus-visible{outline:none!important}

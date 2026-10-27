@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { profileCanUseHoursTracker, profileIsEstablishedHoursChief } from './roles';
 import type { HoursClock } from './hours-clock';
 import type { Principal } from './access';
-import { PAYROLL_ANCHOR, summarizePeriod, validateLeaveConfiguration, type DatedLeaveConfiguration, type HoursDay } from '../hours-tracker';
+import { PAYROLL_ANCHOR, summarizePeriod, validateLeaveConfiguration, leaveConfigurationAt, clockLocalParts, type DatedLeaveConfiguration, type HoursDay } from '../hours-tracker';
 
 export type SavedHoursPeriod = { start: string; days: HoursDay[]; rateCents: number; deductionPercent: number };
 export type HoursDocument = { version: 1; anchor: string; clock?: HoursClock; periods: SavedHoursPeriod[]; leaveConfigurations: DatedLeaveConfiguration[] };
@@ -61,13 +61,23 @@ export async function saveHours(client: SupabaseClient, principal: Principal, in
   const period = 'period' in body ? parseHoursPeriod(body.period) : null;
   let configuration: DatedLeaveConfiguration | null = null;
   if ('configuration' in body) {
-    const value = object(body.configuration); keys(value, ['kind', 'date', 'minutes', 'earnedMinutesPerWorkedHour', 'policy', 'note', 'statementDate', 'coveredThrough', 'evidence']);
+    const value = object(body.configuration); keys(value, ['kind', 'date', 'minutes', 'earnedMinutesPerWorkedHour', 'policy', 'note', 'statementDate', 'coveredThrough', 'evidence', 'hawkeye', 'provisionalYearStart']);
+    if (value.hawkeye !== undefined) keys(object(value.hawkeye), ['hireDate', 'hourlyFullTime']);
     keys(object(value.evidence), ['earnedMinutes', 'carriedInMinutes', 'usedMinutes', 'benefitYearStart']);
     try { configuration = validateLeaveConfiguration(value as DatedLeaveConfiguration); }
     catch { throw new HoursStoreError('Invalid dated leave configuration.', 400); }
   }
   const current = await readHours(client, principal, mcp);
   if ((current?.revision ?? 0) !== body.revision) throw new HoursStoreError('Hours changed elsewhere. Reload before saving.', 409);
+  if (configuration && current?.document.leaveConfigurations.some(item => item.kind === configuration.kind && item.date === configuration.date)) {
+    throw new HoursStoreError('A starting balance already exists for this bank and date. It has been preserved. Use a later documented cutoff for a new balance.', 409);
+  }
+  if (configuration?.kind === 'illinois-sick') {
+    const prior = current?.document.leaveConfigurations.filter(item => item.kind === 'illinois-sick').sort((a,b) => b.date.localeCompare(a.date))[0];
+    if (prior && configuration.date <= prior.date) throw new HoursStoreError('A new Illinois configuration must follow the existing dated history.', 409);
+    if (prior?.policy === 'illinois-accrual' && (configuration.policy !== prior.policy || configuration.evidence.benefitYearStart !== prior.evidence.benefitYearStart || configuration.provisionalYearStart !== prior.provisionalYearStart)
+      && configuration.coveredThrough !== clockLocalParts(new Date()).date) throw new HoursStoreError('Change the Illinois leave-year setting with a current closing balance and documented earned-to-date amount. The change starts tomorrow; earlier history is preserved.', 409);
+  }
   const open = current?.document.clock?.open;
   if (period && open) {
     const incoming = period.days.find(day => day.date === open.date);
@@ -75,10 +85,18 @@ export async function saveHours(client: SupabaseClient, principal: Principal, in
     if (incoming && JSON.stringify(incoming.attendance) !== JSON.stringify(stored?.attendance ?? { state: 'blank' })) throw new HoursStoreError('Clock out before changing attendance on the open shift date.', 409);
   }
   const previous = period && current?.document.periods.find(item => item.start === period.start);
+  if (period) for (const day of period.days) {
+    if (leaveConfigurationAt(current?.document.leaveConfigurations ?? [], 'company-pto', day.date)?.policy !== 'hawkeye-hourly') continue;
+    const pto = day.leave.filter(entry => entry.kind === 'company-pto');
+    const oldPto = previous?.days.find(item => item.date === day.date)?.leave.filter(entry => entry.kind === 'company-pto') ?? [];
+    const minutes = pto.reduce((sum, entry) => sum + entry.minutes, 0);
+    // Retain historical records unchanged; apply the handbook minimum only to new/changed PTO.
+    if (minutes > 0 && minutes < 120 && JSON.stringify(pto) !== JSON.stringify(oldPto)) throw new HoursStoreError('Hawkeye PTO must be entered in a minimum of 2 hours per use.', 400);
+  }
   if (period && previous && previous.rateCents !== period.rateCents && body.confirmRateChange !== true) throw new HoursStoreError('Confirm the rate change for this period only.', 409);
   const document: HoursDocument = { ...(current?.document.clock ? { clock: current.document.clock } : {}), version: 1, anchor: PAYROLL_ANCHOR, periods: current?.document.periods ?? [], leaveConfigurations: current?.document.leaveConfigurations ?? [] };
   if (period) document.periods = [...document.periods.filter(item => item.start !== period.start), period].sort((a,b) => a.start.localeCompare(b.start));
-  if (configuration) document.leaveConfigurations = [...document.leaveConfigurations.filter(item => item.kind !== configuration.kind || item.date !== configuration.date), configuration].sort((a,b) => a.date.localeCompare(b.date));
+  if (configuration) document.leaveConfigurations = [...document.leaveConfigurations, configuration].sort((a,b) => a.date.localeCompare(b.date));
   const revision = (body.revision as number) + 1;
   const query = current
     ? client.from(TABLE).update({ document, revision }).eq('owner_id', owner).eq('revision', body.revision)

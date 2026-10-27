@@ -8,7 +8,7 @@ const anonymousDenied = [401, 403];
 const apiReachable = [401, 403, 405];
 const uiPaths = [
   '/', '/engineering', '/engineering/enseo-assignments', '/engineering/gss',
-  '/engineering/import-work-orders', '/engineering/parts', '/engineering/pool-log',
+  '/engineering/import-work-orders', '/engineering/parts', '/engineering/pool-log', '/engineering/hours-tracker',
   '/engineering/preventive-maintenance', '/engineering/purchasing', '/engineering/room-operations',
   '/engineering/room-ranker', '/management/equipment', '/management/rooms', '/management/users',
   '/setup-guide', '/technician', '/work-orders', '/work-orders/test-id',
@@ -17,12 +17,12 @@ const apiPaths = [
   '/api/session', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
   '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
-  '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-operations/cleanup', '/api/room-ranker',
+  '/api/maintenance-reference', '/api/pool-log', '/api/hours-tracker', '/api/room-operations', '/api/room-operations/cleanup', '/api/room-ranker',
   '/api/rooms', '/api/users', '/api/work-orders', '/api/work-orders/references?target=number:123', '/api/work-orders/test-id',
   '/api/work-orders/test-id/activity', '/api/work-orders/drafts', '/api/work-orders/import',
 ];
 const mutationCases = [
-  ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/assets', 'POST'],
+  ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/hours-tracker', 'PUT'], ['/api/assets', 'POST'],
   ['/api/assets', 'PATCH'], ['/api/users', 'POST'], ['/api/users', 'PATCH'],
   ['/api/work-orders', 'POST'], ['/api/room-ranker', 'PATCH'],
   ['/api/corporate-pm', 'PATCH'], ['/api/work-orders/test-id', 'PATCH'], ['/api/room-operations', 'POST'],

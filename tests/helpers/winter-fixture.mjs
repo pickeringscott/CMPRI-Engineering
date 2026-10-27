@@ -3,12 +3,12 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { PGlite } from '@electric-sql/pglite';
 export function loadWinterTs(path, dependencies = {}) {
-  const url = new URL('../../' + path, import.meta.url);
+  const url = path instanceof URL ? path : new URL('../../' + path, import.meta.url);
   const exports = {};
   vm.runInNewContext(ts.transpileModule(readFileSync(url, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
     { exports, Response, require: name => {
       if (name in dependencies) return dependencies[name];
-      if (name.startsWith('.')) return loadWinterTs(new URL(name + '.ts', url).pathname.replace(/^.*\/winter-worktree\//, ''), dependencies);
+      if (name.startsWith('.')) return loadWinterTs(new URL(name + '.ts', url), dependencies);
       throw new Error(name);
     } });
   return exports;

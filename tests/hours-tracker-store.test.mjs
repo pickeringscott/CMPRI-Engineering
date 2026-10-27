@@ -17,6 +17,46 @@ const owner = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
 const principal = (id=owner, role='Chief Engineer') => ({ identity:{id}, profile:{id,role,active:true}, membership:{user_id:id,hotel_id:'hotel',active:true},hotelId:'hotel' });
 const period = start => ({start,days:core.emptyPeriod(start),rateCents:2229,deductionPercent:22});
+
+test('provisional leave-year changes append prospective evidence and preserve both owners and historical results', async()=>{
+  const policyStore=load('../src/lib/server/hours-tracker-store.ts',{'./roles':roles,'../hours-tracker':{...core,clockLocalParts:()=>({date:'2026-10-20',minute:720})}});
+  const config={kind:'illinois-sick',policy:'illinois-accrual',provisionalYearStart:true,date:'2026-10-02',coveredThrough:'2026-10-01',statementDate:'2026-10-08',minutes:900,earnedMinutesPerWorkedHour:null,note:'Synthetic evidence',evidence:{earnedMinutes:2400,usedMinutes:1500,carriedInMinutes:0,benefitYearStart:'2026-01-01'}};
+  const p=period('2026-10-02');p.days[0].attendance={...core.NEW_WORK};
+  const rows=new Map([[owner,{revision:2,document:{version:1,anchor:core.PAYROLL_ANCHOR,periods:[p],leaveConfigurations:[config]}}],[other,{revision:1,document:{version:1,anchor:core.PAYROLL_ANCHOR,periods:[],leaveConfigurations:[]}}]]);
+  const original=structuredClone(rows.get(owner)), otherOriginal=structuredClone(rows.get(other));
+  const client={from(){let id,revision,value;const q={select(){return q;},eq(key,val){if(key==='owner_id')id=val;else if(key==='revision')revision=val;return q;},update(v){value=v;return q;},insert(v){id=v.owner_id;value=v;return q;},async maybeSingle(){if(value){if(revision!==undefined&&rows.get(id)?.revision!==revision)return {data:null,error:null};rows.set(id,structuredClone(value));}return {data:structuredClone(rows.get(id)??null),error:null};}};return q;}};
+  const replacement={...config,date:'2026-10-21',coveredThrough:'2026-10-20',statementDate:'2026-10-20',evidence:{...config.evidence,benefitYearStart:'2026-02-01'}};
+  await assert.rejects(()=>policyStore.saveHours(client,principal(),{configuration:{...replacement,date:'2026-10-10',coveredThrough:'2026-10-09'},revision:2}),e=>e.status===409);
+  await assert.rejects(()=>policyStore.saveHours(client,principal(),{configuration:{...config,minutes:0},revision:2}),e=>e.status===409);
+  await assert.rejects(()=>policyStore.saveHours(client,principal(),{configuration:{...replacement,evidence:{...replacement.evidence,earnedMinutes:null}},revision:2}),e=>e.status===400);
+  assert.deepEqual(rows.get(owner),original);
+  const result=await policyStore.saveHours(client,principal(),{configuration:replacement,revision:2});
+  assert.equal(result.document.leaveConfigurations.length,2);
+  assert.equal(JSON.stringify(result.document.leaveConfigurations[0]),JSON.stringify(original.document.leaveConfigurations[0]));
+  assert.equal(JSON.stringify(result.document.periods),JSON.stringify(original.document.periods));
+  assert.deepEqual(rows.get(other),otherOriginal);
+  const earlier=core.leaveConfigurationAt(result.document.leaveConfigurations,'illinois-sick','2026-10-02');
+  assert.equal(core.leaveBalance('illinois-sick',earlier,p.days,'2026-10-02'),900);
+  const nextDay={date:'2026-10-21',attendance:{...core.NEW_WORK},leave:[]};
+  assert.equal(core.leaveBalance('illinois-sick',replacement,[...p.days,nextDay],'2026-10-21'),900);
+  await assert.rejects(()=>policyStore.saveHours(client,principal(),{configuration:replacement,revision:3}),e=>e.status===409);
+  await assert.rejects(()=>policyStore.saveHours(client,{...principal(),membership:{...principal().membership,hotel_id:'foreign'}},{configuration:replacement,revision:3}),e=>e.status===403);
+  const company={...config,kind:'company-pto',policy:'hawkeye-hourly',provisionalYearStart:undefined,hawkeye:{hireDate:'2025-01-01',hourlyFullTime:true},minutes:600,evidence:{earnedMinutes:null,usedMinutes:null,carriedInMinutes:null,benefitYearStart:null}};
+  await policyStore.saveHours(client,principal(),{configuration:company,revision:3});
+  p.days[0].leave=[{kind:'company-pto',minutes:60}];
+  await assert.rejects(()=>policyStore.saveHours(client,principal(),{period:p,revision:4}),e=>e.status===400);
+  p.days[0].leave=[{kind:'company-pto',minutes:120}];
+  const savedPeriod=await policyStore.saveHours(client,principal(),{period:p,revision:4});
+  const balance=core.leaveBalance('company-pto',company,savedPeriod.document.periods[0].days,'2026-10-15');
+  const resaved=await policyStore.saveHours(client,principal(),{period:p,revision:5});
+  assert.equal(core.leaveBalance('company-pto',company,resaved.document.periods[0].days,'2026-10-15'),balance);
+  // Legacy usage must remain saveable unchanged, even when it predates the minimum validation.
+  rows.get(owner).document.periods[0].days[1].leave=[{kind:'company-pto',minutes:60}];
+  const historical=structuredClone(rows.get(owner).document.periods[0]);historical.days[2].attendance={state:'off'};
+  const retained=await policyStore.saveHours(client,principal(),{period:historical,revision:6});
+  assert.equal(retained.document.periods[0].days[1].leave[0].minutes,60);
+  assert.deepEqual(rows.get(other),otherOriginal);
+});
 test('four approved roles, active matching identity and no MCP', () => {
   for(const role of ['Chief Engineer','Assistant General Manager','Front Desk Manager','Maintenance Technician','assistant_manager','front_desk_manager','technician']) assert.equal(store.hoursOwner(principal(owner,role)),owner);
   assert.equal(store.hoursOwner({...principal(owner,'Front Desk'),profile:{...principal().profile,role:'Front Desk',secondary_roles:['Maintenance Technician']}}),owner);
