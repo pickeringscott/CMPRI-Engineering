@@ -1,0 +1,42 @@
+.document {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  background: #fff;
+  color: #0f172a;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1rem;
+  line-height: 1.65;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.document h1, .document h2, .document p, .document figure { margin: 0; }
+.document h1 { font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.2; }
+.document h2 { font-size: clamp(1.35rem, 3vw, 1.75rem); line-height: 1.3; }
+.header, .section, .instructions, .footer { display: grid; gap: 1rem; }
+.eyebrow, .location, .document figcaption { color: #475569; }
+.eyebrow { font-size: .875rem; font-weight: 700; }
+.notice { padding: .75rem 1rem; border-left: 4px solid #b45309; background: #fffbeb; font-weight: 700; }
+.section { margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #cbd5e1; }
+.document figure { min-width: 0; }
+.document img { display: block; width: 100%; height: auto; }
+.document figcaption { margin-top: .75rem; font-size: .875rem; }
+.imageLink { display: inline-block; margin-top: .5rem; padding: .5rem 0; color: #1d4ed8; text-decoration: underline; }
+.instructions { gap: .75rem; }
+.footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #cbd5e1; }
+.footer h2 { font-size: 1rem; }
+@media print {
+  :global(body):has(> .printRoot) > :not(.printRoot) { display: none !important; }
+  .printRoot { position: static !important; width: 100% !important; height: auto !important; max-height: none !important; max-width: none !important; overflow: visible !important; border: 0 !important; }
+  .printRoot > div { display: block !important; height: auto !important; }
+  .printRoot > div > header, .imageLink { display: none !important; }
+  .printRoot > div > div { overflow: visible !important; }
+  .document { max-width: none; padding: 0; font-size: 11pt; }
+  .section { break-inside: avoid; }
+  .document h2 { break-after: avoid; }
+  .notice { print-color-adjust: exact; }
+}

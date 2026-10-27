@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
 	// and resolves its worker relative to the package. Preserve that boundary.
 	serverExternalPackages: ["pdfjs-dist/legacy", "@napi-rs/canvas"],
 	outputFileTracingIncludes: {
+        "/api/guides/shutoff/*": ["src/server-assets/shutoff/*.png"],
         "/api/integrations/drive-po/*": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
         "/api/engineering/po-scan-review": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
         "/api/engineering/po-import-reviewed": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],

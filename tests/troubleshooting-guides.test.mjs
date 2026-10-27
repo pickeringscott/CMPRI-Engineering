@@ -11,13 +11,14 @@ test("guide printing hides dashboard content only while a guide portal is open",
   assert.doesNotMatch(styles, /:global\(body\)\s*>\s*:not\(\.printRoot\)/);
 });
 
-test("Troubleshooting Guide menu has exactly the three requested guide choices", () => {
+test("Troubleshooting Guide menu retains existing guides and adds the shutoff reference", () => {
   const options = component.match(/const GUIDE_OPTIONS:[\s\S]*?];/)?.[0] || "";
   const titles = [...options.matchAll(/title: "([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(titles, [
     "Enseo TV Troubleshooting Guide",
     "Dormakaba LED Visual Guide",
     "Guest Room Troubleshooting Guide",
+    "Water, Gas & Sprinkler Shutoff Guide",
   ]);
 });
 
