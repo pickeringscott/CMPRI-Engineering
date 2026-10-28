@@ -66,7 +66,7 @@ const pdfMetadata: Record<string, {
   "Business Center.pdf": { title: "Business Center Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
   "Dining_Breakfast.pdf": { title: "Dining / Breakfast Area Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
   "Elevator Checklist.pdf": { title: "Elevator Quarterly Checklist", cadence: "quarterly", months: alternateQuarterMonths, scope: "equipment", fields: [{ id: "location", label: "Elevator number / location", type: "text", required: true }] },
-  "Emergency lighting-Exit Sign log Master.pdf": { title: "Emergency Lighting & Exit Sign Monthly Log", cadence: "monthly", scope: "area", kind: "log", repeatableLabel: "Device inspections", repeatableFields: [
+  "Emergency lighting-Exit Sign log Master.pdf": { title: "Emergency Lighting & Exit Sign Monthly Log", cadence: "monthly", scope: "area", kind: "log", instructions: "Test each battery-powered emergency light and EXIT sign by depressing its test button. Record the nearest room or area, device type, actual functional result, date, notes, repair date and initials.", repeatableLabel: "Device inspections", repeatableFields: [
     { id: "location", label: "Location", type: "text", required: true },
     { id: "deviceType", label: "Type of device", type: "select", options: ["Exit sign", "Emergency light"] },
     { id: "functional", label: "Functional", type: "yes-no", required: true },
@@ -86,7 +86,7 @@ const pdfMetadata: Record<string, {
   "Lobby.pdf": { title: "Lobby Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
   "Market_Pantry.pdf": { title: "Market / Pantry Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
   "Meeting Room.pdf": { title: "Meeting Rooms Quarterly Checklist", cadence: "quarterly", months: alternateQuarterMonths, scope: "area", fields: [{ id: "location", label: "Meeting room name / location", type: "text", required: true }] },
-  "Monthly fire Door log.pdf": { title: "Fire & Smoke Doors Monthly Log", cadence: "monthly", scope: "area", kind: "log", repeatableLabel: "Door inspections", repeatableFields: [
+  "Monthly fire Door log.pdf": { title: "Fire & Smoke Doors Monthly Log", cadence: "monthly", scope: "area", kind: "log", instructions: "Test fire and smoke doors, including storage, exit stairwell and mechanical room doors, for self-closing and self-latching. Record actual results and defects separately.", repeatableLabel: "Door inspections", repeatableFields: [
     { id: "location", label: "Location", type: "text", required: true },
     { id: "functional", label: "Self-closing and latching", type: "yes-no", required: true },
     { id: "date", label: "Date inspected", type: "date" },
@@ -187,6 +187,18 @@ function makePdfTemplates(): PmTemplate[] {
       .filter((line) => !/^(?:Q[1-4]|YES|NO|DATE|YEAR|NOTES|MAINTENANCE)$/i.test(line))
       .filter((line) => !/^The (?:[A-Z]|property|form|checklist)/.test(line) || line.length < 220)
       .map((label, index) => ({ id: `${slug(pdf.file)}-item-${index + 1}`, label, source: pdf.file }));
+    // Append missing source definitions without renumbering any saved response ID.
+    const supplements: Record<string, Array<{ id: string; label: string; source: string }>> = {
+      "Kitchen.pdf": [
+        { id: "kitchen-scan-walk-in-cooler", label: "Walk-in cooler preventive maintenance per manufacturer, if applicable", source: "PM Scan.pdf page 25" },
+        { id: "kitchen-scan-dishwasher", label: "Dishwasher preventive maintenance per manufacturer", source: "PM Scan.pdf page 25" },
+        { id: "kitchen-scan-cooking-equipment", label: "Cooking equipment (grills/stoves) preventive maintenance per manufacturer", source: "PM Scan.pdf page 25" },
+      ],
+      "Ice Machine Areas.pdf": [
+        { id: "ice-machine-areas-scan-manufacturer-pm", label: "Maintain and clean the ice machine per manufacturer instructions, including sanitizer, cleaning solution and rinse cycles", source: "PM Scan.pdf page 26" },
+      ],
+    };
+    checklist.push(...(supplements[pdf.file] || []));
     return [{
       id: `pdf:${slug(pdf.file)}`,
       title: metadata.title,

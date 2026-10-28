@@ -11,6 +11,7 @@ import { isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routin
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
 import RoomPmHistoryImport from "@/components/RoomPmHistoryImport";
+import PmSourceEvidence from "@/components/PmSourceEvidence";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -67,7 +68,7 @@ type LivePmWorkbook = {
   fetchedAt: string;
 };
 type PmLocation = { id: string; name: string; room_number: string | null; area: string | null; location_type: string | null };
-type PmTab = "week" | "inspections" | "rooms" | "transfer" | "review";
+type PmTab = "week" | "inspections" | "rooms" | "transfer" | "review" | "sources";
 type ActiveForm = { templateId: string; periodStart: string; scopeKey: string };
 type PendingWorkOrderLink = {
   id: string;
@@ -85,6 +86,7 @@ const TAB_OPTIONS: Array<{ id: PmTab; label: string }> = [
   { id: "week", label: "Weekly sheet" },
   { id: "inspections", label: "Inspection forms" },
   { id: "rooms", label: "Quarterly room PM" },
+  { id: "sources", label: "Scanned PM evidence" },
   { id: "transfer", label: "Transfer review" },
   { id: "review", label: "Review & confirm" },
 ];
@@ -1010,6 +1012,8 @@ export default function PreventiveMaintenancePage() {
           </section>
         )}
 
+        {tab === "sources" && <PmSourceEvidence canReview={canReview} />}
+
         {tab === "transfer" && (
           <section className="mt-5">
             <SectionHeading eyebrow="Weekly handoff" title="Corporate transfer review" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
@@ -1077,6 +1081,7 @@ export default function PreventiveMaintenancePage() {
             </header>
             <div className="space-y-5 p-4 sm:p-5">
               {activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Individual checklist answers were not imported; saving this form does not replace the historical completion.</p>}
+              {activeTemplate.kind !== "room" && <PmSourceEvidence templateId={activeTemplate.id} />}
               {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
               {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
               {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}
