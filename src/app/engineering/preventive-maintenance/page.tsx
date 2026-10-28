@@ -9,6 +9,8 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
+import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
+import RoomPmHistoryImport from "@/components/RoomPmHistoryImport";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -196,6 +198,8 @@ export default function PreventiveMaintenancePage() {
   const [weekStart, setWeekStart] = useState(() => pmWeekStart(todayIso()));
   const [tab, setTab] = useState<PmTab>("week");
   const [entries, setEntries] = useState<PmEntry[]>([]);
+  const [roomHistory, setRoomHistory] = useState<StoredRoomHistory[]>([]);
+  const [approvedRooms, setApprovedRooms] = useState<PmEntry[]>([]);
   const [liveWorkbook, setLiveWorkbook] = useState<LivePmWorkbook | null>(null);
   const [reviewQueue, setReviewQueue] = useState<PmReviewProposal[]>([]);
   const [locations, setLocations] = useState<PmLocation[]>([]);
@@ -248,6 +252,8 @@ export default function PreventiveMaintenancePage() {
       if (sequence !== requestSequence.current || !isCurrent()) return;
       if (!response.ok || !Array.isArray(result.entries) || !result.workbook) throw new Error(result.error || "Live PM records could not be loaded.");
       setEntries(result.entries as PmEntry[]);
+      setRoomHistory(Array.isArray(result.room_history) ? result.room_history : []);
+      setApprovedRooms(Array.isArray(result.approved_rooms) ? result.approved_rooms : []);
       setLiveWorkbook(result.workbook as LivePmWorkbook);
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
       setLocations(Array.isArray(result.locations) ? result.locations as PmLocation[] : []);
@@ -324,11 +330,15 @@ export default function PreventiveMaintenancePage() {
   }
 
   function roomCompleted(room: string) {
-    const proposal = roomTemplate && entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
-    if (proposal?.status === "pending" && proposal.completed_on) return true;
-    if (!spreadsheetSyncEnabled && proposal) return proposal.is_complete || Boolean(proposal.completed_on);
+    return roomState(room).complete;
+  }
+
+  function roomState(room: string) {
+    const proposal = roomTemplate ? entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`) : undefined;
     const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
-    return Boolean(liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value);
+    const history = roomHistory.find(item => item.room === room && item.period_start === currentQuarterPeriod);
+    const approved = approvedRooms.find(item => item.scope_key === `room:${room}` && item.period_start === currentQuarterPeriod);
+    return roomCompletion(history, approved || proposal, spreadsheetSyncEnabled ? sourceDateIso(liveWorkbook?.rooms.find(item => item.room === room)?.quarters[quarter]?.value || "") : "");
   }
 
   async function saveEntry(payload: Record<string, unknown>) {
@@ -444,6 +454,7 @@ export default function PreventiveMaintenancePage() {
   const activeTemplate = activeForm ? findPmTemplate(activeForm.templateId) : null;
   const activeScopeKey = activeForm?.scopeKey || "property";
   const activeScopeEntry = activeForm && activeTemplate ? entryFor(activeTemplate, activeForm.periodStart, activeScopeKey) : null;
+  const activeHistory = activeForm && activeTemplate?.kind === "room" ? roomHistory.find(item => item.room === activeScopeKey.slice(5) && item.period_start === activeForm.periodStart) : undefined;
   const activeCanEdit = canEdit
     && (!["pending", "processing"].includes(activeScopeEntry?.status || "") || activeScopeEntry?.can_edit_entry === true);
   const followUpItems = activeTemplate?.checklist.filter((item) => checklist[item.id] === "follow-up") || [];
@@ -661,9 +672,9 @@ export default function PreventiveMaintenancePage() {
     if (roomTemplate) {
       for (const room of PM_ROOM_NUMBERS) {
         const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
-        const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
-        const sourceDate = liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value || "";
-        rows.push([currentQuarterPeriod, "quarterly", roomTemplate.title, `Room ${room}`, roomCompleted(room) ? "Complete" : "Open", entry?.completed_on || (spreadsheetSyncEnabled ? sourceDateIso(sourceDate) : ""), entry?.deficiency_notes || entry?.notes || "", roomTemplate.sourceReference, entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled"]);
+        const completion = roomState(room);
+        const historical = roomHistory.find(item => item.room === room && item.period_start === currentQuarterPeriod);
+        rows.push([currentQuarterPeriod, "quarterly", roomTemplate.title, `Room ${room}`, completion.status, completion.date || (completion.complete ? "Date unknown" : ""), entry?.deficiency_notes || entry?.notes || "", historical ? `${historical.source_name}: ${historical.source_reference}` : roomTemplate.sourceReference, historical ? "Historical completion confirmed in CMPRI" : entry?.status || "Open"]);
       }
     }
     const csv = rows.map((row) => row.map((cell) => `"${String(cell || "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
@@ -909,6 +920,7 @@ export default function PreventiveMaintenancePage() {
 
         {tab === "rooms" && roomTemplate && (
           <section className="mt-5">
+              {canReview && <RoomPmHistoryImport onImported={() => loadWeek(weekStart)} />}
             <SectionHeading eyebrow={`Live workbook · ${PM_ROOM_NUMBERS.length} rooms`} title={`Quarterly guest room PM · ${dateLabel(currentQuarterPeriod, { month: "long", year: "numeric" })}`} trailing={<span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length} rooms complete</span>} />
             <p className="mt-1 text-sm text-slate-400">Room-quarter completion is a date, separate from item checkboxes. Select a room to complete its room checklist, set rank, record deficiencies, and create a linked work order.</p>
             <label className="mt-4 block max-w-md"><span className="sr-only">Search rooms</span><input value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="Search room number…" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" /></label>
@@ -917,15 +929,15 @@ export default function PreventiveMaintenancePage() {
                 <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-3">Room</th><th className="px-4 py-3">Quarterly PM date</th><th className="px-4 py-3">Rank</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr></thead>
                 <tbody>{filteredRooms.map((room) => {
                   const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
-                  const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
-                  const sourceDate = liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value || "";
-                  const displayDate = entry?.status === "pending" && entry.completed_on ? entry.completed_on : sourceDate;
+                  const completion = roomState(room);
+                  const displayDate = completion.date;
+                  const historical = roomHistory.find(item => item.room === room && item.period_start === currentQuarterPeriod);
                   const roomRank = String(entry?.form_data?.rank || "—");
                   return <tr key={room} className="border-t border-slate-800/80">
                     <th className="px-4 py-3 font-bold">Room {room}</th>
-                    <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
+                      <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : completion.complete ? "Date unknown" : "—"}{historical && <details className="mt-1 text-xs text-slate-400"><summary>Historical source</summary>{historical.source_name} · {historical.source_reference}<p>Whole room complete; checklist answers unchanged.</p></details>}</td>
                     <td className="px-4 py-3 text-slate-300">{roomRank}</td>
-                    <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${entry?.status === "pending" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : displayDate ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{entry?.status === "pending" ? "Pending review" : displayDate ? "Complete" : "Due"}</span></td>
+                      <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${completion.status === "Pending review" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : completion.complete ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{completion.status}</span></td>
                     <td className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
                   </tr>;
                 })}
@@ -1064,6 +1076,7 @@ export default function PreventiveMaintenancePage() {
               <button type="button" onClick={() => { setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
             </header>
             <div className="space-y-5 p-4 sm:p-5">
+              {activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Individual checklist answers were not imported; saving this form does not replace the historical completion.</p>}
               {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
               {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
               {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}

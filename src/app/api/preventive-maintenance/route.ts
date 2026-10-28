@@ -102,11 +102,18 @@ export async function GET(request: NextRequest) {
     .limit(5000);
   if (proposals.error) return responseError(proposals.error, "PM review records could not be loaded.");
   const latestByKey = new Map<string, Record<string, unknown>>();
+  const approvedRooms = new Map<string, Record<string, unknown>>();
   const proposalPriorityByKey = new Map<string, number>();
   for (const proposal of proposals.data || []) {
     if (proposal.status === "rejected") continue;
     const key = `${proposal.template_id}|${proposal.period_start}|${proposal.scope_key}`;
     const payload = proposal.payload && typeof proposal.payload === "object" ? proposal.payload as Record<string, unknown> : {};
+    if (proposal.status === "approved" && proposal.template_id === "pdf:room-pm-checklist") {
+      const prior = approvedRooms.get(key);
+      if (!prior || String(proposal.updated_at || "") >= String(prior.updated_at || "")) {
+        approvedRooms.set(key, { ...payload, scope_key: proposal.scope_key, period_start: proposal.period_start, status: "approved", updated_at: proposal.updated_at });
+      }
+    }
     const pending = proposal.status === "pending" || proposal.status === "processing";
     const ownedPending = proposal.status === "pending" && proposal.submitted_by === auth.principal.identity.id;
     const priority = ownedPending ? 3 : pending ? 2 : 1;
@@ -152,10 +159,19 @@ export async function GET(request: NextRequest) {
     .order("room_number", { ascending: true })
     .limit(2000);
   if (locations.error) return responseError(locations.error, "PM work-order locations could not be loaded.");
+  const history = await auth.admin.from("cmpri_room_pm_history")
+    .select("room, period_start, completed_on, source_name, source_reference")
+    .eq("hotel_id", HOTEL_ID)
+    .gte("period_start", `${week.slice(0, 4)}-01-01`)
+    .lte("period_start", `${week.slice(0, 4)}-12-31`)
+    .limit(1000);
+  if (history.error) return responseError(history.error, "Historical room PM records could not be loaded.");
   return NextResponse.json({
     week,
     workbook: emptyPmWorkbook(week),
     entries: [...latestByKey.values()],
+    room_history: history.data || [],
+    approved_rooms: [...approvedRooms.values()],
     review_queue: reviewQueue?.data || [],
     locations: locations.data || [],
     can_edit: isSystemAdmin || allows(auth.principal, "edit_tickets"),

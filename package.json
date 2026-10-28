@@ -26,7 +26,8 @@
     "test:po": "node scripts/test-po.mjs",
     "test:release": "node --import ./tests/helpers/resolve-ts.mjs tests/pool-status.test.mjs && node tests/pool-status-database.test.mjs && node tests/po-cumulative.test.mjs && node tests/po-package-database.test.mjs",
     "test:employment": "node --experimental-strip-types --test tests/employment.test.mjs",
-    "test:hours": "node --experimental-strip-types --test tests/hours-tracker.test.mjs tests/hours-leave-policy.test.mjs tests/hours-leave-ui.test.mjs tests/hours-tracker-store.test.mjs tests/hours-tracker-setup.test.mjs tests/hours-tracker-route.test.mjs tests/hours-tracker-mcp.test.mjs tests/hours-clock.test.mjs tests/hours-time-controls.test.mjs"
+    "test:hours": "node --experimental-strip-types --test tests/hours-tracker.test.mjs tests/hours-leave-policy.test.mjs tests/hours-leave-ui.test.mjs tests/hours-tracker-store.test.mjs tests/hours-tracker-setup.test.mjs tests/hours-tracker-route.test.mjs tests/hours-tracker-mcp.test.mjs tests/hours-clock.test.mjs tests/hours-time-controls.test.mjs",
+    "test:pm-history": "node --experimental-strip-types tests/room-pm-history.test.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",
