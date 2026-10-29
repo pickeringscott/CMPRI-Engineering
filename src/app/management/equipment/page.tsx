@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useEffect, useRef, useState } from "react";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
@@ -208,6 +210,7 @@ export default function ManageEquipmentPage() {
       setLoading(false);
     }
   }
+  useResourceChange("documents", () => { if (!unsavedEquipment) void loadAssets(selectedId); });
 
   async function loadDocuments(assetId: string): Promise<{ documents: Doc[]; verified: boolean; warnings: string[] }> {
     if (!assetId) return { documents: [], verified: false, warnings: [] };

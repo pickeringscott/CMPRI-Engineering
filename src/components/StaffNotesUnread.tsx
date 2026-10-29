@@ -1,7 +1,8 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import { useEffect, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
-import { createClient } from "@/lib/supabase/client";
+import { subscribeResource } from "@/lib/events/browser";
 import { isInstalledMobileApp } from "@/lib/notifications/installed-mobile";
 type Summary = { unread: number; unreadKeys: string[]; frontDesk: boolean; management: boolean; alertNow: boolean; hotelId: string };
 export default function StaffNotesUnread() {
@@ -9,8 +10,6 @@ export default function StaffNotesUnread() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     if (window.parent !== window) return;
-    const client = createClient();
-    let channel: ReturnType<typeof client.channel> | undefined;
     let stopped = false, previous = new Set<string>(), initialized = false;
     let audio: AudioContext | undefined;
     const nav = navigator as Navigator & { standalone?: boolean; userAgentData?: { mobile: boolean }; setAppBadge?: (count?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
@@ -38,20 +37,15 @@ export default function StaffNotesUnread() {
           gain.gain.setValueAtTime(0.035, audio.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.12);
           oscillator.start(); oscillator.stop(audio.currentTime + 0.12);
         }
-        if (!channel) {
-          channel = client.channel(`staff-notes-unread-${crypto.randomUUID()}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "cmpri_staff_notes", filter: `hotel_id=eq.${value.hotelId}` }, () => void refresh())
-            .subscribe(status => { if (status === "SUBSCRIBED") void refresh(); });
-        }
+
       } catch { /* A signed-out page has no badge or alert authority. */ }
     }
-    const refreshVisible = () => { if (!document.hidden) void refresh(); };
-    const { data: listener } = client.auth.onAuthStateChange(event => {
-      if (event === "SIGNED_OUT") { setSummary(null); setVisible(false); previous.clear(); initialized = false; void nav.clearAppBadge?.().catch(() => {}); if (channel) void client.removeChannel(channel); channel = undefined; }
-      else setTimeout(() => void refresh(), 0);
-    });
     void refresh();
-    document.addEventListener("visibilitychange", refreshVisible); window.addEventListener("online", refreshVisible); window.addEventListener("cmpri-staff-notes-read", refreshVisible);
-    return () => { stopped = true; listener.subscription.unsubscribe(); if (channel) void client.removeChannel(channel); void audio?.close(); document.removeEventListener("pointerdown", unlock); document.removeEventListener("keydown", unlock); document.removeEventListener("visibilitychange", refreshVisible); window.removeEventListener("online", refreshVisible); window.removeEventListener("cmpri-staff-notes-read", refreshVisible); };
+    const stop = subscribeResource("staff-notes", reason => {
+      if (reason === "reset") { setSummary(null); setVisible(false); previous.clear(); initialized=false; void nav.clearAppBadge?.().catch(() => {}); }
+      else void refresh();
+    });
+    return () => { stopped=true; stop(); void audio?.close(); document.removeEventListener("pointerdown",unlock); document.removeEventListener("keydown",unlock); };
   }, []);
   if (!visible || !summary?.unread) return null;
   return <a href="/staff-notes" aria-label={`${summary.unread} unread staff notes`} className="fixed bottom-2 right-2 z-40 rounded-full border border-amber-400/50 bg-slate-950 px-2 py-1 text-xs text-amber-300">Staff Notes · {summary.unread}</a>;

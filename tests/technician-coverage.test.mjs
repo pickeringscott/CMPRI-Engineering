@@ -161,9 +161,11 @@ test('technician coverage does not bypass existing edit-ticket capability checks
   assert.equal(f.calls.length, 0);
 });
 
-test('technician dashboard polls for new work and displays in-app sound alerts', () => {
+test('technician dashboard subscribes to committed work changes and displays in-app sound alerts', () => {
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /window\.setInterval\(\(\) => \{ void loadAssignedWork\(\); \}, REFRESH_MS\)/);
+  assert.match(source, /\["work-orders","notifications"\]\.map/);
+  assert.match(source, /subscribeResource\(resource/);
+  assert.doesNotMatch(source, /REFRESH_MS|setInterval/);
   assert.match(source, /role="alert"/);
   assert.match(source, /Unassigned coverage/);
   assert.match(source, /Assigned to you/);

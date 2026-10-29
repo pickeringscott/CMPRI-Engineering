@@ -1,4 +1,5 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import PoolStatus from "@/components/desktop/PoolStatus";
 
 import { formatWorkOrder } from "@/lib/work-order-reference.js";

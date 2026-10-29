@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
     .limit(2000);
   if (locations.error) return responseError(locations.error, "PM work-order locations could not be loaded.");
   const history = await auth.admin.from("cmpri_room_pm_history")
-    .select("room, period_start, completed_on, source_name, source_reference")
+    .select("room, period_start, completed_on, source_name, source_reference, item_answers")
     .eq("hotel_id", HOTEL_ID)
     .gte("period_start", `${week.slice(0, 4)}-01-01`)
     .lte("period_start", `${week.slice(0, 4)}-12-31`)

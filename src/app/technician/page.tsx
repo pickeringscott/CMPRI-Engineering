@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource } from "@/lib/events/browser";
 import PoolStatus from "@/components/desktop/PoolStatus";
 
 import Link from "next/link";
@@ -24,7 +26,7 @@ import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanne
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import { roomRankerProfileCanView } from "@/lib/room-ranker-access";
 
-const REFRESH_MS = 30_000;
+
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
 
 type AssignedWorkOrder = {
@@ -174,9 +176,9 @@ export default function TechnicianDashboard() {
     soundEnabledRef.current = readSoundPreference();
     setSoundEnabled(soundEnabledRef.current);
     void loadAssignedWork();
-    const interval = window.setInterval(() => { void loadAssignedWork(); }, REFRESH_MS);
+    const stops = ["work-orders","notifications"].map(resource => subscribeResource(resource as "work-orders" | "notifications", () => void loadAssignedWork()));
     return () => {
-      window.clearInterval(interval);
+      stops.forEach(stop => stop());
       void audioContextRef.current?.close();
     };
   }, [loadAssignedWork]);

@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource } from "@/lib/events/browser";
 import Link from "next/link";
 import { getValidSession } from "@/lib/supabase/client";
 import { useCallback, useEffect, useState } from "react";
@@ -25,9 +27,8 @@ export default function WorkOrderMentionsInbox() {
   }, []);
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
-    const poll = setInterval(() => void load(), 5000);
-    document.addEventListener("visibilitychange", load); window.addEventListener("online", load);
-    return () => { clearTimeout(first); clearInterval(poll); document.removeEventListener("visibilitychange", load); window.removeEventListener("online", load); };
+    const stop = subscribeResource("mentions", reason => { if (reason === "reset") setNotifications([]); else void load(); });
+    return () => { clearTimeout(first); stop(); };
   }, [load]);
   async function read(ids: string[]) {
     try {

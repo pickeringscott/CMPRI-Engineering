@@ -1,4 +1,6 @@
 "use client";
+import ResourceChangeNotice from "@/components/ResourceChangeNotice";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -329,7 +331,7 @@ export default function ProfilePage() {
     </main>
   );
 
-  return (
+  return <><ResourceChangeNotice resource="profile" />{ (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         {profileHeader}
@@ -454,5 +456,5 @@ export default function ProfilePage() {
         </div>
       </div>
     </main>
-  );
+  )}</>;
 }

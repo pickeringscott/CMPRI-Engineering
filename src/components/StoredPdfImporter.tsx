@@ -1,4 +1,5 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import { useRef, useState } from "react";
 import { pdfImportResponse, uploadPdfDirect } from "@/lib/pdf-direct-upload";
 import type { PdfReview, StoredPdf } from "@/lib/stored-pdf-link";

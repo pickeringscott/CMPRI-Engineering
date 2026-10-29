@@ -1,3 +1,4 @@
+import { withRankerWrite, type RankerWrite } from "./room-ranker-write";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { googleSheetsRequest } from "@/lib/server/google-sheets";
@@ -51,11 +52,11 @@ function escapedSheetName(name: string) {
   return `'${name.replace(/'/g, "''")}'`;
 }
 
-async function getRoomRankerValues(config: RoomRankerConfig) {
+async function getRoomRankerValues(config: RoomRankerConfig, write?: RankerWrite) {
   const metadata = await googleSheetsRequest<{ sheets?: Array<{ properties?: { title?: string } }> }>(
     config.spreadsheetId,
     "?fields=sheets.properties.title",
-    {},
+    { signal: write?.signal },
     "Room Ranker",
   );
   if (!metadata.sheets?.some((sheet) => sheet.properties?.title === config.sheetName)) {
@@ -65,7 +66,7 @@ async function getRoomRankerValues(config: RoomRankerConfig) {
   const result = await googleSheetsRequest<{ values?: unknown[][] }>(
     config.spreadsheetId,
     `/values/${range}?valueRenderOption=FORMATTED_VALUE`,
-    {},
+    { signal: write?.signal },
     "Room Ranker",
   );
   return result.values || [];
@@ -95,8 +96,8 @@ function getCell(row: unknown[], index: number) {
   return value === undefined || value === null ? "" : String(value);
 }
 
-async function readRoomRanker(config: RoomRankerConfig) {
-  const values = await getRoomRankerValues(config);
+async function readRoomRanker(config: RoomRankerConfig, write?: RankerWrite) {
+  const values = await getRoomRankerValues(config, write);
   const layout = sheetLayout(values);
   const rooms = values.slice(layout.headerRow + 1).flatMap((row, index) => {
     if (!Array.isArray(row)) return [];
@@ -116,8 +117,8 @@ async function readRoomRanker(config: RoomRankerConfig) {
   return { ok: true, rooms, fetchedAt: new Date().toISOString(), config, layout };
 }
 
-async function updateRoomRanker(config: RoomRankerConfig, payload: Record<string, unknown>) {
-  const { layout, rooms } = await readRoomRanker(config);
+async function updateRoomRanker(config: RoomRankerConfig, payload: Record<string, unknown>, write: RankerWrite) {
+  const { layout, rooms } = await readRoomRanker(config, write);
   const rowNumber = Number(payload.rowNumber);
   const target = rooms.find((room) => room.rowNumber === rowNumber);
   if (!target || target.room !== String(payload.expectedRoom || "").trim()) {
@@ -132,13 +133,15 @@ async function updateRoomRanker(config: RoomRankerConfig, payload: Record<string
     }];
   });
   if (!updates.length) throw new Error("No editable Room Ranker fields were supplied.");
+  await write.assertOwner();
   await googleSheetsRequest(config.spreadsheetId, "/values:batchUpdate", {
+    signal: write.signal,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ valueInputOption: "RAW", data: updates }),
   }, "Room Ranker");
 
-  const verified = await readRoomRanker(config);
+  const verified = await readRoomRanker(config, write);
   const saved = verified.rooms.find((room) => room.rowNumber === rowNumber);
   if (!saved || saved.room !== target.room || updates.some((update) => {
     const field = RANKER_FIELDS.find((key) => update.range.startsWith(`${escapedSheetName(config.sheetName)}!${columnName(layout.columns[key])}`));
@@ -160,7 +163,10 @@ export async function callRoomRanker(payload: Record<string, unknown>): Promise<
     return { ok: true, rooms, fetchedAt };
   }
   if (action !== "update") throw new Error("Room Ranker action is not supported.");
-  return updateRoomRanker(config, payload);
+  const { createSupabaseAdmin } = await import("./supabase-admin");
+  const admin = createSupabaseAdmin();
+  if (!admin) throw new Error("Room Ranker write coordination unavailable.");
+  return withRankerWrite(admin, write => updateRoomRanker(config, payload, write));
 }
 
 function roomNumber(value: unknown) {
@@ -177,12 +183,14 @@ function isRankerActiveStatus(status: unknown) {
   return !["closed", "will not do", "duplicate", "cancelled", "canceled"].includes(value);
 }
 
-async function syncSnapshot(snapshot: { display_id?: unknown; room?: unknown; issue?: unknown; status?: unknown }) {
+async function syncSnapshot(snapshot: { display_id?: unknown; room?: unknown; issue?: unknown; status?: unknown }, write: RankerWrite) {
   const displayId = String(snapshot.display_id || "").trim();
   const room = roomNumber(snapshot.room);
   if (!displayId || !room) return { skipped: true, reason: "not-a-ranked-guest-room" } as const;
 
-  const read = await callRoomRanker({ action: "read" });
+  if (isIntegrationsSafeMode()) throw new Error("Room Ranker writes disabled in safe mode.");
+  const config = roomRankerConfig();
+  const read = await readRoomRanker(config, write);
   const rooms = Array.isArray(read.rooms) ? read.rooms as RoomRankerRow[] : [];
   const target = rooms.find((row) => String(row.room || "").trim() === room);
   if (!target || !Number.isSafeInteger(Number(target.rowNumber)) || Number(target.rowNumber) < 1) {
@@ -211,21 +219,26 @@ async function syncSnapshot(snapshot: { display_id?: unknown; room?: unknown; is
     }
   }
 
-  await callRoomRanker({
-    action: "update",
+  await updateRoomRanker(config, {
     rowNumber: Number(target.rowNumber),
     expectedRoom: String(target.room),
     notes,
-  });
+  }, write);
   return { skipped: false, room, rowNumber: Number(target.rowNumber) } as const;
 }
 
 export async function processRoomRankerSyncForWorkOrder(admin: SupabaseClient, workOrderId: string) {
+  try { return await withRankerWrite(admin, write => processLocked(admin, workOrderId, write)); }
+  catch { return { processed: false, reason: "writer-busy-or-unavailable" } as const; }
+}
+
+async function processLocked(admin: SupabaseClient, workOrderId: string, write: RankerWrite) {
   const { data: queue, error: queueError } = await admin
     .from("cmpri_room_ranker_sync_queue")
-    .select("id, work_order_id, attempts")
+    .select("id, work_order_id, attempts, revision")
     .eq("hotel_id", HOTEL_ID)
     .eq("work_order_id", workOrderId)
+    .is("processed_at", null)
     .maybeSingle();
   if (queueError || !queue) return { processed: false, reason: "queue-unavailable" } as const;
 
@@ -235,22 +248,26 @@ export async function processRoomRankerSyncForWorkOrder(admin: SupabaseClient, w
     .eq("hotel_id", HOTEL_ID)
     .eq("id", workOrderId)
     .maybeSingle();
-  if (workOrderError || !workOrder) {
-    await admin.from("cmpri_room_ranker_sync_queue").update({
+  if (workOrderError) throw new Error("Work order could not be loaded; intent retained.");
+  if (!workOrder) {
+    const acknowledgement = await admin.from("cmpri_room_ranker_sync_queue").update({
       processed_at: new Date().toISOString(),
       last_error: workOrderError ? "Work order could not be loaded." : "Work order no longer exists.",
       updated_at: new Date().toISOString(),
-    }).eq("id", queue.id);
+    }).eq("hotel_id", HOTEL_ID).eq("id", queue.id).eq("revision", queue.revision);
+    if (acknowledgement.error) throw new Error("Queue acknowledgement failed.");
     return { processed: false, reason: "work-order-unavailable" } as const;
   }
 
   try {
-    const result = await syncSnapshot(workOrder);
-    await admin.from("cmpri_room_ranker_sync_queue").update({
+    const result = await syncSnapshot(workOrder, write);
+    await write.assertOwner();
+    const acknowledgement = await admin.from("cmpri_room_ranker_sync_queue").update({
       processed_at: new Date().toISOString(),
       last_error: null,
       updated_at: new Date().toISOString(),
-    }).eq("id", queue.id);
+    }).eq("hotel_id", HOTEL_ID).eq("id", queue.id).eq("revision", queue.revision);
+    if (acknowledgement.error) throw new Error("Queue acknowledgement failed.");
     return { processed: true, ...result } as const;
   } catch (error) {
     const attempts = Number(queue.attempts || 0) + 1;
@@ -260,8 +277,8 @@ export async function processRoomRankerSyncForWorkOrder(admin: SupabaseClient, w
       last_error: error instanceof Error ? error.message.slice(0, 2000) : String(error).slice(0, 2000),
       next_attempt_at: new Date(Date.now() + delayMinutes * 60_000).toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", queue.id);
-    return { processed: false, reason: "room-ranker-error" } as const;
+    }).eq("hotel_id", HOTEL_ID).eq("id", queue.id).eq("revision", queue.revision);
+    throw error; // Keep the lease on uncertain provider outcomes; never overlap a retry.
   }
 }
 

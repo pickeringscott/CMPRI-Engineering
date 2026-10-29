@@ -1,4 +1,6 @@
 "use client";
+import { useResourceChange } from "@/lib/events/use-resource-change";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import {useEffect,useState} from 'react';
 import {authorizationHeaders} from '@/lib/auth/client-session';
 import type {HistoryRecord} from '@/lib/purchasing-history';
@@ -15,11 +17,13 @@ export default function PurchasingHistory({canImport=false}:{canImport?:boolean}
  const [records,setRecords]=useState<HistoryRecord[]>([]),[kind,setKind]=useState('supplier-order'),[page,setPage]=useState(0),[total,setTotal]=useState(0);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[bundle,setBundle]=useState<unknown>(null);
  const [review,setReview]=useState<{digest:string;counts:Record<string,number>;sourceCount:number;records:HistoryRecord[]}|null>(null);
+ const [revision,setRevision]=useState(0);
+ useResourceChange("purchasing", () => { if (!review && !busy) setRevision(v=>v+1); });
  useEffect(()=>{
   if(review)return;let cancelled=false;
   void (async()=>{try{const r=await fetch(`/api/engineering/purchasing-history?kind=${encodeURIComponent(kind)}&page=${page}&record=${encodeURIComponent(new URL(window.location.href).searchParams.get("historyRecord")||"")}`,{headers:await authorizationHeaders(),cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error);if(!cancelled){setRecords(d.records);setTotal(d.total);}}catch(e){if(!cancelled)setMessage(e instanceof Error?e.message:'Could not load history');}})();
   return()=>{cancelled=true;};
- },[kind,page,review]);
+ },[kind,page,review,revision]);
  async function submit(action:'review'|'import',e?:React.FormEvent<HTMLFormElement>){
   e?.preventDefault();if(!canImport)return;setBusy(true);setMessage('');
   try{let input=bundle;if(action==='review'&&e){setReview(null);const file=new FormData(e.currentTarget).get('bundle');if(!(file instanceof File)||file.size>12*1024*1024)throw Error('Choose an evidence JSON file under 12 MiB');input=JSON.parse(await file.text());setBundle(input);}

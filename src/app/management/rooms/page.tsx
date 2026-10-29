@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -107,6 +109,7 @@ export default function RoomsPage() {
       return nextId;
     });
   }, []);
+  useResourceChange("rooms", () => { if (!draft) void load(); });
 
   useEffect(() => {
     let active = true;

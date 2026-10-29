@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -180,6 +182,7 @@ export default function PoolLogPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
   const dirty = baseline !== "" && JSON.stringify(form) !== baseline;
+  useResourceChange("pool", () => { if (!dirty) setReload(value => value + 1); else setMessage("Pool data changed. Your unsaved reading is preserved; save or reload before continuing."); });
 
   useEffect(() => {
     const controller = new AbortController();

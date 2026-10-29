@@ -1,4 +1,5 @@
 'use client';
+import { useResourceChange } from '@/lib/events/use-resource-change';
 import { useEffect, useRef, useState } from 'react';
 import { WINTER_TASKS, WINTER_TASK_IDS, WINTER_YEAR, type WinterItem, type WinterTask } from '@/lib/winter-preparedness';
 import styles from './winter.module.css';
@@ -38,6 +39,7 @@ export default function WinterChecklist({ initial, persist, reload, onClose }: {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not reload saved progress.'); }
     finally { inFlight.current = false; setBusy(false); }
   }
+  useResourceChange("winter", () => { if (!inFlight.current) return refresh(); });
   function renderTask(task: WinterTask) {
     const saved = items.find(item => item.item_id === task.id);
     return <li key={task.id}>

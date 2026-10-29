@@ -394,7 +394,7 @@ test("room-operations import summary reports today's checkouts, OOO rooms, and a
   assert.match(api, /checkout_work_orders: checkoutWorkOrders/);
 });
 
-test("room-operations uploads validate printed reports, retain history, and reconcile checkouts", () => {
+test("room-operations uploads validate printed reports, retain history, and leave snapshots unchanged between imports", () => {
   const api = readFileSync(new URL("../src/app/api/room-operations/route.ts", import.meta.url), "utf8");
   const migration = readFileSync(new URL("../supabase/migrations/20261010180000_cmpri_room_operations_provenance_checkouts.sql", import.meta.url), "utf8");
   assert.match(api, /\["paste", "file"\]/);
@@ -407,7 +407,7 @@ test("room-operations uploads validate printed reports, retain history, and reco
   assert.match(api, /loadEffectiveRoomOperationsSnapshot\(auth\.admin, date\)/);
   assert.match(api, /source_type: snapshot\.source_type/);
   assert.match(api, /carried_over: snapshot\.carried_over/);
-  assert.match(api, /cmpri_reconcile_room_operations/);
+  assert.doesNotMatch(api, /cmpri_reconcile_room_operations/);
   assert.match(api, /auth\.admin\.rpc\("cmpri_replace_room_operations"/);
   assert.match(api, /p_rows: rowsForStorage/);
   assert.match(api, /roomOperationsNotification/);

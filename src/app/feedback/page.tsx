@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -67,6 +69,7 @@ export default function FeedbackPage() {
     if (!response.ok || !Array.isArray(payload.feedback)) throw new Error(payload.error || "Feedback could not be loaded.");
     setFeedback(payload.feedback as FeedbackItem[]);
   }, [authHeaders]);
+  useResourceChange("feedback", () => { if (session && hasCapability(session,"review_feedback")) void loadFeedback(); });
 
   useEffect(() => {
     let current = true;

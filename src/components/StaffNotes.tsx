@@ -1,8 +1,9 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
-import { createClient } from "@/lib/supabase/client";
+import { subscribeResource } from "@/lib/events/browser";
 import { staffMentionMatches, staffMentionCompletion, staffTicketReferences, type StaffMention } from "@/lib/staff-notes";
 
 type Note = { id: string; author_name: string; body: string; parent_id: string | null; created_at: string };
@@ -49,13 +50,7 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
   useEffect(() => { const task = setTimeout(() => void load(), 0); return () => clearTimeout(task); }, [load]);
   useEffect(() => {
     if (!data?.hotelId) return;
-    const client = createClient();
-    const channel = client.channel(`staff-notes-board-${crypto.randomUUID()}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "cmpri_staff_notes", filter: `hotel_id=eq.${data.hotelId}` }, () => void load())
-      .subscribe(status => { setConnection(status === "SUBSCRIBED" ? "" : "Live updates reconnecting…"); if (status === "SUBSCRIBED") void load(); });
-    const refresh = () => { if (!document.hidden) void load(); };
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("online", refresh);
-    return () => { void client.removeChannel(channel); document.removeEventListener("visibilitychange", refresh); window.removeEventListener("online", refresh); };
+    return subscribeResource("staff-notes", reason => { if (reason === "reset") { setData(null); setConnection("Reconnecting…"); } else { setConnection(""); void load(); } });
   }, [data?.hotelId, load]);
   useLayoutEffect(() => {
     const el = input.current;

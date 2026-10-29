@@ -343,6 +343,11 @@ export async function fetchDashboardInbox(accessToken: string): Promise<Dashboar
   });
   const payload = await response.json().catch(() => ({})) as Partial<DashboardInboxResponse> & { error?: string };
   if (!response.ok) throw new Error(payload.error || "Notifications could not be loaded.");
+  return parseDashboardInbox(payload);
+}
+
+export function parseDashboardInbox(value: unknown): DashboardInboxResponse {
+  const payload = (value || {}) as Partial<DashboardInboxResponse>;
   if (
     !Array.isArray(payload.notifications) ||
     !payload.notifications.every(isNotification) ||
@@ -369,6 +374,7 @@ async function postDashboardInbox(accessToken: string, body: Record<string, unkn
     const payload = await response.json().catch(() => ({})) as { error?: string };
     throw new Error(payload.error || fallback);
   }
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("cmpri:dashboard-refresh"));
 }
 
 export function clearServerDashboardNotifications(accessToken: string, ids: string[]) {

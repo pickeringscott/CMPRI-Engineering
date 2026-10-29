@@ -134,59 +134,8 @@ export async function loadEffectiveRoomOperationsSnapshot(
     return { requested_date: requestedDate, source_date: null, source_type: null, carried_over: false, rows: [], error: null };
   }
 
-  const columns = "room, checkout_date, checkout_time, room_status, arrival_date, arrival_time, move_from, move_to, guest_name, room_type, guest_code, guest_arrival_date, stay_nights, reserved, imported_at, report_date, incoming_name, incoming_type, incoming_code, incoming_block_indicator, incoming_reserved, source_import_id, checkout_source_report_date, checkout_source_uploaded_at, checkout_time_explicit, source_page, source_report_date, source_uploaded_at";
-  const { data: liveRows, error: liveError } = await admin.from("cmpri_room_operations")
-    .select(columns)
-    .eq("hotel_id", HOTEL_ID)
-    .eq("report_date", snapshot.report_date)
-    .order("room");
-  if (liveError) {
-    return { requested_date: requestedDate, source_date: snapshot.report_date, source_type: snapshot.source_type, carried_over: snapshot.report_date < requestedDate, rows: [], error: liveError };
-  }
+  const rows = historyRows(snapshot);
+  if (!rows) return {requested_date:requestedDate,source_date:snapshot.report_date,source_type:snapshot.source_type,carried_over:snapshot.report_date<requestedDate,rows:[],error:new Error("Accepted snapshot has no source rows.")};
 
-  const liveSnapshotMatches = Array.isArray(liveRows)
-    && liveRows.length > 0
-    && liveRows.every((row) => snapshot.source_type === "legacy"
-      ? !row.source_import_id
-      : row.source_import_id === snapshot.id);
-  let rows: RoomOperationRow[];
-  let sourceRows: RoomOperationRow[] | null;
-  if (liveSnapshotMatches) {
-    rows = liveRows as RoomOperationRow[];
-    sourceRows = historyRows(snapshot);
-  } else {
-    const archivedRows = historyRows(snapshot);
-    if (!archivedRows) {
-      return {
-        requested_date: requestedDate,
-        source_date: snapshot.report_date,
-        source_type: snapshot.source_type,
-        carried_over: snapshot.report_date < requestedDate,
-        rows: [],
-        error: new Error(`Preserved room snapshot ${snapshot.report_date} has no valid source rows.`),
-      };
-    }
-    rows = archivedRows;
-    sourceRows = archivedRows;
-    if (snapshot.source_type !== "legacy") {
-      const { data: transitions, error: transitionsError } = await admin.from("cmpri_room_operation_checkout_transitions")
-        .select("room, departing_guest_name, checkout_date, checkout_time")
-        .eq("hotel_id", HOTEL_ID)
-        .eq("source_import_id", snapshot.id);
-      if (transitionsError) {
-        return { requested_date: requestedDate, source_date: snapshot.report_date, source_type: snapshot.source_type, carried_over: snapshot.report_date < requestedDate, rows: [], error: transitionsError };
-      }
-      rows = applyRoomOperationCheckoutTransitions(rows, (transitions || []) as CheckoutTransition[], snapshot.id);
-    }
-  }
-  if (sourceRows) rows = applyExpiredRoomOperationCheckouts(rows, sourceRows, snapshot.id, requestedDate, new Date());
-
-  return {
-    requested_date: requestedDate,
-    source_date: snapshot.report_date,
-    source_type: snapshot.source_type,
-    carried_over: snapshot.report_date < requestedDate,
-    rows,
-    error: null,
-  };
+  return {requested_date:requestedDate,source_date:snapshot.report_date,source_type:snapshot.source_type,carried_over:snapshot.report_date<requestedDate,rows,error:null};
 }

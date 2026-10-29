@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -52,6 +54,7 @@ export default function EnseoAssignmentsPage() {
       setLoading(false);
     }
   }, [router]);
+  useResourceChange("enseo", () => { if (!saving) void load(); });
 
   useEffect(() => { void Promise.resolve().then(load).catch(() => router.replace("/")); }, [load, router]);
 

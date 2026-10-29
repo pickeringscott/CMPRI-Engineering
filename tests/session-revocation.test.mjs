@@ -63,7 +63,7 @@ function fixture(config={}) {
       },
     });return exports;
   }
-  return {state,calls,load:relative=>load(path.join(root,relative.startsWith('api/')?'app/'+relative:relative)),request:{url:'https://test.invalid/api/test',headers:new Headers({authorization:'Bearer same-token'}),json:async()=>({action:'refresh-engineering-dashboard',id:'test',status:'Received'})}};
+  return {state,calls,load:relative=>load(path.join(root,relative.startsWith('api/')?'app/'+relative:relative)),get request(){return {url:'https://test.invalid/api/test',headers:new Headers({authorization:'Bearer same-token'}),json:async()=>({action:'refresh-engineering-dashboard',id:'test',status:'Received'})}}};
 }
 const invalid=[{active:false},{active:null},{missingProfile:true},{authError:true},{profileError:true},{noUser:true}];
 for(const config of invalid)test(`shared authentication rejects ${JSON.stringify(config)}`,async()=>{
@@ -126,4 +126,11 @@ test('Room Ranker old requires an engineer assignment and retains existing write
  const scottResponse=await scott.load('api/room-ranker/route.ts').GET(scott.request);
  assert.equal(scottResponse.status,200);
  assert.equal(scottResponse.body.can_edit,true);
+});
+
+test('same request shares verification; a new request with the same token verifies again',async()=>{
+ const f=fixture(),auth=f.load('lib/server/request-auth.ts'),request=f.request;
+ const [one,two]=await Promise.all([auth.authenticatedUser(request),auth.authenticatedUser(request)]);
+ assert.ok(one);assert.ok(two);assert.equal(f.calls.filter(v=>v==='profiles').length,1);
+ f.state.active=false;assert.equal(await auth.authenticatedUser(f.request),null);
 });

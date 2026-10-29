@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -80,6 +82,7 @@ export default function PartsVendorsPage() {
       setMessage(error instanceof Error ? error.message : "Parts and vendor data could not be loaded.");
     } finally { setLoading(false); }
   }, [router]);
+  useResourceChange("catalog", () => { if (!saving) void load(); });
 
   useEffect(() => { void Promise.resolve().then(load).catch(() => router.replace("/")); }, [load, router]);
 

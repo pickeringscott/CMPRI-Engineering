@@ -1,4 +1,6 @@
 "use client";
+import ResourceChangeNotice from "@/components/ResourceChangeNotice";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -107,7 +109,7 @@ export default function AiConnectionPage() {
     }
   }
 
-  return (
+  return <><ResourceChangeNotice resource="profile" />{ (
     <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-6">
       <div className="mx-auto max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
@@ -150,5 +152,5 @@ export default function AiConnectionPage() {
         {error && <p role="alert" className="mt-4 text-sm text-red-300">{error}</p>}
       </div>
     </main>
-  );
+  )}</>;
 }

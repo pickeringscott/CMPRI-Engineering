@@ -237,6 +237,7 @@ async function googleAccessToken() {
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion,
     }),
+    signal: AbortSignal.timeout(25_000),
     cache: "no-store",
   });
   const result = await response.json().catch(() => ({})) as { access_token?: unknown; expires_in?: unknown };
@@ -258,6 +259,7 @@ export async function googleSheetsRequest<T>(
   const response = await fetch(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${accessToken}`, ...(init.headers || {}) },
+    signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(25_000)]) : AbortSignal.timeout(25_000),
     cache: "no-store",
   });
   if (!response.ok) {

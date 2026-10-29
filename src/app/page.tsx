@@ -1,4 +1,5 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";

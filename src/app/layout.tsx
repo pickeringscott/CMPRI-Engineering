@@ -1,3 +1,4 @@
+import EventConnection from "@/components/EventConnection";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import WorkOrderMentionsInbox from "@/components/WorkOrderMentionsInbox";
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-full flex flex-col">
         {children}
         <GlobalModalHost />
+        <EventConnection />
         <StaffNotesUnread />
         <WorkOrderMentionsInbox />
       </body>

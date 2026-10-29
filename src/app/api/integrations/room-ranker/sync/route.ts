@@ -5,6 +5,8 @@ import { processDueRoomRankerSync } from "@/lib/server/room-ranker";
 import { integrationErrorMessage } from "@/lib/server/integrations-safe-mode";
 import { canEditRoomRanker } from "@/lib/room-ranker-access";
 
+export const maxDuration = 300;
+
 async function authorizedAdmin(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && request.headers.get("authorization") === `Bearer ${cronSecret}`) {

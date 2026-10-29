@@ -1,4 +1,5 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useState } from "react";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -379,10 +380,12 @@ export default function RoomOperationsImport({
   date,
   onDateChange,
   onCommitted,
+  onBusyChange,
 }: {
   date: string;
   onDateChange: (date: string) => void;
-  onCommitted: (date: string) => void;
+  onCommitted: (date: string, rows?: unknown[], importId?: string) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const [statusText, setStatusText] = useState("");
   const [departuresText, setDeparturesText] = useState("");
@@ -414,7 +417,7 @@ export default function RoomOperationsImport({
       setMessage("Choose the report date before uploading report images.");
       return;
     }
-    setBusy(true);
+    setBusy(true); onBusyChange(true);
     setMessage("Sending RoomStatus image(s) to ChatGPT for extraction and validation…");
     try {
       const authHeaders = await authorizationHeaders();
@@ -558,11 +561,11 @@ export default function RoomOperationsImport({
           : `ChatGPT successfully extracted, validated, and imported ${count} room rows for ${result.date} (import ${importPayload.import_id})! ${checkoutSummary} ${outOfOrderSummary} ${checkoutWorkOrderSummary} Room moves are active.`
       );
       setPreview(null);
-      onCommitted(result.date);
+      onCommitted(result.date, result.rows, importPayload.import_id);
     } catch (error) {
       setMessage(error instanceof Error ? `Image extraction & import error: ${error.message}` : "Image extraction and import failed.");
     } finally {
-      setBusy(false);
+      setBusy(false); onBusyChange(false);
     }
   }
 
@@ -677,7 +680,7 @@ export default function RoomOperationsImport({
 
   async function commitImport() {
     if (!preview || busy) return;
-    setBusy(true);
+    setBusy(true); onBusyChange(true);
     setMessage("");
     try {
       const response = await fetch("/api/room-operations", {
@@ -706,11 +709,11 @@ export default function RoomOperationsImport({
       setMessage(payload.notifications_recorded === false
         ? `${result.rows.length} merged room-operation rows were saved and verified for ${result.date} (import ${payload.import_id}), but notifications could not be saved. Contact an administrator.`
         : `${result.rows.length} merged room-operation rows were saved and verified for ${result.date} (import ${payload.import_id}).`);
-      onCommitted(result.date);
+      onCommitted(result.date, result.rows, payload.import_id);
     } catch (error) {
       setMessage(error instanceof Error ? `Room operations commit error: ${error.message}` : "Room operations commit error: import status could not be verified.");
     } finally {
-      setBusy(false);
+      setBusy(false); onBusyChange(false);
     }
   }
 

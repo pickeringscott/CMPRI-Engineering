@@ -1,4 +1,6 @@
-'use client';
+"use client";
+import { useResourceChange } from "@/lib/events/use-resource-change";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import {useCallback,useEffect,useState} from 'react';
 import {getValidSession} from '@/lib/supabase/client';
 type Status={checkedAt:string;enabled:boolean;integrationEnabled:boolean;pendingEvents:number;lastRun:string|null;lastError:string|null;error?:string;
@@ -12,6 +14,7 @@ export default function DrivePoIntakePage(){
   const r=await fetch('/api/integrations/drive-po/control'+(checkAccess?'?checkAccess=1':''),{headers:{Authorization:`Bearer ${session.access_token}`},cache:'no-store'});
   const data=await r.json();if(!r.ok)throw Error(data.error||'Status unavailable');return data as Status;
  },[]);
+  useResourceChange("drive", () => { if (!busy) void load().then(setStatus).catch(e => setError(e.message)); });
  useEffect(()=>{let cancelled=false;load().then(data=>{if(!cancelled)setStatus(data);}).catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};},[load]);
  async function action(activate:boolean){
   setBusy(true);setError('');

@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
 import { canUseWinterPreparedness } from "@/lib/winter-preparedness-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
@@ -11,9 +13,7 @@ import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/
 import { usesChiefEngineerMobileLayout } from "@/lib/dashboard/chief-engineer-mobile";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import {
-  DASHBOARD_NOTIFICATION_POLL_MS,
   clearServerDashboardNotifications,
-  fetchDashboardInbox,
   forgetLocalDashboardInbox,
   importServerDashboardNotifications,
   readDashboardInbox,
@@ -36,6 +36,8 @@ import {
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
 import { profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
+import { subscribeDashboardRefresh } from "@/lib/dashboard/browser-refresh";
+import { parseDashboardInbox } from "@/lib/dashboard/work-order-notifications";
 import PoolStatus from "@/components/desktop/PoolStatus";
 import MobileDashboardMenus from "@/components/desktop/MobileDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
@@ -47,7 +49,7 @@ import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWin
 import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 
-const REFRESH_MS = 30_000;
+
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
@@ -140,11 +142,9 @@ export default function EngineeringDashboardPage() {
   const soundEnabledRef = useRef(true);
   const userIdRef = useRef("");
   const userRoleRef = useRef("");
-  const notificationPollInFlightRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
   const pendingClearIdsRef = useRef<Set<string>>(new Set());
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
-  const clearGenerationRef = useRef(0);
   const ordersVersionRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const previousTitleRef = useRef<string>("");
@@ -208,7 +208,6 @@ export default function EngineeringDashboardPage() {
     if (ids.length === 0) return;
     const clearing = new Set(ids);
     ids.forEach((id) => pendingClearIdsRef.current.add(id));
-    clearGenerationRef.current += 1;
     setInbox((current) => current.filter((notification) => !clearing.has(notification.id)));
     try {
       const session = await getValidSession();
@@ -218,8 +217,7 @@ export default function EngineeringDashboardPage() {
     } catch (error) {
       setNotificationError(error instanceof Error ? error.message : "Notifications could not be cleared.");
     } finally {
-      // Ignore any poll that started before the clear finished, then let the server list rule again.
-      clearGenerationRef.current += 1;
+      // Successful writes invalidate any in-flight shared refresh before it can reapply stale rows.
       ids.forEach((id) => pendingClearIdsRef.current.delete(id));
     }
   }
@@ -227,7 +225,6 @@ export default function EngineeringDashboardPage() {
   async function markNotificationRead(notification: WorkOrderNotification) {
     if (notification.is_read || pendingReadIdsRef.current.has(notification.id)) return;
     pendingReadIdsRef.current.add(notification.id);
-    clearGenerationRef.current += 1;
     setInbox((current) => current.map((item) => item.id === notification.id ? { ...item, is_read: true } : item));
     try {
       const session = await getValidSession();
@@ -239,7 +236,6 @@ export default function EngineeringDashboardPage() {
       setNotificationError(error instanceof Error ? error.message : "Notification could not be marked read.");
     } finally {
       pendingReadIdsRef.current.delete(notification.id);
-      clearGenerationRef.current += 1;
     }
   }
 
@@ -340,8 +336,7 @@ export default function EngineeringDashboardPage() {
   }, [loadDashboard, refreshChatgptConnection]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => { void loadDashboard(true); }, REFRESH_MS);
-    return () => window.clearInterval(interval);
+    return subscribeResource("work-orders", () => { void loadDashboard(true); });
   }, [loadDashboard]);
 
   useEffect(() => {
@@ -349,46 +344,46 @@ export default function EngineeringDashboardPage() {
       && !hasCapability(cmpriSession, "receive_pool_closed_notifications"))) return;
     const userId = cmpriSession.user.id;
     let current = true;
-    let imported = false;
-    const importLocalInbox = async (accessToken: string) => {
-      // One-time move of notifications this browser kept before the inbox moved to the server.
-      const local = readDashboardInbox(userId);
-      if (local.length) await importServerDashboardNotifications(accessToken, local);
-      forgetLocalDashboardInbox(userId);
-    };
-    const pollNotifications = async () => {
-      if (notificationPollInFlightRef.current) return;
-      notificationPollInFlightRef.current = true;
-      const generation = clearGenerationRef.current;
+    let unsubscribe: (() => void) | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const start = async () => {
       try {
         const session = await getValidSession();
-        if (!session?.access_token) throw new Error("Sign in again to load notifications.");
-        if (!imported) {
-          await importLocalInbox(session.access_token);
-          imported = true;
-        }
-        const result = await fetchDashboardInbox(session.access_token);
+        if (!session?.access_token || session.user.id !== userId || !current) return;
+        const local = readDashboardInbox(userId);
+        if (local.length) await importServerDashboardNotifications(session.access_token, local);
+        forgetLocalDashboardInbox(userId);
         if (!current) return;
-        if (ordersVersionRef.current === null) {
-          ordersVersionRef.current = result.orders_version;
-        } else if (result.orders_version !== ordersVersionRef.current && !refreshInFlightRef.current) {
-          ordersVersionRef.current = result.orders_version;
-          void loadDashboard(true);
-        }
-        if (generation === clearGenerationRef.current) applyServerInbox(result.notifications);
-        setNotificationError("");
+        unsubscribe = subscribeDashboardRefresh("notifications", (event) => {
+          if (event.reset) {
+            ordersVersionRef.current = null;
+            setInbox([]);
+            setNotificationError(event.error || "");
+            return;
+          }
+          try {
+            if (event.error) throw new Error(event.error);
+            const result = parseDashboardInbox(event.data);
+            if (ordersVersionRef.current === null) ordersVersionRef.current = result.orders_version;
+            else if (result.orders_version !== ordersVersionRef.current && !refreshInFlightRef.current) {
+              ordersVersionRef.current = result.orders_version;
+              void loadDashboard(true);
+            }
+            applyServerInbox(result.notifications);
+            setNotificationError("");
+          } catch (error) {
+            setNotificationError(error instanceof Error ? error.message : "Notifications could not be loaded.");
+          }
+        }, userId);
       } catch (error) {
-        if (current) setNotificationError(error instanceof Error ? error.message : "Notifications could not be loaded.");
-      } finally {
-        notificationPollInFlightRef.current = false;
+        if (current) {
+          setNotificationError(error instanceof Error ? error.message : "Notifications could not be loaded.");
+          retry = setTimeout(() => void start(), 1000);
+        }
       }
     };
-    void pollNotifications();
-    const interval = window.setInterval(() => { void pollNotifications(); }, DASHBOARD_NOTIFICATION_POLL_MS);
-    return () => {
-      current = false;
-      window.clearInterval(interval);
-    };
+    void start();
+    return () => { current = false; clearTimeout(retry); unsubscribe?.(); };
   }, [applyServerInbox, cmpriSession, loadDashboard]);
 
   useEffect(() => {
@@ -407,8 +402,8 @@ export default function EngineeringDashboardPage() {
       } catch {}
     };
     void refreshFeedbackCount();
-    const interval = window.setInterval(() => void refreshFeedbackCount(), 60_000);
-    return () => { current = false; window.clearInterval(interval); };
+    const stop = subscribeResource("feedback", () => void refreshFeedbackCount());
+    return () => { current = false; stop(); };
   }, [cmpriSession]);
 
   useEffect(() => {
@@ -656,7 +651,7 @@ export default function EngineeringDashboardPage() {
       label: "Operations",
       items: [
         canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400", preferred: { width: 960, height: 780 } },
-        canReviewEmployment(session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
+        canReviewEmployment(session.user,session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
         { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
         (hasCapability(session, "view_dashboard") || hasCapability(session, "view_pool_log")) && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
         canUseEngineeringAdminTools && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
@@ -745,7 +740,7 @@ export default function EngineeringDashboardPage() {
       if (item.key === "/engineering/purchasing") item.label = "PO";
     }
   }
-  const frontDeskKeys = ["/engineering/room-ranking", WORK_ORDER_LIST_KEY, "pool-status", "/staff-notes", "/profile", "sign-out"];
+  const frontDeskKeys = ["/engineering/employment","/engineering/room-ranking", WORK_ORDER_LIST_KEY, "pool-status", "/staff-notes", "/profile", "sign-out"];
   const presentationGroups = frontDeskLayout ? [{ label: "Front Desk", items: frontDeskKeys.map(key => launcherGroups.flatMap(group => group.items).find(item => item && item.key === key) || false) }] : launcherGroups;
   const visibleLauncherGroups = presentationGroups
     .map((group) => ({

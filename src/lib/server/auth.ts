@@ -119,12 +119,19 @@ async function attemptAuth(request: NextRequest): Promise<AuthAttempt> {
   }
 }
 
+const requestAuth = new WeakMap<NextRequest, Promise<AuthAttempt>>();
+function verifiedRequest(request: NextRequest) {
+  let pending = requestAuth.get(request);
+  if (!pending) { pending = attemptAuth(request); requestAuth.set(request, pending); }
+  return pending;
+}
+
 export async function requireUserAttempt(request: NextRequest): Promise<AuthAttempt> {
-  return attemptAuth(request);
+  return verifiedRequest(request);
 }
 
 export async function requireUser(request: NextRequest) {
-  const result = await attemptAuth(request);
+  const result = await verifiedRequest(request);
   return result.ok ? { principal: result.principal, admin: result.admin } : null;
 }
 

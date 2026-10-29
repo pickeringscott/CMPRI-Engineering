@@ -1,6 +1,6 @@
 export type RoomHistoryRow = { room: string; periodStart: string; completedOn: string | null; sourceReference: string };
 export type RoomHistoryImport = { sourceId: string; sourceName: string; rows: RoomHistoryRow[] };
-export type StoredRoomHistory = { room: string; period_start: string; completed_on: string | null; source_name: string; source_reference: string };
+export type StoredRoomHistory = { item_answers?: Record<string,{value:"complete"|"follow-up"|"na";sourcePage:number;evidence:string}>; room: string; period_start: string; completed_on: string | null; source_name: string; source_reference: string };
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected a JSON object.");

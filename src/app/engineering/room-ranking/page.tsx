@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource } from "@/lib/events/browser";
 
 import { useEffect, useRef, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
@@ -9,7 +11,7 @@ import useEmbeddedModal from "@/components/use-embedded-modal";
 import styles from "./room-ranking.module.css";
 
 const FLOOR_KEY = "cmpri:ticket-room-ranker:floors:v1";
-const REFRESH_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export default function TicketRoomRankerPage() {
   const embedded = useEmbeddedModal();
@@ -31,7 +33,7 @@ export default function TicketRoomRankerPage() {
       if (stopped || busy || document.visibilityState === "hidden") return;
       busy = true;
       controller = new AbortController();
-      const timeout = setTimeout(() => controller?.abort(), REFRESH_MS);
+      const timeout = setTimeout(() => controller?.abort(), REQUEST_TIMEOUT_MS);
       try {
         const response = await fetch("/api/ticket-room-ranker", { headers: await authorizationHeaders(), cache: "no-store", signal: controller.signal });
         const result = await response.json();
@@ -48,11 +50,8 @@ export default function TicketRoomRankerPage() {
       if (!(await enforceSessionPreference())) { if (!stopped) window.location.replace("/"); return; }
       await refresh();
     })();
-    const interval = setInterval(() => void refresh(), REFRESH_MS);
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
-    return () => { stopped = true; controller?.abort(); clearInterval(interval); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+    const stops = ["work-orders","rooms"].map(key => subscribeResource(key as "work-orders" | "rooms", reason => { if(reason === "reset") setRooms([]); else void refresh(); }));
+    return () => { stopped = true; controller?.abort(); stops.forEach(stop => stop()); };
   }, []);
 
   const counts = roomRankCounts(rooms);

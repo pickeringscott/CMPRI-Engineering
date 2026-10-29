@@ -146,9 +146,11 @@ test('Chief Engineers receive Technician status changes with work-order context'
 });
 
 test('Chief Engineer dashboard inbox records only for the Chief Engineer role', () => {
-  const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /const isEngineer = profileIsChiefEngineerOrSystemAdmin\(auth\.principal\.profile\);/);
-  assert.match(route, /if \(isEngineer\) \{[\s\S]*from\("cmpri_work_order_history"\)[\s\S]*\.in\("event_type", \["status_changed", "closed", "reopened", "claimed"\]\)[\s\S]*engineerHistoryNotifications\(history, userId\)/);
+  const route = readFileSync(new URL('../src/lib/server/dashboard-notifications.ts', import.meta.url), 'utf8');
+  const worker = readFileSync(new URL("../src/lib/server/notification-events.ts", import.meta.url), "utf8");
+  assert.match(worker, /profileIsChiefEngineerOrSystemAdmin\(profile\)/);
+  assert.match(worker, /else if\(chief\) notifications=engineerHistoryNotifications/);
+  assert.doesNotMatch(route, /from\("cmpri_work_order_history"\)/);
   const migration = readFileSync(new URL('../supabase/migrations/20260930220000_cmpri_work_order_history_notifications.sql', import.meta.url), 'utf8');
   assert.match(migration, /'actor_role', coalesce\(v_actor_role, ''\), 'after_close', v_after_close/);
   assert.match(migration, /v_after_close := old\.status::text = 'Closed' or/);
@@ -255,7 +257,7 @@ test('Technician inbox reads are separate from active notification resolution', 
 });
 
 test('notification read API updates only the signed-in recipient and unread row', async () => {
-  const source = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../src/lib/server/dashboard-notifications.ts', import.meta.url), 'utf8');
   const code = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -306,7 +308,7 @@ test('notification read API updates only the signed-in recipient and unread row'
       throw new Error(`Unexpected module ${name}`);
     },
   });
-  const response = await exports.POST({
+  const response = await exports.postDashboardNotifications({
     json: async () => ({ action: 'read', ids: ['pool-closed:local'] }),
   });
   assert.equal(response.status, 200);
@@ -358,12 +360,12 @@ test('technician dashboard excludes CMPRI AI and shows due date beneath ordered 
 test('notification endpoint authorizes dashboard recipients and scopes audit records to the property', () => {
   const route = readFileSync(new URL('../src/app/api/work-orders/notifications/route.ts', import.meta.url), 'utf8');
   assert.match(route, /requireUser\(request\)/);
-  assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
-  assert.match(route, /profileIsChiefEngineerOrSystemAdmin\(auth\.principal\.profile\)/);
-  assert.match(route, /profileHasRole\(auth\.principal\.profile, "technician"\)/);
-  assert.match(route, /\.eq\("hotel_id", HOTEL_ID\)/);
-  assert.match(route, /\.gt\("recorded_at",/);
-  assert.match(route, /role === "engineer"/);
+  assert.match(route, /allows\(auth\.principal,\s*"view_dashboard"\)/);
+  assert.match(route, /profileIsChiefEngineerOrSystemAdmin\(profile\)/);
+  assert.match(route, /profileHasRole\(profile,\s*"technician"\)/);
+  assert.match(route, /\.eq\("hotel_id",\s*auth\.principal\.hotelId\)/);
+  assert.doesNotMatch(route, /\.gt\("recorded_at",/);
+  assert.match(route, /\.eq\("recipient_user_id",auth\.principal\.identity\.id\)/);
   assert.match(route, /resolved_notification_ids/);
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import GssScorecard from "./GssScorecard";
+import GssLive from "./GssLive";
 import styles from "./GssScorecard.module.css";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
@@ -29,6 +29,6 @@ export default function GssPage() {
   if (!pageAllowed) return null;
   return <main className={styles.page}><div className="mx-auto w-full px-3 py-4 sm:px-4">
     <ModalDashboardLink className="rounded-lg border border-amber-400/55 px-3 py-1 text-xs text-amber-400">Dashboard</ModalDashboardLink>
-    <GssScorecard />
+    <GssLive />
   </div></main>;
 }

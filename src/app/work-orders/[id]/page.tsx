@@ -1,4 +1,7 @@
 "use client";
+import ResourceChangeNotice from "@/components/ResourceChangeNotice";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource } from "@/lib/events/browser";
 import WorkOrderNoteComposer from "@/components/WorkOrderNoteComposer";
 import WorkOrderMentionText from "@/components/WorkOrderMentionText";
 import type { WorkOrderMention } from "@/lib/work-order-mentions";
@@ -1232,12 +1235,10 @@ export default function WorkOrderTicketPage() {
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") refresh();
     };
-    const interval = window.setInterval(refreshWhenVisible, 30_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const stop = subscribeResource("documents", refreshWhenVisible);
     return () => {
       current = false;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
@@ -2013,7 +2014,7 @@ export default function WorkOrderTicketPage() {
   const roomOccupancy = roomStatusBadge(order.room_status || roomOperationalContext.roomStatus);
   const checkout = checkoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime);
 
-  return (
+  return <><ResourceChangeNotice resource="work-orders" />{ (
     <main className="min-h-screen bg-slate-950 text-[16px] text-white">
       <div className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
         <div className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
@@ -2818,5 +2819,5 @@ export default function WorkOrderTicketPage() {
         </div>
       )}
     </main>
-  );
+  )}</>;
 }

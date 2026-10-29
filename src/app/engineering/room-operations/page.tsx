@@ -1,6 +1,8 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource, resourceRevision } from "@/lib/events/browser";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import RoomOperationsImport from "./RoomOperationsImport";
 import { useRouter } from "next/navigation";
@@ -241,30 +243,30 @@ export default function RoomOperationsPage() {
   const router = useRouter();
   const [session, setSession] = useState<CmpriClientSession | null>(null);
   const [date, setDate] = useState(hotelDate);
-  const [today, setToday] = useState(hotelDate);
-  const hotelTodayRef = useRef(today);
+  const [today] = useState(hotelDate);
   const [rows, setRows] = useState<RoomOperation[]>([]);
   const [snapshotInfo, setSnapshotInfo] = useState<SnapshotInfo | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const importing = useRef(false);
+  const acknowledgedImport = useRef<string | undefined>(undefined);
+  const pendingImportRevision = useRef<string | undefined>(undefined);
+  const [eventsReady, setEventsReady] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [activeSummary, setActiveSummary] = useState<keyof Summary | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const current = hotelDate();
-      const previous = hotelTodayRef.current;
-      if (current !== previous) {
-        hotelTodayRef.current = current;
-        setToday(current);
-        setDate((selected) => selected === previous ? current : selected);
-      }
-      setRefreshVersion((version) => version + 1);
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useEffect(() => subscribeResource("room-operations", reason => {
+    if (reason === "initial") setEventsReady(true);
+    else if (reason === "change") {
+      const revision = resourceRevision("room-operations");
+      if (importing.current) { pendingImportRevision.current = revision; return; }
+      if (revision === acknowledgedImport.current) return;
+      setDate(hotelDate()); setRefreshVersion(version => version + 1);
+    }
+    else { acknowledgedImport.current = undefined; pendingImportRevision.current = undefined; setRows([]); setSession(null); setEventsReady(false); }
+  }), []);
 
   useEffect(() => {
     let active = true;
@@ -282,7 +284,7 @@ export default function RoomOperationsPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !eventsReady) return;
     const controller = new AbortController();
     void (async () => {
       await Promise.resolve();
@@ -324,11 +326,23 @@ export default function RoomOperationsPage() {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [date, refreshVersion, session]);
+  }, [date, refreshVersion, session, eventsReady]);
 
-  function handleImportCommitted(importedDate: string) {
-    setDate(importedDate);
-    setRefreshVersion((version) => version + 1);
+  function handleImportCommitted(importedDate: string, savedRows?: unknown[], importId?: string) {
+    acknowledgedImport.current = importId;
+    // Verified readback covers revisions observed before this acknowledgement.
+    pendingImportRevision.current = undefined;
+    if (savedRows) setRows((savedRows as RoomOperation[]).slice().sort(naturalRoomCompare));
+    // The committed import revision owns refresh; do not start a second read here.
+    setSnapshotInfo(current => current ? {...current,sourceDate:importedDate} : current);
+  }
+
+  function handleImportBusy(busy: boolean) {
+    importing.current = busy;
+    if (!busy && pendingImportRevision.current) {
+      if (pendingImportRevision.current !== acknowledgedImport.current) { setDate(hotelDate()); setRefreshVersion(v => v + 1); }
+      pendingImportRevision.current = undefined;
+    }
   }
 
   const summary = useMemo(() => summaryFor(rows), [rows]);
@@ -386,7 +400,7 @@ export default function RoomOperationsPage() {
         </header>
 
         {importOpen && hasCapability(session, "edit_tickets") ? (
-          <RoomOperationsImport date={date} onDateChange={setDate} onCommitted={handleImportCommitted} />
+          <RoomOperationsImport date={date} onDateChange={setDate} onCommitted={handleImportCommitted} onBusyChange={handleImportBusy} />
         ) : null}
 
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">

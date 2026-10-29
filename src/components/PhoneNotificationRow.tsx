@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { subscribeResource } from "@/lib/events/browser";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -71,21 +73,10 @@ export default function PhoneNotificationRow(props: Props) {
   useEffect(() => {
     if (!installed || !props.eligible || !props.subscribed) return;
     void Promise.resolve().then(refresh);
-    const visible = () => { if (document.visibilityState === "visible") void refresh(); };
-    window.addEventListener("focus", visible);
-    document.addEventListener("visibilitychange", visible);
-    return () => {
-      window.removeEventListener("focus", visible);
-      document.removeEventListener("visibilitychange", visible);
-    };
+    return subscribeResource("phone-test", () => void refresh());
   }, [installed, props.eligible, props.subscribed, refresh]);
 
-  useEffect(() => {
-    if (!pending || !props.subscribed) return;
-    // Only reads status. The server owns the delay and send, even after this page closes.
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 2500);
-    return () => window.clearInterval(timer);
-  }, [pending, props.subscribed, refresh]);
+
 
   async function send(delaySeconds: 0 | 10) {
     if (submitting.current) return;

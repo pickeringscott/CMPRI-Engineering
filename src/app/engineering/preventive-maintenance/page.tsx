@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -270,6 +272,7 @@ export default function PreventiveMaintenancePage() {
       if (sequence === requestSequence.current && isCurrent()) setLoading(false);
     }
   }, []);
+  useResourceChange("pm", () => { void loadWeek(weekStart); });
 
   useEffect(() => {
     let current = true;
@@ -432,7 +435,9 @@ export default function PreventiveMaintenancePage() {
     const existing = entryFor(template, periodStart, scopeKey);
     setActiveForm({ templateId: template.id, periodStart, scopeKey });
     setFormData(Object.fromEntries(Object.entries(existing?.form_data || {}).map(([key, value]) => [key, String(value ?? "")])));
-    setChecklist(Object.fromEntries(Object.entries(existing?.responses || {}).filter(([, value]) => typeof value === "string") as Array<[string, ChecklistState]>));
+    const historical=template.kind==='room'?roomHistory.find(row=>row.room===scopeKey.slice(5)&&row.period_start===periodStart):undefined;
+    const sourceAnswers=Object.fromEntries(Object.entries(historical?.item_answers||{}).map(([id,answer])=>[id,answer.value]));
+    setChecklist({...sourceAnswers,...Object.fromEntries(Object.entries(existing?.responses || {}).filter(([, value]) => typeof value === "string") as Array<[string, ChecklistState]>)});
     const priorRows = existing?.form_data?.logEntries;
     setRepeatableRows(Array.isArray(priorRows)
       ? priorRows.map((row) => row && typeof row === "object" ? Object.fromEntries(Object.entries(row).map(([key, value]) => [key, String(value ?? "")])) : {})
@@ -1080,7 +1085,7 @@ export default function PreventiveMaintenancePage() {
               <button type="button" onClick={() => { setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
             </header>
             <div className="space-y-5 p-4 sm:p-5">
-              {activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Individual checklist answers were not imported; saving this form does not replace the historical completion.</p>}
+              {activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Only source-recorded item answers are shown. Historical completion does not assert an item passed; saving this form does not replace the historical completion.</p>}
               {activeTemplate.kind !== "room" && <PmSourceEvidence templateId={activeTemplate.id} />}
               {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
               {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
@@ -1097,12 +1102,13 @@ export default function PreventiveMaintenancePage() {
 
               {activeTemplate.checklist.length > 0 && (
                 <section>
-                  <div className="flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-bold">Inspection checklist</h3><p className="mt-0.5 text-xs text-slate-500">Record each item as acceptable, needing follow-up, or not applicable.</p></div><span className="text-xs text-slate-400">{Object.keys(checklist).length} / {activeTemplate.checklist.length} reviewed</span></div>
+                  <div className="flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-bold">Inspection checklist</h3><p className="mt-0.5 text-xs text-slate-500">Record each item as acceptable, needing follow-up, or not applicable.</p></div><span className="text-xs text-slate-400">{activeHistory ? `Historically completed · ${Object.keys(checklist).length} condition answers recorded` : `${Object.keys(checklist).length} / ${activeTemplate.checklist.length} reviewed`}</span></div>
                   <div className="mt-2 divide-y divide-slate-800 rounded-xl border border-slate-800">
                     {activeTemplate.checklist.map((item) => (
                       <div key={item.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 flex-1"><p className="text-sm text-slate-200">{item.category && <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}{item.label}</p><span className="text-[10px] text-slate-600">{item.source}</span></div>
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 flex-wrap items-center gap-1">
+                          {activeHistory && !checklist[item.id] && <span role="status" className="rounded-md border border-emerald-500/40 bg-emerald-950 px-2 py-1.5 text-[11px] font-bold text-emerald-200">✓ Historically completed · item answer unrecorded</span>}
                           {(["complete", "follow-up", "na"] as const).map((state) => <button key={state} type="button" disabled={!activeCanEdit || !!savingKey} aria-pressed={checklist[item.id] === state} onClick={() => setChecklist((current) => ({ ...current, [item.id]: state }))} className={`rounded-md border px-2 py-1.5 text-[11px] font-bold ${checklist[item.id] === state ? statusStyle(state === "complete" ? true : state === "follow-up" ? state : "na") : "border-slate-700 text-slate-400 hover:border-slate-500"} disabled:opacity-40`}>{state === "complete" ? "✓ OK" : state === "follow-up" ? "/ Follow-up" : "N/A"}</button>)}
                         </div>
                       </div>

@@ -1,0 +1,512 @@
+{
+  "L01": {
+    "panel": "L",
+    "row": 1,
+    "label": "ENTRY: Room Number Signage"
+  },
+  "L02": {
+    "panel": "L",
+    "row": 2,
+    "label": "ENTRY: Entry Door Lock Operation and Deadbolt"
+  },
+  "L03": {
+    "panel": "L",
+    "row": 3,
+    "label": "ENTRY: Door Closer - door self closes/latches"
+  },
+  "L04": {
+    "panel": "L",
+    "row": 4,
+    "label": "ENTRY: Security Latch and Peephole Viewer"
+  },
+  "L05": {
+    "panel": "L",
+    "row": 5,
+    "label": "ENTRY: Door Stop"
+  },
+  "L06": {
+    "panel": "L",
+    "row": 6,
+    "label": "ENTRY: Hinges quiet clean functional"
+  },
+  "L07": {
+    "panel": "L",
+    "row": 7,
+    "label": "ENTRY: Weather stripping/smoke seals"
+  },
+  "L08": {
+    "panel": "L",
+    "row": 8,
+    "label": "ENTRY: Door/frame/trim paint inside/out"
+  },
+  "L09": {
+    "panel": "L",
+    "row": 9,
+    "label": "ENTRY: Law card and Fire Exit/Evacuation Plan"
+  },
+  "L11": {
+    "panel": "L",
+    "row": 11,
+    "label": "CONNECTING: Lock operation"
+  },
+  "L12": {
+    "panel": "L",
+    "row": 12,
+    "label": "CONNECTING: Door stop"
+  },
+  "L13": {
+    "panel": "L",
+    "row": 13,
+    "label": "CONNECTING: Hinges quiet clean functional"
+  },
+  "L14": {
+    "panel": "L",
+    "row": 14,
+    "label": "CONNECTING: Weather stripping/smoke seals"
+  },
+  "L15": {
+    "panel": "L",
+    "row": 15,
+    "label": "CONNECTING: Door/frame/trim paint inside/out"
+  },
+  "L17": {
+    "panel": "L",
+    "row": 17,
+    "label": "BATHROOM DOOR: Handle/privacy lock"
+  },
+  "L18": {
+    "panel": "L",
+    "row": 18,
+    "label": "BATHROOM DOOR: Door stop"
+  },
+  "L19": {
+    "panel": "L",
+    "row": 19,
+    "label": "BATHROOM DOOR: Hinges quiet clean functional"
+  },
+  "L20": {
+    "panel": "L",
+    "row": 20,
+    "label": "BATHROOM DOOR: Door/frame/trim paint inside/out"
+  },
+  "L23": {
+    "panel": "L",
+    "row": 23,
+    "label": "GUEST WALLS: No leaks/water damage"
+  },
+  "L24": {
+    "panel": "L",
+    "row": 24,
+    "label": "GUEST WALLS: Texture and paint"
+  },
+  "L25": {
+    "panel": "L",
+    "row": 25,
+    "label": "GUEST WALLS: Wallpaper"
+  },
+  "L26": {
+    "panel": "L",
+    "row": 26,
+    "label": "GUEST WALLS: Corner guards"
+  },
+  "L27": {
+    "panel": "L",
+    "row": 27,
+    "label": "GUEST WALLS: Baseboard/cove base"
+  },
+  "L29": {
+    "panel": "L",
+    "row": 29,
+    "label": "BATH WALLS: No leaks/water damage"
+  },
+  "L30": {
+    "panel": "L",
+    "row": 30,
+    "label": "BATH WALLS: Texture and paint"
+  },
+  "L31": {
+    "panel": "L",
+    "row": 31,
+    "label": "BATH WALLS: Wallpaper"
+  },
+  "L32": {
+    "panel": "L",
+    "row": 32,
+    "label": "BATH WALLS: Corner guards"
+  },
+  "L34": {
+    "panel": "L",
+    "row": 34,
+    "label": "SEPARATE BEDROOM: No leaks/water damage"
+  },
+  "L35": {
+    "panel": "L",
+    "row": 35,
+    "label": "SEPARATE BEDROOM: Texture and paint"
+  },
+  "L36": {
+    "panel": "L",
+    "row": 36,
+    "label": "SEPARATE BEDROOM: Wallpaper"
+  },
+  "L37": {
+    "panel": "L",
+    "row": 37,
+    "label": "SEPARATE BEDROOM: Corner guards"
+  },
+  "L39": {
+    "panel": "L",
+    "row": 39,
+    "label": "SMOKE ALARM: Tested functional fresh batteries if applicable"
+  },
+  "M01": {
+    "panel": "M",
+    "row": 1,
+    "label": "ELECTRICAL: Outlets/light switches/cover plates"
+  },
+  "M02": {
+    "panel": "M",
+    "row": 2,
+    "label": "ELECTRICAL: Outlets/light switches functional and tight"
+  },
+  "M03": {
+    "panel": "M",
+    "row": 3,
+    "label": "ELECTRICAL: Cover plates secure no cracks or paint"
+  },
+  "M04": {
+    "panel": "M",
+    "row": 4,
+    "label": "LIGHTING: Matching luminosity throughout"
+  },
+  "M05": {
+    "panel": "M",
+    "row": 5,
+    "label": "LIGHTING: Ceiling lights functional/clean/good condition (first printed row)"
+  },
+  "M06": {
+    "panel": "M",
+    "row": 6,
+    "label": "LIGHTING: Ceiling lights functional/clean/good condition (second printed row)"
+  },
+  "M07": {
+    "panel": "M",
+    "row": 7,
+    "label": "LIGHTING: Lamps/sconces functional/clean/good condition"
+  },
+  "M08": {
+    "panel": "M",
+    "row": 8,
+    "label": "LIGHTING: All other lighting functional/good condition"
+  },
+  "M10": {
+    "panel": "M",
+    "row": 10,
+    "label": "ELECTRONIC: Television (generic row)"
+  },
+  "M11": {
+    "panel": "M",
+    "row": 11,
+    "label": "TV: Programmed channels/guide/internet"
+  },
+  "M12": {
+    "panel": "M",
+    "row": 12,
+    "label": "TV: Remote present and functional"
+  },
+  "M13": {
+    "panel": "M",
+    "row": 13,
+    "label": "TV: Cord management"
+  },
+  "M14": {
+    "panel": "M",
+    "row": 14,
+    "label": "TV: Stand/mount functional swivel"
+  },
+  "M15": {
+    "panel": "M",
+    "row": 15,
+    "label": "ELECTRONIC: Phone (generic row)"
+  },
+  "M16": {
+    "panel": "M",
+    "row": 16,
+    "label": "PHONE: Faceplate correct room"
+  },
+  "M17": {
+    "panel": "M",
+    "row": 17,
+    "label": "PHONE: Buttons work and do not stick"
+  },
+  "M18": {
+    "panel": "M",
+    "row": 18,
+    "label": "PHONE: Cord management"
+  },
+  "M19": {
+    "panel": "M",
+    "row": 19,
+    "label": "PHONE: Message light"
+  },
+  "M20": {
+    "panel": "M",
+    "row": 20,
+    "label": "PHONE: Call front desk confirm room/caller ID"
+  },
+  "M21": {
+    "panel": "M",
+    "row": 21,
+    "label": "ELECTRONIC: Other electronics (generic row)"
+  },
+  "M22": {
+    "panel": "M",
+    "row": 22,
+    "label": "CLOCK: Correct time batteries hold charge (first printed row)"
+  },
+  "M23": {
+    "panel": "M",
+    "row": 23,
+    "label": "CLOCK: Correct time batteries hold charge (second printed row)"
+  },
+  "M24": {
+    "panel": "M",
+    "row": 24,
+    "label": "COFFEE: Maker functional and clean"
+  },
+  "M25": {
+    "panel": "M",
+    "row": 25,
+    "label": "ELECTRONIC: Other property-specific devices functional"
+  },
+  "M27": {
+    "panel": "M",
+    "row": 27,
+    "label": "APPLIANCES: Microwave clean working correct time"
+  },
+  "M28": {
+    "panel": "M",
+    "row": 28,
+    "label": "APPLIANCES: Refrigerator clean cold functional maintains temperature"
+  },
+  "M29": {
+    "panel": "M",
+    "row": 29,
+    "label": "APPLIANCES: Stove/hood clean functional if applicable"
+  },
+  "M31": {
+    "panel": "M",
+    "row": 31,
+    "label": "CLOSET: Doors functional"
+  },
+  "M32": {
+    "panel": "M",
+    "row": 32,
+    "label": "CLOSET: Walls/ceiling condition and paint"
+  },
+  "M33": {
+    "panel": "M",
+    "row": 33,
+    "label": "CLOSET: Baseboards/cove base"
+  },
+  "M34": {
+    "panel": "M",
+    "row": 34,
+    "label": "CLOSET: Iron and caddy"
+  },
+  "M35": {
+    "panel": "M",
+    "row": 35,
+    "label": "CLOSET: Ironing board"
+  },
+  "M36": {
+    "panel": "M",
+    "row": 36,
+    "label": "CLOSET: Hangers"
+  },
+  "M37": {
+    "panel": "M",
+    "row": 37,
+    "label": "CLOSET: Safe functional/programmed"
+  },
+  "M39": {
+    "panel": "M",
+    "row": 39,
+    "label": "SPRINKLER: Heads clean leak free no-hang sticker"
+  },
+  "R01": {
+    "panel": "R",
+    "row": 1,
+    "label": "FF&E: Desk/table"
+  },
+  "R02": {
+    "panel": "R",
+    "row": 2,
+    "label": "FF&E: Chair condition"
+  },
+  "R03": {
+    "panel": "R",
+    "row": 3,
+    "label": "FF&E: Dresser/drawers"
+  },
+  "R04": {
+    "panel": "R",
+    "row": 4,
+    "label": "FF&E: Nightstand/drawers"
+  },
+  "R05": {
+    "panel": "R",
+    "row": 5,
+    "label": "FF&E: Artwork/glass/mirrors"
+  },
+  "R06": {
+    "panel": "R",
+    "row": 6,
+    "label": "FF&E: Luggage rack"
+  },
+  "R07": {
+    "panel": "R",
+    "row": 7,
+    "label": "FF&E: Sofa sleeper/pullout couch"
+  },
+  "R08": {
+    "panel": "R",
+    "row": 8,
+    "label": "FF&E: Bed frames/headboards"
+  },
+  "R09": {
+    "panel": "R",
+    "row": 9,
+    "label": "FF&E: Box spring/mattress"
+  },
+  "R10": {
+    "panel": "R",
+    "row": 10,
+    "label": "FF&E: Mattress rotation compliant/sticker"
+  },
+  "R12": {
+    "panel": "R",
+    "row": 12,
+    "label": "WINDOW: Blackout condition/clean/operational"
+  },
+  "R13": {
+    "panel": "R",
+    "row": 13,
+    "label": "WINDOW: Drapery/shades/sheers condition/clean/operational"
+  },
+  "R14": {
+    "panel": "R",
+    "row": 14,
+    "label": "WINDOW: Cracks/fogging/leaks/caulking"
+  },
+  "R15": {
+    "panel": "R",
+    "row": 15,
+    "label": "WINDOW: Locks limit opening to six inches"
+  },
+  "R17": {
+    "panel": "R",
+    "row": 17,
+    "label": "HVAC: Thermostat operation/temperature"
+  },
+  "R18": {
+    "panel": "R",
+    "row": 18,
+    "label": "HVAC: Heating cooling fan operational"
+  },
+  "R19": {
+    "panel": "R",
+    "row": 19,
+    "label": "HVAC: Clean filter/fins/coils/fan/motor"
+  },
+  "R20": {
+    "panel": "R",
+    "row": 20,
+    "label": "HVAC: Condensate drain flow/debris"
+  },
+  "R22": {
+    "panel": "R",
+    "row": 22,
+    "label": "BATH: Hot/cold water sink/tub/shower"
+  },
+  "R23": {
+    "panel": "R",
+    "row": 23,
+    "label": "BATH: Caulking vanity/toilet/tub/shower"
+  },
+  "R24": {
+    "panel": "R",
+    "row": 24,
+    "label": "BATH: Faucets/stoppers/trim rings/shower head"
+  },
+  "R25": {
+    "panel": "R",
+    "row": 25,
+    "label": "BATH: Toilet secure/flush/leaks/bolt covers"
+  },
+  "R26": {
+    "panel": "R",
+    "row": 26,
+    "label": "BATH: Water shutoff valves"
+  },
+  "R27": {
+    "panel": "R",
+    "row": 27,
+    "label": "BATH: Exhaust fan functional and clean"
+  },
+  "R28": {
+    "panel": "R",
+    "row": 28,
+    "label": "BATH: Mirror secure/no cracks"
+  },
+  "R29": {
+    "panel": "R",
+    "row": 29,
+    "label": "BATH: Towel bar/rack secure"
+  },
+  "R30": {
+    "panel": "R",
+    "row": 30,
+    "label": "BATH: Toilet paper holder secure/functional"
+  },
+  "R31": {
+    "panel": "R",
+    "row": 31,
+    "label": "BATH: Shower curtain rod/rings"
+  },
+  "R32": {
+    "panel": "R",
+    "row": 32,
+    "label": "BATH: Shower doors secure/functional/no cracks/leaks"
+  },
+  "R33": {
+    "panel": "R",
+    "row": 33,
+    "label": "BATH: Hair dryer functional/filter clean"
+  },
+  "R34": {
+    "panel": "R",
+    "row": 34,
+    "label": "BATH: Outlets/GFCI test"
+  },
+  "R35": {
+    "panel": "R",
+    "row": 35,
+    "label": "BATH: Grab bars/rails/ADA seat"
+  },
+  "R37": {
+    "panel": "R",
+    "row": 37,
+    "label": "FLOOR: Carpet condition"
+  },
+  "R38": {
+    "panel": "R",
+    "row": 38,
+    "label": "FLOOR: Tile/vinyl/grout condition"
+  },
+  "R39": {
+    "panel": "R",
+    "row": 39,
+    "label": "FLOOR: Shampoo carpet/clean tile and grout"
+  }
+}

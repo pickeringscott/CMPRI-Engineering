@@ -255,8 +255,6 @@ export async function GET(request: NextRequest) {
   if (!validDate(date)) return NextResponse.json({ error: "Room-operations date is invalid." }, { status: 400 });
   const today = hotelDate();
   if (!isRetainedDate(date, today)) return NextResponse.json({ error: "Only today's and yesterday's room-operations snapshots are retained." }, { status: 400 });
-  const { error: reconcileError } = await auth.admin.rpc("cmpri_reconcile_room_operations");
-  if (reconcileError) return NextResponse.json({ error: `Scheduled room checkout transitions could not be reconciled: ${reconcileError.message}` }, { status: 503 });
   const snapshot = await loadEffectiveRoomOperationsSnapshot(auth.admin, date);
   if (snapshot.error) return NextResponse.json({ error: "Effective room-operations snapshot could not be loaded." }, { status: 503 });
   const legacy = snapshot.source_type === "legacy";

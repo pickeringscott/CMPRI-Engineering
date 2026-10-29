@@ -1,4 +1,6 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
+import { useResourceChange } from "@/lib/events/use-resource-change";
 import {Fragment,useCallback,useEffect,useState,useRef,useMemo} from 'react';
 import {authorizationHeaders} from '@/lib/auth/client-session';
 import {poOrderBadge,recordedPoValue,receiptBlock,poHotelDate} from '@/lib/po-workflow';
@@ -41,6 +43,7 @@ export default function PurchaseOrders({canImport=false}:{canImport?:boolean}){
  const selected=selection.id;
  const selectOrder=(id:string)=>{setSelection({id,missingLink:false});const url=new URL(window.location.href);url.searchParams.set('order',id);url.searchParams.delete('historyRecord');window.history.replaceState(null,'',url);};
  const load=useCallback(async()=>{const r=await fetch('/api/engineering/purchase-orders',{headers:await authorizationHeaders(),cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error||'Could not load POs');setData(d);const url=new URL(window.location.href);const target=url.searchParams.get('order');if(url.searchParams.has('historyRecord'))setHistory(true);setSelection(current=>resolvePoSelection(d.cmpri_po_orders.map((o:Order)=>o.id),current.id,target));},[]);
+ useResourceChange("purchasing", () => { if (!busy && !manual && !addItem && !editItems && !editingReceipt) return load(); setMessage("Purchasing changed. Your draft is preserved; finish or close it before reloading."); });
  useEffect(()=>{void Promise.resolve().then(load).catch(e=>setMessage(e.message)).finally(()=>setLoading(false));},[load]);
  const save=async(body:Record<string,unknown>,reportError=false)=>{if(saveLock.current)return false;saveLock.current=true;setBusy(true);setMessage('');try{const r=await fetch('/api/engineering/purchase-orders',{method:'POST',headers:{...await authorizationHeaders(),'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(d.error||'Save failed');await load();setMessage('Saved.');return true;}catch(e){setMessage(e instanceof Error?e.message:'Save failed');if(reportError)throw e;return false;}finally{saveLock.current=false;setBusy(false);}};
  const block=(l:Line)=>receiptBlock({weightUnit:['LB','OZ','G','KG'].includes(l.uom),ordered:Number(l.ordered),received:data.cmpri_po_receipts.filter(r=>r.line_id===l.id).reduce((n,r)=>n+Number(r.quantity),0),origin:data.cmpri_po_orders.find(o=>o.id===l.order_id)?.origin,accepted:data.cmpri_po_orders.find(o=>o.id===l.order_id)?.acceptance==='accepted',mapped:!!l.inventory_item_id&&!!l.units_per_order_unit,active:data.cmpri_inventory_items.some(i=>i.id===l.inventory_item_id&&i.active),cancelled:data.cmpri_po_orders.find(o=>o.id===l.order_id)?.cancelled});

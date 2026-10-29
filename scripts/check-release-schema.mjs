@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Read-only release gate. Never prints configuration values or database rows.
 const required = {
+  employment_resumes: ["application_id","file_name","original_pdf"],
+  cmpri_room_pm_history: ["room","period_start","completed_on","item_answers"],
   pool_daily_logs: ['latest_test', 'retest_submission', 'manual_closure', 'id', 'revision', 'updated_by', 'ph_am', 'ph_pm', 'sanitizer_am', 'sanitizer_pm', 'sanitizer_band_am', 'sanitizer_band_pm', 'sample_location_am', 'sample_location_pm', 'flow_rate_gpm', 'temperature_f', 'main_drain_visible', 'filter_backwashed', 'closure_condition', 'closure_reason', 'remarks'],
   cmpri_pool_log_history: ['id', 'pool_log_id', 'snapshot'],
   work_orders: [
@@ -26,6 +28,12 @@ const required = {
   cmpri_order_ideas: ['id', 'hotel_id', 'item_text', 'quantity', 'status', 'source'],
   cmpri_enseo_assignments: ['id', 'hotel_id', 'asset_id', 'device_type', 'location_id', 'room_number', 'sub_location', 'endpoint_code', 'active', 'revision'],
   cmpri_enseo_assignment_history: ['id', 'batch_id', 'hotel_id', 'assignment_id', 'asset_id', 'actor_user_id', 'from_location_id', 'to_location_id', 'moved_at'],
+  cmpri_ranker_writer: ['hotel_id', 'owner', 'expires_at'],
+  cmpri_ranker_watch_channels: ['id', 'hotel_id', 'file_id', 'resource_id', 'status', 'expires_at'],
+  cmpri_ranker_watch_events: ['channel_id', 'message_number', 'processed_at'],
+  cmpri_ranker_sheet_versions: ['hotel_id', 'file_id', 'version'],
+  cmpri_gss_publications: ['hotel_id', 'report_date', 'report', 'source_message_id', 'source_hash'],
+  cmpri_gss_publication_slots: ['hotel_id', 'slot', 'owner', 'lease_until', 'completed_at'],
   cmpri_email_events: ['id', 'hotel_id'],
   cmpri_purchases: ['id', 'hotel_id'],
   cmpri_purchase_shipments: ['id', 'purchase_id'],
@@ -35,7 +43,7 @@ const required = {
   cmpri_gss_reports: ['id', 'hotel_id'],
   cmpri_room_ranker_sync_queue: [
     'id', 'hotel_id', 'work_order_id', 'attempts', 'next_attempt_at',
-    'processed_at', 'last_error', 'created_at', 'updated_at',
+    'processed_at', 'last_error', 'created_at', 'updated_at', 'revision',
   ],
   cmpri_dashboard_notifications: [
     'id', 'hotel_id', 'recipient_user_id', 'notification_key', 'work_order_id',

@@ -17,12 +17,12 @@
       "schedule": "15 * * * *"
     },
     {
-      "path": "/api/room-operations/reconcile",
+      "path": "/api/pool-status/reconcile",
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/pool-status/reconcile",
-      "schedule": "* * * * *"
+      "path": "/api/integrations/gss/publish",
+      "schedule": "0 17,18 * * 1"
     }
   ]
 }

@@ -1,4 +1,6 @@
 "use client";
+import ResourceChangeNotice from "@/components/ResourceChangeNotice";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -162,6 +164,7 @@ export default function RoomRankerPage() {
       <header className="flex min-h-7 flex-wrap items-center justify-between gap-1 border-b border-slate-200 bg-white px-1.5 py-0.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <h1 className="!text-xs truncate font-medium text-slate-800">Room Ranker old</h1>
+          <ResourceChangeNotice resource="room-ranker" />
           {embedded && (
             <ModalDashboardLink className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-50">
               ← Dashboard

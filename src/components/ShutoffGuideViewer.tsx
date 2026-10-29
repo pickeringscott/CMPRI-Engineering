@@ -1,4 +1,5 @@
 "use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useEffect, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";

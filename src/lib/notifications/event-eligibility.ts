@@ -4,6 +4,7 @@ import type { WebPushEligibleProfile } from "@/lib/notifications/schedule";
 // Phone delivery uses the same per-event recipient policy as the existing inbox.
 // A manager's pool alert never authorizes ordinary work-order alerts.
 export function receivesEventPush(profile: WebPushEligibleProfile, notification: { id: string; work_order_id?: string | null }) {
+  if (notification.id.startsWith("feedback:")) return profileAllows(profile, "review_feedback");
   if (notification.id.startsWith("work-order-mention:")) return !profileHasRole(profile, "front_desk") && profileAllows(profile, "add_work_order_notes");
   if (notification.id.startsWith("staff-note:")) return !profileHasRole(profile, "front_desk") && ["engineer", "technician", "manager", "assistant_manager", "front_desk_manager", "housekeeping", "system_admin"].some(role => profileHasRole(profile, role as Parameters<typeof profileHasRole>[1]));
   if (notification.id.startsWith("report-correction:")) return profileIsChiefEngineer(profile) || profileIsEstablishedHoursChief(profile);

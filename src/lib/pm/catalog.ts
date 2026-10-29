@@ -1,4 +1,5 @@
 import source from "./source-catalog.json";
+import roomSourceItems from "./room-source-items.json";
 
 export type PmCadence = "daily" | "weekly" | "monthly" | "quarterly";
 export type PmScope = "property" | "room" | "area" | "equipment";
@@ -183,7 +184,9 @@ function makePdfTemplates(): PmTemplate[] {
     if (pdf.file === "Fitness Center (1).pdf") return [];
     const metadata = pdfMetadata[pdf.file];
     if (!metadata) throw new Error(`PM source PDF has no form metadata: ${pdf.file}`);
-    const checklist = pdf.lines
+    const checklist = pdf.file === "Room PM Checklist.pdf"
+      ? Object.entries(roomSourceItems).map(([row, item]) => ({ id: `room-pm-scan-${row.toLowerCase()}`, label: item.label, source: `PM Scan.pdf room checklist ${row}` }))
+      : pdf.lines
       .filter((line) => !/^(?:Q[1-4]|YES|NO|DATE|YEAR|NOTES|MAINTENANCE)$/i.test(line))
       .filter((line) => !/^The (?:[A-Z]|property|form|checklist)/.test(line) || line.length < 220)
       .map((label, index) => ({ id: `${slug(pdf.file)}-item-${index + 1}`, label, source: pdf.file }));

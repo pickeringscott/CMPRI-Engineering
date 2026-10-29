@@ -1,4 +1,5 @@
-'use client';
+"use client";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authorizationHeaders, loadCmpriSession } from '@/lib/auth/client-session';

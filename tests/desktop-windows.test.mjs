@@ -127,7 +127,7 @@ test('only well-formed local notifications are imported into the server inbox', 
 });
 
 test('dashboard notifications live in the database, scoped to the signed-in user', () => {
-  const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
+  const route = readFileSync(new URL('../src/lib/server/dashboard-notifications.ts', import.meta.url), 'utf8');
   const migration = readFileSync(new URL('../supabase/migrations/20260930190000_cmpri_dashboard_notifications.sql', import.meta.url), 'utf8');
   const roomOpsMigration = readFileSync(new URL('../supabase/migrations/20260930210000_cmpri_room_ops_notifications.sql', import.meta.url), 'utf8');
   const goLiveMigration = readFileSync(new URL('../supabase/migrations/20261005170000_cmpri_go_live_permissions_and_notifications.sql', import.meta.url), 'utf8');
@@ -136,7 +136,7 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(migration, /enable row level security/);
   assert.match(migration, /revoke all on table public\.cmpri_dashboard_notifications from anon, authenticated;/);
   assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
-  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 4, 'every inbox read/write is scoped to the requester');
+  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 3, 'every inbox read/write is scoped to the requester');
   assert.match(route, /\.update\(update\)/);
   assert.match(route, /body\.action === "read"[\s\S]*read_at: new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(route, /\.delete\(/);
@@ -149,7 +149,7 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(goLiveMigration, /where cleared_at is null and read_at is null/i);
   assert.match(goLiveMigration, /'\/engineering\/pool-log'/);
   assert.match(migration, /clears them/);
-  assert.match(dashboard, /DASHBOARD_NOTIFICATION_POLL_MS/);
+  assert.match(dashboard, /subscribeDashboardRefresh/);
   assert.match(dashboard, /void loadDashboard\(true\)/);
 });
 

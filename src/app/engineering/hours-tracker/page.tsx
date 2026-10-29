@@ -1,4 +1,6 @@
 "use client";
+import ResourceChangeNotice from "@/components/ResourceChangeNotice";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authorizationHeaders, loadCmpriSession } from '@/lib/auth/client-session';
@@ -31,6 +33,6 @@ export default function HoursTrackerPage() {
     if (window.parent !== window) window.parent.postMessage({ type: 'cmpri-modal-close', modalToken: new URLSearchParams(window.location.search).get('modalToken') || '' }, window.location.origin);
     else router.push(loaded?.home || '/');
   }
-  return loaded ? <HoursTracker owner={loaded.owner} initial={loaded.saved} requirePersonalSetup={loaded.requirePersonalSetup} persist={persist} onClose={close} /> : <main style={{background:'#050918',color:'#dce2eb',padding:16}}><p role={error ? 'alert' : 'status'}>{error || 'Loading private Hours Tracker…'}</p><button onClick={close}>Close</button></main>;
+  return <><ResourceChangeNotice resource="hours" />{ loaded ? <HoursTracker owner={loaded.owner} initial={loaded.saved} requirePersonalSetup={loaded.requirePersonalSetup} persist={persist} onClose={close} /> : <main style={{background:'#050918',color:'#dce2eb',padding:16}}><p role={error ? 'alert' : 'status'}>{error || 'Loading private Hours Tracker…'}</p><button onClick={close}>Close</button></main>}</>;
 }
 

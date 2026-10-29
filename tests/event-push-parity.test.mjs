@@ -12,6 +12,7 @@ function moduleAt(path, dependencies, suffix = '') {
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path, root), 'utf8') + suffix, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { exports, process, console, Date, require(name) {
+    if (name === "@/lib/server/notification-events") return {materializeNotificationEvents: async()=>0};
     if (name in dependencies) return dependencies[name];
     throw new Error(`Unexpected dependency ${name}`);
   } });

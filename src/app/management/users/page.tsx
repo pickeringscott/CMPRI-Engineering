@@ -1,4 +1,6 @@
 "use client";
+import { useResourceChange } from "@/lib/events/use-resource-change";
+import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
@@ -37,6 +39,8 @@ export default function UserManagementPage() {
     if (!res.ok) throw new Error(payload.error || "Unable to load users.");
     return { users: (payload.users || []) as UserRow[], roles: (payload.assignable_roles || []) as string[] };
   }, [authHeaders]);
+
+  useResourceChange("users", async () => { if (busy) return; const result = await loadUsers(); setUsers(result.users); setRoles(result.roles); });
 
   useEffect(() => {
     let current = true;
