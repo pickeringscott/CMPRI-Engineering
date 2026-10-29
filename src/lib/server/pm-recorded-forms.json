@@ -1193,144 +1193,137 @@
           "kind": "log",
           "rows": [
             {
-              "label": "Header month/year blank. Rows: location | device",
-              "value": "",
-              "rawDate": "2026-09-16",
-              "notes": "Source mark: result. notes. Each date9/16/26 except two explicit uncertain dates.",
-              "id": "pm-source-p21-r1"
-            },
-            {
               "label": "2nd floor south stair | EM",
               "value": "NO",
               "rawDate": "2026-09-16",
               "notes": "Test no lights",
-              "id": "pm-source-p21-r2"
+              "id": "pm-source-p21-r1"
             },
             {
               "label": "2nd ground | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r3"
+              "id": "pm-source-p21-r2"
             },
             {
               "label": "2nd above door | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r4"
+              "id": "pm-source-p21-r3"
             },
             {
               "label": "204 &206 | EM",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r5"
+              "id": "pm-source-p21-r4"
             },
             {
               "label": "208 &210 | EM",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r6"
+              "id": "pm-source-p21-r5"
             },
             {
               "label": "214 &216 | EM",
               "value": "NO",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r7"
+              "id": "pm-source-p21-r6"
             },
             {
               "label": "Middle hallway #1 | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r8"
+              "id": "pm-source-p21-r7"
             },
             {
               "label": "Middle hallway #2 | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r9"
+              "id": "pm-source-p21-r8"
             },
             {
               "label": "Middle hallway #3 | EXIT",
               "value": "YES",
               "rawDate": "9/14/26 possibly16",
               "notes": "Day9/14/26 possibly16",
-              "id": "pm-source-p21-r10"
+              "id": "pm-source-p21-r9"
             },
             {
               "label": "Middle hallway #4 | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r11"
+              "id": "pm-source-p21-r10"
             },
             {
               "label": "2nd ice machine | EM",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r12"
+              "id": "pm-source-p21-r11"
             },
             {
               "label": "221 | EM",
               "value": "NO",
               "rawDate": "2026-09-16",
               "notes": "No lights",
-              "id": "pm-source-p21-r13"
+              "id": "pm-source-p21-r12"
             },
             {
               "label": "224 | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r14"
+              "id": "pm-source-p21-r13"
             },
             {
               "label": "226 | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r15"
+              "id": "pm-source-p21-r14"
             },
             {
               "label": "226 | EM",
               "value": "NO",
               "rawDate": "2026-09-16",
               "notes": "No lights",
-              "id": "pm-source-p21-r16"
+              "id": "pm-source-p21-r15"
             },
             {
               "label": "232 | EM",
               "value": "NO",
               "rawDate": "2026-09-16",
               "notes": "No lights",
-              "id": "pm-source-p21-r17"
+              "id": "pm-source-p21-r16"
             },
             {
               "label": "2nd north ground | EXIT",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "",
-              "id": "pm-source-p21-r18"
+              "id": "pm-source-p21-r17"
             },
             {
               "label": "2nd north above door | EXIT",
               "value": "",
               "rawDate": "9/16/2? last digit unclear",
               "notes": "Source mark: unmarked. Year9/16/2? last digit unclear",
-              "id": "pm-source-p21-r19"
+              "id": "pm-source-p21-r18"
             },
             {
               "label": "2nd north stairwell | EM",
               "value": "YES",
               "rawDate": "2026-09-16",
               "notes": "Dim light",
-              "id": "pm-source-p21-r20"
+              "id": "pm-source-p21-r19"
             }
           ]
         }

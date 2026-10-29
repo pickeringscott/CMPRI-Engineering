@@ -189,7 +189,15 @@ function makePdfTemplates(): PmTemplate[] {
       : pdf.lines
       .filter((line) => !/^(?:Q[1-4]|YES|NO|DATE|YEAR|NOTES|MAINTENANCE)$/i.test(line))
       .filter((line) => !/^The (?:[A-Z]|property|form|checklist)/.test(line) || line.length < 220)
-      .map((label, index) => ({ id: `${slug(pdf.file)}-item-${index + 1}`, label, source: pdf.file }));
+      .map((label, index) => ({ id: `${slug(pdf.file)}-item-${index + 1}`, label, source: pdf.file }))
+      // Printed instructions and column headers are not inspection answers.
+      // Filter AFTER assigning IDs so every real saved answer retains its identity.
+      .filter(item => !/^create work orders based off|^Q1 DATE Q2 DATE|^MAINTENANCE Q1 Q2/i.test(item.label));
+    if (["Emergency lighting-Exit Sign log Master.pdf", "Monthly Fire Extinguisher Log.pdf", "Monthly Laundry Chute Log.pdf", "Monthly fire Door log.pdf"].includes(pdf.file)) {
+      // These records use the actual per-device Yes/No log fields below, not
+      // synthetic checkboxes for their printed instructions.
+      checklist.length = 0;
+    }
     // Append missing source definitions without renumbering any saved response ID.
     const supplements: Record<string, Array<{ id: string; label: string; source: string }>> = {
       "Kitchen.pdf": [

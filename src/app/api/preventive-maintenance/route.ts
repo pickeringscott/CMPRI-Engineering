@@ -91,12 +91,12 @@ export async function GET(request: NextRequest) {
   const week = request.nextUrl.searchParams.get("week") || "";
   if (!validWeek(week)) return NextResponse.json({ error: "Select a week beginning on Monday." }, { status: 400 });
 
-  const from = new Date(`${week}T12:00:00Z`);
-  from.setUTCDate(from.getUTCDate() - 100);
+  // Historical source responses must remain reachable for every prior period in this year.
+  const from = `${week.slice(0, 4)}-01-01`;
   const proposals = await auth.admin.from("cmpri_pm_proposals")
     .select("id, template_id, period_start, scope_key, payload, proposed_cells, status, submitted_by, submitted_by_name, reviewed_by, reviewed_at, review_note, revision, updated_at")
     .eq("hotel_id", HOTEL_ID)
-    .gte("period_start", from.toISOString().slice(0, 10))
+    .gte("period_start", from)
     .lte("period_start", pmWeekDates(week)[6])
     .order("period_start", { ascending: true })
     .limit(5000);

@@ -6,7 +6,8 @@ const catalog=JSON.parse(readFileSync('src/lib/pm/room-source-items.json','utf8'
 test('room source controls distinguish every printed item, including safe, carpet and sprinkler',()=>{
  assert.equal(Object.keys(catalog).length,102);
  assert.match(catalog.M37.label,/Safe/);assert.match(catalog.R37.label,/Carpet/);assert.match(catalog.M39.label,/Heads/);assert.equal(catalog.M38,undefined);
- const page=readFileSync('src/app/engineering/preventive-maintenance/page.tsx','utf8');assert.match(page,/Historically completed/);assert.match(page,/item answer unrecorded/);
+ const page=readFileSync('src/app/engineering/preventive-maintenance/page.tsx','utf8');assert.match(page,/Historically completed/);assert.match(page,/historicalCompleted=\{!!activeHistory\}/);
+ assert.match(readFileSync('src/components/PmAnswerControls.tsx','utf8'),/Completed historically · condition unrecorded/);
 });
 test('historical answers preserve completion/date, reject conflicts atomically and replay idempotently',async()=>{
  const db=new PGlite();try{

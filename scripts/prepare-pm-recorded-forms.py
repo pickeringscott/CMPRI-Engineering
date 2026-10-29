@@ -65,6 +65,7 @@ for p in data['pages'][:42]:
                 # Only exact named result cells count; ambiguous or grouped results stay unselected.
                 result_index=2 if n in [10,11,12,13,14,21,28] else 1
                 if len(cells)<=result_index:raise ValueError(f'Incomplete page {n} row')
+                if cells[result_index].lower() in ['result','marked result']:continue
                 raw=cells[result_index];value=raw if raw in ['YES','NO'] else ''
                 date=''
                 if n==21:date='9/14/26 possibly16' if cells[0]=='Middle hallway #3' else '9/16/2? last digit unclear' if cells[0]=='2nd north above door' else '2026-09-16'
