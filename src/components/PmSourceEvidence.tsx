@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { findPmTemplate } from "@/lib/pm/catalog";
 import type { PmSourcePage } from "@/lib/pm/source-evidence";
+import type { RecordedPmPage } from "@/lib/pm/recorded-forms";
+import PmRecordedForms from './PmRecordedForms';
 
-type Source = { source_id: string; source_name: string; page_count: number; pages: PmSourcePage[]; confirmed_by_name: string; confirmed_at: string };
+type Source = { source_id: string; source_name: string; page_count: number; pages: Array<PmSourcePage & RecordedPmPage>; confirmed_by_name: string; confirmed_at: string };
 type Preview = { action: string; pageCount: number; previewDigest: string; applied: boolean; inserted: number; skipped: number };
 export default function PmSourceEvidence({ canReview = false, templateId }: { canReview?: boolean; templateId?: string }) {
   const [sources, setSources] = useState<Source[]>([]);
@@ -41,10 +43,12 @@ export default function PmSourceEvidence({ canReview = false, templateId }: { ca
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Source import failed."); setPreview(null); }
     finally { setBusy(false); }
   }
-  function pageDetails(page: PmSourcePage) {
+  function pageDetails(page: PmSourcePage & RecordedPmPage) {
     return <details key={page.page} className="rounded border border-slate-700 bg-slate-950 p-3">
       <summary className="cursor-pointer font-semibold">Page {page.page} · {page.category} · {page.location} · {page.kind === "blank-template" ? "Blank template" : page.kind === "room-history-reference" ? "Room history reference" : page.findings.length ? "Recorded findings" : "Source observations"}</summary>
-      <dl className="mt-3 space-y-2 text-sm"><dt>Existing form</dt><dd>{page.templateId ? findPmTemplate(page.templateId)?.title : "Unmatched — review needed"}</dd><dt>Frequency</dt><dd>{page.frequency}</dd><dt>Source date as written</dt><dd>{page.rawDate || "No date recorded"}</dd><dt>Verified observation date</dt><dd>{page.observedOn || "Unknown / unresolved"}</dd><dt>Source evidence</dt><dd className="whitespace-pre-wrap">{page.evidence}</dd></dl>
+      {page.recordedFormsConflict && <p role="alert" className="text-amber-200">Source evidence changed since mapping. Recorded selections are withheld to protect your corrections.</p>}
+      {!!page.recordedForms?.length && <PmRecordedForms page={page.page} forms={page.recordedForms} />}
+      <dl className="mt-3 space-y-2 text-sm"><dt>Existing form</dt><dd>{page.templateId ? findPmTemplate(page.templateId)?.title : "Unmatched - review needed"}</dd><dt>Frequency</dt><dd>{page.frequency}</dd><dt>Source date as written</dt><dd>{page.rawDate || "No date recorded"}</dd><dt>Verified observation date</dt><dd>{page.observedOn || "Unknown / unresolved"}</dd><dt>Source evidence</dt><dd className="whitespace-pre-wrap">{page.evidence}</dd></dl>
       {page.findings.length > 0 && <div className="mt-3 rounded border border-amber-700 p-3"><p className="font-semibold text-amber-200">Defects and contradictory evidence</p><ul className="list-disc pl-5 text-sm">{page.findings.map((finding, i) => <li key={i}>{finding}</li>)}</ul></div>}
       {page.unresolved.length > 0 && <div className="mt-3"><p className="font-semibold">Unresolved source questions</p><ul className="list-disc pl-5 text-sm">{page.unresolved.map((item, i) => <li key={i}>{item}</li>)}</ul></div>}
       <p className="mt-3 text-xs text-slate-400">Source evidence preserves what was recorded. It does not set checklist answers, declare repairs, mark a new inspection complete, or create work orders.</p>

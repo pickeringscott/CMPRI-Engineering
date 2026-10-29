@@ -5,13 +5,14 @@ import { PM_TEMPLATES } from "@/lib/pm/catalog";
 import { validatePmSource } from "@/lib/pm/source-evidence";
 import { requireUser } from "@/lib/server/auth";
 import { profileHasRole } from "@/lib/server/roles";
+import { projectRecordedPmForms } from "@/lib/server/pm-recorded-forms";
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
   const result = await auth.admin.from("cmpri_pm_source_evidence").select("source_id, source_name, page_count, pages, confirmed_by_name, confirmed_at").eq("hotel_id", HOTEL_ID).order("confirmed_at", { ascending: false }).limit(100);
   if (result.error) return NextResponse.json({ error: result.error.message }, { status: 503 });
-  return NextResponse.json({ sources: result.data || [] }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ sources: (result.data || []).map(source => ({ ...source, pages: projectRecordedPmForms(source.source_id, source.pages) })) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: NextRequest) {
