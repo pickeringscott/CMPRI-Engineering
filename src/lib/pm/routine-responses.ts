@@ -23,3 +23,9 @@ export function togglePmRoutineResponse(
     id === itemId ? checked : currentResponses[id] === true,
   ]));
 }
+
+/** Shared by the visible monthly checkbox and its completion counter. */
+export function pmRoutineChecked(proposal: {status?:string;responses?:Record<string,unknown>} | undefined, itemId:string, spreadsheetSyncEnabled:boolean, sourceChecked:boolean):boolean {
+  if ((proposal?.status === 'pending' || !spreadsheetSyncEnabled) && Object.hasOwn(proposal?.responses || {}, itemId)) return proposal?.responses?.[itemId] === true;
+  return sourceChecked;
+}

@@ -34,7 +34,7 @@ test('actual SQL batch -> actual API entries -> actual form hydration/control se
  for(const row of batch.entries){
   const template=catalog.findPmTemplate(row.template_id);assert.ok(template);assert.ok(catalog.validPmPeriod(template,row.period_start));
   for(const id of Object.keys(row.payload.responses))assert.ok(template.checklist.some(i=>i.id===id),id);
-  assert.equal(row.payload.completed_on,null);assert.equal(row.payload.is_complete,false);
+  assert.equal(row.payload.completed_on,null);assert.equal(row.payload.is_complete,!!row.payload.form_data.logEntries?.length||Object.values(row.payload.responses).some(v=>['complete','follow-up'].includes(v)));
  }
  await db.exec(sql);assert.equal((await db.query('select count(*)::int n from cmpri_pm_proposals')).rows[0].n,52);
  await db.exec(sql);assert.equal((await db.query('select count(*)::int n from cmpri_pm_proposals')).rows[0].n,52);

@@ -11,7 +11,7 @@ import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
+import { pmRoutineChecked, isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
 import RoomPmHistoryImport from "@/components/RoomPmHistoryImport";
@@ -737,13 +737,7 @@ export default function PreventiveMaintenancePage() {
 
   function routineStatus(template: PmTemplate, period: string, itemId: string) {
     const proposal = entryFor(template, period);
-    if (proposal?.status === "pending" && Object.hasOwn(proposal.responses || {}, itemId)) {
-      return proposal.responses[itemId] === true;
-    }
-    if (!spreadsheetSyncEnabled && Object.hasOwn(proposal?.responses || {}, itemId)) {
-      return proposal?.responses[itemId] === true;
-    }
-    return sourceRoutineStatus(template, period, itemId, liveWorkbook);
+    return pmRoutineChecked(proposal, itemId, spreadsheetSyncEnabled, sourceRoutineStatus(template, period, itemId, liveWorkbook));
   }
 
   function canEditPeriod(template: PmTemplate, period: string) {
