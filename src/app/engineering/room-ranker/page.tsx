@@ -1,5 +1,6 @@
 "use client";
 import ResourceChangeNotice from "@/components/ResourceChangeNotice";
+import RankerWatchControl from "@/components/RankerWatchControl";
 import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 
 import { useEffect, useState } from "react";
@@ -161,6 +162,7 @@ export default function RoomRankerPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-white text-slate-800">
+      <RankerWatchControl />
       <header className="flex min-h-7 flex-wrap items-center justify-between gap-1 border-b border-slate-200 bg-white px-1.5 py-0.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <h1 className="!text-xs truncate font-medium text-slate-800">Room Ranker old</h1>
