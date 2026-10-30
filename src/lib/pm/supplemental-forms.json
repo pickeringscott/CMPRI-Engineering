@@ -1,0 +1,561 @@
+[
+  {
+    "id": "pdf:tool-inventory",
+    "title": "Tool Inventory",
+    "sourceFile": "Tool Inventory.pdf",
+    "sourceReference": "https://drive.google.com/file/d/1yk8QhAFYQoHaQp1d-T2Hdnixu-1i4hPT/view",
+    "cadence": "monthly",
+    "scope": "property",
+    "kind": "log",
+    "instructions": "Inventory major/high-value tools monthly. Total inventory is due by the end of January and June and within two weeks of hiring a maintenance manager. Submit to the GM, retain a copy, and upload to the Facilities drive. Record the actual inventory type and date; no automatic upload is performed.",
+    "fields": [
+      {
+        "id": "inspectionDate",
+        "label": "Inspection date",
+        "type": "date"
+      },
+      {
+        "id": "inventoryType",
+        "label": "Inventory scope",
+        "type": "select",
+        "options": [
+          "Monthly major tools",
+          "Semiannual total inventory",
+          "New manager inventory"
+        ],
+        "required": true
+      },
+      {
+        "id": "manager",
+        "label": "Maintenance manager / supervisor",
+        "type": "text"
+      },
+      {
+        "id": "generalManager",
+        "label": "General manager",
+        "type": "text"
+      },
+      {
+        "id": "notes",
+        "label": "Inspection notes",
+        "type": "textarea"
+      }
+    ],
+    "checklist": [],
+    "repeatableFields": [
+      {
+        "id": "quantity",
+        "label": "Quantity",
+        "type": "number",
+        "required": true
+      },
+      {
+        "id": "item",
+        "label": "Item",
+        "type": "text",
+        "required": true
+      },
+      {
+        "id": "make",
+        "label": "Make",
+        "type": "text",
+        "required": false
+      },
+      {
+        "id": "model",
+        "label": "Model",
+        "type": "text",
+        "required": false
+      },
+      {
+        "id": "location",
+        "label": "Location",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "repeatableLabel": "Inventory items",
+    "sourceMetadata": {
+      "drive_id": "1yk8QhAFYQoHaQp1d-T2Hdnixu-1i4hPT",
+      "source_text": "MAINTENANCE SCHEDULE | PREVENTATIVE MAINTENANCE PROGRAM\r\nMaintenance Manager/Supervisor: _________________________________________________________ General Manager: _________________________________________________________\r\nOn a semi-annual basis, inventory all equipment and tools used by the maintenance department. Upload this inventory to the Facilities Google drive by the end of January and June.\r\nSubmit a copy to the GM and keep a copy on file in the Maintenance Manager's office. Additionally, an inventory must be conducted within two weeks of hiring a new Maintenance Manager. Date. ______________________\r\nMAJOR TOOL INVENTORY - IMPORTANT AND/OR HIGH VALUE TOOLS TO BE INVENTORIED MONTHLY\r\nTOTAL TOOL INVENTORY - DUE BI-ANNUALLY BY END OF JANUARY AND JUNE\r\nTOOL AND EQUIPMENT INVENTORY\r\nQuantity Item Make Model LocationMAINTENANCE SCHEDULE | PREVENTATIVE MAINTENANCE PROGRAM\r\nMaintenance Manager/Supervisor: _________________________________________________________ General Manager: _________________________________________________________\r\nOn a semi-annual basis, inventory all equipment and tools used by the maintenance department. Upload this inventory to the Facilities Google drive by the end of January and June.\r\nSubmit a copy to the GM and keep a copy on file in the Maintenance Manager's office. Additionally, an inventory must be conducted within two weeks of hiring a new Maintenance Manager. Date. ______________________\r\nTOOL AND EQUIPMENT INVENTORY\r\nQuantity Item Make Model Location"
+    }
+  },
+  {
+    "id": "pdf:shuttle",
+    "title": "Shuttle",
+    "sourceFile": "Shuttle.pdf",
+    "sourceReference": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view",
+    "cadence": "quarterly",
+    "scope": "equipment",
+    "kind": "inspection",
+    "months": [
+      3,
+      6,
+      9,
+      12
+    ],
+    "instructions": "1\r\nMAINTENANCE SCHEDULE | SHUTTLE QUARTERLY CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS MARCH | JUNE | SEPTEMBER | DECEMBER\r\nShuttle License Plate Number or Identifier:\r\n: The Shuttle is scheduled for maintenance in . Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nYEAR\r\nQ1 DATE Q2 DATE Q3 DATE Q4 DATE\r\nMAINTENANCE Q1 Q2 Q3 Q4\r\nEnsure vehicle is clean and inviting for guests, interior and exterior\r\nCheck all windows and mirrors for cracks\r\nEnsure all lights are functional (headlights, hight beams, tailights, brake lights, reverse lights, turn signals, interior lights)\r\nCheck fluid levels and inspect for leaks (oil, brake fluid, windshield wiper fluid, transmission, etc)\r\nInspect condition of windshield wipers/blades\r\nCheck tire pressure, tread, and condition\r\nTest horn\r\nCheck heating, cooling, and fan\r\nIf winter condtion - Ensure ice scraper, jumper cables, and gloves are present\r\nEnsure vehicle registration and insurance cards are present\r\nCheck license plate sticker for proper date\r\nNOTES",
+    "fields": [
+      {
+        "id": "inspectionDate",
+        "label": "Inspection date",
+        "type": "date"
+      },
+      {
+        "id": "unitIdentifier",
+        "label": "Unit / vehicle identifier or location",
+        "type": "text",
+        "required": true
+      },
+      {
+        "id": "notes",
+        "label": "Inspection notes",
+        "type": "textarea"
+      }
+    ],
+    "checklist": [
+      {
+        "id": "shuttle-item-1",
+        "label": "Ensure vehicle is clean and inviting for guests, interior and exterior",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-2",
+        "label": "Check all windows and mirrors for cracks",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-3",
+        "label": "Ensure all lights are functional (headlights, hight beams, tailights, brake lights, reverse lights, turn signals, interior lights)",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-4",
+        "label": "Check fluid levels and inspect for leaks (oil, brake fluid, windshield wiper fluid, transmission, etc)",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-5",
+        "label": "Inspect condition of windshield wipers/blades",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-6",
+        "label": "Check tire pressure, tread, and condition",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-7",
+        "label": "Test horn",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-8",
+        "label": "Check heating, cooling, and fan",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-9",
+        "label": "If winter condtion - Ensure ice scraper, jumper cables, and gloves are present",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-10",
+        "label": "Ensure vehicle registration and insurance cards are present",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      },
+      {
+        "id": "shuttle-item-11",
+        "label": "Check license plate sticker for proper date",
+        "source": "https://drive.google.com/file/d/1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N/view"
+      }
+    ],
+    "sourceMetadata": {
+      "drive_id": "1oxUo2BX-INodByIJL1CKJ9DQoxTQYJ2N",
+      "source_text": "1\r\nMAINTENANCE SCHEDULE | SHUTTLE QUARTERLY CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS MARCH | JUNE | SEPTEMBER | DECEMBER\r\nShuttle License Plate Number or Identifier:\r\n: The Shuttle is scheduled for maintenance in . Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nYEAR\r\nQ1 DATE Q2 DATE Q3 DATE Q4 DATE\r\nMAINTENANCE Q1 Q2 Q3 Q4\r\nEnsure vehicle is clean and inviting for guests, interior and exterior\r\nCheck all windows and mirrors for cracks\r\nEnsure all lights are functional (headlights, hight beams, tailights, brake lights, reverse lights, turn signals, interior lights)\r\nCheck fluid levels and inspect for leaks (oil, brake fluid, windshield wiper fluid, transmission, etc)\r\nInspect condition of windshield wipers/blades\r\nCheck tire pressure, tread, and condition\r\nTest horn\r\nCheck heating, cooling, and fan\r\nIf winter condtion - Ensure ice scraper, jumper cables, and gloves are present\r\nEnsure vehicle registration and insurance cards are present\r\nCheck license plate sticker for proper date\r\nNOTES"
+    }
+  },
+  {
+    "id": "pdf:rtu-monthly",
+    "title": "RTU Monthly",
+    "sourceFile": "RTU Monthly.pdf",
+    "sourceReference": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view",
+    "cadence": "monthly",
+    "scope": "equipment",
+    "kind": "inspection",
+    "instructions": "MAINTENANCE SCHEDULE | HVAC RTU MONTHLY CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS monthly\r\nUnit number, serial number, or unique identifier:\r\n: The HVAC RTUs (Roof Top Units) are scheduled for maintenance . Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nYEAR\r\nDATE\r\nMAINTENANCE\r\nTurn off the power\r\n rinse after 5-minutes.\r\nDO NOT LET COIL CLEANER STAY ON COILS FOR LONGER THAN 5 MINUTES\r\n: All power must be turned off prior to performing maintenance on rooftop HVAC units\r\nReplace all air filters, ensuring proper airflow direction. Be sure to date the air filters with a marker\r\nInspect fans: ensure fans able to spin freely without wobbles or rattling\r\nInspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtightend\r\nVisually inspect heat exchangers, be watchful for excessive rust buildup\r\nCheck economizer: Make sure that dampers, actuators, and temperature sensors are still functioning correctly\r\nCheck drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit\r\nCheck electrical section with POWER OFF. Check for loose wiring connections, tighten as needed. Check for blown fuses\r\nInspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum. DO NOT CLEAN COILS DURING WINTER MONTHS\r\nUtilize water from a garden hose (low pressure), spraying from the inside out. If coils are extremely dirty, use non-acidic coil cleaner and\r\nNOTES",
+    "fields": [
+      {
+        "id": "inspectionDate",
+        "label": "Inspection date",
+        "type": "date"
+      },
+      {
+        "id": "unitIdentifier",
+        "label": "Unit / vehicle identifier or location",
+        "type": "text",
+        "required": true
+      },
+      {
+        "id": "notes",
+        "label": "Inspection notes",
+        "type": "textarea"
+      }
+    ],
+    "checklist": [
+      {
+        "id": "rtu-monthly-item-1",
+        "label": "Turn off all power before performing maintenance on rooftop HVAC units.",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-2",
+        "label": "Replace all air filters, ensuring proper airflow direction. Be sure to date the air filters with a marker",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-3",
+        "label": "Inspect fans: ensure fans able to spin freely without wobbles or rattling",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-4",
+        "label": "Inspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtightend",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-5",
+        "label": "Visually inspect heat exchangers, be watchful for excessive rust buildup",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-6",
+        "label": "Check economizer: Make sure that dampers, actuators, and temperature sensors are still functioning correctly",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-7",
+        "label": "Check drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-8",
+        "label": "Check electrical section with POWER OFF. Check for loose wiring connections, tighten as needed. Check for blown fuses",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-9",
+        "label": "Inspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum. DO NOT CLEAN COILS DURING WINTER MONTHS",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      },
+      {
+        "id": "rtu-monthly-item-10",
+        "label": "Clean with low-pressure water from inside out; if needed use non-acidic coil cleaner and rinse after five minutes. Never leave cleaner on coils longer than five minutes.",
+        "source": "https://drive.google.com/file/d/1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k/view"
+      }
+    ],
+    "sourceMetadata": {
+      "drive_id": "1-pU4DcdiCMIWbOdS_c_DGD8WdcwFr21k",
+      "source_text": "MAINTENANCE SCHEDULE | HVAC RTU MONTHLY CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS monthly\r\nUnit number, serial number, or unique identifier:\r\n: The HVAC RTUs (Roof Top Units) are scheduled for maintenance . Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nYEAR\r\nDATE\r\nMAINTENANCE\r\nTurn off the power\r\n rinse after 5-minutes.\r\nDO NOT LET COIL CLEANER STAY ON COILS FOR LONGER THAN 5 MINUTES\r\n: All power must be turned off prior to performing maintenance on rooftop HVAC units\r\nReplace all air filters, ensuring proper airflow direction. Be sure to date the air filters with a marker\r\nInspect fans: ensure fans able to spin freely without wobbles or rattling\r\nInspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtightend\r\nVisually inspect heat exchangers, be watchful for excessive rust buildup\r\nCheck economizer: Make sure that dampers, actuators, and temperature sensors are still functioning correctly\r\nCheck drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit\r\nCheck electrical section with POWER OFF. Check for loose wiring connections, tighten as needed. Check for blown fuses\r\nInspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum. DO NOT CLEAN COILS DURING WINTER MONTHS\r\nUtilize water from a garden hose (low pressure), spraying from the inside out. If coils are extremely dirty, use non-acidic coil cleaner and\r\nNOTES"
+    }
+  },
+  {
+    "id": "pdf:monthly-air-handler",
+    "title": "Monthly Air Handler",
+    "sourceFile": "Monthly Air Handler.pdf",
+    "sourceReference": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view",
+    "cadence": "monthly",
+    "scope": "equipment",
+    "kind": "inspection",
+    "instructions": "MAINTENANCE SCHEDULE | AIR HANDLER MONTHLY CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS monthly\r\nUnit number, serial number, or unique identifier:\r\n: The HVAC Air Handlers are scheduled for maintenance . Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nYEAR\r\nDATE\r\nMAINTENANCE\r\nTurn off the power: All power must be turned off prior to performing maintenance on air handler units\r\nIf model is equipped with with filters, replace the filters each month. Ensure proper filter direction for airflow and date the filter with a marker\r\nRinse coils of air handler with water or if accessiblity is an issue, use non-acidic no-rinse cleaner sparingly\r\nInspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtightend\r\nCheck condensate pan and clean as needed\r\nInspect wiring for damaged or loose connections\r\nCheck drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit\r\nNOTES",
+    "fields": [
+      {
+        "id": "inspectionDate",
+        "label": "Inspection date",
+        "type": "date"
+      },
+      {
+        "id": "unitIdentifier",
+        "label": "Unit / vehicle identifier or location",
+        "type": "text",
+        "required": true
+      },
+      {
+        "id": "notes",
+        "label": "Inspection notes",
+        "type": "textarea"
+      }
+    ],
+    "checklist": [
+      {
+        "id": "monthly-air-handler-item-1",
+        "label": "Turn off the power: All power must be turned off prior to performing maintenance on air handler units",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      },
+      {
+        "id": "monthly-air-handler-item-2",
+        "label": "If model is equipped with with filters, replace the filters each month. Ensure proper filter direction for airflow and date the filter with a marker",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      },
+      {
+        "id": "monthly-air-handler-item-3",
+        "label": "Rinse coils of air handler with water or if accessiblity is an issue, use non-acidic no-rinse cleaner sparingly",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      },
+      {
+        "id": "monthly-air-handler-item-4",
+        "label": "Inspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtightend",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      },
+      {
+        "id": "monthly-air-handler-item-5",
+        "label": "Check condensate pan and clean as needed",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      },
+      {
+        "id": "monthly-air-handler-item-6",
+        "label": "Inspect wiring for damaged or loose connections",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      },
+      {
+        "id": "monthly-air-handler-item-7",
+        "label": "Check drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit",
+        "source": "https://drive.google.com/file/d/1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2/view"
+      }
+    ],
+    "sourceMetadata": {
+      "drive_id": "1KAw8Io9e9jouOxO-MMpI4nE1NijvxNB2",
+      "source_text": "MAINTENANCE SCHEDULE | AIR HANDLER MONTHLY CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS monthly\r\nUnit number, serial number, or unique identifier:\r\n: The HVAC Air Handlers are scheduled for maintenance . Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nYEAR\r\nDATE\r\nMAINTENANCE\r\nTurn off the power: All power must be turned off prior to performing maintenance on air handler units\r\nIf model is equipped with with filters, replace the filters each month. Ensure proper filter direction for airflow and date the filter with a marker\r\nRinse coils of air handler with water or if accessiblity is an issue, use non-acidic no-rinse cleaner sparingly\r\nInspect belts for wear, replace as needed. Check belt tension, adjust if needed, belts should have 3/4\" of \"bounce\". Do not overtightend\r\nCheck condensate pan and clean as needed\r\nInspect wiring for damaged or loose connections\r\nCheck drainage: Clogged drain pipes can cause damage by not allowing water and other liquids to properly escape the RTU unit\r\nNOTES"
+    }
+  },
+  {
+    "id": "pdf:split-unit",
+    "title": "Split Unit",
+    "sourceFile": "Split Unit.pdf",
+    "sourceReference": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view",
+    "cadence": "monthly",
+    "scope": "equipment",
+    "kind": "inspection",
+    "instructions": "MAINTENANCE SCHEDULE | HVAC SPLIT UNIT CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS\r\nUnit number, serial number, or unique identifier:\r\n: Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nMONTH YEAR\r\nDATE\r\nMAINTENANCE\r\nINDOOR HEAD UNIT\r\nClean the primary removable mesh filters located underneath the pop-up cover of the head unit\r\nCheck and clean the evaporator coil as needed. Do not use acid coil cleaner and do not let sit for more than 5 minutes\r\nCheck and clean the blower wheel as needed. Compressed air to blow dust off is sufficient\r\nCheck the condensate pan and condensate tubing for clogs, clean out as needed\r\nIf a condensate pump is applicable, check the pump for functionality and ensure no clogs/debris\r\nOUTDOOR CONDENSING UNIT\r\n: All power must be turned off prior to performing maintenance on the outdoor condensing unit of the split system\r\nRemove any vegetation and clutter from within 18″ of the unit\r\nInspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum\r\nUtilize water from a garden hose on a low pressure setting, clean the coils. If coils are extremely dirty, use non-acidic coil cleaner and\r\nNOTES\r\nTurn off the power\r\n rinse after 5-minutes.\r\nDO NOT LET COIL CLEANER STAY ON COILS FOR LONGER THAN 5 MINUTES",
+    "fields": [
+      {
+        "id": "inspectionDate",
+        "label": "Inspection date",
+        "type": "date"
+      },
+      {
+        "id": "unitIdentifier",
+        "label": "Unit / vehicle identifier or location",
+        "type": "text",
+        "required": true
+      },
+      {
+        "id": "notes",
+        "label": "Inspection notes",
+        "type": "textarea"
+      }
+    ],
+    "checklist": [
+      {
+        "id": "split-unit-item-1",
+        "label": "Clean the primary removable mesh filters located underneath the pop-up cover of the head unit",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-2",
+        "label": "Check and clean the evaporator coil as needed. Do not use acid coil cleaner and do not let sit for more than 5 minutes",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-3",
+        "label": "Check and clean the blower wheel as needed. Compressed air to blow dust off is sufficient",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-4",
+        "label": "Check the condensate pan and condensate tubing for clogs, clean out as needed",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-5",
+        "label": "If a condensate pump is applicable, check the pump for functionality and ensure no clogs/debris",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-6",
+        "label": "Turn off all power before maintaining the outdoor condensing unit.",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-7",
+        "label": "Remove any vegetation and clutter from within 18″ of the unit",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-8",
+        "label": "Inspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      },
+      {
+        "id": "split-unit-item-9",
+        "label": "Clean coils with low-pressure water; if needed use non-acidic cleaner and rinse after five minutes. Never leave coil cleaner on longer than five minutes.",
+        "source": "https://drive.google.com/file/d/1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K/view"
+      }
+    ],
+    "sourceMetadata": {
+      "drive_id": "1-FRh-sYxkZmunyB25fPqLa9Uu0A_PQ0K",
+      "source_text": "MAINTENANCE SCHEDULE | HVAC SPLIT UNIT CHECKLIST PREVENTATIVE MAINTENANCE PROGRAM\r\nINSTRUCTIONS\r\nUnit number, serial number, or unique identifier:\r\n: Perform checks and cleanliness.\r\n\"X\"\" or slash ( / ) appropriate box when the item is inspected. X for acceptable condition or complete. Slash items that need to be revisited,\r\ncreate work orders based off the slash marks and complete the X just as you would a room PM.\"\r\nMONTH YEAR\r\nDATE\r\nMAINTENANCE\r\nINDOOR HEAD UNIT\r\nClean the primary removable mesh filters located underneath the pop-up cover of the head unit\r\nCheck and clean the evaporator coil as needed. Do not use acid coil cleaner and do not let sit for more than 5 minutes\r\nCheck and clean the blower wheel as needed. Compressed air to blow dust off is sufficient\r\nCheck the condensate pan and condensate tubing for clogs, clean out as needed\r\nIf a condensate pump is applicable, check the pump for functionality and ensure no clogs/debris\r\nOUTDOOR CONDENSING UNIT\r\n: All power must be turned off prior to performing maintenance on the outdoor condensing unit of the split system\r\nRemove any vegetation and clutter from within 18″ of the unit\r\nInspect Coil cleanliness and clean as needed. Clean coils on a regular schedule of MARCH, JUNE, and SEPTEMBER at a minimum\r\nUtilize water from a garden hose on a low pressure setting, clean the coils. If coils are extremely dirty, use non-acidic coil cleaner and\r\nNOTES\r\nTurn off the power\r\n rinse after 5-minutes.\r\nDO NOT LET COIL CLEANER STAY ON COILS FOR LONGER THAN 5 MINUTES"
+    }
+  },
+  {
+    "id": "pdf:2025-winter-preparedness-checklist",
+    "title": "2025 Winter Preparedness Checklist",
+    "sourceFile": "2025 Winter Preparedness Checklist.pdf",
+    "sourceReference": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view",
+    "cadence": "monthly",
+    "scope": "property",
+    "kind": "inspection",
+    "months": [
+      10
+    ],
+    "instructions": "Winter Preparedness Checklist \r\n10.10.2025 \r\nV1 \r\nMaintenance & IT -> Additional Resources \r\nTraining on where the water shutoffs are and how to shut them off. Photos and drawings/maps posted \r\nnear timeclocks, BOH, and in the emergency manual. \r\nMake sure all stairwell and vestibule heaters are working properly. \r\nMake sure there is adequate heat in all back of house areas. Please have maintenance staff check all \r\nback of house areas daily for cold spots. All BOH areas must be maintained above 40°F. \r\nEnsure all buildings are “weather tight.” Close all windows, doors, vents, etc., and seal any \r\nopenings in exterior walls, ceilings/roofs, and floors to prevent exposure to outside air. \r\nInsulating piping and installing heat tracing lines on critical piping will substantially decrease the \r\nrisk of a potential pipe freeze up. Be sure that facilities personnel inspect hard-to-heat areas. \r\nVerify all roof drains, drainpipes and gutters are free of debris and will provide \r\nadequate water drainage. Complete Fall Clean Up of all planting beds and planters \r\nEnsure any extended OOO rooms are checked regularly to ensure adequate heating \r\nlevels are maintained. \r\nIf you have a dry sprinkler system, please make sure that water is drained from low \r\npoints. \r\nCheck Fire Pumps to make sure pump room has adequate heat \r\nEnsure continuous rooftop exhaust fans are operational \r\nEnsure automatic louvers systems are functional. For example - Behind commercial dryers, these should \r\nautomatically close when dryers turn off. If not, repair and/or winterize(insulate and cover) \r\nMake sure fire panel is fully functioning with no troubles. \r\nMake sure PIC training is conducted with Managers, Front Desk, Auditors, and engineering staff. \r\nDiscuss who is responsible for shoveling/applying ice melt, how often it should be done,etc. \r\nFlush and winterize outdoor lawn sprinkler system Bring in outdoor furniture if not weather-resistant. \r\nHave wet floor signs handy, along with doodlebug/spray to clean up dry salt \r\nTalk to staff about winter safety and planning for more travel time. \r\nService and tune up snow blowers to ensure they are working properly. Inspect Shuttle van tires to \r\ndetermine if they are in good condition and safe for the winter conditions. \r\nEnsure Storm Recovery training on is conducted with staff/Emergency response teams. To include: \r\ninspecting, documenting, and repair to any property damages such as (but not limited to) roofs, \r\nskylights, and overhangs, notifying ERTs of any injuries or deaths, and supply replenishments for \r\npreparation of subsequent storms \r\nHave the following items on hand for guests and staff during winter emergencies \r\nIce melt (present at all building entrances) \r\nShovels \r\nCar scrapers \r\nFlashlights \r\nExtra blankets \r\nCans of deicer \r\nDollar store snug gloves for guests who forget \r\nPortable car battery charger and/or set of jumper cables \r\nEnsure Snow removal agreements are in place, insurance documents on file. \r\nMark curbs/obstacles with flags \r\nPost snow removal company's number at the front desk along with a log to track \r\nwhen they are removing snow and/or salting/sanding lot. \r\nIt is imperative that emergency access roads are cleared. It is important to \r\ncommunicate the procedures to be followed during severe weather to key operating \r\nand emergency personnel. ",
+    "fields": [
+      {
+        "id": "inspectionDate",
+        "label": "Inspection date",
+        "type": "date"
+      },
+      {
+        "id": "notes",
+        "label": "Inspection notes",
+        "type": "textarea"
+      }
+    ],
+    "checklist": [
+      {
+        "id": "2025-winter-preparedness-checklist-item-1",
+        "label": "Training on where the water shutoffs are and how to shut them off. Photos and drawings/maps posted near timeclocks, BOH, and in the emergency manual.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-2",
+        "label": "Make sure all stairwell and vestibule heaters are working properly.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-3",
+        "label": "Make sure there is adequate heat in all back of house areas. Please have maintenance staff check all back of house areas daily for cold spots. All BOH areas must be maintained above 40°F.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-4",
+        "label": "Ensure all buildings are “weather tight.” Close all windows, doors, vents, etc., and seal any openings in exterior walls, ceilings/roofs, and floors to prevent exposure to outside air.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-5",
+        "label": "Insulating piping and installing heat tracing lines on critical piping will substantially decrease the risk of a potential pipe freeze up. Be sure that facilities personnel inspect hard-to-heat areas.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-6",
+        "label": "Verify all roof drains, drainpipes and gutters are free of debris and will provide adequate water drainage. Complete Fall Clean Up of all planting beds and planters",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-7",
+        "label": "Ensure any extended OOO rooms are checked regularly to ensure adequate heating levels are maintained.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-8",
+        "label": "If you have a dry sprinkler system, please make sure that water is drained from low points.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-9",
+        "label": "Check Fire Pumps to make sure pump room has adequate heat",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-10",
+        "label": "Ensure continuous rooftop exhaust fans are operational",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-11",
+        "label": "Ensure automatic louvers systems are functional. For example - Behind commercial dryers, these should automatically close when dryers turn off. If not, repair and/or winterize(insulate and cover)",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-12",
+        "label": "Make sure fire panel is fully functioning with no troubles.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-13",
+        "label": "Make sure PIC training is conducted with Managers, Front Desk, Auditors, and engineering staff.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-14",
+        "label": "Discuss who is responsible for shoveling/applying ice melt, how often it should be done,etc.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-15",
+        "label": "Flush and winterize outdoor lawn sprinkler system Bring in outdoor furniture if not weather-resistant.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-16",
+        "label": "Have wet floor signs handy, along with doodlebug/spray to clean up dry salt",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-17",
+        "label": "Talk to staff about winter safety and planning for more travel time.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-18",
+        "label": "Service and tune up snow blowers to ensure they are working properly. Inspect Shuttle van tires to determine if they are in good condition and safe for the winter conditions.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-19",
+        "label": "Ensure Storm Recovery training on is conducted with staff/Emergency response teams. To include: inspecting, documenting, and repair to any property damages such as (but not limited to) roofs, skylights, and overhangs, notifying ERTs of any injuries or deaths, and supply replenishments for preparation of subsequent storms",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-20",
+        "label": "Have the following items on hand for guests and staff during winter emergencies Ice melt (present at all building entrances) Shovels Car scrapers Flashlights Extra blankets Cans of deicer Dollar store snug gloves for guests who forget Portable car battery charger and/or set of jumper cables",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-21",
+        "label": "Ensure Snow removal agreements are in place, insurance documents on file.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-22",
+        "label": "Mark curbs/obstacles with flags",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-23",
+        "label": "Post snow removal company's number at the front desk along with a log to track when they are removing snow and/or salting/sanding lot.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      },
+      {
+        "id": "2025-winter-preparedness-checklist-item-24",
+        "label": "It is imperative that emergency access roads are cleared. It is important to communicate the procedures to be followed during severe weather to key operating and emergency personnel.",
+        "source": "https://drive.google.com/file/d/1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5/view"
+      }
+    ],
+    "sourceMetadata": {
+      "drive_id": "1TQaeeTlXd0RTiBtHNTB2um0_TD5R7rv5",
+      "source_text": "Winter Preparedness Checklist \r\n10.10.2025 \r\nV1 \r\nMaintenance & IT -> Additional Resources \r\nTraining on where the water shutoffs are and how to shut them off. Photos and drawings/maps posted \r\nnear timeclocks, BOH, and in the emergency manual. \r\nMake sure all stairwell and vestibule heaters are working properly. \r\nMake sure there is adequate heat in all back of house areas. Please have maintenance staff check all \r\nback of house areas daily for cold spots. All BOH areas must be maintained above 40°F. \r\nEnsure all buildings are “weather tight.” Close all windows, doors, vents, etc., and seal any \r\nopenings in exterior walls, ceilings/roofs, and floors to prevent exposure to outside air. \r\nInsulating piping and installing heat tracing lines on critical piping will substantially decrease the \r\nrisk of a potential pipe freeze up. Be sure that facilities personnel inspect hard-to-heat areas. \r\nVerify all roof drains, drainpipes and gutters are free of debris and will provide \r\nadequate water drainage. Complete Fall Clean Up of all planting beds and planters \r\nEnsure any extended OOO rooms are checked regularly to ensure adequate heating \r\nlevels are maintained. \r\nIf you have a dry sprinkler system, please make sure that water is drained from low \r\npoints. \r\nCheck Fire Pumps to make sure pump room has adequate heat \r\nEnsure continuous rooftop exhaust fans are operational \r\nEnsure automatic louvers systems are functional. For example - Behind commercial dryers, these should \r\nautomatically close when dryers turn off. If not, repair and/or winterize(insulate and cover) \r\nMake sure fire panel is fully functioning with no troubles. \r\nMake sure PIC training is conducted with Managers, Front Desk, Auditors, and engineering staff. \r\nDiscuss who is responsible for shoveling/applying ice melt, how often it should be done,etc. \r\nFlush and winterize outdoor lawn sprinkler system Bring in outdoor furniture if not weather-resistant. \r\nHave wet floor signs handy, along with doodlebug/spray to clean up dry salt \r\nTalk to staff about winter safety and planning for more travel time. \r\nService and tune up snow blowers to ensure they are working properly. Inspect Shuttle van tires to \r\ndetermine if they are in good condition and safe for the winter conditions. \r\nEnsure Storm Recovery training on is conducted with staff/Emergency response teams. To include: \r\ninspecting, documenting, and repair to any property damages such as (but not limited to) roofs, \r\nskylights, and overhangs, notifying ERTs of any injuries or deaths, and supply replenishments for \r\npreparation of subsequent storms \r\nHave the following items on hand for guests and staff during winter emergencies \r\nIce melt (present at all building entrances) \r\nShovels \r\nCar scrapers \r\nFlashlights \r\nExtra blankets \r\nCans of deicer \r\nDollar store snug gloves for guests who forget \r\nPortable car battery charger and/or set of jumper cables \r\nEnsure Snow removal agreements are in place, insurance documents on file. \r\nMark curbs/obstacles with flags \r\nPost snow removal company's number at the front desk along with a log to track \r\nwhen they are removing snow and/or salting/sanding lot. \r\nIt is imperative that emergency access roads are cleared. It is important to \r\ncommunicate the procedures to be followed during severe weather to key operating \r\nand emergency personnel. "
+    }
+  }
+]

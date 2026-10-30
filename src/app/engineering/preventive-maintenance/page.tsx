@@ -1,4 +1,6 @@
 "use client";
+import FieldInput from "@/components/PmFieldInput";
+import { linkedRoutineCompletion } from "@/lib/pm/completion-links";
 import { pmEntryForm } from "@/lib/pm/entry-form";
 import PmAnswerControls from "@/components/PmAnswerControls";
 import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
@@ -11,7 +13,7 @@ import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { pmRoutineChecked, isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
+import { pmRoutineChecked, isPmRoutineSummary, isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
 import RoomPmHistoryImport from "@/components/RoomPmHistoryImport";
@@ -23,11 +25,13 @@ import {
   PM_ROOM_TEMPLATE_ID,
   PM_TEMPLATES,
   PM_WEEKLY_TEMPLATE_ID,
+  corporateWeeklyTemplate,
+  PM_PROGRAM_HISTORY_TEMPLATES,
   pmWeekDates,
   pmWeekStart,
   quarterPeriodForDate,
   templatePeriodsForWeek,
-  type PmFormField,
+
   type PmTemplate,
 } from "@/lib/pm/catalog";
 
@@ -42,6 +46,9 @@ type PmEntry = {
   deficiency_notes: string;
   completed_on: string | null;
   is_complete: boolean;
+  completion_review_required?: boolean;
+  source_completion_verified?: boolean;
+  unverified_completion_items?: string[];
   completed_by_name: string | null;
   work_order_id: string | null;
   revision: number;
@@ -160,34 +167,6 @@ function SourceNote({ template }: { template: PmTemplate }) {
   return <span className="text-[11px] text-slate-500">{template.sourceReference}</span>;
 }
 
-function FieldInput({
-  field,
-  value,
-  disabled,
-  onChange,
-}: {
-  field: PmFormField;
-  value: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  const base = "mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400 disabled:opacity-50";
-  return (
-    <label className="block min-w-0">
-      <span className="text-xs font-semibold text-slate-300">{field.label}{field.required ? " *" : ""}</span>
-      {field.type === "textarea" ? (
-        <textarea required={field.required} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)} rows={3} className={base} />
-      ) : field.type === "select" || field.type === "yes-no" ? (
-        <select required={field.required} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)} className={base}>
-          <option value="">Select…</option>
-          {(field.type === "yes-no" ? ["Yes", "No"] : field.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
-      ) : (
-        <input required={field.required} disabled={disabled} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} value={value} onChange={(event) => onChange(event.target.value)} className={base} />
-      )}
-    </label>
-  );
-}
 
 function SectionHeading({ eyebrow, title, trailing }: { eyebrow?: string; title: string; trailing?: ReactNode }) {
   return (
@@ -206,6 +185,7 @@ export default function PreventiveMaintenancePage() {
   const [entries, setEntries] = useState<PmEntry[]>([]);
   const [roomHistory, setRoomHistory] = useState<StoredRoomHistory[]>([]);
   const [approvedRooms, setApprovedRooms] = useState<PmEntry[]>([]);
+  const [approvedInspections, setApprovedInspections] = useState<PmEntry[]>([]);
   const [liveWorkbook, setLiveWorkbook] = useState<LivePmWorkbook | null>(null);
   const [reviewQueue, setReviewQueue] = useState<PmReviewProposal[]>([]);
   const [locations, setLocations] = useState<PmLocation[]>([]);
@@ -260,6 +240,7 @@ export default function PreventiveMaintenancePage() {
       setEntries(result.entries as PmEntry[]);
       setRoomHistory(Array.isArray(result.room_history) ? result.room_history : []);
       setApprovedRooms(Array.isArray(result.approved_rooms) ? result.approved_rooms : []);
+      setApprovedInspections(Array.isArray(result.approved_inspections) ? result.approved_inspections : []);
       setLiveWorkbook(result.workbook as LivePmWorkbook);
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
       setLocations(Array.isArray(result.locations) ? result.locations as PmLocation[] : []);
@@ -318,15 +299,17 @@ export default function PreventiveMaintenancePage() {
       for (const period of periods) {
         const entry = recordsByKey.get(entryKey(template.id, period));
         for (const item of template.checklist) {
+          if (isPmRoutineSummary(item.id)) continue;
           total += 1;
-          const hasSavedResponse = Object.hasOwn(entry?.responses || {}, item.id);
-          const useSavedResponse = hasSavedResponse && (entry?.status === "pending" || !spreadsheetSyncEnabled);
-          if (useSavedResponse ? entry?.responses?.[item.id] === true : sourceRoutineStatus(template, period, item.id, liveWorkbook)) complete += 1;
+          const inspectionComplete = template.id.startsWith("workbook:monthly:")
+            && linkedRoutineCompletion(item.source || "", period, PM_TEMPLATES, approvedInspections);
+          if (pmRoutineChecked(entry, item.id, spreadsheetSyncEnabled,
+            sourceRoutineStatus(template, period, item.id, liveWorkbook) || inspectionComplete)) complete += 1;
         }
       }
     }
     return { complete, total, percent: total ? Math.round((complete / total) * 100) : 0 };
-  }, [liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart]);
+  }, [approvedInspections, liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart]);
 
   const deficientCount = useMemo(() => entries.reduce((count, entry) =>
     count + Object.values(entry.responses || {}).filter((value) => value === "follow-up").length,
@@ -359,10 +342,16 @@ export default function PreventiveMaintenancePage() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.entry) throw new Error(result.error || "PM entry could not be saved.");
     const saved = result.entry as PmEntry;
-    setEntries((current) => [
-      ...current.filter((entry) => entryKey(entry.template_id, entry.period_start, entry.scope_key) !== entryKey(saved.template_id, saved.period_start, saved.scope_key)),
-      saved,
-    ]);
+    setEntries((current) => {
+      const key = entryKey(saved.template_id, saved.period_start, saved.scope_key);
+      const prior = current.find(entry => entryKey(entry.template_id, entry.period_start, entry.scope_key) === key);
+      return [
+        ...current.filter(entry => entryKey(entry.template_id, entry.period_start, entry.scope_key) !== key),
+        saved.template_id.startsWith("workbook:")
+          ? { ...saved, responses: { ...prior?.responses, ...saved.responses } }
+          : saved,
+      ];
+    });
     return saved;
   }
 
@@ -695,7 +684,8 @@ export default function PreventiveMaintenancePage() {
 
   const dailyTemplate = findPmTemplate(PM_DAILY_TEMPLATE_ID)!;
   const weeklyTemplate = findPmTemplate(PM_WEEKLY_TEMPLATE_ID)!;
-  const dailyCount = dailyTemplate.checklist.length * weekDates.length;
+  const dailyTasks = dailyTemplate.checklist.filter(item => !isPmRoutineSummary(item.id));
+  const dailyCount = dailyTasks.length * weekDates.length;
   const openInspectionCount = formPeriods.filter(({ template, periodStart }) =>
     !entries.some((entry) => entry.template_id === template.id && entry.period_start === periodStart && entry.is_complete),
   ).length;
@@ -705,7 +695,18 @@ export default function PreventiveMaintenancePage() {
     const template = findReferencedPmTemplate(reference, PM_TEMPLATES);
     if (!template) return;
     const formPeriod = template.cadence === "weekly" ? weekStart : period;
-    openForm(template, formPeriod);
+    const candidates = entries.filter(entry => entry.template_id === template.id && (
+      entry.period_start === formPeriod || (template.cadence === "quarterly"
+        && quarterPeriodForDate(entry.period_start) === quarterPeriodForDate(formPeriod))
+    ));
+    if (candidates.length > 1) {
+      setTab("inspections");
+      setMessage("Several saved inspections match this form and quarter. Choose the intended location from its saved records.");
+      return;
+    }
+    const saved = candidates[0];
+    openForm(template, saved?.period_start || formPeriod, saved?.scope_key
+      || (template.scope === "area" ? "area:property" : "property"));
     if (weekly && template.kind === "meeting") setTab("week");
   }
 
@@ -725,6 +726,7 @@ export default function PreventiveMaintenancePage() {
             </div>
             <p className="mt-1 text-xs text-slate-400">{periodLabel(template, periodStart)} · {template.scope}</p>
             <SourceNote template={template} />
+            {saved.some(entry => entry.completion_review_required) && <p className="mt-2 text-xs text-amber-200">Recorded source answers are preserved. Whole-inspection completion still requires review; a recorded answer alone does not establish completion.</p>}
             {saved.filter((entry) => entry.scope_key !== newScope).map((entry) => (
               <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
             ))}
@@ -737,7 +739,11 @@ export default function PreventiveMaintenancePage() {
 
   function routineStatus(template: PmTemplate, period: string, itemId: string) {
     const proposal = entryFor(template, period);
-    return pmRoutineChecked(proposal, itemId, spreadsheetSyncEnabled, sourceRoutineStatus(template, period, itemId, liveWorkbook));
+    const reference = template.checklist.find(item => item.id === itemId)?.source || "";
+    const inspectionComplete = template.id.startsWith("workbook:monthly:")
+      && linkedRoutineCompletion(reference, period, PM_TEMPLATES, approvedInspections);
+    return pmRoutineChecked(proposal, itemId, spreadsheetSyncEnabled,
+      sourceRoutineStatus(template, period, itemId, liveWorkbook) || inspectionComplete);
   }
 
   function canEditPeriod(template: PmTemplate, period: string) {
@@ -765,6 +771,7 @@ export default function PreventiveMaintenancePage() {
                 </th>
                 {periods.map((period) => {
                   const checked = routineStatus(template, period, item.id);
+                  const sourceUnverified = entryFor(template, period)?.unverified_completion_items?.includes(item.id);
                   const hasPending = entryFor(template, period)?.status === "pending"
                     && Object.hasOwn(entryFor(template, period)?.responses || {}, item.id);
                   return (
@@ -772,13 +779,14 @@ export default function PreventiveMaintenancePage() {
                       <button
                         type="button"
                         role="checkbox"
-                        aria-checked={checked}
+                        aria-checked={sourceUnverified && !checked ? "mixed" : checked}
                         aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${hasPending ? " · pending review" : ""}`}
                         disabled={!canEditPeriod(template, period) || !liveWorkbook || savingFor(period)}
                         onClick={() => void updateRoutine(template, period, item.id, !checked)}
                         className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : checked ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
-                        title={hasPending ? "Pending reviewer confirmation" : undefined}
+                        title={sourceUnverified ? "Legacy completion preserved; source contains unrecorded tasks. Requires completion review." : hasPending ? "Pending reviewer confirmation" : undefined}
                       >✓</button>
+                      {sourceUnverified && <span className="block text-xs text-amber-200">Completion unverified</span>}
                     </td>
                   );
                 })}
@@ -792,7 +800,7 @@ export default function PreventiveMaintenancePage() {
     );
   }
 
-  const dailyDone = dailyTemplate.checklist.reduce((sum, item) =>
+  const dailyDone = dailyTasks.reduce((sum, item) =>
     sum + weekDates.filter((date) => routineStatus(dailyTemplate, date, item.id)).length, 0,
   );
   const monthRoutineDone = monthTemplates.reduce((sum, template) => {
@@ -865,6 +873,12 @@ export default function PreventiveMaintenancePage() {
               </div>
             </section>
 
+            <section>
+              <SectionHeading eyebrow="Original corporate week slots" title="Weekly history by month" />
+              <p className="mt-2 text-sm text-slate-400">WK1–WK5 preserve the workbook headings. The month identifies the reporting period, not an exact inspection date. Summary checks do not fill individual tasks.</p>
+              {renderRoutineTable(corporateWeeklyTemplate, [`${weekStart.slice(0, 7)}-01`], "Corporate weekly task")}
+            </section>
+
             {monthTemplates.map((template) => {
               const period = templatePeriodsForWeek(template, weekStart)[0];
               return (
@@ -876,6 +890,14 @@ export default function PreventiveMaintenancePage() {
                 </section>
               );
             })}
+
+            {PM_PROGRAM_HISTORY_TEMPLATES.filter(template => String(template.sourceYear) === weekStart.slice(0, 4)).map(template => (
+              <section key={template.id}>
+                <SectionHeading eyebrow="Corporate annual grid" title={template.title} />
+                <p className="mt-2 text-sm text-slate-400">{template.instructions}</p>
+                {renderRoutineTable(template, [`${template.sourceYear}-01-01`], "Recorded area / compliance task")}
+              </section>
+            ))}
 
             <section>
               <SectionHeading eyebrow="PDF checklists and logs" title="Inspections due this week" trailing={<button type="button" onClick={() => setTab("inspections")} className="text-sm font-bold text-emerald-300 hover:underline">Browse all forms</button>} />
@@ -1034,8 +1056,9 @@ export default function PreventiveMaintenancePage() {
                       isDaily ? weekDates.includes(entry.period_start) : entry.period_start === period
                     ));
                     const record = records.find((entry) => entry.scope_key === "property") || records[0];
-                    const checked = isDaily
-                      ? records.reduce((count, entry) => count + template.checklist.filter((item) => entry.responses?.[item.id] === true).length, 0)
+                    const checked = template.kind === "routine"
+                      ? (isDaily ? weekDates : [period]).reduce((count, date) => count
+                        + template.checklist.filter(item => routineStatus(template, date, item.id)).length, 0)
                       : template.checklist.filter((item) => {
                         const value = record?.responses?.[item.id];
                         return value === true || value === "complete" || value === "na";

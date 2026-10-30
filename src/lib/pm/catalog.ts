@@ -1,5 +1,7 @@
 import source from "./source-catalog.json";
 import roomSourceItems from "./room-source-items.json";
+import supplementalForms from "./supplemental-forms.json";
+import programHistoryTemplates from "./program-history-templates.json";
 
 export type PmCadence = "daily" | "weekly" | "monthly" | "quarterly";
 export type PmScope = "property" | "room" | "area" | "equipment";
@@ -19,6 +21,7 @@ export type PmTemplate = {
   scope: PmScope;
   kind: "routine" | "inspection" | "room" | "log" | "meeting" | "drill";
   months?: number[];
+  sourceYear?: number;
   sourceFile: string;
   sourcePage?: number;
   sourceReference: string;
@@ -66,7 +69,7 @@ const pdfMetadata: Record<string, {
   "Air Handlers Quarterly.pdf": { title: "Air Handlers Quarterly Checklist", cadence: "quarterly", months: coldQuarterMonths, scope: "equipment", fields: [{ id: "unitIdentifier", label: "Unit number / serial / identifier", type: "text", required: true }] },
   "Business Center.pdf": { title: "Business Center Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
   "Dining_Breakfast.pdf": { title: "Dining / Breakfast Area Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
-  "Elevator Checklist.pdf": { title: "Elevator Quarterly Checklist", cadence: "quarterly", months: alternateQuarterMonths, scope: "equipment", fields: [{ id: "location", label: "Elevator number / location", type: "text", required: true }] },
+  "Elevator Checklist.pdf": { title: "Elevator Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "equipment", fields: [{ id: "location", label: "Elevator number / location", type: "text", required: true }] },
   "Emergency lighting-Exit Sign log Master.pdf": { title: "Emergency Lighting & Exit Sign Monthly Log", cadence: "monthly", scope: "area", kind: "log", instructions: "Test each battery-powered emergency light and EXIT sign by depressing its test button. Record the nearest room or area, device type, actual functional result, date, notes, repair date and initials.", repeatableLabel: "Device inspections", repeatableFields: [
     { id: "location", label: "Location", type: "text", required: true },
     { id: "deviceType", label: "Type of device", type: "select", options: ["Exit sign", "Emergency light"] },
@@ -131,7 +134,7 @@ const pdfMetadata: Record<string, {
   ] },
   "Property Walk Guide.pdf": { title: "Weekly Property Walk", cadence: "weekly", scope: "area", instructions: "Weekly Engineering / Housekeeping walk; walk with the General Manager monthly. Record deficiencies and create a work-order schedule." },
   "Public Restrooms.pdf": { title: "Public Restrooms Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area" },
-  "Quarterly Fire Drill.pdf": { title: "Quarterly Fire Drill Record", cadence: "quarterly", months: quarterMonths, scope: "property", kind: "drill", fields: [
+  "Quarterly Fire Drill.pdf": { title: "Quarterly Fire Drill Record", cadence: "quarterly", months: coldQuarterMonths, scope: "property", kind: "drill", fields: [
     { id: "drillType", label: "Drill type", type: "select", options: ["Exercise only", "Alarm activation"], required: true },
     { id: "alarmTime", label: "Time of alarm", type: "text" },
     { id: "guestNotification", label: "Guests notified in advance", type: "yes-no" },
@@ -153,7 +156,7 @@ const pdfMetadata: Record<string, {
   "RTU Quarterly.pdf": { title: "RTU Quarterly Checklist", cadence: "quarterly", months: coldQuarterMonths, scope: "equipment", fields: [{ id: "unitIdentifier", label: "Unit number / serial / identifier", type: "text", required: true }], instructions: "Turn off all power before maintenance. Replace and date filters as required. Do not leave coil cleaner on for more than five minutes." },
   "Safety Checklist.pdf": { title: "Quarterly Safety Checklist", cadence: "quarterly", months: quarterMonths, scope: "property", fields: [{ id: "completedBy", label: "Checklist completed by", type: "text", required: true }] },
   "Split Unit Quarterly.pdf": { title: "Split Unit AC Quarterly Checklist", cadence: "quarterly", months: coldQuarterMonths, scope: "equipment", fields: [{ id: "unitIdentifier", label: "Unit number / serial / identifier", type: "text", required: true }], instructions: "Turn off all power before maintenance. Do not use acid coil cleaner or leave coil cleaner on for more than five minutes." },
-  "Sprinkler Flow_Tamper Test.pdf": { title: "Quarterly Sprinkler Flow & Tamper Switch Test", cadence: "quarterly", months: quarterMonths, scope: "equipment", kind: "log", instructions: "Keep this record for authorities and insurance. Remove locks / chains / seals, physically turn each valve, then return it to the open position and relock / reseal.", repeatableLabel: "Sprinkler system tests", repeatableFields: [
+  "Sprinkler Flow_Tamper Test.pdf": { title: "Quarterly Sprinkler Flow & Tamper Switch Test", cadence: "quarterly", months: alternateQuarterMonths, scope: "equipment", kind: "log", instructions: "Keep this record for authorities and insurance. Remove locks / chains / seals, physically turn each valve, then return it to the open position and relock / reseal.", repeatableLabel: "Sprinkler system tests", repeatableFields: [
     { id: "location", label: "Location", type: "text", required: true },
     { id: "controlValveType", label: "Type of control valve", type: "text" },
     { id: "flow", label: "Flow switch", type: "yes-no" },
@@ -164,7 +167,7 @@ const pdfMetadata: Record<string, {
     { id: "repairPerson", label: "Repaired by", type: "text" },
   ] },
   "Stairwell.pdf": { title: "Stairwells Quarterly Checklist", cadence: "quarterly", months: alternateQuarterMonths, scope: "area", fields: [{ id: "location", label: "Stairwell location / number", type: "text", required: true }] },
-  "Storage.pdf": { title: "Storage Rooms Quarterly Checklist", cadence: "quarterly", months: quarterMonths, scope: "area", fields: [{ id: "location", label: "Storage room location", type: "text", required: true }] },
+  "Storage.pdf": { title: "Storage Rooms Quarterly Checklist", cadence: "quarterly", months: coldQuarterMonths, scope: "area", fields: [{ id: "location", label: "Storage room location", type: "text", required: true }] },
   "Weekly Meeting.pdf": { title: "Weekly Maintenance Department Meeting", cadence: "weekly", scope: "property", kind: "meeting", fields: [
     { id: "meetingLead", label: "Meeting lead", type: "text" },
     { id: "progress", label: "Progress / PM tracker review", type: "textarea" },
@@ -190,9 +193,20 @@ function makePdfTemplates(): PmTemplate[] {
       .filter((line) => !/^(?:Q[1-4]|YES|NO|DATE|YEAR|NOTES|MAINTENANCE)$/i.test(line))
       .filter((line) => !/^The (?:[A-Z]|property|form|checklist)/.test(line) || line.length < 220)
       .map((label, index) => ({ id: `${slug(pdf.file)}-item-${index + 1}`, label, source: pdf.file }))
+        .map(item => item.id === "pool-item-26"
+          ? { ...item, label: `${item.label} ${pdf.lines.find(line => line.startsWith("manufacture date on the drain cover")) || ""}`.trim() }
+          : item)
       // Printed instructions and column headers are not inspection answers.
       // Filter AFTER assigning IDs so every real saved answer retains its identity.
-      .filter(item => !/^create work orders based off|^Q1 DATE Q2 DATE|^MAINTENANCE Q1 Q2/i.test(item.label));
+      .filter(item => !/^create work orders based off|^Q1 DATE Q2 DATE|^MAINTENANCE Q1 Q2/i.test(item.label))
+      .filter(item => !new Set([
+        "ice-machine-areas-item-1", // page numeral
+        "ice-machine-areas-item-2", // location field heading
+        "ice-machine-areas-item-4", // location field continuation
+        "storage-item-1", "storage-item-3", // location field heading, not condition tasks
+          "pool-item-1", "pool-item-27", // existing date field and wrapped continuation of item 26
+        "meeting-room-item-1", "hallway-checklist-item-1", "stairwell-item-1",
+      ]).has(item.id));
     if (["Emergency lighting-Exit Sign log Master.pdf", "Monthly Fire Extinguisher Log.pdf", "Monthly Laundry Chute Log.pdf", "Monthly fire Door log.pdf"].includes(pdf.file)) {
       // These records use the actual per-device Yes/No log fields below, not
       // synthetic checkboxes for their printed instructions.
@@ -277,7 +291,22 @@ const monthlyTemplates: PmTemplate[] = data.months.map((month) => ({
   fields: [{ id: "notes", label: "Monthly notes", type: "textarea" }],
 }));
 
-export const PM_TEMPLATES: PmTemplate[] = [dailyTemplate, weeklyTemplate, ...monthlyTemplates, ...makePdfTemplates()];
+// The corporate source labels these WK1–WK5 within a month. A month anchor
+// identifies the reporting period; it is not an asserted inspection date.
+export const corporateWeeklyTemplate: PmTemplate = {
+  id: "workbook:weekly-slots", title: "Corporate weekly history", cadence: "monthly",
+  scope: "property", kind: "routine", sourceFile: data.workbook,
+  sourceReference: `${data.workbook} · monthly tabs, rows 23–27`,
+  instructions: "Corporate month/week slots. These records do not assert an exact inspection date or replace Monday-based weekly entries.",
+  checklist: Array.from({length: 5}, (_, index) => [
+    ...data.weekly.map(item => ({id: `wk${index + 1}:${item.id}`, label: item.label,
+      category: `WK${index + 1}`, source: item.reference || item.source})),
+    {id: `wk${index + 1}:rollup`, label: "Weekly checklist completion (source summary)", category: `WK${index + 1}`},
+  ]).flat(), fields: [{id: "notes", label: "Notes / revisit items", type: "textarea"}],
+};
+
+export const PM_PROGRAM_HISTORY_TEMPLATES = programHistoryTemplates as PmTemplate[];
+export const PM_TEMPLATES: PmTemplate[] = [dailyTemplate, weeklyTemplate, corporateWeeklyTemplate, ...monthlyTemplates, ...PM_PROGRAM_HISTORY_TEMPLATES, ...makePdfTemplates(), ...supplementalForms as PmTemplate[]];
 export const PM_ROOM_NUMBERS = data.roomNumbers;
 export const PM_WORKBOOK_SOURCE = data.workbook;
 export const PM_SUPPORTED_YEARS = [2022, 2023, 2024, 2025, 2026] as const;
@@ -293,6 +322,7 @@ export function validPmPeriod(template: PmTemplate, value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T12:00:00Z`);
   if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return false;
+  if (template.sourceYear && date.getUTCFullYear() !== template.sourceYear) return false;
   if (template.cadence === "daily") return true;
   if (template.cadence === "weekly") return date.getUTCDay() === 1;
   if (date.getUTCDate() !== 1) return false;

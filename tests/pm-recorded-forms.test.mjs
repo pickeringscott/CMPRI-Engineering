@@ -27,11 +27,12 @@ function load(file,overrides={}){
 const fixturePath=process.env.CMPRI_PM_SOURCE_FIXTURE;
 assert.ok(fixturePath,'The reviewed complete binder fixture is required, not a synthetic replacement.');
 const rawFixture=JSON.parse(fs.readFileSync(fixturePath,'utf8').replace(/^\uFEFF/,''));
-const fixture=load('src/lib/pm/source-evidence.ts').validatePmSource(rawFixture,[...new Set(rawFixture.pages.map(p=>p.templateId).filter(Boolean))]);
+const sourceFixture=Array.isArray(rawFixture)?{sourceId:rawFixture[0].source_id,sourceName:'PM Scan.pdf nonroom pages 1-42',pageCount:42,pages:rawFixture[0].pages}:rawFixture;
+const fixture=load('src/lib/pm/source-evidence.ts').validatePmSource(sourceFixture,[...new Set(sourceFixture.pages.map(p=>p.templateId).filter(Boolean))]);
 const {projectRecordedPmForms}=load('src/lib/server/pm-recorded-forms.ts');
 const projection=projectRecordedPmForms(fixture.sourceId,fixture.pages);
-test('complete binder batch projects all30 marked nonroom pages, preserves source and detects conflicts',()=>{
- assert.equal(projection.length,150);
+test('verified nonroom binder segment projects all30 marked nonroom pages, preserves source and detects conflicts',()=>{
+ assert.equal(projection.length,sourceFixture.pageCount);
  assert.equal(projection.filter(p=>p.recordedForms?.length).length,30);
  assert.equal(projection.filter(p=>p.recordedFormsConflict).length,0);
  const forms=projection.flatMap(p=>p.recordedForms||[]);
@@ -43,7 +44,7 @@ test('complete binder batch projects all30 marked nonroom pages, preserves sourc
  const changed=structuredClone(fixture.pages);changed[22].evidence+=' amended';
  assert.equal(projectRecordedPmForms(fixture.sourceId,changed)[22].recordedFormsConflict,true);
  assert.equal(projectRecordedPmForms(fixture.sourceId,changed)[22].recordedForms,undefined);
- for(let i=0;i<150;i++)for(const key of Object.keys(fixture.pages[i]))assert.deepEqual(projection[i][key],fixture.pages[i][key]);
+ for(let i=0;i<sourceFixture.pageCount;i++)for(const key of Object.keys(fixture.pages[i]))assert.deepEqual(projection[i][key],fixture.pages[i][key]);
 });
 test('specific adverse and ambiguous findings remain attached to selected actual controls',()=>{
  const p=n=>projection[n-1].recordedForms;

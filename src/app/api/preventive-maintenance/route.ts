@@ -4,6 +4,9 @@ import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { findPmTemplate, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
 import { profileHasRole } from "@/lib/server/roles";
+import { approvedRoutineResponses, approvedRoutineUnverifiedItems } from "@/lib/pm/proposal-projection";
+import { fetchAllPages } from "@/lib/server/paginated-query";
+import { sourceCompletionReview } from "@/lib/server/pm-source-completion-review";
 
 const PM_MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
 type PmProposedCell = {
@@ -93,21 +96,42 @@ export async function GET(request: NextRequest) {
 
   // Historical source responses must remain reachable for every prior period in this year.
   const from = `${week.slice(0, 4)}-01-01`;
-  const proposals = await auth.admin.from("cmpri_pm_proposals")
+  const proposals = await fetchAllPages((offset, end) => auth.admin.from("cmpri_pm_proposals")
     .select("id, template_id, period_start, scope_key, payload, proposed_cells, status, submitted_by, submitted_by_name, reviewed_by, reviewed_at, review_note, revision, updated_at")
     .eq("hotel_id", HOTEL_ID)
     .gte("period_start", from)
     .lte("period_start", pmWeekDates(week)[6])
     .order("period_start", { ascending: true })
-    .limit(5000);
+    .order("id", { ascending: true })
+    .range(offset, end));
   if (proposals.error) return responseError(proposals.error, "PM review records could not be loaded.");
   const latestByKey = new Map<string, Record<string, unknown>>();
   const approvedRooms = new Map<string, Record<string, unknown>>();
+  const approvedInspections = new Map<string, Record<string, unknown>>();
   const proposalPriorityByKey = new Map<string, number>();
+  const approvedResponses = approvedRoutineResponses(proposals.data || []);
+  const approvedUnverified = approvedRoutineUnverifiedItems(proposals.data || [], sourceCompletionReview);
   for (const proposal of proposals.data || []) {
     if (proposal.status === "rejected") continue;
     const key = `${proposal.template_id}|${proposal.period_start}|${proposal.scope_key}`;
-    const payload = proposal.payload && typeof proposal.payload === "object" ? proposal.payload as Record<string, unknown> : {};
+    const payload = proposal.payload && typeof proposal.payload === "object" ? { ...proposal.payload as Record<string, unknown> } : {};
+    if (proposal.template_id.startsWith("pdf:") && payload.historical_source_import) {
+      const reviewed=sourceCompletionReview(proposal);
+      payload.is_complete = reviewed?.inspection_complete === true;
+      payload.source_completion_verified = reviewed?.inspection_complete === true;
+      payload.completion_review_required = !reviewed?.inspection_complete;
+    }
+    if (proposal.template_id.startsWith("workbook:")) {
+      const explicit = proposal.status === "pending" || proposal.status === "processing"
+        ? Object.keys((payload.responses || {}) as Record<string, unknown>) : [];
+      payload.unverified_completion_items = [...(approvedUnverified.get(key) || [])].filter(item => !explicit.includes(item));
+    }
+    if (proposal.status === "approved" && proposal.template_id.startsWith("pdf:")) {
+      const prior = approvedInspections.get(key);
+      if (!prior || String(proposal.updated_at || "") >= String(prior.updated_at || "")) {
+        approvedInspections.set(key, { ...payload, template_id: proposal.template_id, scope_key: proposal.scope_key, period_start: proposal.period_start, status: "approved", updated_at: proposal.updated_at });
+      }
+    }
     if (proposal.status === "approved" && proposal.template_id === "pdf:room-pm-checklist") {
       const prior = approvedRooms.get(key);
       if (!prior || String(proposal.updated_at || "") >= String(prior.updated_at || "")) {
@@ -124,6 +148,12 @@ export async function GET(request: NextRequest) {
       proposalPriorityByKey.set(key, priority);
       latestByKey.set(key, {
         ...payload,
+        ...(proposal.template_id.startsWith("workbook:") ? {
+          responses: {
+            ...approvedResponses.get(key),
+            ...(pending && payload.responses && typeof payload.responses === "object" ? payload.responses : {}),
+          },
+        } : {}),
         id: proposal.id,
         template_id: proposal.template_id,
         period_start: proposal.period_start,
@@ -172,6 +202,7 @@ export async function GET(request: NextRequest) {
     entries: [...latestByKey.values()],
     room_history: history.data || [],
     approved_rooms: [...approvedRooms.values()],
+    approved_inspections: [...approvedInspections.values()],
     review_queue: reviewQueue?.data || [],
     locations: locations.data || [],
     can_edit: isSystemAdmin || allows(auth.principal, "edit_tickets"),
@@ -206,7 +237,7 @@ export async function POST(request: NextRequest) {
   const template = findPmTemplate(templateId);
   if (!template) return NextResponse.json({ error: "The PM form is not supported." }, { status: 400 });
   const periodStart = body.periodStart;
-  if (!validDate(periodStart) || !validPmPeriod(template, periodStart)) {
+  if (!validDate(periodStart)) {
     return NextResponse.json({ error: `The selected period is not valid for ${template.title}.` }, { status: 400 });
   }
   let responses: Record<string, unknown>;
@@ -264,6 +295,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "PM notes are invalid." }, { status: 400 });
   }
   const key = { hotel_id: HOTEL_ID, template_id: template.id, period_start: periodStart, scope_key: scopeKey };
+  if (!validPmPeriod(template, periodStart)) {
+    // A schedule correction must not strand a previously saved inspection.
+    // This only permits editing an existing, exactly scoped record; it does not
+    // allow new off-schedule periods or rewrite the original inspection date.
+    const legacy = await auth.admin.from("cmpri_pm_proposals")
+      .select("id").match(key).in("status", ["approved", "pending", "processing"]).limit(1);
+    if (legacy.error) return responseError(legacy.error, "The saved inspection period could not be verified.");
+    if (!legacy.data?.length) return NextResponse.json({ error: `The selected period is not valid for ${template.title}.` }, { status: 400 });
+  }
   const actor = auth.principal.identity.id;
   const existing = await auth.admin.from("cmpri_pm_proposals")
     .select("id, revision, payload")

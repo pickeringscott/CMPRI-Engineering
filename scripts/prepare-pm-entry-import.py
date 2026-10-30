@@ -57,8 +57,8 @@ for page,period in monthly.items():
   answer['passed' if page in [15,16] else 'functional']=row['value'].title() if row['value'] in ['YES','NO'] else ''
   if device:answer['deviceType']='Exit sign' if device in ['EXIT','EXIT SIGN'] else 'Emergency light' if device in ['EM','EM LIGHT'] else ''
   rows.append(answer)
-for r in records.values():
- r['payload']['is_complete']=bool(r['payload']['form_data'].get('logEntries')) or any(v in ['complete','follow-up'] for v in r['payload']['responses'].values())
+# Source item conditions do not establish whole-inspection completion.
+# Completion must be reconciled to explicit corporate master-checklist evidence.
 batch={'source_id':source_id,'expected_pages':[pages[n] for n in sorted(used)],'entries':list(records.values()),'deferred_pages':{str(n):pages[n]['unresolved'] for n in []},'room_supplement':'libfile_b2545c4f8f3c8191b1405e19ad0f9e01; 49 blank quarters, p73 Q2 M21 unreadable; zero additional answers; total uncertainty79'}
 (out/'pm-actual-entry-batch.json').write_text(json.dumps(batch,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 batch['expected_entry_count']=len(records)

@@ -1,0 +1,480 @@
+[
+  {
+    "id": "workbook:area-plan:2024",
+    "title": "2024 corporate area plan",
+    "cadence": "monthly",
+    "months": [
+      1
+    ],
+    "sourceYear": 2024,
+    "scope": "property",
+    "kind": "routine",
+    "sourceFile": "Copy of Preventative Maintenance Tracking - CMPRI.xlsx",
+    "sourceReference": "2024!G11:M39",
+    "instructions": "Preserves the recorded week ranges and cached area names from the supplied workbook. January 1 identifies the annual source grid, not an inspection date. Blank/false checks are not proof of a failed inspection.",
+    "checklist": [
+      {
+        "id": "area-i12",
+        "label": "Lobby",
+        "category": "Week 1: January 8th - 14th",
+        "source": "2024!H12"
+      },
+      {
+        "id": "area-i13",
+        "label": "Market",
+        "category": "Week 1: January 8th - 14th",
+        "source": "2024!H13"
+      },
+      {
+        "id": "area-i17",
+        "label": "Breakfast Area",
+        "category": "Week 2: January 15th - 21st",
+        "source": "2024!H17"
+      },
+      {
+        "id": "area-i18",
+        "label": "Business Center",
+        "category": "Week 2: January 15th - 21st",
+        "source": "2024!H18"
+      },
+      {
+        "id": "area-i22",
+        "label": "Front Desk",
+        "category": "Week 3: January 22nd - 28th",
+        "source": "2024!H22"
+      },
+      {
+        "id": "area-i23",
+        "label": "Public Restrooms",
+        "category": "Week 3: January 22nd - 28th",
+        "source": "2024!H23"
+      },
+      {
+        "id": "area-i24",
+        "label": "Elevators",
+        "category": "Week 3: January 22nd - 28th",
+        "source": "2024!H24"
+      },
+      {
+        "id": "area-i27",
+        "label": "Guest Laundry",
+        "category": "Week 4: January 29th - February 4th",
+        "source": "2024!H27"
+      },
+      {
+        "id": "area-i28",
+        "label": "Fitness Center",
+        "category": "Week 4: January 29th - February 4th",
+        "source": "2024!H28"
+      },
+      {
+        "id": "area-i32",
+        "label": "Commercial Laundry",
+        "category": "Week 5: February 5th - 11th",
+        "source": "2024!H32"
+      },
+      {
+        "id": "area-i33",
+        "label": "Meeting Room(s)",
+        "category": "Week 5: February 5th - 11th",
+        "source": "2024!H33"
+      },
+      {
+        "id": "area-i37",
+        "label": "Hallways",
+        "category": "Week 6: February 12th - 18th",
+        "source": "2024!H37"
+      },
+      {
+        "id": "area-m12",
+        "label": "Hallways continued",
+        "category": "Week 7: February 19th - 25th",
+        "source": "2024!L12"
+      },
+      {
+        "id": "area-m17",
+        "label": "Stairwells",
+        "category": "Week 8: February 26th - March 3rd",
+        "source": "2024!L17"
+      },
+      {
+        "id": "area-m22",
+        "label": "Ice Machine Areas (including Ice Machines)",
+        "category": "Week 9: March 4th - 10th",
+        "source": "2024!L22"
+      },
+      {
+        "id": "area-m27",
+        "label": "Exterior Site Maintenance",
+        "category": "Week 10: March 11th - 17th",
+        "source": "2024!L27"
+      },
+      {
+        "id": "area-m28",
+        "label": "Shuttle(s)",
+        "category": "Week 10: March 11th - 17th",
+        "source": "2024!L28"
+      },
+      {
+        "id": "area-m32",
+        "label": "Kitchen",
+        "category": "Week 11: March 18th - 24th",
+        "source": "2024!L32"
+      },
+      {
+        "id": "area-m33",
+        "label": "Pool",
+        "category": "Week 11: March 18th - 24th",
+        "source": "2024!L33"
+      },
+      {
+        "id": "area-m37",
+        "label": "Fire Drill",
+        "category": "Week 12: March 25th - 31st",
+        "source": "2024!L37"
+      }
+    ],
+    "fields": [
+      {
+        "id": "notes",
+        "label": "Planning notes / revisit items",
+        "type": "textarea"
+      }
+    ]
+  },
+  {
+    "id": "workbook:compliance:2023",
+    "title": "2023 weekly binder compliance",
+    "cadence": "monthly",
+    "months": [
+      1
+    ],
+    "sourceYear": 2023,
+    "scope": "property",
+    "kind": "routine",
+    "sourceFile": "Copy of Preventative Maintenance Tracking - CMPRI.xlsx",
+    "sourceReference": "2023!I14:J65",
+    "instructions": "The supplied grid has week labels but no recorded weekly compliance answers. No checks are inferred from room dates or cached TODAY formulas. January 1 is a year anchor only.",
+    "checklist": [
+      {
+        "id": "week-1",
+        "label": "Week 1 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J14"
+      },
+      {
+        "id": "week-2",
+        "label": "Week 2 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J15"
+      },
+      {
+        "id": "week-3",
+        "label": "Week 3 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J16"
+      },
+      {
+        "id": "week-4",
+        "label": "Week 4 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J17"
+      },
+      {
+        "id": "week-5",
+        "label": "Week 5 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J18"
+      },
+      {
+        "id": "week-6",
+        "label": "Week 6 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J19"
+      },
+      {
+        "id": "week-7",
+        "label": "Week 7 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J20"
+      },
+      {
+        "id": "week-8",
+        "label": "Week 8 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J21"
+      },
+      {
+        "id": "week-9",
+        "label": "Week 9 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J22"
+      },
+      {
+        "id": "week-10",
+        "label": "Week 10 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J23"
+      },
+      {
+        "id": "week-11",
+        "label": "Week 11 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J24"
+      },
+      {
+        "id": "week-12",
+        "label": "Week 12 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J25"
+      },
+      {
+        "id": "week-13",
+        "label": "Week 13 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J26"
+      },
+      {
+        "id": "week-14",
+        "label": "Week 14 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J27"
+      },
+      {
+        "id": "week-15",
+        "label": "Week 15 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J28"
+      },
+      {
+        "id": "week-16",
+        "label": "Week 16 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J29"
+      },
+      {
+        "id": "week-17",
+        "label": "Week 17 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J30"
+      },
+      {
+        "id": "week-18",
+        "label": "Week 18 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J31"
+      },
+      {
+        "id": "week-19",
+        "label": "Week 19 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J32"
+      },
+      {
+        "id": "week-20",
+        "label": "Week 20 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J33"
+      },
+      {
+        "id": "week-21",
+        "label": "Week 21 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J34"
+      },
+      {
+        "id": "week-22",
+        "label": "Week 22 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J35"
+      },
+      {
+        "id": "week-23",
+        "label": "Week 23 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J36"
+      },
+      {
+        "id": "week-24",
+        "label": "Week 24 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J37"
+      },
+      {
+        "id": "week-25",
+        "label": "Week 25 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J38"
+      },
+      {
+        "id": "week-26",
+        "label": "Week 26 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J39"
+      },
+      {
+        "id": "week-27",
+        "label": "Week 27 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J40"
+      },
+      {
+        "id": "week-28",
+        "label": "Week 28 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J41"
+      },
+      {
+        "id": "week-29",
+        "label": "Week 29 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J42"
+      },
+      {
+        "id": "week-30",
+        "label": "Week 30 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J43"
+      },
+      {
+        "id": "week-31",
+        "label": "Week 31 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J44"
+      },
+      {
+        "id": "week-32",
+        "label": "Week 32 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J45"
+      },
+      {
+        "id": "week-33",
+        "label": "Week 33 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J46"
+      },
+      {
+        "id": "week-34",
+        "label": "Week 34 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J47"
+      },
+      {
+        "id": "week-35",
+        "label": "Week 35 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J48"
+      },
+      {
+        "id": "week-36",
+        "label": "Week 36 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J49"
+      },
+      {
+        "id": "week-37",
+        "label": "Week 37 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J50"
+      },
+      {
+        "id": "week-38",
+        "label": "Week 38 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J51"
+      },
+      {
+        "id": "week-39",
+        "label": "Week 39 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J52"
+      },
+      {
+        "id": "week-40",
+        "label": "Week 40 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J53"
+      },
+      {
+        "id": "week-41",
+        "label": "Week 41 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J54"
+      },
+      {
+        "id": "week-42",
+        "label": "Week 42 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J55"
+      },
+      {
+        "id": "week-43",
+        "label": "Week 43 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J56"
+      },
+      {
+        "id": "week-44",
+        "label": "Week 44 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J57"
+      },
+      {
+        "id": "week-45",
+        "label": "Week 45 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J58"
+      },
+      {
+        "id": "week-46",
+        "label": "Week 46 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J59"
+      },
+      {
+        "id": "week-47",
+        "label": "Week 47 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J60"
+      },
+      {
+        "id": "week-48",
+        "label": "Week 48 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J61"
+      },
+      {
+        "id": "week-49",
+        "label": "Week 49 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J62"
+      },
+      {
+        "id": "week-50",
+        "label": "Week 50 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J63"
+      },
+      {
+        "id": "week-51",
+        "label": "Week 51 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J64"
+      },
+      {
+        "id": "week-52",
+        "label": "Week 52 binder maintenance compliance",
+        "category": "Source-year weekly compliance",
+        "source": "2023!J65"
+      }
+    ],
+    "fields": [
+      {
+        "id": "notes",
+        "label": "Compliance findings / revisit plan",
+        "type": "textarea"
+      }
+    ]
+  }
+]

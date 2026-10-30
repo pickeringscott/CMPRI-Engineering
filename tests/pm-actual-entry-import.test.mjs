@@ -13,7 +13,7 @@ const require=createRequire(import.meta.url);
 function load(file,overrides={}){
  const exports={};file=path.resolve(file);
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,{exports,require(name){
-  if(name in overrides)return overrides[name];
+  if(name in overrides)return overrides[name];if(name==='server-only')return {};
   if(name.startsWith('.')||name.startsWith('@/')){let target=name.startsWith('@/')?path.resolve('src',name.slice(2)):path.resolve(path.dirname(file),name);if(target.endsWith('.json'))return JSON.parse(fs.readFileSync(target,'utf8'));if(!path.extname(target))target+=fs.existsSync(target+'.tsx')?'.tsx':'.ts';return load(target,overrides);}
   return require(name);
  },console,process,Buffer});return exports;
@@ -32,14 +32,14 @@ test('actual SQL batch -> actual API entries -> actual form hydration/control se
  create table cmpri_pm_proposals(id uuid primary key,hotel_id uuid,template_id text,period_start date,scope_key text,payload jsonb,proposed_cells jsonb,status text,submitted_by uuid,submitted_by_name text,reviewed_by uuid,reviewed_at timestamptz,review_note text,revision bigint default 1,updated_at timestamptz default now(),created_at timestamptz default now());`);
  await db.query('insert into cmpri_pm_source_evidence values($1,$2,$3)',[hotel,batch.source_id,JSON.stringify(batch.expected_pages)]);
  for(const row of batch.entries){
-  const template=catalog.findPmTemplate(row.template_id);assert.ok(template);assert.ok(catalog.validPmPeriod(template,row.period_start));
+  const template=catalog.findPmTemplate(row.template_id);assert.ok(template);assert.match(row.period_start,/^2026-\d{2}-01$/); // Existing source periods remain editable even after corrected schedule.
   for(const id of Object.keys(row.payload.responses))assert.ok(template.checklist.some(i=>i.id===id),id);
-  assert.equal(row.payload.completed_on,null);assert.equal(row.payload.is_complete,!!row.payload.form_data.logEntries?.length||Object.values(row.payload.responses).some(v=>['complete','follow-up'].includes(v)));
+  assert.equal(row.payload.completed_on,null); // Historical payload completion is not accepted as proof; current API applies exact reviewed source evidence.
  }
  await db.exec(sql);assert.equal((await db.query('select count(*)::int n from cmpri_pm_proposals')).rows[0].n,52);
  await db.exec(sql);assert.equal((await db.query('select count(*)::int n from cmpri_pm_proposals')).rows[0].n,52);
  const stored=(await db.query("select *, to_char(period_start,'YYYY-MM-DD') source_period from cmpri_pm_proposals order by period_start")).rows.map(row=>({...row,period_start:row.source_period}));
- const admin={from(table){let low,high;const chain={select:()=>chain,eq:()=>chain,gte:(_k,v)=>(low=v,chain),lte:(_k,v)=>(high=v,chain),order:()=>chain,limit:async()=>({data:table==='cmpri_pm_proposals'?stored.filter(r=>r.period_start>=low&&r.period_start<=high):[]})};return chain;}};
+ const admin={from(table){let low,high;const chain={select:()=>chain,eq:()=>chain,gte:(_k,v)=>(low=v,chain),lte:(_k,v)=>(high=v,chain),order:()=>chain,limit:async()=>({data:table==='cmpri_pm_proposals'?stored.filter(r=>r.period_start>=low&&r.period_start<=high):[]}),range:async(a,b)=>({data:table==='cmpri_pm_proposals'?stored.filter(r=>r.period_start>=low&&r.period_start<=high).slice(a,b+1):[]})};return chain;}};
  const route=load('src/app/api/preventive-maintenance/route.ts',{'@/lib/server/auth':{requireUser:async()=>({admin,principal:{identity:{id:'actor'},profile:{role:'engineer'}}})},'@/lib/server/access':{allows:()=>true},'@/lib/server/roles':{profileHasRole:()=>false},'@/lib/constants':{HOTEL_ID:hotel}});
  const response=await route.GET({nextUrl:new URL('https://local.invalid/api/preventive-maintenance?week=2026-10-26')});assert.equal(response.status,200);
  const result=await response.json();assert.equal(result.entries.length,52);

@@ -8,8 +8,9 @@ export function findReferencedPmTemplate<T extends PmReferenceTemplate>(
   templates: readonly T[],
 ): T | null {
   if (!reference) return null;
-  const normalizedReference = reference.toLowerCase();
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizedReference = normalize(reference);
   return templates.find((template) =>
-    template.kind !== "routine" && normalizedReference.includes(template.sourceFile.toLowerCase()),
+    template.kind !== "routine" && normalizedReference.includes(normalize(template.sourceFile)),
   ) || null;
 }

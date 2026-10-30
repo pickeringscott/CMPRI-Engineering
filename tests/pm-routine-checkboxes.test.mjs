@@ -49,6 +49,10 @@ test('unchecking one routine item preserves other checked items', () => {
   assert.deepEqual(responses, { first: true, second: false, third: false });
 });
 
+test('editing a sparse record does not turn unanswered tasks into false responses', () => {
+  assert.deepEqual(togglePmRoutineResponse([{id:'first'},{id:'second'}],{},'first',true),{first:true});
+});
+
 test('routine checkbox toggles reject missing or duplicate item identifiers', () => {
   assert.throws(
     () => togglePmRoutineResponse([{ id: 'first' }], {}, 'missing', true),

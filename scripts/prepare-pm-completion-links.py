@@ -1,5 +1,6 @@
 """Local-only compiler: confirm imported inspections and link exact workbook tasks."""
 import json,pathlib,sys,re,uuid,copy
+raise SystemExit("Legacy inference-based completion compiler is disabled. Use explicit corporate master-task evidence and a reviewed conflict plan; item answers alone do not establish inspection completion.")
 base=pathlib.Path(sys.argv[1])
 batch=json.loads((base/'pm-before-completion-batch.json').read_text(encoding='utf-8'))
 catalog=json.loads(pathlib.Path('src/lib/pm/source-catalog.json').read_text(encoding='utf-8'))
