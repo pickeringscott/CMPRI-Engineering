@@ -7,6 +7,7 @@ import { profileHasRole } from "@/lib/server/roles";
 import { approvedRoutineResponses, approvedRoutineUnverifiedItems } from "@/lib/pm/proposal-projection";
 import { fetchAllPages } from "@/lib/server/paginated-query";
 import { sourceCompletionReview } from "@/lib/server/pm-source-completion-review";
+import { cleanScanPayload, cleanScanHistory } from "@/lib/pm/scan-cleanup";
 
 const PM_MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
 type PmProposedCell = {
@@ -114,7 +115,7 @@ export async function GET(request: NextRequest) {
   for (const proposal of proposals.data || []) {
     if (proposal.status === "rejected") continue;
     const key = `${proposal.template_id}|${proposal.period_start}|${proposal.scope_key}`;
-    const payload = proposal.payload && typeof proposal.payload === "object" ? { ...proposal.payload as Record<string, unknown> } : {};
+    const payload = cleanScanPayload(proposal.payload);
     if (proposal.template_id.startsWith("pdf:") && payload.historical_source_import) {
       const reviewed=sourceCompletionReview(proposal);
       payload.is_complete = reviewed?.inspection_complete === true;
@@ -200,7 +201,7 @@ export async function GET(request: NextRequest) {
     week,
     workbook: emptyPmWorkbook(week),
     entries: [...latestByKey.values()],
-    room_history: history.data || [],
+    room_history: (history.data || []).map(cleanScanHistory),
     approved_rooms: [...approvedRooms.values()],
     approved_inspections: [...approvedInspections.values()],
     review_queue: reviewQueue?.data || [],

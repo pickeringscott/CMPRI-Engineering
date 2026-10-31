@@ -1,4 +1,5 @@
 "use client";
+import { pmFieldGroups, pmRecordSummary } from "@/lib/pm/presentation";
 import FieldInput from "@/components/PmFieldInput";
 import { linkedRoutineCompletion } from "@/lib/pm/completion-links";
 import { pmEntryForm } from "@/lib/pm/entry-form";
@@ -16,8 +17,7 @@ import useEmbeddedModal from "@/components/use-embedded-modal";
 import { pmRoutineChecked, isPmRoutineSummary, isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
-import RoomPmHistoryImport from "@/components/RoomPmHistoryImport";
-import PmSourceEvidence from "@/components/PmSourceEvidence";
+import PmSourceEvidence from "@/components/PmMaintenanceHistory";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -97,7 +97,7 @@ const TAB_OPTIONS: Array<{ id: PmTab; label: string }> = [
   { id: "week", label: "Weekly sheet" },
   { id: "inspections", label: "Inspection forms" },
   { id: "rooms", label: "Quarterly room PM" },
-  { id: "sources", label: "Scanned PM evidence" },
+  { id: "sources", label: "Maintenance history" },
   { id: "transfer", label: "Transfer review" },
   { id: "review", label: "Review & confirm" },
 ];
@@ -212,6 +212,14 @@ export default function PreventiveMaintenancePage() {
   const [confirmingProposal, setConfirmingProposal] = useState<PmReviewProposal | null>(null);
   const requestSequence = useRef(0);
   const busyEntries = useRef(new Set<string>());
+  const [phoneRoutine, setPhoneRoutine] = useState("daily");
+  const [phoneDay, setPhoneDay] = useState(0);
+  const [phoneMonth, setPhoneMonth] = useState(0);
+  const [phoneForm, setPhoneForm] = useState("");
+  const [phonePeriod, setPhonePeriod] = useState("");
+  const [phoneCatalog, setPhoneCatalog] = useState(false);
+  const [phoneRecord, setPhoneRecord] = useState(0);
+  const [routineMatchIds, setRoutineMatchIds] = useState<string[]>([]);
   const today = todayIso();
   const weekDates = useMemo(() => pmWeekDates(weekStart), [weekStart]);
   const weekEnd = weekDates[6];
@@ -429,6 +437,7 @@ export default function PreventiveMaintenancePage() {
     const saved = pmEntryForm(existing, historical);
     setFormData(saved.formData);
     setChecklist(saved.checklist as Record<string, ChecklistState>);
+    setPhoneRecord(0);
     setRepeatableRows(saved.logEntries || (template.repeatableFields ? [{}] : []));
     setFormNotes(saved.notes);
     setDeficiencyNotes(saved.deficiencyNotes);
@@ -700,17 +709,21 @@ export default function PreventiveMaintenancePage() {
         && quarterPeriodForDate(entry.period_start) === quarterPeriodForDate(formPeriod))
     ));
     if (candidates.length > 1) {
+        setPhoneForm(template.id);
+        setPhonePeriod(candidates.find(entry => entry.period_start === formPeriod)?.period_start || candidates[0].period_start);
+        setRoutineMatchIds(candidates.map(entry => entry.id));
       setTab("inspections");
-      setMessage("Several saved inspections match this form and quarter. Choose the intended location from its saved records.");
+        setMessage("Several saved inspections match this form and reporting period. Choose the intended saved record.");
       return;
     }
+      setRoutineMatchIds([]);
     const saved = candidates[0];
     openForm(template, saved?.period_start || formPeriod, saved?.scope_key
       || (template.scope === "area" ? "area:property" : "property"));
     if (weekly && template.kind === "meeting") setTab("week");
   }
 
-  function inspectionCard(template: PmTemplate, periodStart: string) {
+  function inspectionCard(template: PmTemplate, periodStart: string, omitRecordIds: string[] = []) {
     const saved = entries.filter((entry) => entry.template_id === template.id && entry.period_start === periodStart);
     const newScope = template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property";
     const existingSingle = saved.find((entry) => entry.scope_key === newScope);
@@ -727,11 +740,11 @@ export default function PreventiveMaintenancePage() {
             <p className="mt-1 text-xs text-slate-400">{periodLabel(template, periodStart)} · {template.scope}</p>
             <SourceNote template={template} />
             {saved.some(entry => entry.completion_review_required) && <p className="mt-2 text-xs text-amber-200">Recorded source answers are preserved. Whole-inspection completion still requires review; a recorded answer alone does not establish completion.</p>}
-            {saved.filter((entry) => entry.scope_key !== newScope).map((entry) => (
+            {saved.filter((entry) => entry.scope_key !== newScope && !omitRecordIds.includes(entry.id)).map((entry) => (
               <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
             ))}
           </div>
-          <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit || (["pending", "processing"].includes(existingSingle?.status || "") && !existingSingle?.can_edit_entry) ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
+          {(!existingSingle || !omitRecordIds.includes(existingSingle.id)) && <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit || (["pending", "processing"].includes(existingSingle?.status || "") && !existingSingle?.can_edit_entry) ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>}
         </div>
       </article>
     );
@@ -755,9 +768,9 @@ export default function PreventiveMaintenancePage() {
     const savingFor = (period: string) => savingKey === entryKey(template.id, period);
     return (
       <div className="overflow-x-auto rounded-xl border border-slate-800">
-        <table className="w-full min-w-[760px] border-collapse text-left">
+        <table data-phone-single={periods.length === 1 ? "" : undefined} data-phone-daily={template.cadence === "daily" ? "" : undefined} className="w-full min-w-[760px] border-collapse text-left">
           <thead className="bg-slate-900 text-xs text-slate-400">
-            <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{heading}</th>{periods.map((period, index) => <th key={period} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{DAY_LABELS[index]}</span><span>{dateLabel(period)}</span></> : <span>{periodLabel(template, period)}</span>}</th>)}</tr>
+            <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{heading}</th>{periods.map((period, index) => <th key={period} data-current-day={template.cadence === "daily" && index === phoneDay ? "" : undefined} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{DAY_LABELS[index]}</span><span>{dateLabel(period)}</span></> : <span>{periodLabel(template, period)}</span>}</th>)}</tr>
           </thead>
           <tbody>
             {template.checklist.map((item, index) => {
@@ -765,7 +778,7 @@ export default function PreventiveMaintenancePage() {
               return (
               <tr key={item.id} className="border-t border-slate-800/80 hover:bg-slate-900/50">
                 <th scope="row" className="sticky left-0 bg-slate-950 px-3 py-2.5 text-sm font-medium text-slate-200">
-                  {item.category && <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}
+                  {item.category && <span data-repeated-category={index > 0 && template.checklist[index - 1].category === item.category ? "" : undefined} className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}
                   {item.label}
                   {findReferencedPmTemplate(reference, PM_TEMPLATES) && <button type="button" onClick={() => openRoutineReference(reference, periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
                 </th>
@@ -775,7 +788,7 @@ export default function PreventiveMaintenancePage() {
                   const hasPending = entryFor(template, period)?.status === "pending"
                     && Object.hasOwn(entryFor(template, period)?.responses || {}, item.id);
                   return (
-                    <td key={period} className="px-2 py-2 text-center">
+                    <td key={period} data-current-day={template.cadence === "daily" && period === periods[phoneDay] ? "" : undefined} className="px-2 py-2 text-center">
                       <button
                         type="button"
                         role="checkbox"
@@ -809,16 +822,25 @@ export default function PreventiveMaintenancePage() {
   }, 0);
   const monthRoutineTotal = monthTemplates.reduce((sum, template) => sum + template.checklist.length, 0);
 
+  const phoneForms = PM_TEMPLATES.filter(template => template.id.startsWith("pdf:") && template.kind !== "room");
+  const selectedPhoneForm = phoneForms.find(template => template.id === phoneForm) || formPeriods[0]?.template || phoneForms[0];
+  const selectedPhonePeriods = selectedPhoneForm ? [...new Set([
+    ...formPeriods.filter(item => item.template.id === selectedPhoneForm.id).map(item => item.periodStart),
+    ...entries.filter(entry => entry.template_id === selectedPhoneForm.id).map(entry => entry.period_start),
+    defaultFormPeriod(selectedPhoneForm, weekStart),
+  ])].sort().reverse() : [];
+  const selectedPhonePeriod = selectedPhonePeriods.includes(phonePeriod) ? phonePeriod : selectedPhonePeriods.find(period => formPeriods.some(item => item.template.id === selectedPhoneForm?.id && item.periodStart === period)) || selectedPhonePeriods[0];
+
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main data-pm-mobile className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-300">CMPRI · Preventive Maintenance</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">Preventive Maintenance</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician changes remain pending until a reviewer explicitly confirms them.</p>
+            <p className="pm-desktop-only mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician changes remain pending until a reviewer explicitly confirms them.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="pm-desktop-only flex flex-wrap items-center gap-2">
             <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-900">Dashboard</ModalDashboardLink>
             <button type="button" onClick={downloadTransfer} className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Export weekly CSV</button>
           </div>
@@ -838,51 +860,56 @@ export default function PreventiveMaintenancePage() {
             <p className="text-sm font-semibold text-slate-300">{dateLabel(weekStart, { month: "long", day: "numeric", year: "numeric" })} – {dateLabel(weekEnd, { month: "long", day: "numeric", year: "numeric" })}</p>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Routine items checked</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Routine items</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Weekly progress</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.percent}%</p></div>
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Forms still open</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{openInspectionCount}</p></div>
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Needs follow-up</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold text-amber-200">{deficientCount}</p></div>
           </div>
         </section>
-        <div role="note" className="mt-3 rounded-xl border border-sky-500/30 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
+        <div role="note" className="pm-desktop-only mt-3 rounded-xl border border-sky-500/30 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
           Google Sheets sync is temporarily disabled for troubleshooting. PM checklist and form changes are stored in CMPRI only; this workspace will not read from or write to Google Sheets.
         </div>
 
-        <nav className="mt-4 flex gap-2 overflow-x-auto border-b border-slate-800 pb-2" aria-label="PM sections">
+        <details className="pm-phone-only phone-about"><summary>Workspace information &amp; export</summary><p>Technician edits remain pending until reviewed. Checklist completion and equipment condition are separate.</p><p>Google Sheets synchronization is disabled; this workspace uses CMPRI records.</p><button type="button" onClick={downloadTransfer}>Export weekly CSV</button></details>
+        <label className="pm-phone-only phone-picker">Workspace<select aria-label="Mobile PM section" value={tab} onChange={event => setTab(event.target.value as PmTab)}>{TAB_OPTIONS.filter(item => item.id !== "review" || canReview).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        <nav className="pm-desktop-only mt-4 flex gap-2 overflow-x-auto border-b border-slate-800 pb-2" aria-label="PM sections">
           {TAB_OPTIONS.filter((item) => item.id !== "review" || canReview).map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${tab === item.id ? "bg-emerald-400 text-slate-950" : "border border-slate-800 text-slate-300 hover:bg-slate-900"}`}>{item.label}{item.id === "review" && reviewQueue.length > 0 ? ` (${reviewQueue.length})` : ""}</button>)}
         </nav>
 
         {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
         {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
         {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
-        {!spreadsheetSyncEnabled && !loading && !error && <div role="status" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">Google Sheets integration is disconnected. Checklist states show CMPRI records only; edits and approvals will not be synchronized to the spreadsheet.</div>}
+        {!spreadsheetSyncEnabled && !loading && !error && <div role="status" className="pm-desktop-only mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">Google Sheets integration is disconnected. Checklist states show CMPRI records only; edits and approvals will not be synchronized to the spreadsheet.</div>}
         {loading && liveWorkbook && <div role="status" className="mt-4 rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 text-sm text-sky-100">Refreshing PM records. You can continue using the last loaded checklist; saves are checked against the latest server revision.</div>}
 
         {tab === "week" && (
-          <div className="mt-5 space-y-7">
-            <section>
+          <div className="pm-routines mt-5 space-y-7">
+            <div className="pm-phone-only phone-switch" aria-label="Routine frequency">{["daily", "weekly", "monthly", "history"].map(value => <button key={value} type="button" aria-pressed={phoneRoutine === value} onClick={() => setPhoneRoutine(value)}>{value}</button>)}</div>
+            <section className={phoneRoutine === "daily" ? "" : "pm-desktop-only"}>
               <SectionHeading eyebrow="Workbook · daily checkbox grid" title="Daily maintenance" trailing={<span className="text-xs text-slate-400">{dailyDone} / {dailyCount} complete</span>} />
-              <p className="mb-3 mt-1 text-xs text-slate-500">Each checkbox saves separately for its date. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.</p>
+              <p className="pm-desktop-only mb-3 mt-1 text-xs text-slate-500">Each checkbox saves separately for its date. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.</p>
+              <div className="pm-phone-only phone-days" aria-label="Daily task date">{weekDates.map((date, index) => <button key={date} type="button" aria-pressed={phoneDay === index} onClick={() => setPhoneDay(index)}>{DAY_LABELS[index]}<span>{dateLabel(date, { day: "numeric" })}</span></button>)}</div>
               {renderRoutineTable(dailyTemplate, weekDates, "Routine task")}
             </section>
 
-            <section>
+            <section className={phoneRoutine === "weekly" ? "" : "pm-desktop-only"}>
               <SectionHeading eyebrow="Live workbook · one completion per week" title="Weekly maintenance" trailing={<span className="text-xs text-slate-400">{weeklyTemplate.checklist.filter((item) => routineStatus(weeklyTemplate, weekStart, item.id)).length} / {weeklyTemplate.checklist.length} complete</span>} />
               <div className="mt-3">
                 {renderRoutineTable(weeklyTemplate, [weekStart], "Weekly task", (itemId) => weeklyTemplate.checklist.find((item) => item.id === itemId)?.source?.endsWith(".pdf") ? weeklyTemplate.checklist.find((item) => item.id === itemId)!.source! : null)}
               </div>
             </section>
 
-            <section>
+            <section className={phoneRoutine === "history" ? "" : "pm-desktop-only"}>
               <SectionHeading eyebrow="Original corporate week slots" title="Weekly history by month" />
               <p className="mt-2 text-sm text-slate-400">WK1–WK5 preserve the workbook headings. The month identifies the reporting period, not an exact inspection date. Summary checks do not fill individual tasks.</p>
               {renderRoutineTable(corporateWeeklyTemplate, [`${weekStart.slice(0, 7)}-01`], "Corporate weekly task")}
             </section>
 
-            {monthTemplates.map((template) => {
+            <div className={phoneRoutine === "monthly" ? "pm-phone-only phone-switch" : "pm-hidden"} aria-label="Monthly reporting period">{monthTemplates.map((template, index) => <button key={template.id} type="button" aria-pressed={Math.min(phoneMonth, monthTemplates.length - 1) === index} onClick={() => setPhoneMonth(index)}>{dateLabel(templatePeriodsForWeek(template, weekStart)[0], { month: "long", year: "numeric" })}</button>)}</div>
+            {monthTemplates.map((template, index) => {
               const period = templatePeriodsForWeek(template, weekStart)[0];
               return (
-                <section key={template.id}>
+                <section key={template.id} className={phoneRoutine === "monthly" && index === Math.min(phoneMonth, monthTemplates.length - 1) ? "" : "pm-desktop-only"}>
                   <SectionHeading eyebrow={`${template.title} · workbook checkboxes`} title={`${dateLabel(period, { month: "long", year: "numeric" })} monthly tasks`} trailing={<span className="text-xs text-slate-400">{template.checklist.filter((item) => routineStatus(template, period, item.id)).length} / {template.checklist.length} complete</span>} />
                   <div className="mt-3">
                     {renderRoutineTable(template, [period], "Monthly task", (itemId) => template.checklist.find((item) => item.id === itemId)?.source || null)}
@@ -892,14 +919,15 @@ export default function PreventiveMaintenancePage() {
             })}
 
             {PM_PROGRAM_HISTORY_TEMPLATES.filter(template => String(template.sourceYear) === weekStart.slice(0, 4)).map(template => (
-              <section key={template.id}>
+              <section key={template.id} className={phoneRoutine === "history" ? "" : "pm-desktop-only"}>
                 <SectionHeading eyebrow="Corporate annual grid" title={template.title} />
                 <p className="mt-2 text-sm text-slate-400">{template.instructions}</p>
                 {renderRoutineTable(template, [`${template.sourceYear}-01-01`], "Recorded area / compliance task")}
               </section>
             ))}
 
-            <section>
+            <button className="pm-phone-only phone-form-link" type="button" onClick={() => setTab("inspections")}>Open inspection forms &amp; saved records</button>
+            <section className="pm-desktop-only">
               <SectionHeading eyebrow="PDF checklists and logs" title="Inspections due this week" trailing={<button type="button" onClick={() => setTab("inspections")} className="text-sm font-bold text-emerald-300 hover:underline">Browse all forms</button>} />
               {formPeriods.length ? <div className="mt-3 grid gap-3 xl:grid-cols-2">{formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}</div> : <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No separate PDF forms are scheduled for this week.</p>}
               {monthRoutineTotal > 0 && <p className="mt-3 text-xs text-slate-500">Monthly checklist checkboxes completed: {monthRoutineDone} / {monthRoutineTotal}. Keep the checklist and linked inspection form in sync.</p>}
@@ -909,7 +937,16 @@ export default function PreventiveMaintenancePage() {
 
         {tab === "inspections" && (
           <div className="mt-5 space-y-7">
-            <section>
+            <section className="pm-phone-only phone-form-picker">
+              <label className="phone-picker">Inspection<select aria-label="Inspection type" value={selectedPhoneForm?.id || ""} onChange={event => { setPhoneForm(event.target.value); setPhonePeriod(""); setRoutineMatchIds([]); }}>{phoneForms.map(template => <option key={template.id} value={template.id}>{template.title}</option>)}</select></label>
+              <label className="phone-picker">Reporting period<select aria-label="Inspection period" value={selectedPhonePeriod || ""} onChange={event => { setPhonePeriod(event.target.value); setRoutineMatchIds([]); }}>{selectedPhonePeriods.map(period => <option key={period} value={period}>{selectedPhoneForm ? periodLabel(selectedPhoneForm, period) : period}{entries.some(entry => entry.template_id === selectedPhoneForm?.id && entry.period_start === period) ? " — saved records" : ""}</option>)}</select></label>
+              {selectedPhoneForm && routineMatchIds.length > 1 && <div role="group" aria-label="Matching saved inspections">
+                {entries.filter(entry => entry.template_id === selectedPhoneForm.id && routineMatchIds.includes(entry.id)).map(entry => <button key={entry.id} type="button" className="phone-form-link" onClick={() => { setPhonePeriod(entry.period_start); openForm(selectedPhoneForm, entry.period_start, entry.scope_key); }}>{periodLabel(selectedPhoneForm, entry.period_start)} · {entry.scope_key.replace(/^[^:]+:/, "")} · {entry.is_complete ? "Complete" : "Recorded answers"}</button>)}
+              </div>}
+              {selectedPhoneForm && selectedPhonePeriod && inspectionCard(selectedPhoneForm, selectedPhonePeriod, routineMatchIds)}
+              <button className="phone-form-link" type="button" aria-expanded={phoneCatalog} onClick={() => setPhoneCatalog(value => !value)}>{phoneCatalog ? "Hide" : "Browse"} complete form catalog &amp; history</button>
+            </section>
+            <section className="pm-desktop-only">
               <SectionHeading eyebrow="Source PDFs · interactive CMPRI forms" title="Forms due in the selected week" />
               <p className="mt-1 text-sm text-slate-400">Checklist marks support complete, needs follow-up, and N/A. Log forms include repeatable inspection rows, measurements, repair dates, initials, and notes where required.</p>
               <div className="mt-4 grid gap-3 xl:grid-cols-2">
@@ -917,7 +954,7 @@ export default function PreventiveMaintenancePage() {
               </div>
               {!formPeriods.length && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No scheduled source forms for this week.</p>}
             </section>
-            <section>
+            <section className={phoneCatalog ? "" : "pm-desktop-only"}>
               <SectionHeading eyebrow="Source checklist" title="All imported forms" />
               <p className="mt-1 text-xs text-slate-500">The source catalog covers 33 PDFs; the duplicated Fitness Center file is represented once. Source document and page are retained on each form.</p>
               <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -925,7 +962,7 @@ export default function PreventiveMaintenancePage() {
                   const period = defaultFormPeriod(template, weekStart);
                   const records = entries.filter((entry) => entry.template_id === template.id);
                   return (
-                    <article key={template.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                    <article key={template.id} className={`${selectedPhoneForm?.id === template.id ? "pm-desktop-only" : ""} rounded-xl border border-slate-800 bg-slate-900/70 p-3`}>
                       <div className="flex items-start justify-between gap-2">
                         <div><p className="font-semibold">{template.title}</p><p className="mt-1 text-xs text-slate-500">{template.cadence} · {template.scope} · {template.checklist.length} items</p></div>
                         <button type="button" onClick={() => openForm(template, period, template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property")} className="rounded-md border border-slate-700 px-2 py-1 text-xs font-bold text-emerald-200">{canEdit ? "New" : "View form"}</button>
@@ -942,12 +979,11 @@ export default function PreventiveMaintenancePage() {
 
         {tab === "rooms" && roomTemplate && (
           <section className="mt-5">
-              {canReview && <RoomPmHistoryImport onImported={() => loadWeek(weekStart)} />}
             <SectionHeading eyebrow={`Live workbook · ${PM_ROOM_NUMBERS.length} rooms`} title={`Quarterly guest room PM · ${dateLabel(currentQuarterPeriod, { month: "long", year: "numeric" })}`} trailing={<span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length} rooms complete</span>} />
             <p className="mt-1 text-sm text-slate-400">Room-quarter completion is a date, separate from item checkboxes. Select a room to complete its room checklist, set rank, record deficiencies, and create a linked work order.</p>
             <label className="mt-4 block max-w-md"><span className="sr-only">Search rooms</span><input value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="Search room number…" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" /></label>
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
-              <table className="w-full min-w-[620px] text-left text-sm">
+              <table className="pm-phone-stack w-full min-w-[620px] text-left text-sm">
                 <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-3">Room</th><th className="px-4 py-3">Quarterly PM date</th><th className="px-4 py-3">Rank</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr></thead>
                 <tbody>{filteredRooms.map((room) => {
                   const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
@@ -957,10 +993,10 @@ export default function PreventiveMaintenancePage() {
                   const roomRank = String(entry?.form_data?.rank || "—");
                   return <tr key={room} className="border-t border-slate-800/80">
                     <th className="px-4 py-3 font-bold">Room {room}</th>
-                      <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : completion.complete ? "Date unknown" : "—"}{historical && <details className="mt-1 text-xs text-slate-400"><summary>Historical source</summary>{historical.source_name} · {historical.source_reference}<p>Whole room complete; checklist answers unchanged.</p></details>}</td>
-                    <td className="px-4 py-3 text-slate-300">{roomRank}</td>
-                      <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${completion.status === "Pending review" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : completion.complete ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{completion.status}</span></td>
-                    <td className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
+                      <td data-label="Quarterly PM date" className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : completion.complete ? "Date unknown" : "—"}{historical && <details className="mt-1 text-xs text-slate-400"><summary>Historical source</summary>{historical.source_name} · {historical.source_reference}<p>Whole room complete; checklist answers unchanged.</p></details>}</td>
+                    <td data-label="Rank" className="px-4 py-3 text-slate-300">{roomRank}</td>
+                      <td data-label="Status" className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${completion.status === "Pending review" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : completion.complete ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{completion.status}</span></td>
+                    <td data-label="Actions" className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
                   </tr>;
                 })}
                   {filteredRooms.length === 0 && <tr><td colSpan={5} role="status" className="border-t border-slate-800/80 px-4 py-5 text-center text-slate-400">No rooms match “{roomSearch.trim()}”.</td></tr>}
@@ -1044,7 +1080,7 @@ export default function PreventiveMaintenancePage() {
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Room-quarter completions</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length}</p></div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
-              <table className="w-full min-w-[650px] text-left text-sm">
+              <table className="pm-phone-stack w-full min-w-[650px] text-left text-sm">
                 <thead className="bg-slate-900 text-xs uppercase text-slate-400"><tr><th className="px-4 py-3">Cadence</th><th className="px-4 py-3">Checklist / form</th><th className="px-4 py-3">Progress</th><th className="px-4 py-3">Needs work</th></tr></thead>
                 <tbody>
                   {[
@@ -1068,10 +1104,10 @@ export default function PreventiveMaintenancePage() {
                       count + template.checklist.filter((item) => entry.responses?.[item.id] === "follow-up").length, 0,
                     );
                     return <tr key={`${template.id}:${period}`} className="border-t border-slate-800">
-                      <td className="px-4 py-3 capitalize text-slate-400">{template.cadence}</td>
-                      <td className="px-4 py-3 font-medium">{template.title}</td>
-                      <td className="px-4 py-3">{template.checklist.length ? `${checked} / ${total}` : record?.is_complete ? "Complete" : "Open"}</td>
-                      <td className="px-4 py-3 text-amber-200">{issues || "—"}</td>
+                      <td data-label="Cadence" className="px-4 py-3 capitalize text-slate-400">{template.cadence}</td>
+                      <td data-label="Checklist / form" className="px-4 py-3 font-medium">{template.title}</td>
+                      <td data-label="Progress" className="px-4 py-3">{template.checklist.length ? `${checked} / ${total}` : record?.is_complete ? "Complete" : "Open"}</td>
+                      <td data-label="Needs work" className="px-4 py-3 text-amber-200">{issues || "—"}</td>
                     </tr>;
                   })}
                 </tbody>
@@ -1095,33 +1131,34 @@ export default function PreventiveMaintenancePage() {
 
       {activeForm && activeTemplate && (
         <div className="cmpri-modal-backdrop fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/80">
-          <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="pm-inspection cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 rounded-t-2xl border-b border-slate-800 bg-slate-950/95 p-4 backdrop-blur sm:p-5">
               <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{activeTemplate.cadence} PM form · {periodLabel(activeTemplate, activeForm.periodStart)}</p><h2 id="pm-form-title" className="mt-1 text-xl font-bold">{activeTemplate.title}{activeTemplate.scope === "room" ? ` · Room ${activeScopeKey.slice(5)}` : ""}</h2><SourceNote template={activeTemplate} /></div>
               <button type="button" onClick={() => { setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
             </header>
-            <div className="space-y-5 p-4 sm:p-5">
-              {activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Only source-recorded item answers are shown. Historical completion does not assert an item passed; saving this form does not replace the historical completion.</p>}
-              {activeTemplate.kind !== "room" && <PmSourceEvidence templateId={activeTemplate.id} />}
-              {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
-              {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
-              {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}
+            <div className="pm-inspection-body space-y-5 p-4 sm:p-5">
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+
+              {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
+
+
+
+              <section className="pm-form-section"><h3 className="pm-field-heading">Current inspection</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Source period</p><p className="mt-1 text-sm font-semibold">{periodLabel(activeTemplate, activeForm.periodStart)}</p></div>
                 {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? "Quarterly room PM completion date *" : "Completion date"}</span><input type="date" disabled={!activeCanEdit || !!savingKey} value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white disabled:opacity-50" /></label>}
                 {activeTemplate.scope === "room" && <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Room</p><p className="mt-1 text-sm font-bold">{activeScopeKey.slice(5)}</p></div>}
-                {activeTemplate.fields.map((field) => (
-                  <FieldInput key={field.id} field={field} value={formData[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setFormData((current) => ({ ...current, [field.id]: value }))} />
-                ))}
               </div>
+                {pmFieldGroups(activeTemplate.fields).map(group => <fieldset key={group.title} className="pm-field-group"><legend className="pm-field-heading">{group.title}</legend><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.fields.map(field => <FieldInput key={field.id} field={field.label === "Inspection notes" ? { ...field, label: "Form inspection notes" } : field} value={formData[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setFormData((current) => ({ ...current, [field.id]: value }))} />)}
+                </div></fieldset>)}
+              </section>
 
               {activeTemplate.checklist.length > 0 && (
                 <section>
                   <div className="flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-bold">Inspection checklist</h3><p className="mt-0.5 text-xs text-slate-500">Record each item as acceptable, needing follow-up, or not applicable.</p></div><span className="text-xs text-slate-400">{activeHistory ? `Historically completed · ${Object.keys(checklist).length} condition answers recorded` : `${Object.keys(checklist).length} / ${activeTemplate.checklist.length} reviewed`}</span></div>
                   <div className="mt-2 divide-y divide-slate-800 rounded-xl border border-slate-800">
                     {activeTemplate.checklist.map((item) => (
-                      <div key={item.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div key={item.id} className="pm-checklist-row flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 flex-1"><p className="text-sm text-slate-200">{item.category && <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}{item.label}</p><span className="text-[10px] text-slate-600">{item.source}</span></div>
                         <div className="flex shrink-0 flex-wrap items-center gap-1">
                           <PmAnswerControls label={item.label} value={checklist[item.id] || ""} historicalCompleted={!!activeHistory} disabled={!activeCanEdit || !!savingKey} onChange={state => setChecklist(current => ({...current, [item.id]: state as ChecklistState}))} />
@@ -1138,8 +1175,8 @@ export default function PreventiveMaintenancePage() {
                   <div className="mt-3 space-y-3">
                     {repeatableRows.map((row, index) => (
                       <div key={index} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Record {index + 1}</p><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="text-xs text-red-300 hover:underline">Remove</button></div>
-                        <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="pm-record-heading flex items-center justify-between"><p className="pm-desktop-only text-xs font-bold uppercase tracking-wide text-slate-500">Record {index + 1}</p><button type="button" className="pm-phone-only phone-record-toggle" aria-expanded={phoneRecord === index} onClick={() => setPhoneRecord(phoneRecord === index ? -1 : index)}>{pmRecordSummary(activeTemplate.repeatableFields!, row, index)}</button><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="pm-record-remove text-xs text-red-300 hover:underline" aria-label={`Remove record ${index + 1}`}>Remove</button></div>
+                        <div className={`${phoneRecord === index ? "" : "pm-desktop-only"} mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3`}>
                           {activeTemplate.repeatableFields!.map((field) => <FieldInput key={field.id} field={field} value={row[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setRepeatableRows((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, [field.id]: value } : item))} />)}
                         </div>
                       </div>
@@ -1148,10 +1185,10 @@ export default function PreventiveMaintenancePage() {
                 </section>
               )}
 
-              <div className="grid gap-3 lg:grid-cols-2">
-                <label className="block"><span className="text-xs font-semibold text-slate-300">Inspection notes</span><textarea disabled={!activeCanEdit || !!savingKey} value={formNotes} onChange={(event) => setFormNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" placeholder="Record observations, readings, or context…" /></label>
+              <section className="pm-form-section"><h3 className="pm-field-heading">Maintenance notes and follow-up</h3><div className="grid gap-3 lg:grid-cols-2">
+                <label className="block"><span className="text-xs font-semibold text-slate-300">Maintenance notes</span><textarea disabled={!activeCanEdit || !!savingKey} value={formNotes} onChange={(event) => setFormNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" placeholder="Record observations, readings, or context…" /></label>
                 <label className="block"><span className="text-xs font-semibold text-amber-200">Deficiencies and follow-up plan</span><textarea disabled={!activeCanEdit || !!savingKey} value={deficiencyNotes} onChange={(event) => setDeficiencyNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" placeholder="Describe what needs repair and the next step…" /></label>
-              </div>
+              </div></section>
 
               {deficiencyNotes.trim() && activeCanEdit && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
@@ -1167,17 +1204,20 @@ export default function PreventiveMaintenancePage() {
               {pendingLinkMatchesForm && pendingWorkOrderLink && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100"><span>Work order {pendingWorkOrderLink.displayId} exists but is not yet linked to this PM entry.</span><button type="button" disabled={!!savingKey} onClick={() => void retryPendingWorkOrderLink()} className="rounded-md border border-amber-400/40 px-3 py-1.5 font-bold disabled:opacity-40">Retry link</button></div>}
               {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">Open linked work order</button>}
 
-              <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-4">
+              {(activeHistory || activeTemplate.kind !== "room") && <details className="pm-prior-history rounded-lg border border-slate-800 p-3"><summary>Prior maintenance history</summary>{activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Only source-recorded item answers are shown. Historical completion does not assert an item passed; saving this form does not replace the historical completion.</p>}{activeTemplate.kind !== "room" && <PmSourceEvidence templateId={activeTemplate.id} />}</details>}
+            </div>
+            <footer className="pm-inspection-actions flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-4">
+                <div className="pm-save-message">{error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}</div>
+                <div className="pm-save-message">{message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}</div>
                 <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(false)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-200 disabled:opacity-40">{savingKey === "active-form" ? "Saving…" : "Save draft"}</button>
                 <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">Mark complete</button>
-              </footer>
-            </div>
+            </footer>
           </section>
         </div>
       )}
       {confirmingProposal && (
         <div className="cmpri-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80">
-          <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="cmpri-modal-shell border border-emerald-500/30 bg-slate-950 shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="pm-review-confirm cmpri-modal-shell border border-emerald-500/30 bg-slate-950 shadow-2xl">
             <p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">Explicit reviewer confirmation</p>
             <h2 id="pm-confirm-title" className="mt-1 text-xl font-bold text-white">Confirm PM proposal</h2>
             <p className="mt-2 text-sm text-slate-300">This records the approval in CMPRI only. Google Sheets sync is disabled, so no spreadsheet changes will be made.</p>

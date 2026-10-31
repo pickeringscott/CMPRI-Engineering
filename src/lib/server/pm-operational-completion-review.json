@@ -1,0 +1,573 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "3d2ae929-3a50-58f3-9729-1f599a926758",
+      "template_id": "pdf:kitchen",
+      "period_start": "2026-06-01",
+      "scope_key": "area:property",
+      "payload_sha256": "c3684871ed565b58ec4c7078497d1ba4bb1350dfac37e9170e5d64be3bcf1638",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "a7d2a8df-33f5-53c9-be27-e2b9783208e5",
+      "template_id": "pdf:ice-machine-areas",
+      "period_start": "2026-06-01",
+      "scope_key": "equipment:property wide",
+      "payload_sha256": "97ffd07ee466beece7f013cbaa16683d3752a78c7d3620dbbd265ebb33b2885f",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "6249b48c-e6a9-5687-850d-e592c51b17f0",
+      "template_id": "pdf:storage",
+      "period_start": "2026-04-01",
+      "scope_key": "area:property",
+      "payload_sha256": "b34ff671943b49b1090cd9599c2b0660c0db7fbc8da6eab0acf7a95f76a096e3",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "4e522a48-79c9-55df-aece-18cd56df01d3",
+      "template_id": "pdf:meeting-room",
+      "period_start": "2026-05-01",
+      "scope_key": "area:property",
+      "payload_sha256": "f5f2054f1dc7429965665da3af6ff051a62cd05850788f9a903551b8ddd478cf",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "1c91f2be-b69d-5a07-ae8f-2f2516289a78",
+      "template_id": "pdf:hallway-checklist",
+      "period_start": "2026-05-01",
+      "scope_key": "area:property",
+      "payload_sha256": "dbf4320ce04ed42728a7c5c422ecd9ecfde92e20cd43eecee364a9524de363dd",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "dc13343d-193e-565b-9b76-0a94d07299c6",
+      "template_id": "pdf:business-center",
+      "period_start": "2026-07-01",
+      "scope_key": "area:property",
+      "payload_sha256": "8412560453056772f69ac3c8cb9dce2d28a15282361d5a78ea1dcec0d19ff4b9",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "b93aebd2-5ccd-5ffb-b526-b52f3b0c6e53",
+      "template_id": "pdf:business-center",
+      "period_start": "2026-01-01",
+      "scope_key": "area:property",
+      "payload_sha256": "8412560453056772f69ac3c8cb9dce2d28a15282361d5a78ea1dcec0d19ff4b9",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "04cfca74-d0c6-5b36-bef8-a8e92992b80d",
+      "template_id": "pdf:business-center",
+      "period_start": "2026-04-01",
+      "scope_key": "area:property",
+      "payload_sha256": "8412560453056772f69ac3c8cb9dce2d28a15282361d5a78ea1dcec0d19ff4b9",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "98500d17-06e1-5c05-9308-07fac667b0ab",
+      "template_id": "pdf:emergency-lighting-exit-sign-log-master",
+      "period_start": "2026-09-01",
+      "scope_key": "area:property",
+      "payload_sha256": "00cb21dd4f4f5ab1542e7334532003b44d90ea2a5b1d7fe1eafbdeba73367751",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "503da7bc-412f-5ff4-b6fa-8b9582edbc2c",
+      "template_id": "pdf:pool",
+      "period_start": "2026-03-01",
+      "scope_key": "equipment:property wide",
+      "payload_sha256": "2c06c8758fd7bbbcedf6ea1c4f2481c597e884be09bb645ca34a671ad5e781ce",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "754bcb87-09c3-5c9a-bdfe-16f6d11df1f7",
+      "template_id": "pdf:pool",
+      "period_start": "2026-06-01",
+      "scope_key": "equipment:property wide",
+      "payload_sha256": "eab1a963dbce4101d686bf38c444670ed41e93aabacdd4155d7ac2a0124211f2",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "7a780e7b-d430-578c-b9d3-c83582d5723f",
+      "template_id": "pdf:pool",
+      "period_start": "2026-09-01",
+      "scope_key": "equipment:property wide",
+      "payload_sha256": "b1efcfad6d3dbc48e6c2d73d386a017e1ad8d0be2ade42d335ef5bef16cbb99b",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "5d85bebc-be1a-504c-9018-3d4c6d119b40",
+      "template_id": "pdf:kitchen",
+      "period_start": "2026-03-01",
+      "scope_key": "area:property",
+      "payload_sha256": "4635a2951217474be97616e7926b8ced612a1c975397a98719031afd237286d7",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "d296d8c6-7175-525e-9311-f0045d9667e3",
+      "template_id": "pdf:kitchen",
+      "period_start": "2026-09-01",
+      "scope_key": "area:property",
+      "payload_sha256": "156772bc9d654ddca692686672a89d243ab83e846abbaee9ad4be35005cc2a1b",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "8d6bc3b9-1deb-5ead-b9a0-58e11d716178",
+      "template_id": "pdf:ice-machine-areas",
+      "period_start": "2026-03-01",
+      "scope_key": "equipment:property wide",
+      "payload_sha256": "81bc749b13911b952dcf8ebd83ace5974b7acf59efebeb3ff6c387d7c458bd28",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "c42886cf-7ea8-56bd-9eca-535fafc5c650",
+      "template_id": "pdf:ice-machine-areas",
+      "period_start": "2026-09-01",
+      "scope_key": "equipment:property wide",
+      "payload_sha256": "10ad0a6110eae3d5f844c8778c085a369a46bdbe39b91ec1520b7d5326287673",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "5d3419b9-f7c4-5eae-a3fe-a27b7078d5a5",
+      "template_id": "pdf:storage",
+      "period_start": "2026-01-01",
+      "scope_key": "area:property",
+      "payload_sha256": "066fa7c74e304fa6f47af2e822e5fe519346e1faa62dddea1d26ab0d0dd3188a",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "f7262fd4-4fcc-5951-a274-a0b9c56f7aec",
+      "template_id": "pdf:storage",
+      "period_start": "2026-07-01",
+      "scope_key": "area:property",
+      "payload_sha256": "b21d67c3d4b1ca50f69333fb7f6d205047cff07cabe532fd0ece0d7a9478cad7",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "e0e7a550-d3bf-51f0-9fa8-224ed1cd068c",
+      "template_id": "pdf:front-office-desk",
+      "period_start": "2026-01-01",
+      "scope_key": "area:property",
+      "payload_sha256": "5175c87908c3f9f453d8a209d5c86a96c2e15f3f1ef31d1d68aa00abb6082117",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "705e3020-c28b-5035-8b7a-b6711b58ace1",
+      "template_id": "pdf:laundry-guest",
+      "period_start": "2026-05-01",
+      "scope_key": "area:property",
+      "payload_sha256": "8fa50e478462d6483250d64e591e372255fbceb99a6a8e14c6e0d1c585381bae",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "54fed404-6b39-5010-a8b3-f3ec21ec58c9",
+      "template_id": "pdf:front-office-desk",
+      "period_start": "2026-04-01",
+      "scope_key": "area:property",
+      "payload_sha256": "5175c87908c3f9f453d8a209d5c86a96c2e15f3f1ef31d1d68aa00abb6082117",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "a838eaee-211e-5c61-ab38-978f164d5c33",
+      "template_id": "pdf:front-office-desk",
+      "period_start": "2026-07-01",
+      "scope_key": "area:property",
+      "payload_sha256": "5175c87908c3f9f453d8a209d5c86a96c2e15f3f1ef31d1d68aa00abb6082117",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "2e164d50-9e8d-5715-a5c1-992e688fb633",
+      "template_id": "pdf:market-pantry",
+      "period_start": "2026-01-01",
+      "scope_key": "area:property",
+      "payload_sha256": "01709ff8864793e5021197e7640f4e2473f53f94fca21507467f5daa5d94ae0b",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "1c30a17f-2dc5-5542-9f38-dbcfb8def240",
+      "template_id": "pdf:market-pantry",
+      "period_start": "2026-04-01",
+      "scope_key": "area:property",
+      "payload_sha256": "01709ff8864793e5021197e7640f4e2473f53f94fca21507467f5daa5d94ae0b",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "ee58e837-9781-5024-9d75-d8866fa4dca8",
+      "template_id": "pdf:market-pantry",
+      "period_start": "2026-07-01",
+      "scope_key": "area:property",
+      "payload_sha256": "b7e23559eeda88388d2d9584432231c923d03550f4f8c5cec4dcced662f25b58",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "68ed8560-2854-5c80-93ff-60406e50325f",
+      "template_id": "pdf:laundry-guest",
+      "period_start": "2026-02-01",
+      "scope_key": "area:property",
+      "payload_sha256": "e383c13109ed06689cf44699bce305c5f8a819613b1d85d6d24c5034420303f0",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "9f6c18a0-e00f-5bd9-b169-3f9cf0e85cbc",
+      "template_id": "pdf:laundry-guest",
+      "period_start": "2026-08-01",
+      "scope_key": "area:property",
+      "payload_sha256": "3915403224f46dcf60bfa17be48daec0cf00426f4e59a65ac755e187dd5dcf87",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "16b2f477-df0c-5cf4-8c92-521b9c02a5fc",
+      "template_id": "pdf:fitness-center",
+      "period_start": "2026-02-01",
+      "scope_key": "area:property",
+      "payload_sha256": "57898ba44cb929583b6719a09bbfee85b9e835eb20531f5c4ec332948b7cfcdb",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "5b464465-e105-519f-9515-e305896854f0",
+      "template_id": "pdf:fitness-center",
+      "period_start": "2026-05-01",
+      "scope_key": "area:property",
+      "payload_sha256": "57898ba44cb929583b6719a09bbfee85b9e835eb20531f5c4ec332948b7cfcdb",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "86cc7f32-958a-5441-bc55-c2b7b118a58e",
+      "template_id": "pdf:fitness-center",
+      "period_start": "2026-08-01",
+      "scope_key": "area:property",
+      "payload_sha256": "57898ba44cb929583b6719a09bbfee85b9e835eb20531f5c4ec332948b7cfcdb",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "9d3feea4-9288-57ac-a80a-f925d92e598a",
+      "template_id": "pdf:meeting-room",
+      "period_start": "2026-02-01",
+      "scope_key": "area:property",
+      "payload_sha256": "fe704bac1be1e6f95ee7bce9538fdfcc83a3007d234fa087271c90e554263d11",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "4b1a3b02-89dd-5777-85f0-3441ee82a012",
+      "template_id": "pdf:meeting-room",
+      "period_start": "2026-08-01",
+      "scope_key": "area:property",
+      "payload_sha256": "ad6170d7f01e96ad030a8c1448ba6539fe5afdaefa5d8fed2b66b09aa4908246",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "2e12675a-090c-5d2e-9b89-0830af151eb2",
+      "template_id": "pdf:hallway-checklist",
+      "period_start": "2026-02-01",
+      "scope_key": "area:property",
+      "payload_sha256": "8116c4d7f940df5758ea240b3bb1188d91b025148f84e26c687c2a0d366f47c7",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "ef938de2-b60f-5f7a-bd48-f8d93b21c226",
+      "template_id": "pdf:hallway-checklist",
+      "period_start": "2026-08-01",
+      "scope_key": "area:property",
+      "payload_sha256": "8116c4d7f940df5758ea240b3bb1188d91b025148f84e26c687c2a0d366f47c7",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "f653499f-3018-5551-b894-b11eaada6235",
+      "template_id": "pdf:stairwell",
+      "period_start": "2026-02-01",
+      "scope_key": "area:property",
+      "payload_sha256": "d1ceb0aacd2ddb4e8ba965467eff8933c25fbe96728e6d0eca074785bce6c966",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "5f494334-8e5b-5460-b220-83d2762a03d9",
+      "template_id": "pdf:stairwell",
+      "period_start": "2026-05-01",
+      "scope_key": "area:property",
+      "payload_sha256": "d1ceb0aacd2ddb4e8ba965467eff8933c25fbe96728e6d0eca074785bce6c966",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "0d0b6b38-ff9c-56ab-a604-2dda0d57b958",
+      "template_id": "pdf:stairwell",
+      "period_start": "2026-08-01",
+      "scope_key": "area:property",
+      "payload_sha256": "d1ceb0aacd2ddb4e8ba965467eff8933c25fbe96728e6d0eca074785bce6c966",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "1ec2a7f3-8a05-5b86-9c07-8aabb45c79e6",
+      "template_id": "pdf:laundry-commercial",
+      "period_start": "2026-02-01",
+      "scope_key": "equipment:commercial laundry",
+      "payload_sha256": "bcbec72a8ec28b41cadd121e84365adc8073aea4cde74e832914e7dbe27edde3",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "b02d8203-3dd9-5953-ae99-665bd5df2ff6",
+      "template_id": "pdf:laundry-commercial",
+      "period_start": "2026-05-01",
+      "scope_key": "equipment:commercial laundry",
+      "payload_sha256": "bcbec72a8ec28b41cadd121e84365adc8073aea4cde74e832914e7dbe27edde3",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "92768496-00d1-5b46-ac5c-7b25dc6fb3e4",
+      "template_id": "pdf:laundry-commercial",
+      "period_start": "2026-08-01",
+      "scope_key": "equipment:commercial laundry",
+      "payload_sha256": "bcbec72a8ec28b41cadd121e84365adc8073aea4cde74e832914e7dbe27edde3",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "21f15960-8e39-5e59-8639-8c29d9de5b50",
+      "template_id": "pdf:dining-breakfast",
+      "period_start": "2026-01-01",
+      "scope_key": "area:property",
+      "payload_sha256": "aba03350712ac20c9166b7df14a3c47f9c3d3ce13bd997aea7a54da301fd95e7",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "b8c63882-64e4-5692-8d45-2d9029a0c89a",
+      "template_id": "pdf:dining-breakfast",
+      "period_start": "2026-04-01",
+      "scope_key": "area:property",
+      "payload_sha256": "aba03350712ac20c9166b7df14a3c47f9c3d3ce13bd997aea7a54da301fd95e7",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "20d3172e-b732-501d-8aa7-4c2a04beb539",
+      "template_id": "pdf:dining-breakfast",
+      "period_start": "2026-07-01",
+      "scope_key": "area:property",
+      "payload_sha256": "aba03350712ac20c9166b7df14a3c47f9c3d3ce13bd997aea7a54da301fd95e7",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "482a6948-32c0-5fc5-8e7a-286174be2aa2",
+      "template_id": "pdf:lobby",
+      "period_start": "2026-01-01",
+      "scope_key": "area:property",
+      "payload_sha256": "0fe2fa1ce237048edc7f96ca442cf564faa95d77d58b3950012e6712eb366219",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "8a2c2ff3-4e7a-5ffc-9b2a-55d9b8d82df8",
+      "template_id": "pdf:lobby",
+      "period_start": "2026-04-01",
+      "scope_key": "area:property",
+      "payload_sha256": "0fe2fa1ce237048edc7f96ca442cf564faa95d77d58b3950012e6712eb366219",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "c44558f6-75c1-589b-8474-735e54ee3883",
+      "template_id": "pdf:lobby",
+      "period_start": "2026-07-01",
+      "scope_key": "area:property",
+      "payload_sha256": "0fe2fa1ce237048edc7f96ca442cf564faa95d77d58b3950012e6712eb366219",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "3bd37504-642a-5b07-885d-c057cdd4f4c5",
+      "template_id": "pdf:emergency-lighting-exit-sign-log-master",
+      "period_start": "2026-06-01",
+      "scope_key": "area:property",
+      "payload_sha256": "601493db2a0ff45c9d4638f2b084bc467d749961b57382e80499feca1be231e9",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "99f00a38-4ca0-5dcb-9568-c40646311d17",
+      "template_id": "pdf:monthly-fire-extinguisher-log",
+      "period_start": "2026-02-01",
+      "scope_key": "area:property",
+      "payload_sha256": "add02654f4b99147eb15d71b29790d63855f2a6e37b23552d9f82e6977a6b97c",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "a0b5681c-a6b1-599b-8418-b3131b41f0d8",
+      "template_id": "pdf:monthly-fire-extinguisher-log",
+      "period_start": "2026-06-01",
+      "scope_key": "area:property",
+      "payload_sha256": "f389b2424e8cf81847288ed752e9334370603585318227b94fbf87bd60c3c3a3",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "956b76c0-860a-53ce-a007-9dcd6fa7bec9",
+      "template_id": "pdf:monthly-laundry-chute-log",
+      "period_start": "2026-06-01",
+      "scope_key": "area:property",
+      "payload_sha256": "267e23cd92ec36fc678cefd251364ca4c4f238378fb29f062a55249bfbda9db8",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "41517e8d-6a8b-57be-b012-466f971776e5",
+      "template_id": "pdf:monthly-fire-door-log",
+      "period_start": "2026-06-01",
+      "scope_key": "area:property",
+      "payload_sha256": "7fdd3f405b9163b657e12ee4db92614e475aff1694cb3adddbbce2ddc44a5bdd",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "3c4e8345-1c30-5070-be19-e3d001a57ad6",
+      "template_id": "pdf:monthly-laundry-chute-log",
+      "period_start": "2026-09-01",
+      "scope_key": "area:property",
+      "payload_sha256": "c7a69e260421f9c588dd847e3ce41f8a580667ca1f8b66278da2b4c56d5f82e6",
+      "inspection_complete": true,
+      "unverified_items": []
+    },
+    {
+      "id": "4c18e89e-2dcf-5918-bfa0-c48aaf2ddb34",
+      "template_id": "workbook:monthly:jan",
+      "period_start": "2026-01-01",
+      "scope_key": "property",
+      "payload_sha256": "6d6c6eb6277846d48ade3e52a6544b1ec03741a1dbc2cb0b57028a429ed69f94",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "bab343ba-b422-52a7-a5bb-9b2f20bc0b8c",
+      "template_id": "workbook:monthly:april",
+      "period_start": "2026-04-01",
+      "scope_key": "property",
+      "payload_sha256": "890a6df413375be9e1f89ff0f857f40ded8e1931390be870d79dc006161e101e",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "69b3590f-40ca-5a40-9f94-369ac03ea06f",
+      "template_id": "workbook:monthly:july",
+      "period_start": "2026-07-01",
+      "scope_key": "property",
+      "payload_sha256": "eee1e9d0d34df13d2c414cf81fa9f1525486d309a4e4acbacb7bbf694f84992e",
+      "inspection_complete": false,
+      "unverified_items": [
+        "july-22"
+      ]
+    },
+    {
+      "id": "fd34991f-f9c8-5593-b42d-55d4cfdbfa26",
+      "template_id": "workbook:monthly:mar",
+      "period_start": "2026-03-01",
+      "scope_key": "property",
+      "payload_sha256": "792d92409b37859747afc48f0e213586e78450d3b5b35f7fd615e4593ceb8f2f",
+      "inspection_complete": false,
+      "unverified_items": [
+        "mar-21",
+        "mar-20",
+        "mar-19",
+        "mar-22"
+      ]
+    },
+    {
+      "id": "eadd1fe4-da40-5dee-a35b-174859bf64f2",
+      "template_id": "workbook:monthly:june",
+      "period_start": "2026-06-01",
+      "scope_key": "property",
+      "payload_sha256": "c81cb11a4a2aac705d323377c0e379d295c30e75bbd4fd7db3636c8fddc36d78",
+      "inspection_complete": false,
+      "unverified_items": [
+        "june-21"
+      ]
+    },
+    {
+      "id": "1ab02bb2-e1f9-5607-b210-35d59232e4c8",
+      "template_id": "workbook:monthly:sept",
+      "period_start": "2026-09-01",
+      "scope_key": "property",
+      "payload_sha256": "3642ce3dfab696cdb845da94822fba0613532f02565bdd762c7a0cbfdad77cf6",
+      "inspection_complete": false,
+      "unverified_items": [
+        "sept-26",
+        "sept-25",
+        "sept-24",
+        "sept-11"
+      ]
+    },
+    {
+      "id": "262a13e0-6917-5516-96b8-748032b7a45f",
+      "template_id": "workbook:monthly:feb",
+      "period_start": "2026-02-01",
+      "scope_key": "property",
+      "payload_sha256": "826dad96affc10986ab896e98cadcd88443dbe4df09f40de48216581e01e9a5b",
+      "inspection_complete": false,
+      "unverified_items": []
+    },
+    {
+      "id": "aebf5778-f565-5d88-a63f-8c9beb2a39bb",
+      "template_id": "workbook:monthly:may",
+      "period_start": "2026-05-01",
+      "scope_key": "property",
+      "payload_sha256": "48263d5b0858de0b581f97e7749e53f964663c9680a27381c9b5d5592fd4788a",
+      "inspection_complete": false,
+      "unverified_items": [
+        "may-19",
+        "may-22"
+      ]
+    },
+    {
+      "id": "6d9b3310-40f8-5558-a2bf-b2a2813a6f8c",
+      "template_id": "workbook:monthly:aug",
+      "period_start": "2026-08-01",
+      "scope_key": "property",
+      "payload_sha256": "5b2a159a5d00ce318bd92078666afb69cb490780c1d996d53cdf11a304f1c737",
+      "inspection_complete": false,
+      "unverified_items": [
+        "aug-26"
+      ]
+    }
+  ]
+}

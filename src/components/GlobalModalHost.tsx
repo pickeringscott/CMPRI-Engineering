@@ -446,6 +446,20 @@ export default function GlobalModalHost() {
     return () => background.forEach(({ element, inert }) => { element.inert = inert; });
   }, [stack.length]);
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const update = () => {
+      const root = modalRootRef.current;
+      if (!root) return;
+      root.style.setProperty("--pm-visible-height", (viewport?.height ?? window.innerHeight) + "px");
+      root.style.setProperty("--pm-visible-top", (viewport?.offsetTop ?? 0) + "px");
+    };
+    update();
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    return () => { viewport?.removeEventListener("resize", update); viewport?.removeEventListener("scroll", update); };
+  }, [stack.length]);
+
   if (stack.length === 0) return null;
 
   return (
@@ -456,6 +470,7 @@ export default function GlobalModalHost() {
         const entryPath = entry.href.replace(/^https?:\/\/[^/]+/, "");
         const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(entryPath);
         const isPurchasing = entryPath === "/engineering/purchasing";
+        const isPm = entryPath.split(/[?#]/)[0] === "/engineering/preventive-maintenance";
         const isRoomRanking = entryPath.split("?")[0] === "/engineering/room-ranking";
           const panelStyle: ModalPanelStyle = {
           "--cmpri-modal-width": `min(${(isRoomRanking ? 100 : (isPurchasing ? 94 : (isWorkOrderDetail ? 94 : 66))) * scale}vw, ${(isRoomRanking ? 120 : (isPurchasing ? 88 : (isWorkOrderDetail ? 88 : 72))) * scale}rem)`,
@@ -473,6 +488,7 @@ export default function GlobalModalHost() {
             <div
               role="dialog"
               aria-modal={isTop}
+              data-pm-host={isPm || undefined}
               aria-label={entry.title}
               aria-hidden={!isTop}
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
