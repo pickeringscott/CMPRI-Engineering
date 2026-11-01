@@ -1,3 +1,5 @@
+import { loadRecordedIssues } from '@/lib/server/pm-recorded-issues';
+import { reviewedRecordedIssue } from '@/lib/pm/recorded-issues';
 import { findPmTemplate } from "@/lib/pm/catalog";
 import { pmIssueCandidates, pmIssueExternalId } from "@/lib/pm/issues";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
@@ -216,29 +218,57 @@ export async function POST(request: NextRequest) {
     if (!principal || !allows(principal.principal, "view_pm") || !allows(principal.principal, "edit_tickets")) {
       return NextResponse.json({ error: "PM editing permission is required." }, { status: 403 });
     }
-    if (submission.confirmed !== true || typeof submission.proposalId !== "string" || typeof submission.issueKey !== "string") {
+    if (submission.confirmed !== true || typeof submission.issueKey !== "string") {
       return NextResponse.json({ error: "Explicit confirmation of the saved PM issue is required." }, { status: 400 });
     }
-    const proposal = await admin.from("cmpri_pm_proposals").select("id,template_id,period_start,scope_key,payload,revision,status,submitted_by")
-      .eq("hotel_id", HOTEL_ID).eq("id", submission.proposalId).maybeSingle();
-    if (proposal.error) return NextResponse.json({ error: "The saved PM issue could not be verified." }, { status: 503 });
-    const record = proposal.data;
-    if (!record || record.submitted_by !== auth.user.id || record.status !== "pending" || Number(record.revision) !== submission.revision) {
-      return NextResponse.json({ error: "The PM record changed or is no longer your editable proposal. Reopen it before confirming." }, { status: 409 });
+    let context: { templateId: string; title: string; period: string; scope: string };
+    let candidate: ReturnType<typeof pmIssueCandidates>[number];
+    if (submission.recordedSource) {
+      const reference = submission.recordedSource as Record<string, unknown>;
+      try {
+        const sources = await loadRecordedIssues(admin, auth.user.id);
+        const source = sources.find(item => item.kind === reference.kind && item.id === reference.id);
+        if (!source) return NextResponse.json({error: "Recorded inspection not found. Reload the review."}, {status:409});
+        candidate = reviewedRecordedIssue(source, submission);
+        context = {templateId: source.templateId, title: source.title, period: source.period, scope: source.scope};
+        const recordedPmRoom = source.scope.match(/^room:(\d{2,4})$/)?.[1];
+        if (recordedPmRoom) {
+          const location = await admin.from('locations').select('name,room_number')
+            .eq('hotel_id', HOTEL_ID).eq('id', candidate.locationId).eq('active', true).maybeSingle();
+          if (location.error) return NextResponse.json({error:'The recorded room location could not be verified.'}, {status:503});
+          if (!location.data || (String(location.data.room_number || '').trim() !== recordedPmRoom
+            && location.data.name?.match(/\b\d{2,4}\b/)?.[0] !== recordedPmRoom)) {
+            return NextResponse.json({error:"Select the recorded room's location; the historical room cannot be reassigned."}, {status:400});
+          }
+        }
+      } catch (cause) {
+        return NextResponse.json({error: cause instanceof Error ? cause.message : "Recorded issue could not be verified."}, {status:409});
+      }
+    } else {
+      if (typeof submission.proposalId !== "string") return NextResponse.json({error:"Saved PM proposal required."}, {status:400});
+      const proposal = await admin.from("cmpri_pm_proposals").select("id,template_id,period_start,scope_key,payload,revision,status,submitted_by")
+        .eq("hotel_id", HOTEL_ID).eq("id", submission.proposalId).maybeSingle();
+      if (proposal.error) return NextResponse.json({ error: "The saved PM issue could not be verified." }, { status: 503 });
+      const record = proposal.data;
+      if (!record || record.submitted_by !== auth.user.id || record.status !== "pending" || Number(record.revision) !== submission.revision) {
+        return NextResponse.json({ error: "The PM record changed or is no longer your editable proposal. Reopen it before confirming." }, { status: 409 });
+      }
+      const template = findPmTemplate(record.template_id);
+      const savedIssue = template && pmIssueCandidates(template, record.payload).find(issue => issue.key === submission.issueKey);
+      if (!template || !savedIssue || !savedIssue.detail.trim() || !savedIssue.locationId) {
+        return NextResponse.json({ error: "Save the flagged item, issue description and location before confirming." }, { status: 400 });
+      }
+      candidate = savedIssue;
+      context = {templateId: template.id, title: template.title, period: record.period_start, scope: record.scope_key};
     }
-    const template = findPmTemplate(record.template_id);
-    const candidate = template && pmIssueCandidates(template, record.payload).find(issue => issue.key === submission.issueKey);
-    if (!template || !candidate || !candidate.detail.trim() || !candidate.locationId) {
-      return NextResponse.json({ error: "Save the flagged item, issue description and location before confirming." }, { status: 400 });
-    }
-    pmExternalId = pmIssueExternalId(template.id, record.period_start, record.scope_key, candidate.key);
+    pmExternalId = pmIssueExternalId(context.templateId, context.period, context.scope, candidate.key);
     const prior = await admin.from("work_orders").select("id,display_id,status").eq("hotel_id", HOTEL_ID)
       .eq("import_source", "PM Log").eq("import_external_id", pmExternalId).maybeSingle();
     if (prior.error) return NextResponse.json({ error: "The PM issue link could not be checked." }, { status: 503 });
     if (prior.data) return NextResponse.json({ work_orders: [prior.data], reused: true });
-    // Never accept caller-supplied PM titles/details/provenance or location overrides.
+    // Recorded review accepts supplemental ticket details, never source identity/title overrides.
     orderInputs = [{ location_id: candidate.locationId, issue: `PM: ${candidate.label}`,
-      notes: `PM form: ${template.title}\nPeriod: ${record.period_start}\nScope: ${record.scope_key}\nItem: ${candidate.label}\nIssue: ${candidate.detail}` }];
+      notes: `PM form: ${context.title}\nPeriod: ${context.period}\nScope: ${context.scope}\nItem: ${candidate.label}\nIssue: ${candidate.detail}` }];
   }
 
   if (sourceDraftId) {

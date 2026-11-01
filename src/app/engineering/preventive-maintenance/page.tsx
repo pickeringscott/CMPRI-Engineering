@@ -19,6 +19,7 @@ import useEmbeddedModal from "@/components/use-embedded-modal";
 import { pmRoutineChecked, isPmRoutineSummary, isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
+import PmRecordedIssues from "@/components/PmRecordedIssues";
 import PmSourceEvidence from "@/components/PmMaintenanceHistory";
 import {
   findPmTemplate,
@@ -448,7 +449,7 @@ export default function PreventiveMaintenancePage() {
       ? existing.form_data.pmIssueDetails as IssueDetails : {});
     setChecklist(saved.checklist as Record<string, ChecklistState>);
     setPhoneRecord(0);
-    setRepeatableRows((saved.logEntries || (template.repeatableFields ? [{}] : [])).map(row => ({ ...row, _pmRowId: (row as Record<string, string>)._pmRowId || crypto.randomUUID() })));
+    setRepeatableRows((saved.logEntries || (template.repeatableFields ? [{}] : [])).map((row, index) => ({ ...row, _pmRowId: (row as Record<string, string>)._pmRowId || (saved.logEntries ? `legacy-${index}` : crypto.randomUUID()) })));
     setFormNotes(saved.notes);
     setDeficiencyNotes(saved.deficiencyNotes);
     setCompletedOn(saved.completedOn);
@@ -885,6 +886,11 @@ export default function PreventiveMaintenancePage() {
             <button type="button" onClick={downloadTransfer} className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Export weekly CSV</button>
           </div>
         </header>
+        <PmRecordedIssues locations={locations} links={issueLinks} onOpen={openLinkedWorkOrder} onHistory={() => setTab("sources")} onLinked={link => {
+          setIssueLinks(current => [...current.filter(item => item.import_external_id !== link.import_external_id), link]);
+          if (window.parent !== window) window.parent.postMessage({type:"cmpri-pm-work-orders-confirmed",modalToken:new URLSearchParams(window.location.search).get("modalToken") || ""}, window.location.origin);
+        }} />
+
 
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-3 sm:p-4" aria-label="Week controls">
           <div className="flex flex-wrap items-center justify-between gap-3">
