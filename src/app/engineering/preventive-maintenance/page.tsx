@@ -1,5 +1,7 @@
 "use client";
+import { pmIssueCandidates, pmIssueContext, pmIssueExternalId, pmSubmittedIssueLinks, pmTicketClosed, type PmIssue, type PmIssueLink } from "@/lib/pm/issues";
 import { pmFieldGroups, pmRecordSummary } from "@/lib/pm/presentation";
+import PmIssueDialog from "@/components/PmIssueDialog";
 import FieldInput from "@/components/PmFieldInput";
 import { linkedRoutineCompletion } from "@/lib/pm/completion-links";
 import { pmEntryForm } from "@/lib/pm/entry-form";
@@ -14,7 +16,7 @@ import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { pmRoutineChecked, isPmRoutineSummary, isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
+import { pmRoutineChecked, isPmRoutineSummary, isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { roomCompletion, type StoredRoomHistory } from "@/lib/pm/history";
 import PmSourceEvidence from "@/components/PmMaintenanceHistory";
@@ -81,15 +83,9 @@ type LivePmWorkbook = {
 type PmLocation = { id: string; name: string; room_number: string | null; area: string | null; location_type: string | null };
 type PmTab = "week" | "inspections" | "rooms" | "transfer" | "review" | "sources";
 type ActiveForm = { templateId: string; periodStart: string; scopeKey: string };
-type PendingWorkOrderLink = {
-  id: string;
-  displayId: string;
-  revision: number;
-  templateId: string;
-  periodStart: string;
-  scopeKey: string;
-};
-type ChecklistState = "complete" | "follow-up" | "na";
+type ChecklistState = "complete" | "follow-up" | "na" | "";
+type IssueDetails = Record<string, { detail?: string; locationId?: string; flagged?: boolean }>;
+type IssueLink = PmIssueLink;
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
@@ -202,13 +198,18 @@ export default function PreventiveMaintenancePage() {
   const [roomSearch, setRoomSearch] = useState("");
   const [activeForm, setActiveForm] = useState<ActiveForm | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
+  const [issueDetails, setIssueDetails] = useState<IssueDetails>({});
+  const [issueLinks, setIssueLinks] = useState<IssueLink[]>([]);
+  const [issueConfirmation, setIssueConfirmation] = useState<{ entry: PmEntry; issues: PmIssue[] } | null>(null);
+  const [issueResults, setIssueResults] = useState<Record<string, { id?: string; error?: string }>>({});
+  const [confirmingIssues, setConfirmingIssues] = useState(false);
+  const [monthlyAttention, setMonthlyAttention] = useState<{ template: PmTemplate; period: string; itemId: string; detail: string; locationId: string } | null>(null);
+  const [savingCell, setSavingCell] = useState("");
   const [checklist, setChecklist] = useState<Record<string, ChecklistState>>({});
   const [repeatableRows, setRepeatableRows] = useState<Array<Record<string, string>>>([]);
   const [formNotes, setFormNotes] = useState("");
   const [deficiencyNotes, setDeficiencyNotes] = useState("");
   const [completedOn, setCompletedOn] = useState("");
-  const [deficiencyLocationId, setDeficiencyLocationId] = useState("");
-  const [pendingWorkOrderLink, setPendingWorkOrderLink] = useState<PendingWorkOrderLink | null>(null);
   const [confirmingProposal, setConfirmingProposal] = useState<PmReviewProposal | null>(null);
   const requestSequence = useRef(0);
   const busyEntries = useRef(new Set<string>());
@@ -245,6 +246,7 @@ export default function PreventiveMaintenancePage() {
       const result = await response.json().catch(() => ({}));
       if (sequence !== requestSequence.current || !isCurrent()) return;
       if (!response.ok || !Array.isArray(result.entries) || !result.workbook) throw new Error(result.error || "Live PM records could not be loaded.");
+      setIssueLinks(Array.isArray(result.issue_links) ? result.issue_links : []);
       setEntries(result.entries as PmEntry[]);
       setRoomHistory(Array.isArray(result.room_history) ? result.room_history : []);
       setApprovedRooms(Array.isArray(result.approved_rooms) ? result.approved_rooms : []);
@@ -264,6 +266,7 @@ export default function PreventiveMaintenancePage() {
     }
   }, []);
   useResourceChange("pm", () => { void loadWeek(weekStart); });
+  useResourceChange("work-orders", () => { void loadWeek(weekStart); });
 
   useEffect(() => {
     let current = true;
@@ -305,22 +308,18 @@ export default function PreventiveMaintenancePage() {
     for (const template of routineTasks) {
       const periods = templatePeriodsForWeek(template, weekStart);
       for (const period of periods) {
-        const entry = recordsByKey.get(entryKey(template.id, period));
         for (const item of template.checklist) {
           if (isPmRoutineSummary(item.id)) continue;
           total += 1;
-          const inspectionComplete = template.id.startsWith("workbook:monthly:")
-            && linkedRoutineCompletion(item.source || "", period, PM_TEMPLATES, approvedInspections);
-          if (pmRoutineChecked(entry, item.id, spreadsheetSyncEnabled,
-            sourceRoutineStatus(template, period, item.id, liveWorkbook) || inspectionComplete)) complete += 1;
+          if (routineStatus(template, period, item.id)) complete += 1;
         }
       }
     }
     return { complete, total, percent: total ? Math.round((complete / total) * 100) : 0 };
-  }, [approvedInspections, liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart]);
+  }, [approvedInspections, entries, issueLinks, liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart]);
 
   const deficientCount = useMemo(() => entries.reduce((count, entry) =>
-    count + Object.values(entry.responses || {}).filter((value) => value === "follow-up").length,
+    count + (findPmTemplate(entry.template_id) ? pmIssueCandidates(findPmTemplate(entry.template_id)!, entry).length : 0),
   0), [entries]);
 
   function entryFor(template: PmTemplate, periodStart: string, scopeKey = "property") {
@@ -391,7 +390,7 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
-  async function updateRoutine(template: PmTemplate, periodStart: string, itemId: string, checked: boolean) {
+  async function updateRoutine(template: PmTemplate, periodStart: string, itemId: string, checked: boolean | "follow-up", detail?: string, locationId?: string) {
     if (!canEdit || busyEntries.current.has(entryKey(template.id, periodStart))) return;
     const key = entryKey(template.id, periodStart);
     const existing = entryFor(template, periodStart);
@@ -401,19 +400,23 @@ export default function PreventiveMaintenancePage() {
         ? existing.responses[item.id] === true
         : routineStatus(template, periodStart, item.id),
     ]));
-    const responses = togglePmRoutineResponse(template.checklist, currentResponses, itemId, checked);
+    const responses = { ...currentResponses, [itemId]: checked };
     const isComplete = template.checklist.every((item) => responses[item.id] === true);
     busyEntries.current.add(key);
     setSavingKey(key);
+    setSavingCell(`${key}:${itemId}`);
     setError("");
     setMessage("");
     try {
-      await saveEntry({
+      const saved = await saveEntry({
         templateId: template.id,
         periodStart,
         scopeKey: "property",
         responses: { [itemId]: checked },
-        formData: existing?.form_data || {},
+        formData: { ...existing?.form_data, pmIssueDetails: {
+          ...((existing?.form_data?.pmIssueDetails as IssueDetails) || {}),
+          ...(checked === "follow-up" ? { [`item:${itemId}`]: { detail: detail || "", locationId: locationId || "" } } : {}),
+        } },
         notes: existing?.notes || "",
         deficiencyNotes: existing?.deficiency_notes || "",
         completedOn: isComplete ? today : null,
@@ -422,9 +425,14 @@ export default function PreventiveMaintenancePage() {
         workOrderId: existing?.work_order_id || null,
       });
       setMessage(`${template.title} change saved as pending review.`);
+      if (checked === "follow-up") {
+        setMonthlyAttention(null);
+        openIssueConfirmation(saved, pmIssueCandidates(template, saved));
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PM checkbox could not be saved.");
     } finally {
+      setSavingCell("");
       busyEntries.current.delete(key);
       setSavingKey("");
     }
@@ -436,13 +444,15 @@ export default function PreventiveMaintenancePage() {
     const historical=template.kind==='room'?roomHistory.find(row=>row.room===scopeKey.slice(5)&&row.period_start===periodStart):undefined;
     const saved = pmEntryForm(existing, historical);
     setFormData(saved.formData);
+    setIssueDetails(existing?.form_data?.pmIssueDetails && typeof existing.form_data.pmIssueDetails === "object"
+      ? existing.form_data.pmIssueDetails as IssueDetails : {});
     setChecklist(saved.checklist as Record<string, ChecklistState>);
     setPhoneRecord(0);
-    setRepeatableRows(saved.logEntries || (template.repeatableFields ? [{}] : []));
+    setRepeatableRows((saved.logEntries || (template.repeatableFields ? [{}] : [])).map(row => ({ ...row, _pmRowId: (row as Record<string, string>)._pmRowId || crypto.randomUUID() })));
     setFormNotes(saved.notes);
     setDeficiencyNotes(saved.deficiencyNotes);
     setCompletedOn(saved.completedOn);
-    setDeficiencyLocationId(locationForScope(scopeKey)?.id || "");
+
     setError("");
     setMessage("");
   }
@@ -462,12 +472,14 @@ export default function PreventiveMaintenancePage() {
   const activeCanEdit = canEdit
     && (!["pending", "processing"].includes(activeScopeEntry?.status || "") || activeScopeEntry?.can_edit_entry === true);
   const followUpItems = activeTemplate?.checklist.filter((item) => checklist[item.id] === "follow-up") || [];
-  const pendingLinkMatchesForm = Boolean(
-    pendingWorkOrderLink && activeForm && activeTemplate
-    && pendingWorkOrderLink.templateId === activeTemplate.id
-    && pendingWorkOrderLink.periodStart === activeForm.periodStart
-    && pendingWorkOrderLink.scopeKey === activeScope(activeTemplate, activeForm.scopeKey),
-  );
+  const activeIssues = activeTemplate ? pmIssueCandidates(activeTemplate, {
+    responses: checklist, form_data: { ...formData, logEntries: repeatableRows, pmIssueDetails: issueDetails }, deficiency_notes: deficiencyNotes,
+  }).map(issue => ({ ...issue, locationId: issue.locationId || locationForScope(activeScopeKey)?.id || "" })) : [];
+  const issueTargets = activeTemplate ? [
+    ...activeTemplate.fields.map(field => ({ key: `field:${field.id}`, label: field.label })),
+    ...repeatableRows.flatMap((row, index) => (activeTemplate.repeatableFields || []).map(field => ({ key: `row:${row._pmRowId}:${field.id}`, label: `Record ${index + 1} — ${field.label}` }))),
+    { key: "notes:follow-up", label: "Recorded follow-up notes" },
+  ] : [];
 
   function activeScope(template: PmTemplate, sourceScope: string) {
     if (template.scope === "room") return sourceScope;
@@ -492,6 +504,7 @@ export default function PreventiveMaintenancePage() {
       if (missing) return "Complete the required fields in each inspection row before finishing.";
     }
     if (isComplete && activeTemplate.kind === "room" && !completedOn) return "Enter the room PM completion date.";
+    if (isComplete && activeIssues.some(issue => !issue.detail.trim())) return "Describe each flagged issue before finishing.";
     if (isComplete && followUpItems.length && !deficiencyNotes.trim()) return "Describe the deficiencies and the follow-up plan.";
     return "";
   }
@@ -503,7 +516,10 @@ export default function PreventiveMaintenancePage() {
     const scopeKey = activeScope(activeTemplate, activeForm.scopeKey);
     const existing = entryFor(activeTemplate, activeForm.periodStart, scopeKey)
       || (scopeKey !== activeForm.scopeKey ? entryFor(activeTemplate, activeForm.periodStart, activeForm.scopeKey) : undefined);
-    const formValues: Record<string, unknown> = { ...formData };
+    const formValues: Record<string, unknown> = { ...formData, pmIssueDetails: {
+      ...issueDetails,
+      ...Object.fromEntries(activeIssues.map(issue => [issue.key, { ...issueDetails[issue.key], detail: issue.detail, locationId: issue.locationId }])),
+    } };
     if (activeTemplate.repeatableFields) formValues.logEntries = repeatableRows;
     return await saveEntry({
       templateId: activeTemplate.id,
@@ -528,6 +544,7 @@ export default function PreventiveMaintenancePage() {
     try {
       const saved = await persistActive(isComplete);
       setActiveForm((current) => current ? { ...current, scopeKey: saved.scope_key } : current);
+      if (isComplete && activeIssues.length) openIssueConfirmation(saved, activeIssues);
       setMessage(isComplete
         ? `${activeTemplate?.title || "PM form"} saved in CMPRI. Google Sheets sync is disabled.`
         : "PM draft saved in CMPRI. Google Sheets sync is disabled.");
@@ -539,77 +556,57 @@ export default function PreventiveMaintenancePage() {
   }
 
   async function createWorkOrderFromDeficiency() {
-    if (!activeCanEdit) return;
-    if (!activeTemplate || !activeForm || !deficiencyNotes.trim()) {
-      setError("Record the deficiency details before creating a work order.");
-      return;
-    }
-    if (!deficiencyLocationId) {
-      setError("Select the room or location for the work order.");
-      return;
-    }
-    setSavingKey("work-order");
+    if (!activeCanEdit || !activeTemplate || !activeForm) return;
+    // The manual action joins the same explicit confirmation, never a second creation path.
+    setSavingKey("active-form");
     setError("");
-    setMessage("");
     try {
-      const prior = await persistActive(false);
-      const session = await getValidSession();
-      if (!session?.access_token) throw new Error("Sign in again before creating the work order.");
-      const issue = `PM deficiency: ${activeTemplate.title}`;
-      const detail = [
-        `PM form: ${activeTemplate.title}`,
-        `Source: ${activeTemplate.sourceReference}`,
-        `Scheduled period: ${periodLabel(activeTemplate, activeForm.periodStart)}`,
-        followUpItems.length ? `Checklist deficiencies: ${followUpItems.map((item) => item.label).join("; ")}` : "",
-        `Follow-up notes: ${deficiencyNotes.trim()}`,
-      ].filter(Boolean).join("\n");
-      const response = await fetch("/api/work-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ orders: [{ location_id: deficiencyLocationId, issue, notes: detail, category: "General", priority: "High" }] }),
-      });
-      const result = await response.json().catch(() => ({}));
-      const created = Array.isArray(result.work_orders) ? result.work_orders[0] : null;
-      if (!response.ok || !created?.id) throw new Error(result.error || "The PM deficiency work order could not be created.");
-      const pending = {
-        id: String(created.id),
-        displayId: String(created.display_id || created.id),
-        revision: prior.revision,
-        templateId: activeTemplate.id,
-        periodStart: activeForm.periodStart,
-        scopeKey: prior.scope_key,
-      };
-      setPendingWorkOrderLink(pending);
-      try {
-        const linked = await persistActive(false, pending.id, pending.revision);
-        setActiveForm((current) => current ? { ...current, scopeKey: linked.scope_key } : current);
-        setPendingWorkOrderLink(null);
-        setMessage(`Work order ${pending.displayId} created and linked to this PM entry.`);
-      } catch (linkError) {
-        setMessage(`Work order ${pending.displayId} was created, but linking it to the PM entry failed. Retry the link below.`);
-        throw linkError;
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Work order could not be created.");
-    } finally {
-      setSavingKey("");
-    }
+      const saved = await persistActive(activeScopeEntry?.is_complete === true);
+      setActiveForm(current => current ? { ...current, scopeKey: saved.scope_key } : current);
+      if (!activeIssues.length) throw new Error("Mark Follow-up or flag a field, then describe the issue first.");
+      openIssueConfirmation(saved, activeIssues);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not prepare PM work orders."); }
+    finally { setSavingKey(""); }
   }
 
-  async function retryPendingWorkOrderLink() {
-    if (!pendingWorkOrderLink) return;
-    setSavingKey("work-order");
-    setError("");
+  function openIssueConfirmation(entry: PmEntry, issues: PmIssue[]) {
+    setIssueResults(Object.fromEntries(issues.flatMap(issue => {
+      const existing = issueLinks.find(link => link.import_external_id === pmIssueExternalId(entry.template_id, entry.period_start, entry.scope_key, issue.key));
+      return existing ? [[issue.key, { id: existing.id }]] : [];
+    })));
+    setIssueConfirmation({ entry, issues });
+  }
+
+  async function confirmIssueWorkOrders() {
+    if (!issueConfirmation || confirmingIssues) return;
+    setConfirmingIssues(true);
+    const { entry, issues } = issueConfirmation;
     try {
-      const linked = await persistActive(false, pendingWorkOrderLink.id, pendingWorkOrderLink.revision);
-      setActiveForm((current) => current ? { ...current, scopeKey: linked.scope_key } : current);
-      setPendingWorkOrderLink(null);
-      setMessage(`Work order ${pendingWorkOrderLink.displayId} linked to this PM entry.`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The work order could not be linked to this PM entry.");
-    } finally {
-      setSavingKey("");
-    }
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Sign in again before confirming work orders.");
+      for (const issue of issues) {
+        if (issueResults[issue.key]?.id) continue;
+        try {
+          const response = await fetch("/api/work-orders", {
+            method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ orders: [{}], pm_submission: { confirmed: true, proposalId: entry.id, revision: entry.revision, issueKey: issue.key } }),
+          });
+          const result = await response.json().catch(() => ({}));
+          const order = result.work_orders?.[0];
+          if (!response.ok || !order?.id) throw new Error(result.error || "Could not confirm this issue. Retry checks the existing link first.");
+          setIssueResults(current => ({ ...current, [issue.key]: { id: String(order.id) } }));
+            if (window.parent !== window) window.parent.postMessage({
+              type: "cmpri-pm-work-orders-confirmed",
+              modalToken: new URLSearchParams(window.location.search).get("modalToken") || "",
+            }, window.location.origin);
+          const externalId = pmIssueExternalId(entry.template_id, entry.period_start, entry.scope_key, issue.key);
+            setIssueLinks(current => [...current.filter(link => link.import_external_id !== externalId), { id: String(order.id), display_id: order.display_id, import_external_id: externalId, status: order.status }]);
+        } catch (cause) {
+          setIssueResults(current => ({ ...current, [issue.key]: { error: cause instanceof Error ? cause.message : "Confirmation failed." } }));
+        }
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Sign in again."); }
+    finally { setConfirmingIssues(false); }
   }
 
   function openLinkedWorkOrder(id: string) {
@@ -753,6 +750,8 @@ export default function PreventiveMaintenancePage() {
   function routineStatus(template: PmTemplate, period: string, itemId: string) {
     const proposal = entryFor(template, period);
     const reference = template.checklist.find(item => item.id === itemId)?.source || "";
+    if (template.id.startsWith("workbook:monthly:") && (proposal?.responses?.[itemId] === "follow-up" || attachedAttention(reference, period) || attachedPendingIssue(reference, period)
+      || pmSubmittedIssueLinks(issueLinks, template.id, period, "property", `item:${itemId}`).length)) return false;
     const inspectionComplete = template.id.startsWith("workbook:monthly:")
       && linkedRoutineCompletion(reference, period, PM_TEMPLATES, approvedInspections);
     return pmRoutineChecked(proposal, itemId, spreadsheetSyncEnabled,
@@ -762,6 +761,29 @@ export default function PreventiveMaintenancePage() {
   function canEditPeriod(template: PmTemplate, period: string) {
     const entry = entryFor(template, period);
     return canEdit && (!["pending", "processing"].includes(entry?.status || "") || entry?.can_edit_entry === true);
+  }
+
+  function attachedEntries(reference: string | null, period: string) {
+    if (!reference) return [];
+    const templates = reference.split(/[,\n]/).map(name => findReferencedPmTemplate(name, PM_TEMPLATES)).filter(Boolean);
+    return entries.filter(entry => templates.some(template => template && entry.template_id === template.id
+      && (template.cadence === "quarterly" ? quarterPeriodForDate(entry.period_start) === quarterPeriodForDate(period) : entry.period_start === period)));
+  }
+
+  function attachedTickets(reference: string | null, period: string) {
+    return attachedEntries(reference, period).flatMap(entry => issueLinks.filter(link =>
+      link.id === entry.work_order_id || link.import_external_id.startsWith(pmIssueContext(entry.template_id, entry.period_start, entry.scope_key))));
+  }
+
+  function attachedAttention(reference: string | null, period: string) {
+    return attachedTickets(reference, period).length > 0 || attachedEntries(reference, period).some(entry => !!entry.work_order_id);
+  }
+
+  function attachedPendingIssue(reference: string | null, period: string) {
+    return attachedEntries(reference, period).some(entry => {
+      const template = PM_TEMPLATES.find(template => template.id === entry.template_id);
+      return template && pmIssueCandidates(template, entry).some(issue => !pmSubmittedIssueLinks(issueLinks, entry.template_id, entry.period_start, entry.scope_key, issue.key).length);
+    });
   }
 
   function renderRoutineTable(template: PmTemplate, periods: string[], heading: string, linkedReference?: (itemId: string) => string | null) {
@@ -783,7 +805,11 @@ export default function PreventiveMaintenancePage() {
                   {findReferencedPmTemplate(reference, PM_TEMPLATES) && <button type="button" onClick={() => openRoutineReference(reference, periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
                 </th>
                 {periods.map((period) => {
-                  const checked = routineStatus(template, period, item.id);
+                  const monthly = template.id.startsWith("workbook:monthly:");
+                  const submitted = monthly ? [...pmSubmittedIssueLinks(issueLinks, template.id, period, "property", `item:${item.id}`), ...attachedTickets(reference, period)] : [];
+                  const attention = monthly && (submitted.length > 0 || attachedAttention(reference, period));
+                  const pendingIssue = monthly && ((entryFor(template, period)?.responses?.[item.id] === "follow-up" && !pmSubmittedIssueLinks(issueLinks, template.id, period, "property", `item:${item.id}`).length) || attachedPendingIssue(reference, period));
+                  const checked = !attention && !pendingIssue && routineStatus(template, period, item.id);
                   const sourceUnverified = entryFor(template, period)?.unverified_completion_items?.includes(item.id);
                   const hasPending = entryFor(template, period)?.status === "pending"
                     && Object.hasOwn(entryFor(template, period)?.responses || {}, item.id);
@@ -792,13 +818,27 @@ export default function PreventiveMaintenancePage() {
                       <button
                         type="button"
                         role="checkbox"
-                        aria-checked={sourceUnverified && !checked ? "mixed" : checked}
-                        aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${hasPending ? " · pending review" : ""}`}
+                        aria-checked={attention || (sourceUnverified && !checked) ? "mixed" : checked}
+                        data-pm-attention={attention ? "true" : undefined}
+                        data-pm-saving-period={savingFor(period) ? "true" : undefined}
+                        aria-busy={savingCell === `${entryKey(template.id, period)}:${item.id}`}
+                        aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${attention ? " · needs attention" : ""}${hasPending ? " · pending review" : ""}`}
                         disabled={!canEditPeriod(template, period) || !liveWorkbook || savingFor(period)}
-                        onClick={() => void updateRoutine(template, period, item.id, !checked)}
-                        className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : checked ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
+                        onClick={() => {
+                          if (attention) { if (submitted[0]) openLinkedWorkOrder(submitted[0].id); else openRoutineReference(reference, period, false); return; }
+                          if (monthly && (checked || pendingIssue)) {
+                            if (pendingIssue && entryFor(template, period)?.responses?.[item.id] !== "follow-up" && findReferencedPmTemplate(reference, PM_TEMPLATES)) { openRoutineReference(reference, period, false); return; }
+                            const saved = (entryFor(template, period)?.form_data?.pmIssueDetails as IssueDetails)?.[`item:${item.id}`];
+                            setMonthlyAttention({ template, period, itemId: item.id, detail: saved?.detail || "", locationId: saved?.locationId || "" });
+                          } else void updateRoutine(template, period, item.id, !checked);
+                        }}
+                        className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${attention ? "border-red-400 bg-red-950 text-red-100" : checked ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 ${savingCell === `${entryKey(template.id, period)}:${item.id}` ? "cursor-wait" : ""}`}
                         title={sourceUnverified ? "Legacy completion preserved; source contains unrecorded tasks. Requires completion review." : hasPending ? "Pending reviewer confirmation" : undefined}
-                      >✓</button>
+                      >{attention ? "×" : "✓"}</button>
+                      {monthly && checked && !attention && <button type="button" disabled={!canEditPeriod(template, period) || savingFor(period)} className="block mx-auto text-xs text-slate-400" onClick={() => void updateRoutine(template, period, item.id, false)}>Clear</button>}
+                      {hasPending && <span className="block text-[10px] text-slate-400">Pending review</span>}
+                      {pendingIssue && <span className="block text-xs text-slate-300">Ticket pending</span>}
+                      {submitted.filter(pmTicketClosed).map(link => <span key={link.id} className="block text-[10px] text-slate-300" title={`Ticket ${link.display_id || link.id} closed; inspection result retained`}>Ticket closed</span>)}
                       {sourceUnverified && <span className="block text-xs text-amber-200">Completion unverified</span>}
                     </td>
                   );
@@ -1060,6 +1100,7 @@ export default function PreventiveMaintenancePage() {
                       </li>)}
                     </ul>
                   </div>}
+                  {template && pmIssueCandidates(template, { responses: proposedResponses, form_data: proposedFormData }).map(issue => <div key={issue.key} className="mt-2 rounded border border-slate-700 p-2 text-sm"><strong>{issue.label}</strong><p>{issue.detail || "Issue description not recorded"}</p><p>{locations.find(location => location.id === issue.locationId)?.name || "Work-order location not selected"}</p></div>)}
                   {typeof payload.notes === "string" && payload.notes && <p className="mt-3 border-t border-slate-800 pt-3 text-sm text-slate-300"><strong>Notes:</strong> {payload.notes}</p>}
                   {typeof payload.deficiency_notes === "string" && payload.deficiency_notes && <p className="mt-2 text-sm text-amber-100"><strong>Follow-up:</strong> {payload.deficiency_notes}</p>}
                 </article>
@@ -1101,7 +1142,7 @@ export default function PreventiveMaintenancePage() {
                       }).length;
                     const total = isDaily ? template.checklist.length * weekDates.length : template.checklist.length;
                     const issues = records.reduce((count, entry) =>
-                      count + template.checklist.filter((item) => entry.responses?.[item.id] === "follow-up").length, 0,
+                      count + pmIssueCandidates(template, entry).length, 0,
                     );
                     return <tr key={`${template.id}:${period}`} className="border-t border-slate-800">
                       <td data-label="Cadence" className="px-4 py-3 capitalize text-slate-400">{template.cadence}</td>
@@ -1171,10 +1212,10 @@ export default function PreventiveMaintenancePage() {
 
               {activeTemplate.repeatableFields && (
                 <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 sm:p-4">
-                  <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold">{activeTemplate.repeatableLabel || "Inspection records"}</h3><p className="mt-0.5 text-xs text-slate-500">Add one row for each inspected device, valve, or test location.</p></div><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => [...current, {}])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-40">Add row +</button></div>
+                  <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold">{activeTemplate.repeatableLabel || "Inspection records"}</h3><p className="mt-0.5 text-xs text-slate-500">Add one row for each inspected device, valve, or test location.</p></div><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => [...current, { _pmRowId: crypto.randomUUID() }])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-40">Add row +</button></div>
                   <div className="mt-3 space-y-3">
                     {repeatableRows.map((row, index) => (
-                      <div key={index} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div key={row._pmRowId || index} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                         <div className="pm-record-heading flex items-center justify-between"><p className="pm-desktop-only text-xs font-bold uppercase tracking-wide text-slate-500">Record {index + 1}</p><button type="button" className="pm-phone-only phone-record-toggle" aria-expanded={phoneRecord === index} onClick={() => setPhoneRecord(phoneRecord === index ? -1 : index)}>{pmRecordSummary(activeTemplate.repeatableFields!, row, index)}</button><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="pm-record-remove text-xs text-red-300 hover:underline" aria-label={`Remove record ${index + 1}`}>Remove</button></div>
                         <div className={`${phoneRecord === index ? "" : "pm-desktop-only"} mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3`}>
                           {activeTemplate.repeatableFields!.map((field) => <FieldInput key={field.id} field={field} value={row[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setRepeatableRows((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, [field.id]: value } : item))} />)}
@@ -1190,19 +1231,24 @@ export default function PreventiveMaintenancePage() {
                 <label className="block"><span className="text-xs font-semibold text-amber-200">Deficiencies and follow-up plan</span><textarea disabled={!activeCanEdit || !!savingKey} value={deficiencyNotes} onChange={(event) => setDeficiencyNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" placeholder="Describe what needs repair and the next step…" /></label>
               </div></section>
 
-              {deficiencyNotes.trim() && activeCanEdit && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
-                  <p className="text-sm font-bold text-amber-100">Create a linked work order</p>
-                  <p className="mt-1 text-xs text-amber-100/70">The PM record is saved first. The work order will include the form source, inspection period, marked deficiencies, and your follow-up notes.</p>
-                  <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <label className="min-w-[240px] flex-1"><span className="text-xs font-semibold text-slate-300">Work-order location</span><select value={deficiencyLocationId} onChange={(event) => setDeficiencyLocationId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Select location…</option>{locations.map((location) => <option key={location.id} value={location.id}>{[location.area, location.room_number, location.name].filter(Boolean).join(" · ")}</option>)}</select></label>
-                    <button type="button" disabled={!activeCanEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? "Creating…" : "Save & create work order"}</button>
-                  </div>
-                </div>
-              )}
+              <section className="rounded-xl border border-slate-700 p-3" aria-label="PM work-order issues">
+                <h3 className="font-bold">Issues for work-order confirmation</h3>
+                <p className="text-xs text-slate-400">Follow-up and field-specific failures appear here. No work order is created until you confirm. Draft saving does not create orders.</p>
+                <label className="block mt-2 text-sm">Report an issue with a field
+                  <select value="" disabled={!activeCanEdit || !!savingKey} className="block w-full bg-slate-900 p-2" onChange={event => { const key = event.target.value; if (key) setIssueDetails(current => ({ ...current, [key]: { ...current[key], flagged: true, ...(key === "notes:follow-up" ? { detail: deficiencyNotes } : {}) } })); }}>
+                    <option value="">Select field or notes</option>{issueTargets.map(target => <option key={target.key} value={target.key}>{target.label}</option>)}
+                  </select>
+                </label>
+                {activeIssues.map(issue => <fieldset key={issue.key} className="mt-3 border-t border-slate-700 pt-2"><legend className="text-sm font-semibold">{issue.label}</legend>
+                  <label className="block text-xs">Issue description<textarea disabled={!activeCanEdit || !!savingKey} className="block w-full bg-slate-900 p-2 text-sm" value={issue.detail} onChange={event => setIssueDetails(current => ({ ...current, [issue.key]: { ...current[issue.key], detail: event.target.value } }))} /></label>
+                  <label className="block text-xs mt-1">Work-order location<select disabled={!activeCanEdit || !!savingKey} className="block w-full bg-slate-900 p-2 text-sm" value={issue.locationId} onChange={event => setIssueDetails(current => ({ ...current, [issue.key]: { ...current[issue.key], locationId: event.target.value } }))}><option value="">Select location</option>{locations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                  {issueDetails[issue.key]?.flagged && <button type="button" disabled={!activeCanEdit || !!savingKey} className="text-xs text-slate-300" onClick={() => setIssueDetails(current => ({ ...current, [issue.key]: { ...current[issue.key], flagged: false } }))}>Clear manual issue flag</button>}
+                </fieldset>)}
+                <button type="button" disabled={!activeCanEdit || !!savingKey || !activeIssues.length} onClick={() => void createWorkOrderFromDeficiency()} className="mt-3 rounded-lg border border-slate-600 px-3 py-2">Save &amp; review work orders</button>
+                {issueLinks.filter(link => link.import_external_id.startsWith(pmIssueContext(activeTemplate.id, activeForm.periodStart, activeScope(activeTemplate, activeForm.scopeKey)))).map(link => <button type="button" className="block text-sm text-sky-300 mt-2" key={link.id} onClick={() => openLinkedWorkOrder(link.id)}>Open PM work order {link.display_id || link.id}{pmTicketClosed(link) && <span className="block text-xs text-slate-300">Ticket closed · inspection result retained</span>}</button>)}
+              </section>
 
-              {pendingLinkMatchesForm && pendingWorkOrderLink && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100"><span>Work order {pendingWorkOrderLink.displayId} exists but is not yet linked to this PM entry.</span><button type="button" disabled={!!savingKey} onClick={() => void retryPendingWorkOrderLink()} className="rounded-md border border-amber-400/40 px-3 py-1.5 font-bold disabled:opacity-40">Retry link</button></div>}
-              {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">Open linked work order</button>}
+              {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">Open linked work order{pmTicketClosed(issueLinks.find(link => link.id === activeScopeEntry.work_order_id)) && <span className="block text-xs text-slate-300">Ticket closed · inspection result retained</span>}</button>}
 
               {(activeHistory || activeTemplate.kind !== "room") && <details className="pm-prior-history rounded-lg border border-slate-800 p-3"><summary>Prior maintenance history</summary>{activeHistory && <p className="rounded-lg border border-emerald-500/30 p-3 text-sm text-emerald-200">Room completed historically: {activeHistory.completed_on || "Date unknown"}. {activeHistory.source_name} · {activeHistory.source_reference}. Only source-recorded item answers are shown. Historical completion does not assert an item passed; saving this form does not replace the historical completion.</p>}{activeTemplate.kind !== "room" && <PmSourceEvidence templateId={activeTemplate.id} />}</details>}
             </div>
@@ -1215,6 +1261,22 @@ export default function PreventiveMaintenancePage() {
           </section>
         </div>
       )}
+      {monthlyAttention && <PmIssueDialog label="Monthly task needs attention" busy={!!savingKey} onDismiss={() => setMonthlyAttention(null)}><section className="w-full max-w-lg rounded-xl bg-slate-950 p-4 border border-red-500">
+        <h2 className="font-bold">{monthlyAttention.template.checklist.find(item => item.id === monthlyAttention.itemId)?.label}</h2>
+        <label className="block mt-2">Issue description<textarea disabled={!!savingKey} className="block w-full bg-slate-900 p-2" value={monthlyAttention.detail} onChange={event => setMonthlyAttention({ ...monthlyAttention, detail: event.target.value })} /></label>
+        <label className="block mt-2">Location<select disabled={!!savingKey} className="block w-full bg-slate-900 p-2" value={monthlyAttention.locationId} onChange={event => setMonthlyAttention({ ...monthlyAttention, locationId: event.target.value })}><option value="">Select location</option>{locations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+        <p className="mt-2 text-xs text-slate-400">Saving records attention and opens work-order confirmation. It does not create a work order.</p>
+        {error && <p role="alert">{error}</p>}
+        <button disabled={!!savingKey} onClick={() => setMonthlyAttention(null)} className="p-2">Cancel</button><button disabled={!!savingKey || !monthlyAttention.detail.trim()} className="p-2 text-red-200" onClick={() => void updateRoutine(monthlyAttention.template, monthlyAttention.period, monthlyAttention.itemId, "follow-up", monthlyAttention.detail, monthlyAttention.locationId)}>Save attention &amp; review</button>
+      </section></PmIssueDialog>}
+      {issueConfirmation && <PmIssueDialog label="Confirm PM work orders" busy={confirmingIssues} onDismiss={() => setIssueConfirmation(null)}><section aria-labelledby="pm-issues-title" className="w-full max-w-xl max-h-[90dvh] overflow-y-auto rounded-xl bg-slate-950 border border-slate-600 p-4">
+        <h2 id="pm-issues-title" className="font-bold">Confirm PM work orders</h2>
+        <p className="text-sm text-slate-300">Review each item, location and description. Confirm creates or reuses one linked order for each listed issue. Existing orders are not changed or closed.</p>
+        {issueConfirmation.issues.map(issue => <div key={issue.key} className="border-t border-slate-700 mt-3 pt-2"><strong>{issue.label}</strong><p>{locations.find(location => location.id === issue.locationId)?.name || "Location required — return to form"}</p><p className="whitespace-pre-wrap">{issue.detail || "Issue description required — return to form"}</p>{issueResults[issue.key]?.error && <p role="alert" className="text-red-300">{issueResults[issue.key].error}</p>}{issueResults[issue.key]?.id && <button className="text-emerald-300" onClick={() => openLinkedWorkOrder(issueResults[issue.key].id!)}>Linked — open work order</button>}</div>)}
+        <p className="text-xs text-slate-400 mt-3">Successful links remain if another issue fails. Retry checks each issue's existing link before creating anything.</p>
+        {error && <p role="alert" className="text-red-300">{error}</p>}
+        <footer className="sticky bottom-0 bg-slate-950 pt-3 flex gap-3"><button disabled={confirmingIssues} onClick={() => setIssueConfirmation(null)}>Back to PM</button><button disabled={confirmingIssues || issueConfirmation.issues.some(issue => !issue.locationId || !issue.detail.trim()) || issueConfirmation.issues.every(issue => issueResults[issue.key]?.id)} className="rounded bg-emerald-400 p-2 text-slate-950" onClick={() => void confirmIssueWorkOrders()}>{confirmingIssues ? "Confirming…" : "Confirm work orders / retry unresolved"}</button></footer>
+      </section></PmIssueDialog>}
       {confirmingProposal && (
         <div className="cmpri-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80">
           <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="pm-review-confirm cmpri-modal-shell border border-emerald-500/30 bg-slate-950 shadow-2xl">

@@ -42,3 +42,18 @@ export function approvedRoutineUnverifiedItems<T extends RoutineProposal>(
   }
   return result;
 }
+
+/** Keep per-item issue descriptions from earlier sparse approvals reachable. */
+export function approvedRoutineIssueDetails(proposals: readonly RoutineProposal[]) {
+  const result = new Map<string, Record<string, unknown>>();
+  const approved = proposals.filter(p => p.status === 'approved' && p.template_id.startsWith('workbook:'))
+    .slice().sort((a,b) => String(a.updated_at || '').localeCompare(String(b.updated_at || '')) || String(a.id || '').localeCompare(String(b.id || '')));
+  for (const proposal of approved) {
+    const payload = proposal.payload as {form_data?: {pmIssueDetails?: Record<string, unknown>}} | undefined;
+    const details = payload?.form_data?.pmIssueDetails;
+    if (!details || typeof details !== 'object' || Array.isArray(details)) continue;
+    const key = `${proposal.template_id}|${proposal.period_start}|${proposal.scope_key}`;
+    result.set(key, { ...result.get(key), ...details });
+  }
+  return result;
+}

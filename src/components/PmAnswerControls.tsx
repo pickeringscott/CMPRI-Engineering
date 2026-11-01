@@ -7,7 +7,7 @@ export default function PmAnswerControls({ value, onChange, disabled = false, lo
   return <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1">
     {historicalCompleted && !value && <button type="button" disabled aria-pressed="true" className="rounded-md border border-slate-400 bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-100">Completed historically · condition unrecorded</button>}
     {options.map(([state, text]) => <button key={state} type="button" aria-pressed={value === state}
-      disabled={disabled || !onChange} onClick={() => onChange?.(state)}
+      disabled={disabled || !onChange} onClick={() => onChange?.(value === state ? "" : state)}
       className={`rounded-md border px-2 py-1.5 text-[11px] font-bold ${value === state
         ? state === 'follow-up' || state === 'NO' ? 'border-amber-400 bg-amber-950 text-amber-100' : 'border-emerald-400 bg-emerald-950 text-emerald-100'
         : 'border-slate-700 text-slate-400'} disabled:cursor-default`}>{text}</button>)}

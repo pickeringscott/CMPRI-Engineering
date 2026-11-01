@@ -1,3 +1,5 @@
+import { findPmTemplate } from "@/lib/pm/catalog";
+import { pmIssueCandidates, pmIssueExternalId } from "@/lib/pm/issues";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
@@ -192,6 +194,7 @@ export async function POST(request: NextRequest) {
   if (!body || !Array.isArray(body.orders) || body.orders.length < 1 || body.orders.length > 20) {
     return NextResponse.json({ error: "Submit between 1 and 20 work orders." }, { status: 400 });
   }
+  let orderInputs: unknown[] = body.orders;
 
   const sourceDraftId = typeof body.source_draft_id === "string" ? body.source_draft_id.trim() : "";
   const sourceDraftRevision = typeof body.source_draft_revision === "number" ? body.source_draft_revision : null;
@@ -201,6 +204,42 @@ export async function POST(request: NextRequest) {
     || roleAllows(auth.profile.role, "review_tickets");
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
+
+  let pmExternalId = "";
+  const pm = body.pm_submission;
+  if (pm) {
+    if (sourceDraftId || body.orders.length !== 1 || typeof pm !== "object" || Array.isArray(pm)) {
+      return NextResponse.json({ error: "Confirm one PM issue at a time." }, { status: 400 });
+    }
+    const submission = pm as Record<string, unknown>;
+    const principal = await requireUser(request);
+    if (!principal || !allows(principal.principal, "view_pm") || !allows(principal.principal, "edit_tickets")) {
+      return NextResponse.json({ error: "PM editing permission is required." }, { status: 403 });
+    }
+    if (submission.confirmed !== true || typeof submission.proposalId !== "string" || typeof submission.issueKey !== "string") {
+      return NextResponse.json({ error: "Explicit confirmation of the saved PM issue is required." }, { status: 400 });
+    }
+    const proposal = await admin.from("cmpri_pm_proposals").select("id,template_id,period_start,scope_key,payload,revision,status,submitted_by")
+      .eq("hotel_id", HOTEL_ID).eq("id", submission.proposalId).maybeSingle();
+    if (proposal.error) return NextResponse.json({ error: "The saved PM issue could not be verified." }, { status: 503 });
+    const record = proposal.data;
+    if (!record || record.submitted_by !== auth.user.id || record.status !== "pending" || Number(record.revision) !== submission.revision) {
+      return NextResponse.json({ error: "The PM record changed or is no longer your editable proposal. Reopen it before confirming." }, { status: 409 });
+    }
+    const template = findPmTemplate(record.template_id);
+    const candidate = template && pmIssueCandidates(template, record.payload).find(issue => issue.key === submission.issueKey);
+    if (!template || !candidate || !candidate.detail.trim() || !candidate.locationId) {
+      return NextResponse.json({ error: "Save the flagged item, issue description and location before confirming." }, { status: 400 });
+    }
+    pmExternalId = pmIssueExternalId(template.id, record.period_start, record.scope_key, candidate.key);
+    const prior = await admin.from("work_orders").select("id,display_id,status").eq("hotel_id", HOTEL_ID)
+      .eq("import_source", "PM Log").eq("import_external_id", pmExternalId).maybeSingle();
+    if (prior.error) return NextResponse.json({ error: "The PM issue link could not be checked." }, { status: 503 });
+    if (prior.data) return NextResponse.json({ work_orders: [prior.data], reused: true });
+    // Never accept caller-supplied PM titles/details/provenance or location overrides.
+    orderInputs = [{ location_id: candidate.locationId, issue: `PM: ${candidate.label}`,
+      notes: `PM form: ${template.title}\nPeriod: ${record.period_start}\nScope: ${record.scope_key}\nItem: ${candidate.label}\nIssue: ${candidate.detail}` }];
+  }
 
   if (sourceDraftId) {
     const { data: existingDraftOrder, error: existingDraftOrderError } = await admin.from("work_orders")
@@ -280,7 +319,7 @@ export async function POST(request: NextRequest) {
   }
   const rows: Record<string, unknown>[] = [];
   try {
-    for (const value of body.orders) {
+    for (const value of orderInputs) {
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid work-order details.");
       const source = value as Record<string, unknown>;
       const row: Record<string, unknown> = {};
@@ -311,6 +350,7 @@ export async function POST(request: NextRequest) {
       rows.push({
         ...row,
         hotel_id: HOTEL_ID,
+        ...(pmExternalId ? { import_source: "PM Log", import_external_id: pmExternalId } : {}),
         ...attribution,
         technician_name: "",
         action_root_cause: "",
@@ -386,7 +426,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: existing, error: duplicateError } = await db.from("work_orders")
-    .select("id, display_id, location_id, asset_id, issue, status, source_draft_id")
+    .select("id, display_id, location_id, asset_id, issue, status, source_draft_id, import_source, import_external_id")
     .eq("hotel_id", HOTEL_ID)
     .in("location_id", uniqueLocationIds)
     .limit(ACTIVE_DUPLICATE_LIMIT);
@@ -394,6 +434,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Existing work orders could not be checked completely. No tickets were created." }, { status: 503 });
   }
   for (const row of rows) {
+    const alreadyLinked = pmExternalId && existing.find(previous => previous.import_source === "PM Log" && previous.import_external_id === pmExternalId);
+    if (alreadyLinked) return NextResponse.json({ work_orders: [alreadyLinked], reused: true });
     const duplicate = existing.find((previous) => likelyDuplicate(row, previous));
     if (duplicate) {
       if (sourceDraftId && sourceDraftRevision !== null && String(duplicate.source_draft_id || "") === sourceDraftId) {
@@ -413,6 +455,12 @@ export async function POST(request: NextRequest) {
   const saved = (insertResult && (insertResult as { data?: Array<{ id: string; display_id?: string; status?: string }> }).data) || null;
   const insertError = insertResult && (insertResult as { error?: unknown }).error;
   if (insertError) {
+    if (pmExternalId) {
+      // The existing unique provenance index arbitrates concurrent confirmations atomically.
+      const prior = await db.from("work_orders").select("id,display_id,status").eq("hotel_id", HOTEL_ID)
+        .eq("import_source", "PM Log").eq("import_external_id", pmExternalId).maybeSingle();
+      if (!prior.error && prior.data) return NextResponse.json({ work_orders: [prior.data], reused: true });
+    }
     if (sourceDraftId && sourceDraftRevision !== null) {
       const { data: existingDraftOrder, error: existingDraftOrderError } = await db.from("work_orders")
         .select("id, display_id, status")

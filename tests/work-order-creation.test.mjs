@@ -27,6 +27,7 @@ function fixture(body,config={}) {
     },
   };}};
   function load(file) {
+    if (file.endsWith('.json')) return { default: JSON.parse(readFileSync(file,'utf8')) };
     const exports={};
     vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:config.noServiceRole?{}:{SUPABASE_SERVICE_ROLE_KEY:'service-role-test'}},
       require(name){

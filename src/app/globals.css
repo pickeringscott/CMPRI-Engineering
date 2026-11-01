@@ -676,6 +676,7 @@ html[data-cmpri-embedded=true] main[data-pm-mobile] button{font-size:12px!import
 [data-pm-mobile] button[role=checkbox]:before{content:'';position:absolute;width:23px;height:23px;border:1px solid #64748b;border-radius:5px;top:10px;left:10px;background:#0f172a}
 [data-pm-mobile] button[role=checkbox][aria-checked=true]:before{content:'\2713';color:#020617;background:#34d399;border-color:#34d399;font-size:17px;line-height:23px}
 [data-pm-mobile] button[role=checkbox][aria-checked=mixed]:before{content:'−';color:#fbbf24;line-height:23px}
+[data-pm-mobile] button[role=checkbox][data-pm-attention=true]:before{content:'\00d7';color:#fecaca;background:#450a0a;border-color:#f87171;font-size:19px;line-height:23px}
 [data-pm-mobile] table[data-phone-daily]{min-width:0!important;table-layout:fixed}
 [data-pm-mobile] table[data-phone-daily] th:first-child{width:calc(100% - 52px);max-width:none;min-width:0}
 [data-pm-mobile] table[data-phone-daily] td{display:none}
@@ -755,8 +756,10 @@ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-inspection-body textarea
 @media(max-width:640px){
  [data-pm-mobile] .phone-record-toggle{flex:1;text-align:left;color:#e2e8f0;font-size:12px!important;border:0;background:transparent}
  [data-pm-mobile] .phone-record-toggle[aria-expanded=true]{color:#6ee7b7}
- [data-pm-mobile] button[role=checkbox][title="Pending reviewer confirmation"]:before{border:2px solid #fbbf24}
 }
+/* Saving one PM cell must not desaturate every temporarily locked cell in its period. */
+[data-pm-mobile] button[role=checkbox][data-pm-saving-period=true]:disabled{filter:none;opacity:1;transform:none;transition:none;cursor:default}
+[data-pm-mobile] button[role=checkbox][data-pm-saving-period=true][aria-busy=true]:disabled{cursor:wait}
 /* Approved PM presentation batch: fields, history, records and phone tables. */
 .pm-field-heading{font-size:13px;font-weight:700;color:#cbd5e1;margin:0 0 8px}
 .pm-field-group{min-width:0;margin-top:12px}

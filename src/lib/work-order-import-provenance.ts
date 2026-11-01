@@ -7,10 +7,20 @@ export type WorkOrderImportProvenance = {
 };
 
 export function workOrderImportLabel(order: WorkOrderImportProvenance): string | null {
+  // Reserved for explicit provenance written by the PM creation flow.
+  // Never infer PM origin from an issue title or maintenance notes.
+  if (order.import_source === "PM Log") return "PM Log";
   if (order.import_source === "Spreadsheet"
     && typeof order.import_external_id === "string"
     && MITTI_BATCH_ID.test(order.import_external_id)) {
     return "Imported from Mitti";
   }
   return null;
+}
+
+export function workOrderSourceTitle(order: WorkOrderImportProvenance): string | undefined {
+  const label = workOrderImportLabel(order);
+  if (label === "PM Log") return "Created from the PM log";
+  if (label === "Imported from Mitti") return "Imported from SafetyCulture / Mitti via the approved September 15, 2026 workbook";
+  return undefined;
 }

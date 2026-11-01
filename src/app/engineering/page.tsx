@@ -546,6 +546,14 @@ export default function EngineeringDashboardPage() {
         if (data.type === "cmpri-work-order-loaded") return;
       }
       switch (data.type) {
+        case "cmpri-pm-work-orders-confirmed": {
+          const source = windowsRef.current.find(entry => entry.key === key);
+          if (key !== "/engineering/preventive-maintenance" || !source?.src) return;
+          if (new URL(source.src, window.location.origin).searchParams.get("modalToken") !== data.modalToken) return;
+          // PM can confirm several issues; refresh orders without dismissing its form.
+          void loadDashboard(true);
+          return;
+        }
         case "cmpri-assets-changed": {
           const source = windowsRef.current.find(entry => entry.key === key);
           if (key !== "/management/equipment" || !source?.src || typeof data.assetId !== "string" || !data.assetId) return;

@@ -1,10 +1,11 @@
+import { pmIssueCandidates, validatePmIssueMetadata } from "@/lib/pm/issues";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { findPmTemplate, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
 import { profileHasRole } from "@/lib/server/roles";
-import { approvedRoutineResponses, approvedRoutineUnverifiedItems } from "@/lib/pm/proposal-projection";
+import { approvedRoutineResponses, approvedRoutineUnverifiedItems, approvedRoutineIssueDetails } from "@/lib/pm/proposal-projection";
 import { fetchAllPages } from "@/lib/server/paginated-query";
 import { sourceCompletionReview } from "@/lib/server/pm-source-completion-review";
 import { cleanScanPayload, cleanScanHistory } from "@/lib/pm/scan-cleanup";
@@ -110,6 +111,7 @@ export async function GET(request: NextRequest) {
   const approvedRooms = new Map<string, Record<string, unknown>>();
   const approvedInspections = new Map<string, Record<string, unknown>>();
   const proposalPriorityByKey = new Map<string, number>();
+  const approvedIssueDetails = approvedRoutineIssueDetails(proposals.data || []);
   const approvedResponses = approvedRoutineResponses(proposals.data || []);
   const approvedUnverified = approvedRoutineUnverifiedItems(proposals.data || [], sourceCompletionReview);
   for (const proposal of proposals.data || []) {
@@ -150,6 +152,10 @@ export async function GET(request: NextRequest) {
       latestByKey.set(key, {
         ...payload,
         ...(proposal.template_id.startsWith("workbook:") ? {
+          form_data: {
+            ...((payload.form_data as Record<string, unknown>) || {}),
+            pmIssueDetails: { ...approvedIssueDetails.get(key), ...(((payload.form_data as Record<string, unknown>)?.pmIssueDetails as Record<string, unknown>) || {}) },
+          },
           responses: {
             ...approvedResponses.get(key),
             ...(pending && payload.responses && typeof payload.responses === "object" ? payload.responses : {}),
@@ -197,10 +203,20 @@ export async function GET(request: NextRequest) {
     .lte("period_start", `${week.slice(0, 4)}-12-31`)
     .limit(1000);
   if (history.error) return responseError(history.error, "Historical room PM records could not be loaded.");
+  // Provenance is also the durable per-item link; legacy single-order links remain intact.
+  const issueLinks = await fetchAllPages((offset, end) => auth.admin.from("work_orders")
+    .select("id,display_id,import_external_id,status").eq("hotel_id", HOTEL_ID).eq("import_source", "PM Log")
+    .order("id", { ascending: true }).range(offset, end));
+  if (issueLinks.error) return responseError(issueLinks.error, "PM issue work-order links could not be loaded.");
+  const legacyIds = [...new Set([...latestByKey.values()].map(entry => entry.work_order_id).filter((id): id is string => typeof id === "string" && !!id))];
+  const legacyLinks = legacyIds.length ? await auth.admin.from("work_orders")
+    .select("id,display_id,import_external_id,status").eq("hotel_id", HOTEL_ID).in("id", legacyIds) : { data: [], error: null };
+  if (legacyLinks.error) return responseError(legacyLinks.error, "Linked PM ticket statuses could not be loaded.");
   return NextResponse.json({
     week,
     workbook: emptyPmWorkbook(week),
     entries: [...latestByKey.values()],
+    issue_links: [...new Map([...(issueLinks.data || []), ...(legacyLinks.data || [])].map(link => [link.id, { ...link, import_external_id: link.import_external_id || "" }])).values()],
     room_history: (history.data || []).map(cleanScanHistory),
     approved_rooms: [...approvedRooms.values()],
     approved_inspections: [...approvedInspections.values()],
@@ -254,13 +270,15 @@ export async function POST(request: NextRequest) {
   if (Object.keys(responses).length > 1200 || Object.keys(formData).length > 100) {
     return NextResponse.json({ error: "PM form data contains too many fields." }, { status: 400 });
   }
+  const issueMetadataError = validatePmIssueMetadata(formData);
+  if (issueMetadataError) return NextResponse.json({ error: issueMetadataError }, { status: 400 });
   if (template.kind === "routine" && Object.keys(responses).length !== 1) {
     return NextResponse.json({ error: "Save exactly one routine checklist item per action." }, { status: 400 });
   }
   const checklistIds = new Set(template.checklist.map((item) => item.id));
   const validResponse = (value: unknown) => template.kind === "routine"
-    ? typeof value === "boolean"
-    : value === "complete" || value === "follow-up" || value === "na";
+    ? typeof value === "boolean" || (template.id.startsWith("workbook:monthly:") && value === "follow-up")
+    : value === "" || value === "complete" || value === "follow-up" || value === "na";
   if (Object.entries(responses).some(([id, value]) => !checklistIds.has(id) || !validResponse(value))) {
     return NextResponse.json({ error: "Checklist responses do not match this PM form." }, { status: 400 });
   }
@@ -329,7 +347,7 @@ export async function POST(request: NextRequest) {
     ? { ...savedRoutineResponses, ...responses }
     : responses;
   if (body.isComplete) {
-    if (template.checklist.some((item) => !validResponse(persistedResponses[item.id]))) {
+    if (template.checklist.some((item) => (!validResponse(persistedResponses[item.id]) || persistedResponses[item.id] === ""))) {
       return NextResponse.json({ error: "Review every checklist item before completing this PM form." }, { status: 400 });
     }
     if (template.kind === "routine" && template.checklist.some((item) => persistedResponses[item.id] !== true)) {
@@ -352,6 +370,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `Add complete ${template.repeatableLabel?.toLowerCase() || "inspection"} records before finishing.` }, { status: 400 });
       }
     }
+  }
+  // Structured issue details are separate from operational field values and notes.
+  const issues = pmIssueCandidates(template, { responses: persistedResponses, form_data: formData });
+  if ((body.isComplete || (template.kind === "routine" && Object.values(responses).includes("follow-up")))
+    && issues.some(issue => !issue.detail.trim())) {
+    return NextResponse.json({ error: "Describe each flagged PM issue before submitting." }, { status: 400 });
   }
   const proposedCells: PmProposedCell[] = [];
   const payload = {
