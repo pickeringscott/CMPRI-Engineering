@@ -6,7 +6,7 @@ import { guardRecordedOverlaps, recordedProposal, recordedRoom, type RecordedIss
 import { fetchAllPages } from './paginated-query';
 
 /** Read only; intentionally not bounded by the currently selected week/year. */
-export async function loadRecordedIssues(admin: SupabaseClient, userId: string): Promise<RecordedIssueSource[]> {
+export async function loadRecordedIssueState(admin: SupabaseClient, userId: string) {
   const [proposals, rooms] = await Promise.all([
     fetchAllPages<Record<string, unknown>>((from, to) => admin.from('cmpri_pm_proposals')
       .select('id,template_id,period_start,scope_key,payload,revision,status,submitted_by')
@@ -23,6 +23,11 @@ export async function loadRecordedIssues(admin: SupabaseClient, userId: string):
   }
   const template = findPmTemplate(PM_ROOM_TEMPLATE_ID);
   if (template) for (const record of rooms.data || []) sources.push(recordedRoom(template, record));
-  return guardRecordedOverlaps(sources).filter(source => source.issues.length)
-    .sort((a, b) => b.period.localeCompare(a.period) || a.title.localeCompare(b.title));
+  return { sources: guardRecordedOverlaps(sources).filter(source => source.issues.length)
+    .sort((a, b) => b.period.localeCompare(a.period) || a.title.localeCompare(b.title)),
+    proposals: proposals.data || [], rooms: rooms.data || [] };
+}
+
+export async function loadRecordedIssues(admin: SupabaseClient, userId: string): Promise<RecordedIssueSource[]> {
+  return (await loadRecordedIssueState(admin, userId)).sources;
 }

@@ -1,4 +1,4 @@
-import { loadRecordedIssues } from '@/lib/server/pm-recorded-issues';
+import { loadRecordedIssueState } from '@/lib/server/pm-recorded-issues';
 import { reviewedRecordedIssue } from '@/lib/pm/recorded-issues';
 import { findPmTemplate } from "@/lib/pm/catalog";
 import { pmIssueCandidates, pmIssueExternalId } from "@/lib/pm/issues";
@@ -208,6 +208,7 @@ export async function POST(request: NextRequest) {
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
   let pmExternalId = "";
+  let pmGuard: Record<string, unknown> | null = null;
   const pm = body.pm_submission;
   if (pm) {
     if (sourceDraftId || body.orders.length !== 1 || typeof pm !== "object" || Array.isArray(pm)) {
@@ -226,11 +227,14 @@ export async function POST(request: NextRequest) {
     if (submission.recordedSource) {
       const reference = submission.recordedSource as Record<string, unknown>;
       try {
-        const sources = await loadRecordedIssues(admin, auth.user.id);
-        const source = sources.find(item => item.kind === reference.kind && item.id === reference.id);
+        const state = await loadRecordedIssueState(admin, auth.user.id);
+        const source = state.sources.find(item => item.kind === reference.kind && item.id === reference.id);
         if (!source) return NextResponse.json({error: "Recorded inspection not found. Reload the review."}, {status:409});
         candidate = reviewedRecordedIssue(source, submission);
         context = {templateId: source.templateId, title: source.title, period: source.period, scope: source.scope};
+        pmGuard = { kind: 'recorded', template: source.templateId, period: source.period, scope: source.scope,
+          proposals: state.proposals.filter(row => row.template_id === source.templateId && row.period_start === source.period && row.scope_key === source.scope),
+          rooms: source.scope.startsWith('room:') ? state.rooms.filter(row => `room:${row.room}` === source.scope && row.period_start === source.period) : [] };
         const recordedPmRoom = source.scope.match(/^room:(\d{2,4})$/)?.[1];
         if (recordedPmRoom) {
           const location = await admin.from('locations').select('name,room_number')
@@ -259,6 +263,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Save the flagged item, issue description and location before confirming." }, { status: 400 });
       }
       candidate = savedIssue;
+      pmGuard = {kind: 'proposal', record};
       context = {templateId: template.id, title: template.title, period: record.period_start, scope: record.scope_key};
     }
     pmExternalId = pmIssueExternalId(context.templateId, context.period, context.scope, candidate.key);
@@ -478,10 +483,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const insertOp = db.from("work_orders").insert(rows) as unknown as { select?: (cols: string) => Promise<{ data: unknown; error: unknown }> } & Promise<{ data: unknown; error: unknown }>;
-  const insertResult = typeof insertOp?.select === "function"
-    ? await insertOp.select("id, display_id, status")
-    : await insertOp;
+  // PM source comparison and insert share a database transaction. Never fall back
+  // to an unguarded insert when the RPC/migration is missing or rejects drift.
+  let insertResult: {data: unknown; error: unknown};
+  if (pmGuard) {
+    const result = await db.rpc('cmpri_confirm_pm_work_order', {p_hotel: HOTEL_ID, p_guard: pmGuard, p_order: rows[0]});
+    if (result.data?.reused) return NextResponse.json(result.data);
+    insertResult = {data: result.data?.work_orders || null, error: result.error};
+  } else {
+    const insertOp = db.from("work_orders").insert(rows) as unknown as { select?: (cols: string) => Promise<{ data: unknown; error: unknown }> } & Promise<{ data: unknown; error: unknown }>;
+    insertResult = typeof insertOp?.select === "function" ? await insertOp.select("id, display_id, status") : await insertOp;
+  }
   const saved = (insertResult && (insertResult as { data?: Array<{ id: string; display_id?: string; status?: string }> }).data) || null;
   const insertError = insertResult && (insertResult as { error?: unknown }).error;
   if (insertError) {
