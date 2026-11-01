@@ -1,4 +1,5 @@
 "use client";
+import ThanksgivingBackground from "@/components/desktop/ThanksgivingBackground";
 import { sharedFetch as fetch } from "@/lib/events/shared-fetch";
 import { subscribeResource } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
@@ -838,6 +839,7 @@ export default function EngineeringDashboardPage() {
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
+        <ThanksgivingBackground />
         {windows.length === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
         )}
