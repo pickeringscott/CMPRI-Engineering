@@ -1,0 +1,666 @@
+{
+  "67432cbc-40f7-4740-b4c0-2d3a618c884b": {
+    "name": "1st Floor Hall",
+    "location_type": "General"
+  },
+  "42b31c4d-5e97-4061-b661-1d3ff22a90d4": {
+    "name": "Elevator Room",
+    "location_type": "General"
+  },
+  "913df955-95be-445b-87d1-b8a697d0d555": {
+    "name": "2nd Floor Hall",
+    "location_type": "General"
+  },
+  "73a06a69-27c0-485e-8a7a-cc64ea69643b": {
+    "name": "3rd Floor Hall",
+    "location_type": "General"
+  },
+  "af16e5f7-466f-4d75-bbb7-29e552ab355f": {
+    "name": "4th Floor Hall",
+    "location_type": "General"
+  },
+  "819d446d-57fe-4365-ad56-6a3c03e8d544": {
+    "name": "Conference Room",
+    "location_type": "General"
+  },
+  "a38e1933-4e36-453f-9599-fba90e8db866": {
+    "name": "Front Desk",
+    "location_type": "General"
+  },
+  "c248c47e-4118-405d-898b-7d70fa2bdbb2": {
+    "name": "General Manager Office",
+    "location_type": "General"
+  },
+  "be3cfe88-0eae-4b12-a1b5-d9538660af1f": {
+    "name": "Sales Office",
+    "location_type": "General"
+  },
+  "ac2658cb-0be9-49ff-b27b-f5ca42e1ff78": {
+    "name": "Assistant Manager Office",
+    "location_type": "General"
+  },
+  "0c1680e8-8693-486e-960f-62ac50c3fafb": {
+    "name": "Back Office / General",
+    "location_type": "General"
+  },
+  "755ec6f5-ee96-49a5-8e05-4cbcc1fdf002": {
+    "name": "Boiler Room",
+    "location_type": "General"
+  },
+  "376d39f4-7c6f-4d3c-908a-fc90e49f3002": {
+    "name": "Break Room",
+    "location_type": "General"
+  },
+  "13593e69-3a6d-4f0f-b8eb-f2c2725aba8f": {
+    "name": "North Entry",
+    "location_type": "General"
+  },
+  "c3be148f-6fc0-449e-b58e-570d2aa4e8f7": {
+    "name": "Main Entry Vestibule",
+    "location_type": "General"
+  },
+  "fd768a4c-358c-4d39-82b7-de0ff6f8465d": {
+    "name": "South Entry",
+    "location_type": "General"
+  },
+  "3f4eab94-3ffb-4049-844e-b3d460b73feb": {
+    "name": "2nd Floor Electrical Closet #2",
+    "location_type": "General"
+  },
+  "6842199b-9fe8-4b78-aaad-2d3d6315c269": {
+    "name": "4th Floor Electrical Closet #1",
+    "location_type": "General"
+  },
+  "6adc4f0c-994b-46c4-a179-1162f3e2aa2d": {
+    "name": "4th Floor Electrical Closet #2",
+    "location_type": "General"
+  },
+  "6d428a47-0aed-48e5-aa18-40dc9e32b870": {
+    "name": "2nd Floor Electrical Closet #1",
+    "location_type": "General"
+  },
+  "267c0c82-d546-4d79-9bcc-2c44cd4cfe90": {
+    "name": "3rd Floor Electrical Closet #1",
+    "location_type": "General"
+  },
+  "9d30797a-fc61-4206-bf0f-2cc6f0825fcb": {
+    "name": "1st Floor Electrical Closet #2",
+    "location_type": "General"
+  },
+  "18e5d7b8-1c2d-49da-8d2a-bae0b3274bd3": {
+    "name": "1st Floor Electrical Closet #3",
+    "location_type": "General"
+  },
+  "d42fe5d1-11c1-42d0-b26a-b07e78deca82": {
+    "name": "3rd Floor Electrical Closet #2",
+    "location_type": "General"
+  },
+  "0f7e1b83-1cf5-4b87-8100-9159dc974892": {
+    "name": "Elevator #2",
+    "location_type": "General"
+  },
+  "d1948a8f-1f94-45d3-9009-649ce9b1ffc7": {
+    "name": "Elevator #1",
+    "location_type": "General"
+  },
+  "5acf2a90-bb41-46e9-9002-e00db4ec5acf": {
+    "name": "Engineering Office",
+    "location_type": "General"
+  },
+  "f8a257b6-aa58-4bdd-a6f4-5ecb83d963ee": {
+    "name": "Exterior / Property Grounds",
+    "location_type": "General"
+  },
+  "161c7d89-7bb9-4266-8173-9e3dd171b3fd": {
+    "name": "Exterior Brand Signage",
+    "location_type": "General"
+  },
+  "6f8f6e4f-e9d8-4780-88ce-f54d48fae9d2": {
+    "name": "Fire Pump Room",
+    "location_type": "General"
+  },
+  "ff62ab8c-dd94-40fb-a831-bbdc6c376d38": {
+    "name": "Fitness Area",
+    "location_type": "General"
+  },
+  "28b89cc8-9152-4bc4-8510-598c984d44d5": {
+    "name": "Kitchen",
+    "location_type": "Service Area"
+  },
+  "955b235e-85b1-46e7-bc82-9d28f7e36e28": {
+    "name": "Room 101",
+    "location_type": "Guest Room"
+  },
+  "006113b7-7442-4c1c-b74f-a95459cf93b1": {
+    "name": "Room 102",
+    "location_type": "Guest Room"
+  },
+  "a73ab5a5-0e97-4d63-9e0a-782a7c561681": {
+    "name": "Room 103",
+    "location_type": "Guest Room"
+  },
+  "1ccb23a3-8793-411f-830e-5420da024307": {
+    "name": "Room 104",
+    "location_type": "Guest Room"
+  },
+  "94a79be1-5fe8-4a9c-a080-45f6c323a96c": {
+    "name": "Room 105",
+    "location_type": "Guest Room"
+  },
+  "54ba985b-c041-4180-9822-20d3d2fac0da": {
+    "name": "Room 106",
+    "location_type": "Guest Room"
+  },
+  "96565fbf-f293-427e-b014-05ba0e53963c": {
+    "name": "Room 108",
+    "location_type": "Guest Room"
+  },
+  "849344dc-f3b8-46c9-b809-ad276ca3acca": {
+    "name": "Room 110",
+    "location_type": "Guest Room"
+  },
+  "19b0680d-eaf8-4b7b-ae0f-b05713210450": {
+    "name": "Room 112",
+    "location_type": "Guest Room"
+  },
+  "feb2ab4b-f650-4325-91bc-dff022559de6": {
+    "name": "Room 118",
+    "location_type": "Guest Room"
+  },
+  "e005427f-1e84-4de7-a4d2-0db439ef2fce": {
+    "name": "Room 120",
+    "location_type": "Guest Room"
+  },
+  "b59460f2-1785-4611-9ed7-17d77468370b": {
+    "name": "Room 122",
+    "location_type": "Guest Room"
+  },
+  "aa20a674-e206-4633-884d-c1b2e3b1a75b": {
+    "name": "Room 124",
+    "location_type": "Guest Room"
+  },
+  "f3a9b7a2-9c7f-4fe4-b367-ee7fee6320e1": {
+    "name": "Room 126",
+    "location_type": "Guest Room"
+  },
+  "f397b974-cbbc-43da-b255-0177c3517ea3": {
+    "name": "Room 127",
+    "location_type": "Guest Room"
+  },
+  "0ae25b7c-0e3b-4753-be0a-778950f245cb": {
+    "name": "Room 128",
+    "location_type": "Guest Room"
+  },
+  "84d903fb-46a5-4716-b422-23b819c58647": {
+    "name": "Room 129",
+    "location_type": "Guest Room"
+  },
+  "8901f4e8-84e6-45d2-8d60-9c0734c53e9c": {
+    "name": "Room 130",
+    "location_type": "Guest Room"
+  },
+  "3219e42e-400e-4d6e-9481-eef5b47c31f3": {
+    "name": "Room 131",
+    "location_type": "Guest Room"
+  },
+  "2e406691-7f98-4832-8405-a4fd1180c53c": {
+    "name": "Room 132",
+    "location_type": "Guest Room"
+  },
+  "5c818c4e-1112-45ae-83e1-365ac7e3a995": {
+    "name": "Room 133",
+    "location_type": "Guest Room"
+  },
+  "11493312-e427-40b3-99ce-71ff67fb9de1": {
+    "name": "Room 134",
+    "location_type": "Guest Room"
+  },
+  "bc5f85f3-2e88-411f-8662-7ca2a41e6668": {
+    "name": "Room 201",
+    "location_type": "Guest Room"
+  },
+  "0e06dcfb-bb86-4640-9038-1addd9fa2311": {
+    "name": "Room 202",
+    "location_type": "Guest Room"
+  },
+  "73fa0e68-c809-4a0f-898e-cfeeaf89d90d": {
+    "name": "Room 203",
+    "location_type": "Guest Room"
+  },
+  "d94cff48-551a-4dcc-ba8f-ee480348485f": {
+    "name": "Room 204",
+    "location_type": "Guest Room"
+  },
+  "842dafaf-7933-46a5-ba6e-ce243f30c94a": {
+    "name": "Room 205",
+    "location_type": "Guest Room"
+  },
+  "3ddecd12-0aca-4195-93b9-a2fd64417738": {
+    "name": "Room 206",
+    "location_type": "Guest Room"
+  },
+  "d03393ab-08e7-48b0-83b1-fee2152dea20": {
+    "name": "Room 207",
+    "location_type": "Guest Room"
+  },
+  "c10ce2b1-0f91-4d5b-8600-97cb85f47bdc": {
+    "name": "Room 208",
+    "location_type": "Guest Room"
+  },
+  "b62adf69-7ec9-4e96-8662-dd1cba49ba06": {
+    "name": "Room 209",
+    "location_type": "Guest Room"
+  },
+  "42a14d29-9008-4535-a115-b360d24127b5": {
+    "name": "Room 210",
+    "location_type": "Guest Room"
+  },
+  "b69c94ee-1299-4b91-a6f9-e93d7d59e03e": {
+    "name": "Room 211",
+    "location_type": "Guest Room"
+  },
+  "aedc0407-7b5f-4cf8-9ba4-a946aaa87dd3": {
+    "name": "Room 212",
+    "location_type": "Guest Room"
+  },
+  "88d8461b-2beb-4752-a312-1299142a921f": {
+    "name": "Room 214",
+    "location_type": "Guest Room"
+  },
+  "ed96bf0c-ae2b-456a-8b1a-6c48bce5a1fe": {
+    "name": "Room 215",
+    "location_type": "Guest Room"
+  },
+  "96541d36-8733-41d9-8a06-85661d5a86cb": {
+    "name": "Room 216",
+    "location_type": "Guest Room"
+  },
+  "41bdcb82-b060-4d3b-b223-538734761d77": {
+    "name": "Room 218",
+    "location_type": "Guest Room"
+  },
+  "aa237dc3-ea9c-4932-9291-3fe1edd9d300": {
+    "name": "Room 219",
+    "location_type": "Guest Room"
+  },
+  "f35411a0-a8dd-4465-8158-4d40ce71cae0": {
+    "name": "Room 220",
+    "location_type": "Guest Room"
+  },
+  "d2661017-9f08-4450-8b1c-abb6f0785f63": {
+    "name": "Room 221",
+    "location_type": "Guest Room"
+  },
+  "3fdcff14-bfa2-41a1-9d84-01894d1d8588": {
+    "name": "Room 222",
+    "location_type": "Guest Room"
+  },
+  "f6f1fcdf-d5f5-4237-abbe-09683b930181": {
+    "name": "Room 224",
+    "location_type": "Guest Room"
+  },
+  "b1e1c488-92cf-4eb9-8931-ebd34c05e3fc": {
+    "name": "Room 226",
+    "location_type": "Guest Room"
+  },
+  "b8d20891-58a7-428a-9703-78ea02cd5653": {
+    "name": "Room 227",
+    "location_type": "Guest Room"
+  },
+  "abb45046-c75c-47af-ba10-c84cb73fbf9a": {
+    "name": "Room 228",
+    "location_type": "Guest Room"
+  },
+  "72a39673-8cea-4f54-86e0-d60090a95ab7": {
+    "name": "Room 229",
+    "location_type": "Guest Room"
+  },
+  "0154faa2-ea1a-4843-8fed-2aa1a0d5c765": {
+    "name": "Room 230",
+    "location_type": "Guest Room"
+  },
+  "cf46a71a-f218-4cb6-87d4-06e74e1159e7": {
+    "name": "Room 231",
+    "location_type": "Guest Room"
+  },
+  "e6bdab47-b7af-45fe-9722-4fa08409ff0a": {
+    "name": "Room 232",
+    "location_type": "Guest Room"
+  },
+  "a8510259-75bd-402f-ae9a-61bc5daee61a": {
+    "name": "Room 233",
+    "location_type": "Guest Room"
+  },
+  "d3367260-a6d5-4b23-ba68-0a7dd052a1f9": {
+    "name": "Room 234",
+    "location_type": "Guest Room"
+  },
+  "cd8b618e-5035-4737-9258-a5c65f39b3f5": {
+    "name": "Room 301",
+    "location_type": "Guest Room"
+  },
+  "6fd3d8d9-937f-42e0-9fd4-d1e9e48d833a": {
+    "name": "Room 302",
+    "location_type": "Guest Room"
+  },
+  "a764e5ec-e9a8-4f03-9359-ebbe2f3d33af": {
+    "name": "Room 303",
+    "location_type": "Guest Room"
+  },
+  "47d35e21-1f60-4e13-9353-e3a0358722bd": {
+    "name": "Room 304",
+    "location_type": "Guest Room"
+  },
+  "5586a90a-2e91-4955-bd80-7d67f7043916": {
+    "name": "Room 305",
+    "location_type": "Guest Room"
+  },
+  "22dcbe39-613d-4562-92ff-509e92c4ee9f": {
+    "name": "Room 306",
+    "location_type": "Guest Room"
+  },
+  "b8e5521c-ed94-48ee-9cbc-48cd0c1b761e": {
+    "name": "Room 307",
+    "location_type": "Guest Room"
+  },
+  "80c85780-96c7-4d3c-9cd2-2866dfd50b9e": {
+    "name": "Room 308",
+    "location_type": "Guest Room"
+  },
+  "4873cc5c-2607-4acf-bf12-3d1a985f2917": {
+    "name": "Room 309",
+    "location_type": "Guest Room"
+  },
+  "1e142ff1-0131-4122-84c3-f02480826f24": {
+    "name": "Room 310",
+    "location_type": "Guest Room"
+  },
+  "8f94bd22-e9bf-4cf0-a1e3-f59c36f6d8e2": {
+    "name": "Room 311",
+    "location_type": "Guest Room"
+  },
+  "05d72436-8b56-4986-9653-947080e3c39c": {
+    "name": "Room 312",
+    "location_type": "Guest Room"
+  },
+  "4e499093-542e-4361-830e-9209f1969af7": {
+    "name": "Room 314",
+    "location_type": "Guest Room"
+  },
+  "9cc79ce2-b325-4ecb-b920-77a424fa7e2f": {
+    "name": "Room 315",
+    "location_type": "Guest Room"
+  },
+  "ef803448-54ac-479f-838d-f010dc5b7ba3": {
+    "name": "Room 316",
+    "location_type": "Guest Room"
+  },
+  "793aad01-fbea-4c68-aa46-d7ca236572f4": {
+    "name": "Room 318",
+    "location_type": "Guest Room"
+  },
+  "b5b633ec-d52a-4174-8d4a-fe1d7d165925": {
+    "name": "Room 319",
+    "location_type": "Guest Room"
+  },
+  "b658490b-33a2-4ff5-bc4a-37bc51bee2bc": {
+    "name": "Room 320",
+    "location_type": "Guest Room"
+  },
+  "1d642317-d6a5-4580-8f54-cfebb6a1ecc7": {
+    "name": "Room 321",
+    "location_type": "Guest Room"
+  },
+  "7758fe27-560d-43a0-969c-8b02c4394655": {
+    "name": "Room 322",
+    "location_type": "Guest Room"
+  },
+  "1287468a-95a9-4bf4-8259-398f5dd74865": {
+    "name": "Room 324",
+    "location_type": "Guest Room"
+  },
+  "09b9be26-2406-4540-9c4b-6ee5ff306447": {
+    "name": "Room 326",
+    "location_type": "Guest Room"
+  },
+  "66738f02-41af-4cb4-bb66-c470d0555dfe": {
+    "name": "Room 327",
+    "location_type": "Guest Room"
+  },
+  "bc17cff8-55a9-4a72-96b6-42e64778d6ca": {
+    "name": "Room 328",
+    "location_type": "Guest Room"
+  },
+  "19675d18-ea11-46fd-9919-efc155803ab5": {
+    "name": "Room 329",
+    "location_type": "Guest Room"
+  },
+  "55fadfd9-2c52-4dc9-a666-4270cb9ebbb0": {
+    "name": "Room 330",
+    "location_type": "Guest Room"
+  },
+  "7c51baf8-9365-4081-a49c-3c9ef8873532": {
+    "name": "Room 331",
+    "location_type": "Guest Room"
+  },
+  "1783310b-205d-4c5d-be69-d48b8dbf7780": {
+    "name": "Room 332",
+    "location_type": "Guest Room"
+  },
+  "e8b8088a-0721-4857-9217-9df29a3de788": {
+    "name": "Room 333",
+    "location_type": "Guest Room"
+  },
+  "b1488fc4-85be-435a-b408-5a38d86f8145": {
+    "name": "Room 334",
+    "location_type": "Guest Room"
+  },
+  "7759f56a-bb21-4725-8c9f-53d8ba515ea9": {
+    "name": "Room 401",
+    "location_type": "Guest Room"
+  },
+  "7d0c9cd9-8e5a-4a27-b1f3-a743ac636cbc": {
+    "name": "Room 402",
+    "location_type": "Guest Room"
+  },
+  "284a9a69-2b61-4549-8e8b-ab8db48f9619": {
+    "name": "Room 403",
+    "location_type": "Guest Room"
+  },
+  "ddd394c4-524d-43bd-aea0-ce600184746a": {
+    "name": "Room 404",
+    "location_type": "Guest Room"
+  },
+  "fbb2c614-1919-435d-b679-68b92e6642f7": {
+    "name": "Room 405",
+    "location_type": "Guest Room"
+  },
+  "009aace8-98fa-4632-accc-ed8ef1d88c65": {
+    "name": "Room 406",
+    "location_type": "Guest Room"
+  },
+  "893ad6ed-9b64-45cb-a20e-657521bcac2f": {
+    "name": "Room 407",
+    "location_type": "Guest Room"
+  },
+  "2ac4f12e-43b0-42e5-96ac-a29e08f37607": {
+    "name": "Room 408",
+    "location_type": "Guest Room"
+  },
+  "c838c506-da0d-4d79-bf80-338d654732be": {
+    "name": "Room 409",
+    "location_type": "Guest Room"
+  },
+  "a65da9e1-26b0-46c6-a902-13d39c4e010d": {
+    "name": "Room 410",
+    "location_type": "Guest Room"
+  },
+  "78a6dbb4-538f-4e31-98fe-9d352aeed9fb": {
+    "name": "Room 411",
+    "location_type": "Guest Room"
+  },
+  "d4ef0f3b-28f5-416f-97d5-de4e770110f3": {
+    "name": "Room 412",
+    "location_type": "Guest Room"
+  },
+  "4f8bd3df-2c01-4f65-8982-5262b1bb62c8": {
+    "name": "Room 414",
+    "location_type": "Guest Room"
+  },
+  "2b94ba18-de31-45fc-aeaa-5eddf64426dd": {
+    "name": "Room 415",
+    "location_type": "Guest Room"
+  },
+  "db9b91f1-6a6a-45dc-a1ef-4bb3ad9c609f": {
+    "name": "Room 416",
+    "location_type": "Guest Room"
+  },
+  "895dc75f-c901-4eaf-9a87-c36ff9b5c9a9": {
+    "name": "Room 418",
+    "location_type": "Guest Room"
+  },
+  "d8271baf-857d-4ddd-8dc9-68ba5c4b345c": {
+    "name": "Room 419",
+    "location_type": "Guest Room"
+  },
+  "a25cf957-39b4-4c64-85bf-b7242bb74603": {
+    "name": "Room 420",
+    "location_type": "Guest Room"
+  },
+  "f9f1bf92-24e2-4da5-83f4-cd139cbf03f6": {
+    "name": "Room 421",
+    "location_type": "Guest Room"
+  },
+  "027e8421-5551-4c58-9d5e-56e1e7b64cb2": {
+    "name": "Room 422",
+    "location_type": "Guest Room"
+  },
+  "7f3da51e-5434-4a07-bd35-bb7e62075201": {
+    "name": "Room 424",
+    "location_type": "Guest Room"
+  },
+  "8268a8fd-82b8-40e3-9cf5-230efcf18259": {
+    "name": "Room 426",
+    "location_type": "Guest Room"
+  },
+  "aaaf44d2-a50f-4860-8c66-2f8bfd7f345a": {
+    "name": "Room 427",
+    "location_type": "Guest Room"
+  },
+  "9612b754-1b2a-439c-b2b5-18045ae23361": {
+    "name": "Room 428",
+    "location_type": "Guest Room"
+  },
+  "7f732d2d-a533-4e59-a875-508d6813e9d4": {
+    "name": "Room 429",
+    "location_type": "Guest Room"
+  },
+  "7490883b-dd0d-472c-b3a9-4406f43e49d0": {
+    "name": "Room 430",
+    "location_type": "Guest Room"
+  },
+  "f10b937b-10db-41f6-a779-f26d58eb9134": {
+    "name": "Room 431",
+    "location_type": "Guest Room"
+  },
+  "ed71bdb4-ccfd-49d0-80ea-d95cb0e585a5": {
+    "name": "Room 432",
+    "location_type": "Guest Room"
+  },
+  "c7542343-464c-413b-8180-0fd81917848c": {
+    "name": "Room 433",
+    "location_type": "Guest Room"
+  },
+  "f5bbb193-ce2e-4064-b312-9f2e046d6b1d": {
+    "name": "Room 434",
+    "location_type": "Guest Room"
+  },
+  "cc60c823-5c8a-4f99-9a16-60cead29b69e": {
+    "name": "4th Floor Supply Closet",
+    "location_type": "General"
+  },
+  "284c8808-7aab-4e4a-86b5-c45b1ba331f5": {
+    "name": "4th Floor Housekeeping",
+    "location_type": "General"
+  },
+  "30837e36-789d-4e27-9028-7b7d9b343a13": {
+    "name": "2nd Floor Housekeeping",
+    "location_type": "General"
+  },
+  "4bb7fe1f-ca39-40b6-a22a-b2dafe97516f": {
+    "name": "2nd Floor Supply Closet",
+    "location_type": "General"
+  },
+  "f9d1aa8f-58a4-4d0f-aeab-79bb1c46575e": {
+    "name": "3rd Floor Housekeeping",
+    "location_type": "General"
+  },
+  "8f283b00-af81-437e-a997-ac78ffa318dc": {
+    "name": "3rd Floor Supply Closet",
+    "location_type": "General"
+  },
+  "acd1b46c-28ac-415b-8e74-a1b0e74396e4": {
+    "name": "Guest Laundry",
+    "location_type": "General"
+  },
+  "7be9b30c-5b7a-46d3-b0f7-db3fdcfd5e50": {
+    "name": "BoH Laundry",
+    "location_type": "General"
+  },
+  "e986e06f-77c0-47c7-9471-1af1aab83d8d": {
+    "name": "Main Lobby Vestibule",
+    "location_type": "General"
+  },
+  "1f698b0b-2ea9-424f-ac67-0101f1a6b3b1": {
+    "name": "Study Area 2",
+    "location_type": "General"
+  },
+  "8f0fa774-0504-4f92-bd52-0defb9ff4fb4": {
+    "name": "Study Area 1",
+    "location_type": "General"
+  },
+  "005f5070-3ec8-411b-9896-9c8a051b2dee": {
+    "name": "Lobby / General",
+    "location_type": "General"
+  },
+  "0bc0a75c-fcf8-4c7a-a4cc-429218077c29": {
+    "name": "Study Area 3",
+    "location_type": "General"
+  },
+  "9fca912f-2307-4f0a-a3b2-a62583e78605": {
+    "name": "Breakfast Area",
+    "location_type": "General"
+  },
+  "d9a1889e-7021-45e7-b673-bde9ab45e0a5": {
+    "name": "Parking Lot",
+    "location_type": "General"
+  },
+  "ee093e17-5795-44ec-a4af-ca13ebd418b3": {
+    "name": "PBX Room",
+    "location_type": "General"
+  },
+  "cb55f308-8393-435f-8866-f10ab8892e9c": {
+    "name": "Pool Area",
+    "location_type": "General"
+  },
+  "6ffbddb2-2862-4627-8a4f-e22d2f316f69": {
+    "name": "Pool Pump Room",
+    "location_type": "General"
+  },
+  "c8859274-27db-4f20-bca2-cf69839a94e3": {
+    "name": "Public Women's Restroom",
+    "location_type": "General"
+  },
+  "5c726937-a75b-4a52-bbda-dac021581778": {
+    "name": "Public Men's Restroom",
+    "location_type": "General"
+  },
+  "1e8c6a29-b0d6-482b-8a88-0278f529e0fe": {
+    "name": "Lower Roof",
+    "location_type": "General"
+  },
+  "b2c6f0fb-2884-4f4d-a289-95e99365d636": {
+    "name": "5th Floor Roof",
+    "location_type": "General"
+  }
+}

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
+import {randomUUID} from 'node:crypto';
+import {prepareLocation,type Location} from '@/lib/location-records';
+import {loadLocationActivity} from '@/lib/server/location-activity';
+import {fetchAllPages} from '@/lib/server/paginated-query';
 import { roleKey } from "@/lib/server/roles";
 import { loadCurrentRoomStatuses, currentRoomStatus } from "@/lib/server/room-availability";
 
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest) {
     ? await (async () => {
       const technicianName = principal.profile.full_name?.trim();
       const workOrderQuery = () => admin.from("work_orders")
-        .select("id, location_id, room, issue, status, created_at, technician_name")
+        .select("id, display_id, location_id, room, issue, status, created_at, technician_name")
         .eq("hotel_id", HOTEL_ID)
         .in("status", ["Open", "In Progress"])
         .order("created_at", { ascending: false })
@@ -72,7 +76,7 @@ export async function GET(request: NextRequest) {
       };
     })()
     : admin.from("work_orders")
-      .select("id, location_id, room, issue, status, created_at")
+      .select("id, display_id, location_id, room, issue, status, created_at")
       .eq("hotel_id", HOTEL_ID)
       .order("created_at", { ascending: false })
       .limit(1000);
@@ -100,7 +104,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Rooms, work orders, or PM records could not be loaded." }, { status: 503 });
   }
 
+  let activity;
+  try { activity=await loadLocationActivity(admin,principal,(locationResult.data||[]) as Location[]); } catch { return NextResponse.json({error:'Location PM source records could not be loaded.'},{status:503}); }
   return NextResponse.json({
+    ...activity,
     locations: locationResult.data || [],
     work_orders: loadedOrders.data || [],
     pm_plans: pmPlanResult.data || [],
@@ -110,38 +117,25 @@ export async function GET(request: NextRequest) {
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
-export async function PATCH(request: NextRequest) {
-  const auth = await requireCapability(request, "manage_rooms");
-  if (!auth) return NextResponse.json({ error: "Room/location editing permission is required." }, { status: 403 });
-  const body = await bodyObject(request);
-  if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
-  const id = typeof body.id === "string" ? body.id.trim() : "";
-  if (!id) return NextResponse.json({ error: "Location id is required." }, { status: 400 });
-
-  const fields = ["area", "name", "room_number", "location_type"] as const;
-  const update: Record<string, string | null> = {};
-  for (const field of fields) {
-    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
-    const value = body[field];
-    if (value !== null && typeof value !== "string") return NextResponse.json({ error: `Invalid ${field}.` }, { status: 400 });
-    const normalized = typeof value === "string" ? value.trim() : "";
-    if (normalized.length > 200) return NextResponse.json({ error: `${field} is too long.` }, { status: 400 });
-    update[field] = normalized || null;
-  }
-  if (!Object.keys(update).length) return NextResponse.json({ error: "No room/location changes were supplied." }, { status: 400 });
-  if (Object.prototype.hasOwnProperty.call(update, "name") && !update.name) {
-    return NextResponse.json({ error: "Location name cannot be blank." }, { status: 400 });
-  }
-  if (update.room_number && !/^[A-Za-z0-9 -]{1,20}$/.test(update.room_number)) {
-    return NextResponse.json({ error: "Room number contains unsupported characters." }, { status: 400 });
-  }
-
-  const { data, error } = await auth.admin.from("locations")
-    .update(update)
-    .eq("hotel_id", HOTEL_ID)
-    .eq("id", id)
-    .select("id, area, name, room_number, location_type, active")
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ location: data });
+async function saveLocation(request: NextRequest, method: 'POST'|'PATCH') {
+  const auth=await requireCapability(request,'manage_rooms');
+  if(!auth)return NextResponse.json({error:'Location editing permission is required.'},{status:403});
+  const origin=request.headers.get('origin');
+  if(origin && origin!==request.nextUrl.origin)return NextResponse.json({error:'Same-origin request required.'},{status:403});
+  const body=await bodyObject(request);
+  if(!body)return NextResponse.json({error:'A valid JSON object is required.'},{status:400});
+  const all=await fetchAllPages<Location>((from,to)=>auth.admin.from('locations').select('id,area,name,room_number,location_type,active').eq('hotel_id',HOTEL_ID).order('id').range(from,to));
+  if(all.error)return NextResponse.json({error:'Location validation is unavailable.'},{status:503});
+  try {
+    const locations=all.data||[];
+    const saved=prepareLocation(method,body,locations,locations.filter(l=>l.active),randomUUID);
+    const query=method==='POST'
+      ? auth.admin.from('locations').insert({...saved,hotel_id:HOTEL_ID})
+      : auth.admin.from('locations').update({name:saved.name,area:saved.area,location_type:saved.location_type}).eq('hotel_id',HOTEL_ID).eq('id',saved.id);
+    const {data,error}=await query.select('id,area,name,room_number,location_type,active').single();
+    if(error)return NextResponse.json({error:'Location could not be saved.'},{status:error.code==='23505'?409:400});
+    return NextResponse.json({location:data},{status:method==='POST'?201:200});
+  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Invalid location.'},{status:400});}
 }
+export async function POST(request:NextRequest){return saveLocation(request,'POST');}
+export async function PATCH(request:NextRequest){return saveLocation(request,'PATCH');}

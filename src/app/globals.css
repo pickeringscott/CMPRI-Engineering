@@ -794,3 +794,6 @@ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-inspection-body textarea
  [data-pm-mobile] .pm-review-confirm{max-height:calc(100dvh - 16px);overflow-y:auto;padding:12px}
  [data-pm-mobile] .pm-review-confirm footer{position:sticky;bottom:0;background:#020617;padding:8px 0;margin-top:8px}
 }
+
+/* Accepted Manage Locations desktop width; no other app window changes. */
+@media(min-width:721px){[data-cmpri-desktop-window="/management/rooms"],.cmpri-modal-shell[data-manage-locations="true"]{max-width:960px}}

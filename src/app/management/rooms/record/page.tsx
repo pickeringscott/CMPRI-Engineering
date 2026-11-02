@@ -1,0 +1,11 @@
+'use client';
+import {useEffect,useState} from 'react';
+import {authorizationHeaders} from '@/lib/auth/client-session';
+type Detail={title:string;fields:Record<string,unknown>;items?:Record<string,unknown>[];rows?:Record<string,unknown>[];form_fields?:unknown;repeatable_fields?:unknown};
+function value(v:unknown):string{return v===null||v===undefined?'Not recorded':typeof v==='object'?JSON.stringify(v,null,2):String(v);}
+function Fields({data}:{data:Record<string,unknown>}){return <dl className="grid grid-cols-[minmax(90px,1fr)_minmax(0,3fr)]">{Object.entries(data).map(([key,v])=><div className="contents" key={key}><dt className="border-b border-slate-700 p-1 text-slate-400">{key.replaceAll('_',' ')}</dt><dd className="whitespace-pre-wrap break-words border-b border-slate-700 p-1">{value(v)}</dd></div>)}</dl>;}
+export default function LocationRecord(){
+ const [record,setRecord]=useState<Detail|null>(null),[error,setError]=useState('');
+ useEffect(()=>{let active=true;void (async()=>{try{const headers=await authorizationHeaders();const r=await fetch('/api/rooms/detail'+window.location.search,{headers,cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.error||'Record unavailable.');if(active)setRecord(data);}catch(e){if(active)setError(e instanceof Error?e.message:'Record unavailable.');}})();return()=>{active=false;};},[]);
+ return <main className="mx-auto max-w-4xl p-3 text-sm"><a className="text-indigo-300 underline" href="/management/rooms">Manage Locations</a><p className="my-2 text-xs text-slate-400">Read-only source record. Shared form periods do not establish individual equipment completion.</p>{error?<p role="alert">{error}</p>:!record?<p role="status">Loading record…</p>:<><h1 className="my-2 text-xl font-bold">{record.title}</h1><Fields data={record.fields}/>{record.items&&<section><h2 className="my-2 font-bold">Recorded checklist</h2>{record.items.map((item,i)=><div className="border-b border-slate-700 py-1" key={String(item.id||i)}><Fields data={item}/></div>)}</section>}{record.rows?.map((row,i)=><section id={`row-${i}`} key={i}><h2 className="my-2 font-bold">Source row {i+1}</h2><Fields data={row}/></section>)}{record.form_fields&&<><h2 className="my-2 font-bold">Source form fields</h2><Fields data={{fields:record.form_fields,repeatable:record.repeatable_fields}}/></>}</>}</main>;
+}

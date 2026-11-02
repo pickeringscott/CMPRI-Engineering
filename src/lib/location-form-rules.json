@@ -1,0 +1,129 @@
+{
+  "area_forms": {
+    "Front Desk": "front-office-desk",
+    "Conference Room": "meeting-room",
+    "Breakfast Area": "dining-breakfast",
+    "Kitchen": "kitchen",
+    "Lobby / General": "lobby",
+    "Fitness Area": "fitness-center",
+    "Guest Laundry": "laundry-guest",
+    "BoH Laundry": "laundry-commercial",
+    "Pool Area": "pool",
+    "Exterior / Property Grounds": "exterior-site-maintenance",
+    "Public Women's Restroom": "public-restrooms",
+    "Public Men's Restroom": "public-restrooms",
+    "Elevator #1": "elevator-checklist",
+    "Elevator #2": "elevator-checklist",
+    "1st Floor Hall": "hallway-checklist",
+    "2nd Floor Hall": "hallway-checklist",
+    "3rd Floor Hall": "hallway-checklist",
+    "4th Floor Hall": "hallway-checklist"
+  },
+  "walk_items": {
+    "Parking Lot": [
+      9
+    ],
+    "Exterior Brand Signage": [
+      11
+    ],
+    "North Entry": [
+      13
+    ],
+    "South Entry": [
+      13
+    ],
+    "Main Entry Vestibule": [
+      13
+    ],
+    "Main Lobby Vestibule": [
+      13
+    ],
+    "Lobby / General": [
+      19
+    ],
+    "Front Desk": [
+      19
+    ],
+    "Breakfast Area": [
+      23
+    ],
+    "Conference Room": [
+      25
+    ],
+    "Fitness Area": [
+      26
+    ],
+    "Guest Laundry": [
+      27
+    ],
+    "Pool Area": [
+      28
+    ],
+    "Elevator #1": [
+      29
+    ],
+    "Elevator #2": [
+      29
+    ],
+    "General Manager Office": [
+      33
+    ],
+    "Assistant Manager Office": [
+      33
+    ],
+    "Sales Office": [
+      33
+    ],
+    "Back Office / General": [
+      33
+    ],
+    "Break Room": [
+      35
+    ],
+    "Boiler Room": [
+      36
+    ],
+    "Engineering Office": [
+      37
+    ],
+    "BoH Laundry": [
+      38
+    ],
+    "Kitchen": [
+      39
+    ],
+    "Public Men's Restroom": [
+      22
+    ],
+    "Public Women's Restroom": [
+      22
+    ],
+    "1st Floor Hall": [
+      30,
+      31
+    ],
+    "2nd Floor Hall": [
+      30,
+      31
+    ],
+    "3rd Floor Hall": [
+      30,
+      31
+    ],
+    "4th Floor Hall": [
+      30,
+      31
+    ]
+  },
+  "named": {
+    "Engineer office above door": "Engineering Office",
+    "Pool door": "Pool Area",
+    "1st men restroom": "Public Men's Restroom",
+    "Main Lobby": "Lobby / General",
+    "Behind front desk": "Front Desk",
+    "Breakroom light": "Break Room",
+    "1st pool equipment room beside pool": "Pool Pump Room",
+    "1st engineering office / maintenance closet": "Engineering Office",
+    "1st kitchen by oven (south hall)": "Kitchen"
+  }
+}

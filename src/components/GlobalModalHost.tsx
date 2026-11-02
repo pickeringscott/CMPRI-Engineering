@@ -492,6 +492,7 @@ export default function GlobalModalHost() {
               aria-label={entry.title}
               aria-hidden={!isTop}
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
+              data-manage-locations={entryPath.split(/[?#]/)[0] === "/management/rooms" ? "true" : undefined}
               style={panelStyle}
             >
               <iframe
@@ -503,7 +504,7 @@ export default function GlobalModalHost() {
                     frameRefs.current.delete(entry.id);
                   }
                 }}
-                title={entry.title}
+                title={entryPath.split(/[?#]/)[0] === "/management/rooms" ? "Manage Locations" : entry.title}
                 src={entry.href}
                 scrolling="yes"
                 onLoad={(event) => handleEmbeddedLoad(event, entry)}
