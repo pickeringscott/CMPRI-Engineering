@@ -1,3 +1,4 @@
+function replayBadge(img){const source=img.src;(source.startsWith('data:')?Promise.resolve(new Blob([Uint8Array.from(atob(source.split(',')[1]),c=>c.charCodeAt(0))],{type:'image/gif'})):fetch(source).then(r=>r.blob())).then(blob=>{let active;function play(){if(!img.isConnected){if(active)URL.revokeObjectURL(active);return}const previous=active;active=URL.createObjectURL(blob);img.src=active;if(previous)URL.revokeObjectURL(previous);setTimeout(play,1800)}play()}).catch(()=>{})}
 // Browser-only attachments. Only GIPHY IDs are persisted; responses and URLs stay transient.
 const GIF_KEY="__RUNTIME_KEY__";
 const gifSession=new WeakMap();
@@ -11,7 +12,7 @@ function storedNote(note){return {...note,attachments:(note.attachments||[]).map
 async function persistNote(note){const db=await dbPromise;await new Promise((resolve,reject)=>{const tx=db.transaction('notes','readwrite');tx.objectStore('notes').put(storedNote(note));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)})}
 async function giphyRequest(path,params={}){const client=await import('/giphy-client.mjs');return client.requestGiphy({key:GIF_KEY,path,params})}
 function gifFile(gif){const file={giphyId:gif.id,name:gif.title||'GIPHY GIF',type:'image/gif'};gifSession.set(file,gif);return file}
-function gifCredit(){const a=make('a',{href:'https://giphy.com/',target:'_blank',rel:'noopener noreferrer'});a.className='giphy-credit';a.append(make('img',{src:'/Poweredby_100px_Badge.gif',alt:'Powered by GIPHY',width:100,height:143}));return a}
+function gifCredit(){const a=make('a',{href:'https://giphy.com/',target:'_blank',rel:'noopener noreferrer'});a.className='giphy-credit';a.append(make('img',{src:'/Poweredby_100px_Badge.gif',alt:'Powered by GIPHY',width:100,height:143}));setTimeout(()=>replayBadge(a.firstChild),0);return a}
 const originalMediaURL=mediaURL;mediaURL=function(file){if(file.giphyId)return gifSession.get(file)?.images?.original?.url||null;return originalMediaURL(file)};
 const originalAttachmentPreview=attachmentPreview;attachmentPreview=function(file){const wrap=originalAttachmentPreview(file);if(file.giphyId){wrap.dataset.giphyId=file.giphyId;if(!mediaURL(file)){const b=wrap.querySelector('button');b.textContent='GIF unavailable · Retry';b.onclick=async()=>{try{const r=await giphyRequest('/'+encodeURIComponent(file.giphyId));if(!r.data?.id)throw Error('GIF is no longer available.');gifSession.set(file,r.data);wrap.replaceWith(attachmentPreview(file))}catch(e){announce(e.message)}}}}return wrap};
 const upload=document.getElementById('upload');upload.setAttribute('aria-label','Media');upload.title='Add GIF or media';upload.setAttribute('aria-haspopup','true');upload.setAttribute('aria-expanded','false');
@@ -27,22 +28,21 @@ window.addEventListener('resize',()=>{if(!pop.hidden)alignPop()});new ResizeObse
 const picker=make('dialog',{id:'giphy-picker'});picker.setAttribute('aria-label','GIPHY picker');
 const searchRow=make('div');searchRow.className='gif-search-row';const search=make('input',{type:'search',placeholder:'Search GIPHY',maxLength:50});search.setAttribute('aria-label','Search GIPHY');
 const closePicker=make('button',{type:'button',textContent:'×'});closePicker.setAttribute('aria-label','Close GIF picker');closePicker.onclick=()=>picker.close();searchRow.append(search,closePicker);
-const status=make('p');status.className='gif-status';status.setAttribute('role','status');const grid=make('div');grid.className='gif-grid';grid.setAttribute('aria-label','GIF results');
-const footer=make('div');footer.className='gif-footer';const more=make('button',{type:'button',id:'gif-expand',textContent:'More'});const caret=make('span',{textContent:'∨',className:'caret'});caret.setAttribute('aria-hidden','true');more.append(caret);more.setAttribute('aria-label','Show more GIFs');more.setAttribute('aria-expanded','false');more.setAttribute('aria-controls','giphy-picker');footer.append(more,gifCredit());picker.append(searchRow,status,grid,footer);document.body.append(picker);
+const status=make('p');status.className='gif-status';status.setAttribute('role','status');const grid=make('div');grid.className='gif-grid';grid.setAttribute('aria-label','GIF results');const results=make('div');results.className='gif-results';grid.append(results);
+const footer=make('div');footer.className='gif-footer';footer.append(gifCredit());picker.append(searchRow,status,grid,footer);document.body.append(picker);
 let generation=0,offset=0,query='',debounce,total=0,loadingGIFs=false;
-async function loadGIFs(append=false){loadingGIFs=true;const version=++generation;const q=search.value;if(!append){query=q;offset=0;grid.replaceChildren()}status.textContent=q?'Searching…':'Loading Trending…';
- try{const result=await giphyRequest(q?'/search':'/trending',{limit:24,offset,q,...(q?{lang:'en'}:{})});if(version!==generation||!picker.open)return;
- for(const gif of result.data){const button=make('button',{type:'button'});button.dataset.giphyId=gif.id;button.setAttribute('aria-label','Select '+(gif.title||'GIF'));const img=make('img',{src:gif.images.fixed_width.url,alt:gif.title||'GIF',loading:'lazy',width:Number(gif.images.fixed_width.width)||200,height:Number(gif.images.fixed_width.height)||200});button.append(img);button.onclick=()=>{attachedFiles.push(gifFile(gif));showAttachments();sync();picker.close();body.focus()};grid.append(button)}
+async function loadGIFs(append=false){loadingGIFs=true;const version=++generation;const q=search.value;if(!append){query=q;offset=0;results.replaceChildren()}status.textContent=q?'Searching…':'Loading Trending…';
+ try{const result=await giphyRequest(q?'/search':'/trending',{limit:50,offset,q,...(q?{lang:'en'}:{})});if(version!==generation||!picker.open)return;
+ for(const gif of result.data){const button=make('button',{type:'button'});button.dataset.giphyId=gif.id;button.setAttribute('aria-label','Select '+(gif.title||'GIF'));const img=make('img',{src:gif.images.fixed_width.url,alt:gif.title||'GIF',loading:'lazy',width:Number(gif.images.fixed_width.width)||200,height:Number(gif.images.fixed_width.height)||200});button.append(img);button.onclick=()=>{attachedFiles.push(gifFile(gif));showAttachments();sync();picker.close();body.focus()};results.append(button)}
  offset+=result.data.length;total=result.pagination?.total_count||offset;status.textContent=result.data.length?(q?'Search results':'Trending'):'No GIFs found';
  }catch(e){if(version!==generation)return;status.textContent=e.message;}finally{if(version===generation)loadingGIFs=false}
 }
-function loadMoreOnScroll(){if(picker.open&&picker.classList.contains('expanded')&&!loadingGIFs&&offset<total&&grid.scrollHeight-grid.scrollTop-grid.clientHeight<100)loadGIFs(true)}
-more.onclick=()=>{picker.classList.add('expanded');more.setAttribute('aria-expanded','true');requestAnimationFrame(loadMoreOnScroll)};
+function loadMoreOnScroll(){if(picker.open&&!loadingGIFs&&offset<total&&grid.scrollHeight-grid.scrollTop-grid.clientHeight<100)loadGIFs(true)}
 grid.addEventListener('scroll',loadMoreOnScroll);
 search.addEventListener('input',()=>{clearTimeout(debounce);generation++;debounce=setTimeout(()=>loadGIFs(),search.value?300:0)});
 search.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();clearTimeout(debounce);loadGIFs()}});
-gifButton.onclick=()=>{closePop();search.value='';picker.classList.remove('expanded');more.setAttribute('aria-expanded','false');picker.showModal();loadGIFs();search.focus()};
-picker.addEventListener('close',()=>{generation++;loadingGIFs=false;clearTimeout(debounce);grid.replaceChildren();search.value='';upload.focus()});
+gifButton.onclick=()=>{closePop();search.value='';picker.showModal();loadGIFs();search.focus()};
+picker.addEventListener('close',()=>{generation++;loadingGIFs=false;clearTimeout(debounce);results.replaceChildren();search.value='';upload.focus()});
 async function restoreNotes(){try{const db=await dbPromise;const saved=await new Promise((resolve,reject)=>{const req=db.transaction('notes').objectStore('notes').getAll();req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});saved.sort((a,b)=>(a.createdOrder||a.at)-(b.createdOrder||b.at));for(const note of saved){if(rowMap.has(note.id))continue;notes.append(createRow(note));mentionNames.add(note.author);flagEvents.push({id:note.id,at:note.at})}storageReady=true;sync();notify();refreshSeen();
  const gifs=saved.flatMap(n=>n.attachments||[]).filter(f=>f.giphyId);const ids=[...new Set(gifs.map(f=>f.giphyId))];for(let i=0;i<ids.length;i+=50){try{const result=await giphyRequest('',{ids:ids.slice(i,i+50).join(',')});for(const f of gifs){const gif=result.data.find(g=>g.id===f.giphyId);if(gif)gifSession.set(f,gif)}}catch(e){announce('Saved notes restored. '+e.message)}}
  for(const note of saved){const entry=rowMap.get(note.id);if(entry){const old=entry.row;old.replaceWith(createRow(note))}}notes.scrollTop=notes.scrollHeight;

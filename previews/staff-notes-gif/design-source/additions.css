@@ -12,3 +12,20 @@
 
 /* Reply author only: muted CMPRI yellow; shared by new and restored rows. */
 [data-staff-note][data-reply="true"] > .note-author{color:#c9b66e!important;-webkit-text-fill-color:#c9b66e}
+
+/* Dense, ordered browsing rows with a badge anchored above the scrolling results. */
+#giphy-picker{width:calc(100vw - 16px);max-width:calc(100vw - 16px);padding-bottom:0}
+.gif-grid{display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start;align-items:flex-start;padding-bottom:28px;margin-bottom:0}
+.gif-grid button{flex:0 0 auto;max-width:100px}
+.gif-grid img{max-width:100px;max-height:60px}
+.gif-footer{position:absolute;left:0;right:0;bottom:0;height:26px;min-height:0;pointer-events:none}
+.gif-footer #gif-expand{align-self:flex-end;pointer-events:auto;margin:0 0 2px 8px;background:#020617}
+.gif-footer .giphy-credit{position:absolute;right:0;bottom:0;margin:0;padding:3px;border-left:1px solid #38bdf8;border-top:1px solid #38bdf8;border-top-left-radius:5px;background:#000;pointer-events:auto;z-index:2}
+.gif-footer .giphy-credit img{width:40px;height:auto}
+
+.gif-grid{display:block;padding-bottom:26px}
+.gif-results{columns:7;column-gap:4px}
+.gif-results button{display:block;width:100%;max-width:none;margin:0 0 4px;break-inside:avoid}
+.gif-results img{width:100%;height:auto;max-width:none;max-height:none}
+@media(max-width:650px){.gif-results{columns:5}}
+@media(max-width:450px){.gif-results{columns:3}}
