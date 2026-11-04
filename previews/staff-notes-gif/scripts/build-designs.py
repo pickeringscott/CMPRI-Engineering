@@ -10,6 +10,7 @@ for source in (root/'design-source').glob('*.html'):
  inner=inner.replace("connect-src 'none'", "connect-src 'self' https://api.giphy.com").replace('img-src blob: data:', "img-src 'self' blob: data: https://*.giphy.com").replace('media-src blob: data:', 'media-src blob: data: https://*.giphy.com')
  inner=inner.replace("script-src 'unsafe-inline'","script-src 'self' 'unsafe-inline'")
  inner=inner.replace('</style>',css+'</style>',1)
+ inner=inner.replace("row.dataset.noteId=note.id;", "row.dataset.noteId=note.id;if(note.parent)row.dataset.reply='true';")
  inner=inner.replace("function publish(author,frontDeskName=false){", "async function publish(author,frontDeskName=false){if(saving||!storageReady)return;saving=true;sync();")
  inner=inner.replace("id:'mock-'+sequence++,author,frontDeskName", "id:'local-'+crypto.randomUUID(),createdOrder:Date.now(),author,frontDeskName")
  inner=inner.replace("attachments:[...attachedFiles]};notes.append(createRow(note));", "attachments:[...attachedFiles]};try{await persistNote(note)}catch(e){saving=false;sync();announce('Could not save this note. Free browser storage and try again.');return}saving=false;notes.append(createRow(note));")
