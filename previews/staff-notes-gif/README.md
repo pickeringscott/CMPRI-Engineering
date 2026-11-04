@@ -19,3 +19,12 @@ Use `npm ci`, `npm test`, `npm run build`, then `npm start`. Open `/`.
 Only this subdirectory is the deployment payload; do not build the repository root. Deploy to the existing project's preview environment with project build settings scoped to this deployment. Do not modify project-wide settings or production aliases.
 
 No account, credentials, terms acceptance, or plan upgrades have been created. Live search needs a separately approved provider/design compatible with its current service rules.
+
+## Verification and hosting status
+
+- `npm test`: 5 passing tests (URL safety, metadata/attribution, test-only result merging, provider blocks, actual route secret isolation).
+- `npm run build`: passed; only `/`, `/api/gifs/giphy`, `/api/gifs/tenor` and the standard not-found route are built.
+- Browser checks passed at 320×568, 390×844, 1280×900 and 844×390: equal popover halves, containment, unavailable-provider responses, local file chooser, in-memory posting/reset, and no horizontal overflow. A separately intercepted synthetic fixture verified masonry scrolling and attributed canonical-link selection. This is not a live provider test.
+- Navy `#0b132b` / `#1c2541` follow the stated CMPRI palette; gold `#fbbf24` comes from the repository's `--cmpri-gold`.
+- External preview creation was **denied by automatic approval review**. No external preview URL exists. The denied destination was existing Vercel project `prj_whEgKPb9wsTvK2fVJuADsRnoXg1N` (`cmpri-engineering`) under `team_TethDuMGKLLxaQAOJAToTPgc` (`hawkeye-hotels`), preview environment only. The reviewer said the live-link request did not explicitly authorize that specific project and private-source transfer. No retry was made after reading the latest user history because it contained no materially new project-specific approval.
+- Root `vercel.json` disables Git auto-deployment for this exact preview branch, preventing an accidental build of the full CMPRI application. Production and other branches are unaffected.
