@@ -3,6 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": {"dev": "next dev", "build": "next build --webpack", "start": "next start", "test": "node --test tests/*.test.mjs"},
-  "dependencies": {"next": "16.3.5", "react": "19.2.8", "react-dom": "19.2.8"}
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "start": "next start",
+    "test": "node --test tests/*.test.mjs",
+    "prepare:designs": "python3 scripts/build-designs.py",
+    "predev": "npm run prepare:designs",
+    "prebuild": "npm run prepare:designs"
+  },
+  "dependencies": {
+    "next": "16.3.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
 }

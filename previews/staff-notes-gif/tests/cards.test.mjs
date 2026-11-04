@@ -16,3 +16,15 @@ test('reject other providers and unsafe canonical links',()=>{
  for(const value of ['javascript:alert(1)','blob:test','http://giphy.com/gifs/test','https://giphy.com.evil.test/a','https://name:secret@giphy.com/a'])assert.equal(externalCard({...item,canonicalUrl:value}),null);
  assert.equal(externalCard({...item,provider:'tenor'}),null);
 });
+
+
+test('shared browser transport supports Trending, exact search, and ID-only restoration',async()=>{
+ const {requestGiphy}=await import('../lib/cards.mjs');const calls=[];
+ const fetcher=async(url,options)=>{calls.push({url:new URL(url),options});return {ok:true,json:async()=>({data:[{id:'b'},{id:'a'}]})}};
+ const trending=await requestGiphy({key:'test-only',path:'/trending',params:{limit:24},fetcher});
+ assert.deepEqual(trending.data.map(x=>x.id),['b','a']);
+ await requestGiphy({key:'test-only',path:'/search',params:{q:' @artist & hello '},fetcher});
+ await requestGiphy({key:'test-only',path:'',params:{ids:'b,a'},fetcher});
+ assert.equal(calls[0].url.pathname,'/v1/gifs/trending');assert.equal(calls[1].url.searchParams.get('q'),' @artist & hello ');assert.equal(calls[2].url.searchParams.get('ids'),'b,a');
+ for(const call of calls){assert.equal(call.url.origin,'https://api.giphy.com');assert.equal(call.options.cache,'no-store');assert.equal(call.options.credentials,'omit')}
+});

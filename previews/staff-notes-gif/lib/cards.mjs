@@ -20,3 +20,17 @@ export async function searchGiphy({key,query,offset=0,signal,fetcher=fetch}) {
   const data=await response.json();if(!Array.isArray(data.data))throw Error('GIPHY returned an invalid response.');
   return {items:data.data.map(giphyResult),hasMore:offset+data.data.length<(data.pagination?.total_count||0)};
 }
+
+
+// Shared browser-direct transport for the supplied HTML designs.
+export async function requestGiphy({key,path='/trending',params={},signal,fetcher=fetch}){
+ if(!key)throw Error('GIPHY needs an approved web API key.');
+ if(!/^\/(trending|search|[a-zA-Z0-9_-]{1,200})$/.test(path)&&path!=='')throw Error('Invalid GIPHY endpoint.');
+ const url=new URL('https://api.giphy.com/v1/gifs'+path);
+ url.search=new URLSearchParams({api_key:key,...params}).toString();
+ const response=await fetcher(url,{signal,cache:'no-store',credentials:'omit'});
+ if(!response.ok)throw Error(response.status===429?'GIPHY test limit reached. Please try again later.':'GIPHY is unavailable. Please try again.');
+ const data=await response.json();
+ if(!data.data)throw Error('GIPHY returned an invalid response.');
+ return data;
+}
