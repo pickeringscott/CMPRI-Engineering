@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "preview/staff-notes-gif-20261104": false
+    }
+  },
   "crons": [
     {
       "path": "/api/integrations/drive-po/maintenance",

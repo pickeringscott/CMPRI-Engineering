@@ -1,0 +1,8 @@
+{
+  "name": "cmpri-staff-notes-gif-preview",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {"dev": "next dev", "build": "next build --webpack", "start": "next start", "test": "node --test tests/*.test.mjs"},
+  "dependencies": {"next": "16.3.5", "react": "19.2.8", "react-dom": "19.2.8"}
+}
