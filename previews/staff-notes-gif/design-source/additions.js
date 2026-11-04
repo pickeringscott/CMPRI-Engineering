@@ -33,7 +33,7 @@ const footer=make('div');footer.className='gif-footer';const more=make('button',
 let generation=0,offset=0,query='',debounce,total=0;
 async function loadGIFs(append=false){const version=++generation;const q=search.value;if(!append){query=q;offset=0;grid.replaceChildren()}status.textContent=q?'Searching…':'Loading Trending…';more.disabled=true;
  try{const result=await giphyRequest(q?'/search':'/trending',{limit:24,offset,q,...(q?{lang:'en'}:{})});if(version!==generation||!picker.open)return;
- for(const gif of result.data){const button=make('button',{type:'button'});button.dataset.giphyId=gif.id;button.setAttribute('aria-label','Select '+(gif.title||'GIF'));const img=make('img',{src:gif.images.fixed_width.url,alt:gif.title||'GIF',loading:'lazy'});button.append(img);button.onclick=()=>{attachedFiles.push(gifFile(gif));showAttachments();sync();picker.close();body.focus()};grid.append(button)}
+ for(const gif of result.data){const button=make('button',{type:'button'});button.dataset.giphyId=gif.id;button.setAttribute('aria-label','Select '+(gif.title||'GIF'));const img=make('img',{src:gif.images.fixed_width.url,alt:gif.title||'GIF',loading:'lazy',width:Number(gif.images.fixed_width.width)||200,height:Number(gif.images.fixed_width.height)||200});button.append(img);button.onclick=()=>{attachedFiles.push(gifFile(gif));showAttachments();sync();picker.close();body.focus()};grid.append(button)}
  offset+=result.data.length;total=result.pagination?.total_count||offset;status.textContent=result.data.length?(q?'Search results':'Trending'):'No GIFs found';more.disabled=offset>=total;more.hidden=offset>=total;
  }catch(e){if(version!==generation)return;status.textContent=e.message;more.textContent='Retry';more.hidden=false;more.disabled=false}
 }
