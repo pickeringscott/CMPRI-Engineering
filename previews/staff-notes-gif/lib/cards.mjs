@@ -1,34 +1,22 @@
-const domains = {giphy: ['giphy.com','www.giphy.com'], tenor: ['tenor.com','www.tenor.com']};
-function safeUrl(value, provider, media = false) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
-    const allowed = media ? url.hostname === `${provider}.com` || url.hostname.endsWith(`.${provider}.com`) : domains[provider]?.includes(url.hostname);
-    return allowed ? value : null;
-  } catch { return null; }
+export function safeGiphyUrl(value, media=false) {
+  try { const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&(media?u.hostname.endsWith('.giphy.com'):['giphy.com','www.giphy.com'].includes(u.hostname))?value:null; }catch{return null;}
 }
-// Standard external link card, never a downloaded file or blob.
 export function externalCard(item) {
-  if (!domains[item?.provider] || typeof item.id !== 'string') return null;
-  const canonicalUrl = safeUrl(item.canonicalUrl, item.provider);
-  const previewUrl = safeUrl(item.previewUrl, item.provider, true);
-  if (!canonicalUrl || !previewUrl) return null;
-  return {kind:'external-link', provider:item.provider, id:item.id.slice(0,200),
-    title:String(item.title || 'GIF').slice(0,200), canonicalUrl, previewUrl,
-    width:Math.max(1, Math.min(2000, Number(item.width) || 200)),
-    height:Math.max(1, Math.min(2000, Number(item.height) || 150)),
-    attribution:item.provider === 'giphy' ? 'GIPHY' : 'Tenor'};
+  if(item?.provider!=='giphy'||typeof item.id!=='string'||!/^[a-zA-Z0-9_-]{1,200}$/.test(item.id))return null;
+  const canonicalUrl=safeGiphyUrl(item.canonicalUrl);if(!canonicalUrl)return null;
+  return {kind:'external-link',provider:'giphy',id:item.id,title:String(item.title||'GIF').slice(0,200),canonicalUrl,attribution:'GIPHY'};
 }
-export function mergeResults(results) {
-  const lists = results.map(result => (result.items || []).map(externalCard).filter(Boolean));
-  const seen = new Set(), merged = [];
-  for (let i=0; i<Math.max(0,...lists.map(list=>list.length)); i++) {
-    for (const list of lists) {
-      const card=list[i];
-      if (card && !seen.has(`${card.provider}:${card.id}`)) {
-        seen.add(`${card.provider}:${card.id}`); merged.push(card);
-      }
-    }
-  }
-  return merged;
+export function giphyResult(item) {
+  const card=externalCard({provider:'giphy',id:item.id,title:item.title,canonicalUrl:item.url});const r=item.images?.fixed_width;
+  const previewUrl=safeGiphyUrl(r?.url,true);if(!card||!previewUrl)throw Error('GIPHY returned an invalid result. Please retry.');
+  return {...card,previewUrl,width:Number(r.width)||200,height:Number(r.height)||150};
+}
+// Runs in the browser: exact query, original order/URLs, no proxy or cache.
+export async function searchGiphy({key,query,offset=0,signal,fetcher=fetch}) {
+  if(!key)throw Error('GIPHY search needs an approved web API key.');
+  const url=new URL('https://api.giphy.com/v1/gifs/search');url.search=new URLSearchParams({api_key:key,q:query,limit:'24',offset:String(offset),rating:'pg',lang:'en'}).toString();
+  const response=await fetcher(url,{signal,cache:'no-store',credentials:'omit'});
+  if(!response.ok)throw Error(response.status===429?'GIPHY search limit reached. Try again later.':'GIPHY search could not complete. Check access and retry.');
+  const data=await response.json();if(!Array.isArray(data.data))throw Error('GIPHY returned an invalid response.');
+  return {items:data.data.map(giphyResult),hasMore:offset+data.data.length<(data.pagination?.total_count||0)};
 }

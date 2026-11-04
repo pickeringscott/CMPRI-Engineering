@@ -1,33 +1,33 @@
-# Staff Notes GIF / Media preview
+# Staff Notes isolated preview
 
-Isolated Next.js preview. Mock notes and local files exist only in browser memory. No CMPRI application imports, database clients, authentication sessions, production writes, upload endpoints, paid services or provider requests.
+The current source implements GIPHY-only search directly from the browser. There are no GIF proxy routes or Tenor option. Search preserves provider result order and URLs, with visible GIPHY attribution. Selected GIFs save as canonical external-link metadata; provider media URLs are not persisted. Saved cards obtain current media directly from GIPHY.
 
-## Current limits (2026-11-04)
+## Real local persistence
 
-- GIPHY and Tenor API keys are absent from the existing project's environment-variable names. Values were not decrypted.
-- [GIPHY's published integration rules](https://developers.giphy.com/docs/api/#prohibited-integration-practices) prohibit proxying API/media requests, caching media URLs, reordering results, and mixing providers in a grid. The requested architecture cannot be activated under these rules. Adding a key does not enable requests.
-- [Google discontinued the Tenor API June 30, 2026](https://support.google.com/tenor/answer/10455265?hl=en); new clients were closed in January. The route returns HTTP 410.
-- The browser queries the two local server routes concurrently. They return explicit blocked statuses; there are no public fake GIF results or silent provider substitutions.
-- The masonry and attributed external-card interaction are tested with browser-intercepted synthetic fixtures only. No live combined-provider search is claimed.
-- Media opens the native picker and previews selected files locally, up to 100 MiB per file. Browser-supported image/video codecs render; other files display their names. Nothing is uploaded, persisted, or shared. Native keyboard GIF behavior varies and is not verified.
-- This is not the combined Staff Notes / Daily Ops release and must not be merged or promoted to production.
+The explicitly configured localhost backend stores notes and uploaded bytes in SQLite. Saving waits for actual upload and database responses. Failed saves retain drafts and uploaded attachments; retries are idempotent. Notes and media survive reload and database reopen. This synthetic test backend uses a fixed test author, not CMPRI roles or production authentication.
 
-## Run
+Use Node 24, `npm ci`, `npm test`, and `npm run build`. For local synthetic testing:
 
-Use `npm ci`, `npm test`, `npm run build`, then `npm start`. Open `/`.
+```
+CMPRI_PREVIEW_LOCAL_DATA_DIR=/tmp/cmpri-staff-notes-test npm start -- --hostname 127.0.0.1 --port 3218
+```
 
-Only this subdirectory is the deployment payload; do not build the repository root. Deploy to the existing project's preview environment with project build settings scoped to this deployment. Do not modify project-wide settings or production aliases.
+Without an explicit absolute local data directory, or on Vercel/non-local requests, saving fails closed. No production database client is used. Local uploads allow up to 100 MiB; GIF/PNG/JPEG/WebP and supported MP4/WebM codecs preview inline, other formats are download-only. Browser codec support and native keyboard GIF support vary. This local binary upload endpoint is not a Vercel hosted 100 MB upload solution.
 
-No account, credentials, terms acceptance, or plan upgrades have been created. Live search needs a separately approved provider/design compatible with its current service rules.
+## Remaining live blockers
 
-## Verification and hosting status
+- No existing GIPHY key was found in the Vercel project environment names. An approved browser web key must be supplied as `NEXT_PUBLIC_GIPHY_API_KEY` at build time. This key is intentionally browser-visible under GIPHY's direct-client design. No credentials were created or configured.
+- No isolated hosted database/storage target was found. Only the known production Supabase project is available. It was not connected or written to. Hosted persistence, authorization, and direct large-file upload integration remain unimplemented pending an approved isolated target.
+- This is not the complete Staff Notes / Daily Ops release. Front Desk identity, roles, replies, flags, mentions and work-order integration remain outside this picker implementation.
 
-- `npm test`: 5 passing tests (URL safety, metadata/attribution, test-only result merging, provider blocks, actual route secret isolation).
-- `npm run build`: passed; only `/`, `/api/gifs/giphy`, `/api/gifs/tenor` and the standard not-found route are built.
-- Browser checks passed at 320×568, 390×844, 1280×900 and 844×390: equal popover halves, containment, unavailable-provider responses, local file chooser, in-memory posting/reset, and no horizontal overflow. A separately intercepted synthetic fixture verified masonry scrolling and attributed canonical-link selection. This is not a live provider test.
-- Navy `#0b132b` / `#1c2541` follow the stated CMPRI palette; gold `#fbbf24` comes from the repository's `--cmpri-gold`.
-- Initial external preview publication was denied by automatic approval review. Scott then explicitly approved the existing `cmpri-engineering` Vercel project under Hawkeye Hotels for preview-only publication. The single retry succeeded.
-- Live preview: https://cmpri-engineering-r9d5eqyks-hawkeye-hotels.vercel.app/ — deployment `dpl_CnkGDAGF3upTfp7kxXNXtL3YGTcd`, source commit `274bf750854a1967201e0960f3a9aa1f58e86d6d`, target `null` (Vercel preview), state `READY`.
-- Hosted checks via Vercel authenticated fetch: page HTTP 200; GIPHY route HTTP 503 with `NOT_CONFIGURED`; Tenor route HTTP 410 with `PROVIDER_RETIRED`. No provider results were substituted. Project password/SSO/IP protection is disabled. Direct browsing from this execution environment is blocked by its outbound network policy, so physical-phone access remains for Scott to verify.
-- Existing production deployment `dpl_2kBRG9WP8vqTzPQpeK682XteBQde` retained its production alias. No promotion, main merge, database change, or production deployment was performed.
-- Root `vercel.json` disables Git auto-deployment for this exact preview branch, preventing an accidental build of the full CMPRI application. Production and other branches are unaffected.
+[GIPHY integration requirements](https://developers.giphy.com/docs/api/) require client-side API/media requests and provider attribution. Tenor was removed following Scott's explicit instruction.
+
+## Verification
+
+All 7 Node tests passed; clean production build passed without a key. Browser checks passed at 390×844, 320×568, 1280×900 and 844×390, including actual byte uploads/downloads, save failure/retry and page reload. Node tests cover direct GIPHY request construction/order, unsafe links, real SQLite save/upload/download, idempotent retry, reopen persistence, missing media, upload limits, and local isolation gates. Browser tests use synthetic GIPHY responses only and real local upload/save endpoints. No live GIPHY success is claimed. Run browser tests against a test-fixture build; never publish that build or its dummy key.
+
+## Hosting status
+
+This revision has not been deployed. Existing preview https://cmpri-engineering-r9d5eqyks-hawkeye-hotels.vercel.app/ remains the older browser-memory demonstration; it does not contain these changes or working live search/persistence. Do not present it as the requested complete test.
+
+Reuse branch `preview/staff-notes-gif-20261104`. Root `vercel.json` disables automatic deployment for that branch. Only this subdirectory is the intended future preview payload. No production deployment, merge, production data change, access expansion, account creation or paid service was performed.

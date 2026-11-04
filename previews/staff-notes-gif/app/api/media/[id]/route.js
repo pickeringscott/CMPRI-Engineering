@@ -1,0 +1,4 @@
+import {assertLocal,openStore,apiError,PreviewError} from '../../../../lib/local-store.mjs';
+export const runtime='nodejs';
+export const dynamic='force-dynamic';
+export async function GET(request,{params}){let db;try{db=openStore(assertLocal(request));const {id}=await params;const row=db.prepare('SELECT * FROM media WHERE id=?').get(id);if(!row)throw new PreviewError('Attachment not found.',404);return new Response(row.bytes,{headers:{'Content-Type':row.type,'Content-Length':String(row.size),'Content-Disposition':`${row.type==='application/octet-stream'?'attachment':'inline'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,'Cache-Control':'private, no-store','Content-Security-Policy':"default-src 'none'; sandbox",'X-Content-Type-Options':'nosniff'}});}catch(e){return apiError(e);}finally{db?.close();}}
