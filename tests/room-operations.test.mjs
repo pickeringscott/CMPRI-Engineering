@@ -1,4 +1,5 @@
-import { projectGuestRoom } from "../src/lib/room-guest-reports.ts";
+import "./helpers/resolve-ts.mjs";
+const { projectGuestRoom } = await import("../src/lib/room-guest-reports.ts");
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
