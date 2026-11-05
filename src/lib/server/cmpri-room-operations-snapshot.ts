@@ -1,3 +1,4 @@
+import { projectGuestRoom, type GuestRoom } from "@/lib/room-guest-reports";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
 import { checkoutDeadlinePassed, hotelDateAt, normalizePrintedTime } from "@/lib/room-operations-reports";
@@ -132,6 +133,14 @@ export async function loadEffectiveRoomOperationsSnapshot(
   const snapshot = imports?.[0] as SnapshotImport | undefined;
   if (!snapshot) {
     return { requested_date: requestedDate, source_date: null, source_type: null, carried_over: false, rows: [], error: null };
+  }
+
+  const guestRows = historyRows(snapshot);
+  if (guestRows?.some(row => row.guest_report_bundle)) {
+    const now = new Date();
+    return {requested_date:requestedDate,source_date:snapshot.report_date,source_type:snapshot.source_type,
+      carried_over:snapshot.report_date<requestedDate,
+      rows:guestRows.map(row => projectGuestRoom(row as GuestRoom, now, HOTEL_TIME_ZONE)),error:null};
   }
 
   const columns = "room, checkout_date, checkout_time, room_status, arrival_date, arrival_time, move_from, move_to, guest_name, room_type, guest_code, guest_arrival_date, stay_nights, reserved, imported_at, report_date, incoming_name, incoming_type, incoming_code, incoming_block_indicator, incoming_reserved, source_import_id, checkout_source_report_date, checkout_source_uploaded_at, checkout_time_explicit, source_page, source_report_date, source_uploaded_at";

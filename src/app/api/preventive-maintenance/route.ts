@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { findPmTemplate, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
+import { findPmTemplate, PM_TEMPLATES, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
+import { projectLinkedFormReviews } from "@/lib/pm/linked-form-review";
 import { profileHasRole } from "@/lib/server/roles";
 
 const PM_MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
@@ -122,6 +123,7 @@ export async function GET(request: NextRequest) {
         period_start: proposal.period_start,
         scope_key: proposal.scope_key,
         status: proposal.status,
+        submitted_by: proposal.submitted_by,
         submitted_by_name: proposal.submitted_by_name,
         reviewed_by: proposal.reviewed_by,
         reviewed_at: proposal.reviewed_at,
@@ -155,10 +157,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     week,
     workbook: emptyPmWorkbook(week),
-    entries: [...latestByKey.values()],
+    entries: projectLinkedFormReviews([...latestByKey.values()], PM_TEMPLATES),
     review_queue: reviewQueue?.data || [],
     locations: locations.data || [],
-    can_edit: isSystemAdmin || allows(auth.principal, "edit_tickets"),
+    actor_id: auth.principal.identity.id,
+    actor_name: auth.principal.profile.full_name || "CMPRI User",
+    can_edit: isSystemAdmin || ((isEngineer || profileHasRole(auth.principal.profile, "technician")) && allows(auth.principal, "edit_tickets")),
     can_review: canReview,
     access_roles: [auth.principal.profile.role, ...(auth.principal.profile.secondary_roles || [])],
     spreadsheet_sync_enabled: false,
@@ -262,6 +266,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "This PM proposal changed in another session. Refresh it before saving again.", conflict: true }, { status: 409 });
   }
   const priorPayload = existing.data?.payload;
+  if (template.kind === "routine" && priorPayload?.task_states) {
+    return NextResponse.json({ error: "Reload PM to use the current task controls." }, { status: 409 });
+  }
   const priorResponses = priorPayload && typeof priorPayload === "object" && !Array.isArray(priorPayload)
     ? (priorPayload as Record<string, unknown>).responses
     : null;

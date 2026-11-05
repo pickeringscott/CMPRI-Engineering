@@ -40,7 +40,7 @@ function validIsoDate(value: string) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function normalizePrintedDate(value: string) {
+export function normalizePrintedDate(value: string) {
   const text = value.trim().replace(/^["']|["']$/g, "");
   const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (iso) {
@@ -191,4 +191,28 @@ export function canApplyScheduledCheckout(
     && current.checkout_date === expected.checkout_date
     && normalizePrintedTime(current.checkout_time) === normalizePrintedTime(expected.checkout_time)
     && /\boccupied\b/i.test(current.room_status);
+}
+
+export function pmsTable(raw: string, headerAliases: Record<string, string> = {}) {
+  const records: string[][] = [];
+  let row: string[] = [], cell = "", quoted = false;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i];
+    if (char === '"') {
+      if (quoted && raw[i + 1] === '"') { cell += '"'; i++; }
+      else quoted = !quoted;
+    } else if (!quoted && (char === "," || char === "\n")) {
+      row.push(cell.trim()); cell = "";
+      if (char === "\n") { if (row.some(Boolean)) records.push(row); row = []; }
+    } else cell += char;
+  }
+  if (quoted) throw new Error("PMS CSV has an unterminated quoted field.");
+  row.push(cell.trim());
+  if (row.some(Boolean)) records.push(row);
+  const headers = (records.shift() || []).map(value => value.replace(/^\uFEFF/, "").toUpperCase()).map(header => headerAliases[header] || header);
+  if (new Set(headers).size !== headers.length) throw new Error("PMS CSV has duplicate headers.");
+  return { headers, rows: records.map((cells, index) => {
+    if (cells.length !== headers.length) throw new Error(`PMS CSV row ${index + 2} has ${cells.length} fields; expected ${headers.length}.`);
+    return Object.fromEntries(headers.map((header, col) => [header, cells[col]]));
+  }) };
 }

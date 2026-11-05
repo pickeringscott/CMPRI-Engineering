@@ -15,7 +15,7 @@ test('PM workspace loads CMPRI records and stages technician saves', () => {
   assert.match(page, /fetch\("\/api\/preventive-maintenance"/);
   assert.match(page, /\/api\/preventive-maintenance\/review/);
   assert.match(page, /status === "pending"/);
-  assert.match(page, /Review &amp; confirm…/);
+  assert.match(page, /\/api\/preventive-maintenance\/task/);
   assert.match(page, /Google Sheets sync is temporarily disabled/);
   assert.match(proposalRoute, /workbook: emptyPmWorkbook\(week\)/);
   assert.match(proposalRoute, /spreadsheet_sync_enabled: false/);
@@ -29,11 +29,11 @@ test('PM visibility is capability-gated and source forms can be opened read-only
   assert.match(page, /disabled=\{!activeCanEdit \|\| !!savingKey\}/);
   assert.match(page, /setCanEdit\(result\.can_edit === true \|\| result\.can_review === true\)/);
   assert.match(page, /can_edit_entry/);
-  assert.match(page, /canEditPeriod\(template, period\)/);
+  assert.match(page, /taskEditable\(state, actor\)/);
   assert.match(page, /The PM service resolved this session as read-only/);
-  assert.match(page, /disabled=\{!canEditPeriod\(template, period\) \|\| !liveWorkbook \|\| savingFor\(period\)\}/);
+  assert.match(page, /disabled=\{!canEdit \|\| !taskEditable\(state, actor\) \|\| !liveWorkbook \|\| savingFor\(period\)\}/);
   assert.doesNotMatch(page, /disabled=\{!canEdit \|\| loading \|\| savingFor\(period\)\}/);
-  assert.match(page, /Refreshing PM records\. You can continue using the last loaded checklist/);
+  assert.doesNotMatch(page, /Refreshing PM records\. You can continue using the last loaded checklist/);
   assert.match(page, /type="date" disabled=\{!activeCanEdit \|\| !!savingKey\}/);
 });
 

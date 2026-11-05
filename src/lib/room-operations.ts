@@ -99,3 +99,7 @@ export function detectRoomMoves<T extends RoomOperationMoveRow>(
     };
   });
 }
+
+export function isBigTenGroup(value: string | null | undefined) {
+  return /big\s+ten/i.test(value || "");
+}

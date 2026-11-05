@@ -1,3 +1,4 @@
+import { projectGuestRoom } from "../src/lib/room-guest-reports.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -6,7 +7,7 @@ import ts from "typescript";
 import sharp from "sharp";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { detectRoomMoves, expiredRoomOperationsBefore, formatCheckoutRoomWorkOrders, isRailwayCnGuestName, summarizeRoomOperations } from "../src/lib/room-operations.ts";
+import { detectRoomMoves, expiredRoomOperationsBefore, formatCheckoutRoomWorkOrders, isRailwayCnGuestName, isBigTenGroup, summarizeRoomOperations } from "../src/lib/room-operations.ts";
 import { createRoomOperationsOcrCrops, createRoomOperationsRecoveryCrops } from "../src/lib/room-operations-report-images.ts";
 import { roomKey, roomStatusBadge } from "../src/lib/room-availability.ts";
 import {
@@ -27,6 +28,7 @@ import {
 const snapshotSource = readFileSync(new URL("../src/lib/server/cmpri-room-operations-snapshot.ts", import.meta.url), "utf8");
 const snapshotModule = { exports: {} };
 const snapshotRuntimeRequire = (specifier) => {
+  if (specifier === "@/lib/room-guest-reports") return { projectGuestRoom };
   if (specifier === "@/lib/constants") return { HOTEL_ID: "hotel-test", HOTEL_TIME_ZONE: "America/Chicago" };
   if (specifier === "@/lib/room-operations-reports") return { checkoutDeadlinePassed, hotelDateAt, normalizePrintedTime };
   throw new Error(`Unexpected snapshot test dependency: ${specifier}`);
@@ -820,7 +822,7 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.match(page, /function RoomIdentity/);
   assert.match(page, /isRailwayCnGuestName\(row\.guest_name\)/);
   assert.match(page, /src="\/railway-cn-logo\.png"/);
-  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">\{row\.guest_name\}<\/div>/);
+  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">\{row\.guest_name\} <BigTenBadge group=\{row\.group_name \|\| row\.company\}\/><\/div>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
@@ -862,7 +864,7 @@ test("checkout emphasis is limited to today, tomorrow and overdue dates", () => 
 test("room cards and summary modal share a soft guest layout and preserve reported OOO status", () => {
   const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
   const ast = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const names = ["daysUntilCheckout", "displayCheckoutTime", "displayHotelTimestamp", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
+  const names = ["daysUntilCheckout", "displayCheckoutTime", "displayHotelTimestamp", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "BigTenBadge", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
   const functions = names.map(name => {
     const node = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
     assert.ok(node, `${name} must be declared`);
@@ -874,7 +876,7 @@ test("room cards and summary modal share a soft guest layout and preserve report
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
     exports: components, React, Image: props => React.createElement("img", props),
-    isRailwayCnGuestName, hotelDate: () => "2026-10-05", displayDate: value => value,
+    isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
     room: "103", guest_name: "RAILWAY/CN-NJ8", room_status: "OOO",
@@ -883,7 +885,7 @@ test("room cards and summary modal share a soft guest layout and preserve report
   }, today: "2026-10-05" }));
   assert.match(html, /text-lg font-black text-white">Room 103/);
   assert.match(html, /h-\[1\.5em\] w-auto[^"]*text-lg/);
-  assert.match(html, /<div class="mt-1 break-words text-lg font-normal text-slate-400">RAILWAY\/CN-NJ8<\/div>/);
+  assert.match(html, /<div class="mt-1 break-words text-lg font-normal text-slate-400">RAILWAY\/CN-NJ8\s*<\/div>/);
   assert.match(html, /text-sm text-slate-400/);
   assert.doesNotMatch(html, /Current arrival|2026-10-01/);
   assert.match(html, /LOS: 4 nights/);
@@ -934,4 +936,13 @@ test("room-operations importer supports direct image upload and auto-import with
   assert.match(importer, /\/api\/room-operations\/extract/);
   assert.match(importer, /accept="\.csv,\.tsv,\.txt,image\/\*"/);
   assert.match(importer, /Upload RoomStatus Images/);
+});
+
+test("guest snapshot preserves group fields without querying legacy live rows", async () => {
+  const date=hotelDateAt(new Date(),'America/Chicago');
+  const row={room:'101',guest_name:'Jane Doe',room_status:'Occupied',checkout_date:'2099-01-01',checkout_time:'11:00:00',company:'Big Ten Team',group_name:'Big Ten Team',incoming_name:'Sam Guest',incoming_company:'Big Ten Visitors',guest_report_bundle:{guests:{date}}};
+  const admin=snapshotAdmin({cmpri_room_operation_imports:[{id:'guest-snapshot',hotel_id:'hotel-test',report_date:date,source_type:'file',source_rows:[row],uploaded_at:new Date().toISOString()}]});
+  const from=admin.from;admin.from=table=>{assert.equal(table,'cmpri_room_operation_imports');return from(table)};
+  const result=await loadEffectiveRoomOperationsSnapshot(admin,date);
+  assert.equal(result.error,null);assert.equal(result.rows[0].group_name,'Big Ten Team');assert.equal(result.rows[0].incoming_company,'Big Ten Visitors');assert.equal(result.rows[0].guest_name,'Jane Doe');
 });

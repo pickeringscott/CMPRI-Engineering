@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import {
   bromineBands,
@@ -158,9 +158,22 @@ function formPayload(form: Record<string, unknown>, date: string, facilityId: st
   return payload;
 }
 
+function subscribePoolDate(listener: () => void) {
+  window.addEventListener("popstate", listener);
+  return () => window.removeEventListener("popstate", listener);
+}
+function poolDateFromUrl() {
+  const requested = new URLSearchParams(window.location.search).get("date");
+  if (!requested || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return null;
+  const parsed = new Date(`${requested}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === requested ? requested : null;
+}
+
 export default function PoolLogPage() {
   const embedded = useEmbeddedModal();
-  const [date, setDate] = useState(() => poolLogTodayDate());
+  const requestedDate = useSyncExternalStore(subscribePoolDate, poolDateFromUrl, () => null);
+  const [chosenDate, setDate] = useState<string | null>(null);
+  const date = chosenDate || requestedDate || poolLogTodayDate();
   const [facilityChoice, setFacilityChoice] = useState("");
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [facility, setFacility] = useState<Facility | null>(null);

@@ -7,7 +7,7 @@ import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { isPmRoutineCellChecked, togglePmRoutineResponse } from "@/lib/pm/routine-responses";
+import { isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import {
   findPmTemplate,
@@ -24,7 +24,13 @@ import {
   type PmTemplate,
 } from "@/lib/pm/catalog";
 
+import { taskComplete, taskEditable, taskVisual, type PmTaskState, type PmTaskActor } from "@/lib/pm/task-review";
+import "./pm-approved.css";
+
 type PmEntry = {
+  task_states?: Record<string, PmTaskState>;
+  submitted_by?: string;
+  submitted_by_name?: string;
   id: string;
   template_id: string;
   period_start: string;
@@ -65,7 +71,7 @@ type LivePmWorkbook = {
   fetchedAt: string;
 };
 type PmLocation = { id: string; name: string; room_number: string | null; area: string | null; location_type: string | null };
-type PmTab = "week" | "inspections" | "rooms" | "transfer" | "review";
+type PmTab = "week" | "inspections" | "rooms" | "history";
 type ActiveForm = { templateId: string; periodStart: string; scopeKey: string };
 type PendingWorkOrderLink = {
   id: string;
@@ -83,8 +89,7 @@ const TAB_OPTIONS: Array<{ id: PmTab; label: string }> = [
   { id: "week", label: "Weekly sheet" },
   { id: "inspections", label: "Inspection forms" },
   { id: "rooms", label: "Quarterly room PM" },
-  { id: "transfer", label: "Transfer review" },
-  { id: "review", label: "Review & confirm" },
+  { id: "history", label: "Maintenance History" },
 ];
 
 function todayIso() {
@@ -193,6 +198,12 @@ function SectionHeading({ eyebrow, title, trailing }: { eyebrow?: string; title:
 export default function PreventiveMaintenancePage() {
   const router = useRouter();
   useEmbeddedModal();
+  const [actor, setActor] = useState<PmTaskActor>({ id: "", name: "", role: "manager" });
+  const [frequency, setFrequency] = useState("daily");
+  const [phoneDay, setPhoneDay] = useState(0);
+  const [poolRequired, setPoolRequired] = useState<string | null>(null);
+  const [focusTask, setFocusTask] = useState("");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [weekStart, setWeekStart] = useState(() => pmWeekStart(todayIso()));
   const [tab, setTab] = useState<PmTab>("week");
   const [entries, setEntries] = useState<PmEntry[]>([]);
@@ -204,7 +215,6 @@ export default function PreventiveMaintenancePage() {
   const [spreadsheetSyncEnabled, setSpreadsheetSyncEnabled] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [canReview, setCanReview] = useState(false);
-  const [canWriteLivePm, setCanWriteLivePm] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [savingKey, setSavingKey] = useState("");
@@ -219,7 +229,6 @@ export default function PreventiveMaintenancePage() {
   const [completedOn, setCompletedOn] = useState("");
   const [deficiencyLocationId, setDeficiencyLocationId] = useState("");
   const [pendingWorkOrderLink, setPendingWorkOrderLink] = useState<PendingWorkOrderLink | null>(null);
-  const [confirmingProposal, setConfirmingProposal] = useState<PmReviewProposal | null>(null);
   const requestSequence = useRef(0);
   const busyEntries = useRef(new Set<string>());
   const today = todayIso();
@@ -255,7 +264,7 @@ export default function PreventiveMaintenancePage() {
       setSpreadsheetSyncEnabled(result.spreadsheet_sync_enabled === true);
       setCanEdit(result.can_edit === true || result.can_review === true);
       setCanReview(result.can_review === true);
-      setCanWriteLivePm(result.spreadsheet_sync_enabled === true && result.can_write_live_pm === true);
+      setActor({ id: result.actor_id || "", name: result.actor_name || "", role: result.can_review ? "chief" : result.can_edit ? "technician" : "manager" });
     } catch (cause) {
       if (sequence === requestSequence.current && isCurrent()) setError(cause instanceof Error ? cause.message : "PM records could not be loaded.");
     } finally {
@@ -363,7 +372,6 @@ export default function PreventiveMaintenancePage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.proposal) throw new Error(result.error || "The PM proposal could not be reviewed.");
-      setConfirmingProposal(null);
       setMessage(decision === "approve"
         ? "PM proposal approved in CMPRI. Google Sheets sync is disabled; no spreadsheet changes were made."
         : "PM proposal rejected. No Google Sheets changes were made.");
@@ -377,43 +385,35 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
-  async function updateRoutine(template: PmTemplate, periodStart: string, itemId: string, checked: boolean) {
-    if (!canEdit || busyEntries.current.has(entryKey(template.id, periodStart))) return;
+  async function updateRoutine(template: PmTemplate, periodStart: string, itemId: string) {
     const key = entryKey(template.id, periodStart);
-    const existing = entryFor(template, periodStart);
-    const currentResponses = Object.fromEntries(template.checklist.map((item) => [
-      item.id,
-      existing?.status === "pending" && Object.hasOwn(existing.responses || {}, item.id)
-        ? existing.responses[item.id] === true
-        : routineStatus(template, periodStart, item.id),
-    ]));
-    const responses = togglePmRoutineResponse(template.checklist, currentResponses, itemId, checked);
-    const isComplete = template.checklist.every((item) => responses[item.id] === true);
+    if (!canEdit || busyEntries.current.has(key)) return;
     busyEntries.current.add(key);
     setSavingKey(key);
     setError("");
-    setMessage("");
     try {
-      await saveEntry({
-        templateId: template.id,
-        periodStart,
-        scopeKey: "property",
-        responses: { [itemId]: checked },
-        formData: existing?.form_data || {},
-        notes: existing?.notes || "",
-        deficiencyNotes: existing?.deficiency_notes || "",
-        completedOn: isComplete ? today : null,
-        isComplete,
-        expectedRevision: existing?.revision || 0,
-        workOrderId: existing?.work_order_id || null,
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Sign in again before saving PM.");
+      const existing = entryFor(template, periodStart);
+      const response = await fetch("/api/preventive-maintenance/task", {
+        method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ templateId: template.id, periodStart, itemId, expectedRevision: existing?.status === "pending" ? existing.revision : 0 }),
       });
-      setMessage(`${template.title} change saved as pending review.`);
+      const result = await response.json();
+      if (result.poolRequired) { setPoolRequired(periodStart); return; }
+      if (!response.ok || !result.entry) throw new Error(result.error || "PM task could not be saved.");
+      const saved = result.entry as PmEntry;
+      setEntries(current => [...current.filter(entry => entryKey(entry.template_id, entry.period_start, entry.scope_key) !== key), saved]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "PM checkbox could not be saved.");
-    } finally {
-      busyEntries.current.delete(key);
-      setSavingKey("");
-    }
+      setError(cause instanceof Error ? cause.message : "PM task could not be saved.");
+    } finally { busyEntries.current.delete(key); setSavingKey(""); }
+  }
+
+  function taskState(template: PmTemplate, period: string, itemId: string): PmTaskState | undefined {
+    const entry = entryFor(template, period);
+    if (entry?.task_states?.[itemId]) return entry.task_states[itemId];
+    if (entry?.responses?.[itemId] === true) return { status: entry.status === "approved" ? "approved" : "needs", workerChecked: true, workerId: entry.submitted_by, workerName: entry.submitted_by_name };
+    return undefined;
   }
 
   function openForm(template: PmTemplate, periodStart: string, scopeKey = "property") {
@@ -429,8 +429,37 @@ export default function PreventiveMaintenancePage() {
     setDeficiencyNotes(existing?.deficiency_notes || "");
     setCompletedOn(existing?.completed_on || "");
     setDeficiencyLocationId(locationForScope(scopeKey)?.id || "");
+    try {
+      const saved = localStorage.getItem(`cmpri-pm-draft:${actor.id}:${entryKey(template.id, periodStart, scopeKey)}`);
+      const draft = saved ? JSON.parse(saved) : null;
+      if (draft && draft.revision === (existing?.revision || 0)) {
+        setFormData(draft.formData); setChecklist(draft.checklist); setRepeatableRows(draft.repeatableRows);
+        setFormNotes(draft.formNotes); setDeficiencyNotes(draft.deficiencyNotes); setCompletedOn(draft.completedOn);
+      }
+    } catch { /* Browser storage can be unavailable; normal CMPRI saving remains available. */ }
     setError("");
     setMessage("");
+  }
+
+  useEffect(() => {
+    if (!focusTask || loading) return;
+    const element = document.getElementById(focusTask);
+    if (element) { element.scrollIntoView({ block: "center" }); element.focus(); }
+  }, [focusTask, loading, weekStart, tab, phoneDay, frequency]);
+
+  const pendingTasks = entries.flatMap(entry => {
+    const template = findPmTemplate(entry.template_id);
+    if (!template || template.kind !== "routine") return [];
+    return template.checklist.flatMap(item => {
+      const state = entry.task_states?.[item.id];
+      const pending = state ? state.status === "needs" : entry.status === "pending" && entry.responses?.[item.id] === true;
+      return pending ? [{ template, item, period: entry.period_start, name: state?.workerName || entry.submitted_by_name || "" }] : [];
+    });
+  });
+  function focusPendingTask(task: typeof pendingTasks[number]) {
+    setWeekStart(pmWeekStart(task.period)); setTab("week"); setFrequency(task.template.cadence);
+    setPhoneDay(pmWeekDates(pmWeekStart(task.period)).indexOf(task.period));
+    setFocusTask(`pm-task-${task.template.id}-${task.period}-${task.item.id}`); setNotificationsOpen(false);
   }
 
   function locationForScope(scopeKey: string) {
@@ -465,7 +494,7 @@ export default function PreventiveMaintenancePage() {
 
   function validateActive(isComplete: boolean) {
     if (!activeTemplate || !activeForm) return "Select a PM form first.";
-    for (const field of activeTemplate.fields) {
+    for (const field of isComplete ? activeTemplate.fields : []) {
       if (field.required && !String(formData[field.id] || "").trim()) return `${field.label} is required.`;
     }
     if (isComplete && activeTemplate.checklist.some((item) => !checklist[item.id])) {
@@ -522,6 +551,37 @@ export default function PreventiveMaintenancePage() {
       setSavingKey("");
     }
   }
+
+  const draftSave = useRef<() => void>(() => {});
+  const draftRemoteSave = useRef<() => Promise<unknown>>(async () => {});
+  const draftSession = useRef({ key: "", signature: "" });
+  const draftFlush = useRef<() => void>(() => {});
+  useEffect(() => { draftRemoteSave.current = () => persistActive(false); });
+  useEffect(() => {
+    if (!activeForm || !actor.id || !activeCanEdit) { draftSave.current = () => {}; draftFlush.current = () => {}; draftSession.current.key = ""; return; }
+    const key = `cmpri-pm-draft:${actor.id}:${entryKey(activeForm.templateId, activeForm.periodStart, activeForm.scopeKey)}`;
+    const snapshot = { revision: activeScopeEntry?.revision || 0, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn };
+    const save = () => { try { localStorage.setItem(key, JSON.stringify(snapshot)); } catch { /* Explicit save remains available. */ } };
+    const signature = JSON.stringify({ formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn });
+    if (draftSession.current.key !== key) draftSession.current = { key, signature };
+    const flush = () => {
+      save();
+      if (draftSession.current.signature === signature) return;
+      void draftRemoteSave.current().then(() => { draftSession.current.signature = signature; }).catch(() => {
+        // Incomplete equipment drafts may not yet have an identity. Retain them locally.
+      });
+    };
+    draftSave.current = save;
+    draftFlush.current = flush;
+    save();
+    let timer: ReturnType<typeof setTimeout>;
+    const restart = () => { clearTimeout(timer); timer = setTimeout(flush, 300_000); };
+    restart();
+    const events = ["pointerdown", "keydown", "input", "scroll"];
+    events.forEach(event => window.addEventListener(event, restart, true));
+    window.addEventListener("pagehide", save);
+    return () => { save(); clearTimeout(timer); events.forEach(event => window.removeEventListener(event, restart, true)); window.removeEventListener("pagehide", save); };
+  }, [activeForm, actor.id, activeCanEdit, activeScopeEntry?.revision, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn]);
 
   async function createWorkOrderFromDeficiency() {
     if (!activeCanEdit) return;
@@ -633,7 +693,7 @@ export default function PreventiveMaintenancePage() {
             entry?.completed_on || "",
             entry?.notes || "",
             item.source || template.sourceReference,
-            entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled",
+            entry?.task_states?.[item.id]?.status || (entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled"),
           ]);
         }
       }
@@ -696,7 +756,12 @@ export default function PreventiveMaintenancePage() {
     const saved = entries.filter((entry) => entry.template_id === template.id && entry.period_start === periodStart);
     const newScope = template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property";
     const existingSingle = saved.find((entry) => entry.scope_key === newScope);
-    const complete = saved.some((entry) => entry.is_complete);
+    const linkedFinal = entries.some(entry => {
+      const routine = findPmTemplate(entry.template_id);
+      return routine?.cadence === "weekly" && entry.period_start === pmWeekStart(periodStart)
+        && routine.checklist.some(item => findReferencedPmTemplate(item.source, PM_TEMPLATES)?.id === template.id && entry.task_states?.[item.id]?.attachedFormStatus === "final");
+    });
+    const complete = linkedFinal || saved.some((entry) => entry.is_complete);
     return (
       <article key={`${template.id}:${periodStart}`} className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -712,6 +777,7 @@ export default function PreventiveMaintenancePage() {
               <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
             ))}
           </div>
+          {canReview && reviewQueue.filter(proposal => proposal.template_id === template.id && proposal.period_start === periodStart).map(proposal => <button key={proposal.id} type="button" disabled={reviewBusyId === proposal.id} onClick={() => void reviewProposal(proposal, "approve")} className="rounded-lg border border-slate-600 px-3 py-2 text-red-400">✓ Approve {proposal.scope_key.replace(/^[^:]+:/, "")}</button>)}
           <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit || (["pending", "processing"].includes(existingSingle?.status || "") && !existingSingle?.can_edit_entry) ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
         </div>
       </article>
@@ -720,6 +786,7 @@ export default function PreventiveMaintenancePage() {
 
   function routineStatus(template: PmTemplate, period: string, itemId: string) {
     const proposal = entryFor(template, period);
+    if (proposal?.task_states?.[itemId]) return taskComplete(proposal.task_states[itemId]);
     if (proposal?.status === "pending" && Object.hasOwn(proposal.responses || {}, itemId)) {
       return proposal.responses[itemId] === true;
     }
@@ -729,18 +796,13 @@ export default function PreventiveMaintenancePage() {
     return sourceRoutineStatus(template, period, itemId, liveWorkbook);
   }
 
-  function canEditPeriod(template: PmTemplate, period: string) {
-    const entry = entryFor(template, period);
-    return canEdit && (!["pending", "processing"].includes(entry?.status || "") || entry?.can_edit_entry === true);
-  }
-
-  function renderRoutineTable(template: PmTemplate, periods: string[], heading: string, linkedReference?: (itemId: string) => string | null) {
+  function renderRoutineTable(template: PmTemplate, periods: string[], heading: string, linkedReference?: (itemId: string) => string | null, history = false) {
     const savingFor = (period: string) => savingKey === entryKey(template.id, period);
     return (
       <div className="overflow-x-auto rounded-xl border border-slate-800">
-        <table className="w-full min-w-[760px] border-collapse text-left">
+        <table data-phone-daily={template.cadence === "daily" || undefined} className="pm-task-table w-full min-w-[760px] border-collapse text-left">
           <thead className="bg-slate-900 text-xs text-slate-400">
-            <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{heading}</th>{periods.map((period, index) => <th key={period} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{DAY_LABELS[index]}</span><span>{dateLabel(period)}</span></> : <span>{periodLabel(template, period)}</span>}</th>)}</tr>
+            <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{heading}</th>{periods.map((period, index) => <th key={period} data-current-day={periods.indexOf(period) === phoneDay || undefined} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{DAY_LABELS[index]}</span><span>{dateLabel(period)}</span></> : <span>{periodLabel(template, period)}</span>}</th>)}</tr>
           </thead>
           <tbody>
             {template.checklist.map((item, index) => {
@@ -753,20 +815,22 @@ export default function PreventiveMaintenancePage() {
                   {findReferencedPmTemplate(reference, PM_TEMPLATES) && <button type="button" onClick={() => openRoutineReference(reference, periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
                 </th>
                 {periods.map((period) => {
-                  const checked = routineStatus(template, period, item.id);
-                  const hasPending = entryFor(template, period)?.status === "pending"
-                    && Object.hasOwn(entryFor(template, period)?.responses || {}, item.id);
+                  const state = taskState(template, period, item.id);
+                  const visual = taskVisual(state, actor);
+                  const hasPending = visual === "needs";
                   return (
-                    <td key={period} className="px-2 py-2 text-center">
+                    <td key={period} data-current-day={periods.indexOf(period) === phoneDay || undefined} className="px-2 py-2 text-center">
                       <button
                         type="button"
                         role="checkbox"
-                        aria-checked={checked}
+                        id={`${history ? "pm-history" : "pm-task"}-${template.id}-${period}-${item.id}`}
+                        data-preview-status={visual}
+                        aria-checked={visual !== "empty"}
                         aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${hasPending ? " · pending review" : ""}`}
-                        disabled={!canEditPeriod(template, period) || !liveWorkbook || savingFor(period)}
-                        onClick={() => void updateRoutine(template, period, item.id, !checked)}
-                        className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : checked ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
-                        title={hasPending ? "Pending reviewer confirmation" : undefined}
+                        disabled={!canEdit || !taskEditable(state, actor) || !liveWorkbook || savingFor(period)}
+                        onClick={() => void updateRoutine(template, period, item.id)}
+                        className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : visual === "approved" ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
+                        title={`${visual === "needs" ? "Needs approval" : visual === "approved" ? "Approved" : "Not checked"}${state?.workerName ? ` · Completed by ${state.workerName}` : ""}`}
                       >✓</button>
                     </td>
                   );
@@ -791,20 +855,22 @@ export default function PreventiveMaintenancePage() {
   const monthRoutineTotal = monthTemplates.reduce((sum, template) => sum + template.checklist.length, 0);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
+    <main data-pm-mobile="true" className="min-h-screen bg-slate-950 text-white">
+      <div inert={Boolean(poolRequired)} className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-300">CMPRI · Preventive Maintenance</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">Preventive Maintenance</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician changes remain pending until a reviewer explicitly confirms them.</p>
+            <p className="pm-desktop-only mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician checks retain their original worker. Chief Engineer review is shown by checkbox color.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {canReview && <button type="button" onClick={() => setNotificationsOpen(value => !value)} className="rounded-lg border border-slate-600 px-3 py-2">Notifications ({pendingTasks.length})</button>}
             <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-900">Dashboard</ModalDashboardLink>
-            <button type="button" onClick={downloadTransfer} className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Export weekly CSV</button>
+            <button type="button" onClick={downloadTransfer} className="pm-desktop-only rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Export weekly CSV</button>
           </div>
         </header>
 
+        {canReview && notificationsOpen && <section aria-label="PM notifications" className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-slate-600 p-3">{pendingTasks.length ? pendingTasks.map(task => <button key={`${task.template.id}-${task.period}-${task.item.id}`} type="button" className="block w-full p-2 text-left" onClick={() => focusPendingTask(task)} title={`${task.period} · Completed by ${task.name}`}>Needs Review: {task.item.label} · {dateLabel(task.period)}</button>) : <p>No tasks awaiting review.</p>}</section>}
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-3 sm:p-4" aria-label="Week controls">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -829,25 +895,29 @@ export default function PreventiveMaintenancePage() {
           Google Sheets sync is temporarily disabled for troubleshooting. PM checklist and form changes are stored in CMPRI only; this workspace will not read from or write to Google Sheets.
         </div>
 
+        <select aria-label="Mobile PM section" className="pm-mobile-picker" value={tab} onChange={event => setTab(event.target.value as PmTab)}>{TAB_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
         <nav className="mt-4 flex gap-2 overflow-x-auto border-b border-slate-800 pb-2" aria-label="PM sections">
-          {TAB_OPTIONS.filter((item) => item.id !== "review" || canReview).map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${tab === item.id ? "bg-emerald-400 text-slate-950" : "border border-slate-800 text-slate-300 hover:bg-slate-900"}`}>{item.label}{item.id === "review" && reviewQueue.length > 0 ? ` (${reviewQueue.length})` : ""}</button>)}
+          {TAB_OPTIONS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${tab === item.id ? "bg-emerald-400 text-slate-950" : "border border-slate-800 text-slate-300 hover:bg-slate-900"}`}>{item.label}</button>)}
         </nav>
 
         {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
         {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
         {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
         {!spreadsheetSyncEnabled && !loading && !error && <div role="status" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">Google Sheets integration is disconnected. Checklist states show CMPRI records only; edits and approvals will not be synchronized to the spreadsheet.</div>}
-        {loading && liveWorkbook && <div role="status" className="mt-4 rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 text-sm text-sky-100">Refreshing PM records. You can continue using the last loaded checklist; saves are checked against the latest server revision.</div>}
+
 
         {tab === "week" && (
-          <div className="mt-5 space-y-7">
-            <section>
+          <div className="pm-routines mt-5 space-y-7">
+            <div className="phone-switch">{["daily", "weekly", "monthly", "history"].map(value => <button key={value} type="button" aria-pressed={frequency === value} onClick={() => setFrequency(value)}>{value}</button>)}</div>
+            {frequency === "daily" && <div className="phone-days">{weekDates.map((date, index) => <button key={date} type="button" aria-pressed={phoneDay === index} onClick={() => setPhoneDay(index)}>{DAY_LABELS[index]}<small>{dateLabel(date)}</small></button>)}</div>}
+            <section className={frequency !== "daily" ? "pm-phone-hidden" : ""}>
+              <div className="pm-legend"><span><i className="legend-red">✓</i> Needs approval</span><span><i className="legend-green">✓</i> Approved</span></div>
               <SectionHeading eyebrow="Workbook · daily checkbox grid" title="Daily maintenance" trailing={<span className="text-xs text-slate-400">{dailyDone} / {dailyCount} complete</span>} />
               <p className="mb-3 mt-1 text-xs text-slate-500">Each checkbox saves separately for its date. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.</p>
               {renderRoutineTable(dailyTemplate, weekDates, "Routine task")}
             </section>
 
-            <section>
+            <section className={frequency !== "weekly" ? "pm-phone-hidden" : ""}>
               <SectionHeading eyebrow="Live workbook · one completion per week" title="Weekly maintenance" trailing={<span className="text-xs text-slate-400">{weeklyTemplate.checklist.filter((item) => routineStatus(weeklyTemplate, weekStart, item.id)).length} / {weeklyTemplate.checklist.length} complete</span>} />
               <div className="mt-3">
                 {renderRoutineTable(weeklyTemplate, [weekStart], "Weekly task", (itemId) => weeklyTemplate.checklist.find((item) => item.id === itemId)?.source?.endsWith(".pdf") ? weeklyTemplate.checklist.find((item) => item.id === itemId)!.source! : null)}
@@ -857,7 +927,7 @@ export default function PreventiveMaintenancePage() {
             {monthTemplates.map((template) => {
               const period = templatePeriodsForWeek(template, weekStart)[0];
               return (
-                <section key={template.id}>
+                <section key={template.id} className={frequency !== "monthly" ? "pm-phone-hidden" : ""}>
                   <SectionHeading eyebrow={`${template.title} · workbook checkboxes`} title={`${dateLabel(period, { month: "long", year: "numeric" })} monthly tasks`} trailing={<span className="text-xs text-slate-400">{template.checklist.filter((item) => routineStatus(template, period, item.id)).length} / {template.checklist.length} complete</span>} />
                   <div className="mt-3">
                     {renderRoutineTable(template, [period], "Monthly task", (itemId) => template.checklist.find((item) => item.id === itemId)?.source || null)}
@@ -866,6 +936,11 @@ export default function PreventiveMaintenancePage() {
               );
             })}
 
+            <section className={frequency !== "history" ? "pm-phone-hidden" : ""}>
+              <SectionHeading title="Weekly History By Month" />
+              {entries.filter(entry => entry.template_id === PM_WEEKLY_TEMPLATE_ID).map(entry => <article key={entry.id} className="mt-3 rounded-lg border border-slate-700 p-3"><p className="mb-2 font-bold">{dateLabel(entry.period_start, { month: "long", day: "numeric", year: "numeric" })}</p>{renderRoutineTable(weeklyTemplate, [entry.period_start], "Weekly Task", undefined, true)}</article>)}
+              {!entries.some(entry => entry.template_id === PM_WEEKLY_TEMPLATE_ID) && <p className="mt-2 text-sm text-slate-400">No weekly records in the loaded period.</p>}
+            </section>
             <section>
               <SectionHeading eyebrow="PDF checklists and logs" title="Inspections due this week" trailing={<button type="button" onClick={() => setTab("inspections")} className="text-sm font-bold text-emerald-300 hover:underline">Browse all forms</button>} />
               {formPeriods.length ? <div className="mt-3 grid gap-3 xl:grid-cols-2">{formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}</div> : <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No separate PDF forms are scheduled for this week.</p>}
@@ -919,14 +994,14 @@ export default function PreventiveMaintenancePage() {
                   const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
                   const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
                   const sourceDate = liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value || "";
-                  const displayDate = entry?.status === "pending" && entry.completed_on ? entry.completed_on : sourceDate;
+                  const displayDate = entry?.completed_on || sourceDate;
                   const roomRank = String(entry?.form_data?.rank || "—");
                   return <tr key={room} className="border-t border-slate-800/80">
                     <th className="px-4 py-3 font-bold">Room {room}</th>
                     <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
                     <td className="px-4 py-3 text-slate-300">{roomRank}</td>
                     <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${entry?.status === "pending" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : displayDate ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{entry?.status === "pending" ? "Pending review" : displayDate ? "Complete" : "Due"}</span></td>
-                    <td className="px-4 py-3 text-right"><button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
+                    <td className="px-4 py-3 text-right">{canReview && reviewQueue.filter(proposal => proposal.template_id === roomTemplate.id && proposal.period_start === currentQuarterPeriod && proposal.scope_key === `room:${room}`).map(proposal => <button key={proposal.id} type="button" onClick={() => void reviewProposal(proposal, "approve")} disabled={reviewBusyId === proposal.id} className="mr-2 rounded-lg border border-slate-600 p-2 text-red-400">✓ Approve</button>)}<button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
                   </tr>;
                 })}
                   {filteredRooms.length === 0 && <tr><td colSpan={5} role="status" className="border-t border-slate-800/80 px-4 py-5 text-center text-slate-400">No rooms match “{roomSearch.trim()}”.</td></tr>}
@@ -936,71 +1011,9 @@ export default function PreventiveMaintenancePage() {
           </section>
         )}
 
-        {tab === "review" && canReview && (
-          <section className="mt-5 space-y-4">
-            <SectionHeading eyebrow="Reviewer-only · explicit approval" title="Pending PM changes" trailing={<span className="rounded-full border border-amber-500/40 bg-amber-950/30 px-3 py-1 text-xs text-amber-100">{reviewQueue.length} awaiting review</span>} />
-            <p className="max-w-4xl text-sm text-slate-400">Technician work is staged in CMPRI. Spreadsheet sync is disabled, so approvals update CMPRI records only and do not change Google Sheets.</p>
-            {reviewQueue.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-400">There are no pending PM proposals.</div>
-            ) : reviewQueue.map((proposal) => {
-              const template = findPmTemplate(proposal.template_id);
-              const payload = proposal.payload || {};
-              const proposedResponses = payload.responses && typeof payload.responses === "object"
-                ? payload.responses as Record<string, unknown>
-                : {};
-              const proposedFormData = payload.form_data && typeof payload.form_data === "object"
-                ? payload.form_data as Record<string, unknown>
-                : {};
-              const logEntries = Array.isArray(proposedFormData.logEntries)
-                ? proposedFormData.logEntries.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
-                : [];
-              return (
-                <article key={proposal.id} className="rounded-2xl border border-amber-500/20 bg-slate-900/70 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-bold text-white">{template?.title || proposal.template_id}</h3>
-                      <p className="mt-1 text-xs text-slate-400">{periodLabel(template || PM_TEMPLATES[0], proposal.period_start)} · {proposal.scope_key} · submitted by {proposal.submitted_by_name}</p>
-                      <p className="mt-1 text-xs text-amber-200">{proposal.status === "processing" ? "Approval is being recovered; review and confirm again to finish safely." : "Pending your confirmation"}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" disabled={reviewBusyId === proposal.id || proposal.status === "processing"} onClick={() => void reviewProposal(proposal, "reject")} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Reject</button>
-                      <button type="button" disabled={reviewBusyId === proposal.id} onClick={() => setConfirmingProposal(proposal)} className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/40 disabled:opacity-50">Review &amp; confirm…</button>
-                    </div>
-                  </div>
-                  {template && Object.keys(proposedResponses).length > 0 && (
-                    <ul className="mt-3 grid gap-1 border-t border-slate-800 pt-3 text-sm sm:grid-cols-2">
-                      {template.checklist.filter((item) => Object.hasOwn(proposedResponses, item.id)).map((item) => <li key={item.id} className="flex justify-between gap-3 text-slate-300"><span>{item.label}</span><strong>{statusText(proposedResponses[item.id])}</strong></li>)}
-                    </ul>
-                  )}
-                  {template?.fields.some((field) => proposedFormData[field.id] !== undefined && proposedFormData[field.id] !== "") && (
-                    <dl className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
-                      {template.fields.filter((field) => proposedFormData[field.id] !== undefined && proposedFormData[field.id] !== "").map((field) => <div key={field.id} className="rounded-lg bg-slate-950/70 px-3 py-2 text-sm"><dt className="text-xs text-slate-500">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap text-slate-200">{String(proposedFormData[field.id])}</dd></div>)}
-                    </dl>
-                  )}
-                  {template?.repeatableFields && logEntries.length > 0 && <div className="mt-3 border-t border-slate-800 pt-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{template.repeatableLabel || "Inspection records"}</p>
-                    <ul className="mt-2 space-y-2">{logEntries.map((row, rowIndex) => <li key={rowIndex} className="rounded-lg bg-slate-950/70 p-3 text-xs text-slate-200"><strong className="mr-2 text-slate-400">Record {rowIndex + 1}</strong>{template.repeatableFields!.map((field) => row[field.id] ? `${field.label}: ${String(row[field.id])}` : "").filter(Boolean).join(" · ")}</li>)}</ul>
-                  </div>}
-                  {proposal.proposed_cells.length > 0 && <div className="mt-3 border-t border-slate-800 pt-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Proposed live workbook changes</p>
-                    <ul className="mt-2 space-y-1 text-sm text-slate-200">
-                      {proposal.proposed_cells.map((cell, index) => <li key={`${cell.sheet}-${cell.row}-${cell.column}-${index}`} className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-                        <span>{cell.label} · {cell.sheet} row {cell.row}, column {cell.column}</span>
-                        <span><span className="text-slate-500">{cell.expectedValue || "blank"}</span> → <strong className="text-emerald-200">{cell.proposedValue}</strong></span>
-                      </li>)}
-                    </ul>
-                  </div>}
-                  {typeof payload.notes === "string" && payload.notes && <p className="mt-3 border-t border-slate-800 pt-3 text-sm text-slate-300"><strong>Notes:</strong> {payload.notes}</p>}
-                  {typeof payload.deficiency_notes === "string" && payload.deficiency_notes && <p className="mt-2 text-sm text-amber-100"><strong>Follow-up:</strong> {payload.deficiency_notes}</p>}
-                </article>
-              );
-            })}
-          </section>
-        )}
-
-        {tab === "transfer" && (
+        {tab === "history" && (
           <section className="mt-5">
-            <SectionHeading eyebrow="Weekly handoff" title="Corporate transfer review" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
+            <SectionHeading eyebrow="CMPRI records" title="Maintenance History" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
             <p className="mt-2 max-w-4xl text-sm text-slate-400">This is a CMPRI review/export only and does not change Google Sheets. The CSV includes CMPRI checklist responses, scheduled inspection forms, and room completion records.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Routine checkbox cells</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
@@ -1056,14 +1069,15 @@ export default function PreventiveMaintenancePage() {
         {savingKey && savingKey !== "active-form" && savingKey !== "work-order" && <p className="mt-3 text-right text-xs text-slate-500">Saving your PM entry…</p>}
       </div>
 
+      {poolRequired && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/80 p-4 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setPoolRequired(null); }}><section role="dialog" aria-modal="true" aria-labelledby="pm-pool-question" className="max-w-lg rounded-xl border border-slate-600 bg-slate-950 p-6"><p id="pm-pool-question">Would You Like To Create The Pool Log For {dateLabel(poolRequired, { month: "numeric", day: "numeric", year: "2-digit" })}?</p><div className="mt-5 flex justify-center gap-4"><a className="rounded-lg border border-slate-600 p-3 font-bold text-emerald-400" href={`/engineering/pool-log?date=${poolRequired}`}>Open Pool Log</a><button autoFocus type="button" className="rounded-lg border border-slate-600 p-3 font-bold text-red-400" onClick={() => setPoolRequired(null)}>Cancel</button></div></section></div>}
       {activeForm && activeTemplate && (
         <div className="cmpri-modal-backdrop fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/80">
-          <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="pm-inspection cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 rounded-t-2xl border-b border-slate-800 bg-slate-950/95 p-4 backdrop-blur sm:p-5">
               <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{activeTemplate.cadence} PM form · {periodLabel(activeTemplate, activeForm.periodStart)}</p><h2 id="pm-form-title" className="mt-1 text-xl font-bold">{activeTemplate.title}{activeTemplate.scope === "room" ? ` · Room ${activeScopeKey.slice(5)}` : ""}</h2><SourceNote template={activeTemplate} /></div>
-              <button type="button" onClick={() => { setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
+              <button type="button" onClick={() => { draftSave.current(); draftFlush.current(); setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
             </header>
-            <div className="space-y-5 p-4 sm:p-5">
+            <div className="pm-inspection-body space-y-5 p-4 sm:p-5">
               {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
               {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
               {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}
@@ -1133,28 +1147,6 @@ export default function PreventiveMaintenancePage() {
                 <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">Mark complete</button>
               </footer>
             </div>
-          </section>
-        </div>
-      )}
-      {confirmingProposal && (
-        <div className="cmpri-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80">
-          <section role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title" className="cmpri-modal-shell border border-emerald-500/30 bg-slate-950 shadow-2xl">
-            <p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">Explicit reviewer confirmation</p>
-            <h2 id="pm-confirm-title" className="mt-1 text-xl font-bold text-white">Confirm PM proposal</h2>
-            <p className="mt-2 text-sm text-slate-300">This records the approval in CMPRI only. Google Sheets sync is disabled, so no spreadsheet changes will be made.</p>
-            {confirmingProposal.proposed_cells.length > 0 ? (
-              <ul className="mt-4 max-h-64 space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm">
-                {confirmingProposal.proposed_cells.map((cell, index) => <li key={`${cell.sheet}-${cell.row}-${cell.column}-${index}`} className="flex flex-wrap justify-between gap-2 border-b border-slate-800 pb-2 last:border-0 last:pb-0">
-                  <span className="text-slate-200">{cell.label} · {cell.sheet} row {cell.row}, column {cell.column}</span>
-                  <span><span className="text-slate-500">{cell.expectedValue || "blank"}</span> → <strong className="text-emerald-200">{cell.proposedValue}</strong></span>
-                </li>)}
-              </ul>
-            ) : <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">This proposal contains PDF checklist notes and measurements but no mapped workbook cells.</p>}
-            {confirmingProposal.proposed_cells.length > 0 && !canWriteLivePm && <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">This proposal contains spreadsheet changes and cannot be approved while Google Sheets sync is disabled.</p>}
-            <footer className="mt-5 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => setConfirmingProposal(null)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-900">Cancel</button>
-              <button type="button" disabled={reviewBusyId === confirmingProposal.id || (confirmingProposal.proposed_cells.length > 0 && !canWriteLivePm)} onClick={() => void reviewProposal(confirmingProposal, "approve")} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{reviewBusyId === confirmingProposal.id ? "Applying…" : "Confirm & approve"}</button>
-            </footer>
           </section>
         </div>
       )}

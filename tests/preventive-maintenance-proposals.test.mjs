@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { projectLinkedFormReviews } from '../src/lib/pm/linked-form-review.ts';
 
 const root = fileURLToPath(new URL('../src/', import.meta.url));
 
@@ -80,6 +81,7 @@ function fixture(config = {}) {
     Object,
     JSON,
     require(name) {
+      if (name === '@/lib/pm/linked-form-review') return { projectLinkedFormReviews };
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@/lib/constants') return { HOTEL_ID: 'hotel-id' };
       if (name === '@/lib/server/access') return { allows: () => config.canEdit !== false };

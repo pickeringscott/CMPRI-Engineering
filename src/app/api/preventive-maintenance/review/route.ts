@@ -82,7 +82,7 @@ export async function PATCH(request: NextRequest) {
   }
   const reviewNote = typeof body.reviewNote === "string" ? body.reviewNote.trim() : "";
   const proposalResult = await auth.admin.from("cmpri_pm_proposals")
-    .select("id, status, proposed_cells, revision")
+    .select("id, status, proposed_cells, revision, payload")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", body.proposalId)
     .in("status", ["pending", "processing"])
@@ -93,6 +93,7 @@ export async function PATCH(request: NextRequest) {
   if (Number(proposal.revision) !== Number(body.expectedRevision)) {
     return NextResponse.json({ error: "This proposal changed after it was loaded. Refresh the review queue.", conflict: true }, { status: 409 });
   }
+  if (proposal.payload?.task_states) return NextResponse.json({ error: "Review each task directly on its checkbox." }, { status: 409 });
   const actor = auth.principal.identity.id;
   const reviewedAt = new Date().toISOString();
 
