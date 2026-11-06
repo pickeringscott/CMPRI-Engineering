@@ -9,8 +9,8 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/integrations/email/maintenance",
-      "schedule": "*/5 * * * *"
+      "path": "/api/integrations/email/scan",
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/room-operations/reconcile",
