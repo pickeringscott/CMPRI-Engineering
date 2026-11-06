@@ -6,7 +6,9 @@ import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { authorizationHeaders } from "@/lib/auth/client-session";
+import { subscribeResources } from "@/lib/events/browser";
 import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -163,12 +165,32 @@ export default function WorkOrderListWindow({
   const [filter, setFilter] = useState<WorkOrderListFilter>("all");
   const [query, setQuery] = useState("");
   const [sort,setSort] = useState<WorkOrderSort>("created-newest");
-  const groups = useMemo(() => groupWorkOrders(orders, drafts), [orders, drafts]);
+  const [page, setPage] = useState(0);
+  const [remote, setRemote] = useState<{ orders: DesktopWorkOrder[]; total: number; counts: Record<string, number> } | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const stop = subscribeResources(["orders", "rooms"], async () => {
+      if (active) setPageLoading(true);
+      try {
+        const params = new URLSearchParams({ page: String(page), filter, sort, q: query });
+        const response = await fetch(`/api/work-orders?${params}`, { headers: await authorizationHeaders(), cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Work orders could not be loaded.");
+        if (active) { setRemote({ orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
+      } catch (error) { if (active) setError(error instanceof Error ? error.message : "Work orders could not be loaded."); }
+      finally { if (active) setPageLoading(false); }
+    });
+    return () => { active = false; stop(); };
+  }, [page, filter, sort, query]);
+  const groups = useMemo(() => groupWorkOrders(remote?.orders || orders, page === 0 ? drafts : []), [remote, orders, drafts, page]);
+  const countFor = (key: WorkOrderListFilter) => (remote?.counts[key] ?? groups[key].length) + (remote && ["all", "pending"].includes(key) ? drafts.length : 0);
   const normalizedQuery = query.trim().toLowerCase();
   const matchingRows = normalizedQuery
     ? groups.all.filter((order) => (workOrderReferenceMatches(order.display_id, normalizedQuery) || [...Object.values(order), formatWorkOrder(order.display_id)].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery))))
     : groups[filter];
-  const rows = sortWorkOrders(matchingRows,sort);
+  const rows = remote ? [...matchingRows.filter(row => row.is_draft), ...remote.orders] : sortWorkOrders(matchingRows,sort);
 
   return (
     <div data-front-desk-list={frontDeskLayout || undefined} className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
@@ -176,7 +198,7 @@ export default function WorkOrderListWindow({
         <h1 data-work-order-list-heading tabIndex={-1} className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
           <label className="flex min-w-0 items-center gap-[0.3em] text-[0.85em] text-slate-300">Sort
-            <select aria-label="Sort work orders" value={sort} onChange={event=>setSort(event.target.value as WorkOrderSort)} className="min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-900 px-[0.4em] py-[0.45em] text-white focus:border-sky-400">
+            <select aria-label="Sort work orders" value={sort} onChange={event=>{ setSort(event.target.value as WorkOrderSort); setPage(0); }} className="min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-900 px-[0.4em] py-[0.45em] text-white focus:border-sky-400">
               <option value="created-newest">Created: newest first</option>
               <option value="created-oldest">Created: oldest first</option>
               <option value="due-earliest">Due: earliest first</option>
@@ -191,12 +213,12 @@ export default function WorkOrderListWindow({
             <input
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => { setQuery(event.target.value); setPage(0); }}
               placeholder="Search rooms, locations, or issues..."
               aria-label="Search rooms, locations, or issues"
               className="w-full rounded-md border border-slate-700 bg-slate-900 py-[0.45em] pl-[2em] pr-[2.2em] text-white outline-none placeholder:text-slate-400 focus:border-sky-400"
             />
-            {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
+            {query && <button type="button" onClick={() => { setQuery(""); setPage(0); }} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
           </div>
         </div>
       </header>
@@ -209,21 +231,27 @@ export default function WorkOrderListWindow({
               key={card.key}
               type="button"
               title={card.label}
-              aria-label={`${card.label}: ${loading ? "loading" : groups[card.key].length}`}
+              aria-label={`${card.label}: ${loading ? "loading" : countFor(card.key)}`}
               aria-pressed={selected}
-              onClick={() => { setFilter(card.key); setQuery(""); }}
+              onClick={() => { setFilter(card.key); setQuery(""); setPage(0); }}
               className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-slate-800" : "border-slate-700 bg-slate-900 hover:border-slate-500"}`}
             >
               <span className="min-w-0 break-words text-[calc(0.78em+3px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
                 <span className="@md:hidden">{card.compactLabel}</span>
                 <span className="hidden @md:inline">{card.label}</span>
               </span>
-              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : countFor(card.key)}</span>
             </button>
           );
         })}
       </div>}
 
+      {error && <p role="alert">{error}</p>}
+      <nav aria-label="Work-order pages" className="flex items-center justify-between gap-2">
+        <button disabled={page === 0 || pageLoading} onClick={() => setPage(value => value - 1)}>Previous</button>
+        <span>{pageLoading ? "Loading…" : `Page ${page + 1} · ${remote?.total ?? 0} work orders`}</span>
+        <button disabled={pageLoading || !remote || (page + 1) * 100 >= remote.total} onClick={() => setPage(value => value + 1)}>Next</button>
+      </nav>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (
           <p className="rounded-md border border-slate-700 bg-slate-900 p-[0.5em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>

@@ -27,6 +27,7 @@ function fixture(config = {}) {
         neq(field, value) { filters.push(['neq', field, value]); return query; },
         in(field, value) { filters.push(['in', field, value]); return query; },
         or(expression) { filters.push(['or', expression]); return query; },
+        lt() { return query; },
         limit() { return query; },
         range() { return query; },
         order() { return query; },
@@ -161,9 +162,10 @@ test('technician coverage does not bypass existing edit-ticket capability checks
   assert.equal(f.calls.length, 0);
 });
 
-test('technician dashboard polls for new work and displays in-app sound alerts', () => {
+test('technician dashboard subscribes to new work and displays in-app sound alerts', () => {
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /window\.setInterval\(\(\) => \{ void loadAssignedWork\(\); \}, REFRESH_MS\)/);
+  assert.doesNotMatch(source, /setInterval|REFRESH_MS/);
+  assert.match(source, /subscribeResources\(\["orders", "rooms"\], loadAssignedWork\)/);
   assert.match(source, /role="alert"/);
   assert.match(source, /Unassigned coverage/);
   assert.match(source, /Assigned to you/);

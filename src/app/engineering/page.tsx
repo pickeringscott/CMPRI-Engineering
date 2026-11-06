@@ -1,4 +1,5 @@
 "use client";
+import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
 
@@ -10,7 +11,6 @@ import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/
 import { usesChiefEngineerMobileLayout } from "@/lib/dashboard/chief-engineer-mobile";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import {
-  DASHBOARD_NOTIFICATION_POLL_MS,
   clearServerDashboardNotifications,
   fetchDashboardInbox,
   forgetLocalDashboardInbox,
@@ -46,7 +46,6 @@ import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWin
 import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 
-const REFRESH_MS = 30_000;
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
@@ -127,6 +126,9 @@ export default function EngineeringDashboardPage() {
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
   const [orders, setOrders] = useState<DesktopWorkOrder[]>([]);
+  const approvalPageRef = useRef(0);
+  const [approvalPage, setApprovalPage] = useState(0);
+  const [approvalTotal, setApprovalTotal] = useState(0);
   const [drafts, setDrafts] = useState<DesktopWorkOrderDraft[]>([]);
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,12 +141,10 @@ export default function EngineeringDashboardPage() {
   const soundEnabledRef = useRef(true);
   const userIdRef = useRef("");
   const userRoleRef = useRef("");
-  const notificationPollInFlightRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
   const pendingClearIdsRef = useRef<Set<string>>(new Set());
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const clearGenerationRef = useRef(0);
-  const ordersVersionRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const previousTitleRef = useRef<string>("");
 
@@ -260,13 +260,14 @@ export default function EngineeringDashboardPage() {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) throw new Error("Sign in again to load the dashboard.");
-      const response = await fetch("/api/work-orders", {
+      const response = await fetch(`/api/work-orders?filter=pending&page=${approvalPageRef.current}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Dashboard work orders could not be loaded.");
       const fetched = payload.work_orders as DesktopWorkOrder[];
+      setApprovalTotal(payload.total ?? fetched.length);
       setOrders(previous => reconcileWorkOrderList(previous,fetched));
       if (roleAllows(role || userRoleRef.current, "review_tickets")) {
         const draftResponse = await fetch("/api/work-orders/drafts?scope=review", {
@@ -339,13 +340,11 @@ export default function EngineeringDashboardPage() {
   }, [loadDashboard, refreshChatgptConnection]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => { void loadDashboard(true); }, REFRESH_MS);
-    return () => window.clearInterval(interval);
+    return subscribeResources(["orders", "rooms"], () => loadDashboard(true), false);
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (!cmpriSession || (!hasCapability(cmpriSession, "view_dashboard")
-      && !hasCapability(cmpriSession, "receive_pool_closed_notifications"))) return;
+    if (!cmpriSession) return;
     const userId = cmpriSession.user.id;
     let current = true;
     let imported = false;
@@ -355,9 +354,7 @@ export default function EngineeringDashboardPage() {
       if (local.length) await importServerDashboardNotifications(accessToken, local);
       forgetLocalDashboardInbox(userId);
     };
-    const pollNotifications = async () => {
-      if (notificationPollInFlightRef.current) return;
-      notificationPollInFlightRef.current = true;
+    const refreshInbox = async () => {
       const generation = clearGenerationRef.current;
       try {
         const session = await getValidSession();
@@ -368,25 +365,16 @@ export default function EngineeringDashboardPage() {
         }
         const result = await fetchDashboardInbox(session.access_token);
         if (!current) return;
-        if (ordersVersionRef.current === null) {
-          ordersVersionRef.current = result.orders_version;
-        } else if (result.orders_version !== ordersVersionRef.current && !refreshInFlightRef.current) {
-          ordersVersionRef.current = result.orders_version;
-          void loadDashboard(true);
-        }
         if (generation === clearGenerationRef.current) applyServerInbox(result.notifications);
         setNotificationError("");
       } catch (error) {
         if (current) setNotificationError(error instanceof Error ? error.message : "Notifications could not be loaded.");
-      } finally {
-        notificationPollInFlightRef.current = false;
       }
     };
-    void pollNotifications();
-    const interval = window.setInterval(() => { void pollNotifications(); }, DASHBOARD_NOTIFICATION_POLL_MS);
+    const unsubscribe = subscribeResources(["inbox", "session"], refreshInbox);
     return () => {
       current = false;
-      window.clearInterval(interval);
+      unsubscribe();
     };
   }, [applyServerInbox, cmpriSession, loadDashboard]);
 
@@ -405,9 +393,8 @@ export default function EngineeringDashboardPage() {
         if (current && response.ok && Number.isInteger(payload.count) && payload.count >= 0) setNewFeedbackCount(payload.count);
       } catch {}
     };
-    void refreshFeedbackCount();
-    const interval = window.setInterval(() => void refreshFeedbackCount(), 60_000);
-    return () => { current = false; window.clearInterval(interval); };
+    const unsubscribe = subscribeResources(["feedback"], refreshFeedbackCount);
+    return () => { current = false; unsubscribe(); };
   }, [cmpriSession]);
 
   useEffect(() => {
@@ -755,9 +742,9 @@ export default function EngineeringDashboardPage() {
   const activeKey = zOrder.at(-1) || "";
   const canReviewTickets = hasCapability(session, "review_tickets");
   const unreadCount = unreadWorkOrderNotificationCount(inbox);
-  const notificationCount = unreadCount + (canReviewTickets ? awaitingApproval.length : 0);
+  const notificationCount = unreadCount + (canReviewTickets ? approvalTotal : 0);
   const bellLabel = canReviewTickets
-    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${awaitingApproval.length} awaiting approval`
+    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${approvalTotal} awaiting approval`
     : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
   const mobileLaunchers = visibleLauncherGroups
     .flatMap((group) => group.items)
@@ -778,13 +765,13 @@ export default function EngineeringDashboardPage() {
             <div data-dashboard-account className="mt-2 text-left leading-tight">
               <div className="flex min-w-0 items-center gap-2">
                 <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
-                {(canReviewTickets || hasCapability(session, "receive_pool_closed_notifications") || inbox.length > 0) && (
+                {(
                   <DashboardNotificationBell
                     count={notificationCount}
                     label={bellLabel}
                     aria-label={bellLabel}
                     title={canReviewTickets
-                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${awaitingApproval.length} awaiting approval`
+                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${approvalTotal} awaiting approval`
                       : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
                     onClick={openApprovals}
                   />
@@ -895,6 +882,7 @@ export default function EngineeringDashboardPage() {
                 />
               )}
               {entry.kind === "approvals" && (
+                <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1">
                 <WorkOrderApprovalsWindow
                   user={session.user}
                   notifications={inbox}
@@ -907,7 +895,13 @@ export default function EngineeringDashboardPage() {
                   onOpenNotification={openNotification}
                   onClear={(id) => void clearNotifications([id])}
                   onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
-                />
+                /></div>
+                {canReviewTickets && <nav aria-label="Approval pages" className="flex justify-between gap-2 p-2 text-sm">
+                  <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Previous</button>
+                  <span>Page {approvalPage + 1} · {approvalTotal} awaiting approval</span>
+                  <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Next</button>
+                </nav>}
+                </div>
               )}
             </DesktopWindow>
           );

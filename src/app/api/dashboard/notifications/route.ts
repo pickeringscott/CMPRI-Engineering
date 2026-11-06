@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import {
   profileHasRole,
@@ -11,44 +10,18 @@ import {
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import { receivesEventPush } from "@/lib/notifications/event-eligibility";
 import {
-  dashboardNotificationScanStart,
-  engineerHistoryNotifications,
-  markTechnicianViewedWorkOrdersRead,
-  newWorkOrderNotification,
   sanitizeImportedDashboardNotifications,
-  shouldWriteDashboardNotificationCursor,
-  technicianViewNotificationsForEngineer,
   unrecordedDashboardNotifications,
-  type WorkOrderHistoryNotification,
   type WorkOrderNotification,
-  type WorkOrderTechnicianView,
 } from "@/lib/dashboard/work-order-notifications";
 
-const PAGE_SIZE = 500;
-const MAX_SCAN = 10_000;
 const INBOX_LIMIT = 500;
 const NO_STORE = { "Cache-Control": "private, no-store" };
 
 async function authorize(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return { response: NextResponse.json({ error: "Sign in is required." }, { status: 401 }) };
-  if (!allows(auth.principal, "view_dashboard")
-    && !allows(auth.principal, "receive_pool_closed_notifications")) {
-    return { response: NextResponse.json({ error: "Dashboard access is required." }, { status: 403 }) };
-  }
   return { auth };
-}
-
-async function scanPages<T>(load: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>) {
-  const rows: T[] = [];
-  for (let offset = 0; offset < MAX_SCAN; offset += PAGE_SIZE) {
-    const { data, error } = await load(offset, offset + PAGE_SIZE - 1);
-    if (error) return null;
-    const page = (data || []) as T[];
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) break;
-  }
-  return rows;
 }
 
 async function recordNotifications(
@@ -112,94 +85,7 @@ export async function GET(request: NextRequest) {
   if (!auth) return response;
   const admin = auth.admin;
   const userId = auth.principal.identity.id;
-  const isEngineer = profileIsChiefEngineerOrSystemAdmin(auth.principal.profile);
-  const isTechnician = !isEngineer && profileHasRole(auth.principal.profile, "technician");
-  const canReceiveOrdinary = receivesWorkOrderNotifications(auth.principal.profile);
   const checkedAt = new Date().toISOString();
-
-  const { data: cursorRow, error: cursorError } = await admin
-    .from("cmpri_dashboard_notification_cursors")
-    .select("checked_at")
-    .eq("hotel_id", HOTEL_ID)
-    .eq("recipient_user_id", userId)
-    .maybeSingle();
-  if (cursorError) return NextResponse.json({ error: "Notifications could not be loaded." }, { status: 503 });
-  const savedCursor = (cursorRow as { checked_at?: string } | null)?.checked_at ?? null;
-  const scanStart = dashboardNotificationScanStart(savedCursor, checkedAt);
-
-  const candidates: WorkOrderNotification[] = [];
-  if (savedCursor && canReceiveOrdinary) {
-    const orders = await scanPages<{ id: string; display_id: string | null; room: string | null; issue: string | null; status: string | null; created_at: string }>(
-      (from, to) => admin
-        .from("work_orders")
-        .select("id, display_id, room, issue, status, created_at")
-        .eq("hotel_id", HOTEL_ID)
-        .gt("created_at", scanStart)
-        .lte("created_at", checkedAt)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to),
-    );
-    if (!orders) return NextResponse.json({ error: "New work orders could not be checked." }, { status: 503 });
-    let newOrderCandidates = orders.map(newWorkOrderNotification);
-    if (isTechnician && orders.length) {
-      const { data: views, error: viewsError } = await admin
-        .from("cmpri_work_order_technician_views")
-        .select("work_order_id")
-        .eq("hotel_id", HOTEL_ID)
-        .in("work_order_id", orders.map((order) => order.id));
-      if (viewsError) return NextResponse.json({ error: "Technician work-order views could not be checked." }, { status: 503 });
-      newOrderCandidates = markTechnicianViewedWorkOrdersRead(
-        newOrderCandidates,
-        (views || []).map((view: { work_order_id: string }) => view.work_order_id),
-      );
-    }
-    candidates.push(...newOrderCandidates);
-
-    if (isEngineer) {
-      const views = await scanPages<WorkOrderTechnicianView>(
-        (from, to) => admin
-          .from("cmpri_work_order_technician_views")
-          .select("id, work_order_id, work_order_display_id, technician_name, viewed_at")
-          .eq("hotel_id", HOTEL_ID)
-          .gt("viewed_at", scanStart)
-          .lte("viewed_at", checkedAt)
-          .order("viewed_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(from, to),
-      );
-      if (!views) return NextResponse.json({ error: "Technician view notifications could not be checked." }, { status: 503 });
-      candidates.push(...technicianViewNotificationsForEngineer(views));
-
-      const history = await scanPages<WorkOrderHistoryNotification>(
-        (from, to) => admin
-          .from("cmpri_work_order_history")
-          .select("id, work_order_id, actor_user_id, actor_name, event_type, old_status, new_status, changed_fields, snapshot, recorded_at")
-          .eq("hotel_id", HOTEL_ID)
-          .in("event_type", ["status_changed", "closed", "reopened", "claimed"])
-          .gt("recorded_at", scanStart)
-          .lte("recorded_at", checkedAt)
-          .order("recorded_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(from, to),
-      );
-      if (!history) return NextResponse.json({ error: "Work-order updates could not be checked." }, { status: 503 });
-      candidates.push(...engineerHistoryNotifications(history, userId));
-    }
-  }
-
-  if (!(await recordNotifications(admin, userId, candidates, auth.principal.profile))) {
-    return NextResponse.json({ error: "Notifications could not be saved." }, { status: 503 });
-  }
-
-  // Advance the cursor only after every candidate is recorded, so nothing is skipped on failure.
-  if (canReceiveOrdinary && shouldWriteDashboardNotificationCursor(savedCursor, checkedAt)) {
-    const { error } = await admin
-      .from("cmpri_dashboard_notification_cursors")
-      .upsert({ hotel_id: HOTEL_ID, recipient_user_id: userId, checked_at: checkedAt, updated_at: checkedAt }, { onConflict: "hotel_id,recipient_user_id" });
-    if (error) return NextResponse.json({ error: "Notifications could not be saved." }, { status: 503 });
-  }
-
   const inboxQuery = admin
     .from("cmpri_dashboard_notifications")
     .select("notification_key, work_order_id, target_path, message, recorded_at, read_at")
@@ -209,21 +95,10 @@ export async function GET(request: NextRequest) {
     .is("cleared_at", null)
     .order("recorded_at", { ascending: false })
     .limit(INBOX_LIMIT);
-  const versionQuery = canReceiveOrdinary
-    ? admin
-      .from("work_orders")
-      .select("updated_at", { count: "exact" })
-      .eq("hotel_id", HOTEL_ID)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-    : Promise.resolve({ data: [], count: 0, error: null });
-  const [inboxResult, versionResult] = await Promise.all([inboxQuery, versionQuery]);
-  if (inboxResult.error || versionResult.error) {
-    return NextResponse.json({ error: "Notifications could not be loaded." }, { status: 503 });
-  }
+  const inboxResult = await inboxQuery;
+  if (inboxResult.error) return NextResponse.json({ error: "Notifications could not be loaded." }, { status: 503 });
 
   const notifications = (inboxResult.data || [])
-    .filter((row: { work_order_id: string | null }) => canReceiveOrdinary || row.work_order_id === null)
     .map((row: { notification_key: string; work_order_id: string | null; target_path: string | null; message: string; recorded_at: string; read_at: string | null }) => ({
       id: row.notification_key,
       work_order_id: row.work_order_id,
@@ -232,11 +107,9 @@ export async function GET(request: NextRequest) {
       recorded_at: row.recorded_at,
       is_read: row.read_at !== null,
     }));
-  const latest = (versionResult.data?.[0] as { updated_at?: string } | undefined)?.updated_at || "";
-
   return NextResponse.json({
     notifications,
-    orders_version: `${versionResult.count ?? 0}:${latest}`,
+    orders_version: "event-driven",
     checked_at: checkedAt,
   }, { headers: NO_STORE });
 }
@@ -265,7 +138,6 @@ export async function POST(request: NextRequest) {
       .eq("recipient_user_id", userId)
       .is("cleared_at", null)
       .in("notification_key", ids);
-    if (!receivesWorkOrderNotifications(auth.principal.profile)) query = query.is("work_order_id", null);
     if (body.action === "read") query = query.is("read_at", null);
     const { error } = await query;
     if (error) return NextResponse.json({ error: body.action === "read" ? "Notifications could not be marked read." : "Notifications could not be cleared." }, { status: 503 });

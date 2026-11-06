@@ -25,8 +25,6 @@ function hotelDate() {
 
 export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
   const date = hotelDate();
-  const { error: reconcileError } = await admin.rpc("cmpri_reconcile_room_operations");
-  if (reconcileError) return { date, statuses: null, operations: null, error: reconcileError };
   const snapshot = await loadEffectiveRoomOperationsSnapshot(admin, date);
   if (snapshot.error) return { date, statuses: null, operations: null, error: snapshot.error };
   const statuses = new Map<string, string>();

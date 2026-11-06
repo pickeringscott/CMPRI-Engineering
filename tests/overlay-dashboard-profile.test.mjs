@@ -75,7 +75,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(roleAllows('Assistant General Manager', 'view_pool_log'), true);
   assert.equal(roleAllows('Front Desk Manager', 'view_pool_log'), true);
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  assert.match(engineering, /if \(!cmpriSession \|\| \(!hasCapability\(cmpriSession, "view_dashboard"\)[\s\S]*receive_pool_closed_notifications/);
+  assert.match(engineering, /if \(!cmpriSession\) return;/);
   assert.match(engineering, /\(hasCapability\(session, "view_dashboard"\) \|\| hasCapability\(session, "view_pool_log"\)\) && \{ key: "\/engineering\/pool-log"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/room-operations", label: "Daily Room Ops"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/gss", label: "GSS Reports"/);
@@ -135,8 +135,8 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.ok(engineeringHeader.indexOf('text-[14pt] font-semibold tracking-tight text-slate-100') < engineeringHeader.indexOf('count={notificationCount}'));
   assert.match(engineeringHeader, /pt-\[8pt\]/);
   assert.match(engineering, /const canReviewTickets = hasCapability\(session, "review_tickets"\)/);
-  assert.match(engineering, /const notificationCount = unreadCount \+ \(canReviewTickets \? awaitingApproval\.length : 0\)/);
-  assert.match(engineering, /\(canReviewTickets \|\| hasCapability\(session, "receive_pool_closed_notifications"\) \|\| inbox\.length > 0\) && \(/);
+  assert.match(engineering, /const notificationCount = unreadCount \+ \(canReviewTickets \? approvalTotal : 0\)/);
+  assert.doesNotMatch(engineeringHeader, /inbox\.length > 0\) &&/);
   const approvalsWindow = readFileSync(new URL('../src/components/desktop/WorkOrderApprovalsWindow.tsx', import.meta.url), 'utf8');
   assert.match(approvalsWindow, /canReview && \(/);
   const notificationBell = readFileSync(new URL('../src/components/DashboardNotificationBell.tsx', import.meta.url), 'utf8');
@@ -269,7 +269,7 @@ test('authorized Housekeeping render replaces the Engineering fallback and share
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
-  assert.match(dashboard, /if \(!cmpriSession\)\s*\{\s*return/);
+  assert.match(dashboard, /if \(!cmpriSession\) return;/);
   assert.match(dashboard, /isHousekeepingDashboard \? "Housekeeping" : "Engineering"/);
   assert.match(dashboard, /<main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden/);
   assert.match(dashboard, /lg:h-dvh/);

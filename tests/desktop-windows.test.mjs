@@ -135,8 +135,8 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(migration, /unique \(hotel_id, recipient_user_id, notification_key\)/);
   assert.match(migration, /enable row level security/);
   assert.match(migration, /revoke all on table public\.cmpri_dashboard_notifications from anon, authenticated;/);
-  assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
-  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 4, 'every inbox read/write is scoped to the requester');
+  assert.match(route, /requireUser\(request\)/);
+  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 3, 'every inbox read/write is scoped to the requester');
   assert.match(route, /\.update\(update\)/);
   assert.match(route, /body\.action === "read"[\s\S]*read_at: new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(route, /\.delete\(/);
@@ -149,7 +149,8 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(goLiveMigration, /where cleared_at is null and read_at is null/i);
   assert.match(goLiveMigration, /'\/engineering\/pool-log'/);
   assert.match(migration, /clears them/);
-  assert.match(dashboard, /DASHBOARD_NOTIFICATION_POLL_MS/);
+  assert.doesNotMatch(dashboard, /setInterval/);
+  assert.match(dashboard, /subscribeResources/);
   assert.match(dashboard, /void loadDashboard\(true\)/);
 });
 

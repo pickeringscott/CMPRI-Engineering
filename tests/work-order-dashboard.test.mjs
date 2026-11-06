@@ -15,18 +15,20 @@ const dashboardRows = Array.from({ length: 2501 }, (_, index) => ({
   status: index % 3 === 0 ? "Closed" : index % 3 === 1 ? "Open" : "In Progress",
 }));
 
-function fixture({ failAt, role = "System Administrator", hasDashboard = true } = {}) {
+function fixture({ failAt, role = "System Administrator", hasDashboard = true, page = 0, search = "" } = {}) {
   const ranges = [];
   const projections = [];
+  const searchExpressions = [];
   let allowedStatuses = null;
   const admin = {
     from(table) {
-      const query = { from: 0, to: 999 };
-      query.select = (columns) => { projections.push(columns); return query; };
-      query.eq = () => query;
+      const query = { from: 0, to: 99, head: false, statuses: null };
+      query.select = (columns, options) => { projections.push(columns); query.head = options?.head; return query; };
+      query.eq = (field, value) => { if (field === "status") query.statuses = [value]; return query; };
+      query.lt = () => query;
       query.order = () => query;
-      query.or = () => { allowedStatuses = ["Open", "In Progress"]; return query; };
-      query.in = (_field, values) => { allowedStatuses = values; return query; };
+      query.or = (expression) => { searchExpressions.push(expression); return query; };
+      query.in = (field, values) => { if (field === "status") query.statuses = values; return query; };
       query.range = (from, to) => {
         query.from = from;
         query.to = to;
@@ -37,9 +39,10 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
         const result = failAt === query.from
           ? { data: null, error: new Error("page unavailable") }
           : {
-            data: table === "work_orders"
-              ? dashboardRows.filter((row) => !allowedStatuses || allowedStatuses.includes(row.status)).slice(query.from, query.to + 1)
+            data: table === "work_orders" && !query.head
+              ? dashboardRows.filter((row) => !(query.statuses || allowedStatuses) || (query.statuses || allowedStatuses).includes(row.status)).slice(query.from, query.to + 1)
               : [],
+            count: dashboardRows.filter((row) => !query.statuses || query.statuses.includes(row.status)).length,
             error: null,
           };
         return Promise.resolve(result).then(resolve, reject);
@@ -104,31 +107,35 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true } 
       throw new Error(`Unexpected module ${name}`);
     },
   });
-  const request = { nextUrl: { searchParams: new URLSearchParams() } };
-  return { get: () => exports.GET(request), ranges, projections };
+  const request = { nextUrl: { searchParams: new URLSearchParams({page: String(page), q: search}) } };
+  return { get: () => exports.GET(request), ranges, projections, searchExpressions };
 }
 
-test("dashboard returns every work order beyond the old 2000-row limit", async () => {
+test("dashboard returns one bounded page and keeps older work orders accessible", async () => {
   const route = fixture();
   const response = await route.get();
 
   assert.equal(response.status, 200);
-  assert.equal(response.body.work_orders.length, 2501);
-  assert.equal(response.body.work_orders.at(-1).id, "order-2500");
+  assert.equal(response.body.work_orders.length, 100);
+  assert.equal(response.body.total, 2501);
+  assert.equal(response.body.work_orders.at(-1).id, "order-99");
+  const last = await fixture({page:25}).get();
+  assert.equal(last.body.work_orders.length,1);
+  assert.equal(last.body.work_orders[0].id,"order-2500");
   assert.equal(response.body.work_orders[0].checkout_date, null);
   assert.equal(response.body.work_orders[0].checkout_time, null);
   assert.equal(response.body.work_orders[0].cn_room, null);
-  assert.deepEqual(route.ranges, [[0, 999], [1000, 1999], [2000, 2999]]);
+  assert.deepEqual(route.ranges, [[0, 99]]);
 });
 
 test("dashboard reports a later-page query failure instead of returning partial data", async () => {
-  const route = fixture({ failAt: 1000 });
+  const route = fixture({ failAt: 1000, page:10 });
   const response = await route.get();
 
   assert.equal(response.status, 503);
   assert.equal(response.body.error, "Work orders could not be loaded.");
   assert.equal(Object.keys(response.body).length, 1);
-  assert.deepEqual(route.ranges, [[0, 999], [1000, 1999]]);
+  assert.deepEqual(route.ranges, [[1000, 1099]]);
 });
 
 test("note-only General Managers list open and closed work orders", async () => {
@@ -145,7 +152,8 @@ test("every active role can list all tickets without full dashboard access", asy
     const route = fixture({ role, hasDashboard: false });
     const response = await route.get();
     assert.equal(response.status, 200, role);
-    assert.equal(response.body.work_orders.length, 2501, role);
+    assert.equal(response.body.work_orders.length, 100, role);
+    assert.equal(response.body.total,2501,role);
     assert.ok(response.body.work_orders.some((order) => order.status === "Closed"), role);
   }
 });
@@ -166,7 +174,7 @@ test("technician landing uses the shared desktop shell with the technician-scope
   assert.match(desktop, /roleKey\(session\.user\.role\) === "technician" && \{ key: "\/technician", label: "Technician Dashboard"/);
   assert.match(technician, /data-cmpri-modal-href="\/engineering\/preventive-maintenance"[^>]*>Preventive Maintenance/);
   assert.match(desktop, /const userRoleRef = useRef\(""\)/);
-  assert.match(desktop, /fetch\("\/api\/work-orders",/);
+  assert.match(desktop, /filter=pending&page=/);
   assert.match(desktop, /userRoleRef\.current = session\.user\.role/);
   assert.match(technician, /\/api\/work-orders\?mode=technician/);
 });
@@ -181,3 +189,13 @@ test("technician landing uses the shared desktop shell with the technician-scope
     assert.ok(projection.split(", ").includes("import_external_id"));
   }
 });
+
+ test("server search retains canonical ticket references and never applies text operators to status enum", async () => {
+   const ticket = fixture({search:"WO#261015001"});
+   assert.equal((await ticket.get()).status,200);
+   assert.ok(ticket.searchExpressions.some(value=>value.includes('display_id.ilike."%261015001%"')));
+   const status = fixture({search:"progress"});
+   assert.equal((await status.get()).status,200);
+   assert.ok(status.searchExpressions.some(value=>value.includes('status.in.("In Progress")')));
+   assert.ok(status.searchExpressions.every(value=>!value.includes('status.ilike')));
+ });

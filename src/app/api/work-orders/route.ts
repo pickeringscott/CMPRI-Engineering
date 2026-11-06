@@ -9,7 +9,6 @@ import { requireUser } from "@/lib/server/auth";
 import { authenticatedUser } from "@/lib/server/request-auth";
 import { isFrontDesk, isSubmitOnlyRole, roleAllows } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
-import { fetchAllPages } from "@/lib/server/paginated-query";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { validFirstName, workOrderAttribution } from "@/lib/work-order-attribution";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
@@ -167,21 +166,54 @@ export async function GET(request: NextRequest) {
   if (mode !== "dashboard" || (!canViewDashboard && !allows(auth.principal, "view_work_orders") && !canAddNotes)) {
     return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
   }
-  const { data, error } = await fetchAllPages((from, to) => {
-    let query = auth.admin
-    .from("work_orders")
-    .select("id, display_id, revision, updated_at, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at, import_source, import_external_id")
-    .eq("hotel_id", HOTEL_ID)
-    .order("created_at", { ascending: false })
-    .range(from, to);
-    const readFilter = workOrderReadFilter(workOrderReader(auth.principal));
-    if (readFilter) query = query.or(readFilter);
+  const params = request.nextUrl.searchParams;
+  const page = Number(params.get("page") || 0);
+  const pageSize = 100;
+  const filter = params.get("filter") || "all";
+  const sort = params.get("sort") || "created-newest";
+  const search = (params.get("q") || "").trim();
+  const filters = ["all", "pending", "open", "progress", "priority", "overdue", "completed", "closed"];
+  if (!Number.isSafeInteger(page) || page < 0 || page > 100000 || !filters.includes(filter)
+    || !["created-newest", "created-oldest", "due-earliest", "due-latest"].includes(sort) || search.length > 200) {
+    return NextResponse.json({ error: "Invalid work-order list request." }, { status: 400 });
+  }
+  const readerFilter = workOrderReadFilter(workOrderReader(auth.principal));
+  const projection = "id, display_id, revision, updated_at, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at, import_source, import_external_id";
+  const queryFor = (selected: string, head = false) => {
+    let query = auth.admin.from("work_orders").select(projection, { count: "exact", head }).eq("hotel_id", HOTEL_ID);
+    if (readerFilter) query = query.or(readerFilter);
+    if (selected === "pending") query = query.in("status", ["Pending Verification"]);
+    if (selected === "completed") query = query.eq("status", "Completed");
+    if (selected === "closed") query = query.in("status", ["Closed", "Will Not Do"]);
+    if (["open", "progress", "priority", "overdue"].includes(selected)) {
+      query = query.in("status", ["Open", "In Progress", "Done"]);
+      if (selected === "progress") query = query.eq("status", "In Progress");
+      if (selected === "priority") query = query.in("priority", ["Urgent", "High"]);
+      if (selected === "overdue") query = query.lt("due_by", new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()));
+    }
     return query;
-  });
-  if (error) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
-  const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
+  };
+  let query = queryFor(search ? "all" : filter);
+  if (search) {
+    // Quote PostgREST values and escape LIKE wildcards; search cannot alter access predicates.
+    const value = JSON.stringify("%" + search.replace(/[%_\\]/g, "\\$&") + "%");
+    const expressions = ["display_id", "room", "issue", "asset_name", "category", "technician_name", "priority"].map(field => `${field}.ilike.${value}`);
+    const number = search.match(/^@?(?:(?:workorder_|WO\s*[#-]?\s*|work\s+order\s*#?\s*|#))?(\d+)$/i)?.[1];
+    if (number) expressions.push(`display_id.ilike.${JSON.stringify("%" + number + "%")}`);
+    // status is a PostgreSQL enum; ILIKE is only valid on the text fields above.
+    const statuses = ["Open", "In Progress", "Completed", "Done", "Pending Verification", "Closed", "Will Not Do"].filter(status => status.toLowerCase().includes(search.toLowerCase()));
+    if (statuses.length) expressions.push(`status.in.(${statuses.map(status => JSON.stringify(status)).join(",")})`);
+    query = query.or(expressions.join(","));
+  }
+  query = query.order(sort.startsWith("due-") ? "due_by" : "created_at", { ascending: sort.endsWith("oldest") || sort.endsWith("earliest"), nullsFirst: false })
+    .order("id", { ascending: true }).range(page * pageSize, (page + 1) * pageSize - 1);
+  const [result, ...counts] = await Promise.all([query, ...filters.map(key => queryFor(key, true))]);
+  if (result.error || counts.some(result => result.error)) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
+  const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, result.data || []);
   if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
-  return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ work_orders: enrichedOrders, page, page_size: pageSize, total: result.count || 0,
+    counts: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])) }, { headers: { "Cache-Control": "no-store" } });
+
 }
 
 export async function POST(request: NextRequest) {

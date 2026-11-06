@@ -147,8 +147,9 @@ test('Chief Engineers receive Technician status changes with work-order context'
 
 test('Chief Engineer dashboard inbox records only for the Chief Engineer role', () => {
   const route = readFileSync(new URL('../src/app/api/dashboard/notifications/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /const isEngineer = profileIsChiefEngineerOrSystemAdmin\(auth\.principal\.profile\);/);
-  assert.match(route, /if \(isEngineer\) \{[\s\S]*from\("cmpri_work_order_history"\)[\s\S]*\.in\("event_type", \["status_changed", "closed", "reopened", "claimed"\]\)[\s\S]*engineerHistoryNotifications\(history, userId\)/);
+  assert.doesNotMatch(route, /from\("cmpri_work_order_history"\)/);
+  assert.match(route, /from\("cmpri_dashboard_notifications"\)/);
+  assert.match(route, /\.eq\("recipient_user_id", userId\)/);
   const migration = readFileSync(new URL('../supabase/migrations/20260930220000_cmpri_work_order_history_notifications.sql', import.meta.url), 'utf8');
   assert.match(migration, /'actor_role', coalesce\(v_actor_role, ''\), 'after_close', v_after_close/);
   assert.match(migration, /v_after_close := old\.status::text = 'Closed' or/);
@@ -248,7 +249,7 @@ test('opening a dashboard notification marks it read before navigation and the b
 test('Technician inbox reads are separate from active notification resolution', () => {
   const dashboard = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const openInbox = dashboard.slice(dashboard.indexOf('async function toggleInbox()'), dashboard.indexOf('const assignedOrders'));
-  assert.match(openInbox, /item\.work_order_id === null && item\.is_read !== true/);
+  assert.match(openInbox, /item\.is_read !== true/);
   assert.match(openInbox, /markServerDashboardNotificationsRead\(dashboardTokenRef\.current, unreadIds\)/);
   assert.doesNotMatch(openInbox, /clearServerDashboardNotifications/);
   assert.match(dashboard, /Active notifications · \{dashboardInbox\.length\}/);
@@ -320,7 +321,6 @@ test('notification read API updates only the signed-in recipient and unread row'
     ['eq', 'recipient_user_id', 'recipient-user'],
     ['is', 'cleared_at', null],
     ['in', 'notification_key', ['pool-closed:local']],
-    ['is', 'work_order_id', null],
     ['is', 'read_at', null],
   ]);
   assert.equal(typeof calls[0].mutation.read_at, 'string');
@@ -363,7 +363,7 @@ test('notification endpoint authorizes dashboard recipients and scopes audit rec
   assert.match(route, /profileHasRole\(auth\.principal\.profile, "technician"\)/);
   assert.match(route, /\.eq\("hotel_id", HOTEL_ID\)/);
   assert.match(route, /\.gt\("recorded_at",/);
-  assert.match(route, /role === "engineer"/);
+  assert.match(route, /\.eq\("recipient_user_id", auth\.principal\.identity\.id\)/);
   assert.match(route, /resolved_notification_ids/);
 });
 

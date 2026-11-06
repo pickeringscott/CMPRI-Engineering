@@ -1,4 +1,5 @@
 "use client";
+import { subscribeResources } from "@/lib/events/browser";
 import PoolStatus from "@/components/desktop/PoolStatus";
 
 import Link from "next/link";
@@ -10,21 +11,15 @@ import { signOutDevice } from "@/lib/supabase/client";
 import type { CmpriClientSession } from "@/lib/auth/client-session";
 import { newlyAvailableTechnicianWork } from "@/lib/dashboard/technician-work-notifications";
 import {
-  fetchWorkOrderNotifications,
-  mergeWorkOrderNotifications,
-  readWorkOrderNotificationCursor,
   fetchDashboardInbox,
   markServerDashboardNotificationsRead,
   unreadWorkOrderNotificationCount,
-  saveWorkOrderNotificationCursor,
-  unseenWorkOrderNotifications,
   type WorkOrderNotification,
 } from "@/lib/dashboard/work-order-notifications";
 import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import { roomRankerProfileCanView } from "@/lib/room-ranker-access";
 
-const REFRESH_MS = 30_000;
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
 
 type AssignedWorkOrder = {
@@ -61,11 +56,10 @@ export default function TechnicianDashboard() {
   const [message, setMessage] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const loadingRef = useRef(false);
+  const accountRef = useRef<CmpriClientSession["user"] | null>(null);
   const hasLoadedWorkRef = useRef(false);
   const knownOrdersRef = useRef<Map<string, string> | null>(null);
-  const notificationCursorRef = useRef<string | null>(null);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
-  const pendingNotificationIdsRef = useRef<Set<string>>(new Set());
   const dashboardTokenRef = useRef("");
   const soundEnabledRef = useRef(true);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -93,35 +87,19 @@ export default function TechnicianDashboard() {
     } catch {}
   }, []);
 
-  const refreshNotifications = useCallback(async (accessToken: string, userId: string) => {
-    try {
-      const cursor = notificationCursorRef.current || readWorkOrderNotificationCursor(userId, "technician");
-      const result = await fetchWorkOrderNotifications(accessToken, cursor);
-      notificationCursorRef.current = result.checked_at;
-      const unseen = unseenWorkOrderNotifications(seenNotificationIdsRef.current, result.notifications);
-      if (unseen.length) {
-        unseen.forEach((notification) => pendingNotificationIdsRef.current.add(notification.id));
-        setNotifications((existing) => mergeWorkOrderNotifications(existing, unseen));
-        playAlertTone();
-      }
-      if (!result.notifications.length && pendingNotificationIdsRef.current.size === 0) {
-        saveWorkOrderNotificationCursor(userId, "technician", result.checked_at);
-      }
-      setNotificationError("");
-    } catch (error) {
-      setNotificationError(error instanceof Error ? error.message : "Work-order notifications could not be loaded.");
-    }
-  }, [playAlertTone]);
-
   const refreshDashboardInbox = useCallback(async (accessToken: string) => {
     try {
       const result = await fetchDashboardInbox(accessToken);
       dashboardTokenRef.current = accessToken;
+      const incoming = result.notifications.filter(item => item.is_read !== true && !seenNotificationIdsRef.current.has(item.id));
+      result.notifications.forEach(item => seenNotificationIdsRef.current.add(item.id));
       setDashboardInbox(result.notifications);
+      setNotifications(result.notifications.filter(item => item.is_read !== true && item.work_order_id !== null));
+      if (incoming.length && hasLoadedWorkRef.current) playAlertTone();
     } catch (error) {
       setNotificationError(error instanceof Error ? error.message : "Dashboard notifications could not be loaded.");
     }
-  }, []);
+  }, [playAlertTone]);
 
   async function signOut() {
     await signOutDevice();
@@ -133,17 +111,19 @@ export default function TechnicianDashboard() {
     loadingRef.current = true;
     try {
       const session = await getValidSession();
-      if (!session) throw new Error("Sign in again to load your technician dashboard.");
+      if (!session) { accountRef.current = null; setAccount(null); setOrders([]); setDashboardInbox([]); setNotifications([]); throw new Error("Sign in again to load your technician dashboard."); }
+      let currentAccount = accountRef.current?.id === session.user.id ? accountRef.current : null;
+      if (!currentAccount) {
       const accountResponse = await fetch("/api/session", {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
       const accountPayload = await accountResponse.json().catch(() => ({}));
       if (!accountResponse.ok || !accountPayload.user) throw new Error(accountPayload.error || "Your account could not be loaded.");
-      const currentAccount = accountPayload.user as CmpriClientSession["user"];
+      currentAccount = accountPayload.user as CmpriClientSession["user"];
+      accountRef.current = currentAccount;
       setAccount(currentAccount);
-      void refreshNotifications(session.access_token, currentAccount.id);
-      void refreshDashboardInbox(session.access_token);
+      }
       const response = await fetch("/api/work-orders?mode=technician", {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
@@ -168,18 +148,24 @@ export default function TechnicianDashboard() {
       hasLoadedWorkRef.current = true;
       loadingRef.current = false;
     }
-  }, [playAlertTone, refreshDashboardInbox, refreshNotifications]);
+  }, [playAlertTone]);
 
   useEffect(() => {
     soundEnabledRef.current = readSoundPreference();
     setSoundEnabled(soundEnabledRef.current);
-    void loadAssignedWork();
-    const interval = window.setInterval(() => { void loadAssignedWork(); }, REFRESH_MS);
+    const unsubscribe = subscribeResources(["orders", "rooms"], loadAssignedWork);
     return () => {
-      window.clearInterval(interval);
+      unsubscribe();
       void audioContextRef.current?.close();
     };
   }, [loadAssignedWork]);
+
+
+  useEffect(() => subscribeResources(["inbox"], async () => {
+    const session = await getValidSession();
+    if (!session) { setDashboardInbox([]); setNotifications([]); return; }
+    await refreshDashboardInbox(session.access_token);
+  }), [refreshDashboardInbox]);
 
   function toggleSound() {
     const next = !soundEnabledRef.current;
@@ -197,10 +183,7 @@ export default function TechnicianDashboard() {
 
   function dismissNotifications() {
     setNotifications([]);
-    pendingNotificationIdsRef.current.clear();
-    if (account?.id && notificationCursorRef.current) {
-      saveWorkOrderNotificationCursor(account.id, "technician", notificationCursorRef.current);
-    }
+
   }
 
   async function toggleInbox() {
@@ -208,7 +191,7 @@ export default function TechnicianDashboard() {
     setInboxOpen(opening);
     if (!opening) return;
     const unreadIds = dashboardInbox
-      .filter((item) => item.work_order_id === null && item.is_read !== true)
+      .filter((item) => item.is_read !== true)
       .map((item) => item.id);
     if (!unreadIds.length || !dashboardTokenRef.current) return;
     try {
@@ -258,13 +241,7 @@ export default function TechnicianDashboard() {
               <h1 className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></h1>
               <div className="mt-2 flex items-center gap-2">
                 <p className="text-[14pt] font-semibold tracking-tight text-slate-100">{account?.name?.trim() || account?.role || "Maintenance Technician"}</p>
-                {notifications.length > 0 && <DashboardNotificationBell
-                  count={notifications.length}
-                  label={`${notifications.length} work-order update${notifications.length === 1 ? "" : "s"}`}
-                  title="Go to work-order updates"
-                  onClick={() => document.getElementById("technician-notifications")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
-                />}
-                {dashboardInbox.length > 0 && <DashboardNotificationBell
+                {<DashboardNotificationBell
                   count={unreadCount}
                   label={`${unreadCount} unread active notification${unreadCount === 1 ? "" : "s"}`}
                   title="Open active work-order notifications"
@@ -281,9 +258,6 @@ export default function TechnicianDashboard() {
             </div>
             <div className="sm:hidden"><PoolStatus controlOnly/></div><Link href="/work-orders" className="ml-auto min-h-10 shrink-0 rounded-full border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm sm:hidden">Create Work Order</Link>
           <div className="hidden flex-wrap items-center justify-end gap-2 sm:flex">
-            <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-4 py-2 text-[9pt] font-bold text-slate-200 disabled:opacity-50">
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/staff-notes" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Staff Notes</button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-[9pt] font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
@@ -291,9 +265,6 @@ export default function TechnicianDashboard() {
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 sm:hidden">
-            <button type="button" onClick={() => void loadAssignedWork()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 disabled:opacity-50">
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-3 py-2 text-xs font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
