@@ -1,3 +1,5 @@
+import {nextGuestDisplayChange,type GuestRoom} from "@/lib/room-guest-reports";
+import {loyaltyTier, type LoyaltyTier} from "@/lib/loyalty-tier";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { roomKey } from "@/lib/room-availability";
@@ -9,6 +11,10 @@ export type CurrentRoomOperation = {
   checkout_date: string | null;
   checkout_time: string | null;
   cn_room: boolean;
+  guest_name: string | null;
+  loyalty_tier: LoyaltyTier | null;
+  incoming_loyalty_tier: LoyaltyTier | null;
+  incoming_reserved: boolean;
   guest_group_badge: RoomGroupBadge | null;
   incoming_group_badge: RoomGroupBadge | null;
 };
@@ -42,10 +48,14 @@ export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
         checkout_time: typeof row.checkout_time === "string" ? row.checkout_time : null,
         cn_room: isRailwayCnGuestName(typeof row.guest_name === "string" ? row.guest_name : null),
         ...currentRoomGroupBadges(row),
+        guest_name: typeof row.guest_name === "string" ? row.guest_name : null,
+        loyalty_tier: row.guest_name ? loyaltyTier(row.loyalty_tier) : null,
+        incoming_reserved: !!row.incoming_name && (row.reserved === true || row.incoming_reserved === true),
+        incoming_loyalty_tier: row.incoming_name && (row.reserved === true || row.incoming_reserved === true) ? loyaltyTier(row.incoming_loyalty_tier) : null,
       });
     }
   }
-  return { date, statuses, operations, error: null };
+  return { date, statuses, operations, nextTransitionAt: nextGuestDisplayChange(snapshot.rows as GuestRoom[],new Date(),HOTEL_TIME_ZONE), error: null };
 }
 
 export function currentRoomStatus(statuses: Map<string, string>, room: unknown) {

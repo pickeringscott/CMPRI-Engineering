@@ -9,12 +9,8 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/integrations/email/scan",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/integrations/room-ranker/sync",
-      "schedule": "15 * * * *"
+      "path": "/api/integrations/email/maintenance",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/room-operations/reconcile",

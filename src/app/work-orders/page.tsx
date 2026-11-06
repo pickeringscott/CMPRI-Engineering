@@ -1,4 +1,5 @@
 "use client";
+import WorkOrderMediaControl from "@/components/WorkOrderMediaControl";
 import { subscribeResources } from "@/lib/events/browser";
 import PoolStatus from "@/components/desktop/PoolStatus";
 
@@ -43,7 +44,6 @@ import {
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
-import StaffNotes from "@/components/StaffNotes";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
 
 type WorkOrderDraft = {
@@ -109,7 +109,7 @@ function WorkOrderPhotoPreview({ photo, onRemove, removeLabel }: { photo: Select
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-950/70 p-1.5">
       <div className="relative shrink-0">
-        <Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 rounded object-cover" />
+        {photo.file.type.startsWith("video/")?<video src={photo.previewUrl} controls className="size-12 rounded object-cover"/>:<Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 rounded object-cover"/>}
         {onRemove && <button type="button" onClick={onRemove} aria-label={`${removeLabel}: ${photo.file.name}`} title={removeLabel} className="absolute -left-1 -top-1 grid size-6 place-items-center rounded-full border border-red-500/70 bg-slate-950 text-base font-bold leading-none text-red-500 shadow hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-white">×</button>}
       </div>
       <span className="min-w-0 max-w-40 truncate text-xs text-slate-300" title={photo.file.name}>{photo.file.name}</span>
@@ -788,7 +788,7 @@ export default function WorkOrdersPage() {
     const issueText = separateIssueFromReporterNotes(newIssue).issue.trim();
 
     if (!issueText) {
-      
+
       return;
     }
 
@@ -821,7 +821,7 @@ export default function WorkOrdersPage() {
     }
 
     if (!workingLocation) {
-      
+
       return;
     }
 
@@ -887,7 +887,7 @@ export default function WorkOrdersPage() {
     setManualCategory(false);
     setManualPriority(false);
 
-    
+
 
     const nextLocation = locations.find((item) => item.id === newLocationId);
     if (nextLocation && issue.trim()) applySmartSuggestions(issue, "", nextLocation);
@@ -1151,7 +1151,7 @@ export default function WorkOrdersPage() {
     setManualCategory(false);
     setManualPriority(false);
 
-    
+
     setMainWorkOrderCreated(false);
   }
 
@@ -1164,7 +1164,7 @@ export default function WorkOrdersPage() {
     setPhotos((current) => current.filter((selected) => selected.uploadId !== uploadId));
   }
 
-  function acceptSelectedPhotos(files: FileList | null, fromCamera = false) {
+  function acceptSelectedPhotos(files: FileList | File[] | null, fromCamera = false) {
     const selected = Array.from(files || []).slice(0, fromCamera ? 1 : undefined);
     if (!selected.length) return;
 
@@ -1985,28 +1985,15 @@ export default function WorkOrdersPage() {
                 <div className="mr-auto flex min-w-0 flex-col items-start leading-tight">
                   <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></p>
                   <AccountSummary user={cmpriSession.user} />
-                  {isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mt-1 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
+                  {isSubmitOnlyUser && !isFrontDeskUser && <ModalNavigationButton href="/profile" className="mt-1 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
                 </div>
               )}
-              {cmpriSession && embedded && isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mr-auto rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
-              {cmpriSession?.capabilities.includes("view_work_orders") && <ModalNavigationButton href={cmpriSession.landing === "/front-desk" ? "/front-desk" : "/engineering"} className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{cmpriSession.landing === "/front-desk" ? "Front Desk" : tx("Work Orders", "Órdenes de trabajo")}</ModalNavigationButton>}
+              {cmpriSession && embedded && isSubmitOnlyUser && !isFrontDeskUser && <ModalNavigationButton href="/profile" className="mr-auto rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
+
 
               {cmpriSession && !embedded && <><PoolStatus controlOnly/></>}
-              <div className="flex flex-wrap items-center justify-end gap-1">
-                <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-10 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V3m0 0 4 4m-4-4-4 4" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
-                  </svg>
-                </label>
-                <input ref={photoFileInputRef} id="work-order-photo-file" type="file" accept="image/*" multiple disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files)} className="sr-only" />
-                <label htmlFor="work-order-photo-camera" title="Take a photo" aria-label="Take a photo" className={`grid size-10 cursor-pointer place-items-center rounded-lg border ${isSubmitOnlyUser ? "md:hidden" : ""} ${photos.length ? "border-sky-400 bg-sky-950/50 text-sky-200" : "border-slate-700 text-slate-200 hover:bg-slate-800"}`}>
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h3l1.4-2h7.2l1.4 2h3A1.5 1.5 0 0 1 21.5 9v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
-                    <circle cx="12" cy="13" r="3.5" />
-                  </svg>
-                </label>
-                <input ref={photoCameraInputRef} id="work-order-photo-camera" type="file" accept="image/*" capture="environment" disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload} onChange={(event) => acceptSelectedPhotos(event.currentTarget.files, true)} className="sr-only" />
+              <div data-preview-create-actions className="flex flex-wrap items-center justify-end gap-1">
+                <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading} onSelect={files=>acceptSelectedPhotos(files)} />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="min-h-10 rounded-lg border border-sky-600/70 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
                 <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
@@ -2179,7 +2166,7 @@ export default function WorkOrdersPage() {
             )}
 
           </form>
-          {isSubmitOnlyUser && <StaffNotes compact />}
+
         </div>
 
         {message && (

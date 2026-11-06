@@ -7,17 +7,17 @@ const detail=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.
 const create=readFileSync(new URL('../src/app/work-orders/page.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('page.tsx',detail,99,true,4);
 function extract(name){let source;function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text===name)source=n.getText(ast);ts.forEachChild(n,visit);}visit(ast);assert.ok(source,name);return ts.transpileModule(source+`\nexports.run=${name}`,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;}
-test('guest context renders before a slow Ranker and rejects an old room response',async()=>{
- let state={},finishRanker;const calls=[];const exports={};const generation={current:0};
+test('guest context loads without the retired Ranker and clears on a non-room location',async()=>{
+ let state={};const calls=[];const exports={};const generation={current:0};
  vm.runInNewContext(extract('loadRoomOperationalContext'),{exports,roomContextGeneration:generation,
  cmpriSession:{user:{role:'Chief Engineer'},capabilities:['view_dashboard']},getValidSession:async()=>({access_token:'mock'}),
- roomRankerProfileCanView:()=>true,isRailwayCnGuestName:()=>true,
+ isRailwayCnGuestName:()=>true,loyaltyTier:()=>null,roomGroupBadge:()=>null,setRoomNextBoundary:()=>{},nextGuestDisplayChange:()=>Date.now()+60000,HOTEL_TIME_ZONE:"UTC",
  resolveRoomRankerContext:(_ok,p)=>({ranker:p,error:''}),
  setRoomOperationalContext:value=>{state=typeof value==='function'?value(state):value},
  fetch:async url=>{calls.push(url);if(url==='/api/room-ranker')await new Promise(r=>finishRanker=r);return {ok:true,json:async()=>url==='/api/room-ranker'?{room:'210'}:{rows:[{room:'210',guest_name:'Sample Guest'}]}}},
  });
- await exports.run('Room 210');assert.equal(state.guestName,'Sample Guest');assert.deepEqual(calls,['/api/room-ranker','/api/room-operations']);assert.equal(state.loading,false);
- await exports.run('Lobby');finishRanker();await new Promise(r=>setImmediate(r));assert.equal(state.guestName,'');assert.equal(state.ranker,null);
+ await exports.run('Room 210');assert.equal(state.guestName,'Sample Guest');assert.deepEqual(calls,['/api/room-operations']);assert.equal(state.loading,false);
+ await exports.run('Lobby');await new Promise(r=>setImmediate(r));assert.equal(state.guestName,'');assert.equal(state.ranker,null);
 });
 test('metadata deduplication lasts only while the authorized fetch is pending',async()=>{
  const exports={},pending={current:null};let count=0,finish;

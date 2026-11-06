@@ -20,7 +20,7 @@ test('Flyover matches the observed group label and full brand, never an unrelate
 test('badge follows the effective guest snapshot through checkout, reservation, and arrival',()=>{
  const source={room:'101',guest_name:'Fictional outgoing',company:'FLYOVER STUDIOS',group_name:'',room_status:'Occupied',checkout_date:'2026-11-06',checkout_time:'11:00:00',incoming_name:'Fictional incoming',incoming_company:'Big Ten',incoming_reserved:true,reserved:true,arrival_date:'2026-11-06',arrival_time:'15:00:00'};
  const before=projectGuestRoom(source,new Date('2026-11-06T16:59:00Z'),'America/Chicago');
- assert.deepEqual(currentRoomGroupBadges(before),{guest_group_badge:'flyover-studios',incoming_group_badge:null});
+ assert.deepEqual(currentRoomGroupBadges(before),{guest_group_badge:'flyover-studios',incoming_group_badge:'big-ten'});
  const between=projectGuestRoom(source,new Date('2026-11-06T18:00:00Z'),'America/Chicago');
  assert.deepEqual(currentRoomGroupBadges(between),{guest_group_badge:null,incoming_group_badge:'big-ten'});
  const after=projectGuestRoom(source,new Date('2026-11-06T21:00:00Z'),'America/Chicago');
@@ -36,10 +36,10 @@ test('public badge is the exact supplied AVIF with preserved intrinsic aspect ra
 });
 
 test('shared renderer labels both groups, preserves dimensions and renders nothing for unknown groups',()=>{
- const module={exports:{}};
+ const loadedModule={exports:{}};
  const source=readFileSync(new URL('../src/components/GuestGroupBadge.tsx',import.meta.url),'utf8');
- vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText,{exports:module.exports,React,require:name=>name==='next/image'?{default:props=>React.createElement('img',props)}:{roomGroupBadge}});
- const Badge=module.exports.default;
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText,{exports:loadedModule.exports,React,require:name=>name==='next/image'?{default:props=>React.createElement('img',props)}:{roomGroupBadge}});
+ const Badge=loadedModule.exports.default;
  const flyover=renderToStaticMarkup(React.createElement(Badge,{group:'FLYOVER STUDIOS'}));
  assert.match(flyover,/alt="Flyover Film Studios"/);assert.match(flyover,/width="906" height="644"/);assert.match(flyover,/w-auto/);assert.match(flyover,/FFS_Logo6.avif/);
  assert.match(renderToStaticMarkup(React.createElement(Badge,{badge:'big-ten'})),/alt="Big Ten"/);

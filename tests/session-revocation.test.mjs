@@ -86,12 +86,12 @@ test('safe-mode email scan is blocked before invoking the mailbox provider',asyn
   assert.match(response.body.error,/NOT sent to an external provider/);
   assert.equal(f.calls.includes('email-provider'),false);
 });
-const routes=[['api/room-ranker/route.ts','GET'],['api/room-ranker/route.ts','PATCH'],['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/work-orders/[id]/preventive-maintenance/route.ts','PATCH'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
+const routes=[['api/corporate-pm/route.ts','GET'],['api/corporate-pm/route.ts','PATCH'],['api/work-orders/[id]/preventive-maintenance/route.ts','PATCH'],['api/engineering/operations/route.ts','GET'],['api/engineering/operations/route.ts','PATCH'],['api/work-orders/[id]/activity/route.ts','GET'],['api/integrations/email/scan/route.ts','POST'],['api/work-orders/route.ts','POST']];
 for(const [route,method] of routes)for(const config of [{active:false},{profileError:true}])test(`${route} ${method} blocks revoked/unverifiable session ${JSON.stringify(config)}`,async()=>{
   const f=fixture(config);const r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
   assert.equal(r.status,401);assert.ok(f.calls.every(v=>v==='profiles'),'No downstream data, network or provider access');
 });
-for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
+for(const route of ['api/corporate-pm/route.ts'])test(`${route} active read succeeds, same token is denied after deactivation`,async()=>{
   const f=fixture({role:route.includes('room-ranker')?'Chief Engineer':'System Administrator',email:route.includes('room-ranker')?'maint.cmpri@hawkeyehotels.com':'same-user@example.invalid',permissions:[{role:'Chief Engineer',permission:'manage_integrations',allowed:true}]}),handlers=f.load(route);const first=await handlers.GET(f.request);assert.equal(first.status,200);assert.equal(first.body.can_edit,route.includes('corporate-pm')?false:true);
   f.state.active=false;f.calls.length=0;
   assert.equal((await handlers.GET(f.request)).status,401);assert.equal(f.calls.includes('network'),false);
@@ -100,7 +100,7 @@ for(const [route,method] of routes.filter(([route,method])=>method==='PATCH'||ro
   const f=fixture({role}),r=await f.load(route)[method](f.request,{params:Promise.resolve({id:'test'})});
   assert.equal(r.status,403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
 });
-for(const route of ['api/room-ranker/route.ts','api/corporate-pm/route.ts'])test(`${route} denies housekeeping read access (dashboard required)`,async()=>{
+for(const route of ['api/corporate-pm/route.ts'])test(`${route} denies housekeeping read access (dashboard required)`,async()=>{
   const f=fixture({role:'Housekeeping'});const r=await f.load(route).GET(f.request);assert.equal(r.status,403);assert.ok(f.calls.every(v=>AUTH_TABLES.has(v)));
 });
 
@@ -110,20 +110,4 @@ for(const config of [{noMembership:true},{membershipActive:false},{membershipErr
 test('the same token is rejected after property membership revocation',async()=>{
  const f=fixture(),auth=f.load('lib/server/request-auth.ts');assert.ok(await auth.authenticatedUser(f.request));f.state.membershipActive=false;assert.equal(await auth.authenticatedUser(f.request),null);
 });
-test('Room Ranker old requires an engineer assignment and retains existing write ownership',async()=>{
- for (const role of ['Front Desk Manager','Assistant General Manager','Maintenance Technician','General Manager']) {
-   const f=fixture({role});
-   const response=await f.load('api/room-ranker/route.ts').GET(f.request);
-   assert.equal(response.status,403,role);
-   assert.equal(f.calls.includes('network'),false,role);
- }
- for (const role of ['Chief Engineer','System Administrator']) {
-   const f=fixture({role,email:role==='System Administrator'?'pickering.scott@gmail.com':'same-user@example.invalid'});
-   assert.equal((await f.load('api/room-ranker/route.ts').GET(f.request)).status,role==='Chief Engineer'?200:403,role);
-   assert.equal(f.calls.includes('network'),false,role);
- }
- const scott=fixture({role:'Chief Engineer',email:'maint.cmpri@hawkeyehotels.com'});
- const scottResponse=await scott.load('api/room-ranker/route.ts').GET(scott.request);
- assert.equal(scottResponse.status,200);
- assert.equal(scottResponse.body.can_edit,true);
-});
+test('retired Room Ranker never reads provider data for any session',async()=>{const f=fixture({active:false});assert.equal((await f.load('api/room-ranker/route.ts').GET(f.request)).status,410);assert.equal(f.calls.length,0)});

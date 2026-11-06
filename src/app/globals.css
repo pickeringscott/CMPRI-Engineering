@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./work-order-design.css";
+@import "./approved-header.css";
 
 :root {
   --cmpri-gold: #fbbf24;

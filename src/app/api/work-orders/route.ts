@@ -1,3 +1,4 @@
+import {sortWorkOrders, type WorkOrderSort} from "@/lib/work-order-sort";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
@@ -15,7 +16,6 @@ import { likelyDuplicate } from "@/lib/work-order-duplicates";
 import { inferWorkOrder, separateIssueFromReporterNotes, type SuggestionAsset } from "@/lib/work-order-suggestions";
 import { EQUIPMENT_SELECTION_COLUMNS } from "@/lib/equipment-selection";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
-import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
@@ -31,11 +31,15 @@ async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: Su
     return {
       ...order,
       room_status: currentRoomStatus(statuses, order.room),
+      room_next_transition_at: roomStatuses.nextTransitionAt ?? null,
       checkout_date: operation?.checkout_date || null,
       checkout_time: operation?.checkout_time || null,
       cn_room: operation?.cn_room ?? null,
       guest_group_badge: operation?.guest_group_badge ?? null,
       incoming_group_badge: operation?.incoming_group_badge ?? null,
+      loyalty_tier: operation?.loyalty_tier ?? null,
+      incoming_loyalty_tier: operation?.incoming_loyalty_tier ?? null,
+      incoming_reserved: operation?.incoming_reserved ?? false,
     };
   });
 }
@@ -176,7 +180,7 @@ export async function GET(request: NextRequest) {
   const search = (params.get("q") || "").trim();
   const filters = ["all", "pending", "open", "progress", "priority", "overdue", "completed", "closed"];
   if (!Number.isSafeInteger(page) || page < 0 || page > 100000 || !filters.includes(filter)
-    || !["created-newest", "created-oldest", "due-earliest", "due-latest"].includes(sort) || search.length > 200) {
+    || !["default", "tier-high", "tier-low", "created-newest", "created-oldest", "due-earliest", "due-latest"].includes(sort) || search.length > 200) {
     return NextResponse.json({ error: "Invalid work-order list request." }, { status: 400 });
   }
   const readerFilter = workOrderReadFilter(workOrderReader(auth.principal));
@@ -207,13 +211,20 @@ export async function GET(request: NextRequest) {
     if (statuses.length) expressions.push(`status.in.(${statuses.map(status => JSON.stringify(status)).join(",")})`);
     query = query.or(expressions.join(","));
   }
+  const customSort = sort === "default" || sort.startsWith("tier-");
   query = query.order(sort.startsWith("due-") ? "due_by" : "created_at", { ascending: sort.endsWith("oldest") || sort.endsWith("earliest"), nullsFirst: false })
-    .order("id", { ascending: true }).range(page * pageSize, (page + 1) * pageSize - 1);
+    .order("id", { ascending: true }).range(customSort ? 0 : page * pageSize, customSort ? 999 : (page + 1) * pageSize - 1);
   const [result, ...counts] = await Promise.all([query, ...filters.map(key => queryFor(key, true))]);
   if (result.error || counts.some(result => result.error)) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
-  const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, result.data || []);
+  const allRows = [...(result.data || [])];
+  if(customSort)for(let offset=allRows.length;offset<(result.count||0);offset+=1000){
+    const next=await query.range(offset,offset+999);
+    if(next.error || !next.data?.length)return NextResponse.json({error:"The complete sorted work-order list could not be loaded."},{status:503});
+    allRows.push(...next.data);
+  }
+  const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, allRows);
   if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
-  return NextResponse.json({ work_orders: enrichedOrders, page, page_size: pageSize, total: result.count || 0,
+  return NextResponse.json({ work_orders: customSort ? sortWorkOrders(enrichedOrders,sort as WorkOrderSort).slice(page*pageSize,(page+1)*pageSize) : enrichedOrders, page, page_size: pageSize, total: result.count || 0,
     counts: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])) }, { headers: { "Cache-Control": "no-store" } });
 
 }
@@ -462,9 +473,6 @@ export async function POST(request: NextRequest) {
   }
 
 
-  if (saved?.length) {
-    await Promise.allSettled(saved.map((item) => processRoomRankerSyncForWorkOrder(admin, String(item.id))));
-  }
 
   if (sourceDraft && admin) {
     const { error: draftDeleteError } = await admin

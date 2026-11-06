@@ -127,6 +127,8 @@ function fixture(options = {}) {
             storageCalls.push({ operation: "info", path });
             if (options.infoError) return { data: null, error: { statusCode: "503" } };
             const file = await stored(path);
+            const listed = (options.files || [{name:"photo.png"}]).find(item=>path.endsWith('/'+item.name));
+            if (!file && listed) return {data:{metadata:options.customMetadata || {}},error:null};
             return file ? { data: { size: file.size, contentType: file.type }, error: null } : { data: null, error: missing };
           },
           download: async (path) => { const file = await stored(path); return { data: file, error: file ? null : missing }; },
@@ -289,9 +291,9 @@ test("attachment ownership and cross-role API access match the role capability b
 test("attachment uploads validate type, file signature, and the inclusive 10 MiB size limit", async () => {
   const invalidCases = [
     { file: null, message: "Choose an image" },
-    { file: photo("notes.txt", "text/plain"), message: "Only JPEG" },
-    { file: photo("vector.svg", "image/svg+xml"), message: "Only JPEG" },
-    { file: photo("mislabeled.png", "image/jpeg"), message: "Only JPEG" },
+    { file: photo("notes.txt", "text/plain"), message: "Only supported JPEG" },
+    { file: photo("vector.svg", "image/svg+xml"), message: "Only supported JPEG" },
+    { file: photo("mislabeled.png", "image/jpeg"), message: "Only supported JPEG" },
     { file: new File([new Uint8Array(16)], "spoofed.png", { type: "image/png" }), message: "not a valid supported image" },
     { file: photo("empty.png", "image/png", 0), message: "10 MB or smaller" },
     { file: photo("oversized.png", "image/png", 10 * 1024 * 1024 + 1), message: "10 MB or smaller" },
@@ -388,8 +390,10 @@ test("attachment route exposes authenticated removal alongside read and upload",
 });
 
 test("work-order form accepts multiple gallery photos, camera photos, and previews them before submit", () => {
-  assert.match(workOrderPageSource, /id="work-order-photo-file" type="file" accept="image\/\*" multiple/);
-  assert.match(workOrderPageSource, /id="work-order-photo-camera" type="file" accept="image\/\*" capture="environment"/);
+  assert.match(workOrderPageSource, /<WorkOrderMediaControl/);
+  const media=readFileSync(new URL("../src/components/WorkOrderMediaControl.tsx",import.meta.url),"utf8");
+  assert.match(media,/accept="image\/\*,video\/\*" multiple/);
+  assert.match(media,/capture="environment"/);
   assert.match(workOrderPageSource, /function WorkOrderPhotoPreview/);
   assert.match(workOrderPageSource, /photos\.map\(\(photo\) => <WorkOrderPhotoPreview/);
   assert.match(workOrderPageSource, /uploadWorkOrderAttachment\(workOrder\.id, selectedPhoto\.file, session\.access_token, selectedPhoto\.uploadId\)/);
@@ -398,11 +402,11 @@ test("work-order form accepts multiple gallery photos, camera photos, and previe
 
 test("work-order detail exposes desktop photo upload and mobile camera controls to commenters", () => {
   const detailSource = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(detailSource, /canSubmitTicketNote && \([\s\S]*?id="work-order-detail-photo"[\s\S]*?accept="image\/\*"[\s\S]*?Choose photo/);
-  assert.match(detailSource, /id="work-order-detail-camera"[\s\S]*?capture="environment"/);
-  assert.match(detailSource, /className="[^"]*\bmd:hidden\b/);
-  assert.match(detailSource, />\s*Camera\s*</);
-  assert.match(detailSource, /onClick=\{\(\) => photoFileInputRef\.current\?\.click\(\)\}/);
+  assert.match(detailSource, /<WorkOrderMediaComposer[^>]*disabled=\{saving \|\| !canSubmitTicketNote\}/);
+  const composer=readFileSync(new URL("../src/components/WorkOrderMediaComposer.tsx",import.meta.url),"utf8");
+  assert.match(composer,/<WorkOrderMediaControl disabled=\{busy\|\|disabled\}/);
+  assert.match(composer,/uploadWorkOrderAttachment\(workOrderId,item.file,session.access_token,item.id\)/);
+
 });
 
 test("a failed photo upload can be retried against the same created work order", async () => {
@@ -470,7 +474,7 @@ test("permanent file-validation failures let users replace the image without dis
   }
 
   assert.match(workOrderPageSource, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button[^>]*onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
-  assert.match(workOrderPageSource, /disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
+  assert.match(workOrderPageSource, /disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload \|\| loading\}/);
   assert.match(workOrderPageSource, /function chooseReplacementPhoto\(\)[\s\S]*?photoFileInputRef\.current\?\.click\(\)/);
   assert.match(workOrderPageSource, /function acceptSelectedPhotos\([\s\S]*?setPhotos\(\(current\) => current\.map\(\(photo\) => photo\.uploadId === photoToReplaceUploadId \? replacement : photo\)\)/);
   assert.match(workOrderPageSource, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
@@ -861,4 +865,22 @@ test("staging outage and cleanup failure cannot expose tokens or erase a saved p
   assert.ok(route.storageCalls.filter(call => call.operation === "remove").every(call => call.paths.every(path => path.includes("/work-order-upload-staging/"))));
   assert.equal((await route.post(photo("photo.png", "image/png", 17), directUploadId)).status, 503);
   assert.equal(route.objects.get(`${hotelId}/work-orders/${workOrderId}/owner_${directUploadId}.png`).size, file.size);
+});
+
+test('history exposes original filenames and verified uploader metadata from Storage info',async()=>{
+ const route=fixture({role:'Chief Engineer',files:[{name:'photo.png',metadata:{mimetype:'image/png'}}],customMetadata:{originalName:'Lobby repair — before.png',uploaderName:'Fictional Technician',uploaderRole:'Technician'}});
+ const result=await route.get();assert.equal(result.status,200);
+ const body=result.body;assert.equal(body.images[0].name,'Lobby repair — before.png');assert.equal(body.images[0].uploader_name,'Fictional Technician');assert.equal(body.images[0].uploader_role,'Technician');
+ const unavailable=fixture({role:'Chief Engineer',infoError:true});assert.equal((await unavailable.get()).status,503);
+});
+
+
+test('video uploads validate container identity and reject mislabeled WebM',async()=>{
+ const webm=new Uint8Array([0x1a,0x45,0xdf,0xa3,0x87,0x42,0x82,0x84,0x77,0x65,0x62,0x6d]);
+ const route=fixture({role:"Chief Engineer"});
+ // Same upload path as images; source filenames are retained in metadata.
+ const accepted=await route.post(new File([webm],"Original clip.webm",{type:"video/webm"}));assert.equal(accepted.status,200);
+ const bad=new Uint8Array(webm);bad[8]=0x6d;
+ assert.equal((await route.post(new File([bad],"fake.webm",{type:"video/webm"}))).status,400);
+ assert.equal((await route.post(new File([webm.slice(0,4)],"truncated.webm",{type:"video/webm"}))).status,400);
 });

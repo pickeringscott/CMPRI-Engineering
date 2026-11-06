@@ -8,7 +8,6 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
-import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { isEngineeringWorkOrderActor, recordEngineeringWorkOrderView } from "@/lib/server/work-order-notification-resolution";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
@@ -370,7 +369,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: resolutionError instanceof Error ? resolutionError.message : "Technician notifications could not be resolved." }, { status: 503 });
     }
   }
-  await processRoomRankerSyncForWorkOrder(auth.admin, id).catch(() => undefined);
   return NextResponse.json({ workOrder: { ...data, can_correct_report: reportCorrectionAllowed(auth.principal.profile, data.status, canReadWorkOrder(workOrderReader(auth.principal), data)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, data.room) } : {}) } });
 }
 

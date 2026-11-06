@@ -43,7 +43,7 @@ begin
  if array_length(parts,1)<>4 or parts[2]<>'work-orders'
  or parts[1] !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
  or parts[3] !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
- or parts[4] !~ '^[0-9a-f_-]+\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$' then return null; end if;
+ or parts[4] !~ '^[0-9a-f_-]+\.(jpg|jpeg|png|gif|webp|bmp|heic|heif|mp4|mov|webm)$' then return null; end if;
  select hotel_id into h from public.work_orders where id=parts[3]::uuid and hotel_id=parts[1]::uuid;
  insert into public.cmpri_resource_signals(hotel_id,recipient_user_id,topic)
  select distinct h,m.user_id,'orders' from public.hotel_members m join public.profiles p on p.id=m.user_id

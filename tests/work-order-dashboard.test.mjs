@@ -1,3 +1,4 @@
+import * as workOrderSort from '../src/lib/work-order-sort.ts';
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -60,6 +61,7 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true, p
     exports,
     process: { env: {} },
     require(name) {
+      if(name==='@/lib/work-order-sort')return workOrderSort;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, (_principal, capability) => capability === "view_dashboard"
           ? hasDashboard
           : capability === "edit_tickets" || capability === "review_tickets"
@@ -172,7 +174,7 @@ test("technician landing uses the shared desktop shell with the technician-scope
   const technician = readFileSync(new URL("../src/app/technician/page.tsx", import.meta.url), "utf8");
   assert.match(rolePolicy, /if \(key === "technician"\) return "\/technician"/);
   assert.match(desktop, /roleKey\(session\.user\.role\) === "technician" && \{ key: "\/technician", label: "Technician Dashboard"/);
-  assert.match(technician, /data-cmpri-modal-href="\/engineering\/preventive-maintenance"[^>]*>Preventive Maintenance/);
+  assert.match(technician, /key:"\/engineering\/preventive-maintenance",label:"Preventive Maintenance"/);
   assert.match(desktop, /const userRoleRef = useRef\(""\)/);
   assert.match(desktop, /filter=pending&page=/);
   assert.match(desktop, /userRoleRef\.current = session\.user\.role/);

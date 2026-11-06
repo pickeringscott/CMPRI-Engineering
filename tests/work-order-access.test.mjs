@@ -37,7 +37,7 @@ test('work-order reviewers can stage notes only while a request is pending revie
   assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,status:'Pending Verification'}),false);
   assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: chief \? "Chief Engineer" : cmpriSession\?\.user\.role,[\s\S]*canEdit: canEditTicket,[\s\S]*canReview: canReviewCurrentTicket,[\s\S]*status: order\.status/);
   assert.match(detailPage,/disabled=\{saving \|\| !canSubmitTicketNote\}/);
-  assert.match(detailPage,/!noteDraft\.trim\(\) \|\| !canSubmitTicketNote/);
+  assert.match(detailPage,/<WorkOrderMediaComposer[^>]*hasNote=\{!!noteDraft\.trim\(\)\}/);
 });
 
 test('technicians can stage notes only when their work-order edit policy permits notes',()=>{

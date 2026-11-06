@@ -1,4 +1,5 @@
 "use client";
+import LoyaltyBadge from "@/components/LoyaltyBadge";
 
 import { resourceViewVisible } from "@/lib/events/visibility";
 import { subscribeResources } from "@/lib/events/browser";
@@ -25,6 +26,8 @@ type RoomOperation = {
   move_from: string | null;
   move_to: string | null;
   guest_name: string | null;
+  loyalty_tier?:string|null;
+  incoming_loyalty_tier?:string|null;
   room_type: string | null;
   guest_code: string | null;
   guest_arrival_date: string | null;
@@ -225,13 +228,13 @@ function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
         <CheckoutPill row={row} today={today} />
         <MovePill row={row} />
       </div>
-      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400">{row.guest_name} <GuestGroupBadge group={row.group_name || row.company}/></div> : null}
+      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400"><LoyaltyBadge tier={row.loyalty_tier}/>{row.guest_name} <GuestGroupBadge group={row.group_name || row.company}/></div> : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
         {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
       </div>
       {row.incoming_name || row.incoming_type || row.incoming_code || row.arrival_date || row.arrival_time || row.incoming_block_indicator ? (
         <div className="mt-1 text-sm text-sky-200">
-          Incoming: {row.incoming_name || "Name unavailable"} <GuestGroupBadge group={row.incoming_company}/>
+          Incoming: {row.incoming_loyalty_tier&&<LoyaltyBadge tier={row.incoming_loyalty_tier}/>} {row.incoming_name || "Name unavailable"} <GuestGroupBadge group={row.incoming_company}/>
           {row.incoming_type ? ` · ${row.incoming_type}` : ""}
           {row.incoming_code ? ` · ${row.incoming_code}` : ""}
           {row.arrival_date ? ` · ${displayDate(row.arrival_date)}` : ""}

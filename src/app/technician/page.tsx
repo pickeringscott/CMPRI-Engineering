@@ -18,7 +18,7 @@ import {
 } from "@/lib/dashboard/work-order-notifications";
 import WorkOrderNotificationBanner from "@/components/WorkOrderNotificationBanner";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
-import { roomRankerProfileCanView } from "@/lib/room-ranker-access";
+import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
 
@@ -257,28 +257,16 @@ export default function TechnicianDashboard() {
             </div>
             </div>
             <div className="sm:hidden"><PoolStatus controlOnly/></div><Link href="/work-orders" className="ml-auto min-h-10 shrink-0 rounded-full border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm sm:hidden">Create Work Order</Link>
-          <div className="hidden flex-wrap items-center justify-end gap-2 sm:flex">
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/staff-notes" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Staff Notes</button>
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-[9pt] font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
-            <PoolStatus controlOnly/><Link href="/work-orders" className="rounded-full border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
-            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:hidden">
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
-            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-3 py-2 text-xs font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
-          </div>
-          {account && profileCanUseHoursTracker(account) && (
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/hours-tracker" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Hours Tracker</button>
-          )}
-          <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranking" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Room Ranker</button>
-          {account && roomRankerProfileCanView(account, account.email) && (
-            <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/room-ranker" className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Room Ranker old</button>
-          )}
+          <div className="hidden sm:flex"><PoolStatus controlOnly/><Link href="/work-orders" className="rounded-full border border-amber-400/60 bg-amber-500 px-3 py-1 text-xs font-bold text-slate-950">Create Work Order</Link></div>
+          <ApprovedDashboardMenus role="Technician" groups={[
+            {label:"Work Orders",items:[{key:"/engineering",label:"All Work Orders"}]},
+            {label:"Operations",items:[{key:"/engineering/pool-log",label:"Pool Log"},{key:"/staff-notes",label:"Staff Notes"},{key:"/engineering/preventive-maintenance",label:"Preventive Maintenance"},{key:"/engineering/room-ranking",label:"Room Ranker"}]},
+            {label:"Account",items:[...(account&&profileCanUseHoursTracker(account)?[{key:"/engineering/hours-tracker",label:"Hours Tracker"}]:[]),{key:"sign-out",label:"Sign Out"}]}
+          ]} onLaunch={action=>{if(action.key==="sign-out")void signOut();else if(action.key==="/engineering")router.push(action.key);else window.dispatchEvent(new CustomEvent("cmpri-open-modal",{detail:{href:action.key,title:action.label}}))}}/>
+
         </div>
 
-        <Link href="/engineering" className="mt-2 inline-flex rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200">All Work Orders</Link>
+
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
         {inboxOpen && <section aria-label="Work-order notifications" className="mt-3 rounded-lg border border-sky-400/40 bg-sky-950/25 p-3">

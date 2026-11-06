@@ -41,7 +41,6 @@ test('work-order detail and User Management routes retain modal context', () => 
 test('dashboard action screens receive modal context while ordinary routes do not', () => {
   for (const path of [
     '/profile',
-    '/engineering/room-ranker',
     '/engineering/preventive-maintenance',
     '/engineering/purchasing',
     '/engineering/gss',
@@ -233,7 +232,6 @@ test('embedded navigation is handled by the parent host without opening a child-
 
 test('dashboard action pages render without duplicate outer headers when embedded', () => {
   const pages = [
-    '../src/app/engineering/room-ranker/page.tsx',
     '../src/app/engineering/preventive-maintenance/page.tsx',
     '../src/app/engineering/pool-log/page.tsx',
     '../src/app/engineering/enseo-assignments/page.tsx',
@@ -269,7 +267,6 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
   const launchers = dashboard.slice(dashboard.indexOf('const launcherGroups'), dashboard.indexOf('function launch('));
   const navigation = dashboard.slice(dashboard.indexOf('<nav aria-label="Open dashboard windows"'), dashboard.indexOf('</nav>'));
   const routes = [
-    '/engineering/room-ranker',
     '/engineering/preventive-maintenance',
     '/engineering/purchasing',
     '/engineering/gss',
@@ -286,8 +283,8 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
     assert.match(launchers, new RegExp(`href: "${route.replaceAll('/', '\\/')}"`));
   }
   assert.match(dashboard, /function DashboardLauncherButton[\s\S]*?<button[\s\S]*?data-cmpri-desktop-launch=\{launcher\.key\}/);
-  assert.match(dashboard, /const visibleLauncherGroups = presentationGroups[\s\S]*?group\.items\.filter\(\(item\): item is Launcher => Boolean\(item\)\)[\s\S]*?group\.items\.length > 0/);
-  assert.match(navigation, /visibleLauncherGroups\.map\(\(group\) => \([\s\S]*?group\.items\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
+  assert.match(dashboard, /group\.items\.filter/);
+  assert.match(navigation, /<ApprovedDashboardMenus groups=\{visibleLauncherGroups\} onLaunch=\{launch\}/);
   assert.match(launchers, /hasCapability\(session, "(?:view_dashboard|submit|edit_tickets|manage_assets|manage_rooms|manage_users|review_feedback|view_profiles)"\)/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
   assert.match(dashboard, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);

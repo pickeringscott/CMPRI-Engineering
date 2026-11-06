@@ -13,7 +13,7 @@ export function roomGroupBadge(value: unknown): RoomGroupBadge | null {
 /** Consume the already projected occupancy snapshot; do not infer a guest or change arrival times. */
 export function currentRoomGroupBadges(row: Record<string, unknown>) {
   const current = typeof row.guest_name === 'string' && !!row.guest_name.trim();
-  const incoming = !current && (row.reserved === true || row.incoming_reserved === true)
+  const incoming = (row.reserved === true || row.incoming_reserved === true)
     && typeof row.incoming_name === 'string' && !!row.incoming_name.trim();
   return {
     guest_group_badge: current ? roomGroupBadge(row.group_name || row.company) : null,

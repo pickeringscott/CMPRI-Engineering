@@ -1,6 +1,6 @@
 import type {PdfEvidence} from "../po-attachment-intake";
 import { createHash, timingSafeEqual } from "node:crypto";
-/** Read-only mailbox adapters. The only POST is an OAuth token exchange. */
+/** Read-only message adapters; push setup separately registers provider watches. */
 export type EmailProvider = "gmail" | "microsoft365";
 export type OperationalMessage = { id: string; threadId?: string; subject: string; from: string; to: string; text: string; html?: string; labelIds?: string[]; pdfEvidence?: PdfEvidence[]; messageAt: string; direction: "inbound" | "outbound" };
 type Json = Record<string, unknown>;
@@ -196,10 +196,11 @@ async function accessToken(provider: EmailProvider) {
   return data.access_token;
 }
 
-export async function fetchOperationalMessages(options: { scope?: "po-label" | "po-history"; pageToken?: string; withPdfAttachments?: boolean } = {}) {
+export async function fetchOperationalMessages(options: { scope?: "po-label" | "po-history"; pageToken?: string; withPdfAttachments?: boolean; messageIds?: string[] } = {}) {
   const provider = configuredEmailProvider();
   if (!provider) return { provider, messages: [] as OperationalMessage[], truncated: false };
   if (options.scope && provider !== "gmail") throw new Error("PO label review requires the existing work Gmail provider.");
+  if (options.messageIds && (options.messageIds.length > 100 || options.messageIds.some(id => !/^[A-Za-z0-9_+=/-]{1,1024}$/.test(id)))) throw new Error("Invalid message identities.");
   const token = await accessToken(provider);
   const headers = { authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"' };
   const messages: OperationalMessage[] = [];
@@ -215,10 +216,12 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
       const params = new URLSearchParams({ q: query, maxResults: String(Math.min(100,messageLimit)) });
       if (pageToken) params.set("pageToken", pageToken);
       if(options.scope==='po-history')params.set("includeSpamTrash","true");
-      const list = await jsonRequest(`${base}/messages?${params}`, { headers }, "Gmail list");
+      const list = options.messageIds ? {messages: options.messageIds.map(id => ({id}))} : await jsonRequest(`${base}/messages?${params}`, { headers }, "Gmail list");
       for (const item of (list.messages || []) as { id: string }[]) {
         if (messages.length >= messageLimit) { truncated = true; break; }
-        const row = await jsonRequest(`${base}/messages/${encodeURIComponent(item.id)}?format=full`, { headers }, "Gmail retrieval");
+        let row: Json;
+        try { row = await jsonRequest(`${base}/messages/${encodeURIComponent(item.id)}?format=full`, { headers }, "Gmail retrieval"); }
+        catch (error) { if (options.messageIds && error instanceof Error && /failed \(404(?:;|\))/.test(error.message)) continue; throw error; }
         const payload = row.payload as MimePart & { headers?: { name: string; value: string }[] };
         const header = (name: string) => payload?.headers?.find(entry => entry.name.toLowerCase() === name.toLowerCase())?.value || "";
         const from = header("from");
@@ -238,7 +241,12 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
       // Never forward mailbox bearer credentials to a provider-supplied foreign host.
       const nextUrl = new URL(next);
       if (nextUrl.origin !== "https://graph.microsoft.com" || !nextUrl.pathname.startsWith("/v1.0/")) throw new Error("Untrusted Microsoft pagination URL.");
-      const page = await jsonRequest(next, { headers }, "Microsoft messages");
+      const targeted: Json[] = [];
+      if (options.messageIds) for (const id of options.messageIds) {
+        try { targeted.push(await jsonRequest(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(id)}?$select=id,conversationId,subject,receivedDateTime,from,toRecipients,body`, {headers}, "Microsoft messages")); }
+        catch (error) { if (error instanceof Error && /failed \(404(?:;|\))/.test(error.message)) continue; throw error; }
+      }
+      const page = options.messageIds ? {value: targeted} : await jsonRequest(next, { headers }, "Microsoft messages");
       for (const row of (page.value || []) as Json[]) {
         if (messages.length >= messageLimit) { truncated = true; break; }
         const sender = row.from as { emailAddress?: { name?: string; address?: string } };
@@ -254,4 +262,21 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
   // Chronological ingestion prevents old updates replacing newer state and discovers outbound threads first.
   messages.sort((a, b) => a.messageAt.localeCompare(b.messageAt));
   return { provider, messages, truncated, nextPageToken:continuation };
+}
+
+/** Only provider-owned fixed endpoints are callable by push setup/history. No message writes. */
+export async function mailboxPushRequest(provider: EmailProvider, operation: "watch" | "history" | "subscription", input: { id?: string; query?: URLSearchParams; body?: Record<string, unknown> } = {}) {
+  if (configuredEmailProvider() !== provider) throw new Error("Mailbox provider changed.");
+  const token = await accessToken(provider);
+  let url: string, method = "GET";
+  if (provider === "gmail" && operation !== "subscription") {
+    url = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(process.env.CMPRI_GMAIL_USER || "me")}/${operation}`;
+    if (operation === "watch") method = "POST";
+    else if (input.query) url += `?${input.query}`;
+  } else if (provider === "microsoft365" && operation === "subscription") {
+    if (input.id && !/^[a-f0-9-]{36}$/i.test(input.id)) throw new Error("Invalid subscription identity.");
+    url = "https://graph.microsoft.com/v1.0/subscriptions" + (input.id ? `/${input.id}` : "");
+    method = input.id ? "PATCH" : "POST";
+  } else throw new Error("Invalid push operation.");
+  return jsonRequest(url, {method, headers:{authorization:`Bearer ${token}`, "Content-Type":"application/json",Prefer:'IdType="ImmutableId"'}, ...(input.body?{body:JSON.stringify(input.body)}:{}),redirect:"error",signal:AbortSignal.timeout(20000)},provider === "gmail" ? "Gmail retrieval" : "Microsoft messages");
 }

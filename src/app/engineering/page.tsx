@@ -37,14 +37,14 @@ import {
 } from "@/lib/ui/desktop-windows";
 import { profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
-import MobileDashboardMenus from "@/components/desktop/MobileDashboardMenus";
+import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder, type DesktopWorkOrderDraft } from "@/components/desktop/WorkOrderListWindow";
 import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWindow";
-import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
+import { canAccessTroubleshootingGuides } from "@/lib/room-ranker-access";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
@@ -101,7 +101,6 @@ function DashboardLauncherButton({
 
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
   "/engineering/room-ranking": { title: "Room Ranker", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
-  "/engineering/room-ranker": { title: "Room Ranker old", accent: "bg-amber-400" },
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
   "/profile": { title: "Manage Profile", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
   "/profile/ai-connection": { title: "ChatGPT Connection", accent: "bg-sky-400", preferred: { width: 760, height: 640 } },
@@ -594,7 +593,6 @@ export default function EngineeringDashboardPage() {
   const frontDeskLayout = roleKey(session.user.role) === "front_desk";
   const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
   const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
-  const canViewRanker = roomRankerProfileCanView(session.user, session.user.email);
   const canOpenTroubleshootingGuides = canAccessTroubleshootingGuides(session.user);
   const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
@@ -649,7 +647,6 @@ export default function EngineeringDashboardPage() {
         canUseEngineeringAdminTools && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
         canUseEngineeringAdminTools && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         { key: "/engineering/room-ranking", label: "Room Ranker", href: "/engineering/room-ranking", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
-        canViewRanker && { key: "/engineering/room-ranker", label: "Room Ranker old", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
         hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
       ],
     },
@@ -715,7 +712,7 @@ export default function EngineeringDashboardPage() {
       group.items = [...keys.flatMap(key => present.filter(item => item.key === key)), ...present.filter(item => !keys.includes(item.key))];
     };
     reorder(work, ["/work-orders", WORK_ORDER_LIST_KEY]);
-    reorder(operations, ["/engineering/preventive-maintenance", "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/engineering/room-ranker", "/staff-notes"]);
+    reorder(operations, ["/engineering/preventive-maintenance", "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/staff-notes"]);
     reorder(assets, ["/engineering/purchasing", "/engineering/parts", "/management/equipment"]);
     const tracker = account.items.find(item => item && item.key === "/engineering/hours-tracker");
     if (tracker) {
@@ -727,16 +724,15 @@ export default function EngineeringDashboardPage() {
       if (!item) continue;
       if (item.key === "/work-orders") item.label = "+ Create Work Order";
       if (item.key === "/engineering/preventive-maintenance") item.label = "Preventative Maintenance";
-      if (item.key === "/engineering/room-ranker") item.label = "Room Ranker Old";
       if (item.key === "/engineering/purchasing") item.label = "PO";
     }
   }
-  const frontDeskKeys = ["/engineering/room-ranking", WORK_ORDER_LIST_KEY, "pool-status", "/staff-notes", "/profile", "sign-out"];
+  const frontDeskKeys = ["/engineering/room-ranking", WORK_ORDER_LIST_KEY, "/staff-notes", "sign-out"];
   const presentationGroups = frontDeskLayout ? [{ label: "Front Desk", items: frontDeskKeys.map(key => launcherGroups.flatMap(group => group.items).find(item => item && item.key === key) || false) }] : launcherGroups;
   const visibleLauncherGroups = presentationGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item): item is Launcher => Boolean(item)),
+      items: group.items.filter((item): item is Launcher => Boolean(item && item.key !== "pool-status" && item.key !== "/work-orders")),
     }))
     .filter((group) => group.items.length > 0);
   const openKeys = new Set(windows.map((entry) => entry.key));
@@ -747,17 +743,14 @@ export default function EngineeringDashboardPage() {
   const bellLabel = canReviewTickets
     ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${approvalTotal} awaiting approval`
     : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
-  const mobileLaunchers = visibleLauncherGroups
-    .flatMap((group) => group.items)
-    .filter((launcher) => launcher.key !== "/work-orders");
   const createWorkOrderLauncher = launcherGroups
     .flatMap((group) => group.items)
     .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
 
   return (
     <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(engineerDesktopMenus || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefEngineerMobileLayout ? "true" : undefined}>
-      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:flex-row lg:items-center lg:gap-3 lg:pb-3">
-        <div className="flex w-full shrink-0 items-center gap-4 border-b border-slate-800 pb-2 lg:w-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
+      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
+        <div className="flex w-full min-w-0 shrink-0 items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col items-start leading-tight">
             <p data-dashboard-title data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="text-[14pt] font-bold leading-none tracking-tight">
               <span className="text-amber-300">CMPRI</span>{" "}
@@ -780,51 +773,17 @@ export default function EngineeringDashboardPage() {
               </div>
               <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
-            {createWorkOrderLauncher && !engineerDesktopMenus && !chiefEngineerMobileLayout && !frontDeskLayout && (
-              <DashboardLauncherButton
-                launcher={createWorkOrderLauncher}
-                open={openKeys.has(createWorkOrderLauncher.key)}
-                onLaunch={launch}
-                className="ml-auto min-h-10 shrink-0 rounded-lg border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm lg:hidden"
-              />
-            )}
           </div>
-          {createWorkOrderLauncher && !engineerDesktopMenus && chiefEngineerMobileLayout && (
-            <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch}
-              className="ml-auto min-h-8 shrink-0 self-start rounded-lg border border-amber-400/60 bg-amber-500 px-2 py-1 text-xs font-bold text-slate-950 shadow-sm lg:hidden" />
-          )}
+          <PoolStatus controlOnly onOpen={openPoolStatus}/>
+        {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-front-desk-create ml-auto mr-2 shrink-0 rounded border border-amber-300 bg-amber-400 px-3.5 py-2 text-sm font-bold text-slate-950" />}
         </div>
 
-        <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
-          {engineerDesktopMenus || chiefEngineerMobileLayout ? (
-            <MobileDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} />
-          ) : (
-          <div className="flex min-w-0 flex-wrap items-center gap-1 lg:hidden">
-            {mobileLaunchers.map((launcher) => (
-              <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
-            ))}
-          </div>
-          )}
-          {engineerDesktopMenus ? <MobileDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} desktop /> : <div className="hidden min-w-0 flex-wrap items-center gap-0.5 lg:flex">
-          {visibleLauncherGroups.map((group) => (
-            <div key={group.label} className="relative">
-              <div
-                role="group"
-                aria-label={group.label}
-                className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5"
-              >
-                <span aria-hidden="true" className="hidden px-0.5 text-[9pt] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
-                {group.items.map((launcher) => (
-                  <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
-                ))}
-              </div>
-            </div>
-          ))}
-          </div>}
+        <nav aria-label="Open dashboard windows" className="w-full min-w-0">
+          <ApprovedDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} role={displayRole} locked={frontDeskLayout} />
         </nav>
-        {<PoolStatus controlOnly onOpen={openPoolStatus}/>}
+
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
-        {frontDeskLayout && createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-front-desk-create ml-auto mr-2 shrink-0 rounded border border-amber-300 bg-amber-400 px-3.5 py-2 text-sm font-bold text-slate-950" />}
+
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
       </header>
 

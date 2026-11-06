@@ -351,8 +351,8 @@ test('technician dashboard excludes CMPRI AI and shows due date beneath ordered 
   const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(layout, /DashboardAssistant/);
   assert.match(dashboard, /Status → \{statusText\}[\s\S]*Category → \{categoryText\}[\s\S]*Severity\/Priority → \{priorityText\}[\s\S]*Due Date → \{dueLabel\}/);
-  assert.match(dashboard, /data-cmpri-modal-href="\/engineering\/pool-log"/);
-  assert.match(dashboard, /<Link href="\/work-orders"[^>]*>Create a Work Order<\/Link>/);
+  assert.match(dashboard, /key:"\/engineering\/pool-log",label:"Pool Log"/);
+  assert.match(dashboard, /<Link href="\/work-orders"[^>]*>Create Work Order<\/Link>/);
 });
 
 test('notification endpoint authorizes dashboard recipients and scopes audit records to the property', () => {

@@ -1,3 +1,4 @@
+import * as workOrderSort from '../src/lib/work-order-sort.ts';
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import test from 'node:test';
@@ -54,7 +55,8 @@ function fixture(config = {}) {
   vm.runInNewContext(routeCode, {
     exports,
     process: { env: {} },
-    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+    require(name) {
+      if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, () => true);
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => db };
