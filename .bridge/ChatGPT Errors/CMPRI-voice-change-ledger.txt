@@ -165,7 +165,7 @@ PART 5 DRAGGING AND COLOR PALETTE ITERATIONS
 
 073. PREVIEW REQUEST. Add a set of ten color-palette choices, not uncontrolled individual color selection. Source: "Give me ... a palette of ten different color choices". Scott later clarifies that he means ten complete palettes, then increases to twenty.
 
-074. FINAL SPECIAL COLOR. PM is the only initially fixed color; match the existing PM check marks and modal color. Source: "PM modal ... those blue checkboxes that we had ... I'll give you the color". The exact supplied hexadecimal value in entry 086 governs over the informal word blue.
+074. FINAL SPECIAL COLOR. PM is the only initially fixed color; match the existing PM check marks and modal color. Source: "PM modal ... those blue checkboxes that we had ... I'll give you the color". The exact supplied hexadecimal value in entry 081 governs over the informal word blue.
 
 075. FINAL DRAG BEHAVIOR. Entire tabs must follow the pointer/finger like buttons do, and neighboring buttons/tabs must move out of the way to show the landing position. Source: "I want the tab to act that way ... other buttons to move out of the way and show where that one's going to land".
 
@@ -239,7 +239,7 @@ PART 6 LOCKED COLORS AND MODAL APPEARANCE
 
 109. PRESERVATION REQUEST. Opening a Work Order should preserve the existing size. Source: "When you open a work order, it needs to be the same size as what it is currently". Later clarification emphasizes the title bar rather than confusing it with total modal height.
 
-110. CLARIFICATION. Determine the existing title-bar height, not the full modal dimensions; match that height and title text. Source: "That is not the title bar height. That is the whole size of the ... modal"; "The title bar height".
+110. CLARIFICATION, CORRECTED BY NOVEMBER 6 RECHECK. Match the accepted title-bar height of 28 CSS pixels and the existing title text; do not confuse title-bar height with the full modal dimensions. Source: "That is not the title bar height. That is the whole size of the ... modal"; "The title bar height".
 
 111. FINAL. Modal titles and buttons use palette six, including appropriate text color; do not interpret this as a request to arbitrarily dull every text element. Source: "Not muted, muted text, but yeah the same color palette as six"; "for the title of the modals and the buttons".
 
@@ -325,7 +325,7 @@ PART 9 LOYALTY TIERS AND STAY DATA
 
 149. FINAL SORT OPTIONS. Add Bonvoy status-tier sorting high-to-low and low-to-high. Source: "Bonvoy status tiers ... sort by status, high to low, and then low to high".
 
-150. UNRESOLVED EXACT SORT PLACEHOLDER. Scott explored muted "Sort by..." as placeholder, first excluding it from options, then recognizing a blank/default item must exist and asking for the dropdown's behavior. Source: "sort by ... placeholder. Muted ... does not appear in the dropdown ... sort by has to show up there". The available transcript does not expose a final detailed answer or explicitly approved exact reset behavior; do not invent it.
+150. UNRESOLVED EXACT SORT PLACEHOLDER. Scott explored muted "Sort by..." as placeholder, first excluding it from options, then recognizing a blank/default item must exist and asking for the dropdown's behavior. Source: "sort by ... placeholder. Muted ... does not appear in the dropdown ... sort by has to show up there". The explanation was present in the transcript. The subsequent “never mind” does not clearly approve every part of it; do not treat the explanation as unavailable or invent blanket approval of exact reset behavior.
 
 PART 10 MOBILE LIST TILES AND ADDING CREATE WORK ORDER
 
@@ -333,7 +333,7 @@ PART 10 MOBILE LIST TILES AND ADDING CREATE WORK ORDER
 
 152. WITHDRAWN TILE ORDERS. Scott tried several row/column orders, then explicitly scrapped them because Pending had been omitted. Source: "we're gonna have to scratch all that. Never mind. I forgot pending".
 
-153. FINAL TILE GRID. Eight tiles fit into two rows of four: Pending, Open, Progress, Urgent/High, Overdue, Done, Closed, All are the specified set. Source: "Out of ... these eight, pending, open, progress, urgent slash high, overdue, done, closed, all ... 2 rows of 4". Scott accepted the assistant's suggested order, but that spoken suggestion is not reproduced in the user transcript. Prior approval records report row 1 Pending/Open/In Progress/All; row 2 Urgent/Overdue/Done/Closed. Treat that exact ordering as approval-record-derived, not a verbatim Scott enumeration.
+153. FINAL TILE GRID. Eight tiles fit into two rows of four: Pending, Open, Progress, Urgent/High, Overdue, Done, Closed, All are the specified set. Source: "Out of ... these eight, pending, open, progress, urgent slash high, overdue, done, closed, all ... 2 rows of 4". The order was spoken and accepted: row 1 Pending/Open/In Progress/All; row 2 Urgent/Overdue/Done/Closed. The November 6 recheck corrects the earlier claim that the spoken suggestion was unavailable.
 
 154. FINAL ROLE SCOPE. Apply mobile changes for all mobile users. Source: "all mobile users".
 
@@ -375,7 +375,7 @@ PART 12 WORK ORDER DETAIL GUEST NAME AND ATTACHMENT PLACEMENT
 
 171. INITIAL MOBILE NUMBER REQUEST, LATER PRESERVED BY PREVIEW. Move mobile Work Order number all the way left on the top line. Source: "work order number ... stay on the top, but move it to the left, all the way to the left". Later Scott explicitly says leave its current approved position alone.
 
-172. SUPERSEDED GUEST-NAME PLACEMENT. Initially put muted first/last guest name with Bonvoy status and a small badge below room number and above issue, then paused the sizing instruction. Source: "guest's first and last name ... muted"; "under the room number ... above the issue ... hold up".
+172. DESKTOP POSITION SUPERSEDED; MOBILE REQUIREMENT RETAINED BY LATER RECAP. Initially put muted first/last guest name with Bonvoy status and a small badge below room number and above issue, then paused the sizing instruction. Source: "guest's first and last name ... muted"; "under the room number ... above the issue ... hold up".
 
 173. FINAL DESKTOP GUEST TITLE. Put guest name in the desktop title bar's far-right top line, with badges/status to its left. Source: "on desktop put the guest's name at the title bar ... far right top line ... badges and status to the left".
 
@@ -441,7 +441,7 @@ PART 14 PILL CONSISTENCY AND TICKET HISTORY MEDIA
 
 202. FINAL IMAGE INTERACTION. Hover shows an image thumbnail; clicking opens the actual image. Source: "hover over it to see a thumbnail ... actually see it when you click on it".
 
-203. FINAL VIDEO INTERACTION. Hover shows the first frame paused; clicking opens the video and permits playback. Source: "video ... first frame and it's paused ... click ... open it and then it plays".
+203. FINAL VIDEO INTERACTION. Hover shows the first frame paused; clicking opens the video and starts playback. Source: "video ... first frame and it's paused ... click ... open it and then it plays".
 
 204. WITHDRAWN DETAIL BADGE CHANGE. Scott starts changing group/badge placement inside the Work Order, then explicitly keeps the current arrangement. Source: "Inside of the work order ... group No, never mind. Leave that ... happy the way that is".
 
@@ -531,7 +531,7 @@ PART 18 RELEASE AND WORKING INSTRUCTIONS
 
 243. FINAL COMMUNICATION PREFERENCE. Ordinary completion notice should be minimal; do not recite every change unless asked. Source: "don't give me everything that's changed ... Just say it's done". He later explicitly asks for change logs, scope and status on particular occasions; answer those actual questions.
 
-244. FINAL PROGRESS PREFERENCE. Notify when done without requiring him to ask, but no routine Codex narration because he can see it. Source: "You have to tell me"; "you do not need to give me updates about the Codex chat because I can see it"; "Only update me when it's done".
+244. FINAL PROGRESS PREFERENCE. Notify when done without requiring him to ask, but no routine Codex narration because he can see it. Major matters requiring his attention, including deployment permission, are an exception. Source: "You have to tell me"; "you do not need to give me updates about the Codex chat because I can see it"; "Only update me when it's done".
 
 245. FINAL PREVIEW-FIRST PRINCIPLE. Use visual HTML previews before final deployment of the substantial UI changes, with desktop and mobile inspected. Source: "I need this HTML first ... we made some big changes".
 
@@ -565,7 +565,7 @@ C. Approved native notification HTML recorded in the approval history: libfile_6
 
 D. Guest badge concept recorded in the approval history: libfile_0d141ad2984c819192ad6fa4913055c0. The user-pasted exact tier/color specification has message ID Sentinel_628cb76cff7c81918bdf638433227313. These IDs identify approval references, not verified current implementation.
 
-E. Exact pixel dimensions, animation duration, resize maxima and offsets were not spoken as numeric specifications. Do not invent them. The final approved previews are the visual reference.
+E. The accepted title-bar height is 28 CSS pixels, as confirmed by the November 6 recheck. Other dimensions, animation duration, resize maxima and offsets must follow the approved previews/specification; do not invent unsupported numeric requirements.
 
 F. The transcript includes successive approvals and reversals. Current final choices are Coral Glow/6, PM #00D492, Sign Out muted red, borderless approved 3D bell, title-tab-only yellow fill, consistent Chief-reference visuals without broader access, final Work Order mobile/desktop design, and email push deferred in the later November 6 instruction.
 
@@ -584,3 +584,51 @@ SUBSEQUENT USER CORRECTIONS AND RELEASE AUTHORIZATION — NOVEMBER 6, 2026
 256. FINAL MODAL SCROLLBAR. Each modal's vertical scrollbar uses its outline color in the muted tone used across CMPRI. Header group horizontal scrollbars retain their muted CMPRI yellow. Source: "the scroll bar be the color of the outline of the modal but in the muted tone used across CMPRI."
 
 257. IMPLEMENTATION AND DEPLOYMENT AUTHORIZATION. Correct the reported production/instruction differences using the supplied instructions and HTML references, including the two corrections above, verify the implementation, and deploy. Source: "fix these errors with the instructions I gave to my DOT" and "you have my explicit permission to deploy". Email push and the Staff Notes tutorial remain deferred.
+
+NOVEMBER 6 RECHECK: TWENTY USER-SUPPLIED CORRECTIONS
+
+Source for entries 258–277: Scott’s consolidated twenty-item recheck supplied in this conversation. These are authoritative corrections to the record; they are not a claim to have recovered missing original utterances.
+
+258. FINAL RECHECK CORRECTION. INITIAL PREVIEW FORMAT. One HTML with separate role and layout dropdowns, not twenty files. This is historical preview scope, not authorization for production layout selectors. Source: user-supplied consolidated recheck, item 1.
+
+259. FINAL RECHECK CORRECTION. INITIAL PREVIEW COVERAGE. Four initial layouts for each of General Manager, Chief Engineer, Front Desk, Assistant Manager, and Front Desk Manager/Lead. This is historical preview scope. Source: user-supplied consolidated recheck, item 2.
+
+260. FINAL RECHECK CORRECTION. SYSTEM ADMINISTRATOR PRESENTATION. System Administrator follows the Chief Engineer layout, while retaining its own existing access restrictions. Source: user-supplied consolidated recheck, item 3.
+
+261. FINAL RECHECK CORRECTION. GENERAL MANAGER CREATE POSITION. Place General Manager Create Work Order on the right. Source: user-supplied consolidated recheck, item 4.
+
+262. FINAL RECHECK CORRECTION. GENERAL MANAGER / CHIEF SIMILARITY. GM and Chief Engineer/System Administrator headers should look similar because they have the most controls. Source: user-supplied consolidated recheck, item 5.
+
+263. FINAL RECHECK CORRECTION. REJECTED INITIAL MOBILE PREVIEWS. The initial four mobile layouts were rejected as unusable and replacements were requested. Do not reinstate them in production. Source: user-supplied consolidated recheck, item 6.
+
+264. FINAL RECHECK CORRECTION. OUTLINE MUTING PRESERVES SPACE. Muting tab outlines must not remove the existing space. Source: user-supplied consolidated recheck, item 7.
+
+265. FINAL RECHECK CORRECTION. EXACT TITLE BAR HEIGHT. The accepted measurement is 28 CSS pixels. Corrects the previous record claim that no exact measurement was spoken. Source: user-supplied consolidated recheck, item 8.
+
+266. FINAL RECHECK CORRECTION. APPROVED EVENT SCOPE INCLUDES MENTIONS. Mentions were explicitly included in the approved event-driven proposals. Source: user-supplied consolidated recheck, item 9.
+
+267. FINAL RECHECK CORRECTION. APPROVED EVENT SCOPE INCLUDES DUPLICATE POOL COMPONENTS. Deduplicate the Pool components/reads while preserving Pool access and its modal. Source: user-supplied consolidated recheck, item 10.
+
+268. FINAL RECHECK CORRECTION. ATTACHED VIDEO STARTS PLAYBACK. After the paused first-frame hover preview, clicking an attached video opens it AND starts playback; merely permitting playback is insufficient. Source: user-supplied consolidated recheck, item 11.
+
+269. FINAL RECHECK CORRECTION. MOBILE CAMERA IS SEPARATE. The camera half supports the phone camera separately from the upload picker. Source: user-supplied consolidated recheck, item 12.
+
+270. FINAL RECHECK CORRECTION. INTERMEDIATE BADGE POSITION. An initial request placed guest/group badges outside the Work Order number; later placement clarifications govern the final rendering. Record the intermediate request rather than silently omit it. Source: user-supplied consolidated recheck, item 13.
+
+271. FINAL RECHECK CORRECTION. QUIET UPDATES EXCEPTION. Quiet updates permit major matters requiring attention, including deployment permission. Source: user-supplied consolidated recheck, item 14.
+
+272. FINAL RECHECK CORRECTION. SPOKEN MOBILE TILE ORDER. Top row Pending, Open, In Progress, All; bottom row Urgent, Overdue, Done, Closed. The order was spoken and accepted. Source: user-supplied consolidated recheck, item 15.
+
+273. FINAL RECHECK CORRECTION. SORT EXPLANATION WAS PRESENT. The Sort by explanation was in the transcript. The following “never mind” does not clearly approve every part; neither claim that the explanation was unavailable nor assume blanket approval. Source: user-supplied consolidated recheck, item 16.
+
+274. FINAL RECHECK CORRECTION. DETAIL MOBILE GUEST NAME RETAINED. On mobile Detail retain muted first/last name below the room and above the issue. On desktop move it to the actual title bar. The later icon-only/no-name List instruction does not automatically remove Detail names. Source: user-supplied consolidated recheck, item 17.
+
+275. FINAL RECHECK CORRECTION. PM CROSS-REFERENCE CORRECTION. Entry 074 must point to 081 for #00D492, not to 086. Source: user-supplied consolidated recheck, item 18.
+
+276. FINAL RECHECK CORRECTION. READABLE ROLE COMPARISON. Provide a readable comparison of each role’s access and the modals it sees. Source: user-supplied consolidated recheck, item 19.
+
+277. FINAL RECHECK CORRECTION. UPDATED STAFF NOTES FOR ALL USERS. All users receive the updated Staff Notes version rather than the old composer. Deferral/cancellation of the later welcome/tutorial did not cancel this feature. Source: user-supplied consolidated recheck, item 20.
+
+278. CURRENT REPAIR / DEPLOYMENT BOUNDARY. Compare the twenty corrections and approved header appearance against the current commit, repair discrepancies, show the full change list, and get permission BEFORE deployment. This supersedes the earlier deployment permission for this new repair. No new production selectors or unrelated redesigns are authorized. Source: “Only compare and repair. Show the full list of changes upon completion and get permission before deployment”.
+
+279. FINAL HEADER INTERACTION SPECIFICATION. Apply the full desktop/mobile interaction specification across roles, including Front Desk; preserve the approved appearance and existing access restrictions. The complete ten-section specification is recorded in CMPRI-header-interaction-spec.txt beside this ledger. It governs gestures, boundaries, visuals, insertion, invalid drops, expanded/collapsed movement, resizing, account persistence and verification. It does not authorize deployment. Source: Scott’s subsequent ten-section interaction specification in this conversation.

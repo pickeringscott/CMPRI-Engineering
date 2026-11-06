@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as roles from '../src/lib/server/roles.ts';
+import * as mediaPolicy from '../src/lib/staff-note-media.ts';
 import * as schedule from '../src/lib/notifications/schedule.ts';
 import {canReadWorkOrder} from '../src/lib/work-order-read-policy.ts';
 function module(path,deps){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require(name){if(name in deps)return deps[name];throw Error(name);},console,Date});return exports;}
@@ -14,14 +15,18 @@ test('real route rejects unauthenticated writes, filters ticket previews, derive
  const fixtures={hotel_members:[{user_id:user},{user_id:id}],profiles:[{id:user,role:'Front Desk',full_name:'Front Desk'},{id,role:'Lead Housekeeper',full_name:'Deon'}],cmpri_staff_notes:[{id,body:'#105 and #106',parent_id:null,author_name:'A',created_at:'2026-10-15T10:00:00Z'}],work_orders:[{id:'secret',display_id:'105',hotel_id:'other-hotel',status:'Draft',issue:'SECRET PREVIEW'},{id:'open',display_id:'106',hotel_id:'hotel',status:'Open',issue:'Safe preview'}],cmpri_dashboard_notifications:[],cmpri_user_notification_schedules:null};
  const admin={from(table){let q={};for(const method of ['select','eq','in','like','is','order','limit','or','update'])q[method]=(...args)=>{queries.push({table,method,args});return q;};q.maybeSingle=()=>q;q.then=(resolve,reject)=>Promise.resolve({data:fixtures[table],error:null,count:0}).then(resolve,reject);return q;},async rpc(name,args){rpc={name,args};return {data:id,error:null};}};
  const next={NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})},after(){}};
- const api=module('../src/app/api/staff-notes/route.ts',{'next/server':next,'@/lib/server/auth':{requireUser:async()=>auth},'@/lib/server/work-order-reader':{workOrderReader:()=>({userId:user,hotelId:'hotel',canRead:true,canViewAllStatuses:false})},'@/lib/work-order-read-policy':{canReadWorkOrder},'@/lib/staff-notes':policy,'@/lib/server/roles':roles,'@/lib/notifications/schedule':schedule,'@/lib/notifications/web-push':{dispatchWebPushNotifications:async()=>{}}});
+ const api=module('../src/app/api/staff-notes/route.ts',{'next/server':next,'@/lib/server/auth':{requireUser:async()=>auth},'@/lib/server/work-order-reader':{workOrderReader:()=>({userId:user,hotelId:'hotel',canRead:true,canViewAllStatuses:false})},'@/lib/work-order-read-policy':{canReadWorkOrder},'@/lib/staff-notes':policy,'@/lib/staff-note-media':mediaPolicy,'@/lib/server/roles':roles,'@/lib/notifications/schedule':schedule,'@/lib/notifications/web-push':{dispatchWebPushNotifications:async()=>{}}});
  const request=(body={})=>({nextUrl:new URL('https://fixture.invalid/api/staff-notes'),json:async()=>body});
  for(const method of ['GET','POST','PATCH'])assert.equal((await api[method](request())).status,401);
  auth={admin,principal:{identity:{id:user},hotelId:'hotel',profile:{role:'Front Desk',full_name:'Front Desk'}}};
  const response=await api.GET(request());assert.equal(response.status,200);assert.equal(response.body.tickets['105'],undefined);assert.equal(response.body.tickets['106'].href,'/work-orders/open');assert.equal(JSON.stringify(response).includes('SECRET PREVIEW'),false);
  const body={body:'@Deon hello',requestId:id};assert.equal((await api.POST(request(body))).status,400);
  assert.equal((await api.POST(request({...body,initials:'ab',author:'Forged',recipients:['other']}))).status,200);
+ assert.equal(rpc.name,'cmpri_post_staff_note_with_files');
  assert.equal(rpc.args.p_author,user);assert.equal(rpc.args.p_name,'AB');assert.equal(rpc.args.p_recipients.length,1);assert.equal(rpc.args.p_recipients[0].user_id,id);
+ assert.equal((await api.POST(request({...body,staffName:'Alex Morgan',gifIds:['validGIF123']}))).status,200);
+ assert.equal(rpc.args.p_name,'Alex Morgan');assert.deepEqual(rpc.args.p_gifs,['validGIF123']);
+ for(const fields of [{uploadIds:['invalid']},{gifIds:['https://attacker.invalid/file']},{uploadIds:[id,id]},{gifIds:Array(21).fill('gif')}]) assert.equal((await api.POST(request({...body,staffName:'Alex',...fields}))).status,400);
  queries=[];assert.equal((await api.PATCH(request({ids:[id]}))).status,200);
  assert.ok(queries.some(q=>q.method==='eq'&&q.args[0]==='recipient_user_id'&&q.args[1]===user));
  assert.ok(queries.some(q=>q.method==='eq'&&q.args[0]==='hotel_id'&&q.args[1]==='hotel'));

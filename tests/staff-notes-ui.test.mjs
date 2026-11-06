@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as roles from '../src/lib/server/roles.ts';
+import * as mediaPolicy from '../src/lib/staff-note-media.ts';
 const mentionPolicy = {};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/staff-notes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:mentionPolicy,require:name=>name==='./work-order-reference.js'?workOrderReferences:roles});
 
@@ -47,19 +48,19 @@ function harness(management=true) {
  const react={useState(initial){let i=cursor++;if(!(i in states))states[i]=initial;return [states[i],v=>states[i]=typeof v==='function'?v(states[i]):v];},useRef(initial){let i=cursor++;if(!(i in states))states[i]={current:initial};return states[i];},useCallback(fn){return fn;},useEffect(fn){effects.push(fn);},useLayoutEffect(){}};
  const jsx=(type,props)=>({type,props:props||{}});
  const exports={};
- vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){if(name==='react')return react;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx};if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({Authorization:'mock'})};if(name==='@/lib/supabase/client')return {};if(name==='@/lib/staff-notes')return mentionPolicy;throw Error(name);},setTimeout,clearTimeout,Date,Map,crypto:{randomUUID:()=>`req-${++seq}`},requestAnimationFrame:fn=>fn(),fetch:async(url,options={})=>{if(options.method==='POST'){posts.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'Offline; draft retained'}:{id:'saved'}};}return {ok:true,json:async()=>payload};},console});
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){if(name==='react')return react;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx};if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({Authorization:'mock'})};if(name==='@/lib/supabase/client')return {};if(name==='@/lib/staff-notes')return mentionPolicy;if(name==='./StaffNotesMedia')return {default:()=>null,StaffNoteAttachments:()=>null};if(name==='@/lib/staff-note-media')return mediaPolicy;if(name==='@/lib/staff-note-upload')return {uploadStaffNoteFile:async()=>{}};if(name==='@/lib/giphy')return {requestGiphy:async()=>({gifs:[],total:0})};throw Error(name);},setTimeout,clearTimeout,Date,Map,crypto:{randomUUID:()=>`req-${++seq}`},requestAnimationFrame:fn=>fn(),fetch:async(url,options={})=>{if(options.method==='POST'){posts.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'Offline; draft retained'}:{id:'saved'}};}return {ok:true,json:async()=>payload};},console});
  const render=()=>{cursor=0;effects=[];return exports.default({});};
  function nodes(tree,predicate){const out=[];function visit(x){if(!x||typeof x!=='object')return;if(Array.isArray(x)){x.forEach(visit);return;}if(predicate(x))out.push(x);visit(x.props?.children);}visit(tree);return out;}
  const find=(tree,type)=>nodes(tree,x=>x.type===type)[0];
  const settle=()=>new Promise(r=>setTimeout(r,15));
- return {payload,render,nodes,find,posts,setFail(v){fail=v;},settle,async initialize(){render();effects[0]();await settle();return render();}};
+ return {payload,render,nodes,find,posts,setFail(v){fail=v;},settle,async initialize(){render();for(const effect of effects)effect();await settle();return render();}};
 }
-test('real component orders by role and places composer at the approved end',async()=>{
+test('updated board keeps the approved chronological feed and bottom composer for every role',async()=>{
  for(const management of [true,false]){
   const h=harness(management),tree=await h.initialize();
-  assert.deepEqual(h.nodes(tree,x=>x.props?.['data-staff-note']!==undefined).map(n=>n.props.id),management?['note-one','note-two']:['note-two','note-one']);
+  assert.deepEqual(h.nodes(tree,x=>x.props?.['data-staff-note']!==undefined).map(n=>n.props.id),['note-one','note-two']);
   const kinds=h.nodes(tree,x=>x.type==='form'||x.props?.['data-staff-note']!==undefined).map(n=>n.type==='form'?'composer':n.props.id);
-  assert.equal(management?kinds.at(-1):kinds[0],'composer');
+  assert.equal(kinds.at(-1),'composer');
  }
 });
 test('Enter posts once, preserves modal, clears only successful composer; failure retains request and draft',async()=>{

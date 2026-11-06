@@ -109,3 +109,10 @@ body.drag-invalid,body.drag-invalid *{cursor:not-allowed!important}
 .cmpri-header-v23 .preview .header fieldset.group.collapsed>legend{position:relative;top:0;left:0;margin:0;height:19px;line-height:17px;padding:0 6px;border:1px solid rgba(252,211,77,.42);border-radius:999px;box-sizing:border-box}
 .cmpri-header-v23 .preview .header fieldset.group.collapsed>.group-outline{display:none}
 .cmpri-header-v23{width:100%;min-width:0}.cmpri-header-v23 .preview{border:0;margin:0}.cmpri-header-v23 .header{padding:0;background:transparent}.cmpri-approved-bell{border:0;background:transparent;padding:5px;display:inline-flex;align-items:center}.cmpri-approved-bell notification-bell{width:18px;height:18px;--badge-scale:1.65}
+/* Own the pointer stream for long-press dragging; short horizontal swipes scroll locally. */
+.cmpri-header-v23 .preview .header .group .buttons .action{touch-action:none}
+/* Only overflowing headers scroll; groups remain confined to their existing header region. */
+.cmpri-desktop-topbar{max-height:calc(100dvh - 28px);overflow-y:auto;overflow-x:clip;overscroll-behavior:contain}
+
+/* A drag copy uses the resting dimensions, never the pressed-button scale. */
+body.drag-active .cmpri-header-v23 :is(.action,[role=button]){transform:none!important;transition:none!important}

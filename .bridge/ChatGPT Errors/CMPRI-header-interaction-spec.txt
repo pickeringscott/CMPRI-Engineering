@@ -1,0 +1,65 @@
+Final header interaction specification supplied by Scott — November 6, 2026
+
+Implement the behavior below on BOTH desktop and mobile, using the final approved dashboard/header appearance. This is the interaction specification, not permission to redesign the header.
+
+1. Scope and boundaries
+   - Apply the same interaction model across roles. Scott’s later instruction to apply it across the board supersedes the earlier Front Desk lock.
+   - Keep each role’s existing access restrictions. Reordering never grants access to another role’s buttons or modals.
+   - Keep the groups inside the existing dashboard header/menu-bar region. They must never become freely positioned windows elsewhere on the page.
+   - A button can change order ONLY inside its own group/tab. It cannot move into another group.
+   - Whole groups/tabs can change order inside the header/menu region.
+2. Tap/click versus dragging
+   - A single tap/click on a group title collapses or expands that group’s buttons.
+   - The title tab remains visible when collapsed, and the collapsed group remains draggable.
+   - Use a long press to initiate dragging BOTH a group/tab and an individual button, on desktop and mobile.
+   - A normal button tap/click still opens its normal action. Dragging must not accidentally activate it.
+   - Releasing after a long-press drag must not trigger the tab’s collapse/expand click.
+   - Preserve normal horizontal scrolling of overflowing button rows on mobile. Distinguish a swipe to scroll from a deliberate long-press drag.
+   - Suppress text selection and native text-selection/callout behavior during dragging and resizing. The user must not get a text-selection prompt instead of moving the control.
+3. What follows the pointer/finger
+   - A muted/translucent visual copy of the actual dragged button or group follows the pointer/finger.
+   - It must match the real item’s dimensions, proportions, typography, colors and shape. Do not enlarge the dragged pill or substitute a differently shaped tab/shadow.
+   - Preserve the actual group appearance when dragging a group, whether collapsed or expanded.
+   - Do NOT add dotted or dashed outlines around the dragged item.
+4. Show where it will land
+   - Show a muted representation of the item at the proposed landing position.
+   - Neighboring real buttons/groups must visibly SLIDE smoothly out of its way, so the user can see the new order before releasing.
+   - Do not substitute a bouncing shadow or an abrupt jump for actual movement of neighboring controls.
+   - Keep the smooth movement just slightly slower than the earlier accepted animation, without bounce or exaggerated delay.
+   - Remove ALL dotted/dashed landing outlines, including the yellow dotted outline. The muted landing representation and moving neighbors provide the feedback.
+5. Leaving a button’s allowed group
+   - When a dragged button moves outside its own group boundary, hide its dragged visual while keeping the drag active.
+   - On desktop show the forbidden/no-drop cursor, the circle with a slash.
+   - Moving back inside the original group makes the dragged visual reappear and resumes valid insertion feedback.
+   - Releasing outside the allowed group restores the button to its EXACT pre-drag order and position. It must not disappear, transfer groups, or leave an invalid reorder behind.
+   - A valid release inside the group commits the displayed new order.
+6. Whole-group movement
+   - Support dragging collapsed AND expanded groups.
+   - The large expanded Operations group must be movable to the very bottom/last position. Its size must not prevent the final drop.
+   - Use correct insertion targets and edge scrolling where needed so all positions are reachable on mobile, while remaining confined to the header/menu region.
+   - Apply the same muted follow-copy, landing representation and smooth neighbor displacement to groups as to buttons.
+7. Horizontal group resizing
+   - Resize a group by dragging its border/resize affordance HORIZONTALLY only, never vertically.
+   - Support this on desktop and mobile.
+   - A narrower group may scroll its buttons horizontally.
+   - Cap widening at the content-fitting width: once all its buttons fit and the horizontal scrollbar disappears, do not let it keep expanding into empty space.
+   - Keep the horizontal scrollbar OUTSIDE the group’s border at the bottom so it never overlaps or pushes into the buttons.
+   - Use the approved muted/translucent CMPRI-yellow treatment for these HEADER horizontal scrollbars. This is separate from the later modal-right-scrollbar rule.
+   - Keep the group border compact around its content and avoid text selection during resize.
+8. Collapse appearance and state
+   - Collapsing hides the buttons, not the title tab.
+   - The collapsed title becomes a tight rounded/pill-like outline around its title.
+   - Keep the same approved muted CMPRI-yellow title background and actual CMPRI-yellow title text in both expanded and collapsed states.
+   - Preserve the approved title inset and continuous tab-to-border shape when expanded.
+   - Do not force a group to collapse just to make dragging work.
+9. Persistence
+   - Retain the user/account’s chosen button order and group arrangement when reopening the dashboard.
+   - The intended app behavior is for that account’s arrangement to follow it between desktop and mobile after reopening; do not reset or independently randomize the order per device.
+   - Do not claim cross-device synchronization is implemented if the current work only uses browser-local storage.
+   - Do not change Hours Tracker records, work orders, roles, or other business data as a side effect of arranging the header.
+10. Verification
+    - Verify both desktop pointer input and mobile touch input.
+    - Test: single-tap collapse/expand; long-press drag without accidental click; horizontal swipe scrolling; no text selection; same-size drag visuals; smooth neighbor movement; valid reorder; exit/re-enter visual hiding; invalid-drop restoration; moving expanded Operations to last; collapsed-group movement; horizontal-only resize with content-width cap; persistence; and unchanged role access.
+    - Verify NO dotted drag/landing outlines remain.
+    - Do not add server polling to support these gestures. The interaction itself runs locally.
+    - Preserve the approved header layout, bell, palette and other controls. These instructions do not authorize unrelated design changes.

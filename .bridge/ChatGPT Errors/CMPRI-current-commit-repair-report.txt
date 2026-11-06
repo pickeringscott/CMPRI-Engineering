@@ -1,0 +1,241 @@
+CMPRI CURRENT-COMMIT COMPARISON AND REPAIR
+Baseline: 9d88316d193f9c63a72f6fc180bdb371edc880ef (origin/main, re-fetched).
+Scope: Scott's twenty supplied corrections, the approved selected-tabbed-pills
+reference, and his subsequent full desktop/mobile header interaction specification.
+Deployment: HELD. Scott requires a fresh permission decision after this report.
+
+This reports repairs and verified matches in the current code. It does not assert
+that every original utterance was retained or that the old 254-entry record was
+exhaustive. Historical preview requests are not new production features.
+
+FULL MATERIAL CHANGE LIST
+
+Modal appearance
+1. Replaced the incorrect #020617 modal base with the approved #0f172a base and
+   5.5-percent action-colored interior tint. Removed old neutral slate surfaces
+   that painted over the intended tint. Kept semantic status colors intact.
+2. Matched near-white text to the approved action-color mix (18-percent hue).
+   Scoped muted text overrides prevent the surrounding light theme from making
+   the approved dark modal's labels unreadable.
+3. Matched inputs, ordinary action controls, hover, pressed, focus, selection,
+   title borders and neutral panel borders to each modal's own action palette.
+4. Applied the theme to native desktop/global modal hosts as well as embedded
+   pages. Pool's inner neutral surface now follows its modal theme too.
+5. Corrected Pool's action mapping: it no longer borrows Pool Log's distinct hue.
+   Numbered Feedback labels retain Feedback's approved palette mapping.
+6. Kept modal right-scrollbar thumbs muted in their modal outline's hue, with
+   transparent tracks. Header scrollbars retain their separate muted yellow.
+7. Set the window titlebar to exactly 28 CSS pixels, independent of root font
+   sizing. Fitted its close control within that fixed height.
+
+Dashboard interaction (desktop pointer and mobile touch)
+8. Replaced unreliable gesture handling with a shared 320-ms long press for
+   buttons and titles across all roles, including Front Desk. Normal title
+   clicks toggle collapse; normal action clicks open the existing action.
+9. Suppressed action/collapse clicks after long-press release, including holding
+   without moving. Captured and retained the active pointer through reordering.
+10. Distinguished short horizontal swipes from long presses and preserved
+    horizontal scrolling. Suppressed text selection/callouts while moving or
+    resizing. Added cancellation cleanup for pointer cancellation, Escape,
+    window blur and unmount without leaving a drag copy behind.
+11. Cloned the actual item with its computed appearance and exact dimensions.
+    Muted copies are inert, inaccessible to clicks and never enlarged by the
+    pressed-button scale or global font rules. Expanded/collapsed group shapes
+    and continuous title-tab borders are retained.
+12. Used the real source item as the muted landing representation and animated
+    real neighbors smoothly into position (240 ms, no bounce). No dotted or
+    dashed drag/landing outlines are introduced.
+13. Confined buttons to their original group. On exit the follow-copy hides and
+    desktop shows the forbidden cursor; re-entry resumes feedback. Invalid
+    release restores exact original order, scroll position and item position.
+14. Confined group rearrangement to the existing header. Collapsed and expanded
+    groups move without forced collapse. Added local edge scrolling and fixed
+    insertion after scrolling reaches its limit, allowing expanded Operations
+    to reach the final position even in a short mobile viewport.
+15. Restricted resizing to the horizontal axis and capped it at actual content
+    width, including measured button gaps. Narrow groups can scroll; the yellow
+    scrollbar remains outside/below the group border. Expanded width survives
+    collapse/reopen and is saved correctly.
+16. Preserved tight collapsed title pills, approved yellow title fill/text,
+    title inset, existing border spacing, bell, palette and other header controls.
+17. Retained account/hotel-backed layout saves and retrieval on reopen, with a
+    device-local fallback and a truthful sync-failure message. No server polling
+    was added. Existing API/RLS restrictions remain in place.
+18. Gave Manage Profile and Connect ChatGPT distinct saved ordering identities
+    despite sharing the /profile route; legacy route-only layouts still load.
+19. Aligned System Administrator's group labels/order with Chief Engineer's
+    presentation. Migrated the old Assets & Supply saved label to Assets and
+    Inventory without discarding its order, width or collapse state. Kept the
+    separate Hours Tracker eligibility gate and all other access rules.
+
+Work Orders and Pool
+20. Restored the muted mobile Detail guest-name line below the room and above
+    the issue. Avoided duplicating that name in the badge row. Desktop retains
+    the guest name in the actual window titlebar; List remains icon-only.
+21. Made a video attachment's click/tap mount, open and request playback inside
+    the trusted user gesture. Retained the paused first-frame hover, persistent
+    hover preview and original filename link.
+22. Made the mobile camera half invoke the native phone capture input separately
+    from the normal upload picker. Desktop retains webcam permission/capture.
+23. Shared the existing Pool resource store with same-origin embedded pages,
+    avoiding another Pool-status fetch/subscription when opening that modal.
+    Removing the iframe releases its host listener. Pool access/modal remain.
+
+Updated Staff Notes, for every active role
+24. Replaced the old text-only view with the supplied approved Notes desktop/
+    mobile design: chronological board, bottom composer, compact 76-by-24 Media/
+    Post split, anchored GIF/Media popover, author/reply styling and media viewer.
+25. Captured a shared Front Desk user's display name inside the composer before
+    posting and retained it for that account/hotel browser session. This does
+    not edit the account profile; old tabs using initials remain API-compatible.
+26. Connected the approved dense GIPHY picker to the existing browser-direct
+    integration, including Trending, search, additional results and attribution.
+    Persisted GIF IDs only and restored provider URLs when reading saved notes.
+27. Added real file/GIF staging, previews, removal and media-only notes. Connected
+    uploads to the already-existing private bucket and atomic with-files post
+    function. Limits are 20 combined files/GIFs and 100 MB per local file.
+28. Validated current account/property ownership on upload prepare, storage size/
+    type verification, attachment claim and signed URL reads. Paths/author IDs
+    are server-derived. Non-inline file types open as original-name downloads.
+29. Kept drafts/files/request identity on failure, reused immutable upload IDs
+    during retries, and cleared staging only after confirmed success. Released
+    object URLs on remove/unmount and cleared drafts on account changes.
+30. Retained mentions, replies, ticket-reference authorization, read markers,
+    realtime/visibility/reconnect updates and existing recipient rules. Rendered
+    hashtags and used the existing tag metadata function. No welcome post or
+    tutorial was created, and no real staff message was posted during testing.
+
+Evidence, records and verification
+31. Corrected the instruction ledger's PM cross-reference, exact titlebar height,
+    video playback wording, mobile Detail-name scope, sort-explanation record,
+    spoken tile-order provenance and quiet-update exception. Recorded all twenty
+    supplied corrections and the latest Front Desk supersession/specification.
+32. Added regression coverage for palette fidelity, Pool store sharing/cleanup,
+    layout-label migration, Staff Notes API/media ownership, atomic saves and
+    retry behavior. Retained reproducible desktop/touch browser verification.
+33. Restored the exact already-applied Staff Notes media/room-import migration
+    from migration history into the repository and expanded read-only schema
+    checks. This was not a new production migration or a schema deployment.
+34. Documented the existing public GIPHY environment key in .env.example.
+    No deployment environment value was added, retrieved or changed here.
+
+DISPOSITION OF SCOTT'S TWENTY CORRECTIONS
+
+01. Recorded the single HTML plus separate role/layout selector preview request.
+    Historical preview requirement; no production selector was added.
+02. Recorded four initial alternatives for each of the five specified roles.
+    Historical preview scope; no twenty-file production feature was invented.
+03. Repaired System Administrator presentation to follow Chief Engineer while
+    retaining independently authorized controls and saved arrangement state.
+04. GM's Create Work Order control already occupies the right utility shelf;
+    retained that layout.
+05. GM/Chief/System Administrator share the approved compact header treatment;
+    preserved it while repairing System Administrator's grouping. Role-specific
+    controls remain intentionally different.
+06. Recorded rejection/replacement of the initial mobile alternatives. This is
+    historical; it does not authorize a new header redesign now.
+07. Kept existing compact group gaps/space while muting feedback/outlines. The
+    resizing cap now measures those real gaps instead of assuming 1 pixel.
+08. Repaired exact 28-CSS-pixel titlebar sizing and corrected the ledger.
+09. Retained the current event-driven mentions path and existing notification
+    tests; corrected the record to explicitly include mentions. No timer added.
+10. Repaired duplicate Pool resource reads/subscriptions without removing Pool.
+11. Repaired click-to-open-and-play video; preserved paused first-frame hover.
+12. Repaired separate native phone camera capture versus normal upload picker.
+13. Recorded the intermediate outside-the-Work-Order-number badge request as
+    history, followed by the later specific placements; did not restore it over
+    the final approved placement.
+14. Corrected quiet-update preference to retain the major-attention exception,
+    including deployment permission. No product feature was needed.
+15. Confirmed the existing mobile rows Pending/Open/In Progress/All, then
+    Urgent/Overdue/Done/Closed, and corrected the record's spoken provenance.
+16. Corrected the sort-explanation record. Did not invent approval of an exact
+    reset/dropdown behavior from the subsequent 'never mind.'
+17. Repaired mobile Detail's retained muted first/last name; kept desktop's title
+    placement and List's distinct icon-only rule.
+18. Corrected entry 074 to reference entry 081 for PM #00D492, not entry 086.
+19. Included the readable role/control/modal comparison below.
+20. Repaired shared updated Staff Notes for all roles. The tutorial/welcome
+    deferral remains separate and did not cancel the Notes feature.
+
+ROLE / MODAL ACCESS COMPARISON
+The same approved window appearance applies to corresponding authorized modals.
+The same header gestures apply to all rows. Actual access still depends on the
+live account's active hotel membership, secondary roles and permission grants.
+The browser matrix used representative explicit grants with matching active
+membership; it did not grant or modify any live role. It recorded these headers
+at both desktop and mobile sizes (default order, before user personalization):
+
+Chief Engineer
+  Operations: Work Order List, Preventative Maintenance, Daily Room Ops,
+    Manage Rooms, Pool Log, Room Ranker, GSS Reports, Enseo Assignments, Staff Notes.
+  Assets and Inventory: PO, Inventory, Assets.
+  Admin: Manage Users, Feedback.
+  Account: Manage Profile, Hours Tracker, Connect ChatGPT (if disconnected), Sign Out.
+System Administrator
+  Same Operations, Assets and Inventory and Admin presentation as Chief.
+  Account: Manage Profile, Connect ChatGPT (if disconnected), Sign Out.
+  Generic System Administrator does not acquire Hours Tracker; the existing
+  verified legacy Chief mapping/eligible secondary assignments remain separate.
+Technician
+  Work Orders: Technician Dashboard.
+  Operations: Work Order List, Staff Notes, Pool Log, Room Ranker, Preventive Maintenance.
+  Account: Hours Tracker, Sign Out. No new Manage Profile/admin control grant.
+General Manager
+  Operations: Work Order List, Staff Notes, Pool Log, Daily Room Ops, Room Ranker,
+    Preventive Maintenance.
+  Account: Manage Profile, Connect ChatGPT (if disconnected), Sign Out.
+Assistant General Manager
+  Operations: Work Order List, Staff Notes, Pool Log, Room Ranker.
+  Account: Hours Tracker, Manage Profile, Connect ChatGPT (if disconnected), Sign Out.
+Front Desk Manager / Lead
+  Operations: Work Order List, Staff Notes, Pool Log, Room Ranker.
+  Account: Hours Tracker, Manage Profile, Connect ChatGPT (if disconnected), Sign Out.
+Front Desk
+  Front Desk: Room Ranker, Work Order List, Staff Notes, Sign Out.
+  No Manage Profile shortcut; shared header gestures are enabled.
+Housekeeping / Lead Housekeeper
+  Operations: Work Order List, Staff Notes, Room Ranker.
+  Account: Manage Profile, Connect ChatGPT (if disconnected), Sign Out.
+  Existing available surfaces only; this repair does not launch a new usage rollout.
+Senior Management
+  Operations: Work Order List, Staff Notes, Pool Log, Room Ranker, Preventive Maintenance.
+  Account: Manage Profile, Connect ChatGPT (if disconnected), Sign Out.
+  Existing lack of Create/Submit permission remains.
+
+Every row retains the bell and Pool-status modal entry. Create remains available
+where the current submit policy permits it. All recognized active members retain
+Work Order notes access; technical save/status controls remain subject to their
+existing role/grants/assignment rules. Chief, GM and AGM can reopen Pool under
+the existing policy. Saved Pool Log editing still uses its separate existing
+System Administrator/GM/AGM policy. Gestures never grant another group's controls.
+
+VERIFICATION
+The full npm test chain passed: the main block had 1,315 passes, zero failures
+and two existing optional local-PDF fixture skips, followed by passing phone,
+database, purchasing and release checks. Typecheck passed. ESLint had zero errors
+and 19 warnings (including dynamic-media image warnings and existing unused
+test variables). The optimized production build and PDF runtime checks passed;
+all 77 isolated production-server HTTP smoke checks passed, including anonymous
+denial for the Staff Notes upload/post endpoints. The role/control matrix was
+also exercised against that production build. Browser checks used trusted Chromium pointer/native touch events,
+synthetic accounts and intercepted APIs/provider responses; no real notes, hours,
+work orders, roles or other business records were written.
+
+Verified: tap collapse/expand; long press without accidental click; swipe scroll;
+selection suppression; exact-size/appearance copies; moving real neighbors;
+valid reorder; exit/re-entry hide; forbidden cursor; exact invalid-drop restore;
+expanded Operations to last; collapsed movement; short-screen edge scrolling;
+horizontal-only resize/content-fit cap; external yellow group scrollbar; saved
+width/collapse/order; fresh-context opposite-device account retrieval; unchanged
+authorized action sets; no dotted/dashed drag/landing borders; all-role Notes
+posting/reading/media; separate camera chooser; muted Detail name; paused video
+hover/persistent preview and playback within trusted click/tap; rendered modal
+palette against the actual approved HTML and exact 28px titlebar.
+
+Limits: browser tests are emulated-device tests, not physical-phone OS testing.
+GIPHY results/storage/account state used fixtures; live provider behavior and a
+real-account cross-device production session are not claimed verified. Account
+sync uses the existing backend, not just localStorage; its RLS and API behavior
+are separately tested. Production is unchanged pending fresh deployment approval.
+Final diff from baseline: 47 files; 1,574 text lines added, 211 removed; one binary branding asset added.

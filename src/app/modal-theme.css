@@ -1,45 +1,68 @@
-/* One action palette for the window, embedded document, controls and vertical track. */
+/* Match the Coral Glow demo in CMPRI-selected-tabbed-pills: tint over #0f172a. */
 [data-cmpri-modal-theme=true], [data-cmpri-modal-theme=true] body,
-[data-cmpri-modal-theme=true] main, .cmpri-desktop-window-body {
-  background-color: color-mix(in srgb, rgb(var(--cmpri-action-rgb,243,187,117)) 5.5%, #020617);
-  color: color-mix(in srgb, rgb(var(--cmpri-action-rgb,243,187,117)) 12%, white);
+.cmpri-desktop-window-body {
+  background-color: var(--cmpri-modal-surface);
+  color: var(--cmpri-modal-text);
 }
-[data-cmpri-modal-theme=true] :where(.bg-slate-900,.bg-slate-950),
+:is(.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] {
+  background-color: var(--cmpri-modal-base);
+}
+/* The approved modal is dark/tinted even when the surrounding dashboard is light. */
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-300 { color:#cbd5e1; }
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-400 { color:#94a3b8; }
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-500 { color:#64748b; }
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-600 { color:#475569; }
+/* Neutral panels must not paint the old slate/blue surface over the action tint. */
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(main,section,article,fieldset,header,footer,form,div,table,thead,tbody,tr,td,th)[class*="bg-slate-"],
 .cmpri-desktop-window-body > .cmpri-work-order-list {
-  background-color: color-mix(in srgb, rgb(var(--cmpri-action-rgb,243,187,117)) 5.5%, #020617) !important;
+  background-color: var(--cmpri-modal-surface) !important;
+  background-image: none;
+  border-color:var(--cmpri-outline);
 }
-[data-cmpri-modal-theme=true] :where(.text-white,.text-slate-100,.text-slate-200) {
-  color: color-mix(in srgb, rgb(var(--cmpri-action-rgb)) 12%, white);
-}
-[data-cmpri-modal-theme=true] :where(input,select,textarea) {
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(.text-white,.text-slate-100,.text-slate-200) { color: var(--cmpri-modal-text); }
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(input,select,textarea) {
   accent-color: rgb(var(--cmpri-action-rgb));
   border-color: var(--cmpri-outline);
+  background-color: rgba(var(--cmpri-action-rgb),.06);
 }
-[data-cmpri-modal-theme=true] :where(input,select,textarea):focus,
-[data-cmpri-modal-theme=true] button:focus-visible {
-  outline-color: rgb(var(--cmpri-action-rgb)); border-color: var(--cmpri-outline);
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(input,select,textarea):focus {
+  outline-color: rgba(var(--cmpri-action-rgb),.8); border-color: var(--cmpri-outline);
 }
-[data-cmpri-modal-theme=true] :where(.bg-sky-700,.bg-sky-950,.bg-sky-900),
-[data-cmpri-modal-theme=true] .preview-media-split {
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(button,[role=button]):focus-visible {
+  outline: 2px solid rgba(var(--cmpri-action-rgb),.8); outline-offset:2px;
+}
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(button.bg-sky-700,button[class*="bg-slate-"],.preview-media-split) {
   background-color: rgba(var(--cmpri-action-rgb),.14) !important;
   border-color: var(--cmpri-outline) !important;
-  color: color-mix(in srgb, rgb(var(--cmpri-action-rgb)) 18%, white) !important;
+  color: var(--cmpri-modal-text);
 }
-[data-cmpri-modal-theme=true] .preview-media-split button + button { border-color: var(--cmpri-outline); }
-[data-cmpri-modal-theme=true] :where(button,input,select,textarea):hover { --tw-ring-color: var(--cmpri-outline); }
-[data-cmpri-modal-theme=true] :where(.bg-sky-700,.preview-media-split button):hover { background-color: rgba(var(--cmpri-action-rgb),.23) !important; }
-[data-cmpri-modal-theme=true] :where(.bg-sky-700,.preview-media-split button):active { background-color: rgba(var(--cmpri-action-rgb),.30) !important; }
-[data-cmpri-modal-theme=true] ::selection { background: rgba(var(--cmpri-action-rgb),.35); }
+[data-cmpri-modal-theme=true] .preview-media-split button + button { border-color:var(--cmpri-outline); }
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(button.bg-sky-700,button[class*="bg-slate-"],.preview-media-split button,.cmpri-desktop-close):hover {
+  background-color: rgba(var(--cmpri-action-rgb),.23) !important;
+}
+:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(button.bg-sky-700,button[class*="bg-slate-"],.preview-media-split button,.cmpri-desktop-close):active {
+  background-color: rgba(var(--cmpri-action-rgb),.30) !important;
+}
+[data-cmpri-modal-theme=true] [aria-pressed=true]:not([data-preview-kpi]) {
+  background-color:rgba(var(--cmpri-action-rgb),.27);border-color:rgba(var(--cmpri-action-rgb),.7);
+}
+[data-cmpri-modal-theme=true] ::selection { background:rgba(var(--cmpri-action-rgb),.4);color:white; }
 @supports not selector(::-webkit-scrollbar) {
-  [data-cmpri-modal-theme=true], [data-cmpri-modal-theme=true] *, .cmpri-desktop-window * { scrollbar-color: var(--cmpri-scroll-thumb) transparent; }
+  [data-cmpri-modal-theme=true], [data-cmpri-modal-theme=true] * { scrollbar-color:var(--cmpri-scroll-thumb) transparent; }
 }
 [data-cmpri-modal-theme=true]::-webkit-scrollbar-thumb:vertical,
-[data-cmpri-modal-theme=true] *::-webkit-scrollbar-thumb:vertical,
-.cmpri-desktop-window *::-webkit-scrollbar-thumb:vertical { background-color: var(--cmpri-scroll-thumb); }
+[data-cmpri-modal-theme=true] *::-webkit-scrollbar-thumb:vertical { background-color:var(--cmpri-scroll-thumb); }
 [data-cmpri-modal-theme=true]::-webkit-scrollbar-thumb:vertical:hover,
-[data-cmpri-modal-theme=true] *::-webkit-scrollbar-thumb:vertical:hover,
-.cmpri-desktop-window *::-webkit-scrollbar-thumb:vertical:hover { background-color: rgba(var(--cmpri-action-rgb),.42); }
-.cmpri-desktop-titlebar { background-color: rgba(var(--cmpri-action-rgb,243,187,117),.14); }
+[data-cmpri-modal-theme=true] *::-webkit-scrollbar-thumb:vertical:hover { background-color:rgba(var(--cmpri-action-rgb),.42); }
+[data-cmpri-modal-theme=true] .cmpri-desktop-titlebar { border-color:var(--cmpri-outline); }
 .cmpri-header-v23 .resize-edge { position:absolute;right:-3px;top:1px;bottom:0;width:7px;cursor:ew-resize;touch-action:none;user-select:none;-webkit-user-select:none; }
 .cmpri-header-v23 .group.collapsed .resize-edge { display:none; }
 .cmpri-header-v23 .group-title { white-space:nowrap !important; }
@@ -75,3 +98,9 @@
 
 [data-cmpri-modal-theme=true] [data-preview-locked-pane] > div { border-color:var(--cmpri-outline); }
 .cmpri-detail-standalone-guest .cmpri-window-guest { display:flex; }
+
+.cmpri-detail-mobile-name { display:none; }
+@media(max-width:720px) {
+  .cmpri-detail-mobile-name { display:block;margin-top:3px;overflow-wrap:anywhere; }
+  :is(.cmpri-detail-mobile-guest,.cmpri-detail-standalone-guest) .cmpri-window-guest-name { display:none; }
+}

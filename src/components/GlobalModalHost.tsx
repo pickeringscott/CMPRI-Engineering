@@ -484,6 +484,7 @@ export default function GlobalModalHost() {
               role="dialog"
               aria-modal={isTop}
               aria-label={entry.title}
+              data-cmpri-modal-theme="true"
               aria-hidden={!isTop}
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
               style={panelStyle}

@@ -29,7 +29,26 @@ function subscribe(listener: () => void) {
     if (!listeners.size) { stop?.(); stop = undefined; generation++; snapshot = empty; }
   };
 }
-export function usePoolState() { return useSyncExternalStore(subscribe, () => snapshot, () => empty); }
-export function updatePoolState(state: Partial<PoolState>) {
+function update(state: Partial<PoolState>) {
   if (snapshot.state) publish({ state: { ...snapshot.state, ...state }, error: "" });
 }
+type Store = { subscribe: typeof subscribe; read: () => typeof empty; update: typeof update };
+const ownStore:Store={subscribe,read:()=>snapshot,update};
+type PoolWindow=Window & {__cmpriPoolStore?:Store};
+function currentStore():Store {
+  if(typeof window==='undefined')return ownStore;
+  try{if(window.parent!==window){const parent=(window.parent as PoolWindow).__cmpriPoolStore;if(parent)return parent}}catch{}
+  return ownStore;
+}
+if(typeof window!=='undefined')(window as PoolWindow).__cmpriPoolStore=ownStore;
+function subscribeCurrent(listener:()=>void){
+  const store=currentStore(),stop=store.subscribe(listener);
+  if(store===ownStore)return stop;
+  // Removing an iframe need not unmount React. Release the host listener in either case.
+  const frame=window.frameElement;let stopped=false;
+  const observer=new MutationObserver(()=>{if(frame&&!frame.isConnected)cleanup()});
+  const cleanup=()=>{if(stopped)return;stopped=true;observer.disconnect();window.removeEventListener('pagehide',cleanup);stop()};
+  observer.observe(window.parent.document,{childList:true,subtree:true});window.addEventListener('pagehide',cleanup);return cleanup;
+}
+export function usePoolState() { return useSyncExternalStore(subscribeCurrent, () => currentStore().read(), () => empty); }
+export function updatePoolState(state: Partial<PoolState>) { currentStore().update(state); }

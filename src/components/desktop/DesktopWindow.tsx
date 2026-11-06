@@ -100,6 +100,7 @@ export default function DesktopWindow({
       aria-modal="false"
       aria-labelledby={titleId}
       data-cmpri-desktop-window={windowKey}
+      data-cmpri-modal-theme="true"
       data-active={active ? "true" : "false"}
       className="cmpri-desktop-window"
       style={{ left: shown.x, top: shown.y, width: shown.width, height: shown.height, zIndex, ...modalThemeStyle(modalActionForRoute(windowKey,title)) }}

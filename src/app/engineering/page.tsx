@@ -590,6 +590,8 @@ export default function EngineeringDashboardPage() {
 
   const session = cmpriSession;
   const engineerDesktopMenus = roleKey(session.user.role) === "engineer" || session.user.secondary_roles?.some(role => roleKey(role) === "engineer");
+  const systemAdminHeader = roleKey(session.user.role) === "system_admin" || session.user.secondary_roles?.some(role => roleKey(role) === "system_admin");
+  const chiefHeaderPresentation = engineerDesktopMenus || systemAdminHeader;
   const frontDeskLayout = roleKey(session.user.role) === "front_desk";
   const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
   const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
@@ -651,7 +653,7 @@ export default function EngineeringDashboardPage() {
       ],
     },
     {
-      label: engineerDesktopMenus ? "Assets and Inventory" : "Assets & Supply",
+      label: chiefHeaderPresentation ? "Assets and Inventory" : "Assets & Supply",
       items: [
         hasCapability(session, "manage_assets") && { key: "/management/equipment", label: "Assets", href: "/management/equipment", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
         hasCapability(session, "manage_assets") && { key: "/engineering/parts", label: "Inventory", href: "/engineering/parts", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
@@ -699,7 +701,7 @@ export default function EngineeringDashboardPage() {
   }
 
   {const operations=launcherGroups.find(g=>g.label==="Operations");operations?.items.push({key:"pool-status",label:"Pool",tone:"border-cyan-400/50 bg-cyan-950/30 text-cyan-100",accent:"bg-green-400"});}
-  if (engineerDesktopMenus) {
+  if (chiefHeaderPresentation) {
     const work = launcherGroups.find(group => group.label === "Work Orders")!;
     const operations = launcherGroups.find(group => group.label === "Operations")!;
     const assets = launcherGroups.find(group => group.label === "Assets and Inventory")!;
@@ -752,7 +754,7 @@ export default function EngineeringDashboardPage() {
     .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
 
   return (
-    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(engineerDesktopMenus || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefEngineerMobileLayout ? "true" : undefined}>
+    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">

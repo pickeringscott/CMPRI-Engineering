@@ -2,6 +2,7 @@
 @import "./work-order-design.css";
 @import "./modal-theme.css";
 @import "./approved-header.css";
+@import "./staff-notes-design.css";
 
 :root {
   --cmpri-gold: #fbbf24;
@@ -413,7 +414,10 @@ h1.cmpri-desktop-heading {
   flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;
-  height: 1.75rem;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  box-sizing: border-box;
   padding: 0 0.25rem 0 0.6rem;
   border-bottom: 1px solid rgb(30 41 59);
   background: rgb(15 23 42);
@@ -434,7 +438,8 @@ h1.cmpri-desktop-heading {
   display: grid;
   place-items: center;
   width: 1.75rem;
-  height: 1.35rem;
+  height: 26px;
+  min-height: 0 !important;
   border-radius: 0.25rem;
   color: rgb(148 163 184);
   font-size: 0.95rem !important;

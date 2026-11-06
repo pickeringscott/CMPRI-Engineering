@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync,readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { normalizeHeaderLayout } from '../src/lib/header-layout.ts';
+import { normalizeHeaderLayout,headerLayoutForGroups } from '../src/lib/header-layout.ts';
 import { loadTs } from './helpers/load-ts.mjs';
 
 test('layouts are bounded, deduplicated and never interpret control keys as authorization',()=>{
@@ -45,3 +45,8 @@ test('database owner policies isolate accounts and reject reassignment and inact
  assert.equal((await db.query('select * from cmpri_header_layouts')).rows.length,0);
  }finally{await db.close()}
 });
+
+ test('System Administrator asset-group relabeling retains existing account order, widths, collapse and authorized button keys',()=>{
+ const result=headerLayoutForGroups({groups:['Account','Assets & Supply','Operations'],buttons:{'Assets & Supply':['/engineering/parts','/management/equipment']},widths:{'Assets & Supply':240},collapsed:['Assets & Supply']},['Operations','Assets and Inventory','Account']);
+ assert.deepEqual(result.groups,['Account','Assets and Inventory','Operations']);assert.equal(result.widths['Assets and Inventory'],240);assert.deepEqual(result.collapsed,['Assets and Inventory']);assert.deepEqual(result.buttons['Assets and Inventory'],['/engineering/parts','/management/equipment']);
+ });
