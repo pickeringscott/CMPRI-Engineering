@@ -241,10 +241,10 @@ BEGIN
     -- that mark an otherwise passing new log closed are also recording a manual hold.
     new.manual_closure := coalesce(new.manual_closure, new.closure_condition IS TRUE AND NOT reading_failure);
   ELSIF old.manual_closure IS NULL AND old.closure_condition IS TRUE THEN
-    -- Unknown legacy closure source stays unknown, unless an administrator explicitly
+    -- Unknown legacy closure source stays unknown, unless an authorized pool-log editor explicitly
     -- classifies it. This never reopens by itself (submitted_test is still required).
-    IF new.manual_closure IS FALSE AND NOT is_system_admin THEN
-      RAISE EXCEPTION 'Only System Administrators can classify a legacy closure source';
+    IF new.manual_closure IS FALSE AND NOT can_edit_saved THEN
+      RAISE EXCEPTION 'Only System Administrators, General Managers or Assistant General Managers can classify a legacy closure source';
     END IF;
   ELSIF old.closure_condition IS NOT TRUE AND new.closure_condition IS TRUE AND NOT reading_failure THEN
     new.manual_closure := true;

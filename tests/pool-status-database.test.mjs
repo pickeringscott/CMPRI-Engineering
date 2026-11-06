@@ -58,6 +58,19 @@ for (const [index,role] of ['manager','assistant_manager','front_desk_manager','
  }
 }
 
+// Full pool-log correction parity includes classifying an unknown historical hold.
+// Seed legacy data without invoking today's stamping logic, then restore the real trigger.
+for(const [index,actor] of [id(100),id(101)].entries()){
+ const legacy=id(600+index);
+ await db.exec('alter table pool_daily_logs disable trigger cmpri_pool_log_stamp');
+ await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure,closure_reason) values($1,$2,$3,'2026-10-20',7.4,4,true,false,80,50,$4,$4,true,null,'Historical closure awaiting classification')`,[legacy,h,f,eng]);
+ await db.exec('alter table pool_daily_logs enable trigger cmpri_pool_log_stamp');
+ await assert.rejects(db.query('update pool_daily_logs set manual_closure=false,updated_by=$1 where id=$2',[id(102),legacy]),/classify/);
+ await db.query('update pool_daily_logs set manual_closure=false,updated_by=$1 where id=$2',[actor,legacy]);
+ const row=(await db.query('select manual_closure,closure_condition from pool_daily_logs where id=$1',[legacy])).rows[0];
+ assert.equal(row.manual_closure,false);assert.equal(row.closure_condition,true,'classification alone cannot reopen without a new test');
+}
+
 // Existing real testing trigger, not a separate simulated status write.
 await db.query(`update pool_daily_logs set retest_submission=$1,closure_reason='Bromine below safe range',updated_by=$2 where id=$3`,[{id:id(20),ph:7.4,sanitizer_band:'0'},eng,log]);
 assert.equal((await snapshot()).closed,true);await assert.rejects(act(eng,21,'open'),/testing/);
