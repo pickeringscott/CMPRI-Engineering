@@ -14,6 +14,9 @@ async def main():
     groups=await page.locator('.cmpri-header-v23 fieldset').evaluate_all("gs=>gs.map(g=>({name:g.querySelector('legend').textContent,actions:[...g.querySelectorAll('.action')].map(b=>b.textContent)}))")
     actions=[a for g in groups for a in g['actions']]
     create=page.locator('.cmpri-header-create');assert await create.count()==int('submit' in CAPS[role])
+    pool=page.locator('.cmpri-header-utilities').get_by_role('button').first
+    if await create.count():
+     pr=await pool.bounding_box();cr=await create.bounding_box();assert pr['y']+pr['height']<=cr['y'] and abs(pr['x']+pr['width']/2-cr['x']-cr['width']/2)<1,(role,width,pr,cr)
     if role=='manager':
      rect=await create.bounding_box();assert rect['x']+rect['width']/2>width/2
     assert ('Manage Profile' in actions)==(role!='front_desk' and 'view_profiles' in CAPS[role]),(role,actions)
@@ -28,7 +31,9 @@ async def main():
     b=field.locator('.action').first;box=await b.bounding_box();session=await context.new_cdp_session(page)
     if width<640:await session.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':box['x']+box['width']/2,'y':box['y']+box['height']/2,'id':1}]})
     else:await page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2);await page.mouse.down()
-    await page.wait_for_timeout(370);await expect(page.locator('body > .moving-copy')).to_be_visible()
+    await page.wait_for_timeout(370)
+    if width>=640:await page.mouse.move(box['x']+box['width']/2+10,box['y']+box['height']/2)
+    await expect(page.locator('body > .moving-copy')).to_be_visible()
     if width<640:await session.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
     else:await page.mouse.up()
     await page.wait_for_timeout(450);assert await page.get_by_role('dialog').count()==0

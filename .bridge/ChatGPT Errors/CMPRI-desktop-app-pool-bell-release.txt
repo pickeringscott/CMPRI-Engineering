@@ -1,0 +1,92 @@
+CMPRI DESKTOP APP, POOL STACK AND BELL CORRECTION — NOVEMBER 6, 2026
+Baseline: 0e7218b (includes the previous motion and Daily Ops release).
+Scope: Scott's desktop-app investigation, Pool Status placement and supplied
+notification-bell screenshot. Scott authorized testing and deploying together.
+
+Finding
+A pressed mouse moving more than eight pixels before the 320-ms touch-style
+hold elapsed canceled pickup permanently. Holding longer after that movement
+did not recover it. Consequently neither the dragged copy nor landing/reorder
+feedback appeared. The prior gesture tests held the pointer still first and
+missed this sequence. A controlled comparison reproduced the failure with the
+baseline code in both a real installed Chromium standalone app window and a
+separate ordinary browser window. A prototype without the mouse delay worked
+in both. This is evidence of a shared gesture bug, not a Windows-only diagnosis.
+Scott's Windows Chrome installation was not directly available for testing.
+Screenshot review also exposed a second defect: copying computed logical
+insets with !important overrode the ghost's left/top coordinates, pinning the
+follow-copy to the page corner. Copied logical group margins also shifted its
+vertical position after correcting the insets. Earlier checks proved visibility and dimensions
+but missed its actual position. The new assertions verify both coordinates
+against the trusted pointer events for buttons and groups.
+
+Full list of changes from the baseline
+1. Mouse dragging of dashboard buttons and group titles now starts after the
+   small movement threshold, without waiting for a timed long mouse press.
+   Scott's latest instruction identifying that delay as the culprit supersedes
+   the earlier desktop long-press requirement. Touch retains deliberate long
+   press; a quick horizontal touch swipe continues to scroll the button row.
+2. Removed conflicting logical insets/margins from the root follow-copy and explicitly
+   maintain its fixed pointer coordinates. The correctly sized, translucent
+   button/group now visibly follows the mouse or finger instead of appearing
+   at the page corner. Added exact coordinate and outline checks to both the
+   general gesture and installed-app regressions.
+3. A normal click/tap still opens a button or toggles a group. A stationary long
+   hold or drag release does not activate it. Tooltips and accessible group
+   instructions now explain direct mouse dragging and touch long press.
+4. Pool Status sits directly above + Work Order,
+   with a compact gap, on desktop as well as mobile. Desktop buttons share a
+   center line while retaining their normal sizes; mobile keeps its existing
+   equal widths. Role-dependent Create availability and dimensions are retained.
+5. The count is larger inside its dark-red speech bubble. Removed the tiny
+   numeral's blur/specular filter chain, retaining gradient faces and a crisp
+   depth layer for the approved three-dimensional treatment. SVG geometry uses
+   geometric precision. The gold bell paths, colors, shading, embedded rounded
+   font, borderless presentation and 18-pixel icon dimensions are retained.
+6. The count bubble now sizes from measured text width, centers the digits and
+   reserves extra space beside the logo for longer counts. Zero still hides
+   the entire count bubble. A CSS-order conflict no longer overrides the
+   approved slightly larger mobile badge scale.
+7. Updated the gesture regressions to distinguish mouse dragging from touch
+   long press. Added an actual installed-app versus browser-window regression,
+   including movement before the old timer, ordinary clicks and stationary
+   holds. Added geometry/legibility checks for Pool stacking and notification
+   counts 0, 1, 18, 123 and 1234 at desktop/mobile sizes and display scales
+   1, 1.25 and 2; bell paths are compared with the approved header HTML.
+
+Preserved and checked
+Matching translucent copies, muted landing representation, smoothly moving
+real neighbors, no dotted/dashed outlines, own-group-only button ordering,
+header-only group movement, invalid-drop order/position/scroll restoration,
+expanded Operations to last, collapsed-group movement, mobile edge scrolling,
+horizontal-only resizing with the content-width cap, external muted-yellow
+scrollbars, selection suppression, account-backed persistence, sync-failure
+warnings and unchanged role access. No polling, migrations, new permissions,
+work-order changes or other business-data writes are part of this correction.
+
+Verification
+Tests use synthetic accounts and intercepted application APIs, not real guest
+imports or Scott's signed-in session. The installed-app comparison uses native
+headful Chromium windows, verifies distinct native window IDs and real
+standalone/browser display modes, and records trusted pointer-event timing.
+The environment is Linux; Windows-specific execution remains unverified.
+
+Completed build checks
+- Optimized production build and its TypeScript/PDF runtime checks passed.
+- Full npm test passed: main suite 1,331 passed, two optional PDF fixtures
+  skipped; phone notifications, database, all 26 PO commands and release checks
+  also passed. No application/database test failed.
+- All 81 isolated HTTP checks passed against the final production build.
+- Full approved-UI suite passed, including all-role shared surfaces, media
+  playback, palette comparison and staged Daily Ops file import controls.
+- After the final logical-margin correction, reran mouse/touch gestures,
+  expanded/collapsed copy coordinates and dimensions, real neighbor animation,
+  sync failure/recovery and nine-role desktop/mobile access/placement checks
+  against the rebuilt production server. All passed.
+- All 16 real installed-app/browser cases passed against that final build,
+  including exact follow-copy coordinates and movement before the old hold
+  deadline. Screenshots were visually inspected for both button/group copies.
+- Bell checks passed for five counts at five viewport/display-scale settings;
+  its gold artwork paths match the supplied approved header HTML.
+- Lint: zero errors, 18 existing warnings; final gesture/bell source checks
+  passed without warnings. No new environment values or migrations are needed.

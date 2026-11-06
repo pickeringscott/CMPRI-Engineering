@@ -32,8 +32,13 @@ async def main():
    # A normal action opens its own modal. Closing it leaves the header intact.
    await ops.get_by_role('button',name='Work Order List',exact=True).click();await page.get_by_role('dialog').last.wait_for();await page.locator('.cmpri-desktop-close').last.click();await settle(page)
    first=ops.locator('.buttons .action').first;box=await first.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
-   await pointer.down(x,y);await page.wait_for_timeout(370);ghost=page.locator('body > .moving-copy');await expect(ghost).to_be_visible()
-   copied=await ghost.bounding_box();assert abs(copied['width']-box['width'])<.1 and abs(copied['height']-box['height'])<.1,(box,copied)
+   await pointer.down(x,y);await page.wait_for_timeout(370)
+   if not touch:
+    await expect(page.locator('body > .moving-copy')).to_have_count(0);await pointer.up();await settle(page);assert await page.get_by_role('dialog').count()==0
+    await pointer.down(x,y);await pointer.move(x+10,y)
+   ghost=page.locator('body > .moving-copy');await expect(ghost).to_be_visible()
+   copied=await ghost.bounding_box();assert abs(copied['x']-(x+(8 if touch else 18)))<.2 and abs(copied['y']-y-8)<.2,(box,copied)
+   assert abs(copied['width']-box['width'])<.1 and abs(copied['height']-box['height'])<.1,(box,copied)
    style="e=>{const s=getComputedStyle(e);return [s.font,s.color,s.backgroundColor,s.borderRadius]}";actual=await first.evaluate(style);copy_style=await ghost.evaluate(style);assert actual==copy_style,(actual,copy_style)
    assert await page.evaluate('getSelection().toString()')=='';assert await page.locator('body').evaluate("e=>getComputedStyle(e).userSelect")=='none'
    # Long press and release without movement must not launch the button.
@@ -49,9 +54,12 @@ async def main():
    await pointer.down(e['x']+e['width']/2,e['y']+e['height']/2);await pointer.move((await ops.bounding_box())['x']+245,e['y']+e['height']/2+35);await pointer.up();await settle(page)
    assert abs((await ops.bounding_box())['height']-height)<.1
    row=ops.locator('.buttons');await row.evaluate('r=>r.scrollLeft=0');r=await row.bounding_box();rangebox=await ops.locator('.group-scroll').bounding_box();field=await ops.bounding_box();assert rangebox['y']>=field['y']+field['height']-1,(rangebox,field)
-   # Swipe without holding: scrolling, no ghost and no normal action.
+   # Touch swipe scrolls without starting a drag; desktop uses the external scrollbar.
    second=ops.locator('.buttons .action').nth(1);b=await second.bounding_box();sx=min(r['x']+r['width']-10,b['x']+b['width']/2);sy=r['y']+r['height']/2
-   await pointer.down(sx,sy);await pointer.move(sx-80,sy);await pointer.up();await settle(page);assert await row.evaluate('r=>r.scrollLeft')>0;assert await page.get_by_role('dialog').count()==0
+   if touch:
+    await pointer.down(sx,sy);await pointer.move(sx-80,sy);await pointer.up();await settle(page);assert await row.evaluate('r=>r.scrollLeft')>0;assert await page.get_by_role('dialog').count()==0
+   else:
+    await ops.locator('.group-scroll').fill('40');assert await row.evaluate('r=>r.scrollLeft')>0
    # Exit/re-enter hides/reveals only the drag visual; invalid release restores exact order/scroll/position.
    await row.evaluate('r=>r.scrollLeft=0');original=await keys(ops);first=ops.locator('.buttons .action').first;a=await first.bounding_box();scroll=await row.evaluate('r=>r.scrollLeft')
    await pointer.down(max(r['x']+5,a['x']+a['width']/2),a['y']+a['height']/2);await page.wait_for_timeout(370)
@@ -67,14 +75,19 @@ async def main():
    await row.evaluate('r=>r.scrollLeft=40');row_scroll=await row.evaluate('r=>r.scrollLeft')
    groups_before=await order(page);a=await title.bounding_box();bar=await page.locator('.cmpri-header-v23 .groups').bounding_box()
    await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370)
+   if not touch:await pointer.move(a['x']+a['width']/2+10,a['y']+a['height']/2)
    source_rect=await ops.bounding_box();ghost_rect=await ghost.bounding_box();assert abs(source_rect['width']-ghost_rect['width'])<.1 and abs(source_rect['height']-ghost_rect['height'])<.1
+   assert abs(ghost_rect['x']-a['x']-a['width']/2-(8 if touch else 18))<.2 and abs(ghost_rect['y']-a['y']-a['height']/2-8)<.2,(source_rect,ghost_rect)
    assert await ops.locator('svg path').get_attribute('d')==await ghost.locator('svg path').get_attribute('d')
    assert abs(await ghost.locator('.buttons').evaluate('r=>r.scrollLeft')-row_scroll)<.1
    await pointer.move(bar['x']+bar['width']-6,bar['y']+bar['height']-4);await pointer.up();await settle(page)
    assert (await order(page))[-1]=='Operations',(groups_before,await order(page));assert 'collapsed' not in (await ops.get_attribute('class'))
    # Collapsed group is also draggable, and remains collapsed on release.
    await title.click();assert 'collapsed' in (await ops.get_attribute('class'));a=await title.bounding_box();target=await page.locator('.cmpri-header-v23 fieldset').first.bounding_box()
-   await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(target['x']+4,target['y']+5);await pointer.up();await settle(page)
+   await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(target['x']+4,target['y']+5)
+   collapsed_copy=await ghost.bounding_box();collapsed_real=await ops.bounding_box();assert abs(collapsed_copy['width']-collapsed_real['width'])<.2 and abs(collapsed_copy['height']-collapsed_real['height'])<.2
+   assert abs(collapsed_copy['x']-target['x']-12)<.2 and abs(collapsed_copy['y']-target['y']-13)<.2
+   await pointer.up();await settle(page)
    assert (await order(page))[0]=='Operations';assert 'collapsed' in (await ops.get_attribute('class'))
    # Account width caps at content fitting width and persists after collapse/reopen.
    account=group(page,'Account');edge=account.locator('.resize-edge');a=await edge.bounding_box();field=await account.bounding_box();height=field['height']

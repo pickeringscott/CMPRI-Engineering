@@ -116,3 +116,5 @@ body.drag-invalid,body.drag-invalid *{cursor:not-allowed!important}
 
 /* Keep only the picked-up item unscaled; neighboring controls must remain free to slide. */
 body.drag-active .cmpri-header-v23 :is(.action,[role=button]):is(:active,.landing-copy){transform:none!important;transition:none!important}
+
+@media(max-width:720px){.cmpri-approved-bell notification-bell{--badge-scale:1.8}}

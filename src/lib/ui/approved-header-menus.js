@@ -19,9 +19,11 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   const ghost=item.cloneNode(true);ghost.removeAttribute('id');ghost.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id'));
   const originals=[item,...item.querySelectorAll('*')],copies=[ghost,...ghost.querySelectorAll('*')];
   originals.forEach((n,i)=>{const style=getComputedStyle(n);for(const property of style)copies[i].style.setProperty(property,style.getPropertyValue(property),'important');copies[i].style.outline='none';copies[i].style.animation='none';copies[i].style.transition='none'});
+  // Root logical offsets and group margins must not shift the pointer-following copy.
+  for(const property of ['inset-block-start','inset-block-end','inset-inline-start','inset-inline-end','margin-block-start','margin-block-end','margin-inline-start','margin-inline-end'])ghost.style.removeProperty(property);
   const r=item.getBoundingClientRect();ghost.classList.add('moving-copy');ghost.setAttribute('aria-hidden','true');ghost.setAttribute('inert','');
   Object.assign(ghost.style,{position:'fixed',left:x+'px',top:y+'px',width:r.width+'px',height:r.height+'px',minWidth:r.width+'px',maxWidth:r.width+'px',minHeight:r.height+'px',maxHeight:r.height+'px',margin:0,transform:'none',pointerEvents:'none'});
-  for(const [key,value] of Object.entries({width:r.width+'px',height:r.height+'px','min-width':r.width+'px','max-width':r.width+'px','min-height':r.height+'px','max-height':r.height+'px',opacity:'.55','z-index':'10003','pointer-events':'none'}))ghost.style.setProperty(key,value,'important');
+  for(const [key,value] of Object.entries({position:'fixed',left:x+'px',top:y+'px',right:'auto',bottom:'auto',margin:'0px',width:r.width+'px',height:r.height+'px','min-width':r.width+'px','max-width':r.width+'px','min-height':r.height+'px','max-height':r.height+'px',opacity:'.55','z-index':'10003','pointer-events':'none'}))ghost.style.setProperty(key,value,'important');
   document.body.append(ghost);
   originals.forEach((n,i)=>{copies[i].scrollLeft=n.scrollLeft;copies[i].scrollTop=n.scrollTop});
   ghosts.add(ghost);return ghost;
@@ -57,18 +59,23 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
    }
    frame=requestAnimationFrame(edgeScroll);
   };
-  const timer=window.setTimeout(()=>{
+  const startedAt=performance.now();
+  const activate=()=>{
    active=true;document.body.classList.add('drag-active');window.getSelection()?.removeAllRanges();
    ghost=copy(item,last.clientX+8,last.clientY+8);item.classList.add('landing-copy');arrange();frame=requestAnimationFrame(edgeScroll);
-  },PRESS_MS);
+  };
+  const timer=event.pointerType==='mouse'?undefined:window.setTimeout(activate,PRESS_MS);
   const move=e=>{
    if(e.pointerId!==event.pointerId)return;last=e;
    const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.hypot(dx,dy)>8)moved=true;
    if(!active){
-    if(moved){window.clearTimeout(timer);swipe=true}
-    if(isButton&&swipe&&Math.abs(dx)>Math.abs(dy)){e.preventDefault();container.scrollLeft=start.scroll-dx}return;
+    if(event.pointerType==='mouse'){if(!moved)return;activate()}
+    else{
+     if(moved){window.clearTimeout(timer);swipe=true}
+     if(isButton&&swipe&&Math.abs(dx)>Math.abs(dy)){e.preventDefault();container.scrollLeft=start.scroll-dx}return;
+    }
    }
-   e.preventDefault();ghost.style.left=(e.clientX+8)+'px';ghost.style.top=(e.clientY+8)+'px';arrange();
+   e.preventDefault();ghost.style.setProperty('left',(e.clientX+8)+'px','important');ghost.style.setProperty('top',(e.clientY+8)+'px','important');arrange();
   };
   const finish=(e,cancel=false)=>{
    if(e.pointerId!==event.pointerId)return;last=e;window.clearTimeout(timer);cancelAnimationFrame(frame);
@@ -76,7 +83,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
     suppressClickUntil=performance.now()+400;
     if(cancel||!within()){clearMotion(initial);initial.forEach(n=>container.append(n));container.scrollLeft=start.scroll;host.scrollLeft=start.hostLeft;host.scrollTop=start.hostTop}else emit();
     ghost.remove();ghosts.delete(ghost);item.style.visibility='';item.classList.remove('landing-copy');
-   }else if(moved)suppressClickUntil=performance.now()+400;
+   }else if(moved||performance.now()-startedAt>=PRESS_MS)suppressClickUntil=performance.now()+400;
    if(captureTarget.hasPointerCapture(event.pointerId))captureTarget.releasePointerCapture(event.pointerId);
    document.body.classList.remove('drag-active','drag-invalid');off.forEach(fn=>fn());cancelGesture=undefined;
   };
@@ -85,12 +92,12 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
  }
  for(const group of groups){
   const field=document.createElement('fieldset');field.className='group';
-  const title=document.createElement('legend');title.className='group-title';title.textContent=group.label;title.tabIndex=0;title.setAttribute('role','button');title.setAttribute('aria-expanded','true');title.title='Tap to collapse; long press to reorder';title.setAttribute('aria-label',group.label+'; tap to collapse, long press to reorder, or Alt + Left/Right');
+  const title=document.createElement('legend');title.className='group-title';title.textContent=group.label;title.tabIndex=0;title.setAttribute('role','button');title.setAttribute('aria-expanded','true');title.title='Click or tap to collapse; drag to reorder (touch: long press)';title.setAttribute('aria-label',group.label+'; click or tap to collapse, drag to reorder (touch: long press), or Alt + Left/Right');
   const buttons=document.createElement('div');buttons.className='buttons';
   for(const action of group.items){
    const b=document.createElement('button');b.type='button';b.className='action';b.dataset.key=action.key;b.dataset.layoutKey=action.key+'::'+action.label.replace(/ \(\d+\)$/,'');b.dataset.control=action.label;b.textContent=action.label;
    for(const [key,value]of Object.entries(action.style||{}))b.style.setProperty(key,value);
-   b.title='Long press to reorder within '+group.label;b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
+   b.title='Drag to reorder within '+group.label+' (touch: long press)';b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
    b.onclick=()=>{if(performance.now()>=suppressClickUntil)onLaunch(action,Date.now())};
    b.onkeydown=e=>{if(e.altKey&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=e.key==='ArrowLeft'?b.previousElementSibling:b.nextElementSibling;if(other){if(e.key==='ArrowLeft')other.before(b);else other.after(b);emit();b.focus()}}};buttons.append(b);
   }

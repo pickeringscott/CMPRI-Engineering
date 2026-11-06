@@ -72,7 +72,7 @@
 .cmpri-header-v23 .landing-copy { opacity:.4;outline:none; }
 .cmpri-header-shelf { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:end;width:100%; }
 .cmpri-header-identity { display:flex;flex-direction:column;align-items:start;grid-column:1;grid-row:1/3;min-width:0; }
-.cmpri-header-utilities { display:flex;align-items:end;gap:12px;grid-column:2;grid-row:1/3; }
+.cmpri-header-utilities { display:flex;flex-direction:column;align-items:center;gap:3px;grid-column:2;grid-row:1/3; }
 .cmpri-header-create { border-radius:999px;min-height:0;padding:3px 6px;font-size:12px;line-height:1.25;background:#fbbf24;border:1px solid #fcd34d;color:#111827;font-weight:800;white-space:nowrap; }
 .cmpri-header-create[data-front-desk=true] { min-height:40px;padding:3px 10px;font-size:14px; }
 .cmpri-header-utilities[data-front-desk=true] .cmpri-header-create { min-height:40px;padding:3px 10px;font-size:14px !important; }
@@ -89,7 +89,6 @@
   .cmpri-header-utilities { flex-direction:column;align-items:stretch;gap:3px;width:140px; }
   .cmpri-header-utilities .cmpri-header-status-pill,.cmpri-header-create { width:100%;height:34px;min-height:34px;padding:5px 8px;font-size:14px; }
   .cmpri-header-utilities .cmpri-header-create { font-size:14px !important; }
-  .cmpri-approved-bell notification-bell { --badge-scale:1.8; }
   .cmpri-window-guest { display:none; }
   .cmpri-detail-mobile-guest { display:contents; }
   .cmpri-detail-mobile-guest .cmpri-window-guest { display:flex;flex-wrap:wrap;white-space:normal; }
