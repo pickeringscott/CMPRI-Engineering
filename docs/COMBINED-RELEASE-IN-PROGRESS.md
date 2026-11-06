@@ -1,6 +1,8 @@
-# Combined release: built locally, deployment held
+# Combined release: built locally, production setup incomplete
 
 Verified pre-change production baseline: `eb3707d18958f1e0198e62645cf5f18ef3910161` (deployment `dpl_7bhQkdqS4paEffjiZCHBqV5G7CK7`). Working branch: `fix/event-driven-combined-release`.
+
+Production setup/deployment is now authorized. All six migrations have been applied; application promotion remains gated on configuration and verification. See [execution record](COMBINED-RELEASE-PRODUCTION-EXECUTION.md).
 
 ## Implemented
 
@@ -40,8 +42,8 @@ One final-tree diff against the verified baseline, including previously untracke
 | Category | Added | Removed |
 | --- | ---: | ---: |
 | Application, database and executable public HTML | 2,370 | 1,906 |
-| Tests | 599 | 203 |
+| Tests | 600 | 203 |
 | Configuration | 5 | 8 |
-| **Code including tests/configuration** | **2,974** | **2,117** |
+| **Code including tests/configuration** | **2,975** | **2,117** |
 
 Documentation, standalone preview-only files, generated/lock files and five binary assets are excluded. The deployed Thanksgiving HTML is counted as executable code; its four PNG assets and Flyover AVIF are excluded. These counts describe the built candidate, not a claim that external deployment gates are complete.

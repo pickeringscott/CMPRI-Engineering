@@ -4,8 +4,8 @@ alter table public.cmpri_resource_signals add constraint cmpri_resource_signals_
  check(topic in ('orders','inbox','pool','rooms','feedback','session','reference'));
 
 -- Content-free invalidations only. Existing API authorization still controls reads.
-create trigger resource_assets after insert or update or delete on public.assets for each row execute function cmpri_private.signal_resource('reference');
-create trigger resource_manuals after insert or update or delete on public.maintenance_documents for each row execute function cmpri_private.signal_resource('reference');
+-- Both public compatibility views are backed by this consolidated table.
+create trigger resource_assets_and_manuals after insert or update or delete on public.cmpri_assets_and_pdfs for each row execute function cmpri_private.signal_resource('reference');
 create trigger resource_knowledge after insert or update or delete on public.troubleshooting_cache for each row execute function cmpri_private.signal_resource('reference');
 create trigger resource_locations after insert or update or delete on public.locations for each row execute function cmpri_private.signal_resource('rooms');
 create trigger resource_history after insert or update or delete on public.cmpri_work_order_history for each row execute function cmpri_private.signal_resource('orders');

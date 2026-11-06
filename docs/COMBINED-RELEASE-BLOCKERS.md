@@ -1,3 +1,7 @@
+# Current status — November 6, 2026
+
+Scott authorized production setup and deployment when checks pass. All six migrations are now applied and catalog-verified. Application deployment, provider enrollment, notification webhook and signed-in verification remain incomplete. See [production execution record](COMBINED-RELEASE-PRODUCTION-EXECUTION.md) for current blockers. The audit below is historical; its approval-hold and unapplied-migration statements are superseded.
+
 # Remaining release gates — verified read-only November 6, 2026
 
 Candidate: `8d889a9`. No code changed during this blocker audit; built code totals remain 2,974 added / 2,117 removed against `eb3707d18958f1e0198e62645cf5f18ef3910161`.

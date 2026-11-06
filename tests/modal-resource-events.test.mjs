@@ -46,13 +46,14 @@ test('modal signals cover history/reference/activity/photos with tenant, recipie
  create schema storage;create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);
  create table cmpri_purchase_shipments(id uuid,purchase_id uuid,status text);
  create table cmpri_web_push_tests(id uuid,hotel_id uuid,recipient_user_id uuid,status text);`);
- for(const name of ['cmpri_pool_control','room_operations','cmpri_room_operation_imports','user_feedback','cmpri_work_order_drafts','assets','maintenance_documents','troubleshooting_cache','locations','cmpri_purchases','cmpri_enseo_tickets','cmpri_warranty_cases','cmpri_supplier_followups'])await db.exec(`create table ${name}(id uuid,hotel_id uuid);`);
+ for(const name of ['cmpri_pool_control','room_operations','cmpri_room_operation_imports','user_feedback','cmpri_work_order_drafts','cmpri_assets_and_pdfs','troubleshooting_cache','locations','cmpri_purchases','cmpri_enseo_tickets','cmpri_warranty_cases','cmpri_supplier_followups'])await db.exec(`create table ${name}(id uuid,hotel_id uuid);`);
+ await db.exec('create view assets as select * from cmpri_assets_and_pdfs;create view maintenance_documents as select * from cmpri_assets_and_pdfs');
  await db.exec(readFileSync('supabase/migrations/20261106064638_event_driven_resources.sql','utf8'));
  await db.exec(readFileSync('supabase/migrations/20261106084745_modal_resource_events.sql','utf8'));
  await db.exec(`insert into profiles values('${id(2)}','housekeeping','{}','A',true),('${id(3)}','housekeeping','{}','B',true),('${id(4)}','housekeeping','{}','Inactive',false),('${id(5)}','housekeeping','{}','Other',true);
  insert into hotel_members values('${id(1)}','${id(2)}',true),('${id(1)}','${id(3)}',true),('${id(1)}','${id(4)}',true),('${id(9)}','${id(5)}',true);
  insert into work_orders(id,hotel_id)values('${id(6)}','${id(1)}');delete from cmpri_resource_signals;`);
- for(const name of ['assets','maintenance_documents','troubleshooting_cache','locations','cmpri_purchases','cmpri_enseo_tickets','cmpri_warranty_cases','cmpri_supplier_followups'])await db.exec(`insert into ${name} values('${id(7)}','${id(1)}')`);
+ for(const name of ['cmpri_assets_and_pdfs','troubleshooting_cache','locations','cmpri_purchases','cmpri_enseo_tickets','cmpri_warranty_cases','cmpri_supplier_followups'])await db.exec(`insert into ${name} values('${id(7)}','${id(1)}')`);
  await db.exec(`insert into cmpri_purchase_shipments values('${id(8)}','${id(7)}','Shipped');insert into cmpri_web_push_tests values('${id(8)}','${id(1)}','${id(2)}','accepted')`);
  const signals=(await db.query('select * from cmpri_resource_signals')).rows;
  assert.ok(signals.every(r=>r.hotel_id===id(1)&&[id(2),id(3)].includes(r.recipient_user_id)));
