@@ -36,3 +36,7 @@ test('confirmed import uses one atomic RPC; stale review refuses save',async()=>
 });
 test('different incoming guests reject entire batch',async()=>{const h=harness();const r=await h.run({files:[guest,{...arrivals,text:arrivals.text+'\n101,Other Guest,Other,c'}],previousId:null});assert.equal(r.status,422);assert.equal(h.writes.length,0)});
 test('group name is retained in scan extraction contract',()=>{const s=readFileSync(new URL('../src/app/api/room-operations/guest-reports/extract/route.ts',import.meta.url),'utf8');assert.match(s,/COMPANY,GROUP NAME,PETS/)});
+test('unassigned arrival rows and repeated Preferences commit one incoming stay through the real parser',async()=>{
+ const file={...arrivals,text:'ROOM NUMBER,GUEST NAME,PREFERENCES\n,Unassigned Guest,High floor\n101,Sam Guest,High floor\n101,Sam Guest,Extra pillows'};
+ const h=harness();const r=await h.run({files:[guest,file],previousId:null});assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(h.writes.length,1);assert.equal(r.body.rows[0].incoming_name,'Sam Guest');assert.equal(r.body.rows.length,1);
+});

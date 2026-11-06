@@ -383,7 +383,7 @@ export default function RoomOperationsPage() {
               <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
             </div>
-            <p className="mt-2 text-sm text-slate-400">The latest accepted room report remains current until a newer verified report replaces it. Scheduled checkout times update the room to vacant dirty; this is not physical checkout confirmation.</p>
+            <p className="mt-2 text-sm text-slate-400">The latest accepted report stays available until a newer verified report replaces it. Guest stays expire at their recorded dates and times without another upload. Scheduled checkout is not physical checkout confirmation.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs font-semibold text-slate-300">

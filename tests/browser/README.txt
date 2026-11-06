@@ -30,3 +30,8 @@ against rendered modal body/title colors and the 28-CSS-pixel titlebar.
 
 These browser fixtures complement API, RLS and database tests in npm test.
 They do not certify live provider responses or physical phone camera UI.
+
+daily_ops_files.py checks the compact Daily Ops picker at desktop/mobile widths:
+click/drop staging without requests, red removal controls, explicit Submit,
+scan extraction, retained review/confirmation, failed-save retry and unchanged
+General Manager upload restrictions.

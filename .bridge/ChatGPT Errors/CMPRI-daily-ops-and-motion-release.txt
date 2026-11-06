@@ -1,0 +1,65 @@
+CMPRI DAILY OPS AND HEADER MOTION — COMBINED RELEASE
+November 6, 2026. Production baseline: 9f5b916.
+Includes the pending dashboard motion repair 02b2512 and the scoped Daily Ops
+changes below. Scott's release direction: "Test to deploy together."
+
+Daily Ops changes
+1. Skip Housekeeping Arrivals guest rows whose Room Number is blank. Do not
+   assign an invented room or fail the batch because that row is unassigned.
+2. Treat repeated arrivals with the same normalized guest and room as one
+   arrival, regardless of Preferences. This deduplication already existed; added
+   explicit Preferences/unassigned-row regression coverage. Preserve the raw
+   source rows. Different incoming guests in one room still require correction;
+   duplicate in-house rooms, unknown assigned rooms and other validations remain.
+3. Replace the report selection control with a compact click/drop box labeled
+   exactly "Drag/add files here". Add files incrementally, list selected filenames,
+   provide a small red X to remove each file and include a compact Submit button.
+4. Stage files without extracting or sending them until Submit. Removing/changing
+   staged files invalidates an earlier preview. Retain the existing extracted
+   value review and Confirm Import step, stale-review protection, file/type/size
+   limits, permission checks and failure/retry behavior.
+5. Keep recorded incoming departure date/time with the incoming stay and transfer
+   it when the guest becomes current. Expire that stay at its original end; do
+   not revive an already expired incoming reservation when an old report is read.
+6. Read recorded dates/times from preserved reports for older imports too. A new
+   upload is not required to recover their timeline. Honor explicit current
+   departure times, retaining matching Housekeeping Departures precedence and
+   the existing missing-time defaults.
+7. Include known incoming departures in the existing one-shot display boundary
+   scheduling. Preserve source history and recorded dates, with no periodic
+   polling, stay extension, fabricated departure date or database write on read.
+   Clarify the Daily Ops description to explain expiration without another upload.
+
+Dashboard motion included (02b2512)
+8. Restrict the pressed-control scale override to the picked-up item, so real
+   neighboring buttons can render their smooth slide instead of snapping.
+9. Do not reorder or edge-scroll before pointer movement after pickup. Include
+   raised title tabs in insertion geometry so holding or moving along the title
+   row does not jump a group ahead of unrelated groups.
+10. Preserve the original button-row scroll offset in a group follow-copy.
+11. Restore header scroll as well as original order/position on invalid group
+    drops. Keep existing long-press/click behavior, same-size muted feedback,
+    boundaries, mobile edge scrolling, resize limits, role gates and account saves.
+
+Validation
+The combined candidate is checked with the full repository regression chain,
+targeted parser/API/timeline tests, production build/TypeScript/lint, anonymous
+HTTP guards and trusted Chromium pointer/native-touch browser tests. The browser
+checks exercise actual rendered neighbor interpolation, invalid-drop scroll
+restoration, expanded Operations to last, account sync failure/retry and the new
+file picker's click/drop/remove/Submit/review/save-retry flow at both device sizes.
+General Manager keeps its existing read-only Daily Ops access. Existing role and
+database owner-isolation checks remain in place.
+Results: full npm test chain passed (main block 1,330 passes, zero failures,
+two optional local-PDF fixture skips); final targeted parser/API/timeline tests
+passed 20/20. Production build/TypeScript and lint passed (zero lint errors;
+19 existing warnings). All 81 isolated HTTP smoke checks passed. The header
+gesture, rendered-motion/sync and Daily Ops file-picker suites also passed
+against the optimized production build.
+
+Tests use synthetic accounts and intercepted APIs/provider results or isolated
+databases. No live guest import is performed for testing. Existing private
+storage/schema configuration is reused; no migration or environment change is
+needed. The preserved report metadata was inspected read-only for column names,
+without reading guest identities. The release result is reported in chat after
+deployment verification.
