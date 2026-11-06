@@ -1,0 +1,578 @@
+CMPRI requested changes from the overnight design session
+
+Chronological request ledger for Scott Pickering
+
+This ledger records the CMPRI changes Scott requested in the available voice and chat conversation, including revisions, withdrawals and approvals. It is a record of requested behavior, not a claim that the work was implemented or tested. No source code was inspected to create this ledger.
+
+Reading the ledger
+Each numbered entry cites a distinctive verbatim fragment from Scott's message. Most voice messages in the available transcript do not expose a message ID or individual timestamp; none has been invented. Repeated duplicate transcriptions are recorded once. The order follows the conversation. FINAL means no later reversal was found. SUPERSEDED means a later entry changes the instruction. DEFERRED means Scott explicitly put it off. PREVIEW means an exploration or preview request rather than a separate final implementation decision. UNRESOLVED means the available words do not establish an exact choice.
+
+The session began November 5 local time and continued into November 6, 2026. Later November 6 deployment and scope instructions are recorded separately at the end.
+
+PART 1 INITIAL HEADER AND COMPACT LAYOUT REQUESTS
+
+001. PREVIEW. Show four different mobile touch-tile layouts. Source: "Give me like four different layouts of touch tiles. On the mobile".
+
+002. FINAL BASIS. Desktop uses the command-bar layout. Source: "The desktop preview I want. I want the command bar layout with tighter spacing".
+
+003. PREVIEW. Produce four distinct alternatives using that chosen command-bar layout; do not omit the four alternatives just because a base layout was selected. Source: "I chose the command bar layout, and I told you, I want four other options to go with that layout".
+
+004. FINAL. Tighten spacing between header tiles. This was repeated throughout the session and applies to desktop and mobile. Source: "the tiles definitely needs to be tighter spacing with the tiles".
+
+005. SUPERSEDED IN DETAIL. Replace a large notification treatment with a small bell resembling the profile bell, positioned after CMPRI Engineering. Source: "the small bell. Just like mine is on my profile ... after ... CMPRI engineering". Later entries replace its appearance with the approved 3D bell.
+
+006. SUPERSEDED IN POSITION. Put the pool-status pill in the middle. Source: "the pool status pill in the middle". Later mobile instructions place it to the right and then above + Work Order; final preview governs desktop position.
+
+007. FINAL. Eliminate the separate Pool button to conserve space and make the status pill the entry point to the Pool modal. Source: "get rid of the button for the pool. And make that the ... pool status interactive and not a pool button". Later clarified that clicking status opens the modal, not directly changes status.
+
+008. PREVIEW LIMIT. The preview itself may be noninteractive; the deployed Pool status must function. Source: "it doesn't have to be interactive ... when we deploy it".
+
+009. TEMPORARY EXCEPTION. Leave spacing around the Pool button alone for the moment while tightening other controls. Source: "Except around ... the pool button, just leave that alone ... For right now". Later explicit Pool/+ Work Order layout requests supersede the temporary hold.
+
+010. FINAL DESIGN GOAL. Fit the chief engineer/system administrator controls on one line if possible, otherwise no more than two tightly grouped lines; smaller type is acceptable. Source: "four different previews of all of this on one ... line" and "at least two lines grouped together with much tighter spacing ... even a smaller font would be okay". This is the compactness goal, not permission to hide required controls.
+
+011. FINAL. Apply compact spacing to mobile system administrator and likely all roles, not only one role's preview. Source: "much tighter for the mobile for System administrator ... probably all of them".
+
+012. FINAL. Keep the design minimalistic. Source: "keep it as minimalistic as you can".
+
+013. FINAL BOUNDARY. Do not put the control groups on the title line in the rejected arrangement. Source: "None of these are acceptable, desktop or mobile ... it cannot be on the title line". Later precise identity/Pool/Create shelf instructions and the approved preview resolve the final arrangement.
+
+014. FINAL BASIS. Buttons should look like tight pills around text. Desktop text size is acceptable; the mobile Pool-pill text size was acceptable as a reference. Source: "they should look like pills ... a very tight pill around the text. Text size on desktop is okay".
+
+PART 2 FILE HANDOFF AND CLOSED PACK GROUPS
+
+015. FINAL. Rename the Git repository folder bridge to .bridge. Source: "I ... deployed a new folder called bridge to my git, but I want to make it dot bridge". Scott later confirmed it had been renamed after refreshing. The dot prefix was requested for appearance; it does not establish privacy or access restriction.
+
+016. FINAL WORKFLOW. Use the selected HTML Scott placed in that folder as the starting design, rather than making a disconnected replacement. Source: "Inside that folder, is an HTML that I chose because it's the closest to what I want and I need you to tweak it".
+
+017. FINAL. Keep borders around each set of buttons. Source: "keep the borders around each set".
+
+018. FINAL. Tighten each set's border around its buttons and have the border form a tab over the group's title. Source: "that border to be tighter around the buttons, but look like a tab going up over the title".
+
+019. FINAL. Each button opens its appropriate modal. Source: "button to open a modal".
+
+020. FINAL BASIS. Each button should be an oval tightly around its text, with very little surrounding space. Source: "basically an oval around the text with very little spacing".
+
+021. FINAL WORKFLOW. Continue delivering assistant-created preview files as before; user-supplied files intended for Codex go through GitHub. Source: "You keep giving me preview files the way you give them to me, but if I need to give you a file that you need to give Codex, we go through GitHub".
+
+022. FINAL DESIGN SELECTION. Scott chose closed-pack groups for both phone and desktop, retaining that layout and tightening it around the text. Source: "I chose closed pack groups"; "For both phone and ... desktop ... really, really tight around the text".
+
+023. FINAL. On desktop, do not extend the tab's line into the interior button area; that should tighten the group border. Source: "the tab do not extend the line inside of the ... button area".
+
+PART 3 THREE DIMENSIONAL BELL AND WORK ORDER HEADER BUTTON
+
+024. PREVIEW OUTPUT. Return the edited bell image as PNG. Source: "When I get it back, it needs to be a PNG". Later accepted HTML becomes the deployment reference; the PNG request was for the image preview.
+
+025. FINAL. Preserve the bell's 3D effect, shading and detail. Source: "I want to keep the three-dimensional effect of this image" and later "Do not leave a single detail out of that".
+
+026. FINAL. Move the red conversation bubble inward so its right edge aligns with the bell's right edge. Source: "the right side of the chat bubble is even with the right side of the bell itself".
+
+027. FINAL. Replace exclamation marks with the notification count. Bubble width must adapt to the number of notifications. Source: "instead of the exclamation points ... show the number of notifications ... dynamic and size with the number".
+
+028. FINAL. Implement the bell as an integrated page element, not merely the static image, while preserving its 3D look. Source: "I don't want it to be ... a image when it gets put onto the website ... three-dimensional and ... integrated into the page".
+
+029. FINAL. The count digits also need a three-dimensional treatment. Source: "the numbers need to be three-dimensional too".
+
+030. SUPERSEDED. Initially enlarge the Work Order button and label it + Work Order rather than Create. Source: "work order button needs to be bigger ... plus work order ... remove the word create". Next entry reverses the general enlargement.
+
+031. FINAL. Keep the normal Work Order button's existing size; relabel it + Work Order. Source: "Actually, leave it ... Leave the button the same size, just put plus work order".
+
+032. FINAL DESKTOP. Position the normal-sized + Work Order button toward the bottom of the title line. For Front Desk, make it the same height as the Pool button so it cannot be missed. Other roles retain the smaller size. Source: "front desk role ... same height as the ... pool button ... other roles can be the smaller size ... towards the bottom".
+
+033. SCOPE MARKER. These were desktop instructions; phone changes followed separately. Source: "these are all the desktop changes. I haven't got to the phone changes yet".
+
+034. FINAL. Preview the bell before putting it on the website. Source: "I want to see a preview of that before we put it on the website".
+
+035. FINAL. Center the count more accurately inside the speech bubble. Source: "The number needs to be more centered in the chat bubble".
+
+036. FINAL. Put the bell next to the CMPRI logo with no external border when posted. Source: "next to the CMPRI logo with just that bell with no border".
+
+037. FINAL. The bubble must be dark red. Source: "the bubble needs to be a ... dark red". The immediately following unfinished phrase about the number does not establish another requirement.
+
+038. APPROVAL. Scott approved the image's complete design and shading. Source: "I like that bell design. That's exactly what I want. The shading, the everything on it".
+
+039. FINAL. Add Technician to the role previews/coverage. Source: "role we don't have one here is ... technician"; "we need to add that".
+
+040. FINAL. General Manager includes Daily Room Ops on both mobile and desktop. Source: "the general manager role should also include daily room ops both mobile and desktop".
+
+041. FINAL. Use the same borderless 3D bell on mobile. Actual bell icon should be the size of the current icon without its border, consistently on desktop and mobile. Source: "same size as what the current bell is without the border ... same size on both desktop and mobile". Badge size is separately enlarged later.
+
+042. SUPERSEDED IN ARRANGEMENT. On mobile, put Pool status and + Work Order to the right, equal width, proportionate, allowing a little whitespace. Source: "both buttons need to be the same width ... a little bit of white space is okay". Later Pool status is stacked above + Work Order.
+
+043. FINAL. Hide the notification bubble entirely when there are zero notifications. Source: "if there is no notification, do not put the chat bubble".
+
+044. FINAL WORKFLOW. Supply the HTML itself so Scott can put it into Git; do not give only code text without a viewable preview. Source: "You give me what you ... was gonna give to them and I will put it in my Git"; "you gave me the code, but you didn't give me ... way to view it".
+
+045. FINAL APPROVAL QUALIFICATION. Scott accepted the resulting HTML even though its shading was not identical to the image. Source: "It's not exactly the shading ... it's close enough ... I approve that". This is the final native HTML approval, not permission to substitute an earlier unchanged version.
+
+046. CONFIRMED HANDOFF. Scott placed the notification-bell HTML in the repository. Source: "All right, the notification bell is in the repo".
+
+PART 4 MOBILE UPLOAD BEHAVIOR AND HEADER ORGANIZATION
+
+047. FINAL. Mobile image/video upload should invoke the browser's default appropriate gallery/media selection, not deliberately force users into file paths. Browser/user defaults are acceptable; do not force a specific app. Source: "Whatever the browser picks. I don't want ... to force them to pick a file picker ... picture ... video ... from their gallery".
+
+048. FINAL. Add that upload behavior to tonight's Work Order modal fix list. Source: "add that to the list of fixes to the work order modal ... tonight".
+
+049. FINAL. Move Work Order List into Operations rather than leave it isolated. Source: "work order list button ... move into the operations".
+
+050. FINAL. All profiles, including Chief Engineer, have a + Work Order button. Source: "All the profiles will have a work order button. So even mine".
+
+051. WORK CONTROL. Do not start or send a new preview/task while Scott is still listing changes or before he authorizes that update. Source: "Do not send this fix until I tell you to"; "Do not send ... a ... task yet". This governed intermediate work and was later followed by explicit preview commands.
+
+052. FINAL. Enlarge the desktop notification count and surrounding chat bubble from the then-current revision. Source: "The notification badge, the number, And the chat bubble need to be larger. on desktop".
+
+053. FINAL. Loosen group borders around buttons slightly, not substantially. Source: "Loosen up the border around the buttons a little bit. Not a lot". This supersedes the absolute zero-space version while retaining compactness.
+
+054. FINAL. Tighten space above and below titles. Source: "The spacing on the title top and bottom needs to be tighter".
+
+055. FINAL. Assets and Inventory title should fit on one line. Source: "assets and inventory title ... all on one line".
+
+056. FINAL. Tab-to-border transition must be a smooth continuous line. Source: "a smoother transition into the ... border ... just a continuous line".
+
+057. FINAL DESKTOP. Allow horizontal group resizing by dragging its border, not vertical resizing. Show horizontal scrolling when required. Source: "resize it horizontally but not vertically ... a horizontal scroll".
+
+058. FINAL. Allow groups to be reordered within their existing header/bar area, not freely across the page. Source: "rearrange them, in the bar ... I don't want them all over the ... page".
+
+059. PREVIEW. Show the full set of newly listed desktop changes, then gather mobile changes for the next update. Source: "a preview of all the orders I just gave you"; "For the next update, we will start with mobile changes".
+
+060. FINAL MOBILE. Move Pool status above + Work Order to reduce title/header height. Source: "pool status needs to be moved on top of the work order button ... so that title tightens up".
+
+061. PREVIEW THEN FINAL. Test mobile groups with dynamic behavior similar to desktop. Source: "make the tabs ... dynamic like we are on desktop for the mobile". Later detailed mobile drag/resize/collapse instructions make this part of the approved design.
+
+062. FINAL DESKTOP. Scrollbars must not bump into the buttons and should use transparent/muted CMPRI yellow. Source: "scroll bar ... bumps up into the button ... needs to not happen ... transparent CMPRI yellow".
+
+063. FINAL. Place group scrollbars outside the group's border, at its bottom. Source: "scroll outside of the border. Of the tabs"; "tighten up the border with the CMPRI scroll at the bottom".
+
+064. FINAL. Drag/reorder buttons left to right inside their existing group only; never transfer them to a different group. Source: "They can't ... move tabs. They have to live inside of that tab".
+
+065. FINAL PERSONALIZATION INTENT. Different users should be able to choose different button orders. Source: "my order will be different than Dion's order".
+
+066. FINAL CROSS-DEVICE INTENT. Desktop arrangement should carry to the same user's mobile display when reopened. Source: "if the user moves the button dynamically on the desktop ... I would like those buttons to move ... to ... the mobile app". Scott initially considered disallowing mobile rearrangement, then immediately reversed that in the next entry.
+
+067. FINAL AFTER PREVIEW. Try rearranging buttons on mobile too; do not impose the proposed mobile read-only arrangement. Source: "I take that back ... a test of the buttons to be dynamic in the mobile".
+
+068. FINAL. Enlarge mobile count and its entire bubble, slightly more than desktop because the count was barely legible. Source: "slightly bit bigger than what we would make the desktop ... barely see that it's a three"; "Badge number and ... the chat around it".
+
+PART 5 DRAGGING AND COLOR PALETTE ITERATIONS
+
+069. SUPERSEDED VISUAL METHOD. Show the dragged pill's destination outline so its landing point is clear. Source: "see the outline of the pill so I know where I'm dropping it". Later dotted outlines are explicitly removed in favor of muted drag imagery and moving neighboring controls.
+
+070. SUPERSEDED POSITION. Center group titles within their available space. Source: "The title of the tab needs to be centered". Later moved to the left with an inset.
+
+071. FINAL DESKTOP. Dragging outside the permitted group should show a no-entry/not-allowed cursor. Dropping outside returns the item to its previous position. Source: "your hand should turn into the no symbol"; "it just goes back ... where it was originally".
+
+072. FINAL MOBILE. Make dragging visible on mobile, allow left/right button scrolling and dragging of entire groups, and suppress text selection during dragging. Source: "drag and drop to be seen ... mobile"; "scroll left and right"; "drag the tabs on mobile"; "disable selecting the text".
+
+073. PREVIEW REQUEST. Add a set of ten color-palette choices, not uncontrolled individual color selection. Source: "Give me ... a palette of ten different color choices". Scott later clarifies that he means ten complete palettes, then increases to twenty.
+
+074. FINAL SPECIAL COLOR. PM is the only initially fixed color; match the existing PM check marks and modal color. Source: "PM modal ... those blue checkboxes that we had ... I'll give you the color". The exact supplied hexadecimal value in entry 086 governs over the informal word blue.
+
+075. FINAL DRAG BEHAVIOR. Entire tabs must follow the pointer/finger like buttons do, and neighboring buttons/tabs must move out of the way to show the landing position. Source: "I want the tab to act that way ... other buttons to move out of the way and show where that one's going to land".
+
+076. WITHDRAWN BUNDLE. Scott suggested additional mobile horizontal resize and tighter Pool/+ Work Order spacing, then said he had the wrong tab selected and withdrew that bundle. Source: "I'm sorry. Erase all that ... Because I had the wrong one selected". Do not treat the withdrawn observation as a fresh defect or revoke independently approved earlier horizontal resizing.
+
+077. FINAL BUG FIX. Text selection was still appearing while resizing and must be suppressed for that interaction too. Source: "trying to resize ... still asking me to select text".
+
+078. SUPERSEDED VISUAL METHOD. Replace an ordinary landing outline with a muted representation of the item. Source: "get rid of the outline ... show that muted ... outline where it's dropping". Later all dotted outlines are expressly removed.
+
+079. FINAL. Muted dragged image follows the user's finger/pointer for both buttons and tabs. Source: "a muted ... follow of the button with the user's drag".
+
+080. FINAL PLATFORM SCOPE. Apply the same drag/reflow behavior to desktop as mobile, including tabs. Source: "desktop the same behavior ... that whole thing. And the tab".
+
+081. FINAL EXACT PM HUE. Use #00D492 for PM. Source: "The color's hash is zero zero delta four nine two".
+
+082. FINAL. PM is the only action with a specifically fixed hue at this stage; other actions get coordinated palette choices. Source: "That is the only one that I want to specific color for, so far ... Just the PM".
+
+083. CORRECTION TO PREVIEW COUNT. Provide ten complete different palettes, not ten colors in one palette. Source: "I asked for a choice of ten different color palettes. You gave me ten colors in one palette".
+
+084. FINAL INITIAL PALETTE CONSISTENCY. Other button hues may differ, but their visual intensity/shading should be coordinated with the PM teal, rather than arbitrarily mismatched. Source: "Not the color itself, but the hue, the shading should be ... similar to that ... teal". Later muted/semitransparent styling supersedes the vivid treatment.
+
+085. FINAL TITLE POSITION. Move tab titles toward the left, with some inset rather than flush-left. Source: "tab title placement needs to be on the left, not all the way ... give it some space from the left". Supersedes centering in entry 070.
+
+086. FINAL ANIMATION. The actual neighboring buttons and tabs should move smoothly into their new positions, not a bouncing shadow. Source: "user to visually see the button moving ... Not ... some weird bouncy shadow ... smoothly move".
+
+087. FINAL PLATFORM SCOPE. These layout, palette and movement changes apply to both desktop and mobile. Source: "All these changes are for both".
+
+088. FINAL COLOR MAPPING. The same action must have the same palette color on desktop and mobile to support recognition. Source: "color palette matches, both desktop and mobile ... I expect it to be a same color".
+
+089. RETRACTED DEFECT REPORT. Scott initially said no palette selector existed, then found the Button Color control. Source: "I found it. I ... expected a different drop-down box". Do not record the selector as definitively absent after that retraction.
+
+090. FINAL BUTTON TREATMENT. All ordinary buttons, including PM teal, should be muted and semi-transparent like Pool status; text should be whiter but lightly tinted by its hue. Only Create/+ Work Order should strongly stand out. Source: "only button I really wanna stand out is create work order ... muted semi-transparent like the pool button".
+
+091. SUPERSEDED PREVIEW COUNT. Increase the choices to twenty. Source: "And give me twenty colors". Later clarified as twenty palettes.
+
+092. FINAL. Sign Out always uses its earlier muted red. Source: "sign out button should always be the muted red that we had before".
+
+093. FINAL. Slow the approved smooth reorder movement slightly, for tabs and buttons, without making it markedly slow. Source: "slow that movement down just a touch ... both the tabs and the buttons".
+
+094. FINAL. Hide the dragged button image when outside its group but keep the drag attached; show it again when moved back inside. Source: "button to disappear, but still be attached ... bring it back in ... reappear".
+
+095. SUPERSEDED FRONT DESK PERSONALIZATION. Initially retain Front Desk/submit-only rearrangements account-wide for the next user. Source: "if somebody at the front desk moves them, just leave them there for the next user ... account-wide".
+
+096. FINAL FRONT DESK EXCEPTION. Reverse entry 095: lock Front Desk controls; they do not need rearrangement. Source: "Actually, no, don't ... front desk role Just lock them".
+
+097. FINAL INITIAL FRONT DESK ORDER. Room Ranker, Work Order List, Staff Notes, Manage Profile, Sign Out. Source: "Room Raker, order list, staff notes ... manage profile, sign out". Manage Profile is later removed; the remaining order is retained unless the approved preview says otherwise.
+
+098. FINAL. Remove dotted yellow landing outlines. Dragged pill must be the exact size of the original, not larger. Source: "get rid of the dotted yellow line ... pill that I'm dragging is larger ... size of what's actually there".
+
+099. PREVIEW. Produce twenty distinct palettes similar to Neon Dusk. Source: "Twenty twenty palettes similar to the neon dusk".
+
+100. FINAL RESIZE LIMIT. Expansion should stop once large enough that the scrollbar disappears, rather than permit needless oversizing. Source: "large enough ... makes the ... scroll bar disappear. That's all a bigger it should be".
+
+101. FINAL. Remove dotted outlines both at landing and when picked up. Dragged tab and its shadow must visually match the original tab. Source: "Get rid of the outline ... both altogether on the landing and when you grab it"; "The tab does not look like what I'm grabbing".
+
+102. CORRECTION TO PALETTE UNIQUENESS. Scott found palettes 6 and 12 duplicated. Retain number 6 and create twenty genuinely different but similar alternatives. Source: "six and twelve ... same ... thing"; "keep number six ... twenty different ones ... similar enough to number six".
+
+103. FINAL REMOVAL. Remove old Room Ranker from Engineering and its unused implementation, because Scott said nothing linked to it. Source: "remove the old room ranker ... completely remove it from the code". This is specific to the old version, not authority to remove the current Room Ranker or unrelated workbook functions.
+
+104. FINAL MODAL THEMING. Whatever action palette is chosen, modal title-bar color and title text follow its button; the dot beside the title and modal outline follow the button outline. Source: "modal title ... should be the color of the button ... dot ... match the outline of the button ... outline of the modal should match".
+
+105. FINAL. Make group/tab outlines more muted. Source: "outline should be more muted for ... the tabs".
+
+PART 6 LOCKED COLORS AND MODAL APPEARANCE
+
+106. FINAL PALETTE SELECTION. Lock Coral Glow. Source: "We are to lock in the color coral glow". Later references confirm number six.
+
+107. FINAL NOTIFICATION COVERAGE. All profiles need a notification bell, including Technician and Front Desk, so they can receive pool-closure indications. Source: "All profiles need a notification bell of some sort. Because if the pool is closed, they need to be dinged". This does not itself define an audible alarm schedule.
+
+108. FINAL REFRESH REMOVAL. Remove Technician's Refresh Work Orders control and its associated refresh feature. Source: "Refresh work orders"; "remove the refresh and all of its features".
+
+109. PRESERVATION REQUEST. Opening a Work Order should preserve the existing size. Source: "When you open a work order, it needs to be the same size as what it is currently". Later clarification emphasizes the title bar rather than confusing it with total modal height.
+
+110. CLARIFICATION. Determine the existing title-bar height, not the full modal dimensions; match that height and title text. Source: "That is not the title bar height. That is the whole size of the ... modal"; "The title bar height".
+
+111. FINAL. Modal titles and buttons use palette six, including appropriate text color; do not interpret this as a request to arbitrarily dull every text element. Source: "Not muted, muted text, but yeah the same color palette as six"; "for the title of the modals and the buttons".
+
+112. FINAL FUNCTIONAL AUDIT. Analyze why notifications are time-driven rather than event-driven. Source: "Why are they time driven ... for ... event notifications".
+
+113. FINAL RELEASE WORK. Start implementation of the event-driven task so it can be deployed together with the rest. Source: "start Codex on that task so we can deploy this all at once".
+
+114. FINAL RELEASE GROUPING. Keep it part of a combined deployment with further changes Scott will add, not a separate premature rollout. Source: "combined deployment with more things that I'm going to add".
+
+115. FINAL NOTES ACCESS. All discussed roles should be able to comment on Work Orders. Source: "All roles ... should be able to make comments on work orders".
+
+116. FINAL INTERIOR THEMING. Modal interior should match its button's palette hue instead of the previous default blue, but be even more muted than the button. Source: "background should be the color of the button, but even more muted than the button already is".
+
+117. FINAL INTERACTION THEMING. Hover, click and highlight colors follow that modal/action palette rather than default blue. Source: "all of the color behaviors need to match"; "mouse hover, mouse click".
+
+118. FINAL TEXT THEMING. Near-white modal text should carry a small amount of the associated hue, as the buttons do. Source: "the white should reflect just a little bit of that color ... Just like the buttons".
+
+119. FINAL LOCK. The palette selector can remain locked; Scott does not need to change it after choosing. Source: "I wanna ... lock in these colors, so it's fine".
+
+PART 7 COLLAPSIBLE GROUPS AND HEADER APPROVAL
+
+120. SUPERSEDED ROLE SCOPE. Initially Chief Engineer mobile only: tap a group title to hide/show its buttons, retain the visible tab and its movable behavior. Source: "On mobile, For engineer only ... tap on the tab and have the buttons disappear but the tab stay".
+
+121. FINAL INTERACTION DISTINCTION. Tap/click toggles collapse; long press initiates moving tabs or buttons. Source: "tapping on the tab ... buttons disappear and reappear and long tapping moves them".
+
+122. FINAL BUG FIX. Expanded Operations cannot be dragged to the bottom because of its size; fix that exact case while retaining dragging when collapsed. Source: "Operations tab, while it's expanded on mobile, does not drag to the bottom. That is the issue".
+
+123. FINAL EXPANDED SCOPE. Apply collapse/movement behavior across users on desktop and mobile, not only Engineer mobile. Source: "implement it for all users ... desktop and mobile ... tabs can be collapsible and movable". Earlier Front Desk locking is a specific exception requiring reconciliation with this broad instruction; the transcript does not explicitly revisit that exception by name here.
+
+124. FINAL COLLAPSED FORM. Collapse to a tight outline around the tab/title itself, roughly a circle/oval around that title rather than an empty expanded group box. Source: "when the tab collapses ... just an outline around the tab".
+
+125. SUPERSEDED FILL SCOPE. Scott requested every tab background in muted CMPRI yellow and title text in actual CMPRI yellow, including collapsed state. Source: "every tab ... background ... muted CMPRI yellow and the text ... actual ... yellow".
+
+126. FINAL ACCEPTED FILL SCOPE. Scott accepted filling only the title-tab itself, not the entire group interior, because a fully yellow group would compete with buttons. Source: "I'm glad you only chose to do the tab itself ... everything in there to be filled ... would have taken away from the buttons ... that worked".
+
+127. FINAL. Collapsed titles keep the same yellow treatment for visibility. Source: "Even when they're collapsed, they need to be yellow. The same yellow".
+
+128. APPROVAL. Lock the resulting header design; it is done. Source: "this can be locked in. This is done. As far as I care, that one's done".
+
+129. RELEASE TIMING. It may be pushed with the later combined release, not necessarily immediately. Source: "that can be pushed ... In due time ... It will be pushed".
+
+130. SUPERSEDED EMAIL DECISION. At this stage retract the earlier email-push deferral and include it. Source: "Do not defer the email push. I retract that". The next-morning instruction to skip email supersedes this; see final addendum.
+
+PART 8 WORK ORDER PREVIEW BASE AND LIST STATUS
+
+131. FINAL BASE. Bring the Work Order List and Work Order Detail modals from live deployment into an editable preview for desktop and mobile. Source: "work order list and the work order modals from live deployment brought in ... editing"; "both mobile and desktop".
+
+132. FINAL PREVIEW FORMAT. One HTML containing both, with a way to select between them, is acceptable and preferred for editing them together. Source: "combine both of those into one HTML ... edit them both at the same time".
+
+133. PREVIEW APPROVAL GATE. Show changes visually before deploying. Source: "I just want to see them visually before you deploy them".
+
+134. FINAL LIST DEFAULT WITH WORDING EVOLUTION. In All, pending verification/new or pending Work Orders come first, followed by open, in progress, completed, closed, and will-not-do at the bottom. Source: "pending verifications and then new work orders" followed by the explicit recap "pending, open, in progress, completed, closed, and will not do at the bottom when I select all". Do not invent separate duplicate status categories from the false starts.
+
+135. FINAL TILE THEMING. Summary/status tiles follow their status-pill colors, using colored text/numbers and matching muted fills/fade effect. Examples explicitly given: open green, urgent red, done blue, overdue orange. Source: "use those colors as the text and the muted color as the fill".
+
+136. FINAL INITIAL BADGE PLACEMENT. Put guest membership badges next to room/location. Source: "next to ... the location ... room number ... guest badges". Later entries precisely distinguish current and incoming guests.
+
+PART 9 LOYALTY TIERS AND STAY DATA
+
+137. PREVIEW. Show both current-style Marriott M concepts and historic crown concepts for all supplied tiers. Source: "show me those ... both classic and new, all ... of that".
+
+138. USER-SUPPLIED DESIGN SPECIFICATION. Base M charcoal #1C1C1C; Silver metallic chrome #AFAFAF; Gold champagne #D4AF37; Platinum bright white/platinum in dark obsidian #2C2C2C circle; Titanium steel/slate blue #4682B4; Ambassador brushed gold in midnight royal navy #000080 circle. Source: pasted chat message Sentinel_628cb76cff7c81918bdf638433227313, November 6 07:41:11 UTC. Alternative historic-crown concept was provided in the same message. These are Scott's custom badge concepts, not verified official Marriott tier assets.
+
+139. FINAL DATA SOURCE. Import tier from the arrivals report's Loyalty Tier column. Some entries may be blank. Source: "on the arrivals report ... loyalty tier column. And some may not have it, and that is okay".
+
+140. FINAL RETENTION. A tier captured at arrival import persists through the stay; a later captured tier also stays with that stay. Source: "when it's imported, it should carry on through their stay. And if it's captured later ... it just goes and stays".
+
+141. FINAL BADGE SELECTION. Choose the Marriott-style M, not the historic crown. Source: "we're going to have to do the Marriott style M concept".
+
+142. FINAL DAILY OPS PLACEMENT. Put the M badge just before the guest's name on the Daily Ops sheet. Source: "on a daily op sheet ... just before the name is fine".
+
+143. FINAL AMBASSADOR APPEARANCE. Scott liked the blue/yellow Ambassador combination as compatible with CMPRI colors. Source: "blue with the ... CMPRI blue and yellow is ambassador". The pasted navy/gold reference remains the supplied exact hue source unless the approved image differs.
+
+144. FINAL BRANDING INTENT. These are custom guest badges Scott is adding, not a claim that the current official Marriott interface supplies badges. Source: "I'm giving them the badge ... Marriott style M is the good one".
+
+145. SUPERSEDED SIMPLE TRANSITION. Current guest badge remains until checkout; incoming guest badge takes over at actual departure, such as 11, not waiting until 3. Source: "if they leave at 11, the next incoming guest ... takes over at 11, not 3".
+
+146. FINAL REFINED TRANSITION. At checkout, incoming tier appears with a Reserved indicator; that incoming reserved treatment stays until the guest takes over the room at 3 p.m. Source: "current guest ... badge ... next to the room number until ... expires then ... reserved badge ... status badge on the left ... until they take over the room at 3 PM". Later overlapping-display instruction requires both current and incoming badges when their windows overlap.
+
+147. FINAL. Display a Reserved indicator when the room is reserved. Source: "there should be a reserved badge that shows up if it is reserved".
+
+148. FINAL LIST ALIGNMENT. Anchor priority and ticket-status pills at the right, with spacing, and remove the right-arrow affordance. Source: "pills for priority and ... Ticket status need to be anchored to the right with spacing ... right arrow ... disappear".
+
+149. FINAL SORT OPTIONS. Add Bonvoy status-tier sorting high-to-low and low-to-high. Source: "Bonvoy status tiers ... sort by status, high to low, and then low to high".
+
+150. UNRESOLVED EXACT SORT PLACEHOLDER. Scott explored muted "Sort by..." as placeholder, first excluding it from options, then recognizing a blank/default item must exist and asking for the dropdown's behavior. Source: "sort by ... placeholder. Muted ... does not appear in the dropdown ... sort by has to show up there". The available transcript does not expose a final detailed answer or explicitly approved exact reset behavior; do not invent it.
+
+PART 10 MOBILE LIST TILES AND ADDING CREATE WORK ORDER
+
+151. FINAL MOBILE PARITY. Same list behavior and placement as desktop except the summary tiles. Source: "mobile work order list ... same behavior as the desktop ... same location for everything except the tiles".
+
+152. WITHDRAWN TILE ORDERS. Scott tried several row/column orders, then explicitly scrapped them because Pending had been omitted. Source: "we're gonna have to scratch all that. Never mind. I forgot pending".
+
+153. FINAL TILE GRID. Eight tiles fit into two rows of four: Pending, Open, Progress, Urgent/High, Overdue, Done, Closed, All are the specified set. Source: "Out of ... these eight, pending, open, progress, urgent slash high, overdue, done, closed, all ... 2 rows of 4". Scott accepted the assistant's suggested order, but that spoken suggestion is not reproduced in the user transcript. Prior approval records report row 1 Pending/Open/In Progress/All; row 2 Urgent/Overdue/Done/Closed. Treat that exact ordering as approval-record-derived, not a verbatim Scott enumeration.
+
+154. FINAL ROLE SCOPE. Apply mobile changes for all mobile users. Source: "all mobile users".
+
+155. FINAL DETAIL COMPACTNESS. Tighten the top Work Order Detail metadata fields/category/priority/due-by/status layout because the mobile stack forces excessive scrolling. Source: "categories to be tighter ... scrolling way too far ... category, priority, Dubai, status ... two rows of ... three". Exact resulting arrangement was to be visually previewed and approved, not invented from the speech error "Dubai".
+
+156. FINAL PREVIEW EXPANSION. Add Create Work Order to the same combined HTML as List and Detail. Source: "add create a work order to this HTML as well"; "Go ahead and make those changes and add that to this".
+
+157. FINAL UPLOAD USABILITY. The photo-upload controls were too small to see/tap when demonstrating to Dion; improve their usability. Source: "button was so ... small ... couldn't ... tap on it ... small. You couldn't see it". Later exact split-button size requirements govern.
+
+158. FINAL DESKTOP COMPACTNESS. Reduce desktop summary tiles too; they are oversized. Source: "update the tiles ... for the desktop, because those are too big as well".
+
+159. FINAL GROUP BADGES. Include group badges in the Work Order List in addition to member-status badges. Source: "Not only ... member status, I also want ... group badge".
+
+PART 11 FLYOVER STUDIOS AND SPLIT UPLOAD CONTROLS
+
+160. FINAL FLYOVER GROUP BADGE. Use Scott's provided image beside guests in the Flyover Studios group, in the same badge locations used elsewhere. Source: "next to the fly over studios group ... guest in that ... group ... same place that the other badges are everywhere else".
+
+161. FINAL FLYOVER SIZING. Use judgment to match existing CN and Big Ten badges; slight initial size differences can be corrected later. Source: "I'll use your best judgment ... rest of the sizes like the CN and the ... Big Ten badges".
+
+162. CONFIRMED ASSET HANDOFF. Scott committed the image into .bridge. The spoken filename is transcribed uncertainly; the approval record identifies FFS_Logo6.avif. Source: "Flyover Studio image to the dot bridge folder". Preserve the actual provided image, do not substitute unrelated branding.
+
+163. WITHDRAWN CAMERA REMOVAL. Scott initially proposed upload only on desktop because webcams would be unusual, then reversed himself. Source: "only want to upload photo ... Well, I take that back".
+
+164. FINAL DESKTOP MEDIA. Provide upload and camera/webcam, with camera subject to user permission. Source: "desktop ... two different ... buttons, one to upload a file and one to open the webcam if they allow it".
+
+165. FINAL MEDIA CONTROL DESIGN. Make one combined button split into two halves, upload and camera, with icon-only labels and useful icon size, like the earlier GIF button. Source: "one single button, but ... split in half ... icons of upload and camera".
+
+166. FINAL MEDIA SIZE AND COLOR. Match normal CMPRI control sizing and the muted palette. Source: "same size of the other ones ... muted just like the other buttons". Later he again rejects an oversized implementation.
+
+167. FINAL DASHBOARD CONTEXT. All roles now have dashboards except Housekeeping as discussed; do not expand Housekeeping's app use because it is not being used yet. Source: "all the roles have dashboards except for housekeeping". Later shared-modal appearance may include Housekeeping where available; this statement does not authorize removing their existing access.
+
+168. FINAL RELEASE HOLD. Do not push the Flyover/media changes independently; include with all other changes. Source: "don't ... push it live yet ... push ... all this ... together".
+
+169. PREVIEW. Include Flyover badge in the next preview round. Source: "preview with the Flyover Studio too ... next round".
+
+170. FINAL EVENT AUDIT. Audit this modal and already completed modals so event-driven features are not driven by recurring timers. Source: "Check over these modals that we have completed, and this one ... event driven ... not time driven".
+
+PART 12 WORK ORDER DETAIL GUEST NAME AND ATTACHMENT PLACEMENT
+
+171. INITIAL MOBILE NUMBER REQUEST, LATER PRESERVED BY PREVIEW. Move mobile Work Order number all the way left on the top line. Source: "work order number ... stay on the top, but move it to the left, all the way to the left". Later Scott explicitly says leave its current approved position alone.
+
+172. SUPERSEDED GUEST-NAME PLACEMENT. Initially put muted first/last guest name with Bonvoy status and a small badge below room number and above issue, then paused the sizing instruction. Source: "guest's first and last name ... muted"; "under the room number ... above the issue ... hold up".
+
+173. FINAL DESKTOP GUEST TITLE. Put guest name in the desktop title bar's far-right top line, with badges/status to its left. Source: "on desktop put the guest's name at the title bar ... far right top line ... badges and status to the left".
+
+174. FINAL DETAIL MEDIA LOCATION. Move Choose Photo to the notes area beside Submit Note. Selected files appear to its left, continuing left for multiple attachments. Source: "move up to the notes section next to submit note ... files ... continue to the left of the button".
+
+175. FINAL. Remove numeric upload counts because attachments are visible and countable. Source: "get rid of how many photos were uploaded, how many files we're uploading because you can count them".
+
+176. FINAL CONSISTENCY. Detail's Choose Photo control uses the same upload/camera split design as Create Work Order. Source: "choose photo button should act like the create work order button split in half ... uniform across the whole page".
+
+177. FINAL SIZE CORRECTION. Shrink oversized media controls in Submit/Create Work Order to normal CMPRI button sizes. Source: "submit a work order, those buttons are way too big ... same size as everything else".
+
+178. FINAL COLOR CORRECTION. Camera/upload control colors match the native palette of their own modal. Source: "colors of the camera and the file button should be the native of whatever modal it is".
+
+179. FINAL REDUNDANT NAVIGATION REMOVAL. Remove the extra Work Order navigation button from Front Desk submission/modal pages because the dashboard already has it; Scott observes the redundant navigation on all preview modals. Source: "work order button can disappear ... work order button on the dashboard"; "work order button is on all the modals". Do not confuse this with removing Submit/Create itself.
+
+180. WITHDRAWN COMMENT CHANGE. Scott starts a comment-layout change, then says never mind before specifying it. Source: "comments on work orders ... never mind that". No additional requirement should be inferred.
+
+PART 13 LIST LABEL AND CURRENT VERSUS RESERVED BADGES
+
+181. FINAL LABEL. Replace Awaiting Approval with Pending. Scott briefly tries Awaiting, then chooses Pending. Source: "just say awaiting ... Or ... pending, just put pending"; "Instead of awaiting approval ... just say pending".
+
+182. SUPERSEDED INTERMEDIATE ORDER. Scott initially asks for room status after location and then badge. Source: "move the room status pill to after ... location and then the badge after that". Final clarification below changes the order to room, current badges, room status.
+
+183. FINAL INCOMING PLACEMENT. Put incoming reservation indicators at the bottom of the Work Order List row, on the right as the earlier placement context establishes. No incoming guest name is needed. Source: "incoming guest needs to be at the bottom, bottom, bottom of the row"; "doesn't need the name".
+
+184. FINAL INCOMING CONTENT ORDER. Incoming group badge, Bonvoy member icon, then Reserved pill. Source: "Group, Bonvoy member status, and then just the reserved ... pill, not the name".
+
+185. FINAL CURRENT CONTENT. Restore current guest's Bonvoy icon beside room number on the left. No current guest name or textual tier tag in the list. Source: "current guest ... Bonvoy badge next to the room number. Nothing else, no name, just the badge".
+
+186. FINAL LEFT-SIDE ORDER. Room/location, current guest badges, then room status. Source: "left-hand side after the room and ... their badges ... room status". Supersedes entry 182.
+
+187. FINAL CREATE UNIFORMITY. Every role's Create Work Order buttons match the Front Desk design in location, dimensions and all layout details. Source: "buttons need to match ... one ... designed for the front desk"; "match location and size and everything".
+
+188. FINAL FRONT DESK PROFILE SHORTCUT. Remove Manage Profile from Front Desk. Source: "front desk role does not need a manage profile button".
+
+189. FINAL NOTES ACCESS. All roles can submit notes wherever the relevant Work Order appears. Source: "all roles should be able to submit notes no matter where it's at in the system".
+
+190. FINAL SEPARATE PHOTO SECTION REMOVAL. Remove the separate attached-photos section in Work Order Detail because attachments belong with notes/history. Source: "work order modal ... get rid of the ... photos because those are embedded into the front desk notes". This is a layout change, not deletion of files.
+
+191. FINAL PENDING-ATTACHMENT DIRECTION. Reaffirm pending photo/file previews extend left of the upload/camera button as more are added. Source: "attach photos to the left hand side of the buttons and continue them to the left".
+
+192. FINAL NOTES LABEL. Put the role label, such as Front Desk Notes, inside the note input rather than as an external section heading. Source: "say the role inside of the input box ... where it says front desk notes is the title, I want it inside the input box".
+
+193. FINAL SINGLE FRAME. Combine notes, ticket history and comment entry in one frame. Source: "notes and ticket history and the comment box to be all in one frame".
+
+194. FINAL SURFACE. That consolidated frame applies to Work Order Detail. Source: "that is on work order detail".
+
+195. FINAL INPUT HEIGHT. Use a smaller, one-line note input. Source: "input box could be smaller. Just ... one-liner".
+
+196. FINAL BADGE CONTENT. Remove Bonvoy status text tags; use the badge/icon only. Source: "We don't need ... Bonvoy status tags, we just need the icon".
+
+PART 14 PILL CONSISTENCY AND TICKET HISTORY MEDIA
+
+197. FINAL RESERVED STYLING. Make Reserved pill consistent with priority and ticket-status pills: centered text and the same font/treatment. Source: "reserved pill ... not centered ... not the same font ... needs to be consistent ... work order list".
+
+198. FINAL CREATE CLEANUP. Remove Staff Notes from every role's Create Work Order modal. Source: "staff notes can be removed from everyone's create work order modal".
+
+199. FINAL SUBMITTED ATTACHMENTS. Place uploaded attachments in ticket history with who sent them and relevant history information. Source: "attachment should go into the ticket history ... all the information, who sent it".
+
+200. FINAL FILENAME. Preserve the original uploaded filename. Source: "original file name when it's uploaded".
+
+201. FINAL LINK PRESENTATION. Show attached filename as a blue link. Source: "It's a blue link".
+
+202. FINAL IMAGE INTERACTION. Hover shows an image thumbnail; clicking opens the actual image. Source: "hover over it to see a thumbnail ... actually see it when you click on it".
+
+203. FINAL VIDEO INTERACTION. Hover shows the first frame paused; clicking opens the video and permits playback. Source: "video ... first frame and it's paused ... click ... open it and then it plays".
+
+204. WITHDRAWN DETAIL BADGE CHANGE. Scott starts changing group/badge placement inside the Work Order, then explicitly keeps the current arrangement. Source: "Inside of the work order ... group No, never mind. Leave that ... happy the way that is".
+
+205. PREVIEW. Show these changes before proceeding. Source: "give me a preview of that. Make it snappy".
+
+PART 15 STAFF NOTES WELCOME AND TUTORIAL REQUEST THEN DEFERRAL
+
+206. INITIALLY REQUESTED POST. Prepare a welcome message for CMPRI Engineering explaining Staff Notes is for all staff communication, including guest-related handoffs, not only Engineering. Source: "welcome to CMPRI Engineering ... summary ... staff notes modal ... not just engineering ... guest communication between staff".
+
+207. INITIALLY REQUESTED CONTENT. Mention Giphy and include a short visual example showing how to open the GIF controls and their two buttons. Source: "Giphy is available ... a video ... point to ... little thingy ... two different buttons".
+
+208. INITIALLY REQUESTED IMAGE. Include the CMPRI image as an example image, sourced from existing repository/HTML assets. Source: "Put the CMPRI image in there and call it an image"; "There's one on the Git repository"; "actually in the HTML".
+
+209. FINAL TUTORIAL SIMPLIFICATION AT THIS STAGE. A mock GIF and mock picker window are fine; show how to reach the control, not live Giphy integration or a costly recording. Source: "Even ... mock GIF ... just so people know how to open Giphy"; "Don't need Giphy ... specifically".
+
+210. INITIALLY EXPANDED DEMO. Show tagging, hashtags and the other Staff Notes capabilities, using the real Notes presentation rather than a convoluted separate implementation. Source: "show them how it works with tagging and hashtags ... everything that it does".
+
+211. SUPERSEDED POSTING AUTHORIZATION. Initially write/deploy the example as Scott's maintenance account so it appears to be his note. Source: "type it in notes, and then just deploy it. So it looks like I did it"; "maintenance account".
+
+212. FINAL POSTING REVERSAL. Scott will copy/paste it himself; provide files and text including mentions, rather than deploy a post or create a new release for it. Source: "I'll just copy and paste it ... just give me the files ... And the text".
+
+213. FINAL RELEASE DEFERRAL. Later Scott said not to spend tonight on the Staff Note/comment example; that is for another day. Source: "I'm not worried about commenting on a ... staff note tonight ... That's for another day".
+
+214. FINAL TUTORIAL CANCELLATION. Scott will teach Dion; no tutorial needs to be built into the app. Source: "I will teach Dion, and I do not need to tutorial inside of the app". This does not cancel all-role Work Order notes or Staff Notes functionality.
+
+PART 16 THANKSGIVING RELEASE AND FINAL WORK ORDER BEHAVIOR
+
+215. FINAL ADDITION. Include the previously designed Thanksgiving turkey desktop release that had not been published. Source: "Turkey Thanksgiving release desktop. That never got published ... almost forgot".
+
+216. FINAL THANKSGIVING BEHAVIOR. Use the existing design, event-driven without repeated server polling. Source: "Existing design ... Event driven and not time driven ... not calling the server every five milliseconds".
+
+217. FINAL DETAIL FOOTER. Move Cancel and Save Work Order to the bottom of the locked pane while leaving the Work Order number anchored. Source: "cancel and save work order buttons ... bottom of the locked pane ... leave the work order number anchored where it's at".
+
+218. FINAL HOVER PERSISTENCE. Keep the image preview open when the pointer moves onto/stays over the preview itself, and allow click-to-open from there. Source: "image should stay visible ... mouse hovering over it still ... click to open when it's still hovered open".
+
+219. FINAL SHARED MODALS. All corresponding role views should be the same modal appearance. Housekeeping was initially qualified, then included in the wider consistency intention where applicable. Source: "all roles should see the exact same modals"; "all users should use all the same modals".
+
+220. FINAL OVERLAPPING GUESTS. Show both current and incoming/reserved guests' badges at the same time when time windows overlap. Source: "When times are overlapping, I need to see both ... current guest and ... reserved guests ... both at the same time". Supersedes interpreting entry 145 as always showing only one badge.
+
+221. FINAL MOBILE NUMBER PRESERVATION. Leave the mobile Work Order number where it is in the approved preview. Source: "work order number, just leave it there. That's fine".
+
+222. FINAL STATUS PRESERVATION. Do not change any existing status-pill meanings or behavior. Source: "We're not changing ... any status pills or how they act ... leaving all that ... the same".
+
+223. FINAL VISUAL REFERENCE. Every role's authorized modal should look like Chief Engineer's view. Source: "All users need to see the modal as the chief engineer does"; "The chief's view".
+
+224. FINAL ACCESS BOUNDARY. Do not give other roles access to every Chief Engineer modal/function merely to make their screens visually uniform. Source: "don't change their access restrictions ... don't let 'em see every modal I see ... they all need to match".
+
+225. ROLE CONTEXT, NOT NEW GRANT. Scott explained Front Desk, Front Desk Manager and AGM have distinct access levels even if some current uses overlap. Preserve those distinctions for future role needs. Source: "still different access levels ... if AGM needs something ... front desk manager doesn't need".
+
+PART 17 POOL MODAL ACCESS AND LATE LAYOUT REFINEMENTS
+
+226. WITHDRAWN DIRECT-STATUS INTERPRETATION. Scott initially says all profiles should change Pool status by clicking the button, then immediately corrects: click opens the Pool modal. Source: "I take that back The pool button ... click on this pool status, then it opens the pool modal".
+
+227. FINAL GM AND AGM POOL AUTHORITY. GM and assistant manager/AGM may clear a Front Desk closure lock and reopen the pool through the modal, like Engineer. Source: "assistant manager and the general manager should be able to reopen the pool ... just like the engineer does".
+
+228. FINAL POOL LOG AUTHORITY. GM and AGM may open Pool Log, add entries and edit it, including entries required for reopening. Source: "open the pool log and edit it ... put in an entry, so the pool can be reopened"; "both have permission".
+
+229. FINAL INCOMING ALIGNMENT. Raise the incoming guest indicators to align with the bottom of the last technician-name line on the left. Source: "moved up so ... even with the bottom ... technician name on the left".
+
+230. FINAL TITLE-AREA CORRECTION, EXACT ELEMENT AMBIGUOUS IN SPEECH. Scott rejected extending the title box and wanted the referenced item to stay next to Cancel. Source: "you extended the title box over and I did not want that ... stay next to the cancel button". The transcript does not name the element more precisely; use the approved visual reference rather than inventing a different box.
+
+231. FINAL MODAL SCROLLBAR THEMING. Right scrollbar matches the modal's own palette in a muted version. Source: "scroll bar on the right ... matches ... color of the modal itself, but muted". This is separate from header-group CMPRI-yellow scrollbars.
+
+232. WITHDRAWN TITLE ADDITION. Scott began suggesting Create Work Order on a title bar, then said never mind. Source: "put create work order ... no, never mind". Do not implement the abandoned idea.
+
+233. FINAL REDUNDANT TITLE REMOVAL. Remove the Work Order List heading inside the modal because its window title already identifies it. Source: "get rid of the text inside of the modal work order list ... window title ... don't need the title inside".
+
+234. DEFERRED POOL TRAINING FEATURE. A checkbox/certification permission system for pool testing is a possible future idea, not tonight's scope. Source: "That's for another day ... I don't want to deal with it".
+
+235. DEFERRED EASTER EGG. Explore a small clickable game, eventually Whack-a-Work-Order with paper/work-order shapes; Hours Tracker was proposed but excludes Front Desk. No final location chosen. Source: "Whack a work order"; "Maybe an Easter egg for another time ... gotta get this ... done". No Easter egg is authorized in this release.
+
+236. FINAL POOL PREVIEW WAIVER. No extra preview is required for GM/AGM pool parity; implement the same view and access as Chief Engineer for pool functions. Source: "don't need any preview ... GM and the AGM ... pool access as if it was mine ... Same view everything".
+
+237. FINAL MOBILE DETAIL BUTTON SIZE. Make Cancel and Save Work Order borders super-tight around their text on mobile. Source: "save and cancel buttons ... borders ... tighter around the text ... super tight ... on mobile".
+
+238. APPROVAL OF OTHER WORK ORDER SURFACES. Scott says Create Work Orders is fine and Work Order List is satisfactory; desktop preview is also acceptable. Source: "Create work orders, fine ... happy with work order list"; "desktop one was good".
+
+239. FINAL BUILD METRIC REQUEST. After the whole build is finished, report total lines removed and added, not intermediate snapshots. Source: "how many lines of code are removed and how many were added ... when it gets all built ... end total".
+
+240. FINAL WORK ORDER APPROVAL. Lock the final Detail/List/Create result for both desktop and mobile. Source: "that is ... lovely ... Lock that ... down. Both mobile and desktop".
+
+PART 18 RELEASE AND WORKING INSTRUCTIONS
+
+241. FINAL RELEASE INTENT. Build and test all approved changes together for deployment rather than independently pushing each preview. Source: "All it needs to be built, tested then ... Ready for deployment" and earlier "deploy this all at once".
+
+242. FINAL REVIEW WORKFLOW. While Scott lists changes, capture them; do not start unauthorized new iterations, add unrequested features or send instructions before he says to proceed. Source: "just make the list"; "Do not send this fix until I tell you to"; "You have your task, I have mine".
+
+243. FINAL COMMUNICATION PREFERENCE. Ordinary completion notice should be minimal; do not recite every change unless asked. Source: "don't give me everything that's changed ... Just say it's done". He later explicitly asks for change logs, scope and status on particular occasions; answer those actual questions.
+
+244. FINAL PROGRESS PREFERENCE. Notify when done without requiring him to ask, but no routine Codex narration because he can see it. Source: "You have to tell me"; "you do not need to give me updates about the Codex chat because I can see it"; "Only update me when it's done".
+
+245. FINAL PREVIEW-FIRST PRINCIPLE. Use visual HTML previews before final deployment of the substantial UI changes, with desktop and mobile inspected. Source: "I need this HTML first ... we made some big changes".
+
+246. FINAL SCOPE PRINCIPLE. Stay inside Scott's approved scope; do not substitute assumptions, stale tasks or additions. Source: "when I have a scope and you go outside of that scope of work ... a lot of problems".
+
+PART 19 SUBSEQUENT NOVEMBER 6 INSTRUCTIONS THAT ALTER THE RELEASE
+
+247. DEPLOYMENT APPROVAL. Scott explicitly approves deployment after being told the migrations, email push, notification webhook and signed-in verification were outstanding. Source: "Deployment approved". This is approval to proceed, not evidence deployment succeeded.
+
+248. APPROVAL OF SECURE SIGN-IN. Scott agrees to an authorized CMPRI engineer/admin sign-in session for verification. Source: response "Yes" to the secure-sign-in question; later "that's the secure sign-in you're going to ... set up for me".
+
+249. READ-ONLY SESSION APPROVAL. Scott explicitly authorizes reading the signed-in CMPRI session when asked. Source: "Fucking do it" in response to "I need permission to read your signed-in CMPRI session". This is not authority to extract credentials or bypass authentication.
+
+250. FINAL EMAIL SCOPE REVERSAL. Defer email push rather than let it block the remainder of the release. Source: "Skip the fucking email, just get this shit out". Supersedes entry 130; preserve existing email behavior rather than silently disable it.
+
+251. CORRECTION REQUEST. Scott says the result does not match the approved scope and orders it checked/fixed against the actual full approved scope. Source: "I did not approve this ... fix it with the approved ... scope"; "the whole ... thing ... go back and look at ... scope".
+
+252. FULL-SCOPE CLARIFICATION. Do not reduce the overnight scope to two old video/event-driven changes; Scott explicitly refers to eight modals. Source: "two ... items is not the ... scope of work for ... eight ... modals". The available transcript does not present a closed, named list of exactly eight; do not invent names to force the count.
+
+253. SUPERSEDED AUDIT METHOD. Scott initially orders comparison of code with the instructions. Source: "Go into the code and see if it matches the ... instructions". The current request in the next entry explicitly replaces that task.
+
+254. CURRENT TASK. Stop checking code for this deliverable. Record every change from his voice/chat instructions. Source: "I want Do not check the fucking code. Go in and record all of the fucking changes I made" and "Not by code, I want you to ... use my voice and figure it ... out". This ledger follows that instruction.
+
+REFERENCE AND UNCERTAINTY REGISTER
+
+A. Header reference recorded in prior approval records: version 23, Library file libfile_5fe759010030819199b4075979acc3ad. Scott subsequently says the two delivered files are not the exact versions, although close enough. Exact file lineage is therefore NOT verified. This ledger does not inspect the file or certify it as the exact final approved copy.
+
+B. Combined Work Order List/Detail/Create reference recorded in prior approval records: version 7, Library file libfile_05791251a19481919abc007e74992698. Scott's explicit design approval was for both desktop and mobile. His subsequent statement that the two delivered files are not the exact versions means this file's exact final-approved lineage is NOT verified.
+
+C. Approved native notification HTML recorded in the approval history: libfile_64f695ca582c8191941455410b27a949, transferred via .bridge/notification-bell-preview.html. Scott accepted the native result as close enough despite its shading not being identical to the original image.
+
+D. Guest badge concept recorded in the approval history: libfile_0d141ad2984c819192ad6fa4913055c0. The user-pasted exact tier/color specification has message ID Sentinel_628cb76cff7c81918bdf638433227313. These IDs identify approval references, not verified current implementation.
+
+E. Exact pixel dimensions, animation duration, resize maxima and offsets were not spoken as numeric specifications. Do not invent them. The final approved previews are the visual reference.
+
+F. The transcript includes successive approvals and reversals. Current final choices are Coral Glow/6, PM #00D492, Sign Out muted red, borderless approved 3D bell, title-tab-only yellow fill, consistent Chief-reference visuals without broader access, final Work Order mobile/desktop design, and email push deferred in the later November 6 instruction.
+
+G. Front Desk was explicitly locked against rearrangement, followed later by a general statement that collapsible/movable tabs should apply to all users on both platforms. This is a genuine specificity conflict in the words available; the final approved preview or an explicit subsequent instruction must establish whether Front Desk remains the exception. Do not silently widen permissions or claim the transcript expressly resolved that exception.
+
+H. The exact eight-modal list is not enumerated in the available conversation. Named touched surfaces include the header/dashboard, Work Order List, Work Order Detail, Create Work Order, Pool, Pool Log, Daily Room Ops, Staff Notes, PM styling, and notification behavior. This is not a substitute invented list of eight.
+
+I. Guest transition wording evolved from a single replacement badge at checkout to current-plus-reserved badges during overlapping windows. The final overlap instruction must not be lost. A presentation rule is not authorization to change actual occupancy/stay records.
+
+J. The session includes separate timers, laundry, unrelated songs/TV, personal remarks and automation reminders. They are not CMPRI change requests and are not included as product scope.
