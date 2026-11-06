@@ -1,5 +1,8 @@
 "use client";
 
+import { resourceViewVisible } from "@/lib/events/visibility";
+import { subscribeResources } from "@/lib/events/browser";
+import { nextGuestDisplayChange } from "@/lib/room-guest-reports";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import RoomOperationsImport from "./RoomOperationsImport";
@@ -258,7 +261,7 @@ export default function RoomOperationsPage() {
   const [guestImportBusy, setGuestImportBusy] = useState(false);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
       const current = hotelDate();
       const previous = hotelTodayRef.current;
       if (current !== previous) {
@@ -266,10 +269,10 @@ export default function RoomOperationsPage() {
         setToday(current);
         setDate((selected) => selected === previous ? current : selected);
       }
-      setRefreshVersion((version) => version + 1);
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+      if (resourceViewVisible(window)) setRefreshVersion((version) => version + 1);
+    }, Math.max(1, nextGuestDisplayChange(rows.map(row => ({...row,guest_name:row.guest_name || "",room_status:row.room_status || ""})), new Date(), HOTEL_TIME_ZONE) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [rows, refreshVersion]);
 
   useEffect(() => {
     let active = true;
@@ -289,46 +292,45 @@ export default function RoomOperationsPage() {
   useEffect(() => {
     if (!session) return;
     const controller = new AbortController();
-    void (async () => {
-      await Promise.resolve();
-      setLoading(true);
-      setMessage("");
-      const headers = await authorizationHeaders();
-      const response = await fetch(`/api/room-operations?date=${encodeURIComponent(date)}`, {
-        headers,
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      const payload = await response.json().catch(() => ({})) as {
-        error?: string;
-        rows?: RoomOperation[];
-        date?: string;
-        source_date?: string | null;
-        source_type?: string | null;
-        carried_over?: boolean;
-        provenance?: string | null;
-      };
-      if (!response.ok) throw new Error(payload.error || "Unable to load daily room operations.");
-      if (!controller.signal.aborted) {
-        setRows((payload.rows || []).slice().sort(naturalRoomCompare));
-        setSnapshotInfo({
-          requestedDate: payload.date || date,
-          sourceDate: payload.source_date || null,
-          sourceType: payload.source_type || null,
-          carriedOver: payload.carried_over === true,
-          provenance: payload.provenance || null,
+    const stop = subscribeResources(["rooms", "orders"], async () => {
+      try {
+        const currentDay = hotelDate();
+        const previousDay = hotelTodayRef.current;
+        if (currentDay !== previousDay) {
+          hotelTodayRef.current = currentDay;
+          setToday(currentDay);
+          setDate(selected => selected === previousDay ? currentDay : selected);
+        }
+        await Promise.resolve();
+        setLoading(true);
+        setMessage("");
+        const headers = await authorizationHeaders();
+        const response = await fetch(`/api/room-operations?date=${encodeURIComponent(date)}`, {
+          headers, cache: "no-store", signal: controller.signal,
         });
+        const payload = await response.json().catch(() => ({})) as {
+          error?: string; rows?: RoomOperation[]; date?: string; source_date?: string | null;
+          source_type?: string | null; carried_over?: boolean; provenance?: string | null;
+        };
+        if (!response.ok) throw new Error(payload.error || "Unable to load daily room operations.");
+        if (!controller.signal.aborted) {
+          setRows((payload.rows || []).slice().sort(naturalRoomCompare));
+          setSnapshotInfo({
+            requestedDate: payload.date || date, sourceDate: payload.source_date || null,
+            sourceType: payload.source_type || null, carriedOver: payload.carried_over === true,
+            provenance: payload.provenance || null,
+          });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setRows([]); setSnapshotInfo(null);
+          setMessage(error instanceof Error ? error.message : "Unable to load daily room operations.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    })().catch((error) => {
-      if (!controller.signal.aborted) {
-        setRows([]);
-        setSnapshotInfo(null);
-        setMessage(error instanceof Error ? error.message : "Unable to load daily room operations.");
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
     });
-    return () => controller.abort();
+    return () => { stop(); controller.abort(); };
   }, [date, refreshVersion, session]);
 
   function handleImportCommitted(importedDate: string) {

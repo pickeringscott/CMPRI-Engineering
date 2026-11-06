@@ -497,7 +497,7 @@ test('technical mutations and attachments preserve assignment guards while detai
 
 test('work-order detail does not request restricted maintenance reference for limited readers',()=>{
   const page=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  assert.match(page,/loadTicket\(showLoading = true, canLoadMaintenanceReference = true\)/);
+  assert.match(page,/loadTicket\(showLoading = true, canLoadMaintenanceReference = true, background = false\)/);
   assert.match(page,/if \(canLoadMaintenanceReference\) void loadMaintenanceReference\(\)/);
   assert.match(page,/canLoadMaintenanceReference = session\.capabilities\.includes\("view_dashboard"\)/);
   assert.match(page,/await loadTicket\(!hadPreview, canLoadMaintenanceReference\)/);

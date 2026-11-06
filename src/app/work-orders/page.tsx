@@ -1,4 +1,5 @@
 "use client";
+import { subscribeResources } from "@/lib/events/browser";
 import PoolStatus from "@/components/desktop/PoolStatus";
 
 import { formatWorkOrder } from "@/lib/work-order-reference.js";
@@ -595,41 +596,54 @@ export default function WorkOrdersPage() {
     return () => { document.body.style.overflow = previousOverflow; };
   }, [showRelatedWorkOrderDialog, showBatchCreateDialog]);
 
+  const referenceLifetime = useRef({ active: true });
+  useEffect(() => {
+    const lifetime = { active: true };
+    referenceLifetime.current = lifetime;
+    return () => { lifetime.active = false; };
+  }, []);
+
   const loadLocations = useCallback(async () => {
+    const lifetime = referenceLifetime.current;
     try {
       const response = await fetch("/api/rooms?mode=create", {
         headers: await apiHeaders(),
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
+      if (!lifetime.active) return;
       if (!response.ok || !Array.isArray(payload.locations)) {
         throw new Error(payload.error || "Locations could not be loaded.");
       }
       setLocations(payload.locations as Location[]);
     } catch (error) {
+      if (!lifetime.active) return;
       setMessage(`Location error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setLoadingLocations(false);
+      if (lifetime.active) setLoadingLocations(false);
     }
   }, [apiHeaders]);
 
   const [assetRefreshError, setAssetRefreshError] = useState("");
   const loadAssets = useMemo(() => queuedAssetRefresh(async () => {
+    const lifetime = referenceLifetime.current;
     try {
       const response = await fetch("/api/assets?mode=create", {
         headers: await apiHeaders(),
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
+      if (!lifetime.active) return;
       if (!response.ok || !Array.isArray(payload.assets)) {
         throw new Error(payload.error || "Equipment could not be loaded.");
       }
       setAssets((payload.assets as Asset[]).filter((asset) => asset.active !== false));
       setAssetRefreshError("");
     } catch (error) {
+      if (!lifetime.active) return;
       setAssetRefreshError(`Equipment list could not be refreshed: ${error instanceof Error ? error.message : String(error)}. Retry the list; do not add the asset again.`);
     } finally {
-      setLoadingAssets(false);
+      if (lifetime.active) setLoadingAssets(false);
     }
   }), [apiHeaders]);
 
@@ -642,6 +656,7 @@ export default function WorkOrdersPage() {
   }, [loadAssets, modalToken]);
 
   const loadWorkOrders = useCallback(async (canViewCandidates = false) => {
+    const lifetime = referenceLifetime.current;
     if (!canViewCandidates) {
       setWorkOrders([]);
       return;
@@ -655,9 +670,11 @@ export default function WorkOrdersPage() {
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
+      if (!lifetime.active) return;
       if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Existing work orders could not be checked.");
       setWorkOrders(payload.work_orders as WorkOrder[]);
     } catch (error) {
+      if (!lifetime.active) return;
       setMessage(error instanceof Error ? error.message : "Existing work orders could not be checked.");
     }
   }, []);
@@ -675,9 +692,6 @@ export default function WorkOrdersPage() {
         setCmpriSession(session);
         setCurrentRole(session.user.role || "");
         await Promise.all([
-          loadLocations(),
-          loadAssets(),
-          loadWorkOrders(session.capabilities.includes("view_work_orders") || session.capabilities.includes("add_work_order_notes")),
           loadDrafts(),
           loadProfilePreference(),
         ]);
@@ -692,7 +706,17 @@ export default function WorkOrdersPage() {
       }
     });
     return () => { current = false; };
-  }, [loadLocations, loadAssets, loadWorkOrders, loadDrafts]);
+  }, [loadDrafts]);
+
+  useEffect(() => {
+    if (!cmpriSession) return;
+    const stopRooms = subscribeResources(["rooms"], loadLocations);
+    const stopAssets = subscribeResources(["reference"], async () => { await loadAssets(); });
+    const stopOrders = subscribeResources(["orders"], async () => {
+      await loadWorkOrders(cmpriSession.capabilities.includes("view_work_orders") || cmpriSession.capabilities.includes("add_work_order_notes"));
+    });
+    return () => { stopRooms(); stopAssets(); stopOrders(); };
+  }, [cmpriSession, loadLocations, loadAssets, loadWorkOrders]);
 
   const selectedLocation =
     locations.find(

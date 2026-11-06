@@ -1,8 +1,9 @@
 "use client";
 import { createClient } from "@/lib/supabase/client";
 import { eventRefresh } from "./refresh";
+import { resourceViewVisible, watchResourceVisibility } from "./visibility";
 
-export type ResourceTopic = "orders" | "inbox" | "pool" | "rooms" | "feedback" | "session";
+export type ResourceTopic = "orders" | "inbox" | "pool" | "rooms" | "feedback" | "session" | "reference";
 type Listener = { topics: readonly ResourceTopic[]; request: () => void };
 const listeners = new Set<Listener>();
 let shutdown: (() => void) | undefined;
@@ -49,14 +50,38 @@ function start() {
 }
 
 export function subscribeResources(topics: readonly ResourceTopic[], load: () => Promise<unknown>, initial = true) {
-  const refresh = eventRefresh(load);
+  const refresh = eventRefresh(async () => { if (resourceViewVisible(window)) await load(); });
+  const stopVisibility = watchResourceVisibility(window, refresh.request);
+  // Same-origin modal frames reuse the host's connection; callbacks keep their own visibility gate.
+  let parentSubscribe: typeof subscribeResources | undefined;
+  try { if (window.parent !== window) parentSubscribe = (window.parent as ResourceWindow).__cmpriResources; } catch {}
+  if (parentSubscribe) {
+    const stopParent = parentSubscribe(topics, async () => { refresh.request(); }, initial);
+    let stopped = false;
+    const frame = window.frameElement;
+    const observer = new MutationObserver(() => { if (frame && !frame.isConnected) stop(); });
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      observer.disconnect();
+      window.removeEventListener("pagehide", stop);
+      stopVisibility(); refresh.stop(); stopParent();
+    };
+    observer.observe(window.parent.document, { childList: true, subtree: true });
+    window.addEventListener("pagehide", stop);
+    return stop;
+  }
   const listener = { topics, request: refresh.request };
   listeners.add(listener);
   shutdown ??= start();
   if (initial) refresh.request();
   return () => {
+    stopVisibility();
     refresh.stop();
     listeners.delete(listener);
     if (!listeners.size) { shutdown?.(); shutdown = undefined; }
   };
 }
+
+type ResourceWindow = Window & { __cmpriResources?: typeof subscribeResources };
+if (typeof window !== "undefined") (window as ResourceWindow).__cmpriResources = subscribeResources;

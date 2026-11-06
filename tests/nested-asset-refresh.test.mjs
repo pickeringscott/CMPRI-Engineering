@@ -31,7 +31,7 @@ test('host validates source and token, relays only to open creation forms, never
 });
 test('refetch changes only assets; failure retains list and draft; retry is GET only',async()=>{
  const state={assets:[{id:'old'}],room:'desk',issue:'Phone',notes:'Keep notes',draft:'saved-draft',selected:'old',error:''};let failed=false;const methods=[];
- const refresh=evaluate(extract('app/work-orders/page.tsx','loadAssets','variable'),{useMemo:fn=>fn(),queuedAssetRefresh,apiHeaders:async()=>({Authorization:'mock'}),fetch:async(url,options)=>{methods.push(options.method||'GET');return {ok:!failed,json:async()=>failed?{error:'Offline'}:{assets:[{id:'old'},{id:'created',location_id:'desk',active:true}]}};},setAssets:assets=>state.assets=assets,setAssetRefreshError:error=>state.error=error,setLoadingAssets(){}});
+ const refresh=evaluate(extract('app/work-orders/page.tsx','loadAssets','variable'),{referenceLifetime:{current:{active:true}},useMemo:fn=>fn(),queuedAssetRefresh,apiHeaders:async()=>({Authorization:'mock'}),fetch:async(url,options)=>{methods.push(options.method||'GET');return {ok:!failed,json:async()=>failed?{error:'Offline'}:{assets:[{id:'old'},{id:'created',location_id:'desk',active:true}]}};},setAssets:assets=>state.assets=assets,setAssetRefreshError:error=>state.error=error,setLoadingAssets(){}});
  await refresh();assert.equal(state.assets.length,2);failed=true;await refresh();assert.equal(state.assets.length,2);assert.match(state.error,/Retry the list/);failed=false;await refresh();assert.equal(state.error,'');
  assert.deepEqual(methods,['GET','GET','GET']);assert.equal(state.room,'desk');assert.equal(state.issue,'Phone');assert.equal(state.notes,'Keep notes');assert.equal(state.draft,'saved-draft');assert.equal(state.selected,'old');
 });

@@ -1,4 +1,5 @@
 "use client";
+import { subscribeResources } from "@/lib/events/browser";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -82,9 +83,8 @@ export default function PhoneNotificationRow(props: Props) {
 
   useEffect(() => {
     if (!pending || !props.subscribed) return;
-    // Only reads status. The server owns the delay and send, even after this page closes.
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 2500);
-    return () => window.clearInterval(timer);
+    // The server owns the delayed send; its private inbox signal reports test transitions.
+    return subscribeResources(["inbox"], refresh);
   }, [pending, props.subscribed, refresh]);
 
   async function send(delaySeconds: 0 | 10) {

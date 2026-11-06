@@ -66,7 +66,7 @@ test('actual recovery restores unsaved text and keeps stale revision instead of 
  const code=ts.transpileModule(detail.slice(start,end),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
  const changes={};const setters=['LocationId','Issue','AssetId','Category','Priority','TechnicianName','Status','Notes','ActionRootCause','Parts','Cost','Hours','DueBy','NoteDraft','StagedNoteIds','Order','Message'];
  const fields={locationId:'room',issue:'Local issue',assetId:'asset',category:'General',priority:'High',technicianName:'Sam',status:'Open',notes:'Original\nStaged',actionRootCause:'',parts:'',cost:'',hours:'',dueBy:''};
- const ctx={cmpriSessionRef:{current:{hotelId:'hotel',user:{id:'actor'}}},row:{id:'ticket',revision:8},assetSelectionChanged:{current:false},localStorage:{getItem:key=>{assert.equal(key,'cmpri:ticket-draft:hotel:actor:ticket');return JSON.stringify({version:1,revision:7,fields,noteDraft:'Closed door.',stagedNoteIds:['Staged']})}}};
+ const ctx={background:false,cmpriSessionRef:{current:{hotelId:'hotel',user:{id:'actor'}}},row:{id:'ticket',revision:8},assetSelectionChanged:{current:false},localStorage:{getItem:key=>{assert.equal(key,'cmpri:ticket-draft:hotel:actor:ticket');return JSON.stringify({version:1,revision:7,fields,noteDraft:'Closed door.',stagedNoteIds:['Staged']})}}};
  for(const setter of setters)ctx['set'+setter]=value=>{changes[setter]=value};vm.runInNewContext(code,ctx);
  assert.equal(changes.NoteDraft,'Closed door.');assert.equal(changes.Notes,'Original\nStaged');assert.equal(changes.Order.revision,7);assert.match(changes.Message,/changed/);assert.equal(ctx.assetSelectionChanged.current,true);
 });

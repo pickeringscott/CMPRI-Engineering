@@ -1,4 +1,6 @@
 "use client";
+import { canApplyTicketRefresh } from "@/lib/events/ticket-refresh";
+import { subscribeResources } from "@/lib/events/browser";
 import WorkOrderNoteComposer from "@/components/WorkOrderNoteComposer";
 import WorkOrderMentionText from "@/components/WorkOrderMentionText";
 import type { WorkOrderMention } from "@/lib/work-order-mentions";
@@ -20,7 +22,7 @@ import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { authorizationHeaders, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
@@ -617,6 +619,15 @@ export default function WorkOrderTicketPage() {
   const [assetId, setAssetId] = useState("");
   const assetSelectionChanged = useRef(false);
   const ticketLoadGeneration = useRef(0);
+  const editState = useRef({ dirty: false, fingerprint: "", revision: 0, saving: false });
+  const readLifetime = useRef({ active: true, generation: 0, controller: undefined as AbortController | undefined });
+  const imageReadGeneration = useRef(0);
+  const activityReadGeneration = useRef(0);
+  useEffect(() => {
+    const state = { active: true, generation: readLifetime.current.generation + 1, controller: new AbortController() };
+    readLifetime.current = state;
+    return () => { state.active = false; state.controller.abort(); };
+  }, [id]);
   const [systemGuessAssetId, setSystemGuessAssetId] = useState("");
   const [category, setCategory] = useState("General");
   const [priority, setPriority] = useState("Medium");
@@ -683,7 +694,7 @@ export default function WorkOrderTicketPage() {
   useEffect(() => {
     let current = true;
     if (!selectedAssetId || !canReadAssetDocuments) return () => { current = false; };
-    void (async () => {
+    const stop = subscribeResources(["reference"], async () => {
       try {
         const response = await fetch(`/api/assets/documentation?asset_id=${encodeURIComponent(selectedAssetId)}`, {
           headers: await authorizationHeaders(),
@@ -705,8 +716,8 @@ export default function WorkOrderTicketPage() {
           error: error instanceof Error ? error.message : "Equipment PDFs could not be loaded.",
         });
       }
-    })();
-    return () => { current = false; };
+    });
+    return () => { current = false; stop(); };
   }, [canReadAssetDocuments, selectedAssetId, documentIdentity]);
 
   useEffect(() => {
@@ -714,6 +725,12 @@ export default function WorkOrderTicketPage() {
     if (!pane) return;
     requestAnimationFrame(() => { pane.scrollTop = pane.scrollHeight; });
   }, [notes, order?.created_at]);
+
+  useEffect(() => {
+    if (!cmpriSession?.capabilities.includes("view_dashboard")) return;
+    return subscribeResources(["reference"], async () => { await loadMaintenanceReference(); }, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmpriSession]);
 
   const maintenancePending = useRef<{ key: string; promise: Promise<Asset[]> } | null>(null);
   function loadMaintenanceReference() {
@@ -727,58 +744,67 @@ export default function WorkOrderTicketPage() {
     return promise;
   }
   async function fetchMaintenanceReference() {
+    const lifetime = readLifetime.current;
     setAssetReferenceLoading(true);
     setAssetReferenceError("");
     try {
       const session = await getValidSession();
+      if (!lifetime.active) return [] as Asset[];
       const token = session?.access_token;
       if (!token) throw new Error("Sign in again to load equipment.");
       const response = await fetch("/api/maintenance-reference", {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(payload.assets)) {
         throw new Error(payload.error || "Equipment could not be loaded.");
       }
+      if (!lifetime.active) return [] as Asset[];
       const referenceAssets = payload.assets as Asset[];
       setAssets(referenceAssets);
       setTechnicians((payload.technicians ?? []) as TechnicianProfile[]);
       return referenceAssets;
     } catch (error) {
+      if (!lifetime.active) return [] as Asset[];
       setAssetReferenceError(error instanceof Error ? error.message : "Equipment could not be loaded.");
       return [] as Asset[];
     } finally {
-      setAssetReferenceLoading(false);
+      if (lifetime.active) setAssetReferenceLoading(false);
     }
   }
 
-  async function loadWorkOrderImages() {
+  async function loadWorkOrderImages(background = false) {
+    const lifetime = readLifetime.current;
+    const generation = ++imageReadGeneration.current;
     if (!id) {
       setWorkOrderImagesLoading(false);
       return;
     }
     setWorkOrderImagesLoading(true);
     setWorkOrderImageError("");
-    setWorkOrderImages([]);
+    if (!background) setWorkOrderImages([]);
     try {
       const session = await getValidSession();
+      if (!lifetime.active) return;
       if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/attachments`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       const payload: unknown = await response.json().catch(() => null);
+      if (!lifetime.active || generation !== imageReadGeneration.current) return false;
       const result = resolveWorkOrderImages(response.ok, payload);
       if (result.error) throw new Error(result.error);
       setWorkOrderImages(result.images);
       return true;
     } catch (error) {
+      if (!lifetime.active || generation !== imageReadGeneration.current) return false;
       setWorkOrderImages([]);
       setWorkOrderImageError(error instanceof Error ? error.message : "Work-order images could not be loaded.");
       return false;
     } finally {
-      setWorkOrderImagesLoading(false);
+      if (lifetime.active && generation === imageReadGeneration.current) setWorkOrderImagesLoading(false);
     }
   }
 
@@ -955,25 +981,30 @@ export default function WorkOrderTicketPage() {
   }
 
   useEffect(() => {
-    let cancelled = false;
-    if (cmpriSession) void Promise.resolve().then(() => { if (!cancelled) void loadRoomOperationalContext(order?.room); });
-    return () => { cancelled = true; };
+    if (!cmpriSession) return;
+    const stop = subscribeResources(["rooms"], async () => { await loadRoomOperationalContext(order?.room); });
+    const generation = roomContextGeneration;
+    return () => { generation.current++; stop(); };
     // The server authorizes each fresh context request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.room, cmpriSession]);
 
   async function loadExternalActivity() {
+    const lifetime = readLifetime.current;
+    const generation = ++activityReadGeneration.current;
     if (!id) return;
     try {
       const session = await getValidSession();
+      if (!lifetime.active || generation !== activityReadGeneration.current) return;
       const token = session?.access_token;
       if (!token) return;
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/activity`, {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       if (!response.ok) return;
       const payload = await response.json();
+      if (!lifetime.active || generation !== activityReadGeneration.current) return;
       setExternalActivity(payload || { purchases: [], enseo: [], warranties: [], followups: [] });
     } catch {
       // External email/purchasing activity is supplemental; ticket loading must never fail because of it.
@@ -1016,15 +1047,18 @@ export default function WorkOrderTicketPage() {
     return () => controller.abort();
   }, [id, referenceText]);
 
-  async function loadTicket(showLoading = true, canLoadMaintenanceReference = true) {
+  async function loadTicket(showLoading = true, canLoadMaintenanceReference = true, background = false) {
     if (!id) return;
     const generation = ++ticketLoadGeneration.current;
+    const lifetime = readLifetime.current;
+    const startedEdit = editState.current.fingerprint;
 
     if (showLoading) setLoading(true);
-    setMessage("");
+    if (!background) setMessage("");
 
     try {
       const session = await getValidSession();
+      if (!lifetime.active) return;
       const token = session?.access_token;
       if (!token) {
         setOrder(null);
@@ -1035,9 +1069,14 @@ export default function WorkOrderTicketPage() {
 
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}?include=mentions`, {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       const payload = await response.json().catch(() => ({}));
+      if (!lifetime.active || generation !== ticketLoadGeneration.current) return;
+      if (background && !canApplyTicketRefresh(startedEdit, editState.current)) {
+        if (payload?.workOrder?.revision !== editState.current.revision) setMessage("This ticket changed while you were editing. Your unsaved text is preserved; saving an older revision will be rejected.");
+        return;
+      }
       if (!response.ok || !payload?.workOrder) {
         setOrder(null);
         setMessage(`Work order error: ${String(payload?.error || `HTTP ${response.status}`)}`);
@@ -1096,7 +1135,7 @@ export default function WorkOrderTicketPage() {
       try {
         const identity = cmpriSessionRef.current;
         const key = identity ? `cmpri:ticket-draft:${identity.hotelId}:${identity.user.id}:${row.id}` : "";
-        const recovered = key ? JSON.parse(localStorage.getItem(key) || "null") : null;
+        const recovered = !background && key ? JSON.parse(localStorage.getItem(key) || "null") : null;
         if (recovered?.version === 1 && recovered.fields && Number.isSafeInteger(recovered.revision)) {
           const f = recovered.fields;
           setLocationId(f.locationId); setIssue(f.issue); setAssetId(f.assetId); setCategory(f.category);
@@ -1131,7 +1170,8 @@ export default function WorkOrderTicketPage() {
         }
       });
     } catch (error) {
-      setOrder(null);
+      if (!lifetime.active || generation !== ticketLoadGeneration.current) return;
+      if (!background) setOrder(null);
       setMessage(`Work order error: ${error instanceof Error ? error.message : String(error)}`);
       setLoading(false);
     }
@@ -1178,8 +1218,10 @@ export default function WorkOrderTicketPage() {
         window.location.origin
       );
     }
+    const lifetime = readLifetime.current;
     (async () => {
       const allowed = await enforceSessionPreference();
+      if (!lifetime.active) return;
       setEmbedded(isEmbedded);
       setModalToken(token);
       if (!allowed) {
@@ -1189,6 +1231,7 @@ export default function WorkOrderTicketPage() {
       let canLoadMaintenanceReference = false;
       try {
         const session = await loadCmpriSession();
+        if (!lifetime.active) return;
         setCmpriSession(session);
         cmpriSessionRef.current = session;
         canLoadMaintenanceReference = session.capabilities.includes("view_dashboard");
@@ -1211,6 +1254,7 @@ export default function WorkOrderTicketPage() {
         }
       } catch {}
       await loadTicket(!hadPreview, canLoadMaintenanceReference);
+      if (!lifetime.active) return;
       void loadWorkOrderImages();
       void loadExternalActivity();
     })();
@@ -1222,23 +1266,10 @@ export default function WorkOrderTicketPage() {
     // set before assets finished loading, so existing tickets never loaded
     // their model-specific troubleshooting until the asset was changed.
     let current = true;
-    let refreshing = false;
-    const refresh = () => {
-      if (refreshing) return;
-      refreshing = true;
-      void loadManualForAsset(selectedAsset, () => current).finally(() => { refreshing = false; });
-    };
-    refresh();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    const interval = window.setInterval(refreshWhenVisible, 30_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      current = false;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
+    const stop = subscribeResources(["reference"], async () => {
+      await loadManualForAsset(selectedAsset, () => current);
+    });
+    return () => { current = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
 
@@ -1330,6 +1361,19 @@ export default function WorkOrderTicketPage() {
     dueBy,
   });
   const hasUnsavedChanges = !!initialFingerprint && (currentFingerprint !== initialFingerprint || !!noteDraft.trim());
+  useLayoutEffect(() => {
+    editState.current = { dirty: hasUnsavedChanges, fingerprint: currentFingerprint + noteDraft, revision: order?.revision || 0, saving };
+  }, [hasUnsavedChanges, currentFingerprint, noteDraft, order?.revision, saving]);
+  useEffect(() => {
+    if (!ticketReady || !cmpriSession) return;
+    const stop = subscribeResources(["orders"], async () => {
+      await Promise.all([loadTicket(false, false, true), loadWorkOrderImages(true), loadExternalActivity()]);
+    }, false);
+    return stop;
+    // Load functions read current editor state through refs; edits must not resubscribe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, ticketReady, cmpriSession]);
+
   useEffect(() => {
     if (!cmpriSession || !order || !initialFingerprint || !recoveredDraft.current) return;
     const key = `cmpri:ticket-draft:${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`;

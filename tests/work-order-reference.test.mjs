@@ -38,6 +38,7 @@ test('real work-order list renders WO#261015001 and room 101 as distinct values'
       if(name==='next/image')return {default:props=>React.createElement('img',props)};
       if(name.endsWith('work-order-reference.js'))return references;
       if(name.startsWith('@/')) { const path=name.slice(2);return load(path+(path.startsWith('components/')?'.tsx':'.ts')); }
+      if(name.startsWith("./"))return load(relative.slice(0,relative.lastIndexOf("/")+1)+name.slice(2)+".ts");
       return require(name);
     },Intl,Date,console,process:{env:{}}});return exports;
   }
