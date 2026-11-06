@@ -18,6 +18,7 @@ insert into hotel_members values('${eng}','${h}',true),('${fd}','${h}',true);ins
 await db.exec(readFileSync('supabase/migrations/20261012212441_cmpri_pool_retest_status.sql','utf8'));
 await db.exec('create trigger cmpri_pool_log_stamp before insert or update on pool_daily_logs for each row execute function cmpri_stamp_pool_log()');
 await db.exec(readFileSync('supabase/migrations/20261022063155_cmpri_pool_status_controls.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/20261106102309_pool_manager_reopening.sql','utf8'));
 const clock=async s=>db.exec(`create or replace function cmpri_pool_clock() returns timestamptz language sql stable as $$select '${s}'::timestamptz$$`);
 await clock('2026-10-22T15:00:00Z');
 await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure) values($1,$2,$3,'2026-10-22',7.4,4,true,false,80,50,$4,$4,false,false)`,[log,h,f,eng]);
@@ -34,11 +35,35 @@ await clock('2026-10-23T03:00:00Z');
 await assert.rejects(act(eng,14,'open'),/10 PM/);await assert.rejects(act(fd,15,'close','Night'),/10 PM/);
 await act(eng,16,'clear-manual');assert.equal((await snapshot()).closed,true);assert.equal((await snapshot()).reason,'Closed 10 PM–7 AM');
 await clock('2026-10-23T12:00:00Z');assert.equal((await snapshot()).closed,true);await act(eng,17,'open');assert.equal((await snapshot()).closed,false);
+// GM/AGM can clear Front Desk holds, reopen, create logs and correct saved readings.
+for (const [index,role] of ['manager','assistant_manager','front_desk_manager','housekeeping','technician','senior_management'].entries()) {
+ const actor=id(100+index);
+ await db.query('insert into profiles values($1,$2,$3,true)',[actor,role,[]]);
+ await db.query('insert into hotel_members values($1,$2,true)',[actor,h]);
+ await act(fd,200+index*10,'close','Front Desk closure');
+ if(index<2){
+  await act(actor,201+index*10,'clear-manual');
+  assert.equal((await snapshot()).closed,true,'clearing the hold alone must not reopen');
+  await act(actor,202+index*10,'open');assert.equal((await snapshot()).closed,false);
+  await db.query('update pool_daily_logs set temperature_f=$1,updated_by=$2 where id=$3',[81+index,actor,log]);
+  const created=id(400+index);
+  await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure) values($1,$2,$3,'2026-10-21',7.4,4,true,false,80,50,$4,$4,false,false)`,[created,h,f,actor]);
+  await assert.rejects(db.query('update pool_daily_logs set ph_am=null,updated_by=$1 where id=$2',[actor,log]),/both pH/);
+  assert.ok((await db.query('select actor_id from cmpri_pool_control_history where actor_id=$1',[actor])).rows.length>=2);
+ }else{
+  await assert.rejects(act(actor,201+index*10,'clear-manual'),/Engineering/);
+  await assert.rejects(act(actor,202+index*10,'open'),/Engineering/);
+  await assert.rejects(db.query('update pool_daily_logs set temperature_f=99,updated_by=$1 where id=$2',[actor,log]));
+  await act(eng,203+index*10,'open');
+ }
+}
+
 // Existing real testing trigger, not a separate simulated status write.
 await db.query(`update pool_daily_logs set retest_submission=$1,closure_reason='Bromine below safe range',updated_by=$2 where id=$3`,[{id:id(20),ph:7.4,sanitizer_band:'0'},eng,log]);
 assert.equal((await snapshot()).closed,true);await assert.rejects(act(eng,21,'open'),/testing/);
+for(const actor of [id(100),id(101)])await assert.rejects(act(actor,500+Number(actor.slice(-1)),'open'),/testing/);
 assert.ok((await db.query(`select message from cmpri_dashboard_notifications where recipient_user_id='${fd}'`)).rows.some(r=>/bromine/i.test(r.message)));
 const before=await count();await db.query(`select cmpri_pool_reconcile('${h}','${f}',true)`);assert.equal(await count(),before);
 await db.exec('set role authenticated');await assert.rejects(db.query(`select cmpri_pool_action('${h}','${f}','${eng}','${id(30)}','open','',0)`),/permission denied/);await db.exec('reset role');
-console.log('PASS real PostgreSQL: persisted manual close, reason validation, Engineering-only open/clear, overnight denials, clear without reopen, testing-triggered closure/recipient record, repeated-reconcile dedup, direct-role denial');
+console.log('PASS real PostgreSQL: persisted manual close, reason validation, Engineering/GM/AGM-only open/clear, GM/AGM log create/edit with validation and actor history, overnight denials, clear without reopen, testing-triggered closure/recipient record, repeated-reconcile dedup, direct-role denial');
 await db.close();

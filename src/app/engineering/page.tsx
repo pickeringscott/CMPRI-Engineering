@@ -35,7 +35,7 @@ import {
   type WindowRect,
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
-import { profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
+import { profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
 import MobileDashboardMenus from "@/components/desktop/MobileDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
@@ -822,7 +822,7 @@ export default function EngineeringDashboardPage() {
           ))}
           </div>}
         </nav>
-        {<PoolStatus controlOnly/>}
+        {<PoolStatus controlOnly onOpen={openPoolStatus}/>}
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
         {frontDeskLayout && createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-front-desk-create ml-auto mr-2 shrink-0 rounded border border-amber-300 bg-amber-400 px-3.5 py-2 text-sm font-bold text-slate-950" />}
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
@@ -869,7 +869,7 @@ export default function EngineeringDashboardPage() {
                   onReturnToDesktop={() => closeWindow(entry.key)}
                 />
               )}
-              {entry.kind === "pool-status" && <PoolStatus engineer={engineerDesktopMenus===true}/>}
+              {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
               {entry.kind === "list" && (
                 <WorkOrderListWindow
                   frontDeskLayout={frontDeskLayout}

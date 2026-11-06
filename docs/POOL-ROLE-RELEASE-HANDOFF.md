@@ -1,0 +1,11 @@
+# Pool access changes — prepared, not deployed
+
+The existing status pill opens the existing Pool workflow without changing status. Shared dashboard windows use their existing opener; Technician and standalone Create use the global modal host. Redundant adjacent Pool links were removed. No new navigation button was added.
+
+Engineering, General Manager and Assistant General Manager can clear manual closures and reopen. Front Desk Manager and other roles do not receive override rights. Active account/hotel membership, operating hours, passing test requirements, revisions, idempotency and action audit are retained. Closure/reopening events continue through the existing shared event store and database reconciliation/notification workflow.
+
+GM/AGM already had API permission to view/operate Pool Log. Fixed the database trigger's missing canonical `manager` role. Added narrowly scoped GM/AGM saved-log correction permission in API/UI response and database; other roles retain their existing restrictions. Legacy closure classification remains System Administrator-only. Existing validation, revision conflicts, original creator and audit triggers remain. This does not grant unrelated engineering modules or work-order privileges.
+
+Validation: 108 focused role/API/event/pool tests pass; PostgreSQL pool-action test verifies GM/AGM create/edit, closure clear then reopen, other-role denials, validation, audit actor records, failed-test blocking, notification deduplication and authenticated direct RPC denial. 85 existing migration checks and five reconciliation tests pass. Browser harness verifies all nine roles' pill opens a modal without mutation and only Engineering/GM/AGM get reopening controls. TypeScript, targeted ESLint and production build pass using synthetic Supabase build values.
+
+Pending release dependency: apply `20261106102309_pool_manager_reopening.sql` with the held combined release, then verify authenticated real-role sessions and event delivery in the deployment. No production migration, data write or deployment was performed. Supabase changelog markdown fetch was unavailable (403); current function security documentation and actual PostgreSQL execution were checked.

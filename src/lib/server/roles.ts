@@ -112,6 +112,15 @@ export function profileHasRole(
     && assignedRole.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).some((roleLabel) => roleKey(roleLabel) === role));
 }
 
+/** Pool-only manual closure/reopening permission; does not grant engineering modules. */
+export function roleCanEditSavedPoolLog(role: unknown): boolean {
+  return ["system_admin", "manager", "assistant_manager"].includes(roleKey(role));
+}
+
+export function profileCanReopenPool(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
+  return profileHasRole(profile, "engineer") || profileHasRole(profile, "manager") || profileHasRole(profile, "assistant_manager");
+}
+
 export function profileIsChiefEngineer(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
   const assignedRoles = [profile.role, ...(profile.secondary_roles || [])];
   return assignedRoles.some((assignedRole) => typeof assignedRole === "string"

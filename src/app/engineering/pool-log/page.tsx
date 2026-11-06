@@ -468,7 +468,7 @@ export default function PoolLogPage() {
                 <ul className="mt-1 list-inside list-disc">{stillNeeded.map(([id, text]) => <li key={id + text}><button type="button" className="underline" onClick={() => document.getElementById(id)?.focus()}>{text}</button></li>)}</ul>
               </section> : null}
               {canEditForm ? <button type="submit" disabled={saving || !dirty} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : saved && !editingSavedLog ? "Add to today's pool log" : "Save pool log"}</button> : <p className="text-slate-300">View-only access</p>}
-              {saved && canEditForm ? <p className="text-sm text-slate-400">Saved readings are locked.{canEditSavedLog ? " Select Edit saved log to correct them." : " Only a System Administrator can change them."} Empty fields (such as the PM sample) can still be added.</p> : null}
+              {saved && canEditForm ? <p className="text-sm text-slate-400">Saved readings are locked.{canEditSavedLog ? " Select Edit saved log to correct them." : " Only a System Administrator, General Manager or Assistant General Manager can change them."} Empty fields (such as the PM sample) can still be added.</p> : null}
               {saved ? <p className="text-sm text-slate-400">Recorded by {saved.completed_by_initials} · Revision {saved.revision}</p> : null}
             </form>
           ) : null}

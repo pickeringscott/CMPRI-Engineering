@@ -261,7 +261,7 @@ export default function TechnicianDashboard() {
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/pool-log" className="rounded-lg border border-cyan-400/50 bg-cyan-950/30 px-4 py-2 text-[9pt] font-bold text-cyan-100 hover:bg-cyan-900/40">Pool Log</button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/staff-notes" className="rounded-lg border border-amber-400/50 bg-slate-900 px-3 py-2 text-xs font-bold text-amber-300">Staff Notes</button>
             <button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href="/engineering/preventive-maintenance" className="rounded-lg border border-emerald-400/50 bg-emerald-950/30 px-4 py-2 text-[9pt] font-bold text-emerald-100 hover:bg-emerald-900/40">Preventive Maintenance</button>
-            <PoolStatus controlOnly/><Link href="/pool" className="rounded border border-cyan-400/50 px-3 py-2 text-xs">Pool</Link><Link href="/work-orders" className="rounded-full border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
+            <PoolStatus controlOnly/><Link href="/work-orders" className="rounded-full border border-slate-600 bg-slate-800 px-4 py-2 text-[9pt] font-bold text-slate-100 hover:bg-slate-700">Create a Work Order</Link>
             <button type="button" onClick={() => void signOut()} className="rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-[9pt] font-bold text-red-100 hover:bg-red-900/40">Sign Out</button>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 sm:hidden">

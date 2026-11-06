@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { authenticatedUser } from "@/lib/server/request-auth";
-import { receivesPoolClosedNotifications, roleAllows, roleKey } from "@/lib/server/roles";
+import { roleCanEditSavedPoolLog, receivesPoolClosedNotifications, roleAllows } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolCurrentClosureReasons, validLogDate } from "@/lib/pool-log";
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     date,
     status: poolLogStatus(log),
     can_edit: roleAllows(auth.profile.role, "operate_pool_log"),
-    can_edit_saved: roleKey(auth.profile.role) === "system_admin",
+    can_edit_saved: roleCanEditSavedPoolLog(auth.profile.role),
     operator: auth.profile.full_name || "",
   }, { headers: { "Cache-Control": "private, no-store" } });
 }
@@ -132,17 +132,17 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (readError) return NextResponse.json({ error: "The existing log could not be checked. Nothing was saved." }, { status: 503 });
 
-  const isSystemAdmin = roleKey(auth.profile.role) === "system_admin";
-  // A System Administrator correcting the saved log on the web page replaces it as shown.
+  const canEditSaved = roleCanEditSavedPoolLog(auth.profile.role);
+  // An authorized pool-log editor correcting the saved log on the web page replaces it as shown.
   // Every other save (later AM/PM samples, voice logging) is merged into the saved log.
-  const replace = !!existing && isSystemAdmin && body.edit_mode === "replace";
+  const replace = !!existing && canEditSaved && body.edit_mode === "replace";
   if ((replace || (body.retest != null && body.expected_revision != null)) && body.expected_revision !== existing?.revision) {
     return NextResponse.json({ error: "This log changed after you opened it. Your entries are still on screen; reload the saved readings before making corrections." }, { status: 409 });
   }
 
   let row: ReturnType<typeof poolLogInput>;
   try {
-    const merged = existing && !replace ? mergePoolLogBody(existing, body, isSystemAdmin) : body;
+    const merged = existing && !replace ? mergePoolLogBody(existing, body, canEditSaved) : body;
     row = poolLogInput(merged, existing);
   } catch (error) {
     if (error instanceof PoolLogConflictError) return NextResponse.json({ error: error.message, log: existing }, { status: 403 });

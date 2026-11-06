@@ -1991,7 +1991,7 @@ export default function WorkOrdersPage() {
               {cmpriSession && embedded && isSubmitOnlyUser && <ModalNavigationButton href="/profile" className="mr-auto rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
               {cmpriSession?.capabilities.includes("view_work_orders") && <ModalNavigationButton href={cmpriSession.landing === "/front-desk" ? "/front-desk" : "/engineering"} className="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{cmpriSession.landing === "/front-desk" ? "Front Desk" : tx("Work Orders", "Órdenes de trabajo")}</ModalNavigationButton>}
 
-              {cmpriSession && !embedded && <><PoolStatus controlOnly/><ModalNavigationButton href="/pool" className="rounded border border-cyan-400/50 px-2 py-1 text-xs">Pool</ModalNavigationButton></>}
+              {cmpriSession && !embedded && <><PoolStatus controlOnly/></>}
               <div className="flex flex-wrap items-center justify-end gap-1">
                 <label htmlFor="work-order-photo-file" title="Choose a photo file" aria-label="Choose a photo file" className="grid size-10 cursor-pointer place-items-center rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
