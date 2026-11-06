@@ -22,26 +22,33 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   const r=item.getBoundingClientRect();ghost.classList.add('moving-copy');ghost.setAttribute('aria-hidden','true');ghost.setAttribute('inert','');
   Object.assign(ghost.style,{position:'fixed',left:x+'px',top:y+'px',width:r.width+'px',height:r.height+'px',minWidth:r.width+'px',maxWidth:r.width+'px',minHeight:r.height+'px',maxHeight:r.height+'px',margin:0,transform:'none',pointerEvents:'none'});
   for(const [key,value] of Object.entries({width:r.width+'px',height:r.height+'px','min-width':r.width+'px','max-width':r.width+'px','min-height':r.height+'px','max-height':r.height+'px',opacity:'.55','z-index':'10003','pointer-events':'none'}))ghost.style.setProperty(key,value,'important');
-  document.body.append(ghost);ghosts.add(ghost);return ghost;
+  document.body.append(ghost);
+  originals.forEach((n,i)=>{copies[i].scrollLeft=n.scrollLeft;copies[i].scrollTop=n.scrollTop});
+  ghosts.add(ghost);return ghost;
  }
  function startDrag(event,item,container,isButton){
   if(event.button!==0||event.isPrimary===false||cancelGesture)return;
   const captureTarget=event.currentTarget;captureTarget.setPointerCapture(event.pointerId);
-  const initial=[...container.children],start={x:event.clientX,y:event.clientY,scroll:container.scrollLeft},host=root.closest('.cmpri-desktop-topbar')||header;
-  let last=event,active=false,swipe=false,ghost,frame,slideUntil=0;
+  const initial=[...container.children],host=root.closest('.cmpri-desktop-topbar')||header;
+  const start={x:event.clientX,y:event.clientY,scroll:container.scrollLeft,hostLeft:host.scrollLeft,hostTop:host.scrollTop};
+  let last=event,active=false,moved=false,swipe=false,ghost,frame,slideUntil=0;
   const within=()=>{const r=isButton?container.closest('fieldset').getBoundingClientRect():container.getBoundingClientRect(),h=host.getBoundingClientRect();return last.clientX>=r.left&&last.clientX<=r.right&&last.clientY>=Math.max(r.top-(isButton?0:24),h.top)&&last.clientY<=Math.min(r.bottom+(isButton?0:24),h.bottom)};
   const arrange=()=>{
    const valid=within();document.body.classList.toggle('drag-invalid',!valid);
    if(isButton){ghost.style.setProperty('visibility',valid?'visible':'hidden','important');item.style.visibility=valid?'visible':'hidden'}
-   if(!valid||performance.now()<slideUntil)return;
+   if(!moved||!valid||performance.now()<slideUntil)return;
    const peers=[...container.children].filter(n=>n!==item);
-   const target=peers.find(n=>{const r=n.getBoundingClientRect();return isButton?last.clientX<r.left+r.width/2:last.clientY<r.top||(last.clientY<=r.bottom&&last.clientX<r.left+r.width/2)});
+   const target=peers.find(n=>{
+    const r=n.getBoundingClientRect();
+    const top=isButton?r.top:Math.min(r.top,n.querySelector('legend').getBoundingClientRect().top);
+    return isButton?last.clientX<r.left+r.width/2:last.clientY<top||(last.clientY<=r.bottom&&last.clientX<r.left+r.width/2);
+   });
    if(target?item.nextElementSibling===target:container.lastElementChild===item)return;
    slide(peers,()=>target?target.before(item):container.append(item));captureTarget.setPointerCapture(event.pointerId);slideUntil=performance.now()+SLIDE_MS;
   };
   const edgeScroll=()=>{
    if(!active)return;
-   if(within()){
+   if(moved&&within()){
     const box=isButton?container:host,r=box.getBoundingClientRect();
     if(isButton){if(last.clientX>r.right-18)box.scrollLeft+=8;else if(last.clientX<r.left+18)box.scrollLeft-=8}
     else{if(last.clientY>r.bottom-35)box.scrollTop+=10;else if(last.clientY<r.top+35)box.scrollTop-=10}
@@ -52,20 +59,24 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   };
   const timer=window.setTimeout(()=>{
    active=true;document.body.classList.add('drag-active');window.getSelection()?.removeAllRanges();
-   ghost=copy(item,last.clientX+8,last.clientY+8);item.classList.add('landing-copy');frame=requestAnimationFrame(edgeScroll);
+   ghost=copy(item,last.clientX+8,last.clientY+8);item.classList.add('landing-copy');arrange();frame=requestAnimationFrame(edgeScroll);
   },PRESS_MS);
   const move=e=>{
    if(e.pointerId!==event.pointerId)return;last=e;
-   if(!active){const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.hypot(dx,dy)>8){window.clearTimeout(timer);swipe=true}if(isButton&&swipe&&Math.abs(dx)>Math.abs(dy)){e.preventDefault();container.scrollLeft=start.scroll-dx}return}
+   const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.hypot(dx,dy)>8)moved=true;
+   if(!active){
+    if(moved){window.clearTimeout(timer);swipe=true}
+    if(isButton&&swipe&&Math.abs(dx)>Math.abs(dy)){e.preventDefault();container.scrollLeft=start.scroll-dx}return;
+   }
    e.preventDefault();ghost.style.left=(e.clientX+8)+'px';ghost.style.top=(e.clientY+8)+'px';arrange();
   };
   const finish=(e,cancel=false)=>{
    if(e.pointerId!==event.pointerId)return;last=e;window.clearTimeout(timer);cancelAnimationFrame(frame);
    if(active){
     suppressClickUntil=performance.now()+400;
-    if(cancel||!within()){clearMotion(initial);initial.forEach(n=>container.append(n));container.scrollLeft=start.scroll}else emit();
+    if(cancel||!within()){clearMotion(initial);initial.forEach(n=>container.append(n));container.scrollLeft=start.scroll;host.scrollLeft=start.hostLeft;host.scrollTop=start.hostTop}else emit();
     ghost.remove();ghosts.delete(ghost);item.style.visibility='';item.classList.remove('landing-copy');
-   }else if(swipe)suppressClickUntil=performance.now()+400;
+   }else if(moved)suppressClickUntil=performance.now()+400;
    if(captureTarget.hasPointerCapture(event.pointerId))captureTarget.releasePointerCapture(event.pointerId);
    document.body.classList.remove('drag-active','drag-invalid');off.forEach(fn=>fn());cancelGesture=undefined;
   };

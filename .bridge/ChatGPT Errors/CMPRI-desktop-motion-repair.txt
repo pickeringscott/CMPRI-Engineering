@@ -1,0 +1,49 @@
+CMPRI DESKTOP MOTION REPAIR — NOVEMBER 6, 2026
+Baseline: 9f5b916 (the deployed repair).
+Deployment: held for Scott's permission after reviewing this correction.
+
+Scott confirmed Chrome and that holding for approximately half a second allows
+movement. Long-press activation therefore remains unchanged. His clarification
+reaffirms matching translucent follow-copies, muted landing feedback, visibly
+sliding neighbors, bounded movement, exact invalid-drop restoration including
+scroll position, mobile edge scrolling, account persistence and sync warnings.
+
+Reproduced defects and repairs
+1. During a button drag, the animation existed but the neighbor's computed
+   transform remained "none". A broad transform:none!important rule overrode
+   every neighboring button's slide. Restricted that rule to the pressed/dragged
+   control. Verified rendered, nonzero interpolation, not only animation objects.
+2. Holding a non-first group title could move it to the first position before
+   pointer movement. Reordering and edge scrolling now wait for movement after
+   pickup. A stationary long press still picks up the item without activating it.
+3. Group insertion tested fieldset bodies but excluded their raised title tabs.
+   Included the visible title in insertion geometry, preventing a small movement
+   along the title row from jumping ahead of unrelated groups.
+4. A group's follow-copy reset its overflowing button row to the beginning.
+   Cloned elements now retain the source's actual scroll offsets after mounting.
+5. An invalid whole-group drop could restore DOM order while leaving the header
+   scrolled elsewhere. Restored the pre-drag header scroll offsets as well as
+   original order, so the source returns to its original visible position.
+
+Preserved behavior
+Normal clicks/taps open buttons or toggle groups. Long-press releases do neither.
+Swipes remain scrolling gestures. Buttons stay in their own group; groups stay
+inside the header. Expanded/collapsed dragging, appearance, palette, dimensions,
+240-ms smooth neighbor motion, yellow external scrollbars, resizing, role gates,
+account-backed saves and honest synchronization warnings remain in place.
+No dotted/dashed feedback, server polling or business-data writes were added.
+
+Verification
+Trusted Chromium mouse and native touch tests cover rendered button/group
+sliding, stationary pickup, raised-tab insertion, same-size copies, scrolled
+group copies, valid saves, invalid order/position/scroll restoration, selection
+suppression, collapsed dragging, expanded Operations to last, mobile edge
+scrolling, resize limits, fresh-context persistence and no accidental clicks.
+Nine representative role configurations were exercised at desktop/mobile sizes.
+The failure/reconnect test confirms a device-only warning on failed account sync
+and clears it only after the saved arrangement is successfully retried.
+Header layout API and database owner-isolation tests passed (4/4).
+The optimized production build, TypeScript build check, lint and all 77 isolated
+HTTP smoke checks passed. Rendered motion and sync-failure/retry checks also
+passed against the production build, not only the development server.
+Tests use synthetic accounts/intercepted APIs, not Scott's signed-in Chrome app.

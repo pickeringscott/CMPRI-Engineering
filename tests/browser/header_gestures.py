@@ -42,7 +42,7 @@ async def main():
    original=await keys(ops);first=ops.locator('.buttons .action').first;peer=ops.locator('.buttons .action').nth(1);a=await first.bounding_box();b=await peer.bounding_box()
    await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(b['x']+b['width']*.8,b['y']+b['height']/2)
    await page.wait_for_timeout(20);assert await keys(ops)!=original
-   animated=await ops.evaluate("g=>[...g.querySelectorAll('.action')].some(b=>b.getAnimations().some(a=>a.effect.getKeyframes().some(k=>String(k.transform).includes('translate'))))");assert animated
+   animated=await ops.evaluate("g=>[...g.querySelectorAll('.action')].some(b=>getComputedStyle(b).transform!=='none'&&b.getAnimations().some(a=>a.effect.getKeyframes().some(k=>String(k.transform).includes('translate'))))");assert animated
    await pointer.up();await settle(page);assert await page.get_by_role('dialog').count()==0;assert layouts['chief_engineer']['buttons']['Operations']==await keys(ops)
    # Narrow Operations so a short swipe can scroll and an invalid drag can restore scroll.
    edge=ops.locator('.resize-edge');e=await edge.bounding_box();height=(await ops.bounding_box())['height']
@@ -64,10 +64,12 @@ async def main():
    assert await keys(ops)==original;assert abs(await row.evaluate('r=>r.scrollLeft')-scroll)<.1
    restored=await first.bounding_box();assert abs(restored['x']-a['x'])<.1 and abs(restored['y']-a['y'])<.1
    # Expanded Operations reaches the last position, with no forced collapse or release-click.
+   await row.evaluate('r=>r.scrollLeft=40');row_scroll=await row.evaluate('r=>r.scrollLeft')
    groups_before=await order(page);a=await title.bounding_box();bar=await page.locator('.cmpri-header-v23 .groups').bounding_box()
    await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370)
    source_rect=await ops.bounding_box();ghost_rect=await ghost.bounding_box();assert abs(source_rect['width']-ghost_rect['width'])<.1 and abs(source_rect['height']-ghost_rect['height'])<.1
    assert await ops.locator('svg path').get_attribute('d')==await ghost.locator('svg path').get_attribute('d')
+   assert abs(await ghost.locator('.buttons').evaluate('r=>r.scrollLeft')-row_scroll)<.1
    await pointer.move(bar['x']+bar['width']-6,bar['y']+bar['height']-4);await pointer.up();await settle(page)
    assert (await order(page))[-1]=='Operations',(groups_before,await order(page));assert 'collapsed' not in (await ops.get_attribute('class'))
    # Collapsed group is also draggable, and remains collapsed on release.
@@ -95,6 +97,16 @@ async def main():
   await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(h['x']+h['width']-10,h['y']+h['height']-5);await page.wait_for_timeout(1200);await pointer.up();await settle(page)
   assert (await order(page))[-1]=='Operations';assert 'collapsed' not in (await ops.get_attribute('class'));assert await header.evaluate('h=>h.scrollTop')>0
   results.append({'input':'touch','width':390,'height':240,'edgeScroll':True,'passed':True});print(json.dumps(results[-1]),flush=True);await context.close()
+  # An invalid whole-group drop restores the header's pre-drag scroll and exact source position.
+  layouts.clear();context=await browser.new_context(viewport={'width':390,'height':220},is_mobile=True,has_touch=True);await install(context,'chief_engineer',layouts=layouts);page=await context.new_page();await page.goto(BASE+'/engineering');ops=group(page,'Operations');await ops.locator('legend').wait_for();await settle(page)
+  header=page.locator('.cmpri-desktop-topbar');session=await context.new_cdp_session(page);pointer=Pointer(page,session,True)
+  # Holding a title near the edge must not scroll the header before dragging begins.
+  a=await group(page,'Admin').locator('legend').bounding_box();await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(650);assert await header.evaluate('h=>h.scrollTop')==0;await pointer.up();await settle(page)
+  initial_order=await order(page);initial_box=await ops.bounding_box();initial_scroll=await header.evaluate('h=>h.scrollTop');h=await header.bounding_box();a=await ops.locator('legend').bounding_box()
+  await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(h['x']+h['width']-10,h['y']+h['height']-5);await page.wait_for_timeout(1000)
+  assert await header.evaluate('h=>h.scrollTop')>initial_scroll;await pointer.move(h['x']+h['width']/2,h['y']+h['height']+15);await pointer.up();await settle(page)
+  assert await order(page)==initial_order;assert await header.evaluate('h=>h.scrollTop')==initial_scroll;restored=await ops.bounding_box();assert abs(restored['x']-initial_box['x'])<.1 and abs(restored['y']-initial_box['y'])<.1
+  results.append({'input':'touch','invalidGroupDropRestoresScrollAndPosition':True,'passed':True});print(json.dumps(results[-1]),flush=True);await context.close()
   await browser.close()
  OUT.joinpath('gestures.json').write_text(json.dumps(results,indent=2))
 asyncio.run(main())

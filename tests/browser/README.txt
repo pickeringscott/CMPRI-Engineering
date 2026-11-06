@@ -16,6 +16,8 @@ fixtures. Other external requests are blocked. These tests do not sign into
 production, post real notes, alter business data or deploy.
 
 header_gestures.py uses trusted mouse events and Chromium's native touch input.
+desktop_header_motion.py checks rendered neighbor interpolation during real
+mouse dragging and stable pickup/insertion of expanded and collapsed title tabs.
 It also opens a fresh browser context at the opposite device size to test
 account-backed layout retrieval without relying on browser-local storage.
 header_role_access.py checks nine representative role configurations on both
