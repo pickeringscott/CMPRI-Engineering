@@ -823,7 +823,7 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.match(page, /function RoomIdentity/);
   assert.match(page, /isRailwayCnGuestName\(row\.guest_name\)/);
   assert.match(page, /src="\/railway-cn-logo\.png"/);
-  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">\{row\.guest_name\} <BigTenBadge group=\{row\.group_name \|\| row\.company\}\/><\/div>/);
+  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">\{row\.guest_name\} <GuestGroupBadge group=\{row\.group_name \|\| row\.company\}\/><\/div>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
@@ -865,7 +865,7 @@ test("checkout emphasis is limited to today, tomorrow and overdue dates", () => 
 test("room cards and summary modal share a soft guest layout and preserve reported OOO status", () => {
   const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
   const ast = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const names = ["daysUntilCheckout", "displayCheckoutTime", "displayHotelTimestamp", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "BigTenBadge", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
+  const names = ["daysUntilCheckout", "displayCheckoutTime", "displayHotelTimestamp", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
   const functions = names.map(name => {
     const node = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
     assert.ok(node, `${name} must be declared`);
@@ -876,7 +876,7 @@ test("room cards and summary modal share a soft guest layout and preserve report
     `${functions.join("\n")}\nexports.RoomDetails = RoomDetails;`,
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
-    exports: components, React, Image: props => React.createElement("img", props),
+    exports: components, React, GuestGroupBadge: () => null, Image: props => React.createElement("img", props),
     isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {

@@ -3,11 +3,14 @@ import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { roomKey } from "@/lib/room-availability";
 import { isRailwayCnGuestName } from "@/lib/room-operations";
 import { loadEffectiveRoomOperationsSnapshot } from "@/lib/server/cmpri-room-operations-snapshot";
+import { currentRoomGroupBadges, type RoomGroupBadge } from "@/lib/room-group-badges";
 
 export type CurrentRoomOperation = {
   checkout_date: string | null;
   checkout_time: string | null;
   cn_room: boolean;
+  guest_group_badge: RoomGroupBadge | null;
+  incoming_group_badge: RoomGroupBadge | null;
 };
 
 function hotelDate() {
@@ -38,6 +41,7 @@ export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
         checkout_date: typeof row.checkout_date === "string" ? row.checkout_date : null,
         checkout_time: typeof row.checkout_time === "string" ? row.checkout_time : null,
         cn_room: isRailwayCnGuestName(typeof row.guest_name === "string" ? row.guest_name : null),
+        ...currentRoomGroupBadges(row),
       });
     }
   }

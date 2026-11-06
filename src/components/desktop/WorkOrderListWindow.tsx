@@ -4,6 +4,8 @@ import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-ref
 
 import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
+import GuestGroupBadge from "@/components/GuestGroupBadge";
+import type { RoomGroupBadge } from "@/lib/room-group-badges";
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -23,6 +25,8 @@ export type DesktopWorkOrder = Record<string, unknown> & {
   checkout_date?: string | null;
   checkout_time?: string | null;
   cn_room?: boolean | null;
+  guest_group_badge?: RoomGroupBadge | null;
+  incoming_group_badge?: RoomGroupBadge | null;
   asset_name?: string | null;
   category?: string | null;
   issue?: string | null;
@@ -284,6 +288,7 @@ export default function WorkOrderListWindow({
                           className="h-[1.15em] w-auto rounded-[3px] object-contain"
                         />
                       )}
+                      {!isDraft && <GuestGroupBadge badge={order.guest_group_badge} className="h-[1.15em] w-auto rounded-[3px] object-contain" />}
                       {!isDraft && <WorkOrderImportPill order={order} />}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-[0.22em]">
@@ -299,6 +304,10 @@ export default function WorkOrderListWindow({
                   <span className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
                   </div>
                   <div data-room-occupancy className="flex shrink-0 items-center self-center gap-[0.25em]">
+                      {!isDraft && order.incoming_group_badge && <span className="inline-flex items-center gap-[0.25em]">
+                        <GuestGroupBadge badge={order.incoming_group_badge} className="h-[1.15em] w-auto rounded-[3px] object-contain" />
+                        <span className="inline-flex rounded-full border border-purple-400/40 bg-purple-950/35 px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight text-purple-200">Reserved</span>
+                      </span>}
                       {occupancy && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
                       {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   </div>
