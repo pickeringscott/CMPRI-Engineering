@@ -15,7 +15,7 @@ const uiPaths = [
 ];
 const retiredPaths = new Set(['/api/room-ranker', '/api/integrations/room-ranker/sync']);
 const apiPaths = [
-  '/api/session', '/api/profile/header-layout', '/api/staff-notes', '/api/staff-notes/uploads', '/api/room-operations/guest-reports', '/api/room-operations/guest-reports/extract', '/api/notifications/dispatch', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
+  '/api/session', '/api/profile/header-layout', '/api/staff-notes', '/api/staff-notes/names', '/api/staff-notes/uploads', '/api/room-operations/guest-reports', '/api/room-operations/guest-reports/extract', '/api/notifications/dispatch', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
   '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
   '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-operations/cleanup', '/api/room-ranker',
@@ -25,7 +25,7 @@ const apiPaths = [
 const mutationCases = [
   ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/assets', 'POST'],
   ['/api/assets', 'PATCH'], ['/api/users', 'POST'], ['/api/users', 'PATCH'],
-  ['/api/profile/header-layout', 'PUT'], ['/api/staff-notes', 'POST'], ['/api/staff-notes/uploads', 'POST'], ['/api/staff-notes/uploads', 'PUT'], ['/api/room-operations/guest-reports', 'POST'], ['/api/room-operations/guest-reports/extract', 'POST'], ['/api/notifications/dispatch', 'POST'],
+  ['/api/profile/header-layout', 'PUT'], ['/api/staff-notes', 'POST'], ['/api/staff-notes/names', 'POST'], ['/api/staff-notes/uploads', 'POST'], ['/api/staff-notes/uploads', 'PUT'], ['/api/room-operations/guest-reports', 'POST'], ['/api/room-operations/guest-reports/extract', 'POST'], ['/api/notifications/dispatch', 'POST'],
   ['/api/work-orders', 'POST'], ['/api/room-ranker', 'PATCH'],
   ['/api/corporate-pm', 'PATCH'], ['/api/work-orders/test-id', 'PATCH'], ['/api/room-operations', 'POST'],
   ['/api/work-orders/drafts', 'POST'], ['/api/work-orders/import', 'POST'],

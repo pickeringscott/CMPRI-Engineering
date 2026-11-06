@@ -1,3 +1,4 @@
+import * as targetPolicy from '../src/lib/staff-note-targets.ts';
 import * as workOrderReferences from '../src/lib/work-order-reference.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +12,7 @@ import {defaultNotificationSchedule,isWithinNotificationSchedule,isStaffNotesPus
 function load(path,deps) {
  const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require(name){if(name in deps)return deps[name];throw Error(name);},console,Date,Set,Map});return exports;
 }
-const policy=load('../src/lib/staff-notes.ts',{'./server/roles':roles,'./work-order-reference.js':workOrderReferences});
+const policy=load('../src/lib/staff-notes.ts',{'./server/roles':roles,'./work-order-reference.js':workOrderReferences,'./staff-note-targets':targetPolicy});
 const push=load('../src/lib/notifications/event-eligibility.ts',{'@/lib/server/roles':roles});
 const management=['Chief Engineer','Maintenance Technician','General Manager','Assistant General Manager','Front Desk Manager'];
 const profiles=[...management.map((role,i)=>({id:`m${i}`,role,full_name:`Manager${i}`})),{id:'fd',role:'Front Desk',full_name:'Front Desk'},{id:'h1',role:'Lead Housekeeper',full_name:'Deon Housekeeper'},{id:'h2',role:'Lead Housekeeper',full_name:'Pat Housekeeper'}];

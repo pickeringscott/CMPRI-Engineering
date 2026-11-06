@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Read-only release gate. Never prints configuration values or database rows.
 const required = {
-  cmpri_staff_notes: ['id','hotel_id','attachments','gif_ids','hashtags'],
+  cmpri_staff_notes: ['id','hotel_id','attachments','gif_ids','hashtags','mentions','author_name_id'],
+  cmpri_staff_note_names: ['id','hotel_id','name','name_key'],
   cmpri_staff_note_uploads: ['id','hotel_id','author_user_id','note_id','storage_path','ready'],
   cmpri_resource_signals: ['hotel_id', 'recipient_user_id', 'topic', 'revision'],
   pool_daily_logs: ['latest_test', 'retest_submission', 'manual_closure', 'id', 'revision', 'updated_by', 'ph_am', 'ph_pm', 'sanitizer_am', 'sanitizer_pm', 'sanitizer_band_am', 'sanitizer_band_pm', 'sample_location_am', 'sample_location_pm', 'flow_rate_gpm', 'temperature_f', 'main_drain_visible', 'filter_backwashed', 'closure_condition', 'closure_reason', 'remarks'],
@@ -62,6 +63,7 @@ try {
     for (const field of fields) if (!definition.properties?.[field]) missing.push(`Column: ${table}.${field}`);
   }
   if (!schema.paths?.["/rpc/cmpri_save_mentioned_work_order"]?.post) missing.push("Function: cmpri_save_mentioned_work_order");
+  for(const rpc of ['cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name'])if(!schema.paths?.['/rpc/'+rpc]?.post)missing.push('Function: '+rpc);
   const statuses = schema.definitions?.work_orders?.properties?.status?.enum;
   if (Array.isArray(statuses)) for (const status of ['Open', 'Pending Verification', 'In Progress', 'Completed', 'Closed', 'Will Not Do']) {
     if (!statuses.includes(status)) missing.push(`Work-order status: ${status}`);

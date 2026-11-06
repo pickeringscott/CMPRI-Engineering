@@ -3,12 +3,24 @@ import {useEffect,useRef,useState} from 'react';
 import {mountApprovedMenus} from '@/lib/ui/approved-header-menus';
 import {headerActionStyle} from '@/lib/ui/header-palette';
 import {normalizeHeaderLayout,headerLayoutForGroups,type HeaderLayout} from '@/lib/header-layout';
+import {useStaffNotesSummary} from '@/lib/staff-notes-unread';
 import {getValidSession} from '@/lib/supabase/client';
 type Action={key:string;label:string};
 export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunch,userId,hotelId}:{groups:Array<{label:string;items:T[]}>;onLaunch:(action:T,clickedAt:number)=>void;userId:string;hotelId:string}){
  const root=useRef<HTMLDivElement>(null),latest=useRef(onLaunch);useEffect(()=>{latest.current=onLaunch},[onLaunch]);
  const [error,setError]=useState('');
+ const summary=useStaffNotesSummary();
  const signature=JSON.stringify(groups);
+ useEffect(()=>{
+  const element=root.current;if(!element)return;
+  const count=summary?.hotelId===hotelId&&summary?.userId===userId?summary.flagCount:0;
+  const apply=()=>{for(const button of element.querySelectorAll<HTMLButtonElement>('[data-key="/staff-notes"]')){
+   button.dataset.staffNotesBaseTitle??=button.title;
+   if(count){button.dataset.staffNotesUnread=String(count);button.setAttribute('aria-description',`${count} new Staff Notes`);button.title=button.dataset.staffNotesBaseTitle+` · ${count} new Staff Notes`}
+   else{delete button.dataset.staffNotesUnread;button.removeAttribute('aria-description');button.title=button.dataset.staffNotesBaseTitle}
+  }};
+  apply();const observer=new MutationObserver(apply);observer.observe(element,{childList:true,subtree:true});return()=>observer.disconnect();
+ },[summary,userId,hotelId,signature]);
  useEffect(()=>{
   if(!root.current||!userId)return;
   const element=root.current,key=`cmpri:header-layout:${hotelId}:${userId}`;

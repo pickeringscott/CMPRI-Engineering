@@ -43,3 +43,12 @@
 .staff-giphy-credit img { display:block;width:40px;height:auto; }
 @media(max-width:650px) { .staff-gif-results { columns:5; } }
 @media(max-width:450px) { .staff-gif-results { columns:3; } }
+
+/* Flag stays on the approved Staff Notes pill without changing its dimensions. */
+:is(.cmpri-header-v23,.moving-copy) .action[data-staff-notes-unread],.moving-copy.action[data-staff-notes-unread]{position:relative}
+:is(.cmpri-header-v23,.moving-copy) .action[data-staff-notes-unread]::after,.moving-copy.action[data-staff-notes-unread]::after{content:"";display:block;position:absolute;right:0;top:0;width:6px;height:6px;border:1px solid #020617;border-radius:50%;background:#fbbf24;pointer-events:none}
+
+.staff-mention-options{position:absolute;left:0;bottom:calc(100% + 3px);z-index:30;width:min(360px,100%);max-height:160px;overflow:auto;border:1px solid #475569;border-radius:6px;background:#020617;box-shadow:0 3px 12px #0006}
+.staff-mention-options button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:28px!important;padding:4px 7px!important;border:0;border-radius:0!important;text-align:left;color:#e2e8f0;font-size:12px!important;line-height:16px}
+.staff-mention-options button[aria-selected=true]{background:#38bdf81a;color:#7dd3fc}
+.staff-mention-options small{flex:none;color:#94a3b8;font-size:10px}
