@@ -250,7 +250,8 @@ function parseCsvToRows(rawCsv: string): Record<string, unknown>[] {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireCapability(request, "view_engineering_operations");
+  let auth = await requireCapability(request, "view_engineering_operations");
+  if (!auth) { const manager = await requireCapability(request, "view_dashboard"); if (manager && profileHasRole(manager.principal.profile, "manager")) auth = manager; }
   if (!auth) return NextResponse.json({ error: "Engineering operations access is required." }, { status: 403 });
   const date = request.nextUrl.searchParams.get("date") || hotelDate();
   if (!validDate(date)) return NextResponse.json({ error: "Room-operations date is invalid." }, { status: 400 });

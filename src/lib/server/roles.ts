@@ -112,6 +112,15 @@ export function profileHasRole(
     && assignedRole.split(/\s*(?:\/|\+|,|&|\band\b)\s*/i).some((roleLabel) => roleKey(roleLabel) === role));
 }
 
+/** Pool-only manual closure/reopening permission; does not grant engineering modules. */
+export function roleCanEditSavedPoolLog(role: unknown): boolean {
+  return ["system_admin", "manager", "assistant_manager"].includes(roleKey(role));
+}
+
+export function profileCanReopenPool(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
+  return profileHasRole(profile, "engineer") || profileHasRole(profile, "manager") || profileHasRole(profile, "assistant_manager");
+}
+
 export function profileIsChiefEngineer(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
   const assignedRoles = [profile.role, ...(profile.secondary_roles || [])];
   return assignedRoles.some((assignedRole) => typeof assignedRole === "string"
@@ -173,6 +182,7 @@ const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
 };
 
 export function roleAllows(role: unknown, capability: Capability): boolean {
+  if (capability === "receive_pool_closed_notifications") return roleKey(role) !== "unknown";
   if (capability === "review_feedback") {
     if (typeof role !== "string") return false;
     const normalized = role.trim().toLowerCase().replace(/[^a-z]/g, "");
@@ -231,8 +241,7 @@ export function receivesWorkOrderNotifications(profile: { role: unknown; seconda
 }
 
 export function receivesPoolClosedNotifications(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
-  return receivesOrdinaryWorkOrderNotifications(profile.role)
-    || ["manager", "assistant_manager", "front_desk_manager"].some((role) => profileHasRole(profile, role as CmpriRole));
+  return [profile.role, ...(profile.secondary_roles || [])].some(role => roleKey(role) !== 'unknown');
 }
 
 /**

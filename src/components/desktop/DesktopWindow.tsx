@@ -1,5 +1,7 @@
 "use client";
 
+import {modalTitleStyle,modalThemeStyle,modalActionForRoute} from "@/lib/ui/header-palette";
+import WorkOrderGuestIndicators from '@/components/WorkOrderGuestIndicators';
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   clampWindowRect,
@@ -33,6 +35,7 @@ export default function DesktopWindow({
   onClose,
   onRectCommit,
   children,
+  guest,
 }: {
   windowKey: string;
   title: string;
@@ -45,6 +48,7 @@ export default function DesktopWindow({
   onClose: () => void;
   onRectCommit: (rect: WindowRect) => void;
   children: ReactNode;
+  guest?: Record<string,unknown>;
 }) {
   const titleId = useId();
   const interactionRef = useRef<Interaction | null>(null);
@@ -98,19 +102,21 @@ export default function DesktopWindow({
       data-cmpri-desktop-window={windowKey}
       data-active={active ? "true" : "false"}
       className="cmpri-desktop-window"
-      style={{ left: shown.x, top: shown.y, width: shown.width, height: shown.height, zIndex }}
+      style={{ left: shown.x, top: shown.y, width: shown.width, height: shown.height, zIndex, ...modalThemeStyle(modalActionForRoute(windowKey,title)) }}
       onPointerDownCapture={onFocus}
       onFocusCapture={onFocus}
     >
       <div
         className="cmpri-desktop-titlebar"
+        style={modalTitleStyle(title)}
         onPointerDown={(event) => begin(event, "move")}
         onPointerMove={update}
         onPointerUp={end}
         onPointerCancel={end}
       >
-        <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${accentClass}`} />
+        <span aria-hidden="true" style={{backgroundColor:modalTitleStyle(title).borderColor}} className={`size-2 shrink-0 rounded-full ${accentClass}`} />
         <span id={titleId} className="min-w-0 flex-1 truncate">{title}</span>
+        {guest && <WorkOrderGuestIndicators guest={guest} />}
         <button type="button" data-cmpri-window-close="true" aria-label={`Close ${title}`} title="Close" onClick={onClose} className="cmpri-desktop-close">
           <svg aria-hidden="true" viewBox="0 0 10 10" className="size-2.5"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
         </button>

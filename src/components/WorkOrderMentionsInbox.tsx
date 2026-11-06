@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { subscribeResources } from "@/lib/events/browser";
 import { getValidSession } from "@/lib/supabase/client";
 import { useCallback, useEffect, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
@@ -24,10 +25,8 @@ export default function WorkOrderMentionsInbox() {
     } catch { /* Preserve the last confirmed inbox during a temporary disconnect. */ }
   }, []);
   useEffect(() => {
-    const first = setTimeout(() => void load(), 0);
-    const poll = setInterval(() => void load(), 5000);
-    document.addEventListener("visibilitychange", load); window.addEventListener("online", load);
-    return () => { clearTimeout(first); clearInterval(poll); document.removeEventListener("visibilitychange", load); window.removeEventListener("online", load); };
+    if (window.self !== window.top) return;
+    return subscribeResources(["inbox", "session"], load);
   }, [load]);
   async function read(ids: string[]) {
     try {

@@ -135,8 +135,8 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(migration, /unique \(hotel_id, recipient_user_id, notification_key\)/);
   assert.match(migration, /enable row level security/);
   assert.match(migration, /revoke all on table public\.cmpri_dashboard_notifications from anon, authenticated;/);
-  assert.match(route, /allows\(auth\.principal, "view_dashboard"\)/);
-  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 4, 'every inbox read/write is scoped to the requester');
+  assert.match(route, /requireUser\(request\)/);
+  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 3, 'every inbox read/write is scoped to the requester');
   assert.match(route, /\.update\(update\)/);
   assert.match(route, /body\.action === "read"[\s\S]*read_at: new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(route, /\.delete\(/);
@@ -149,7 +149,8 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(goLiveMigration, /where cleared_at is null and read_at is null/i);
   assert.match(goLiveMigration, /'\/engineering\/pool-log'/);
   assert.match(migration, /clears them/);
-  assert.match(dashboard, /DASHBOARD_NOTIFICATION_POLL_MS/);
+  assert.doesNotMatch(dashboard, /setInterval/);
+  assert.match(dashboard, /subscribeResources/);
   assert.match(dashboard, /void loadDashboard\(true\)/);
 });
 
@@ -164,7 +165,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(windowFrame, /data-cmpri-window-close="true"/);
   assert.equal((windowFrame.match(/<button\b/g) || []).length, 1, 'close is the only window control');
   assert.match(dashboard, /cmpri-desktop-topbar relative z-\[200\]/);
-  assert.match(dashboard, /min-w-0 max-w-full flex-wrap items-center gap-0\.5 rounded-md/);
+  assert.match(dashboard, /<ApprovedDashboardMenus groups=\{visibleLauncherGroups\}/);
   assert.match(dashboard, /title=\{launcher\.label\}/);
   assert.match(dashboard, /shrink-0 whitespace-nowrap rounded border px-[12] py-0\.5/);
   assert.match(dashboard, /const zIndex = 10 \+ Math\.max\(0, zOrder\.indexOf\(entry\.key\)\)/);
@@ -173,21 +174,17 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(dashboard, /onClick=\{openApprovals\}/);
   assert.doesNotMatch(dashboard, /WorkOrderNotificationBanner|resolved_notification_ids/);
   assert.doesNotMatch(dashboard, /Awaiting Approval|KPI/, 'KPI cards live in the work order list window');
-  assert.match(listWindow, /Awaiting Approval/);
+  assert.match(listWindow, /Pending/);
   assert.match(listWindow, /compactLabel/);
   assert.match(listWindow, /@md:hidden/);
   assert.match(listWindow, /@md:inline/);
   assert.match(listWindow, /aria-label=\{\`\$\{card\.label\}:/);
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
+  assert.match(workOrderDetail, /<WorkOrderAttachmentHistory items=\{workOrderImages\}/);
+  assert.match(workOrderDetail, /<WorkOrderMediaComposer/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
-  assert.match(workOrderDetail, /Photos \(\{workOrderImagesLoading \? "…" : workOrderImageError \? "unavailable" : workOrderImages\.length\}\)/);
-  assert.match(workOrderDetail, /Choose photo/);
-  assert.match(workOrderDetail, /onClick=\{\(\) => photoFileInputRef\.current\?\.click\(\)\}/);
-  assert.match(workOrderDetail, /if \(photo\) stageWorkOrderPhoto\(photo\)/);
   assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
   assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details\{pendingField\("actionRootCause"\)\}<\/summary>/);
-  assert.match(workOrderDetail, /uploadWorkOrderAttachment\(id, photo, session\.access_token/);
-  assert.match(workOrderDetail, /image\.uploaded_at[\s\S]*?text: "Photo uploaded"/);
   assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);
   assert.match(styles, /html\.cmpri-desktop-interacting iframe \{\s*pointer-events: none !important;/);
   assert.match(styles, /container-type: inline-size;/);

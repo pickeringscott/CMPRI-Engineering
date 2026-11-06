@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@import "./work-order-design.css";
+@import "./modal-theme.css";
+@import "./approved-header.css";
 
 :root {
   --cmpri-gold: #fbbf24;
@@ -589,7 +592,6 @@ a[href="/work-orders"].bg-amber-500 {
 }
 
 /* Keep approved black-on-color pills intact under browser automatic darkening. */
-.cmpri-header-status-pill, .cmpri-header-status-pill *,
 .cmpri-front-desk-create, .cmpri-front-desk-create * {
  color-scheme:only light; color:#000 !important;
  -webkit-text-fill-color:#000 !important; text-shadow:none;

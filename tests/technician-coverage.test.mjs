@@ -1,3 +1,4 @@
+import * as workOrderSort from '../src/lib/work-order-sort.ts';
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import test from 'node:test';
@@ -27,6 +28,7 @@ function fixture(config = {}) {
         neq(field, value) { filters.push(['neq', field, value]); return query; },
         in(field, value) { filters.push(['in', field, value]); return query; },
         or(expression) { filters.push(['or', expression]); return query; },
+        lt() { return query; },
         limit() { return query; },
         range() { return query; },
         order() { return query; },
@@ -53,7 +55,8 @@ function fixture(config = {}) {
   vm.runInNewContext(routeCode, {
     exports,
     process: { env: {} },
-    require(name) {if(name === "@/lib/cmpri-location-groups") return commonAreas;
+    require(name) {
+      if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, () => true);
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => db };
@@ -161,9 +164,10 @@ test('technician coverage does not bypass existing edit-ticket capability checks
   assert.equal(f.calls.length, 0);
 });
 
-test('technician dashboard polls for new work and displays in-app sound alerts', () => {
+test('technician dashboard subscribes to new work and displays in-app sound alerts', () => {
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /window\.setInterval\(\(\) => \{ void loadAssignedWork\(\); \}, REFRESH_MS\)/);
+  assert.doesNotMatch(source, /setInterval|REFRESH_MS/);
+  assert.match(source, /subscribeResources\(\["orders", "rooms"\], loadAssignedWork\)/);
   assert.match(source, /role="alert"/);
   assert.match(source, /Unassigned coverage/);
   assert.match(source, /Assigned to you/);
@@ -173,7 +177,7 @@ test('mobile technician refresh retains the current work list and keeps its page
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /const hasLoadedWorkRef = useRef\(false\)/);
   assert.match(source, /if \(!hasLoadedWorkRef\.current\) setLoading\(false\)/);
-  assert.match(source, /sticky top-0 z-20[^"]*sm:static/);
+  assert.match(source, /sticky top-0 z-20/);
   assert.match(source, /min-h-\[100svh\]/);
 });
 

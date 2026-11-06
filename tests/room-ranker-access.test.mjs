@@ -97,16 +97,6 @@ function authenticate(role, email) {
   currentAuth = { principal: principal(role, email), admin: {} };
 }
 
-test("Room Ranker page entry points and work-order context use the shared viewer policy", () => {
-  const engineering = readFileSync(new URL("../src/app/engineering/page.tsx", import.meta.url), "utf8");
-  const technician = readFileSync(new URL("../src/app/technician/page.tsx", import.meta.url), "utf8");
-  const detail = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(engineering, /canViewRanker && \{ key: "\/engineering\/room-ranker"/);
-  assert.match(technician, /roomRankerProfileCanView\(account, account\.email\) && \([\s\S]*?data-cmpri-modal-href="\/engineering\/room-ranker"/);
-  assert.match(detail, /if \(roomRankerProfileCanView\(current\.user, current\.user\.email\)\) void \(async \(\) => \{\s*try \{\s*const response = await fetch\("\/api\/room-ranker"/);
-  assert.match(detail, /roomRankerProfileCanView\(cmpriSession\.user, cmpriSession\.user\.email\) && \(/);
-});
-
 test("Room Ranker policy checks secondary roles and both account email identities", () => {
   const viewer = principal("Chief Engineer");
   viewer.profile.secondary_roles = ["technician"];
@@ -119,67 +109,12 @@ test("Room Ranker policy checks secondary roles and both account email identitie
   assert.equal(accessPolicy.canEditRoomRanker(scott), false);
 });
 
-test("Room Ranker old read access is limited to the engineer role", async () => {
-  roomRankerCalls = [];
-  for (const role of ["Front Desk Manager", "Assistant General Manager", "Maintenance Technician", "General Manager"]) {
-    authenticate(role);
-    assert.equal((await apiRoute.GET({})).status, 403, role);
-  }
-
-  authenticate("Chief Engineer");
-  assert.equal((await apiRoute.GET({})).status, 200, "engineer is the authorized legacy viewer role");
-  authenticate("System Administrator", "pickering.scott@gmail.com");
-  assert.equal((await apiRoute.GET({})).status, 403, "other system administrators must not be granted access");
-
-  authenticate("System Administrator", "maint.cmpri@hawkeyehotels.com");
-  const scottResponse = await apiRoute.GET({});
-  assert.equal(scottResponse.status, 200);
-  assert.equal((await scottResponse.json()).can_edit, true);
-  assert.equal(roomRankerCalls.length, 2);
-  assert.ok(roomRankerCalls.every((call) => call.action === "read"));
-});
-
-test("direct Room Ranker PATCH requests reject viewers and other administrators before writing", async () => {
-  roomRankerCalls = [];
-  authenticate("Maintenance Technician");
-  const readOnlyResponse = await apiRoute.PATCH({ json: async () => ({ rowNumber: 2, rank: "A" }) });
-  assert.equal(readOnlyResponse.status, 403);
-
-  authenticate("System Administrator", "pickering.scott@gmail.com");
-  const otherAdminResponse = await apiRoute.PATCH({ json: async () => ({ rowNumber: 2, rank: "A" }) });
-  assert.equal(otherAdminResponse.status, 403);
-  assert.equal(roomRankerCalls.length, 0);
-
-  authenticate("System Administrator", "maint.cmpri@hawkeyehotels.com");
-  const scottResponse = await apiRoute.PATCH({ json: async () => ({ rowNumber: 2, expectedRoom: "101", rank: "A" }) });
-  assert.equal(scottResponse.status, 200);
-  assert.deepEqual(roomRankerCalls, [{ action: "update", rowNumber: 2, expectedRoom: "101", rank: "A" }]);
-});
-
-test("authenticated Room Ranker sync is Scott-only while the server cron path remains available", async () => {
-  syncCalls = [];
-  authenticate("General Manager");
-  assert.equal((await syncRoute.POST({ headers: { get: () => "Bearer viewer-token" } })).status, 401);
-
-  authenticate("System Administrator", "pickering.scott@gmail.com");
-  assert.equal((await syncRoute.POST({ headers: { get: () => "Bearer other-admin-token" } })).status, 401);
-  assert.equal(syncCalls.length, 0);
-
-  authenticate("System Administrator", "maint.cmpri@hawkeyehotels.com");
-  assert.equal((await syncRoute.POST({ headers: { get: () => "Bearer scott-token" } })).status, 200);
-  assert.equal(syncCalls[0], currentAuth.admin);
-
-  const priorCronSecret = process.env.CRON_SECRET;
-  process.env.CRON_SECRET = "room-ranker-test-cron-secret";
-  try {
-    assert.equal((await syncRoute.POST({
-      headers: { get: (name) => name.toLowerCase() === "authorization" ? "Bearer room-ranker-test-cron-secret" : null },
-    })).status, 200);
-    assert.equal(syncCalls[1], cronAdmin);
-  } finally {
-    if (priorCronSecret === undefined) delete process.env.CRON_SECRET;
-    else process.env.CRON_SECRET = priorCronSecret;
-  }
+test("legacy Ranker endpoints deny all roles without provider calls",async()=>{
+ for(const role of ["Chief Engineer","General Manager","Front Desk","System Administrator"]){
+  authenticate(role);
+  for(const response of [await apiRoute.GET(),await apiRoute.PATCH(),await syncRoute.GET(),await syncRoute.POST()])assert.equal(response.status,410);
+ }
+ assert.equal(roomRankerCalls.length,0);assert.equal(syncCalls.length,0);
 });
 
 test("guide visibility preserves management roles and excludes engineering and technician identities", () => {

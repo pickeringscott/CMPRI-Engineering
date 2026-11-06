@@ -6,7 +6,6 @@ import { ROOM_OPERATIONS_IMPORT_CONTRACT } from "@/lib/server/room-operations-im
 import { NextRequest } from "next/server";
 import { allows } from "@/lib/server/access";
 import type { McpIdentity } from "@/lib/server/cmpri-mcp";
-import { canViewRoomRanker } from "@/lib/room-ranker-access";
 import { roleKey } from "@/lib/server/roles";
 
 const DASHBOARD_VIEWS = [
@@ -33,7 +32,6 @@ export function availableMcpReadViews(identity: McpIdentity) {
     ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
     ...(allows(identity.principal, "view_dashboard") || allows(identity.principal, "view_pool_log") ? ["pool_log"] as const : []),
     ...(allows(identity.principal, "view_work_orders") ? ["work_orders"] as const : []),
-    ...(canViewRoomRanker(identity.principal) ? ["room_ranker"] as const : []),
     ...(identity.readAllWorkOrders || identity.readAssignedWorkOrders || identity.readOwnWorkOrders
       ? ["work_order", "work_order_activity", "work_order_attachments"] as const
       : []),
@@ -141,10 +139,6 @@ export async function callMcpReadView(
     case "rooms": {
       const route = await import("@/app/api/rooms/route");
       return callGet(incoming, "/api/rooms", route.GET);
-    }
-    case "room_ranker": {
-      const route = await import("@/app/api/room-ranker/route");
-      return callGet(incoming, "/api/room-ranker", route.GET);
     }
     case "room_operations": {
       const date = argument(args, "date", 10);

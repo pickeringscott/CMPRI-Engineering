@@ -1,5 +1,10 @@
 "use client";
+import {profileHasRole} from "@/lib/server/roles";
+import LoyaltyBadge from "@/components/LoyaltyBadge";
 
+import { resourceViewVisible } from "@/lib/events/visibility";
+import { subscribeResources } from "@/lib/events/browser";
+import { nextGuestDisplayChange } from "@/lib/room-guest-reports";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import RoomOperationsImport from "./RoomOperationsImport";
@@ -7,7 +12,8 @@ import GuestReportsImport from "./GuestReportsImport";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
-import { isRailwayCnGuestName, isBigTenGroup } from "@/lib/room-operations";
+import { isRailwayCnGuestName } from "@/lib/room-operations";
+import GuestGroupBadge from "@/components/GuestGroupBadge";
 import Image from "next/image";
 
 type RoomOperation = {
@@ -21,6 +27,8 @@ type RoomOperation = {
   move_from: string | null;
   move_to: string | null;
   guest_name: string | null;
+  loyalty_tier?:string|null;
+  incoming_loyalty_tier?:string|null;
   room_type: string | null;
   guest_code: string | null;
   guest_arrival_date: string | null;
@@ -151,10 +159,6 @@ function summaryFor(rows: RoomOperation[]): Summary {
   }, { departures: 0, reserved: 0, vacantReady: 0, vacantDirty: 0 });
 }
 
-function BigTenBadge({ group }: { group?: string }) {
-  return isBigTenGroup(group) ? <Image src="/big10.png" alt="Big Ten" width={500} height={300} className="inline-block h-[27px] w-auto rounded-[4px] object-contain align-middle" /> : null;
-}
-
 function RoomIdentity({ row }: { row: RoomOperation }) {
   const railwayGuest = isRailwayCnGuestName(row.guest_name) || isRailwayCnGuestName(row.company);
   return (
@@ -225,13 +229,13 @@ function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
         <CheckoutPill row={row} today={today} />
         <MovePill row={row} />
       </div>
-      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400">{row.guest_name} <BigTenBadge group={row.group_name || row.company}/></div> : null}
+      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400"><LoyaltyBadge tier={row.loyalty_tier}/>{row.guest_name} <GuestGroupBadge group={row.group_name || row.company}/></div> : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
         {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
       </div>
       {row.incoming_name || row.incoming_type || row.incoming_code || row.arrival_date || row.arrival_time || row.incoming_block_indicator ? (
         <div className="mt-1 text-sm text-sky-200">
-          Incoming: {row.incoming_name || "Name unavailable"} <BigTenBadge group={row.incoming_company}/>
+          Incoming: {row.incoming_loyalty_tier&&<LoyaltyBadge tier={row.incoming_loyalty_tier}/>} {row.incoming_name || "Name unavailable"} <GuestGroupBadge group={row.incoming_company}/>
           {row.incoming_type ? ` · ${row.incoming_type}` : ""}
           {row.incoming_code ? ` · ${row.incoming_code}` : ""}
           {row.arrival_date ? ` · ${displayDate(row.arrival_date)}` : ""}
@@ -261,7 +265,7 @@ export default function RoomOperationsPage() {
   const [guestImportBusy, setGuestImportBusy] = useState(false);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
       const current = hotelDate();
       const previous = hotelTodayRef.current;
       if (current !== previous) {
@@ -269,16 +273,16 @@ export default function RoomOperationsPage() {
         setToday(current);
         setDate((selected) => selected === previous ? current : selected);
       }
-      setRefreshVersion((version) => version + 1);
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+      if (resourceViewVisible(window)) setRefreshVersion((version) => version + 1);
+    }, Math.max(1, nextGuestDisplayChange(rows.map(row => ({...row,guest_name:row.guest_name || "",room_status:row.room_status || ""})), new Date(), HOTEL_TIME_ZONE) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [rows, refreshVersion]);
 
   useEffect(() => {
     let active = true;
     void loadCmpriSession().then((current) => {
       if (!active) return;
-      if (!hasCapability(current, "view_engineering_operations")) {
+      if (!hasCapability(current, "view_engineering_operations") && !profileHasRole(current.user, "manager")) {
         router.replace(current.landing);
         return;
       }
@@ -292,46 +296,45 @@ export default function RoomOperationsPage() {
   useEffect(() => {
     if (!session) return;
     const controller = new AbortController();
-    void (async () => {
-      await Promise.resolve();
-      setLoading(true);
-      setMessage("");
-      const headers = await authorizationHeaders();
-      const response = await fetch(`/api/room-operations?date=${encodeURIComponent(date)}`, {
-        headers,
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      const payload = await response.json().catch(() => ({})) as {
-        error?: string;
-        rows?: RoomOperation[];
-        date?: string;
-        source_date?: string | null;
-        source_type?: string | null;
-        carried_over?: boolean;
-        provenance?: string | null;
-      };
-      if (!response.ok) throw new Error(payload.error || "Unable to load daily room operations.");
-      if (!controller.signal.aborted) {
-        setRows((payload.rows || []).slice().sort(naturalRoomCompare));
-        setSnapshotInfo({
-          requestedDate: payload.date || date,
-          sourceDate: payload.source_date || null,
-          sourceType: payload.source_type || null,
-          carriedOver: payload.carried_over === true,
-          provenance: payload.provenance || null,
+    const stop = subscribeResources(["rooms", "orders"], async () => {
+      try {
+        const currentDay = hotelDate();
+        const previousDay = hotelTodayRef.current;
+        if (currentDay !== previousDay) {
+          hotelTodayRef.current = currentDay;
+          setToday(currentDay);
+          setDate(selected => selected === previousDay ? currentDay : selected);
+        }
+        await Promise.resolve();
+        setLoading(true);
+        setMessage("");
+        const headers = await authorizationHeaders();
+        const response = await fetch(`/api/room-operations?date=${encodeURIComponent(date)}`, {
+          headers, cache: "no-store", signal: controller.signal,
         });
+        const payload = await response.json().catch(() => ({})) as {
+          error?: string; rows?: RoomOperation[]; date?: string; source_date?: string | null;
+          source_type?: string | null; carried_over?: boolean; provenance?: string | null;
+        };
+        if (!response.ok) throw new Error(payload.error || "Unable to load daily room operations.");
+        if (!controller.signal.aborted) {
+          setRows((payload.rows || []).slice().sort(naturalRoomCompare));
+          setSnapshotInfo({
+            requestedDate: payload.date || date, sourceDate: payload.source_date || null,
+            sourceType: payload.source_type || null, carriedOver: payload.carried_over === true,
+            provenance: payload.provenance || null,
+          });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setRows([]); setSnapshotInfo(null);
+          setMessage(error instanceof Error ? error.message : "Unable to load daily room operations.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    })().catch((error) => {
-      if (!controller.signal.aborted) {
-        setRows([]);
-        setSnapshotInfo(null);
-        setMessage(error instanceof Error ? error.message : "Unable to load daily room operations.");
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
     });
-    return () => controller.abort();
+    return () => { stop(); controller.abort(); };
   }, [date, refreshVersion, session]);
 
   function handleImportCommitted(importedDate: string) {

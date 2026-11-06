@@ -66,7 +66,7 @@ function routeFixture(relativePath, config = {}) {
       };
       if (name === '@/lib/server/work-order-assignment') return { canAccessWorkOrderByAssignment: () => true };
       if (name === '@/lib/server/room-availability') return {
-        currentRoomStatus: () => null,
+        currentRoomOperation:()=>null,currentRoomStatus: () => null,
         loadCurrentRoomStatuses: async () => ({ statuses: new Map(), error: null }),
       };
       if (name === '@/lib/work-order-edit-policy') return {

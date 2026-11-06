@@ -1,4 +1,7 @@
 export type WorkOrderImage = {
+  type?: string;
+  uploader_name?: string;
+  uploader_role?: string;
   id: string;
   name: string;
   url: string;
@@ -22,6 +25,9 @@ function workOrderImage(value: unknown): WorkOrderImage | null {
   if (typeof value.url !== "string" || !value.url.trim()) return null;
   return {
     id: value.id,
+    ...(typeof value.type === "string" ? {type:value.type}:{}),
+    ...(typeof value.uploader_name === "string" ? {uploader_name:value.uploader_name}:{}),
+    ...(typeof value.uploader_role === "string" ? {uploader_role:value.uploader_role}:{}),
     name: value.name,
     url: value.url,
     ...(typeof value.can_remove === "boolean" ? { can_remove: value.can_remove } : {}),

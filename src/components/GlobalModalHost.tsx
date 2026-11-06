@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
+import {modalActionForRoute,modalThemeStyle,modalTitleStyle} from '@/lib/ui/header-palette';
+import WorkOrderGuestIndicators from './WorkOrderGuestIndicators';
 
 type ModalEntry = {
+  guest?: Record<string,unknown>;
   id: string;
   href: string;
   title: string;
@@ -33,6 +36,7 @@ function modalHref(href: string) {
     "/engineering/purchasing",
     "/engineering/gss",
     "/engineering/pool-log",
+    "/pool",
     "/engineering/hours-tracker",
     "/engineering/room-operations",
     "/engineering/enseo-assignments",
@@ -357,6 +361,12 @@ export default function GlobalModalHost() {
         return;
       }
       if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
+      if (event.data.type === 'cmpri-work-order-loaded') {
+        const sourceId = /^\/work-orders\/([^/?#]+)/.exec(new URL(top.href,window.location.origin).pathname)?.[1];
+        const guest = event.data.workOrder;
+        if (sourceId && guest && typeof guest === 'object' && guest.id === decodeURIComponent(sourceId)) setStack(current => current.map(entry => entry.id === top.id ? {...entry,guest} : entry));
+        return;
+      }
       if (event.data.type === "cmpri-assets-changed" && typeof event.data.assetId === "string" && event.data.assetId
         && new URL(top.href, window.location.origin).pathname === "/management/equipment") {
         // Only relay the invalidation; each form fetches its own authorized list.
@@ -457,6 +467,7 @@ export default function GlobalModalHost() {
         const isPurchasing = entryPath === "/engineering/purchasing";
         const isRoomRanking = entryPath.split("?")[0] === "/engineering/room-ranking";
           const panelStyle: ModalPanelStyle = {
+          ...modalThemeStyle(modalActionForRoute(entryPath,entry.title)),
           "--cmpri-modal-width": `min(${(isRoomRanking ? 100 : (isPurchasing ? 94 : (isWorkOrderDetail ? 94 : 66))) * scale}vw, ${(isRoomRanking ? 120 : (isPurchasing ? 88 : (isWorkOrderDetail ? 88 : 72))) * scale}rem)`,
           "--cmpri-modal-height": `calc(${(isWorkOrderDetail ? 82 : 100) * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
           "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
@@ -477,7 +488,14 @@ export default function GlobalModalHost() {
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
               style={panelStyle}
             >
+              <div className="cmpri-desktop-titlebar" style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
+                <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />
+                <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+                {entry.guest && <WorkOrderGuestIndicators guest={entry.guest} />}
+                <button type="button" className="cmpri-desktop-close" aria-label={`Close ${entry.title}`} onClick={()=>requestModalClose(entry.id)}>×</button>
+              </div>
               <iframe
+                allow="camera"
                 ref={(frame) => {
                   if (frame) frameRefs.current.set(entry.id, frame);
                   else {

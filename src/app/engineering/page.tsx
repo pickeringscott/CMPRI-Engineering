@@ -1,4 +1,6 @@
 "use client";
+import ThanksgivingBackground from "@/components/desktop/ThanksgivingBackground";
+import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
 
@@ -10,7 +12,6 @@ import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/
 import { usesChiefEngineerMobileLayout } from "@/lib/dashboard/chief-engineer-mobile";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import {
-  DASHBOARD_NOTIFICATION_POLL_MS,
   clearServerDashboardNotifications,
   fetchDashboardInbox,
   forgetLocalDashboardInbox,
@@ -34,19 +35,18 @@ import {
   type WindowRect,
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
-import { profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
+import { profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
-import MobileDashboardMenus from "@/components/desktop/MobileDashboardMenus";
+import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder, type DesktopWorkOrderDraft } from "@/components/desktop/WorkOrderListWindow";
 import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWindow";
-import { canAccessTroubleshootingGuides, roomRankerProfileCanView } from "@/lib/room-ranker-access";
+import { canAccessTroubleshootingGuides } from "@/lib/room-ranker-access";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 
-const REFRESH_MS = 30_000;
 const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
@@ -101,7 +101,6 @@ function DashboardLauncherButton({
 
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
   "/engineering/room-ranking": { title: "Room Ranker", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
-  "/engineering/room-ranker": { title: "Room Ranker old", accent: "bg-amber-400" },
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
   "/profile": { title: "Manage Profile", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
   "/profile/ai-connection": { title: "ChatGPT Connection", accent: "bg-sky-400", preferred: { width: 760, height: 640 } },
@@ -127,6 +126,9 @@ export default function EngineeringDashboardPage() {
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
   const [orders, setOrders] = useState<DesktopWorkOrder[]>([]);
+  const approvalPageRef = useRef(0);
+  const [approvalPage, setApprovalPage] = useState(0);
+  const [approvalTotal, setApprovalTotal] = useState(0);
   const [drafts, setDrafts] = useState<DesktopWorkOrderDraft[]>([]);
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,12 +141,10 @@ export default function EngineeringDashboardPage() {
   const soundEnabledRef = useRef(true);
   const userIdRef = useRef("");
   const userRoleRef = useRef("");
-  const notificationPollInFlightRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
   const pendingClearIdsRef = useRef<Set<string>>(new Set());
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const clearGenerationRef = useRef(0);
-  const ordersVersionRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const previousTitleRef = useRef<string>("");
 
@@ -260,13 +260,14 @@ export default function EngineeringDashboardPage() {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) throw new Error("Sign in again to load the dashboard.");
-      const response = await fetch("/api/work-orders", {
+      const response = await fetch(`/api/work-orders?filter=pending&page=${approvalPageRef.current}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Dashboard work orders could not be loaded.");
       const fetched = payload.work_orders as DesktopWorkOrder[];
+      setApprovalTotal(payload.total ?? fetched.length);
       setOrders(previous => reconcileWorkOrderList(previous,fetched));
       if (roleAllows(role || userRoleRef.current, "review_tickets")) {
         const draftResponse = await fetch("/api/work-orders/drafts?scope=review", {
@@ -339,13 +340,11 @@ export default function EngineeringDashboardPage() {
   }, [loadDashboard, refreshChatgptConnection]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => { void loadDashboard(true); }, REFRESH_MS);
-    return () => window.clearInterval(interval);
+    return subscribeResources(["orders", "rooms"], () => loadDashboard(true), false);
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (!cmpriSession || (!hasCapability(cmpriSession, "view_dashboard")
-      && !hasCapability(cmpriSession, "receive_pool_closed_notifications"))) return;
+    if (!cmpriSession) return;
     const userId = cmpriSession.user.id;
     let current = true;
     let imported = false;
@@ -355,9 +354,7 @@ export default function EngineeringDashboardPage() {
       if (local.length) await importServerDashboardNotifications(accessToken, local);
       forgetLocalDashboardInbox(userId);
     };
-    const pollNotifications = async () => {
-      if (notificationPollInFlightRef.current) return;
-      notificationPollInFlightRef.current = true;
+    const refreshInbox = async () => {
       const generation = clearGenerationRef.current;
       try {
         const session = await getValidSession();
@@ -368,25 +365,16 @@ export default function EngineeringDashboardPage() {
         }
         const result = await fetchDashboardInbox(session.access_token);
         if (!current) return;
-        if (ordersVersionRef.current === null) {
-          ordersVersionRef.current = result.orders_version;
-        } else if (result.orders_version !== ordersVersionRef.current && !refreshInFlightRef.current) {
-          ordersVersionRef.current = result.orders_version;
-          void loadDashboard(true);
-        }
         if (generation === clearGenerationRef.current) applyServerInbox(result.notifications);
         setNotificationError("");
       } catch (error) {
         if (current) setNotificationError(error instanceof Error ? error.message : "Notifications could not be loaded.");
-      } finally {
-        notificationPollInFlightRef.current = false;
       }
     };
-    void pollNotifications();
-    const interval = window.setInterval(() => { void pollNotifications(); }, DASHBOARD_NOTIFICATION_POLL_MS);
+    const unsubscribe = subscribeResources(["inbox", "session"], refreshInbox);
     return () => {
       current = false;
-      window.clearInterval(interval);
+      unsubscribe();
     };
   }, [applyServerInbox, cmpriSession, loadDashboard]);
 
@@ -405,9 +393,8 @@ export default function EngineeringDashboardPage() {
         if (current && response.ok && Number.isInteger(payload.count) && payload.count >= 0) setNewFeedbackCount(payload.count);
       } catch {}
     };
-    void refreshFeedbackCount();
-    const interval = window.setInterval(() => void refreshFeedbackCount(), 60_000);
-    return () => { current = false; window.clearInterval(interval); };
+    const unsubscribe = subscribeResources(["feedback"], refreshFeedbackCount);
+    return () => { current = false; unsubscribe(); };
   }, [cmpriSession]);
 
   useEffect(() => {
@@ -606,7 +593,6 @@ export default function EngineeringDashboardPage() {
   const frontDeskLayout = roleKey(session.user.role) === "front_desk";
   const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
   const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
-  const canViewRanker = roomRankerProfileCanView(session.user, session.user.email);
   const canOpenTroubleshootingGuides = canAccessTroubleshootingGuides(session.user);
   const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
@@ -648,7 +634,7 @@ export default function EngineeringDashboardPage() {
       items: [
         hasCapability(session, "view_work_orders") && { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
         roleKey(session.user.role) === "technician" && { key: "/technician", label: "Technician Dashboard", href: "/technician", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        hasCapability(session, "submit") && { key: "/work-orders", label: "+ Create Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
+        hasCapability(session, "submit") && { key: "/work-orders", label: "+ Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
       ],
     },
     {
@@ -657,11 +643,10 @@ export default function EngineeringDashboardPage() {
         canReviewEmployment(session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
         { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
         (hasCapability(session, "view_dashboard") || hasCapability(session, "view_pool_log")) && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
-        canUseEngineeringAdminTools && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+        (canUseEngineeringAdminTools || roleKey(session.user.role) === "manager") && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         canUseEngineeringAdminTools && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
         canUseEngineeringAdminTools && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         { key: "/engineering/room-ranking", label: "Room Ranker", href: "/engineering/room-ranking", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
-        canViewRanker && { key: "/engineering/room-ranker", label: "Room Ranker old", href: "/engineering/room-ranker", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
         hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
       ],
     },
@@ -727,7 +712,7 @@ export default function EngineeringDashboardPage() {
       group.items = [...keys.flatMap(key => present.filter(item => item.key === key)), ...present.filter(item => !keys.includes(item.key))];
     };
     reorder(work, ["/work-orders", WORK_ORDER_LIST_KEY]);
-    reorder(operations, ["/engineering/preventive-maintenance", "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/engineering/room-ranker", "/staff-notes"]);
+    reorder(operations, ["/engineering/preventive-maintenance", "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/staff-notes"]);
     reorder(assets, ["/engineering/purchasing", "/engineering/parts", "/management/equipment"]);
     const tracker = account.items.find(item => item && item.key === "/engineering/hours-tracker");
     if (tracker) {
@@ -737,110 +722,76 @@ export default function EngineeringDashboardPage() {
     }
     for (const group of [work, operations, assets]) for (const item of group.items) {
       if (!item) continue;
-      if (item.key === "/work-orders") item.label = "+ Create Work Order";
+      if (item.key === "/work-orders") item.label = "+ Work Order";
       if (item.key === "/engineering/preventive-maintenance") item.label = "Preventative Maintenance";
-      if (item.key === "/engineering/room-ranker") item.label = "Room Ranker Old";
       if (item.key === "/engineering/purchasing") item.label = "PO";
     }
   }
-  const frontDeskKeys = ["/engineering/room-ranking", WORK_ORDER_LIST_KEY, "pool-status", "/staff-notes", "/profile", "sign-out"];
+  // Work Order List belongs to Operations for every dashboard role.
+  const workGroup = launcherGroups.find(group => group.label === 'Work Orders');
+  const operationsGroup = launcherGroups.find(group => group.label === 'Operations');
+  if (workGroup && operationsGroup) { const list = workGroup.items.find(item => item && item.key === WORK_ORDER_LIST_KEY); workGroup.items = workGroup.items.filter(item => item !== list); if (list) operationsGroup.items.unshift(list); }
+  const frontDeskKeys = ["/engineering/room-ranking", WORK_ORDER_LIST_KEY, "/staff-notes", "sign-out"];
   const presentationGroups = frontDeskLayout ? [{ label: "Front Desk", items: frontDeskKeys.map(key => launcherGroups.flatMap(group => group.items).find(item => item && item.key === key) || false) }] : launcherGroups;
   const visibleLauncherGroups = presentationGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item): item is Launcher => Boolean(item)),
+      items: group.items.filter((item): item is Launcher => Boolean(item && item.key !== "pool-status" && item.key !== "/work-orders")),
     }))
     .filter((group) => group.items.length > 0);
   const openKeys = new Set(windows.map((entry) => entry.key));
   const activeKey = zOrder.at(-1) || "";
   const canReviewTickets = hasCapability(session, "review_tickets");
   const unreadCount = unreadWorkOrderNotificationCount(inbox);
-  const notificationCount = unreadCount + (canReviewTickets ? awaitingApproval.length : 0);
+  const notificationCount = unreadCount + (canReviewTickets ? approvalTotal : 0);
   const bellLabel = canReviewTickets
-    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${awaitingApproval.length} awaiting approval`
+    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${approvalTotal} awaiting approval`
     : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
-  const mobileLaunchers = visibleLauncherGroups
-    .flatMap((group) => group.items)
-    .filter((launcher) => launcher.key !== "/work-orders");
   const createWorkOrderLauncher = launcherGroups
     .flatMap((group) => group.items)
     .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
 
   return (
     <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(engineerDesktopMenus || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefEngineerMobileLayout ? "true" : undefined}>
-      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:flex-row lg:items-center lg:gap-3 lg:pb-3">
-        <div className="flex w-full shrink-0 items-center gap-4 border-b border-slate-800 pb-2 lg:w-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
-          <div className="flex min-w-0 flex-col items-start leading-tight">
-            <p data-dashboard-title data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="text-[14pt] font-bold leading-none tracking-tight">
+      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
+        <div className="cmpri-header-shelf">
+          <div className="cmpri-header-identity">
+            <p data-dashboard-title data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
               <span className="text-amber-300">CMPRI</span>{" "}
               <span className="text-amber-300">{frontDeskLayout ? "Front Desk" : isHousekeepingDashboard ? "Housekeeping" : "Engineering"}</span>
-            </p>
-            <div data-dashboard-account className="mt-2 text-left leading-tight">
-              <div className="flex min-w-0 items-center gap-2">
-                <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
-                {(canReviewTickets || hasCapability(session, "receive_pool_closed_notifications") || inbox.length > 0) && (
-                  <DashboardNotificationBell
+                               <DashboardNotificationBell
                     count={notificationCount}
                     label={bellLabel}
                     aria-label={bellLabel}
                     title={canReviewTickets
-                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${awaitingApproval.length} awaiting approval`
+                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${approvalTotal} awaiting approval`
                       : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
                     onClick={openApprovals}
-                  />
-                )}
+                  /></p>
+            <div data-dashboard-account className="mt-2 text-left leading-tight">
+              <div className="flex min-w-0 items-center gap-2">
+                <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
+
               </div>
               <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
-            {createWorkOrderLauncher && !engineerDesktopMenus && !chiefEngineerMobileLayout && !frontDeskLayout && (
-              <DashboardLauncherButton
-                launcher={createWorkOrderLauncher}
-                open={openKeys.has(createWorkOrderLauncher.key)}
-                onLaunch={launch}
-                className="ml-auto min-h-10 shrink-0 rounded-lg border border-amber-400/60 bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 shadow-sm lg:hidden"
-              />
-            )}
           </div>
-          {createWorkOrderLauncher && !engineerDesktopMenus && chiefEngineerMobileLayout && (
-            <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch}
-              className="ml-auto min-h-8 shrink-0 self-start rounded-lg border border-amber-400/60 bg-amber-500 px-2 py-1 text-xs font-bold text-slate-950 shadow-sm lg:hidden" />
-          )}
+          <div className="cmpri-header-utilities" data-front-desk={frontDeskLayout}><PoolStatus controlOnly onOpen={openPoolStatus}/>
+        {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-header-create" />}
+          </div>
         </div>
 
-        <nav aria-label="Open dashboard windows" className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-0.5 lg:w-auto">
-          {engineerDesktopMenus || chiefEngineerMobileLayout ? (
-            <MobileDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} />
-          ) : (
-          <div className="flex min-w-0 flex-wrap items-center gap-1 lg:hidden">
-            {mobileLaunchers.map((launcher) => (
-              <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
-            ))}
-          </div>
-          )}
-          {engineerDesktopMenus ? <MobileDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} desktop /> : <div className="hidden min-w-0 flex-wrap items-center gap-0.5 lg:flex">
-          {visibleLauncherGroups.map((group) => (
-            <div key={group.label} className="relative">
-              <div
-                role="group"
-                aria-label={group.label}
-                className="flex min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/75 p-0.5"
-              >
-                <span aria-hidden="true" className="hidden px-0.5 text-[9pt] font-bold uppercase tracking-wide text-slate-400">{group.label}</span>
-                {group.items.map((launcher) => (
-                  <DashboardLauncherButton key={`${launcher.key}:${launcher.label}`} launcher={launcher} open={openKeys.has(launcher.key)} onLaunch={launch} />
-                ))}
-              </div>
-            </div>
-          ))}
-          </div>}
+        <nav aria-label="Open dashboard windows" className="w-full min-w-0">
+          <ApprovedDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
-        {<PoolStatus controlOnly/>}
+
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
-        {frontDeskLayout && createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-front-desk-create ml-auto mr-2 shrink-0 rounded border border-amber-300 bg-amber-400 px-3.5 py-2 text-sm font-bold text-slate-950" />}
+
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
+        <ThanksgivingBackground />
         {windows.length === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
         )}
@@ -856,6 +807,7 @@ export default function EngineeringDashboardPage() {
           const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
           return (
             <DesktopWindow
+              guest={orders.find(order => entry.key === `/work-orders/${order.id}`)}
               key={entry.key}
               windowKey={entry.key}
               title={entry.title}
@@ -880,7 +832,7 @@ export default function EngineeringDashboardPage() {
                   onReturnToDesktop={() => closeWindow(entry.key)}
                 />
               )}
-              {entry.kind === "pool-status" && <PoolStatus engineer={engineerDesktopMenus===true}/>}
+              {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
               {entry.kind === "list" && (
                 <WorkOrderListWindow
                   frontDeskLayout={frontDeskLayout}
@@ -895,6 +847,7 @@ export default function EngineeringDashboardPage() {
                 />
               )}
               {entry.kind === "approvals" && (
+                <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1">
                 <WorkOrderApprovalsWindow
                   user={session.user}
                   notifications={inbox}
@@ -907,7 +860,13 @@ export default function EngineeringDashboardPage() {
                   onOpenNotification={openNotification}
                   onClear={(id) => void clearNotifications([id])}
                   onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
-                />
+                /></div>
+                {canReviewTickets && <nav aria-label="Approval pages" className="flex justify-between gap-2 p-2 text-sm">
+                  <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Previous</button>
+                  <span>Page {approvalPage + 1} · {approvalTotal} awaiting approval</span>
+                  <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Next</button>
+                </nav>}
+                </div>
               )}
             </DesktopWindow>
           );

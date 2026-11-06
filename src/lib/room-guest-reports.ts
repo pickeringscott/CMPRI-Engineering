@@ -1,3 +1,4 @@
+import {loyaltyTier} from "./loyalty-tier";
 import { pmsTable, normalizePrintedDate, normalizePrintedTime, hotelDateAt, checkoutDeadlinePassed } from "./room-operations-reports";
 
 /** JSONB may reorder object keys. Identity must survive a database round trip. */
@@ -73,16 +74,29 @@ export function roomsFromGuestReports(reports:Partial<Record<GuestReportKind,Gue
   for(const arrival of reports.arrivals?.rows||[]){
     const room=rows.get(field(arrival,"ROOM NUMBER")),name=field(arrival,"GUEST NAME");
     if(!room||!name)throw Error("Arrivals contain an unknown room or missing guest name.");
-    if(guestIdentity(room.guest_name)===guestIdentity(name))continue;
+    if(guestIdentity(room.guest_name)===guestIdentity(name)){
+      const tier=loyaltyTier(field(arrival,"LOYALTY TIER"));
+      const stayStart=dateField(arrival,"ARRIVAL","ARRIVAL DATE");
+      if(tier&&(!stayStart||stayStart===room.guest_arrival_date))room.loyalty_tier=tier;
+      continue;
+    }
     if(room.incoming_name && guestIdentity(String(room.incoming_name))===guestIdentity(name))continue;
     if(room.incoming_name)throw Error(`Room ${room.room}: multiple incoming reservations require correction.`);
     const date=dateField(arrival,"ARRIVAL","ARRIVAL DATE")||reports.arrivals!.date;
-    Object.assign(room,{incoming_name:guestDisplayName(name),incoming_company:field(arrival,"GROUP NAME","GROUP","COMPANY","COMPANY NAME"),reserved:true,incoming_reserved:true,arrival_date:date,arrival_time:normalizePrintedTime(field(arrival,"ARRIVAL TIME","TIME"))||"16:00:00"});
+    Object.assign(room,{incoming_name:guestDisplayName(name),incoming_loyalty_tier:loyaltyTier(field(arrival,"LOYALTY TIER")),incoming_company:field(arrival,"GROUP NAME","GROUP","COMPANY","COMPANY NAME"),reserved:true,incoming_reserved:true,arrival_date:date,arrival_time:normalizePrintedTime(field(arrival,"ARRIVAL TIME","TIME"))||"15:00:00"});
   }
   for(const row of rows.values()){
     const key=guestIdentity(row.guest_name);if(!key)continue;
+    const sameStay=previous.filter(r=>guestIdentity(r.guest_name)===key && r.guest_arrival_date===row.guest_arrival_date);
+    const arrivingStay=previous.filter(r=>guestIdentity(String(r.incoming_name||""))===key && r.arrival_date===row.guest_arrival_date);
+    if(!row.loyalty_tier && sameStay.length===1)row.loyalty_tier=loyaltyTier(sameStay[0].loyalty_tier);
+    if(!row.loyalty_tier && arrivingStay.length===1)row.loyalty_tier=loyaltyTier(arrivingStay[0].incoming_loyalty_tier);
     const old=previous.filter(r=>guestIdentity(r.guest_name)===key),current=[...rows.values()].filter(r=>guestIdentity(r.guest_name)===key);
     if(old.length===1&&current.length===1&&old[0].room!==row.room)Object.assign(row,{move_from:old[0].room,move_to:row.room});
+  }
+  for(const row of rows.values())if(row.incoming_name&&!row.incoming_loyalty_tier){
+    const old=previous.filter(r=>guestIdentity(String(r.incoming_name||""))===guestIdentity(String(row.incoming_name))&&r.arrival_date===row.arrival_date);
+    if(old.length===1)row.incoming_loyalty_tier=loyaltyTier(old[0].incoming_loyalty_tier);
   }
   return [...rows.values()];
 }
@@ -92,14 +106,14 @@ export function projectGuestRoom<T extends GuestRoom>(source:T,now:Date,timeZone
   const row={...source},today=hotelDateAt(now,timeZone);
   const checkedOut=!!row.checkout_date&&checkoutDeadlinePassed(row.checkout_date,row.checkout_time||"11:00:00",now,timeZone);
   if(checkedOut){
-    Object.assign(row,{guest_name:"",company:"",group_name:"",pets:0,vip:false,checkout_date:null,checkout_time:null,guest_arrival_date:null,stay_nights:0,room_status:"Vacant Dirty"});
+    Object.assign(row,{guest_name:"",loyalty_tier:null,company:"",group_name:"",pets:0,vip:false,checkout_date:null,checkout_time:null,guest_arrival_date:null,stay_nights:0,room_status:"Vacant Dirty"});
     const oldDay=source.checkout_date!<today;
     const early=(normalizePrintedTime(source.checkout_time)||"11:00:00")<="15:00:00";
     if(oldDay||(early&&checkoutDeadlinePassed(today,"15:00:00",now,timeZone)))row.room_status="Vacant Ready";
   }
   if(/vacant dirty/i.test(row.room_status)&&checkoutDeadlinePassed(today,"16:00:00",now,timeZone))row.room_status="Vacant Ready";
-  if(row.incoming_name && typeof row.arrival_date==="string" && row.arrival_date<=today && !row.guest_name && checkoutDeadlinePassed(row.arrival_date,String(row.arrival_time||"16:00:00"),now,timeZone)){
-    Object.assign(row,{guest_name:row.incoming_name,company:row.incoming_company||"",group_name:row.incoming_company||"",incoming_name:"",incoming_company:"",incoming_reserved:false,reserved:false,room_status:"Occupied",guest_arrival_date:row.arrival_date});
+  if(row.incoming_name && typeof row.arrival_date==="string" && row.arrival_date<=today && !row.guest_name && checkoutDeadlinePassed(row.arrival_date,String(row.arrival_time||"15:00:00"),now,timeZone)){
+    Object.assign(row,{guest_name:row.incoming_name,loyalty_tier:loyaltyTier(row.incoming_loyalty_tier),incoming_loyalty_tier:null,company:row.incoming_company||"",group_name:row.incoming_company||"",incoming_name:"",incoming_company:"",incoming_reserved:false,reserved:false,room_status:"Occupied",guest_arrival_date:row.arrival_date});
   }
   return row;
 }
@@ -108,7 +122,7 @@ export function projectGuestRoom<T extends GuestRoom>(source:T,now:Date,timeZone
 export function nextGuestDisplayChange(rows:GuestRoom[],now:Date,timeZone:string):number{
   const today=hotelDateAt(now,timeZone),tomorrow=new Date(Date.parse(today+"T12:00:00Z")+86400000).toISOString().slice(0,10);
   const boundaries:[[string,string],...[string,string][]]=[[tomorrow,"00:00:00"],[today,"15:00:00"],[today,"16:00:00"]];
-  for(const row of rows){if(row.checkout_date)boundaries.push([row.checkout_date,row.checkout_time||"11:00:00"]);if(typeof row.arrival_date==="string")boundaries.push([row.arrival_date,String(row.arrival_time||"16:00:00")]);}
+  for(const row of rows){if(row.checkout_date)boundaries.push([row.checkout_date,row.checkout_time||"11:00:00"]);if(typeof row.arrival_date==="string")boundaries.push([row.arrival_date,String(row.arrival_time||"15:00:00")]);}
   let next=now.getTime()+86400000;
   for(const [date,time] of boundaries){
     if(checkoutDeadlinePassed(date,time,now,timeZone))continue;

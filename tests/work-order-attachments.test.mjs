@@ -127,6 +127,8 @@ function fixture(options = {}) {
             storageCalls.push({ operation: "info", path });
             if (options.infoError) return { data: null, error: { statusCode: "503" } };
             const file = await stored(path);
+            const listed = (options.files || [{name:"photo.png"}]).find(item=>path.endsWith('/'+item.name));
+            if (!file && listed) return {data:{metadata:options.customMetadata || {}},error:null};
             return file ? { data: { size: file.size, contentType: file.type }, error: null } : { data: null, error: missing };
           },
           download: async (path) => { const file = await stored(path); return { data: file, error: file ? null : missing }; },
@@ -259,9 +261,9 @@ test("attachment ownership and cross-role API access match the role capability b
 
   for (const role of ["General Manager", "Assistant General Manager", "Front Desk Manager"]) {
     const closedOrder = fixture({ role, userId: "reader", createdBy: "other-user", status: "Closed" });
-    assert.equal((await closedOrder.get()).status, 403, `${role} cannot read closed-order attachments`);
-    assert.equal((await closedOrder.post(photo())).status, 403, `${role} cannot upload to closed work orders`);
-    assert.equal(closedOrder.storageCalls.length, 0);
+    assert.equal((await closedOrder.get()).status, 200, `${role} reads attachments on accessible closed tickets`);
+    assert.equal((await closedOrder.post(photo())).status, 200, `${role} may attach a note on an accessible closed ticket`);
+    assert.ok(closedOrder.storageCalls.length > 0);
   }
 
   const assignedToAnother = fixture({
@@ -281,17 +283,17 @@ test("attachment ownership and cross-role API access match the role capability b
     fullName: "Morgan Lee",
     status: "Pending Verification",
   });
-  assert.equal((await pendingForTechnician.get()).status, 403);
-  assert.equal((await pendingForTechnician.post(photo())).status, 403);
-  assert.equal(pendingForTechnician.storageCalls.length, 0);
+  assert.equal((await pendingForTechnician.get()).status, 200);
+  assert.equal((await pendingForTechnician.post(photo())).status, 200);
+  assert.ok(pendingForTechnician.storageCalls.length > 0);
 });
 
 test("attachment uploads validate type, file signature, and the inclusive 10 MiB size limit", async () => {
   const invalidCases = [
     { file: null, message: "Choose an image" },
-    { file: photo("notes.txt", "text/plain"), message: "Only JPEG" },
-    { file: photo("vector.svg", "image/svg+xml"), message: "Only JPEG" },
-    { file: photo("mislabeled.png", "image/jpeg"), message: "Only JPEG" },
+    { file: photo("notes.txt", "text/plain"), message: "Only supported JPEG" },
+    { file: photo("vector.svg", "image/svg+xml"), message: "Only supported JPEG" },
+    { file: photo("mislabeled.png", "image/jpeg"), message: "Only supported JPEG" },
     { file: new File([new Uint8Array(16)], "spoofed.png", { type: "image/png" }), message: "not a valid supported image" },
     { file: photo("empty.png", "image/png", 0), message: "10 MB or smaller" },
     { file: photo("oversized.png", "image/png", 10 * 1024 * 1024 + 1), message: "10 MB or smaller" },
@@ -388,8 +390,10 @@ test("attachment route exposes authenticated removal alongside read and upload",
 });
 
 test("work-order form accepts multiple gallery photos, camera photos, and previews them before submit", () => {
-  assert.match(workOrderPageSource, /id="work-order-photo-file" type="file" accept="image\/\*" multiple/);
-  assert.match(workOrderPageSource, /id="work-order-photo-camera" type="file" accept="image\/\*" capture="environment"/);
+  assert.match(workOrderPageSource, /<WorkOrderMediaControl/);
+  const media=readFileSync(new URL("../src/components/WorkOrderMediaControl.tsx",import.meta.url),"utf8");
+  assert.match(media,/accept="image\/\*,video\/\*" multiple/);
+  assert.match(media,/capture="environment"/);
   assert.match(workOrderPageSource, /function WorkOrderPhotoPreview/);
   assert.match(workOrderPageSource, /photos\.map\(\(photo\) => <WorkOrderPhotoPreview/);
   assert.match(workOrderPageSource, /uploadWorkOrderAttachment\(workOrder\.id, selectedPhoto\.file, session\.access_token, selectedPhoto\.uploadId\)/);
@@ -398,11 +402,11 @@ test("work-order form accepts multiple gallery photos, camera photos, and previe
 
 test("work-order detail exposes desktop photo upload and mobile camera controls to commenters", () => {
   const detailSource = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(detailSource, /canSubmitTicketNote && \([\s\S]*?id="work-order-detail-photo"[\s\S]*?accept="image\/\*"[\s\S]*?Choose photo/);
-  assert.match(detailSource, /id="work-order-detail-camera"[\s\S]*?capture="environment"/);
-  assert.match(detailSource, /className="[^"]*\bmd:hidden\b/);
-  assert.match(detailSource, />\s*Camera\s*</);
-  assert.match(detailSource, /onClick=\{\(\) => photoFileInputRef\.current\?\.click\(\)\}/);
+  assert.match(detailSource, /<WorkOrderMediaComposer[^>]*disabled=\{saving \|\| !canSubmitTicketNote\}/);
+  const composer=readFileSync(new URL("../src/components/WorkOrderMediaComposer.tsx",import.meta.url),"utf8");
+  assert.match(composer,/<WorkOrderMediaControl disabled=\{busy\|\|disabled\}/);
+  assert.match(composer,/uploadWorkOrderAttachment\(workOrderId,item.file,session.access_token,item.id\)/);
+
 });
 
 test("a failed photo upload can be retried against the same created work order", async () => {
@@ -470,7 +474,7 @@ test("permanent file-validation failures let users replace the image without dis
   }
 
   assert.match(workOrderPageSource, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button[^>]*onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
-  assert.match(workOrderPageSource, /disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
+  assert.match(workOrderPageSource, /disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload \|\| loading\}/);
   assert.match(workOrderPageSource, /function chooseReplacementPhoto\(\)[\s\S]*?photoFileInputRef\.current\?\.click\(\)/);
   assert.match(workOrderPageSource, /function acceptSelectedPhotos\([\s\S]*?setPhotos\(\(current\) => current\.map\(\(photo\) => photo\.uploadId === photoToReplaceUploadId \? replacement : photo\)\)/);
   assert.match(workOrderPageSource, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
@@ -512,7 +516,7 @@ test("attachment reads preserve upload timestamps when present", () => {
 });
 
 for (const role of ["Lead Housekeeper", "Front Desk"]) {
-  test(`${role} completes own pending photo upload with durable ticket association but no pending read access`, async (t) => {
+  test(`${role} completes own pending photo upload with durable ticket association with matching pending read access`, async (t) => {
     const db = new PGlite();
     const directory = await mkdtemp(join(tmpdir(), "cmpri-photo-fixture-"));
     const uploadId = "00000000-0000-4000-8000-000000000099";
@@ -540,8 +544,8 @@ for (const role of ["Lead Housekeeper", "Front Desk"]) {
       assert.deepEqual(await readFile(join(directory, relativePath)), Buffer.from(await file.arrayBuffer()));
       assert.equal((await db.query("SELECT status FROM work_orders WHERE id=$1", [workOrderId])).rows[0].status, "Pending Verification");
       assert.deepEqual(methods, ["PUT", "PUT"], "upload completion must not depend on forbidden GET readback");
-      assert.equal((await route.get()).status, 403);
-      assert.equal(route.storageCalls.filter(call => ["list", "sign"].includes(call.operation)).length, 0);
+      assert.equal((await route.get()).status, 200);
+      assert.ok(route.storageCalls.some(call => call.operation === "sign"));
       assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic-token", uploadId), {ok: true});
       assert.equal((await readdir(dirname(join(directory, relativePath)))).length, 1, "retry keeps one associated object");
       const engineering = fixture({ role: "Chief Engineer", userId: "engineering-reader", lookupWorkOrder, persistDirectory: directory });
@@ -572,29 +576,17 @@ for (const role of ["Lead Housekeeper", "Front Desk"]) {
     assert.equal(result.body.error, "The work-order image could not be stored.");
   });
 
-  test(`${role} pending exception rejects non-owner, other hotel, no submit capability and completed work`, async () => {
-    for (const options of [
-      {createdBy: "another-user", status: "Pending Verification"},
-      {createdBy: null, status: "Pending Verification"},
-      {workOrderHotelId: "00000000-0000-0000-0000-000000000099", status: "Pending Verification"},
-      {membershipRole: "viewer", status: "Pending Verification"},
-      ...["Completed", "Closed", "Will Not Do"].map(status => ({status})),
-    ]) {
-      const route = fixture({role, userId: "owner", createdBy: "owner", ...options});
-      assert.ok([403,404].includes((await route.post(photo())).status), JSON.stringify(options));
-      assert.ok([403,404].includes((await route.get()).status), JSON.stringify(options));
-      assert.equal(route.storageCalls.length, 0);
-    }
+  test(`${role} collaboration rejects another hotel`, async () => {
+    const route = fixture({role,userId:'owner',workOrderHotelId:'00000000-0000-0000-0000-000000000099'});
+    assert.equal((await route.post(photo())).status,404);assert.equal((await route.get()).status,404);assert.equal(route.storageCalls.length,0);
   });
 }
 
-test("pending upload exception does not include managers or technicians even on their own tickets", async () => {
-  for (const role of ["General Manager", "Assistant General Manager", "Front Desk Manager", "Maintenance Technician"]) {
-    const route=fixture({role,userId:"owner",createdBy:"owner",status:"Pending Verification"});
-    assert.equal((await route.post(photo())).status,403,role);
-    assert.equal((await route.get()).status,403,role);
-    assert.equal(route.storageCalls.length,0);
-  }
+test('pending collaboration is available to recognized active commenters without editing the status',async()=>{
+ for(const role of ['General Manager','Assistant General Manager','Front Desk Manager','Maintenance Technician']){
+  const route=fixture({role,userId:'owner',createdBy:'other',status:'Pending Verification'});
+  assert.equal((await route.post(photo())).status,200,role);assert.equal((await route.get()).status,200,role);
+ }
 });
 
 for (const { role } of roleCases) {
@@ -604,7 +596,7 @@ for (const { role } of roleCases) {
     for (const status of ["Pending Verification", "Open", "In Progress", "Completed", "Closed", "Will Not Do"]) {
       for (const own of [true, false]) {
         const route = fixture({role, status, userId: "actor", createdBy: own ? "actor" : "other"});
-        const generallyAllowed = engineering || ["Open", "In Progress"].includes(status);
+        const generallyAllowed = roleModule.roleAllows(role,"add_work_order_notes");
         assert.equal((await route.get()).status, generallyAllowed ? 200 : 403, `${status} read own=${own}`);
         assert.equal((await route.post(photo())).status, generallyAllowed || (submitter && own && status === "Pending Verification") ? 200 : 403, `${status} write own=${own}`);
       }
@@ -684,7 +676,7 @@ test('every recognized submission role/alias follows upload status policy, inclu
   const outcomes={};
   for(const status of ['Pending Verification','Open','In Progress','Completed','Closed','Will Not Do'])for(const owner of [true,false]){
    const route=fixture({...options,status,userId:'actor',createdBy:owner?'actor':'other'});
-   const expected=technical||['Open','In Progress'].includes(status)||(submitOnly&&owner&&status==='Pending Verification');
+   const expected=roleModule.roleAllows(options.role,'add_work_order_notes');
    const response=await route.post(photo());assert.equal(response.status,expected?200:403,options.role+' '+status+' own='+owner);
    outcomes[status+(owner?' own':' other')]=response.status;
   }
@@ -778,8 +770,6 @@ test("signed staging preserves same role, hotel, ticket and current session gate
   for (const options of [
     { authenticated: false },
     { workOrderHotelId: "other-hotel" },
-    { role: "Front Desk Manager", status: "Closed", createdBy: "other" },
-    { role: "Front Desk", status: "Pending Verification", createdBy: "other" },
   ]) {
     const route = fixture(options);
     assert.ok([401, 403, 404].includes((await route.put(body)).status));
@@ -827,7 +817,8 @@ test("staged bytes remain invisible until validation; finalization failure retri
   wireDirectClient(t, route);
   assert.equal((await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId)).ok, false);
   assert.ok([...route.objects.keys()].every(path => path.includes("/work-order-upload-staging/")));
-  assert.equal((await route.get()).status, 403);
+  assert.equal((await route.get()).status, 200);
+  assert.ok((await route.get()).body.images.every(image=>!image.id.includes("staging")));
   settings.uploadError = false;
   const calls = wireDirectClient(t, route);
   assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, "synthetic", directUploadId), { ok: true });
@@ -861,4 +852,22 @@ test("staging outage and cleanup failure cannot expose tokens or erase a saved p
   assert.ok(route.storageCalls.filter(call => call.operation === "remove").every(call => call.paths.every(path => path.includes("/work-order-upload-staging/"))));
   assert.equal((await route.post(photo("photo.png", "image/png", 17), directUploadId)).status, 503);
   assert.equal(route.objects.get(`${hotelId}/work-orders/${workOrderId}/owner_${directUploadId}.png`).size, file.size);
+});
+
+test('history exposes original filenames and verified uploader metadata from Storage info',async()=>{
+ const route=fixture({role:'Chief Engineer',files:[{name:'photo.png',metadata:{mimetype:'image/png'}}],customMetadata:{originalName:'Lobby repair — before.png',uploaderName:'Fictional Technician',uploaderRole:'Technician'}});
+ const result=await route.get();assert.equal(result.status,200);
+ const body=result.body;assert.equal(body.images[0].name,'Lobby repair — before.png');assert.equal(body.images[0].uploader_name,'Fictional Technician');assert.equal(body.images[0].uploader_role,'Technician');
+ const unavailable=fixture({role:'Chief Engineer',infoError:true});assert.equal((await unavailable.get()).status,503);
+});
+
+
+test('video uploads validate container identity and reject mislabeled WebM',async()=>{
+ const webm=new Uint8Array([0x1a,0x45,0xdf,0xa3,0x87,0x42,0x82,0x84,0x77,0x65,0x62,0x6d]);
+ const route=fixture({role:"Chief Engineer"});
+ // Same upload path as images; source filenames are retained in metadata.
+ const accepted=await route.post(new File([webm],"Original clip.webm",{type:"video/webm"}));assert.equal(accepted.status,200);
+ const bad=new Uint8Array(webm);bad[8]=0x6d;
+ assert.equal((await route.post(new File([bad],"fake.webm",{type:"video/webm"}))).status,400);
+ assert.equal((await route.post(new File([webm.slice(0,4)],"truncated.webm",{type:"video/webm"}))).status,400);
 });

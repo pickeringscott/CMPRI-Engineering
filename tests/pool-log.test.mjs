@@ -234,7 +234,7 @@ test('pool route preserves existing phone recipients while the database owns in-
  assert.equal(result.status,200);
  assert.equal(result.body.notifications_recorded,true);
  assert.deepEqual(f.pushes.sort(),[
-  'assistant-manager','chief-engineer','front-desk-manager','general-manager','technician',
+  'assistant-manager','chief-engineer','front-desk','front-desk-manager','general-manager','housekeeping','system-admin','technician',
  ]);
  assert.equal(f.notifications.length,0);
 });
@@ -321,13 +321,21 @@ test('pool log read identifies System Administrator saved-log edit access',async
  assert.equal((await admin.handlers.GET(admin.request)).body.can_edit_saved,true);
  assert.equal((await operator.handlers.GET(operator.request)).body.can_edit_saved,false);
 });
-test('General Managers can operate the pool log without saved-record correction authority',async()=>{
- const manager=fixture({role:'General Manager'});
+for(const role of ['General Manager','manager','Assistant General Manager','assistant_manager'])test(role+' can create and correct saved pool logs with revision protection',async()=>{
+ const manager=fixture({role});
  assert.equal((await manager.handlers.GET(manager.request)).status,200);
  assert.equal((await manager.handlers.GET(manager.request)).body.can_edit,true);
- assert.equal((await manager.handlers.GET(manager.request)).body.can_edit_saved,false);
+ assert.equal((await manager.handlers.GET(manager.request)).body.can_edit_saved,true);
  assert.equal((await manager.handlers.POST(manager.request)).status,200);
  assert.equal(manager.writes.length,1);
+ const existing={...poolLogInput(input),id:'saved',revision:2,completed_by_initials:'JD'};
+ const correction=fixture({role,existing,body:{edit_mode:'replace',expected_revision:2,ph_am:7.6}});
+ assert.equal((await correction.handlers.POST(correction.request)).status,200);
+ assert.equal(correction.writes[0].ph_am,7.6);
+ const stale=fixture({role,existing,body:{edit_mode:'replace',expected_revision:1,ph_am:7.6}});
+ assert.equal((await stale.handlers.POST(stale.request)).status,409);
+ assert.equal(stale.writes.length,0);
+
 });
 for(const config of [{saveError:true},{concurrent:true,existing:{id:'saved',revision:2},body:{expected_revision:2}}])test('conflicting pool saves report a conflict',async()=>{
  const f=fixture(config);assert.equal((await f.handlers.POST(f.request)).status,409);

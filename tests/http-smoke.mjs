@@ -13,8 +13,9 @@ const uiPaths = [
   '/engineering/room-ranker', '/management/equipment', '/management/rooms', '/management/users',
   '/setup-guide', '/technician', '/work-orders', '/work-orders/test-id',
 ];
+const retiredPaths = new Set(['/api/room-ranker', '/api/integrations/room-ranker/sync']);
 const apiPaths = [
-  '/api/session', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
+  '/api/session', '/api/profile/header-layout', '/api/notifications/dispatch', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
   '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
   '/api/maintenance-reference', '/api/pool-log', '/api/room-operations', '/api/room-operations/cleanup', '/api/room-ranker',
@@ -24,14 +25,15 @@ const apiPaths = [
 const mutationCases = [
   ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/assets', 'POST'],
   ['/api/assets', 'PATCH'], ['/api/users', 'POST'], ['/api/users', 'PATCH'],
+  ['/api/profile/header-layout', 'PUT'], ['/api/notifications/dispatch', 'POST'],
   ['/api/work-orders', 'POST'], ['/api/room-ranker', 'PATCH'],
   ['/api/corporate-pm', 'PATCH'], ['/api/work-orders/test-id', 'PATCH'], ['/api/room-operations', 'POST'],
   ['/api/work-orders/drafts', 'POST'], ['/api/work-orders/import', 'POST'],
 ];
 const cases = [
   ...uiPaths.map(path => ({ path, method: 'GET', expected: [200] })),
-  ...apiPaths.map(path => ({ path, method: 'GET', expected: path === '/api/session' ? anonymousDenied : apiReachable })),
-  ...mutationCases.map(([path, method]) => ({ path, method, expected: anonymousDenied })),
+  ...apiPaths.map(path => ({ path, method: 'GET', expected: retiredPaths.has(path) ? [410] : path === '/api/session' ? anonymousDenied : apiReachable })),
+  ...mutationCases.map(([path, method]) => ({ path, method, expected: retiredPaths.has(path) ? [410] : anonymousDenied })),
 ];
 
 const equipmentCases = [

@@ -8,11 +8,10 @@ import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
-import { processRoomRankerSyncForWorkOrder } from "@/lib/server/room-ranker";
 import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { isEngineeringWorkOrderActor, recordEngineeringWorkOrderView } from "@/lib/server/work-order-notification-resolution";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
-import { currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
+import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 import { isUuid } from "@/lib/uuid";
 import { canCorrectReport as reportCorrectionAllowed, REPORT_CORRECTION_FIELDS, TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields } from "@/lib/work-order-edit-policy";
 
@@ -137,11 +136,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       ...workOrder,
       can_correct_report: reportCorrectionAllowed(auth.principal.profile, workOrder.status, canReadWorkOrderForMutation(workOrderReader(auth.principal), workOrder)),
       room_status: currentRoomStatus(roomStatuses.statuses, workOrder.room),
+      ...currentRoomOperation(roomStatuses.operations!, workOrder.room),
       creator_role: creatorRole,
       creator_display_role: creatorDisplayRole,
       technician_view_entries: technicianViewEntries || [],
     },
     mentionTickets,
+    next_guest_transition_at: roomStatuses.nextTransitionAt,
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -370,7 +371,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: resolutionError instanceof Error ? resolutionError.message : "Technician notifications could not be resolved." }, { status: 503 });
     }
   }
-  await processRoomRankerSyncForWorkOrder(auth.admin, id).catch(() => undefined);
   return NextResponse.json({ workOrder: { ...data, can_correct_report: reportCorrectionAllowed(auth.principal.profile, data.status, canReadWorkOrder(workOrderReader(auth.principal), data)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, data.room) } : {}) } });
 }
 

@@ -49,7 +49,7 @@ async function fixture(){
   '@/lib/server/work-order-mentions':{persistMentionedWorkOrder:async()=>null},
   '@/lib/server/room-ranker':{processRoomRankerSyncForWorkOrder:async()=>{}},
   '@/lib/server/work-order-notification-resolution':{isEngineeringWorkOrderActor:()=>false},
-  '@/lib/server/room-availability':{loadCurrentRoomStatuses:async()=>({statuses:new Map()}),currentRoomStatus:()=>null},
+  '@/lib/server/room-availability':{loadCurrentRoomStatuses:async()=>({statuses:new Map()}),currentRoomOperation:()=>null,currentRoomStatus:()=>null},
   '@/lib/work-order-read-policy':ticketReadDependency('@/lib/work-order-read-policy'),
   '@/lib/server/work-order-reader':{workOrderReader:()=>({canReadTechnical:true})},
   '@/lib/account-display':{},'@/lib/cmpri-location-groups':{},

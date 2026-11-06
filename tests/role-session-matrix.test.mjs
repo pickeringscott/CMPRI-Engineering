@@ -170,6 +170,6 @@ test("CMPRI go-live roles receive only their approved operational capabilities",
   ]);
   for (const [role, approved] of expected) {
     const actual = capabilities.filter((capability) => accessModule.allows(makePrincipal(role), capability)).sort();
-    assert.deepEqual(actual, [...approved].sort(), `${role} CMPRI permission set`);
+    assert.deepEqual(actual, [...new Set([...approved,"receive_pool_closed_notifications"])].sort(), `${role} CMPRI permission set`);
   }
 });

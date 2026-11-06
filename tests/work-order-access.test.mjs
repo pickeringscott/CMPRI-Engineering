@@ -37,7 +37,7 @@ test('work-order reviewers can stage notes only while a request is pending revie
   assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,status:'Pending Verification'}),false);
   assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: chief \? "Chief Engineer" : cmpriSession\?\.user\.role,[\s\S]*canEdit: canEditTicket,[\s\S]*canReview: canReviewCurrentTicket,[\s\S]*status: order\.status/);
   assert.match(detailPage,/disabled=\{saving \|\| !canSubmitTicketNote\}/);
-  assert.match(detailPage,/!noteDraft\.trim\(\) \|\| !canSubmitTicketNote/);
+  assert.match(detailPage,/<WorkOrderMediaComposer[^>]*hasNote=\{!!noteDraft\.trim\(\)\}/);
 });
 
 test('technicians can stage notes only when their work-order edit policy permits notes',()=>{
@@ -49,12 +49,12 @@ test('technicians can stage notes only when their work-order edit policy permits
   assert.deepEqual(Array.from(workOrderEditableFields({...common,canAddNotes:true,status:'Open',unassigned:true,canClaimUnassigned:false})),['notes']);
 });
 
-test('work-order note-only roles can stage notes only on open work orders',()=>{
+test('note-only roles can comment on every accessible ticket status',()=>{
   for(const status of ['Open','In Progress']){
     assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,canAddNotes:true,status}),true,status);
   }
   for(const status of ['Pending Verification','Completed','Closed','Will Not Do']){
-    assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,canAddNotes:true,status}),false,status);
+    assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,canAddNotes:true,status}),true,status);
   }
 });
 
@@ -172,7 +172,7 @@ function fixture(config={}){
       if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>{}};
       if(name==='@/lib/server/room-availability')return {
         loadCurrentRoomStatuses:async()=>({date:'2026-10-01',statuses:new Map(),error:null}),
-        currentRoomStatus:()=>null,
+        currentRoomOperation:()=>null,currentRoomStatus:()=>null,
       };
       throw new Error(name);
     },
@@ -491,13 +491,14 @@ test('technical mutations and attachments preserve assignment guards while detai
   for(const routePath of routePaths){
     const source=readFileSync(new URL(routePath,import.meta.url),'utf8');
     if (routePath.includes("activity")) assert.match(source,/canReadWorkOrder\(/);
+    else if (routePath.includes("attachments")) assert.match(source,/allows\(auth.principal, 'add_work_order_notes'\)/);
     else assert.match(source,/canAccessWorkOrderByAssignment\(/,`${routePath} must enforce technician assignment`);
   }
 });
 
 test('work-order detail does not request restricted maintenance reference for limited readers',()=>{
   const page=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  assert.match(page,/loadTicket\(showLoading = true, canLoadMaintenanceReference = true\)/);
+  assert.match(page,/loadTicket\(showLoading = true, canLoadMaintenanceReference = true, background = false\)/);
   assert.match(page,/if \(canLoadMaintenanceReference\) void loadMaintenanceReference\(\)/);
   assert.match(page,/canLoadMaintenanceReference = session\.capabilities\.includes\("view_dashboard"\)/);
   assert.match(page,/await loadTicket\(!hadPreview, canLoadMaintenanceReference\)/);

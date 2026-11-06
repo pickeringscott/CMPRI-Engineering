@@ -9,7 +9,7 @@ export async function uploadWorkOrderAttachment(
   uploadId: string,
 ): Promise<WorkOrderAttachmentUploadResult> {
   const failed = (message: string, canReplace = false): WorkOrderAttachmentUploadResult => ({ ok: false, message, canReplace });
-  if (photo.size < 1 || photo.size > 10 * 1024 * 1024) return failed("Images must be 10 MB or smaller.", true);
+  if (photo.size < 1 || photo.size > 10 * 1024 * 1024) return failed("Photos and videos must be 10 MB or smaller.", true);
   try {
     const bytes = await photo.arrayBuffer();
     const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");

@@ -805,7 +805,7 @@ test("technician room data is scoped to assigned and unassigned active work", ()
   assert.match(api, /\.in\("status", \["Open", "In Progress"\]\)/);
   assert.match(api, /\.or\("technician_name\.is\.null,technician_name\.eq\."\)/);
   assert.match(api, /\.eq\("technician_name", technicianName\)/);
-  assert.match(dashboard, /data-cmpri-modal-href="\/engineering\/preventive-maintenance"[^>]*>Preventive Maintenance/);
+  assert.match(dashboard, /key:"\/engineering\/preventive-maintenance",label:"Preventive Maintenance"/);
 });
 
 test("room operations do not show move or out-of-order event bubbles", () => {
@@ -823,7 +823,7 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.match(page, /function RoomIdentity/);
   assert.match(page, /isRailwayCnGuestName\(row\.guest_name\)/);
   assert.match(page, /src="\/railway-cn-logo\.png"/);
-  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">\{row\.guest_name\} <BigTenBadge group=\{row\.group_name \|\| row\.company\}\/><\/div>/);
+  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">[\s\S]*?\{row\.guest_name\} <GuestGroupBadge group=\{row\.group_name \|\| row\.company\}\/><\/div>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
@@ -865,7 +865,7 @@ test("checkout emphasis is limited to today, tomorrow and overdue dates", () => 
 test("room cards and summary modal share a soft guest layout and preserve reported OOO status", () => {
   const page = readFileSync(new URL("../src/app/engineering/room-operations/page.tsx", import.meta.url), "utf8");
   const ast = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const names = ["daysUntilCheckout", "displayCheckoutTime", "displayHotelTimestamp", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "BigTenBadge", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
+  const names = ["daysUntilCheckout", "displayCheckoutTime", "displayHotelTimestamp", "checkoutLabel", "checkoutClass", "roomStatusClass", "isOutOfOrder", "RoomIdentity", "CheckoutPill", "MovePill", "RoomDetails"];
   const functions = names.map(name => {
     const node = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
     assert.ok(node, `${name} must be declared`);
@@ -876,7 +876,7 @@ test("room cards and summary modal share a soft guest layout and preserve report
     `${functions.join("\n")}\nexports.RoomDetails = RoomDetails;`,
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
-    exports: components, React, Image: props => React.createElement("img", props),
+    exports: components, React, LoyaltyBadge:()=>null, GuestGroupBadge: () => null, Image: props => React.createElement("img", props),
     isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
@@ -895,12 +895,9 @@ test("room cards and summary modal share a soft guest layout and preserve report
   assert.doesNotMatch(html, /Hidden type|Hidden code|<strong/);
   assert.equal((page.match(/<RoomDetails row=\{row\} today=\{today\} \/>/g) || []).length, 2);
 });
-test("work-order room context reads today's checkout time from the room snapshot", () => {
-  const page = readFileSync(new URL("../src/app/work-orders/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /fetch\("\/api\/room-operations", \{ headers, cache: "no-store" \}\)/);
-  assert.match(page, /item\.room \|\| ""\)\.trim\(\)\.toUpperCase\(\) === room\.toUpperCase\(\)/);
-  assert.match(page, /Today(?:&apos;|')s checkout time/);
-  assert.match(page, /checkoutTime = String\(roomOperation\?\.checkout_time \|\| ""\)/);
+test('work-order guest context uses the ticket-authorized projection rather than granting room-operations access',()=>{
+ const page=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
+ assert.match(page,/context.checkout_time/);assert.match(page,/payload.workOrder/);assert.doesNotMatch(page,/fetch\("\/api\/room-operations"/);
 });
 
 test("room-operations API accepts direct CSV payload and lenient LOS/reserved values", () => {

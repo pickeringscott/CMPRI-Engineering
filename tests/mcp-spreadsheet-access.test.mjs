@@ -41,19 +41,19 @@ function identity(role,email=`${role.toLowerCase().replace(/[^a-z]+/g,'-')}@exam
   return {canWrite:true,readAllWorkOrders:true,readAssignedWorkOrders:false,readOwnWorkOrders:false,principal:{identity:{email},profile:{role,email,secondary_roles:email==='maint.cmpri@hawkeyehotels.com'?['engineer']:[]}}};
 }
 
-test('MCP restricts legacy Ranker reads to engineer assignments while preserving room PM reads',()=>{
+test('MCP removes legacy Ranker reads while preserving room PM reads',()=>{
   const engineerViews=reads.availableMcpReadViews(identity('Chief Engineer'));
   const adminViews=reads.availableMcpReadViews(identity('System Administrator','pickering.scott@gmail.com'));
   const viewerViews=reads.availableMcpReadViews(identity('General Manager'));
   const scottViews=reads.availableMcpReadViews(identity('System Administrator','maint.cmpri@hawkeyehotels.com'));
-  assert.equal(engineerViews.includes('room_ranker'),true);
+  assert.equal(engineerViews.includes('room_ranker'),false);
   assert.equal(engineerViews.includes('corporate_pm'),true);
   assert.equal(adminViews.includes('room_ranker'),false);
   assert.equal(viewerViews.includes('room_ranker'),false);
-  assert.equal(scottViews.includes('room_ranker'),true);
+  assert.equal(scottViews.includes('room_ranker'),false);
 });
 
-test('MCP exposes Room Ranker writes only to Scott and preserves PM management permissions',()=>{
+test('MCP removes legacy Ranker writes and preserves PM management permissions',()=>{
   const restricted=['integrations.room_ranker.sync','room_ranker.update','corporate_pm.update'];
   const engineerActions=writes.availableMcpWriteActions(identity('Chief Engineer')).map(({action})=>action);
   const adminActions=writes.availableMcpWriteActions(identity('System Administrator','pickering.scott@gmail.com')).map(({action})=>action);
@@ -67,7 +67,7 @@ test('MCP exposes Room Ranker writes only to Scott and preserves PM management p
   for(const action of restricted) {
     assert.equal(engineerActions.includes(action),false,action);
     assert.equal(adminActions.includes(action),action==='corporate_pm.update',action);
-    assert.equal(scottActions.includes(action),true,action);
+    assert.equal(scottActions.includes(action),action==='corporate_pm.update',action);
   }
 });
 
@@ -80,7 +80,7 @@ test('MCP grants authorized Ranker reads with shared work-order reads and unchan
   assert.equal(views.includes('corporate_pm'),false);
   const mismatched=identity('System Administrator','maint.cmpri@hawkeyehotels.com');
   mismatched.principal.profile.email='another@example.invalid';
-  assert.equal(reads.availableMcpReadViews(mismatched).includes('room_ranker'),true);
+  assert.equal(reads.availableMcpReadViews(mismatched).includes('room_ranker'),false);
   assert.equal(writes.availableMcpWriteActions(mismatched).some(({action})=>action==='room_ranker.update'),false);
 });
 

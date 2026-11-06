@@ -8,8 +8,8 @@ import { plainTextParts } from "@/lib/plain-text-links";
 export type MentionTicket = { id: string; display_id?: string | null; room?: string | null; issue?: string | null; status?: string | null };
 type Choice = { key: string; label: string; detail: string };
 
-export default function WorkOrderNoteComposer({ value, onChange, mentions, tickets, disabled = false }: {
-  value: string; disabled?: boolean; onChange: (value: string) => void; mentions: readonly WorkOrderMention[]; tickets: readonly MentionTicket[];
+export default function WorkOrderNoteComposer({ value, onChange, mentions, tickets, disabled = false, label = "Work order note" }: {
+  value: string; disabled?: boolean; label?: string; onChange: (value: string) => void; mentions: readonly WorkOrderMention[]; tickets: readonly MentionTicket[];
 }) {
   const input = useRef<HTMLTextAreaElement>(null), mirror = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(value.length);
@@ -74,8 +74,8 @@ export default function WorkOrderNoteComposer({ value, onChange, mentions, ticke
   }
   highlighted.push(value.slice(at));
   return <div className="relative mt-2">
-    <textarea id="technician-note-editor" disabled={disabled} ref={input} aria-label="Work order note" aria-autocomplete="list" aria-controls="work-order-mention-options" aria-haspopup="listbox" aria-activedescendant={suggestions.length ? `work-order-mention-${active}` : undefined}
-      value={value} rows={2} placeholder="Document work or type @ to mention staff, a role, or another ticket…"
+    <textarea id="technician-note-editor" disabled={disabled} ref={input} aria-label={label} aria-autocomplete="list" aria-controls="work-order-mention-options" aria-haspopup="listbox" aria-activedescendant={suggestions.length ? `work-order-mention-${active}` : undefined}
+      value={value} rows={1} placeholder={label + " — add a note…"}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       onChange={event => { onChange(event.target.value); setCaret(event.target.selectionStart); setSelected(0); setDismissed(false); }}
       onSelect={event => { setCaret(event.currentTarget.selectionStart); setDismissed(false); }} onScroll={syncMirror}

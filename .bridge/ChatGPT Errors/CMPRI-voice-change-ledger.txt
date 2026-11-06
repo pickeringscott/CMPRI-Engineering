@@ -576,3 +576,11 @@ H. The exact eight-modal list is not enumerated in the available conversation. N
 I. Guest transition wording evolved from a single replacement badge at checkout to current-plus-reserved badges during overlapping windows. The final overlap instruction must not be lost. A presentation rule is not authorization to change actual occupancy/stay records.
 
 J. The session includes separate timers, laundry, unrelated songs/TV, personal remarks and automation reminders. They are not CMPRI change requests and are not included as product scope.
+
+SUBSEQUENT USER CORRECTIONS AND RELEASE AUTHORIZATION — NOVEMBER 6, 2026
+
+255. FINAL FRONT DESK MOVEMENT. Front Desk may move and rearrange header controls. Supersedes entry 096 and resolves register G. Source: "The front desk can have movement rearrangement."
+
+256. FINAL MODAL SCROLLBAR. Each modal's vertical scrollbar uses its outline color in the muted tone used across CMPRI. Header group horizontal scrollbars retain their muted CMPRI yellow. Source: "the scroll bar be the color of the outline of the modal but in the muted tone used across CMPRI."
+
+257. IMPLEMENTATION AND DEPLOYMENT AUTHORIZATION. Correct the reported production/instruction differences using the supplied instructions and HTML references, including the two corrections above, verify the implementation, and deploy. Source: "fix these errors with the instructions I gave to my DOT" and "you have my explicit permission to deploy". Email push and the Staff Notes tutorial remain deferred.

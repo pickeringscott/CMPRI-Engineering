@@ -13,7 +13,7 @@ const code=ts.transpileModule(save+'\nexports.save=saveTicket;', {compilerOption
 function fixture(failure,extra={}){
   const calls={reload:0,fetch:0,requests:[],notes:[],staged:[],saving:[],messages:[],fingerprints:[],status:[]};
   const exports={};
-  const ctx={exports,ticketReady:true,noteDraft:"",saveInFlight:{current:false},setNoteDraft:()=>{},parseTicketHistory:line=>{try{return [JSON.parse(line)]}catch{return []}},accountRoleDisplayName:()=>"Engineer",cmpriSession:{capabilities:["edit_tickets"]},order:{id:'order',issue:'Fan noisy',room:'409',status:'Open',revision:7},issue:'Fan noisy',assets:[],assetId:'',category:'General',priority:'Medium',technicianName:'',status:'In Progress',notes:'Unsaved technician note',actionRootCause:'',parts:'',cost:'',hours:'',dueBy:'',currentActor:'Test Engineer',embedded:false,modalToken:'',
+  const ctx={exports,ticketReady:true,canAddWorkOrderNotes:true,noteDraft:"",saveInFlight:{current:false},setNoteDraft:()=>{},parseTicketHistory:line=>{try{return [JSON.parse(line)]}catch{return []}},accountRoleDisplayName:()=>"Engineer",cmpriSession:{capabilities:["edit_tickets"]},order:{id:'order',issue:'Fan noisy',room:'409',status:'Open',revision:7},issue:'Fan noisy',assets:[],assetId:'',category:'General',priority:'Medium',technicianName:'',status:'In Progress',notes:'Unsaved technician note',actionRootCause:'',parts:'',cost:'',hours:'',dueBy:'',currentActor:'Test Engineer',embedded:false,modalToken:'',
     locationId:'',assetSelectionChanged:{current:false},roomContextGeneration:{current:0},setRoomOperationalContext:()=>{},explicitPartSuggestion:()=>'',canEditTicket:true,stagedNoteIds:[],editingIssue:false,canEditField:()=>true,
     cleanTicketReportedIssue:value=>value,historyLine:entry=>JSON.stringify(entry),
     setSaving:v=>calls.saving.push(v),setSaveState:()=>{},setMessage:v=>calls.messages.push(v),setIssue:()=>{},setStatus:v=>calls.status.push(v),setOrder:()=>{},setNotes:v=>calls.notes.push(v),setStagedNoteIds:v=>calls.staged.push(v),setInitialFingerprint:v=>calls.fingerprints.push(v),
@@ -84,7 +84,7 @@ test('Save includes text still in the editor and retains it on failure',async()=
 });
 test('Submit Note persists only notes, preserving unrelated unsaved fields',async()=>{
  let cleared=false;const f=fixture(null,{noteDraft:'Closed door.',priority:'Urgent',setNoteDraft:()=>{cleared=true},setInitialFingerprint:()=>{}});
- await f.run(undefined,true);assert.deepEqual(Object.keys(f.calls.requests[0]).sort(),['expected_revision','notes']);assert.match(f.calls.requests[0].notes,/Closed door/);assert.equal(cleared,true);assert.equal(f.calls.messages.at(-1),'Note saved.');
+ await f.run(undefined,true);assert.deepEqual(Object.keys(f.calls.requests[0]).sort(),['expected_revision','notes']);assert.match(String(f.calls.requests[0].notes),/Closed door/);assert.equal(cleared,true);assert.equal(f.calls.messages.at(-1),'Note saved.');
 });
 test('missing confirmation retains draft and concurrent clicks do not duplicate requests',async()=>{
  let release;let count=0;const f=fixture(null,{noteDraft:'Keep me',fetch:async()=>{count++;await new Promise(r=>release=r);return {ok:true,json:async()=>({})}}});

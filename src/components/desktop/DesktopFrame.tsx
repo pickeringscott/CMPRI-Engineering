@@ -100,6 +100,7 @@ export default function DesktopFrame({
 
   return (
     <iframe
+      allow="camera"
       ref={registerFrame}
       title={title}
       src={src}

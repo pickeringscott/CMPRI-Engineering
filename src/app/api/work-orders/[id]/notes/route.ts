@@ -29,9 +29,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .select("id, notes, status, revision").eq("hotel_id", HOTEL_ID).eq("id", id).maybeSingle();
   if (lookupError) return NextResponse.json({ error: "Could not read work order." }, { status: 503 });
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
-  if (!["Open", "In Progress"].includes(existing.status)) {
-    return NextResponse.json({ error: "Notes may only be added to open work orders." }, { status: 403 });
-  }
   if (existing.revision !== body.expected_revision) {
     return NextResponse.json({ error: "This ticket changed. Reload before combining your notes." }, { status: 409 });
   }
@@ -49,14 +46,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     mentionSave = await persistMentionedWorkOrder(auth.admin, {
       hotelId: HOTEL_ID, id, actorId: auth.principal.identity.id, revision: body.expected_revision,
-      beforeNotes: String(existing.notes || ""), update, openOnly: true,
+      beforeNotes: String(existing.notes || ""), update, openOnly: false,
     });
   } catch {
     return NextResponse.json({ error: "Mention recipients could not be verified. Your notes were not saved." }, { status: 503 });
   }
   const { data, error } = mentionSave || await auth.admin.from("work_orders").update(update)
     .eq("hotel_id", HOTEL_ID).eq("id", id).eq("revision", body.expected_revision)
-    .in("status", ["Open", "In Progress"]).select("*").maybeSingle();
+    .select("*").maybeSingle();
   if (error) return NextResponse.json({ error: "The notes could not be saved." }, { status: 503 });
   if (!data) return NextResponse.json({ error: "This ticket changed. Your notes were not saved; reload before retrying." }, { status: 409 });
   return NextResponse.json({ workOrder: data }, { headers: { "Cache-Control": "no-store" } });

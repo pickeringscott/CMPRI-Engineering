@@ -1,4 +1,12 @@
 "use client";
+import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
+import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
+import WorkOrderGuestIndicators from "@/components/WorkOrderGuestIndicators";
+import {type RoomGroupBadge} from "@/lib/room-group-badges";
+import {loyaltyTier} from "@/lib/loyalty-tier";
+
+import { canApplyTicketRefresh } from "@/lib/events/ticket-refresh";
+import { subscribeResources } from "@/lib/events/browser";
 import WorkOrderNoteComposer from "@/components/WorkOrderNoteComposer";
 import WorkOrderMentionText from "@/components/WorkOrderMentionText";
 import type { WorkOrderMention } from "@/lib/work-order-mentions";
@@ -20,7 +28,7 @@ import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { authorizationHeaders, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
@@ -38,10 +46,8 @@ import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/comp
 import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { isRailwayCnGuestName } from "@/lib/room-operations";
 import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
-import { resolveRoomRankerContext, type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
-import { roomRankerProfileCanView } from "@/lib/room-ranker-access";
+import { type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
-import { uploadWorkOrderAttachment } from "@/lib/work-order-attachment-upload";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
 import { relevantSourcePassages, reportedDiagnosticCode } from "@/lib/manual-source";
@@ -76,6 +82,12 @@ type AssetDocument = {
   document_type?: string | null;
 };
 type WorkOrder = {
+  guest_name?: string|null;
+  loyalty_tier?: string|null;
+  guest_group_badge?: RoomGroupBadge|null;
+  incoming_group_badge?: RoomGroupBadge|null;
+  incoming_loyalty_tier?: string|null;
+  incoming_reserved?: boolean;
   can_correct_report?: boolean;
   revision: number;
   id: string;
@@ -138,6 +150,8 @@ type RoomOperationalContext = {
   rankerError: string;
   pm: RoomPmContext | null;
   guestName: string;
+  loyaltyTier?: string|null;
+  groupBadge?: RoomGroupBadge|null;
   roomStatus: string;
   checkoutDate: string;
   checkoutTime: string;
@@ -582,14 +596,11 @@ export default function WorkOrderTicketPage() {
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
   const [workOrderImageError, setWorkOrderImageError] = useState("");
-  const [imagePreview, setImagePreview] = useState<WorkOrderImage | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [removingPhotoId, setRemovingPhotoId] = useState<string | null>(null);
-  const [stagedPhoto, setStagedPhoto] = useState<{ file: File; uploadId: string; previewUrl: string; workOrderId: string } | null>(null);
-  useEffect(() => () => { if (stagedPhoto) URL.revokeObjectURL(stagedPhoto.previewUrl); }, [stagedPhoto]);
+  const [hasPendingNoteMedia, setHasPendingNoteMedia] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState("");
   const [photoUploadMessage, setPhotoUploadMessage] = useState("");
-  const photoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [ticketReady, setTicketReady] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -617,6 +628,15 @@ export default function WorkOrderTicketPage() {
   const [assetId, setAssetId] = useState("");
   const assetSelectionChanged = useRef(false);
   const ticketLoadGeneration = useRef(0);
+  const editState = useRef({ dirty: false, fingerprint: "", revision: 0, saving: false });
+  const readLifetime = useRef({ active: true, generation: 0, controller: undefined as AbortController | undefined });
+  const imageReadGeneration = useRef(0);
+  const activityReadGeneration = useRef(0);
+  useEffect(() => {
+    const state = { active: true, generation: readLifetime.current.generation + 1, controller: new AbortController() };
+    readLifetime.current = state;
+    return () => { state.active = false; state.controller.abort(); };
+  }, [id]);
   const [systemGuessAssetId, setSystemGuessAssetId] = useState("");
   const [category, setCategory] = useState("General");
   const [priority, setPriority] = useState("Medium");
@@ -683,7 +703,7 @@ export default function WorkOrderTicketPage() {
   useEffect(() => {
     let current = true;
     if (!selectedAssetId || !canReadAssetDocuments) return () => { current = false; };
-    void (async () => {
+    const stop = subscribeResources(["reference"], async () => {
       try {
         const response = await fetch(`/api/assets/documentation?asset_id=${encodeURIComponent(selectedAssetId)}`, {
           headers: await authorizationHeaders(),
@@ -705,8 +725,8 @@ export default function WorkOrderTicketPage() {
           error: error instanceof Error ? error.message : "Equipment PDFs could not be loaded.",
         });
       }
-    })();
-    return () => { current = false; };
+    });
+    return () => { current = false; stop(); };
   }, [canReadAssetDocuments, selectedAssetId, documentIdentity]);
 
   useEffect(() => {
@@ -714,6 +734,12 @@ export default function WorkOrderTicketPage() {
     if (!pane) return;
     requestAnimationFrame(() => { pane.scrollTop = pane.scrollHeight; });
   }, [notes, order?.created_at]);
+
+  useEffect(() => {
+    if (!cmpriSession?.capabilities.includes("view_dashboard")) return;
+    return subscribeResources(["reference"], async () => { await loadMaintenanceReference(); }, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmpriSession]);
 
   const maintenancePending = useRef<{ key: string; promise: Promise<Asset[]> } | null>(null);
   function loadMaintenanceReference() {
@@ -727,58 +753,67 @@ export default function WorkOrderTicketPage() {
     return promise;
   }
   async function fetchMaintenanceReference() {
+    const lifetime = readLifetime.current;
     setAssetReferenceLoading(true);
     setAssetReferenceError("");
     try {
       const session = await getValidSession();
+      if (!lifetime.active) return [] as Asset[];
       const token = session?.access_token;
       if (!token) throw new Error("Sign in again to load equipment.");
       const response = await fetch("/api/maintenance-reference", {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(payload.assets)) {
         throw new Error(payload.error || "Equipment could not be loaded.");
       }
+      if (!lifetime.active) return [] as Asset[];
       const referenceAssets = payload.assets as Asset[];
       setAssets(referenceAssets);
       setTechnicians((payload.technicians ?? []) as TechnicianProfile[]);
       return referenceAssets;
     } catch (error) {
+      if (!lifetime.active) return [] as Asset[];
       setAssetReferenceError(error instanceof Error ? error.message : "Equipment could not be loaded.");
       return [] as Asset[];
     } finally {
-      setAssetReferenceLoading(false);
+      if (lifetime.active) setAssetReferenceLoading(false);
     }
   }
 
-  async function loadWorkOrderImages() {
+  async function loadWorkOrderImages(background = false) {
+    const lifetime = readLifetime.current;
+    const generation = ++imageReadGeneration.current;
     if (!id) {
       setWorkOrderImagesLoading(false);
       return;
     }
     setWorkOrderImagesLoading(true);
     setWorkOrderImageError("");
-    setWorkOrderImages([]);
+    if (!background) setWorkOrderImages([]);
     try {
       const session = await getValidSession();
+      if (!lifetime.active) return;
       if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/attachments`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       const payload: unknown = await response.json().catch(() => null);
+      if (!lifetime.active || generation !== imageReadGeneration.current) return false;
       const result = resolveWorkOrderImages(response.ok, payload);
       if (result.error) throw new Error(result.error);
       setWorkOrderImages(result.images);
       return true;
     } catch (error) {
+      if (!lifetime.active || generation !== imageReadGeneration.current) return false;
       setWorkOrderImages([]);
       setWorkOrderImageError(error instanceof Error ? error.message : "Work-order images could not be loaded.");
       return false;
     } finally {
-      setWorkOrderImagesLoading(false);
+      if (lifetime.active && generation === imageReadGeneration.current) setWorkOrderImagesLoading(false);
     }
   }
 
@@ -798,48 +833,12 @@ export default function WorkOrderTicketPage() {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || payload?.ok !== true) throw new Error(payload?.error || "Photo removal could not be confirmed. Reload photos before retrying.");
-      setImagePreview(null);
       const confirmed = await loadWorkOrderImages();
       setPhotoUploadMessage(confirmed ? "Photo removed." : "Removal accepted, but the photo list could not be refreshed. Retry loading photos.");
     } catch (error) {
       setPhotoUploadError(error instanceof Error ? error.message : "The photo could not be removed.");
     } finally {
       setRemovingPhotoId(null);
-    }
-  }
-
-  function stageWorkOrderPhoto(photo: File) {
-    if (!id || photoUploading || removingPhotoId) return;
-    setStagedPhoto({ file: photo, uploadId: crypto.randomUUID(), previewUrl: URL.createObjectURL(photo), workOrderId: id });
-    setPhotoUploadError("");
-    setPhotoUploadMessage("");
-  }
-
-  function removeStagedPhoto() {
-    if (photoUploading) return;
-    setStagedPhoto(null);
-  }
-
-  async function uploadWorkOrderPhoto(photo: File, uploadId: string) {
-    if (!id) {
-      setPhotoUploadError("This work order could not be identified for photo upload.");
-      return;
-    }
-    setPhotoUploading(true);
-    setPhotoUploadError("");
-    setPhotoUploadMessage("");
-    try {
-      const session = await getValidSession();
-      if (!session?.access_token) throw new Error("Your CMPRI session has expired. Sign in again.");
-      const result = await uploadWorkOrderAttachment(id, photo, session.access_token, uploadId);
-      if (!result.ok) throw new Error(result.message);
-      setStagedPhoto(null);
-      const readbackConfirmed = await loadWorkOrderImages();
-      setPhotoUploadMessage(readbackConfirmed ? "Photo uploaded." : "Photo stored, but the saved photo list could not be verified. Retry loading photos.");
-    } catch (error) {
-      setPhotoUploadError(error instanceof Error ? error.message : "The work-order photo could not be uploaded.");
-    } finally {
-      setPhotoUploading(false);
     }
   }
 
@@ -882,6 +881,12 @@ export default function WorkOrderTicketPage() {
     setLoading(false);
   }
 
+  useEffect(() => {
+    if (!embedded || window.parent === window || !order) return;
+    window.parent.postMessage({type:'cmpri-work-order-loaded',modalToken,workOrderId:order.id,workOrder:workOrderListSnapshot(order)},window.location.origin);
+  }, [embedded, modalToken, order]);
+  const [roomBoundaryVersion,setRoomBoundaryVersion]=useState(0);
+  const [roomNextBoundary,setRoomNextBoundary]=useState<number|null>(null);
   const roomContextGeneration = useRef(0);
   useEffect(() => { const generation = roomContextGeneration; return () => { generation.current++; }; }, []);
   async function loadRoomOperationalContext(roomLabel?: string | null) {
@@ -901,41 +906,31 @@ export default function WorkOrderTicketPage() {
       const headers = { Authorization: `Bearer ${token}` };
       const current = cmpriSession;
       if (!current) return;
-      // Ranker is independent; never hold guest details behind it.
-      if (roomRankerProfileCanView(current.user, current.user.email)) void (async () => {
-        try {
-          const response = await fetch("/api/room-ranker", { headers, cache: "no-store" });
-          const result = resolveRoomRankerContext(response.ok, await response.json().catch(() => null), room);
-          if (generation === roomContextGeneration.current) setRoomOperationalContext(previous => ({ ...previous, ranker: result.ranker, rankerError: result.error }));
-        } catch (error) {
-          if (generation === roomContextGeneration.current) setRoomOperationalContext(previous => ({ ...previous, rankerError: error instanceof Error ? error.message : "Room Ranker could not be loaded." }));
-        }
-      })();
       let guestName = "";
+      let guestTier: string|null = null;
+      let groupBadge: RoomGroupBadge|null = null;
       let roomStatus = "";
       let checkoutDate = "";
       let checkoutTime = "";
       let checkoutError = "";
-      if (!current.capabilities.includes("view_dashboard")) {
-        checkoutError = "Today's checkout time is not available to this account.";
-      } else {
-        try {
-          const roomOperationsResponse = await fetch("/api/room-operations", { headers, cache: "no-store" });
-          const roomOperationsPayload = await roomOperationsResponse.json().catch(() => ({})) as { rows?: Array<{ room?: string; guest_name?: string | null; room_status?: string | null; checkout_date?: string | null; checkout_time?: string | null }>; error?: string };
-          if (!roomOperationsResponse.ok || !Array.isArray(roomOperationsPayload.rows)) {
-            throw new Error(roomOperationsPayload.error || "Today's room-operations data could not be loaded.");
-          }
-          const roomOperation = roomOperationsPayload.rows.find((item) => String(item.room || "").trim().toUpperCase() === room.toUpperCase());
-          guestName = String(roomOperation?.guest_name || "");
-          roomStatus = String(roomOperation?.room_status || "");
-          checkoutDate = String(roomOperation?.checkout_date || "");
-          checkoutTime = String(roomOperation?.checkout_time || "");
-        } catch (error) {
-          checkoutError = error instanceof Error ? error.message : "Today's checkout time could not be loaded.";
+      try {
+        const response = await fetch(`/api/work-orders/${encodeURIComponent(orderRef.current?.id || id)}`, { headers, cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok || !payload.workOrder) throw Error(payload.error || 'Guest context is unavailable.');
+        const context = payload.workOrder;
+        guestName = context.guest_name || '';
+        guestTier = loyaltyTier(context.loyalty_tier);
+        groupBadge = context.guest_group_badge || null;
+        roomStatus = context.room_status || '';
+        checkoutDate = context.checkout_date || '';
+        checkoutTime = context.checkout_time || '';
+        if (generation === roomContextGeneration.current) {
+          setRoomNextBoundary(typeof payload.next_guest_transition_at === 'number' ? payload.next_guest_transition_at : null);
+          setOrder(orderRef.current && orderRef.current.id === context.id ? { ...orderRef.current, guest_name: guestName, loyalty_tier:guestTier, guest_group_badge:groupBadge, incoming_reserved:context.incoming_reserved, incoming_loyalty_tier:context.incoming_loyalty_tier, incoming_group_badge:context.incoming_group_badge } : orderRef.current);
         }
-      }
+      } catch (error) { checkoutError = error instanceof Error ? error.message : 'Guest context is unavailable.'; }
       if (generation !== roomContextGeneration.current) return;
-      setRoomOperationalContext(previous => ({ ...previous, pm: {}, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false }));
+      setRoomOperationalContext(previous => ({ ...previous, pm: {}, loyaltyTier:guestTier, groupBadge, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false }));
     } catch (error) {
       if (generation !== roomContextGeneration.current) return;
       const message = error instanceof Error ? error.message : "Room context could not be loaded.";
@@ -955,25 +950,35 @@ export default function WorkOrderTicketPage() {
   }
 
   useEffect(() => {
-    let cancelled = false;
-    if (cmpriSession) void Promise.resolve().then(() => { if (!cancelled) void loadRoomOperationalContext(order?.room); });
-    return () => { cancelled = true; };
+    if (!cmpriSession) return;
+    const stop = subscribeResources(["rooms"], async () => { await loadRoomOperationalContext(order?.room); });
+    const generation = roomContextGeneration;
+    return () => { generation.current++; stop(); };
     // The server authorizes each fresh context request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.room, cmpriSession]);
+  }, [order?.room, cmpriSession,roomBoundaryVersion]);
+  useEffect(()=>{
+    if(!roomNextBoundary||roomNextBoundary<=Date.now())return;
+    const timer=setTimeout(()=>setRoomBoundaryVersion(value=>value+1),roomNextBoundary-Date.now()+50);
+    return()=>clearTimeout(timer);
+  },[roomNextBoundary]);
 
   async function loadExternalActivity() {
+    const lifetime = readLifetime.current;
+    const generation = ++activityReadGeneration.current;
     if (!id) return;
     try {
       const session = await getValidSession();
+      if (!lifetime.active || generation !== activityReadGeneration.current) return;
       const token = session?.access_token;
       if (!token) return;
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/activity`, {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       if (!response.ok) return;
       const payload = await response.json();
+      if (!lifetime.active || generation !== activityReadGeneration.current) return;
       setExternalActivity(payload || { purchases: [], enseo: [], warranties: [], followups: [] });
     } catch {
       // External email/purchasing activity is supplemental; ticket loading must never fail because of it.
@@ -986,9 +991,12 @@ export default function WorkOrderTicketPage() {
   const referenceText = [order?.notes || "", ...(externalActivity.history || []).map(event => workOrderHistoryText(event, event.recorded_at))].join("\n");
   useEffect(() => {
     const controller = new AbortController();
-    setReferenceTickets([]);
-    setReferencePrefixes({});
-    setReferenceError("");
+    queueMicrotask(()=>{
+      if(controller.signal.aborted)return;
+      setReferenceTickets([]);
+      setReferencePrefixes({});
+      setReferenceError("");
+    });
     const targets = workOrderReferenceTargets(referenceText);
     if (!targets.length) return () => controller.abort();
     void (async () => {
@@ -1016,15 +1024,18 @@ export default function WorkOrderTicketPage() {
     return () => controller.abort();
   }, [id, referenceText]);
 
-  async function loadTicket(showLoading = true, canLoadMaintenanceReference = true) {
+  async function loadTicket(showLoading = true, canLoadMaintenanceReference = true, background = false) {
     if (!id) return;
     const generation = ++ticketLoadGeneration.current;
+    const lifetime = readLifetime.current;
+    const startedEdit = editState.current.fingerprint;
 
     if (showLoading) setLoading(true);
-    setMessage("");
+    if (!background) setMessage("");
 
     try {
       const session = await getValidSession();
+      if (!lifetime.active) return;
       const token = session?.access_token;
       if (!token) {
         setOrder(null);
@@ -1035,9 +1046,14 @@ export default function WorkOrderTicketPage() {
 
       const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}?include=mentions`, {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+        cache: "no-store", signal: lifetime.controller?.signal,
       });
       const payload = await response.json().catch(() => ({}));
+      if (!lifetime.active || generation !== ticketLoadGeneration.current) return;
+      if (background && !canApplyTicketRefresh(startedEdit, editState.current)) {
+        if (payload?.workOrder?.revision !== editState.current.revision) setMessage("This ticket changed while you were editing. Your unsaved text is preserved; saving an older revision will be rejected.");
+        return;
+      }
       if (!response.ok || !payload?.workOrder) {
         setOrder(null);
         setMessage(`Work order error: ${String(payload?.error || `HTTP ${response.status}`)}`);
@@ -1096,7 +1112,7 @@ export default function WorkOrderTicketPage() {
       try {
         const identity = cmpriSessionRef.current;
         const key = identity ? `cmpri:ticket-draft:${identity.hotelId}:${identity.user.id}:${row.id}` : "";
-        const recovered = key ? JSON.parse(localStorage.getItem(key) || "null") : null;
+        const recovered = !background && key ? JSON.parse(localStorage.getItem(key) || "null") : null;
         if (recovered?.version === 1 && recovered.fields && Number.isSafeInteger(recovered.revision)) {
           const f = recovered.fields;
           setLocationId(f.locationId); setIssue(f.issue); setAssetId(f.assetId); setCategory(f.category);
@@ -1131,7 +1147,8 @@ export default function WorkOrderTicketPage() {
         }
       });
     } catch (error) {
-      setOrder(null);
+      if (!lifetime.active || generation !== ticketLoadGeneration.current) return;
+      if (!background) setOrder(null);
       setMessage(`Work order error: ${error instanceof Error ? error.message : String(error)}`);
       setLoading(false);
     }
@@ -1178,8 +1195,10 @@ export default function WorkOrderTicketPage() {
         window.location.origin
       );
     }
+    const lifetime = readLifetime.current;
     (async () => {
       const allowed = await enforceSessionPreference();
+      if (!lifetime.active) return;
       setEmbedded(isEmbedded);
       setModalToken(token);
       if (!allowed) {
@@ -1189,6 +1208,7 @@ export default function WorkOrderTicketPage() {
       let canLoadMaintenanceReference = false;
       try {
         const session = await loadCmpriSession();
+        if (!lifetime.active) return;
         setCmpriSession(session);
         cmpriSessionRef.current = session;
         canLoadMaintenanceReference = session.capabilities.includes("view_dashboard");
@@ -1211,6 +1231,7 @@ export default function WorkOrderTicketPage() {
         }
       } catch {}
       await loadTicket(!hadPreview, canLoadMaintenanceReference);
+      if (!lifetime.active) return;
       void loadWorkOrderImages();
       void loadExternalActivity();
     })();
@@ -1222,23 +1243,10 @@ export default function WorkOrderTicketPage() {
     // set before assets finished loading, so existing tickets never loaded
     // their model-specific troubleshooting until the asset was changed.
     let current = true;
-    let refreshing = false;
-    const refresh = () => {
-      if (refreshing) return;
-      refreshing = true;
-      void loadManualForAsset(selectedAsset, () => current).finally(() => { refreshing = false; });
-    };
-    refresh();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    const interval = window.setInterval(refreshWhenVisible, 30_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      current = false;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
+    const stop = subscribeResources(["reference"], async () => {
+      await loadManualForAsset(selectedAsset, () => current);
+    });
+    return () => { current = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
 
@@ -1329,7 +1337,20 @@ export default function WorkOrderTicketPage() {
     hours,
     dueBy,
   });
-  const hasUnsavedChanges = !!initialFingerprint && (currentFingerprint !== initialFingerprint || !!noteDraft.trim());
+  const hasUnsavedChanges = !!initialFingerprint && (currentFingerprint !== initialFingerprint || !!noteDraft.trim() || hasPendingNoteMedia);
+  useLayoutEffect(() => {
+    editState.current = { dirty: hasUnsavedChanges, fingerprint: currentFingerprint + noteDraft, revision: order?.revision || 0, saving };
+  }, [hasUnsavedChanges, currentFingerprint, noteDraft, order?.revision, saving]);
+  useEffect(() => {
+    if (!ticketReady || !cmpriSession) return;
+    const stop = subscribeResources(["orders"], async () => {
+      await Promise.all([loadTicket(false, false, true), loadWorkOrderImages(true), loadExternalActivity()]);
+    }, false);
+    return stop;
+    // Load functions read current editor state through refs; edits must not resubscribe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, ticketReady, cmpriSession]);
+
   useEffect(() => {
     if (!cmpriSession || !order || !initialFingerprint || !recoveredDraft.current) return;
     const key = `cmpri:ticket-draft:${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`;
@@ -1343,7 +1364,6 @@ export default function WorkOrderTicketPage() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [hasUnsavedChanges]);
-  const roomRankerFlags = [roomOperationalContext.ranker?.check1, roomOperationalContext.ranker?.check2, roomOperationalContext.ranker?.check3, roomOperationalContext.ranker?.notes].map((value) => String(value || "").trim()).filter(Boolean);
   const closeEmbeddedTicket = useCallback(() => {
     if (embedded && window.parent !== window) {
       window.parent.postMessage(
@@ -1405,9 +1425,6 @@ export default function WorkOrderTicketPage() {
     setMessage(`New asset added and selected. Save the work order to make the assignment final.${documentationMessage}`);
   }
 
-  function submitTechnicianNote() {
-    void saveTicket(undefined, true);
-  }
 
   function editSubmittedNote(entry: TicketHistoryEntry) {
     if (!entry.staged) return;
@@ -1479,7 +1496,7 @@ export default function WorkOrderTicketPage() {
     setSaving(true);
     setSaveState("saving");
     try {
-      await ticketWrites.current.enqueue(() => persistTicket(statusOverride, notesOnly, order.id));
+      return await ticketWrites.current.enqueue(() => persistTicket(statusOverride, notesOnly, order.id));
     } catch {
       setMessage("Save error: Your changes could not be confirmed. Your draft is retained.");
       setSaving(false); setSaveState("idle");
@@ -1590,8 +1607,7 @@ export default function WorkOrderTicketPage() {
     const capabilities = typeof cmpriSession !== "undefined" ? (cmpriSession?.capabilities ?? []) : ["edit_tickets"];
     if (notesOnly) {
       if (!pendingTexts.length) { setSaving(false); setSaveState("idle"); return true; }
-      if (canEditField("notes") && (canEditTicket || canReviewCurrentTicket)) updatePayload.notes = editorNotes;
-      else if (canAddWorkOrderNotes) updatePayload.appendNotes = pendingTexts;
+      if (canAddWorkOrderNotes || canEditTicket || canReviewCurrentTicket) updatePayload.appendNotes = pendingTexts;
       else { setMessage("This account cannot add notes."); setSaving(false); setSaveState("idle"); return false; }
     } else if (canEditField("issue") && (!canEditTicket || (order.can_correct_report && !otherFieldEdits))) {
       if (pendingLines.length) {
@@ -1680,7 +1696,7 @@ export default function WorkOrderTicketPage() {
       roomContextGeneration.current++;
       setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: true });
     }
-    if (savedRow) setOrder({ ...savedRow, can_correct_report: savedRow.can_correct_report ?? order.can_correct_report, creator_name: order.creator_name, creator_display_role: order.creator_display_role, technician_view_entries: order.technician_view_entries });
+    if (savedRow) setOrder({ ...order, ...savedRow, can_correct_report: savedRow.can_correct_report ?? order.can_correct_report, creator_name: order.creator_name, creator_display_role: order.creator_display_role, technician_view_entries: order.technician_view_entries });
     if (statusOverride !== undefined) setStatus(saveStatus);
     const savedNotes = savedRow?.notes ?? notesWithChanges;
     setNotes(savedNotes);
@@ -1994,18 +2010,6 @@ export default function WorkOrderTicketPage() {
   if (order.created_at && !authoritativeHistory.some((event) => event.event_type === "created")) {
     historyEntries.push({ id: "created", timestamp: order.created_at, actor: "System", kind: "system", text: "Work order created" });
   }
-  for (const image of workOrderImages) {
-    if (image.uploaded_at) {
-      historyEntries.push({
-        id: `photo-${image.id}`,
-        timestamp: image.uploaded_at,
-        actor: "Attachment",
-        kind: "system",
-        text: "Photo uploaded",
-        locked: true,
-      });
-    }
-  }
   const uniqueHistory = new Map<string, TicketHistoryEntry>();
   for (const entry of historyEntries) uniqueHistory.set(`${entry.timestamp}|${entry.actor}|${entry.authorRole || ""}|${entry.kind}|${entry.text}`, entry);
   historyEntries.splice(0, historyEntries.length, ...Array.from(uniqueHistory.values()));
@@ -2016,8 +2020,15 @@ export default function WorkOrderTicketPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-[16px] text-white">
       <div className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
-        <div className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
-          <div className="order-2 min-w-0 w-full sm:order-none sm:w-auto sm:flex-1">
+        <div data-preview-locked-pane className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
+          <div data-preview-mobile-number><button
+              type="button"
+              title="Copy work order number"
+              onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(formatWorkOrder(order.display_id)); }}
+              className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
+            >
+              {formatWorkOrder(order.display_id)}
+            </button></div><div className="order-2 min-w-0 w-full sm:order-none sm:w-auto sm:flex-1">
             {!embedded && (
               <Link
                 href="/engineering"
@@ -2028,7 +2039,7 @@ export default function WorkOrderTicketPage() {
             )}
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-xl border border-sky-900 bg-slate-900/70 p-2">
               <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                <div data-preview-detail-title className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   <div className="min-w-0">
                     <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
                       <span className="truncate">{order.room || "Work Order"}</span>
@@ -2042,12 +2053,12 @@ export default function WorkOrderTicketPage() {
                         />
                       )}
                     </h1>
-                    {roomOperationalContext.guestName && <p className="max-w-48 truncate text-[11px] leading-tight text-slate-400" title={roomOperationalContext.guestName}>{roomOperationalContext.guestName}</p>}
+
                   </div>
                   {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
-                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
+                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span><span className={embedded ? "cmpri-detail-mobile-guest" : "cmpri-detail-standalone-guest"}><WorkOrderGuestIndicators guest={order as unknown as Record<string,unknown>} /></span>
                 </div>
                 <div className="mt-1 flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-x-2">
                   <p className="w-full min-w-0 break-words text-sm leading-5 text-white sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
@@ -2058,7 +2069,7 @@ export default function WorkOrderTicketPage() {
           </div>
 
           <div className="order-1 ml-auto grid shrink-0 justify-items-end gap-1 self-start sm:order-none">
-            <button
+            <button data-preview-desktop-number
               type="button"
               title="Copy work order number"
               onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(formatWorkOrder(order.display_id)); }}
@@ -2067,7 +2078,8 @@ export default function WorkOrderTicketPage() {
               {formatWorkOrder(order.display_id)}
             </button>
             <WorkOrderImportPill order={order} />
-            <div className="flex items-center gap-1">
+
+          </div><div data-preview-locked-actions className="preview-locked-actions">
               <button
                 type="button"
                 onClick={cancelTicket}
@@ -2099,7 +2111,6 @@ export default function WorkOrderTicketPage() {
                       : canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? "Save Notes" : "Save Work Order"}
               </button>}
             </div>
-          </div>
         </div>
 
         {message && (
@@ -2175,7 +2186,7 @@ export default function WorkOrderTicketPage() {
                 </div>
               )}
 
-              <div className="mt-1 grid gap-1.5 sm:grid-cols-3">
+              <div data-preview-metadata className="mt-1 grid gap-1.5 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment{pendingField("assetId")}</div>
                   {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
@@ -2205,7 +2216,7 @@ export default function WorkOrderTicketPage() {
             </section>
 
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+            <section data-preview-conversation className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
               <h2 className="text-sm font-bold tracking-tight text-slate-100">{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
@@ -2221,110 +2232,15 @@ export default function WorkOrderTicketPage() {
                       {entry.staged && <button type="button" disabled={saving} onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
                     </div>
                   );
-                }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}
+                }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}<WorkOrderAttachmentHistory items={workOrderImages} onRemove={image=>void removeSavedPhoto(image)} removing={!!removingPhotoId || photoUploading}/>
               </div>
-            </section>
+            {workOrderImageError&&<div role="alert" className="text-xs text-red-200">{workOrderImageError}<button type="button" onClick={()=>void loadWorkOrderImages()} disabled={workOrderImagesLoading}>Retry attachments</button></div>}{workOrderImagesLoading&&<p role="status" className="text-xs text-slate-400">Loading attachments…</p>}{photoUploadError&&<p role="alert" className="text-xs text-red-200">{photoUploadError}</p>}{photoUploadMessage&&<p role="status" className="text-xs text-emerald-300">{photoUploadMessage}</p>}
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-bold leading-tight tracking-tight">{noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)}</h2>
               <div className="relative">
-                <WorkOrderNoteComposer disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
+                <WorkOrderNoteComposer label={noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)} disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
                 {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{mentionDirectoryError}</p>}
               </div>
-              <div className="mt-1 flex justify-end">
-                <button type="button" onClick={submitTechnicianNote} disabled={saving || !noteDraft.trim() || !canSubmitTicketNote} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">Submit Note</button>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <h2 className="mr-auto text-sm font-bold tracking-tight text-slate-100">Photos ({workOrderImagesLoading ? "…" : workOrderImageError ? "unavailable" : workOrderImages.length})</h2>
-                {canSubmitTicketNote && (
-                  <>
-                    <input
-                      ref={photoFileInputRef}
-                      id="work-order-detail-photo"
-                      type="file"
-                      accept="image/*"
-                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
-                      onChange={(event) => {
-                        const photo = event.currentTarget.files?.[0];
-                        event.currentTarget.value = "";
-                        if (photo) stageWorkOrderPhoto(photo);
-                      }}
-                      className="sr-only"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => photoFileInputRef.current?.click()}
-                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
-                      className="whitespace-nowrap rounded-md border border-sky-500/40 bg-sky-950/35 px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {photoUploading ? "Saving photo…" : "Choose photo"}
-                    </button>
-                    <input
-                      id="work-order-detail-camera"
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
-                      onChange={(event) => {
-                        const photo = event.currentTarget.files?.[0];
-                        event.currentTarget.value = "";
-                        if (photo) stageWorkOrderPhoto(photo);
-                      }}
-                      className="sr-only"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => document.getElementById("work-order-detail-camera")?.click()}
-                      disabled={photoUploading || Boolean(removingPhotoId) || saving}
-                      className="whitespace-nowrap rounded-md border border-slate-600 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 md:hidden"
-                    >
-                      Camera
-                    </button>
-                  </>
-                )}
-              </div>
-              {stagedPhoto && stagedPhoto.workOrderId === id && <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-slate-600 p-2">
-                <Image src={stagedPhoto.previewUrl} alt="Selected photo" width={96} height={72} unoptimized className="h-18 w-24 object-contain" />
-                <span className="max-w-48 truncate text-xs">{stagedPhoto.file.name}</span>
-                <button type="button" disabled={photoUploading || saving} onClick={() => void uploadWorkOrderPhoto(stagedPhoto.file, stagedPhoto.uploadId)} className="rounded bg-sky-700 px-3 py-2 text-sm disabled:opacity-50">{photoUploading ? "Saving…" : "Save photo"}</button>
-                <button type="button" disabled={photoUploading} onClick={removeStagedPhoto} className="rounded border border-red-500 px-3 py-2 text-sm disabled:opacity-50">Remove selected photo</button>
-                <p className="w-full text-xs text-slate-400">You can remove this selection before saving. After saving, only the engineer can delete the photo.</p>
-              </div>}
-              {workOrderImageError && (
-                <div role="alert" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-red-200">
-                  <span>{workOrderImageError}</span>
-                  <button type="button" onClick={() => void loadWorkOrderImages()} disabled={workOrderImagesLoading} className="rounded border border-red-700 px-2 py-1 font-bold hover:bg-red-900/50 disabled:opacity-50">
-                    {workOrderImagesLoading ? "Retrying…" : "Retry"}
-                  </button>
-                </div>
-              )}
-              {photoUploadError && <p role="alert" className="mt-1 text-xs text-red-200">{photoUploadError}</p>}
-              {photoUploadMessage && <p role="status" className="mt-1 text-xs text-emerald-300">{photoUploadMessage}</p>}
-              {workOrderImagesLoading && <p role="status" className="mt-1 text-xs text-slate-400">Loading photos…</p>}
-              {!workOrderImagesLoading && !workOrderImageError && workOrderImages.length === 0 && <p className="mt-1 text-xs text-slate-500">No photos attached.</p>}
-              {!!workOrderImages.length && (
-                <div className="mt-1">
-                  <p className="text-xs font-semibold text-sky-300">Saved attachments</p>
-                  {workOrderImages.some((image) => image.can_remove) && <p className="text-xs text-slate-400">Open a photo to view it or remove it.</p>}
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {workOrderImages.map((image) => (
-                      <button key={image.id} type="button" onClick={() => setImagePreview(image)} aria-label={`Open work-order photo${image.uploaded_at ? ` uploaded ${formatDateTime(image.uploaded_at)}` : ""}`} className="relative aspect-[4/3] w-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-left hover:border-sky-400">
-                        <Image
-                          src={image.url}
-                          alt="Work-order attachment"
-                          fill
-                          sizes="80px"
-                          unoptimized
-                          className="object-contain"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <WorkOrderMediaComposer key={order.id} workOrderId={order.id} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
             </section>
 
 
@@ -2689,22 +2605,6 @@ export default function WorkOrderTicketPage() {
         {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
           <section className="mt-2 grid gap-1.5 rounded-xl border border-cyan-500/30 bg-slate-900 p-1.5">
             {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
-              {cmpriSession && roomRankerProfileCanView(cmpriSession.user, cmpriSession.user.email) && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <b className="text-sm">Room Ranker old</b>
-                    <div className="flex items-center gap-1.5">
-                      <Link href="/engineering/room-ranker" className="text-[11px] font-semibold text-amber-300 hover:underline">Ranker</Link>
-                      <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] font-bold text-amber-200">{roomOperationalContext.rankerError ? "Unavailable" : roomOperationalContext.ranker?.rank || "Unranked"}</span>
-                    </div>
-                  </div>
-                  {roomOperationalContext.rankerError
-                    ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.rankerError}</p>
-                    : roomRankerFlags.length
-                      ? <ul className="mt-1 space-y-0.5 text-xs text-slate-300">{roomRankerFlags.map((flag, index) => <li key={`${flag}-${index}`}>• {flag}</li>)}</ul>
-                      : <p className="mt-1 text-xs text-slate-500">{roomOperationalContext.ranker ? "No Room Ranker flags or notes are recorded for this room." : "No Room Ranker row was returned for this room."}</p>}
-                </div>
-              )}
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
                 <b className="text-sm">PM checks and quarterly room forms</b>
                 {roomOperationalContext.pm?.error
@@ -2792,31 +2692,7 @@ export default function WorkOrderTicketPage() {
         </div>
       )}
 
-      {imagePreview && (
-        <div className="cmpri-modal-backdrop fixed inset-0 z-[130] flex items-center justify-center bg-black/85" role="dialog" aria-modal="true" aria-label="Full-size work-order photo" onKeyDown={(event) => {
-          if (event.key !== "Escape" || event.defaultPrevented) return;
-          event.preventDefault();
-          event.stopPropagation();
-          setImagePreview(null);
-        }}>
-          <button type="button" aria-label="Close photo" onClick={() => setImagePreview(null)} className="absolute inset-0 cursor-default" />
-          <div className="cmpri-modal-shell relative z-10 border border-slate-600 bg-slate-950 shadow-2xl">
-            <div className="relative h-[92vh] w-[92vw]">
-              <Image
-                src={imagePreview.url}
-                alt="Full-size work-order attachment"
-                fill
-                sizes="92vw"
-                unoptimized
-                className="object-contain"
-              />
-            </div>
-            {imagePreview.can_remove && <button type="button" disabled={photoUploading || Boolean(removingPhotoId) || saving} onClick={() => void removeSavedPhoto(imagePreview)} className="absolute bottom-3 left-3 rounded-lg border border-red-500 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-red-200 disabled:opacity-50">{removingPhotoId === imagePreview.id ? "Removing…" : "Remove photo"}</button>}
-            {photoUploadError && <p role="alert" className="absolute bottom-16 left-3 right-3 rounded bg-slate-950 p-2 text-sm text-red-200">{photoUploadError}</p>}
-            <button type="button" onClick={() => setImagePreview(null)} className="absolute right-3 top-3 rounded-lg border border-slate-600 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-white">Close</button>
-          </div>
-        </div>
-      )}
+
     </main>
   );
 }

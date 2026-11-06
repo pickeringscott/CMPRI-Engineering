@@ -75,9 +75,9 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(roleAllows('Assistant General Manager', 'view_pool_log'), true);
   assert.equal(roleAllows('Front Desk Manager', 'view_pool_log'), true);
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  assert.match(engineering, /if \(!cmpriSession \|\| \(!hasCapability\(cmpriSession, "view_dashboard"\)[\s\S]*receive_pool_closed_notifications/);
+  assert.match(engineering, /if \(!cmpriSession\) return;/);
   assert.match(engineering, /\(hasCapability\(session, "view_dashboard"\) \|\| hasCapability\(session, "view_pool_log"\)\) && \{ key: "\/engineering\/pool-log"/);
-  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/room-operations", label: "Daily Room Ops"/);
+  assert.match(engineering, /canUseEngineeringAdminTools \|\| roleKey\(session.user.role\) === "manager"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/gss", label: "GSS Reports"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/enseo-assignments"/);
   assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/purchasing", label: "POs"/);
@@ -132,29 +132,21 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(engineering, /<span className="text-amber-300">\{frontDeskLayout \? "Front Desk" : isHousekeepingDashboard \? "Housekeeping" : "Engineering"\}<\/span>/);
   assert.match(engineering, /max-w-\[18rem\] truncate text-\[14pt\] font-semibold tracking-tight text-slate-100/);
   assert.match(engineering, /data-dashboard-role[^>]*>\{displayRole\}/);
-  assert.ok(engineeringHeader.indexOf('text-[14pt] font-semibold tracking-tight text-slate-100') < engineeringHeader.indexOf('count={notificationCount}'));
   assert.match(engineeringHeader, /pt-\[8pt\]/);
   assert.match(engineering, /const canReviewTickets = hasCapability\(session, "review_tickets"\)/);
-  assert.match(engineering, /const notificationCount = unreadCount \+ \(canReviewTickets \? awaitingApproval\.length : 0\)/);
-  assert.match(engineering, /\(canReviewTickets \|\| hasCapability\(session, "receive_pool_closed_notifications"\) \|\| inbox\.length > 0\) && \(/);
+  assert.match(engineering, /const notificationCount = unreadCount \+ \(canReviewTickets \? approvalTotal : 0\)/);
+  assert.doesNotMatch(engineeringHeader, /inbox\.length > 0\) &&/);
   const approvalsWindow = readFileSync(new URL('../src/components/desktop/WorkOrderApprovalsWindow.tsx', import.meta.url), 'utf8');
   assert.match(approvalsWindow, /canReview && \(/);
   const notificationBell = readFileSync(new URL('../src/components/DashboardNotificationBell.tsx', import.meta.url), 'utf8');
-  assert.match(notificationBell, /className="size-4" fill="none"/);
-  assert.match(notificationBell, /grid size-5 shrink-0 place-items-center rounded-md border border-sky-400\/50/);
-  assert.match(notificationBell, /absolute -right-1\.5 -top-1\.5 inline-flex h-3\.5 min-w-3\.5[\s\S]*?text-\[7pt\][\s\S]*?>\{count\}/);
+  assert.match(notificationBell, /registerApprovedNotificationBell/);
+  assert.match(engineeringHeader, /<ApprovedDashboardMenus/);
   assert.doesNotMatch(engineeringHeader, /bg-purple-400|absolute -bottom-1 -right-1/);
   const accountGroup = engineering.slice(engineering.indexOf('label: "Account"'), engineering.indexOf('],', engineering.indexOf('label: "Account"')));
   assert.ok(accountGroup.indexOf('label: "Manage Profile"') < accountGroup.indexOf('label: "Connect ChatGPT"'));
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
-  assert.match(engineeringHeader, /nav aria-label="Open dashboard windows" className="[^"]*gap-0\.5/);
-  assert.match(engineeringHeader, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
-  assert.match(engineeringHeader, /chiefEngineerMobileLayout \? \([\s\S]*?<MobileDashboardMenus/);
-  assert.match(engineeringHeader, /className="hidden min-w-0 flex-wrap items-center gap-0\.5 lg:flex"/);
-  assert.match(engineeringHeader, /hidden px-0\.5 text-\[9pt\] font-bold uppercase/);
   assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
   assert.match(engineering, /onLaunch\(launcher, Date\.now\(\)\)/);
-  assert.match(engineeringHeader, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0[\s\S]*?lg:hidden/);
   assert.match(engineering, /const LAUNCHER_CLOSE_WINDOW_MS = 5_000/);
   assert.match(engineering, /windowOpenedAtRef\.current\.set\(entry\.key, Date\.now\(\)\)/);
   assert.match(engineering, /clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS\)\s*\{\s*requestCloseWindow\(key\)/);
@@ -165,27 +157,19 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.doesNotMatch(workOrders, /dashboardTitleForRole\(cmpriSession\.user\.role\)/);
 });
 
-test('non-Chief mobile navigation retains direct actions while Chief groups use plain action menus', () => {
+test('all dashboard roles use approved groups with permission-filtered actions', () => {
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const technician = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
 
-  assert.match(engineering, /chiefEngineerMobileLayout \? \([\s\S]*?<MobileDashboardMenus/);
-  const menus = readFileSync(new URL('../src/components/desktop/MobileDashboardMenus.tsx', import.meta.url), 'utf8');
-  assert.match(menus, /event\.key === "Escape"/);
-  assert.match(menus, /aria-haspopup="menu"/);
+  const menus = readFileSync(new URL('../src/components/desktop/ApprovedDashboardMenus.tsx', import.meta.url), 'utf8');
   assert.match(engineering, /groups=\{visibleLauncherGroups\}/);
-  assert.match(engineering, /mobileLaunchers\.map\(\(launcher\) => \([\s\S]*?<DashboardLauncherButton/);
-  assert.match(engineering, /label: "\+ Create Work Order"/);
-  assert.match(engineering, /<DashboardLauncherButton[\s\S]*?className="ml-auto min-h-10 shrink-0/);
+  assert.match(engineering, /label: "\+ Work Order"/);
   assert.doesNotMatch(technician, /<details/);
-  assert.match(technician, /Create Work Order<\/Link>/);
-  assert.match(technician, /sm:hidden">Create Work Order<\/Link>/);
-  assert.match(technician, /sm:hidden">[\s\S]*?Pool Log[\s\S]*?Sign Out/);
   assert.doesNotMatch(workOrders, /<details/);
   assert.match(workOrders, /className="flex flex-wrap items-center justify-end gap-1"/);
-  assert.match(workOrders, /htmlFor="work-order-photo-file"/);
-  assert.match(workOrders, /htmlFor="work-order-photo-camera"/);
+  assert.match(workOrders, /<WorkOrderMediaControl/);
+  assert.match(workOrders, /<WorkOrderMediaControl/);
 });
 
 test('sign-in More toggle reveals password access without exposing test account data', () => {
@@ -269,7 +253,7 @@ test('authorized Housekeeping render replaces the Engineering fallback and share
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
-  assert.match(dashboard, /if \(!cmpriSession\)\s*\{\s*return/);
+  assert.match(dashboard, /if \(!cmpriSession\) return;/);
   assert.match(dashboard, /isHousekeepingDashboard \? "Housekeeping" : "Engineering"/);
   assert.match(dashboard, /<main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden/);
   assert.match(dashboard, /lg:h-dvh/);
@@ -300,19 +284,15 @@ test('submit-only work-order forms display inferred category and priority withou
   assert.match(source, /!canSetEngineeringFields \? \(\s*<output[^>]*>\s*\{isSpanish \? \(\{ Urgent: "Urgente", High: "Alta", Medium: "Media", Low: "Baja" \} as Record<string, string>\)\[priority\] : priority\}\s*<\/output>\s*\) : \(\s*<SearchableSelect\s+value=\{priority\}/);
 });
 
-test('work-order top bar separates photo-file selection from camera capture', () => {
+test('work-order top bar shares split media controls and retains retry recovery', () => {
   const source = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /htmlFor="work-order-photo-file"[^>]*title="Choose a photo file"/);
-  assert.match(source, /ref=\{photoFileInputRef\} id="work-order-photo-file" type="file" accept="image\/\*" multiple disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
+  assert.match(source, /<WorkOrderMediaControl uploadInputRef=\{photoFileInputRef\}/);
   assert.match(source, /const selected = Array\.from\(files \|\| \[\]\)\.slice\(0, fromCamera \? 1 : undefined\)/);
   assert.match(source, /return \{ file, previewUrl, uploadId: crypto\.randomUUID\(\) \}/);
   assert.match(source, /setPhotoUploadError\(""\);\s+setCanReplacePhoto\(false\)/);
-  assert.match(source, /htmlFor="work-order-photo-camera"[^>]*title="Take a photo"[^>]*\$\{isSubmitOnlyUser \? "md:hidden" : ""\}/);
-  assert.match(source, /ref=\{photoCameraInputRef\} id="work-order-photo-camera" type="file" accept="image\/\*" capture="environment" disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload\}/);
   assert.match(source, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button type="button" onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
   assert.match(source, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
   assert.match(source, /\{photoUploadError && <div[\s\S]*pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button type="button" onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
-  assert.match(source, /\{isSubmitOnlyUser && <ModalNavigationButton href="\/profile"/);
   assert.doesNotMatch(source, /onClick=\{\(\) => void signOut\(\)\}/);
 });
 

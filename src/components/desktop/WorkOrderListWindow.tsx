@@ -4,9 +4,14 @@ import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-ref
 
 import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
+import GuestGroupBadge from "@/components/GuestGroupBadge";
+import type { RoomGroupBadge } from "@/lib/room-group-badges";
 
+import LoyaltyBadge from "@/components/LoyaltyBadge";
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { authorizationHeaders } from "@/lib/auth/client-session";
+import { subscribeResources } from "@/lib/events/browser";
 import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -21,6 +26,12 @@ export type DesktopWorkOrder = Record<string, unknown> & {
   checkout_date?: string | null;
   checkout_time?: string | null;
   cn_room?: boolean | null;
+  guest_group_badge?: RoomGroupBadge | null;
+  incoming_group_badge?: RoomGroupBadge | null;
+  loyalty_tier?: string|null;
+  incoming_loyalty_tier?: string|null;
+  incoming_reserved?: boolean;
+  room_next_transition_at?: number|null;
   asset_name?: string | null;
   category?: string | null;
   issue?: string | null;
@@ -133,7 +144,7 @@ export function groupWorkOrders<T extends DesktopWorkOrder>(orders: T[], drafts:
 }
 
 const KPI_CARDS: Array<{ key: WorkOrderListFilter; label: string; compactLabel: string; tone: string }> = [
-  { key: "pending", label: "Awaiting Approval", compactLabel: "Pending", tone: "text-purple-200" },
+  { key: "pending", label: "Pending", compactLabel: "Pending", tone: "text-purple-200" },
   { key: "open", label: "Open", compactLabel: "Open", tone: "text-green-200" },
   { key: "progress", label: "In Progress", compactLabel: "Progress", tone: "text-yellow-200" },
   { key: "priority", label: "Urgent / High", compactLabel: "Urgent/High", tone: "text-red-200" },
@@ -148,7 +159,6 @@ const ROW_LIMIT = 200;
 export default function WorkOrderListWindow({
   orders,
   drafts = [],
-  frontDeskLayout = false,
   loading,
   onOpenWorkOrder,
   onOpenDraft,
@@ -162,22 +172,51 @@ export default function WorkOrderListWindow({
 }) {
   const [filter, setFilter] = useState<WorkOrderListFilter>("all");
   const [query, setQuery] = useState("");
-  const [sort,setSort] = useState<WorkOrderSort>("created-newest");
-  const groups = useMemo(() => groupWorkOrders(orders, drafts), [orders, drafts]);
+  const [sort,setSort] = useState<WorkOrderSort>("default");
+  const [page, setPage] = useState(0);
+  const [boundaryVersion,setBoundaryVersion]=useState(0);
+  const [remote, setRemote] = useState<{ orders: DesktopWorkOrder[]; total: number; counts: Record<string, number> } | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const stop = subscribeResources(["orders", "rooms"], async () => {
+      if (active) setPageLoading(true);
+      try {
+        const params = new URLSearchParams({ page: String(page), filter, sort, q: query });
+        const response = await fetch(`/api/work-orders?${params}`, { headers: await authorizationHeaders(), cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Work orders could not be loaded.");
+        if (active) { setRemote({ orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
+      } catch (error) { if (active) setError(error instanceof Error ? error.message : "Work orders could not be loaded."); }
+      finally { if (active) setPageLoading(false); }
+    });
+    return () => { active = false; stop(); };
+  }, [page, filter, sort, query,boundaryVersion]);
+  useEffect(()=>{
+    // A single business-boundary wake-up, not recurring network polling. The
+    // subscription visibility gate defers hidden-window reads until reopening.
+    const boundaries=(remote?.orders||[]).map(order=>order.room_next_transition_at).filter((value):value is number=>typeof value==='number'&&value>Date.now());
+    if(!boundaries.length)return;
+    const timer=setTimeout(()=>setBoundaryVersion(value=>value+1),Math.min(...boundaries)-Date.now()+50);
+    return()=>clearTimeout(timer);
+  },[remote]);
+  const groups = useMemo(() => groupWorkOrders(remote?.orders || orders, page === 0 ? drafts : []), [remote, orders, drafts, page]);
+  const countFor = (key: WorkOrderListFilter) => (remote?.counts[key] ?? groups[key].length) + (remote && ["all", "pending"].includes(key) ? drafts.length : 0);
   const normalizedQuery = query.trim().toLowerCase();
   const matchingRows = normalizedQuery
     ? groups.all.filter((order) => (workOrderReferenceMatches(order.display_id, normalizedQuery) || [...Object.values(order), formatWorkOrder(order.display_id)].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery))))
     : groups[filter];
-  const rows = sortWorkOrders(matchingRows,sort);
+  const rows = remote ? [...matchingRows.filter(row => row.is_draft), ...remote.orders] : sortWorkOrders(matchingRows,sort);
 
   return (
-    <div data-front-desk-list={frontDeskLayout || undefined} className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
+    <div data-front-desk-list={undefined} className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
-        <h1 data-work-order-list-heading tabIndex={-1} className="text-[1.35em] font-bold leading-tight text-white">Work Order List</h1>
+
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
-          <label className="flex min-w-0 items-center gap-[0.3em] text-[0.85em] text-slate-300">Sort
-            <select aria-label="Sort work orders" value={sort} onChange={event=>setSort(event.target.value as WorkOrderSort)} className="min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-900 px-[0.4em] py-[0.45em] text-white focus:border-sky-400">
-              <option value="created-newest">Created: newest first</option>
+          <label className="flex min-w-0 items-center gap-[0.3em] text-[0.85em] text-slate-300">
+            <select aria-label="Sort work orders" data-sort-default={sort==="default"} value={sort} onChange={event=>{setSort(event.target.value as WorkOrderSort);setPage(0);}} className="min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-900 px-[0.4em] py-[0.45em] text-white focus:border-sky-400">
+              <option value="default">Sort by…</option><option value="tier-high">Bonvoy Tier: high to low</option><option value="tier-low">Bonvoy Tier: low to high</option><option value="created-newest">Created: newest first</option>
               <option value="created-oldest">Created: oldest first</option>
               <option value="due-earliest">Due: earliest first</option>
               <option value="due-latest">Due: latest first</option>
@@ -191,34 +230,35 @@ export default function WorkOrderListWindow({
             <input
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {setQuery(event.target.value); setPage(0);}}
               placeholder="Search rooms, locations, or issues..."
               aria-label="Search rooms, locations, or issues"
               className="w-full rounded-md border border-slate-700 bg-slate-900 py-[0.45em] pl-[2em] pr-[2.2em] text-white outline-none placeholder:text-slate-400 focus:border-sky-400"
             />
-            {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
+            {query && <button type="button" onClick={() => {setQuery(""); setPage(0);}} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
           </div>
         </div>
       </header>
 
-      {!frontDeskLayout && <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
+      {true && <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
         {KPI_CARDS.map((card) => {
           const selected = !normalizedQuery && filter === card.key;
           return (
             <button
               key={card.key}
+              data-preview-kpi={card.key}
               type="button"
               title={card.label}
-              aria-label={`${card.label}: ${loading ? "loading" : groups[card.key].length}`}
+              aria-label={`${card.label}: ${loading ? "loading" : countFor(card.key)}`}
               aria-pressed={selected}
-              onClick={() => { setFilter(card.key); setQuery(""); }}
+              onClick={() => { setFilter(card.key); {setQuery(""); setPage(0);}; setPage(0); }}
               className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-slate-800" : "border-slate-700 bg-slate-900 hover:border-slate-500"}`}
             >
               <span className="min-w-0 break-words text-[calc(0.78em+3px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
-                <span className="@md:hidden">{card.compactLabel}</span>
+                <span className="@md:hidden">{card.key==="priority"?<>Urgent/<wbr/>High</>:card.compactLabel}</span>
                 <span className="hidden @md:inline">{card.label}</span>
               </span>
-              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : groups[card.key].length}</span>
+              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : countFor(card.key)}</span>
             </button>
           );
         })}
@@ -238,41 +278,35 @@ export default function WorkOrderListWindow({
               return (
                 <button
                   key={order.id}
+
+                  data-preview-status={order.status}
                   type="button"
                   onClick={() => isDraft && sourceDraftId ? onOpenDraft?.(sourceDraftId) : onOpenWorkOrder(order)}
                   aria-label={`${isDraft ? "Review draft" : "Open work order"} for ${order.room || "No location"}: ${order.issue || "No issue description"}`}
                   className="flex w-full min-w-0 items-center gap-x-[0.5em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >
-                  <div className="flex min-w-0 flex-1 flex-col gap-[0.12em]">
-                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-[0.5em] gap-y-[0.12em]">
-                    <div className="flex min-w-0 flex-wrap items-center gap-[0.25em]">
-                      <span className="font-bold leading-tight text-white">{!isDraft && order.display_id ? `${formatWorkOrder(order.display_id)} · ` : ""}{order.room || "No location"}</span>
-                      {!isDraft && order.cn_room && (
-                        <Image
-                          src="/railway-cn-logo.png"
-                          alt="CN"
-                          width={42}
-                          height={27}
-                          className="h-[1.15em] w-auto rounded-[3px] object-contain"
-                        />
-                      )}
-                      {!isDraft && <WorkOrderImportPill order={order} />}
+                  <div className="preview-row-content">
+                    <div className="preview-row-heading">
+                      <div className="preview-location">
+                        {!isDraft && order.display_id && <span className="preview-wo-number">{formatWorkOrder(order.display_id)}</span>}
+                        <span className="preview-room">{order.room || "No location"}</span>
+                        {!isDraft&&<>{order.cn_room&&<Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge"/>}<GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.loyalty_tier}/></>}
+                        {occupancy&&<span data-preview-room-status className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
+                        {!isDraft && <WorkOrderImportPill order={order} />}
+                      </div>
+                      <div data-preview-pills>
+                        {!isDraft && order.priority && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
+                        <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
+                      </div>
+
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-[0.22em]">
-                      {!isDraft && order.priority && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
-                      <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
-                      <svg aria-hidden="true" viewBox="0 0 20 20" className="size-[0.95em] shrink-0 fill-none stroke-sky-400" strokeWidth="2">
-                        <path d="m7 4 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                  </div>
                   <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
                   {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">Draft — awaiting Chief Engineer approval{order.potential_duplicate === true ? " · Possible duplicate — review" : ""}</span>}
-                  <span className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
+                  <span data-preview-technician className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
+                  <div data-room-occupancy className="preview-incoming">
+                    {!isDraft && order.incoming_reserved&&<><GuestGroupBadge badge={order.incoming_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.incoming_loyalty_tier}/><span className="reserved-pill">Reserved</span></>}
+                    {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   </div>
-                  <div data-room-occupancy className="flex shrink-0 items-center self-center gap-[0.25em]">
-                      {occupancy && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
-                      {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   </div>
                 </button>
               );
@@ -280,8 +314,10 @@ export default function WorkOrderListWindow({
           </div>
         )}
       </div>
+      {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
+      {remote && remote.total > 100 && <nav aria-label="Work order pages" className="flex justify-end gap-2 text-xs"><button disabled={page === 0 || pageLoading} onClick={()=>setPage(p=>p-1)}>Previous</button><span>Page {page+1} of {Math.ceil(remote.total/100)}</span><button disabled={(page+1)*100>=remote.total || pageLoading} onClick={()=>setPage(p=>p+1)}>Next</button></nav>}
       <span role="status" className="shrink-0 text-right text-[0.68em] leading-tight text-slate-400">
-        {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${rows.length}`}
+        {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${remote?.total ?? rows.length}`}
       </span>
     </div>
   );

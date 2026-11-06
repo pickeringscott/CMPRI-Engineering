@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
-import { isSubmitOnlyRole, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
-import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
+import { profileIsChiefEngineer, profileIsEstablishedHoursChief } from "@/lib/server/roles";
 import { isUuid } from "@/lib/uuid";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
@@ -17,6 +16,9 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
   bmp: "image/bmp",
   heic: "image/heic",
   heif: "image/heif",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
 };
 
 type AttachmentContext = {
@@ -34,7 +36,7 @@ function canRemoveSavedPhotos(profile: AttachmentContext["auth"]["principal"]["p
 }
 
 function validPhotoName(name: string) {
-  const match = /^(?:([0-9a-f-]+)_)?([0-9a-f-]+)\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.exec(name);
+  const match = /^(?:([0-9a-f-]+)_)?([0-9a-f-]+)\.(jpg|jpeg|png|gif|webp|bmp|heic|heif|mp4|mov|webm)$/.exec(name);
   return Boolean(match && (!match[1] || isUuid(match[1])) && isUuid(match[2]));
 }
 
@@ -61,6 +63,32 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 }
 
 function hasImageSignature(contentType: string, bytes: Uint8Array) {
+  if(contentType === "video/webm"){
+    if(bytes.length<5||![0x1a,0x45,0xdf,0xa3].every((v,i)=>bytes[i]===v))return false;
+    const vint=(offset:number,keepMarker=false)=>{
+      const first=bytes[offset];if(!first)return null;
+      let length=1,mask=0x80;while(!(first&mask)&&length<=8){length++;mask>>=1}
+      if(length>4||offset+length>bytes.length)return null;
+      let value=keepMarker?first:first&(mask-1);
+      for(let i=1;i<length;i++)value=value*256+bytes[offset+i];
+      return {value,length};
+    };
+    const header=vint(4);if(!header||header.value>4096)return false;
+    const end=4+header.length+header.value;if(end>bytes.length)return false;
+    for(let offset=4+header.length;offset<end;){
+      const id=vint(offset,true);if(!id)return false;offset+=id.length;
+      const size=vint(offset);if(!size)return false;offset+=size.length;
+      if(offset+size.value>end)return false;
+      if(id.value===0x4282)return size.value===4&&String.fromCharCode(...bytes.slice(offset,offset+4))==="webm";
+      offset+=size.value;
+    }
+    return false;
+  }
+  if(contentType === "video/mp4" || contentType === "video/quicktime"){
+    if(bytes.length<12||String.fromCharCode(...bytes.slice(4,8))!=="ftyp")return false;
+    const brand=String.fromCharCode(...bytes.slice(8,12));
+    return contentType==="video/quicktime" ? brand==="qt  " : ["isom","iso2","mp41","mp42","avc1","M4V "].includes(brand);
+  }
   if (contentType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   if (contentType === "image/png") return bytes.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((value, index) => bytes[index] === value);
   if (contentType === "image/gif") return bytes.length >= 6 && String.fromCharCode(...bytes.slice(0, 6)).match(/^GIF8[79]a$/) !== null;
@@ -84,32 +112,11 @@ async function authorizedWorkOrder(request: NextRequest, id: string, mode: "read
     .maybeSingle();
   if (error) return { response: NextResponse.json({ error: "The work order could not be verified." }, { status: 503 }) };
   if (!workOrder) return { response: NextResponse.json({ error: "Work order not found." }, { status: 404 }) };
-  const canEditOrReview = allows(auth.principal, "edit_tickets") || allows(auth.principal, "review_tickets");
-  const canComment = allows(auth.principal, "add_work_order_notes");
-  const isCreator = String(workOrder.created_by || "") === String(auth.principal.identity.id);
-  // Photo submission follows ticket creation while these roles await verification.
-  // This permits only the upload; pending-ticket listing/signing remains restricted.
-  const submittingOwnPendingPhoto = mode === "write"
-    && isCreator
-    && workOrder.status === "Pending Verification"
-    && isSubmitOnlyRole(auth.principal.profile.role)
-    && allows(auth.principal, "submit");
-  if ((roleKey(auth.principal.profile.role) === "technician" || !canEditOrReview)
-    && (allows(auth.principal, "view_work_orders") || canComment)
-    && !submittingOwnPendingPhoto
-    && !["Open", "In Progress"].includes(String(workOrder.status || ""))) {
-    return { response: NextResponse.json({ error: "This role can only view attachments for open work orders." }, { status: 403 }) };
-  }
-  const sharedOpenPhoto = canComment && ["Open", "In Progress"].includes(String(workOrder.status || ""));
-  if (!sharedOpenPhoto && !canAccessWorkOrderByAssignment(auth.principal.profile.role, auth.principal.profile.full_name, workOrder)) {
-    return { response: NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 }) };
-  }
-  const canAccess = isCreator || (mode === "write"
-    ? canEditOrReview || canComment
-    : allows(auth.principal, "view_dashboard") || allows(auth.principal, "view_work_orders") || canEditOrReview || canComment);
-  return canAccess
-    ? { context: { auth, workOrder: workOrder as AttachmentContext["workOrder"] } }
-    : { response: NextResponse.json({ error: mode === "write" ? "Work-order comment, edit, or review access is required." : "Work-order attachment access is required." }, { status: 403 }) };
+  const canRead = allows(auth.principal, 'view_work_orders');
+  const canComment = allows(auth.principal, 'add_work_order_notes');
+  if (!(mode === 'write' ? canRead && canComment : canRead)) return { response: NextResponse.json({ error: 'Work-order attachment access is required.' }, { status: 403 }) };
+  return { context: { auth, workOrder: workOrder as AttachmentContext['workOrder'] } };
+
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -124,13 +131,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const form = await request.formData().catch(() => null);
   const file = form?.get("photo");
   if (!(file instanceof File)) return NextResponse.json({ error: "Choose an image to upload." }, { status: 400 });
-  if (file.size < 1 || file.size > MAX_IMAGE_BYTES) return NextResponse.json({ error: "Images must be 10 MB or smaller." }, { status: 400 });
+  if (file.size < 1 || file.size > MAX_IMAGE_BYTES) return NextResponse.json({ error: "Photos and videos must be 10 MB or smaller." }, { status: 400 });
 
   const extension = (file.name.split(".").pop() || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const contentType = IMAGE_CONTENT_TYPES[extension];
   const declaredType = file.type.toLowerCase();
   if (!contentType || (declaredType && declaredType !== "application/octet-stream" && declaredType !== contentType)) {
-    return NextResponse.json({ error: "Only JPEG, PNG, GIF, WebP, HEIC/HEIF, or BMP images can be attached." }, { status: 400 });
+    return NextResponse.json({ error: "Only supported JPEG, PNG, GIF, WebP, HEIC/HEIF, BMP, MP4, MOV or WebM media can be attached." }, { status: 400 });
   }
   const signature = new Uint8Array(await file.slice(0, 12).arrayBuffer());
   if (!hasImageSignature(contentType, signature)) {
@@ -140,7 +147,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const storagePath = `${attachmentPrefix(id)}/${context.auth.principal.identity.id}_${uploadId || crypto.randomUUID()}.${extension}`;
   const { error: uploadError } = await context.auth.admin.storage
     .from(DOCUMENTATION_BUCKET)
-    .upload(storagePath, file, { contentType, upsert: false, metadata: { uploaded_by: context.auth.principal.identity.id, uploader_name: context.auth.principal.profile.full_name || "CMPRI User", uploader_role: context.auth.principal.profile.role } });
+    .upload(storagePath, file, { contentType, upsert: false, metadata: { original_name:file.name, uploaded_by: context.auth.principal.identity.id, uploader_name: context.auth.principal.profile.full_name || "CMPRI User", uploader_role: context.auth.principal.profile.role } });
   if (uploadError) {
     // Older tabs can retry the same small upload, but cannot overwrite saved bytes.
     if (uploadId) {
@@ -189,12 +196,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return reply({ error: "Invalid photo upload request." }, 400);
     }
     if (!Number.isSafeInteger(body.size) || body.size < 1 || body.size > MAX_IMAGE_BYTES) {
-      return reply({ error: "Images must be 10 MB or smaller." }, 400);
+      return reply({ error: "Photos and videos must be 10 MB or smaller." }, 400);
     }
     const extension = (body.name.split(".").pop() || "").toLowerCase();
     const contentType = IMAGE_CONTENT_TYPES[extension];
     if (!contentType || (body.type && body.type !== "application/octet-stream" && body.type.toLowerCase() !== contentType)) {
-      return reply({ error: "Only JPEG, PNG, GIF, WebP, HEIC/HEIF, or BMP images can be attached." }, 400);
+      return reply({ error: "Only supported JPEG, PNG, GIF, WebP, HEIC/HEIF, BMP, MP4, MOV or WebM media can be attached." }, 400);
     }
     const actor = context.auth.principal.identity.id;
     const storage = context.auth.admin.storage.from(DOCUMENTATION_BUCKET);
@@ -216,7 +223,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (result.error || !result.data) throw new PhotoUploadError("Photo upload is not complete. Retry the photo upload.", 503);
       const file = result.data;
       if (file.size !== body.size || file.size < 1 || file.size > MAX_IMAGE_BYTES) {
-        throw new PhotoUploadError("Images must be 10 MB or smaller and match the selected file.", 400);
+        throw new PhotoUploadError("Photos and videos must be 10 MB or smaller and match the selected file.", 400);
       }
       const bytes = await file.arrayBuffer();
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -246,7 +253,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     // Outbound server-to-Storage transfer is not an incoming Vercel function payload.
     // Store the already verified original bytes, never a second client-controlled object.
     const saved = await storage.upload(destination, image, { contentType, upsert: false, metadata: {
-      uploaded_by: actor, uploader_name: current.context.auth.principal.profile.full_name || "CMPRI User",
+      original_name:body.name, uploaded_by: actor, uploader_name: current.context.auth.principal.profile.full_name || "CMPRI User",
       uploader_role: current.context.auth.principal.profile.role, sha256: body.sha256,
     } });
     if (saved.error && !(await verifiedImage(destination))) {
@@ -278,8 +285,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const images = [];
   for (const file of files || []) {
-    if (!file.name || !/^image\//i.test(String(file.metadata?.mimetype || ""))) continue;
+    if (!file.name || !/^(image|video)\//i.test(String(file.metadata?.mimetype || ""))) continue;
     const path = `${attachmentPrefix(id)}/${file.name}`;
+    // List responses expose system metadata; info exposes upload metadata (camel-cased by the SDK).
+    const {data: info, error: infoError} = await context.auth.admin.storage.from(DOCUMENTATION_BUCKET).info(path);
+    if (infoError) return NextResponse.json({error:"Work-order attachment details could not be loaded."},{status:503});
+    const custom: Record<string, unknown> = info?.metadata || {};
+    const originalName = custom.originalName ?? custom.original_name;
+    const uploaderName = custom.uploaderName ?? custom.uploader_name;
+    const uploaderRole = custom.uploaderRole ?? custom.uploader_role;
+
     const { data: signed, error: signedUrlError } = await context.auth.admin.storage
       .from(DOCUMENTATION_BUCKET)
       .createSignedUrl(path, 60 * 60);
@@ -289,7 +304,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
     images.push({
       id: file.name,
-      name: file.name,
+      name: typeof originalName === "string" && originalName.trim() ? originalName : file.name,
+      type: String(file.metadata?.mimetype || ""),
+      uploader_name: typeof uploaderName === "string" ? uploaderName : undefined,
+      uploader_role: typeof uploaderRole === "string" ? uploaderRole : undefined,
       url: signed.signedUrl,
       can_remove: validPhotoName(file.name) && canRemoveSavedPhotos(context.auth.principal.profile),
       ...(typeof file.created_at === "string" ? { uploaded_at: file.created_at } : {}),

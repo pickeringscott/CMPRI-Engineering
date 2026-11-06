@@ -16,10 +16,10 @@ function fixture({role='technician',status='Open',otherHotel=false,race=false,au
  return {writes,filters,existing,run:(body={notes:['Correct finding'],expected_revision:7})=>route.POST({json:async()=>body,headers:new Headers()}, {params:Promise.resolve({id})})};
 }
 for(const role of ['front_desk','housekeeping','front_desk_manager','assistant_manager','manager','senior_management','technician','engineer','chief_engineer','system_admin']) {
- for(const status of ['Open','In Progress']) test(`${role} appends to another person's ${status} ticket without replacing history`,async()=>{
+ for(const status of ['Pending Verification','Open','In Progress','Completed','Closed','Will Not Do']) test(`${role} appends to another person's ${status} ticket without replacing history`,async()=>{
   const f=fixture({role,status});const r=await f.run();assert.equal(r.status,200);assert.ok(f.writes[0].notes.startsWith(f.existing.notes+'\n'));assert.match(f.writes[0].notes,/Actual Author\|[^|]+\|note\|Correct finding$/);assert.equal(f.writes[0].history_actor_user_id,'actor-id');assert.deepEqual(Object.keys(f.writes[0]).sort(),['history_actor_user_id','history_source','notes']);assert.ok(f.filters.some(([k,v])=>k==='hotel_id'&&v===hotel));assert.ok(f.filters.some(([k,v])=>k==='revision'&&v===7));
  });
- for(const status of ['Closed','Completed','Pending Verification','Will Not Do']) test(`${role} append action denies ${status}`,async()=>{const f=fixture({role,status});assert.equal((await f.run()).status,403);assert.equal(f.writes.length,0)});
+
 }
 test('append validates payload, attribution, isolation, authentication and stale versions',async()=>{
  for(const body of [{notes:['x'],expected_revision:7,status:'Closed'},{notes:['x'],expected_revision:7,actor:'Spoof'},{notes:[],expected_revision:7},{notes:[''],expected_revision:7}]){const f=fixture();assert.equal((await f.run(body)).status,400);assert.equal(f.writes.length,0)}
@@ -28,9 +28,9 @@ test('append validates payload, attribution, isolation, authentication and stale
 });
 
 
-test('technician collaboration does not enable Closed or pending composers',()=>{
+test('recognized commenters can submit notes on every accessible ticket status',()=>{
  const policy=loadTs('src/lib/work-order-edit-policy.ts');
- for(const status of ['Closed','Pending Verification','Completed','Will Not Do']) assert.equal(policy.canSubmitWorkOrderNote({role:'technician',canEdit:false,canReview:false,canAddNotes:true,status}),false,status);
+ for(const status of ['Closed','Pending Verification','Completed','Will Not Do']) assert.equal(policy.canSubmitWorkOrderNote({role:'technician',canEdit:false,canReview:false,canAddNotes:true,status}),true,status);
  for(const status of ['Open','In Progress']) assert.equal(policy.canSubmitWorkOrderNote({role:'technician',canEdit:false,canReview:false,canAddNotes:true,status}),true,status);
 });
 

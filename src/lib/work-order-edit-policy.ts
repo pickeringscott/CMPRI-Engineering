@@ -45,7 +45,7 @@ export function canSubmitWorkOrderNote({
   unassigned?: boolean;
   canClaimUnassigned?: boolean;
 }) {
-  if (canAddNotes && ["Open", "In Progress"].includes(String(status || ""))) return true;
+  if (canAddNotes) return true;
   if (roleKey(role) === "technician") {
     return workOrderEditableFields({
       role,
