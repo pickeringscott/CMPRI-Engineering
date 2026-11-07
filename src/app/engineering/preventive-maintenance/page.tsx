@@ -86,9 +86,9 @@ type ChecklistState = "complete" | "follow-up" | "na";
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
 const TAB_OPTIONS: Array<{ id: PmTab; label: string }> = [
-  { id: "week", label: "Weekly sheet" },
-  { id: "inspections", label: "Inspection forms" },
-  { id: "rooms", label: "Quarterly room PM" },
+  { id: "week", label: "Weekly Sheet" },
+  { id: "inspections", label: "Inspection Forms" },
+  { id: "rooms", label: "Quarterly PM" },
   { id: "history", label: "Maintenance History" },
 ];
 
@@ -196,8 +196,8 @@ function SectionHeading({ eyebrow, title, trailing }: { eyebrow?: string; title:
 }
 
 export default function PreventiveMaintenancePage() {
+  const embedded = useEmbeddedModal();
   const router = useRouter();
-  useEmbeddedModal();
   const [actor, setActor] = useState<PmTaskActor>({ id: "", name: "", role: "manager" });
   const [frequency, setFrequency] = useState("daily");
   const [phoneDay, setPhoneDay] = useState(0);
@@ -373,8 +373,8 @@ export default function PreventiveMaintenancePage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.proposal) throw new Error(result.error || "The PM proposal could not be reviewed.");
       setMessage(decision === "approve"
-        ? "PM proposal approved in CMPRI. Google Sheets sync is disabled; no spreadsheet changes were made."
-        : "PM proposal rejected. No Google Sheets changes were made.");
+        ? "PM proposal approved."
+        : "PM proposal rejected.");
       await loadWeek(weekStart);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "The PM proposal could not be reviewed.";
@@ -543,8 +543,8 @@ export default function PreventiveMaintenancePage() {
       const saved = await persistActive(isComplete);
       setActiveForm((current) => current ? { ...current, scopeKey: saved.scope_key } : current);
       setMessage(isComplete
-        ? `${activeTemplate?.title || "PM form"} saved in CMPRI. Google Sheets sync is disabled.`
-        : "PM draft saved in CMPRI. Google Sheets sync is disabled.");
+        ? `${activeTemplate?.title || "PM form"} saved.`
+        : "PM draft saved.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PM form could not be saved.");
     } finally {
@@ -675,6 +675,34 @@ export default function PreventiveMaintenancePage() {
     setWeekStart(date.toISOString().slice(0, 10));
   }
 
+  const [exportingExcel, setExportingExcel] = useState(false);
+  async function downloadExcel() {
+    setExportingExcel(true); setError("");
+    try {
+      const session = await getValidSession();
+      if (!session?.access_token) throw new Error("Sign in again before exporting PM.");
+      const records = [...entries];
+      if (activeForm && activeTemplate) {
+        const scope = activeScope(activeTemplate, activeForm.scopeKey);
+        const index = records.findIndex(e => e.template_id === activeForm.templateId && e.period_start === activeForm.periodStart && e.scope_key === scope);
+        const draft = { ...activeScopeEntry, template_id: activeForm.templateId, period_start: activeForm.periodStart, scope_key: scope,
+          responses: checklist, form_data: { ...formData, logEntries: repeatableRows }, notes: formNotes,
+          deficiency_notes: deficiencyNotes, completed_on: completedOn || null, is_complete: false, status: "Current form (unsaved)" };
+        if (index >= 0) records.splice(index, 1);
+        records.push(draft as unknown as PmEntry);
+      }
+      const response = await fetch("/api/preventive-maintenance/export", { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ week: weekStart, entries: records }) });
+      if (!response.ok) throw new Error((await response.json()).error || "Excel export failed.");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a"); link.href = url; link.download = `cmpri-pm-${weekStart}.xlsx`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage(`Excel exported in ${(Number(response.headers.get("X-PM-Export-Duration-Ms")) / 1000).toFixed(2)} seconds.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Excel export failed."); }
+    finally { setExportingExcel(false); }
+  }
+
   function downloadTransfer() {
     const rows: string[][] = [["Date / period", "Cadence", "Form / task", "Scope", "Status", "Completion date", "Notes / deficiency", "Source", "Review status"]];
     const routineTemplates = PM_TEMPLATES.filter((template) =>
@@ -763,7 +791,7 @@ export default function PreventiveMaintenancePage() {
     });
     const complete = linkedFinal || saved.some((entry) => entry.is_complete);
     return (
-      <article key={`${template.id}:${periodStart}`} className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+      <article key={`${template.id}:${periodStart}`} className="pm-inspection-card rounded-xl border border-slate-800 bg-slate-950/70 p-2.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -771,8 +799,7 @@ export default function PreventiveMaintenancePage() {
               <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-300">{template.cadence}</span>
               {complete && <span className="rounded-full border border-emerald-500/30 bg-emerald-950/30 px-2 py-0.5 text-[10px] font-bold text-emerald-200">Complete</span>}
             </div>
-            <p className="mt-1 text-xs text-slate-400">{periodLabel(template, periodStart)} · {template.scope}</p>
-            <SourceNote template={template} />
+            <p className="mt-0.5 text-xs text-slate-400">{periodLabel(template, periodStart)} · {template.scope}</p>
             {saved.filter((entry) => entry.scope_key !== newScope).map((entry) => (
               <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
             ))}
@@ -855,35 +882,26 @@ export default function PreventiveMaintenancePage() {
   const monthRoutineTotal = monthTemplates.reduce((sum, template) => sum + template.checklist.length, 0);
 
   return (
-    <main data-pm-mobile="true" className="min-h-screen bg-slate-950 text-white">
+    <main data-pm-mobile="true" data-cmpri-action-surface className="min-h-screen bg-slate-950 text-white">
       <div inert={Boolean(poolRequired)} className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
-        <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div data-cmpri-page-heading>
-            <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-300">CMPRI · Preventive Maintenance</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">Preventive Maintenance</h1>
-            <p className="pm-desktop-only mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician checks retain their original worker. Chief Engineer review is shown by checkbox color.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canReview && <button type="button" onClick={() => setNotificationsOpen(value => !value)} className="rounded-lg border border-slate-600 px-3 py-2">Notifications ({pendingTasks.length})</button>}
-            <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-900">Dashboard</ModalDashboardLink>
-            <button type="button" onClick={downloadTransfer} className="pm-desktop-only rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-900/40">Export weekly CSV</button>
-          </div>
-        </header>
-
-        {canReview && notificationsOpen && <section aria-label="PM notifications" className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-slate-600 p-3">{pendingTasks.length ? pendingTasks.map(task => <button key={`${task.template.id}-${task.period}-${task.item.id}`} type="button" className="block w-full p-2 text-left" onClick={() => focusPendingTask(task)} title={`${task.period} · Completed by ${task.name}`}>Needs Review: {task.item.label} · {dateLabel(task.period)}</button>) : <p>No tasks awaiting review.</p>}</section>}
-        <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-3 sm:p-4" aria-label="Week controls">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <button type="button" aria-label="Previous week" onClick={() => changeWeek(-1)} className="grid h-10 w-10 place-items-center rounded-lg border border-slate-700 text-lg hover:border-emerald-400">‹</button>
-              <label className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm">
-                <span className="sr-only">Week beginning</span>
-                <input type="date" value={weekStart} onChange={(event) => event.target.value && setWeekStart(pmWeekStart(event.target.value))} className="bg-transparent text-white outline-none" />
-              </label>
-              <button type="button" aria-label="Next week" onClick={() => changeWeek(1)} className="grid h-10 w-10 place-items-center rounded-lg border border-slate-700 text-lg hover:border-emerald-400">›</button>
-              <button type="button" onClick={() => setWeekStart(pmWeekStart(today))} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-800">This week</button>
+        {!embedded && <header className="mb-3">
+          <h1 className="text-xl font-bold">Preventive Maintenance</h1>
+        </header>}
+        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-2 sm:p-3" aria-label="Week controls">
+          <div className="pm-toolbar">
+            <div className="pm-date-controls">
+              <button type="button" aria-label="Previous week" onClick={() => changeWeek(-1)}>‹</button>
+              <label><span className="sr-only">Week beginning</span><input type="date" value={weekStart} onChange={(event) => event.target.value && setWeekStart(pmWeekStart(event.target.value))} /></label>
+              <button type="button" aria-label="Next week" onClick={() => changeWeek(1)}>›</button>
             </div>
-            <p className="text-sm font-semibold text-slate-300">{dateLabel(weekStart, { month: "long", day: "numeric", year: "numeric" })} – {dateLabel(weekEnd, { month: "long", day: "numeric", year: "numeric" })}</p>
+            <div className="pm-toolbar-actions">
+              {canReview && <button type="button" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(value => !value)}>Needs Approval ({pendingTasks.length})</button>}
+              <button type="button" onClick={downloadTransfer}>Export Weekly CSV</button>
+
+            </div>
           </div>
+          <div className="pm-date-caption">
+            <button type="button" disabled={exportingExcel} onClick={() => void downloadExcel()}>{exportingExcel ? "Exporting…" : "Export Excel"}</button><span>{dateLabel(weekStart, { month: "long", day: "numeric", year: "numeric" })} – {dateLabel(weekEnd, { month: "long", day: "numeric", year: "numeric" })}</span><button type="button" onClick={() => setWeekStart(pmWeekStart(today))}>This week</button></div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Routine items checked</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Weekly progress</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.percent}%</p></div>
@@ -891,19 +909,16 @@ export default function PreventiveMaintenancePage() {
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Needs follow-up</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold text-amber-200">{deficientCount}</p></div>
           </div>
         </section>
-        <div role="note" className="mt-3 rounded-xl border border-sky-500/30 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
-          Google Sheets sync is temporarily disabled for troubleshooting. PM checklist and form changes are stored in CMPRI only; this workspace will not read from or write to Google Sheets.
-        </div>
 
-        <select aria-label="Mobile PM section" className="pm-mobile-picker" value={tab} onChange={event => setTab(event.target.value as PmTab)}>{TAB_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
-        <nav className="mt-4 flex gap-2 overflow-x-auto border-b border-slate-800 pb-2" aria-label="PM sections">
+        {canReview && notificationsOpen && <section aria-label="PM approvals" className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-600 p-2">{pendingTasks.length ? pendingTasks.map(task => <button key={`${task.template.id}-${task.period}-${task.item.id}`} type="button" className="block w-full p-2 text-left" onClick={() => focusPendingTask(task)} title={`${task.period} · Completed by ${task.name}`}>Needs Review: {task.item.label} · {dateLabel(task.period)}</button>) : <p>No tasks awaiting review.</p>}</section>}
+
+        <nav className="pm-section-tabs" aria-label="PM sections">
           {TAB_OPTIONS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${tab === item.id ? "bg-emerald-400 text-slate-950" : "border border-slate-800 text-slate-300 hover:bg-slate-900"}`}>{item.label}</button>)}
         </nav>
 
         {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
         {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
         {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
-        {!spreadsheetSyncEnabled && !loading && !error && <div role="status" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">Google Sheets integration is disconnected. Checklist states show CMPRI records only; edits and approvals will not be synchronized to the spreadsheet.</div>}
 
 
         {tab === "week" && (
@@ -943,7 +958,7 @@ export default function PreventiveMaintenancePage() {
             </section>
             <section>
               <SectionHeading eyebrow="PDF checklists and logs" title="Inspections due this week" trailing={<button type="button" onClick={() => setTab("inspections")} className="text-sm font-bold text-emerald-300 hover:underline">Browse all forms</button>} />
-              {formPeriods.length ? <div className="mt-3 grid gap-3 xl:grid-cols-2">{formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}</div> : <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No separate PDF forms are scheduled for this week.</p>}
+              {formPeriods.length ? <div className="mt-2 grid gap-2 xl:grid-cols-2">{formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}</div> : <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No separate PDF forms are scheduled for this week.</p>}
               {monthRoutineTotal > 0 && <p className="mt-3 text-xs text-slate-500">Monthly checklist checkboxes completed: {monthRoutineDone} / {monthRoutineTotal}. Keep the checklist and linked inspection form in sync.</p>}
             </section>
           </div>
@@ -1143,6 +1158,7 @@ export default function PreventiveMaintenancePage() {
               {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">Open linked work order</button>}
 
               <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-4">
+                <button type="button" disabled={exportingExcel} onClick={() => void downloadExcel()} className="rounded-lg border px-4 py-2.5 text-sm font-bold">{exportingExcel ? "Exporting…" : "Export Excel"}</button>
                 <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(false)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-200 disabled:opacity-40">{savingKey === "active-form" ? "Saving…" : "Save draft"}</button>
                 <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">Mark complete</button>
               </footer>

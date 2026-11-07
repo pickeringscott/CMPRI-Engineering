@@ -91,7 +91,7 @@ test('inner embedded forms get first refusal on Escape before the host closes', 
 });
 
 test('embedded pages keep their existing actions without an injected navigation toolbar', () => {
-  assert.match(source, /aria-label=\{`Close \$\{entry\.title\}`\}/);
+  assert.match(source, /aria-label=\{`Close \$\{displayTitle\}`\}/);
   assert.doesNotMatch(source, /pageHeader\.style\.display = "none"/);
   assert.doesNotMatch(source, /h-11 shrink-0 items-center justify-end border-b/);
   assert.doesNotMatch(source, /document\.createElement\("a"\)/);
@@ -114,7 +114,7 @@ test('global route modals scale down from their dashboard and retain usable mobi
     const purchasing = href.includes('/engineering/purchasing');
     for (const index of [0, 1, 2]) {
       const result = {};
-      vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, modalThemeStyle:()=>({}),modalActionForRoute:()=>"" });
+      vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
       const scale = 0.9 ** (index + 1);
       const inset = (detail ? 24 : 16) * scale;
       assert.deepEqual({ ...result.panelStyle }, {

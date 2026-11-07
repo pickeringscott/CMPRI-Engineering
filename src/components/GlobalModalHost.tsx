@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
-import {modalActionForRoute,modalThemeStyle,modalTitleStyle} from '@/lib/ui/header-palette';
+import {modalActionForRoute,modalThemeStyle,modalTitleStyle,modalDisplayTitle} from '@/lib/ui/header-palette';
 import WorkOrderGuestIndicators from './WorkOrderGuestIndicators';
 
 type ModalEntry = {
@@ -143,7 +143,7 @@ export default function GlobalModalHost() {
     const closeOnEscape = (keyEvent: KeyboardEvent) => {
       if (keyEvent.key === "Escape") {
         if (keyEvent.defaultPrevented) return;
-        if (document.querySelector('[role="listbox"], [role="dialog"][aria-modal="true"]')) return;
+        if (document.querySelector('dialog[open], [role="listbox"], [role="dialog"][aria-modal="true"]')) return;
         keyEvent.preventDefault();
         keyEvent.stopPropagation();
         requestModalClose(entry.id);
@@ -464,6 +464,7 @@ export default function GlobalModalHost() {
         const isTop = index === stack.length - 1;
         const scale = 0.9 ** (index + 1);
         const entryPath = entry.href.replace(/^https?:\/\/[^/]+/, "");
+        const displayTitle = modalDisplayTitle(entryPath,entry.title);
         const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(entryPath);
         const isPurchasing = entryPath === "/engineering/purchasing";
         const isRoomRanking = entryPath.split("?")[0] === "/engineering/room-ranking";
@@ -484,7 +485,7 @@ export default function GlobalModalHost() {
             <div
               role="dialog"
               aria-modal={isTop}
-              aria-label={entry.title}
+              aria-label={displayTitle}
               data-cmpri-modal-theme="true"
               aria-hidden={!isTop}
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
@@ -492,9 +493,9 @@ export default function GlobalModalHost() {
             >
               <div className="cmpri-desktop-titlebar" style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
                 <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />
-                <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+                <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
                 {entry.guest && <WorkOrderGuestIndicators guest={entry.guest} />}
-                <button type="button" className="cmpri-desktop-close" aria-label={`Close ${entry.title}`} onClick={()=>requestModalClose(entry.id)}>×</button>
+                <button type="button" className="cmpri-desktop-close" aria-label={`Close ${displayTitle}`} onClick={()=>requestModalClose(entry.id)}>×</button>
               </div>
               <iframe
                 allow="camera"
@@ -506,7 +507,7 @@ export default function GlobalModalHost() {
                     frameRefs.current.delete(entry.id);
                   }
                 }}
-                title={entry.title}
+                title={displayTitle}
                 src={entry.href}
                 scrolling="yes"
                 onLoad={(event) => handleEmbeddedLoad(event, entry)}

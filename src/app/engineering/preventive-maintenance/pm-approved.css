@@ -217,3 +217,43 @@
 [data-pm-mobile] button[role="checkbox"][data-preview-status]:disabled,
 [data-pm-mobile] button[role="checkbox"][data-preview-status]::before,
 .legend-symbol{opacity:1!important;filter:none!important;font-weight:800!important}
+
+/* One compact toolbar and one section row at both device sizes. */
+[data-pm-mobile] .pm-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+[data-pm-mobile] .pm-date-controls,[data-pm-mobile] .pm-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;flex-wrap:nowrap}
+[data-pm-mobile] .pm-toolbar button{border:1px solid var(--cmpri-outline);border-radius:5px;padding:4px 7px;white-space:nowrap;font-size:12px;min-height:30px}
+[data-pm-mobile] .pm-date-controls label{padding:0;border:0;min-width:0}
+[data-pm-mobile] .pm-date-controls input{border:1px solid var(--cmpri-outline);border-radius:5px;background:var(--cmpri-modal-base);padding:3px;font-size:12px;width:130px}
+[data-pm-mobile] .pm-date-caption{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:5px;font-size:11px;color:var(--cmpri-modal-text)}
+[data-pm-mobile] .pm-date-caption button{padding:2px 5px;min-height:24px;font-size:11px;white-space:nowrap}
+[data-pm-mobile] nav.pm-section-tabs{display:grid;grid-template-columns:1fr 1.3fr 1.1fr 1.6fr;gap:4px;margin-top:8px;padding-bottom:5px;border-bottom:1px solid var(--cmpri-outline);overflow:visible}
+[data-pm-mobile] nav.pm-section-tabs button{white-space:nowrap;min-width:0;max-width:100%;padding:6px 4px;font-size:12px;border-radius:5px}
+[data-pm-mobile] .pm-inspection-card>div{gap:6px}
+@media(max-width:640px){
+ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-toolbar{gap:3px!important;flex-wrap:nowrap!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-toolbar>div{gap:3px!important;flex-wrap:nowrap!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-toolbar button{font-size:8px!important;height:30px!important;min-height:30px!important;padding:2px 2px!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-date-controls input{width:86px!important;height:30px!important;font-size:9px!important;padding:0 1px!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-date-controls label{height:30px!important;padding:0!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] .pm-toolbar button[aria-label]{width:17px!important;padding:0!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] nav.pm-section-tabs{display:grid!important;grid-template-columns:1fr 1.3fr 1.1fr 1.6fr!important;gap:3px!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] nav.pm-section-tabs button{font-size:clamp(8px,2.2vw,11px)!important;padding:5px 2px!important;min-height:30px!important;line-height:1.2!important;white-space:nowrap!important}
+ [data-pm-mobile] .pm-date-caption{font-size:9px}
+ [data-pm-mobile] .pm-date-caption button{min-height:24px!important;font-size:10px!important}
+ [data-pm-mobile] .pm-inspection-card{padding:7px!important}
+}
+
+[data-pm-mobile][data-cmpri-action-surface] button[role=checkbox][data-preview-status],
+[data-pm-mobile][data-cmpri-action-surface] button[role=checkbox][data-preview-status]::before,
+[data-pm-mobile][data-cmpri-action-surface] .pm-legend i {
+ background-color:var(--cmpri-modal-surface)!important;border-color:var(--cmpri-outline)!important;
+}
+[data-pm-mobile][data-cmpri-action-surface] button[role=checkbox]:focus-visible {
+ outline-color:rgb(var(--cmpri-action-rgb));
+}
+@media(max-width:640px){
+ html[data-cmpri-embedded=true] main[data-pm-mobile] section[aria-label="Week controls"] .pm-toolbar.pm-toolbar button{height:30px!important;min-height:30px!important;padding:1px!important;font-size:9px!important;flex:0 0 auto}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] section[aria-label="Week controls"] .pm-date-controls input{width:84px!important;min-width:0!important;padding:0 1px!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] section[aria-label="Week controls"] .pm-date-controls label{height:30px!important;padding:0!important}
+ html[data-cmpri-embedded=true] main[data-pm-mobile] section[aria-label="Week controls"] .pm-toolbar button[aria-label]{width:18px!important;padding:0!important}
+}

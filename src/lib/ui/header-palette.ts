@@ -3,6 +3,7 @@ const names = ["Work Order List", "Daily Room Ops", "Staff Notes", "Pool Log", "
 const colors = ["#F3BB75", "#CF90FE", "#FE8B9C", "#62B5F1", "#EFE653", "#75DFB4"];
 export function headerActionStyle(label: string): Record<string,string> {
   label = label.replace(/ \(\d+\)$/,'');
+  if (label === 'Manage Locations') label = 'Manage Rooms';
   if (label === "Sign Out") return {"background-color":"#2a1721","border-color":"#73333e",color:"#fecaca","--action-rgb":"200,100,115","box-shadow":"none"};
   const index = names.indexOf(label);
   if (index < 0 && !label.includes("Maintenance")) return {};
@@ -41,7 +42,7 @@ function modalAction(title: string) {
 
 export function modalActionForRoute(href: string, title = '') {
   const path = href.split('?')[0];
-  const routes: Record<string,string> = { '/work-orders':'Create Work Order', '/engineering/room-operations':'Daily Room Ops', '/engineering/room-ranking':'Room Ranker', '/engineering/preventive-maintenance':'Preventive Maintenance', '/engineering/pool-log':'Pool Log', '/pool':'Pool', '/staff-notes':'Staff Notes', '/profile':'Manage Profile', '/engineering/hours-tracker':'Hours Tracker', '/management/rooms':'Manage Rooms', '/management/users':'Manage Users', '/management/equipment':'Assets', '/engineering/parts':'Inventory', '/engineering/purchasing':'PO', '/engineering/gss':'GSS Reports', '/engineering/enseo-assignments':'Enseo Assignments', '/engineering/employment':'Candidate questionnaires', '/feedback':'Feedback' };
+  const routes: Record<string,string> = { '/work-orders':'Create Work Order', '/engineering/room-operations':'Daily Room Ops', '/engineering/room-ranking':'Room Ranker', '/engineering/preventive-maintenance':'Preventive Maintenance', '/engineering/pool-log':'Pool Log', '/pool':'Pool', '/staff-notes':'Staff Notes', '/profile':'Manage Profile', '/engineering/hours-tracker':'Hours Tracker', '/management/rooms':'Manage Locations', '/management/users':'Manage Users', '/management/equipment':'Assets', '/engineering/parts':'Inventory', '/engineering/purchasing':'PO', '/engineering/gss':'GSS Reports', '/engineering/enseo-assignments':'Enseo Assignments', '/engineering/employment':'Candidate questionnaires', '/feedback':'Feedback' };
   return routes[path] || (path.startsWith('/work-orders/') ? 'Work Order Detail' : modalAction(title));
 }
 
@@ -58,4 +59,8 @@ export function modalThemeStyle(action: string): Record<string,string> {
     '--cmpri-scroll-thumb': `rgba(${rgb},.28)`,
     borderColor: `rgba(${rgb},.42)`,
   };
+}
+
+export function modalDisplayTitle(href: string, title: string) {
+  return href.split(/[?#]/)[0] === '/management/rooms' ? 'Manage Locations' : title;
 }

@@ -145,3 +145,32 @@ export async function PATCH(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ location: data });
 }
+
+export async function POST(request: NextRequest) {
+  const auth = await requireCapability(request, "manage_rooms");
+  if (!auth) return NextResponse.json({ error: "Location creation permission is required." }, { status: 403 });
+  const body = await bodyObject(request);
+  if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
+  const fields = ["area", "name", "room_number", "location_type"] as const;
+  if (Object.keys(body).some(key => !fields.some(field => field === key))) {
+    return NextResponse.json({ error: "Unsupported location field." }, { status: 400 });
+  }
+  const values: Record<string, string | null> = {};
+  for (const field of fields) {
+    const value = body[field];
+    if (value != null && typeof value !== "string") return NextResponse.json({ error: `Invalid ${field}.` }, { status: 400 });
+    const normalized = typeof value === "string" ? value.trim() : "";
+    if (normalized.length > 200) return NextResponse.json({ error: `${field} is too long.` }, { status: 400 });
+    values[field] = normalized || null;
+  }
+  if (!values.name || !values.area) return NextResponse.json({ error: "Location name and area are required." }, { status: 400 });
+  if (values.room_number && !/^[A-Za-z0-9 -]{1,20}$/.test(values.room_number)) {
+    return NextResponse.json({ error: "Room number contains unsupported characters." }, { status: 400 });
+  }
+  const { data, error } = await auth.admin.from("locations")
+    .insert({ ...values, location_type: values.location_type || "General", hotel_id: HOTEL_ID, active: true })
+    .select("id, area, name, room_number, location_type, active")
+    .single();
+  if (error) return NextResponse.json({ error: error.code === "23505" ? "A location with that name already exists in this area." : "Location could not be added." }, { status: error.code === "23505" ? 409 : 400 });
+  return NextResponse.json({ location: data }, { status: 201, headers: { "Cache-Control": "no-store" } });
+}

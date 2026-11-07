@@ -16,7 +16,7 @@ test('PM workspace loads CMPRI records and stages technician saves', () => {
   assert.match(page, /\/api\/preventive-maintenance\/review/);
   assert.match(page, /status === "pending"/);
   assert.match(page, /\/api\/preventive-maintenance\/task/);
-  assert.match(page, /Google Sheets sync is temporarily disabled/);
+  assert.doesNotMatch(page, /Google Sheets sync is temporarily disabled|Google Sheets integration is disconnected/);
   assert.match(proposalRoute, /workbook: emptyPmWorkbook\(week\)/);
   assert.match(proposalRoute, /spreadsheet_sync_enabled: false/);
   assert.doesNotMatch(page, /\/api\/corporate-pm/);

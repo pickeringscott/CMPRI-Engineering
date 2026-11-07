@@ -193,3 +193,23 @@ html[data-cmpri-framed=true] :is([data-cmpri-page-heading],[data-cmpri-standalon
 .cmpri-desktop-window-body :is([data-cmpri-page-heading],[data-cmpri-standalone-close]) {
   display:none!important;
 }
+
+/* Action colors follow the palette of these workflow surfaces; approval marks retain status colors. */
+[data-cmpri-action-surface] button:not([role=checkbox]) {
+ background-color:rgba(var(--cmpri-action-rgb),.14)!important;
+ border-color:var(--cmpri-outline)!important;
+ color:var(--cmpri-modal-text)!important;
+}
+[data-cmpri-action-surface] button:not([role=checkbox]):is(:hover,:focus-visible) {
+ background-color:rgba(var(--cmpri-action-rgb),.23)!important;
+}
+[data-cmpri-action-surface] button:not([role=checkbox]):is([aria-pressed=true],[aria-current=page],[data-cmpri-primary]) {
+ background-color:rgb(var(--cmpri-action-rgb))!important;
+ color:var(--cmpri-modal-base)!important;
+}
+[data-cmpri-action-surface] button:not([role=checkbox])[aria-expanded=true] {
+ background-color:rgba(var(--cmpri-action-rgb),.23)!important;
+}
+[data-cmpri-action-surface] button:not([role=checkbox]):focus-visible {
+ outline:2px solid rgb(var(--cmpri-action-rgb));outline-offset:2px;
+}

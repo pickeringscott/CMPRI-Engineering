@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
-import {headerActionStyle,modalThemeStyle,modalTitleStyle,modalActionForRoute} from '../src/lib/ui/header-palette.ts';
+import {headerActionStyle,modalThemeStyle,modalTitleStyle,modalActionForRoute,modalDisplayTitle} from '../src/lib/ui/header-palette.ts';
 test('every action retains the actual approved Coral Glow mapping, including numbered Feedback labels',()=>{
  const html=readFileSync('.bridge/ChatGPT Errors/CMPRI-selected-tabbed-pills (2).html','utf8');
  const inventory=JSON.parse(html.match(/const inventories=(\{[^\n]+\});/)[1]);const palettes=JSON.parse(html.match(/const previewPalettes=(\[[^\n]+\]);/)[1]);
@@ -30,4 +30,12 @@ test('approved create and detail palettes resolve consistently for embedded rout
  }
  assert.equal(modalThemeStyle('Work Order List')['--cmpri-action-rgb'],'243,187,117');
  assert.deepEqual(modalThemeStyle('+ Work Order'),modalThemeStyle('Create Work Order'));
+});
+
+test('Manage Locations keeps the approved location palette and labels both hosts consistently',()=>{
+ assert.deepEqual(headerActionStyle('Manage Locations'),headerActionStyle('Manage Rooms'));
+ assert.equal(modalActionForRoute('/management/rooms?embedded=1'),'Manage Locations');
+ assert.equal(modalDisplayTitle('/management/rooms','Manage Rooms'),'Manage Locations');
+ assert.equal(modalDisplayTitle('/management/rooms?embedded=1','Rooms'),'Manage Locations');
+ assert.equal(modalDisplayTitle('/work-orders','Create Work Order'),'Create Work Order');
 });

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import PoolSpecs from "./PoolSpecs";
+import "./pool-log.css";
 import { getValidSession } from "@/lib/supabase/client";
 import {
   bromineBands,
@@ -340,7 +342,7 @@ export default function PoolLogPage() {
   const warnClass = "mt-1 text-xs font-bold text-amber-300";
 
   return (
-    <main className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
+    <main data-pool-log data-cmpri-action-surface className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
       <div className="mx-auto w-full space-y-4">
         {!embedded && <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -363,15 +365,7 @@ export default function PoolLogPage() {
           </div>
         </div>}
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm print:border-black print:bg-white">
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            <div><span className="text-slate-400 print:text-black">Inspection volume</span><div className="font-bold">{CMPRI_POOL.inspectionVolumeGallons.toLocaleString()} gal</div></div>
-            <div><span className="text-slate-400 print:text-black">Chemical dosing basis</span><div className="font-bold">{CMPRI_POOL.dosingBasisGallons.toLocaleString()} gal</div></div>
-            <div><span className="text-slate-400 print:text-black">Required flow</span><div className="font-bold">{CMPRI_POOL.requiredFlowGpm} GPM</div></div>
-            <div><span className="text-slate-400 print:text-black">Observed 06/23/2026</span><div className="font-bold">{CMPRI_POOL.observedFlowGpm20260623} GPM</div></div>
-          </div>
-          <p className="mt-3 text-xs text-slate-400 print:text-black">One water sample per test. Readings are still taken AM and PM: each sample&apos;s pH + bromine is recorded for both the shallow and deep fields, as one shared sample with collection location unspecified. Water temperature, flow rate, main drain, and filter backwash are daily checks recorded once per day. The PM sample can be added later without changing the saved AM readings. This page records results only—it does not calculate chemical doses or certify pool opening.</p>
-        </section>
+        <div className="flex justify-end print:hidden"><PoolSpecs /></div>
 
         <section className="print:hidden">
           <div className="flex flex-wrap gap-3">
@@ -392,13 +386,13 @@ export default function PoolLogPage() {
                 <ul className="mt-2 list-inside list-disc">{readingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
               </section> : null}
               <fieldset disabled={!canEditForm || saving} className="space-y-4 disabled:opacity-80">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="pool-water-samples">
                   {periods.map((period) => {
                     const label = period.toUpperCase();
                     const ph = form[`ph_${period}`];
                     const band = form[`sanitizer_band_${period}`];
                     const complete = filled(ph) && filled(band);
-                    return <section key={period} className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+                    return <section key={period} className="pool-water-sample rounded-xl border border-slate-700 bg-slate-900 p-3">
                       <div className="flex items-center justify-between">
                         <h2 className="font-bold">{label} water sample</h2>
                         <span className={complete ? "rounded-full bg-emerald-900 px-2 py-0.5 text-xs font-bold text-emerald-200" : "rounded-full bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400"}>{complete ? (savedValue(saved, `ph_${period}`) ? "Saved" : "Complete") : "Not recorded"}</span>
@@ -457,8 +451,10 @@ export default function PoolLogPage() {
                     </label>)}
                   </div>
                 </section>
-                <label className="flex gap-2"><input type="checkbox" disabled={saved?.requires_attention === true && !editingSavedLog} checked={form.requires_attention === true} onChange={(event) => change("requires_attention", event.target.checked)} />Attention needed</label>
-                <label className="flex gap-2"><input type="checkbox" disabled={saved?.manual_closure === true && !editingSavedLog} checked={form.manual_closure === true} onChange={(event) => change("manual_closure", event.target.checked)} />Keep closed for another reason (independent of test results)</label>
+                <div className="pool-flags">
+                  <label><input type="checkbox" disabled={saved?.requires_attention === true && !editingSavedLog} checked={form.requires_attention === true} onChange={(event) => change("requires_attention", event.target.checked)} /><span>Attention Needed</span></label>
+                  <label title="Independent of test results"><input type="checkbox" disabled={saved?.manual_closure === true && !editingSavedLog} checked={form.manual_closure === true} onChange={(event) => change("manual_closure", event.target.checked)} /><span>Keep Closed for Another Reason</span></label>
+                </div>
                 {saved?.closure_condition === true && saved.manual_closure == null ? <p className="text-amber-200">This older closure has no recorded source. Its reason must be classified before a passing test can clear it automatically.</p> : null}
                 {(closureRequired || saved?.closure_reason) ? <label className="block font-semibold text-red-200">Closure reason / actions (required)<textarea id="pool-closure_reason" required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} placeholder="Why the pool is closed and what was done (for example, adjusted chemicals, retest scheduled)." onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
                 <label className="block">Remarks / actions taken<textarea value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
@@ -467,7 +463,7 @@ export default function PoolLogPage() {
                 <h2 className="font-bold">Still needed before saving</h2>
                 <ul className="mt-1 list-inside list-disc">{stillNeeded.map(([id, text]) => <li key={id + text}><button type="button" className="underline" onClick={() => document.getElementById(id)?.focus()}>{text}</button></li>)}</ul>
               </section> : null}
-              {canEditForm ? <button type="submit" disabled={saving || !dirty} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : saved && !editingSavedLog ? "Add to today's pool log" : "Save pool log"}</button> : <p className="text-slate-300">View-only access</p>}
+              <div className="pool-save-actions">{canEditForm ? <button type="submit" data-cmpri-primary disabled={saving || !dirty} className="rounded-lg px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : saved && !editingSavedLog ? "Add to today's pool log" : "Save Pool Log"}</button> : <p className="text-slate-300">View-only access</p>}</div>
               {saved && canEditForm ? <p className="text-sm text-slate-400">Saved readings are locked.{canEditSavedLog ? " Select Edit saved log to correct them." : " Only a System Administrator, General Manager or Assistant General Manager can change them."} Empty fields (such as the PM sample) can still be added.</p> : null}
               {saved ? <p className="text-sm text-slate-400">Recorded by {saved.completed_by_initials} · Revision {saved.revision}</p> : null}
             </form>

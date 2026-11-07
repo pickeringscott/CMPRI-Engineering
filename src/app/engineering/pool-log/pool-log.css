@@ -1,0 +1,20 @@
+[data-pool-log] .pool-water-samples{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+[data-pool-log] .pool-water-sample{min-width:0}
+[data-pool-log] .pool-flags{display:flex;flex-direction:column;gap:4px}
+[data-pool-log] .pool-flags label{display:grid;grid-template-columns:14px minmax(0,1fr);align-items:center;gap:5px;font-size:12px;line-height:1.3;margin:0}
+[data-pool-log] .pool-flags input[type=checkbox]{width:14px;height:14px;min-width:14px;min-height:14px!important;margin:0;padding:0!important;accent-color:rgb(var(--cmpri-action-rgb,98,181,241))}
+[data-pool-log] .pool-save-actions{display:flex;justify-content:flex-end;width:100%}
+.pool-specs{position:fixed;inset:0;margin:auto;width:min(640px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--cmpri-outline);border-radius:8px;background:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);overflow:auto}
+.pool-specs::backdrop{background:#020617b3}
+.pool-specs>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;background:rgba(var(--cmpri-action-rgb),.14);border-bottom:1px solid var(--cmpri-outline)}
+.pool-specs>header h2{font-size:14px!important;font-weight:700;margin:0}
+.pool-specs>header button{width:28px;min-height:28px!important;padding:0;font-size:20px!important;line-height:1}
+.pool-specs-body{padding:8px}
+@media(max-width:640px){
+ [data-pool-log] .pool-water-samples{gap:6px}
+ [data-pool-log] .pool-water-sample{padding:8px!important}
+ [data-pool-log] .pool-water-sample h2{font-size:12px!important}
+ [data-pool-log] .pool-water-sample label{font-size:11px!important;line-height:1.3}
+ [data-pool-log] .pool-water-sample select{font-size:12px!important;width:100%;min-width:0;padding-left:4px!important;padding-right:2px!important}
+ [data-pool-log] .pool-water-sample>div:first-child{gap:3px;flex-wrap:wrap}
+}
