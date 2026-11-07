@@ -1,6 +1,7 @@
 "use client";
 
 import {modalTitleStyle,modalThemeStyle,modalActionForRoute,modalDisplayTitle} from "@/lib/ui/header-palette";
+import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import WorkOrderGuestIndicators from '@/components/WorkOrderGuestIndicators';
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
@@ -119,6 +120,7 @@ export default function DesktopWindow({
         <span aria-hidden="true" style={{backgroundColor:modalTitleStyle(modalActionForRoute(windowKey,title)).borderColor}} className={`size-2 shrink-0 rounded-full ${accentClass}`} />
         <span id={titleId} className="min-w-0 flex-1 truncate">{displayTitle}</span>
         {guest && <WorkOrderGuestIndicators guest={guest} />}
+        {windowKey === "work-order-list" && <WorkOrderTierKey />}
         <button type="button" data-cmpri-window-close="true" aria-label={`Close ${displayTitle}`} title="Close" onClick={onClose} className="cmpri-desktop-close">
           <svg aria-hidden="true" viewBox="0 0 10 10" className="size-2.5"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
         </button>
