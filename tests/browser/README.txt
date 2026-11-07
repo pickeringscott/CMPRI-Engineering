@@ -35,3 +35,11 @@ daily_ops_files.py checks the compact Daily Ops picker at desktop/mobile widths:
 click/drop staging without requests, red removal controls, explicit Submit,
 scan extraction, retained review/confirmation, failed-save retry and unchanged
 General Manager upload restrictions.
+
+modal_palette_cleanup.py verifies the approved Steel Blue create modal, Dusty
+Indigo work-order detail, and Eucalyptus Hours Tracker at phone and desktop
+widths. It also checks Room Ranker floor expansion, four summary filters,
+redundant heading/close suppression, searchable dropdowns, and the unchanged
+unsaved-hours close guard. All APIs are intercepted with local fixtures; this
+test produces JSON results without a visual preview. It runs at the end of
+npm run test:approved-ui, or can be run directly with the same localhost setup.

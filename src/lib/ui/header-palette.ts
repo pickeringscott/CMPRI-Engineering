@@ -11,9 +11,26 @@ export function headerActionStyle(label: string): Record<string,string> {
   return {"background-color":`rgba(${rgb.join(',')},0.14)`,"border-color":`rgba(${rgb.join(',')},0.42)`,color:`rgb(${rgb.map(value=>Math.round(value*.18+255*.82)).join(',')})`,"--action-rgb":rgb.join(','),"box-shadow":"none"};
 }
 
+/** Approved work-order modal schemes; dashboard action colors keep their inventory mapping. */
+function modalPaletteStyle(action: string): Record<string,string> {
+  const scheme = action === 'Create Work Order' || action === '+ Work Order'
+    ? { rgb: '148,180,206', base: '#101319' }
+    : action === 'Work Order Detail' || action === 'Work Order'
+      ? { rgb: '162,171,209', base: '#11131a' }
+      : action === 'Hours Tracker' ? { rgb: '142,189,170', base: '#101512' } : null;
+  if (!scheme) return headerActionStyle(modalAction(action));
+  return {
+    '--action-rgb': scheme.rgb,
+    '--modal-base': scheme.base,
+    'background-color': `color-mix(in srgb, rgb(${scheme.rgb}) 16%, ${scheme.base})`,
+    'border-color': `color-mix(in srgb, rgb(${scheme.rgb}) 32%, ${scheme.base})`,
+    color: `color-mix(in srgb, rgb(${scheme.rgb}) 12%, #ffffff)`,
+  };
+}
+
 /** React style projection shares the exact approved button colors with modal title bars. */
 export function modalTitleStyle(title: string) {
-  const palette=headerActionStyle(modalAction(title));
+  const palette=modalPaletteStyle(title);
   return {backgroundColor:palette["background-color"],borderColor:palette["border-color"],color:palette.color};
 }
 
@@ -24,17 +41,18 @@ function modalAction(title: string) {
 
 export function modalActionForRoute(href: string, title = '') {
   const path = href.split('?')[0];
-  const routes: Record<string,string> = { '/work-orders':'Work Order List', '/engineering/room-operations':'Daily Room Ops', '/engineering/room-ranking':'Room Ranker', '/engineering/preventive-maintenance':'Preventive Maintenance', '/engineering/pool-log':'Pool Log', '/pool':'Pool', '/staff-notes':'Staff Notes', '/profile':'Manage Profile', '/engineering/hours-tracker':'Hours Tracker', '/management/rooms':'Manage Rooms', '/management/users':'Manage Users', '/management/equipment':'Assets', '/engineering/parts':'Inventory', '/engineering/purchasing':'PO', '/engineering/gss':'GSS Reports', '/engineering/enseo-assignments':'Enseo Assignments', '/engineering/employment':'Candidate questionnaires', '/feedback':'Feedback' };
-  return routes[path] || (path.startsWith('/work-orders/') ? 'Work Order List' : modalAction(title));
+  const routes: Record<string,string> = { '/work-orders':'Create Work Order', '/engineering/room-operations':'Daily Room Ops', '/engineering/room-ranking':'Room Ranker', '/engineering/preventive-maintenance':'Preventive Maintenance', '/engineering/pool-log':'Pool Log', '/pool':'Pool', '/staff-notes':'Staff Notes', '/profile':'Manage Profile', '/engineering/hours-tracker':'Hours Tracker', '/management/rooms':'Manage Rooms', '/management/users':'Manage Users', '/management/equipment':'Assets', '/engineering/parts':'Inventory', '/engineering/purchasing':'PO', '/engineering/gss':'GSS Reports', '/engineering/enseo-assignments':'Enseo Assignments', '/engineering/employment':'Candidate questionnaires', '/feedback':'Feedback' };
+  return routes[path] || (path.startsWith('/work-orders/') ? 'Work Order Detail' : modalAction(title));
 }
 
 export function modalThemeStyle(action: string): Record<string,string> {
-  const palette = headerActionStyle(modalAction(action));
+  const palette = modalPaletteStyle(action);
   const rgb = palette['--action-rgb'] || '243,187,117';
+  const base = palette['--modal-base'] || '#0f172a';
   return {
     '--cmpri-action-rgb': rgb,
-    '--cmpri-modal-base': '#0f172a',
-    '--cmpri-modal-surface': `color-mix(in srgb, rgb(${rgb}) 5.5%, #0f172a)`,
+    '--cmpri-modal-base': base,
+    '--cmpri-modal-surface': `color-mix(in srgb, rgb(${rgb}) 5.5%, ${base})`,
     '--cmpri-modal-text': palette.color || 'rgb(253,243,230)',
     '--cmpri-outline': `rgba(${rgb},.42)`,
     '--cmpri-scroll-thumb': `rgba(${rgb},.28)`,

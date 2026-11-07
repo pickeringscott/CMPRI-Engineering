@@ -26,7 +26,7 @@ export default function DrivePoIntakePage(){
  }
  const active=status?.channels.find(c=>c.status==='active'&&Date.parse(c.expires_at)>Date.parse(status.checkedAt));
  return <main className="mx-auto max-w-4xl space-y-5 p-6">
-  <h1 className="text-2xl font-semibold">Purchase order Drive intake</h1>
+  <h1 data-cmpri-page-heading className="text-2xl font-semibold">Purchase order Drive intake</h1>
   <p>New PDFs in <a className="underline" href="https://drive.google.com/drive/folders/18V2KjCHw2o0uQCVFzu2GGxJ9PghGS7AD" target="_blank" rel="noreferrer">PO Downloads from iBuy</a> can supply missing items for existing matching orders. Conflicting or incomplete documents are held for review.</p>
   {error&&<p role="alert">{error}</p>}
   {status&&<>

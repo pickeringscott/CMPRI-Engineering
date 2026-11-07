@@ -110,7 +110,7 @@ export default function AiConnectionPage() {
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-6">
       <div className="mx-auto max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-4">
+        <div data-cmpri-page-heading className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">CMPRI · ChatGPT connector</p>
             <h1 className="mt-1 text-2xl font-bold">Connect ChatGPT</h1>

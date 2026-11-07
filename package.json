@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:email-parser": "node --experimental-strip-types tests/email-parser.test.mjs",
-    "test:approved-ui": "node tests/browser/role-capabilities.mjs && python tests/browser/header_gestures.py && python tests/browser/desktop_header_motion.py && python tests/browser/header_role_access.py && python tests/browser/header_pool_bell.py && python tests/browser/approved_surfaces.py && python tests/browser/attachment_playback.py && python tests/browser/palette_reference.py && python tests/browser/daily_ops_files.py && npm run test:staff-notes-ui",
+    "test:approved-ui": "node tests/browser/role-capabilities.mjs && python tests/browser/header_gestures.py && python tests/browser/desktop_header_motion.py && python tests/browser/header_role_access.py && python tests/browser/header_pool_bell.py && python tests/browser/approved_surfaces.py && python tests/browser/attachment_playback.py && python tests/browser/palette_reference.py && python tests/browser/daily_ops_files.py && npm run test:staff-notes-ui && python tests/browser/modal_palette_cleanup.py",
     "test:staff-notes-ui": "node scripts/test-staff-notes-ui.mjs",
     "test:desktop-app": "python tests/browser/desktop_app_gestures.py",
     "test:http-smoke": "node tests/http-smoke.mjs",

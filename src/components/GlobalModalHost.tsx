@@ -99,6 +99,7 @@ export default function GlobalModalHost() {
   const previousStackRef = useRef<ModalEntry[]>([]);
 
   useEffect(() => {
+    document.documentElement.dataset.cmpriFramed = window.parent !== window ? "true" : "false";
     document.documentElement.dataset.cmpriEmbedded =
       new URLSearchParams(window.location.search).get("embedded") === "1" ? "true" : "false";
     try {

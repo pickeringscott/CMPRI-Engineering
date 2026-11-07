@@ -10,7 +10,7 @@ export default function GssScorecard() {
   const [latest, ...previous] = verifiedGssReports;
   return <div className={styles.scorecard}>
     <section aria-labelledby="gss-latest-title" className={styles.latest}>
-      <header className={styles.heading}><h1 id="gss-latest-title">GSS Reports</h1><time dateTime={latest.date}>{dateLabel(latest.date)}</time></header>
+      <header className={styles.heading}><h1 data-cmpri-page-heading id="gss-latest-title">GSS Reports</h1><time dateTime={latest.date}>{dateLabel(latest.date)}</time></header>
       <div className={styles.fullPaper}>{latestRankings.map((ranking, index) => <FullRanking key={ranking.period} ranking={ranking} withLegend={index === 0} />)}</div>
     </section>
     <section className={styles.history} aria-labelledby="gss-history-title">

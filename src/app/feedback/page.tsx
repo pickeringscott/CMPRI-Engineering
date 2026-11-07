@@ -175,7 +175,7 @@ export default function FeedbackPage() {
   return (
     <main className="h-full min-h-full w-full overflow-y-auto bg-slate-950 px-4 py-5 text-white sm:px-6 sm:py-6">
       <div className="mx-auto w-full max-w-none space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+        <header data-cmpri-page-heading className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-400">CMPRI</p>
             <h1 className="mt-1 text-2xl font-bold">Feedback</h1>

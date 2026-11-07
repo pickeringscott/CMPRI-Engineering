@@ -109,7 +109,7 @@ export default function ProfilePage() {
   }
 
   const profileHeader = (
-    <header className="mb-5 flex items-center justify-between gap-4 border-b border-slate-800 pb-4">
+    <header data-cmpri-page-heading className="mb-5 flex items-center justify-between gap-4 border-b border-slate-800 pb-4">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">{tx("CMPRI Account", "Cuenta CMPRI")}</p>
         <h1 className="mt-1 text-2xl font-bold">{tx("Manage Profile", "Administrar perfil")}</h1>

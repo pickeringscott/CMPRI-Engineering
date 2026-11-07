@@ -67,7 +67,7 @@ test("native guide dropdown opens exactly the three local PDF exports", () => {
   assert.match(component, /<select[\s\S]*aria-label="Front Desk Quick Guides"/);
   assert.doesNotMatch(component, /window.open/);
   assert.match(component, /dialogRef.current.showModal\(\)/);
-  assert.match(component, /Back to guides/);
+  assert.doesNotMatch(component, /Back to guides/); // One dismiss control in the viewer header.
   assert.match(component, /aria-label="Close guide"/);
   assert.doesNotMatch(component, /aria-haspopup="menu"/);
   for (const slug of ["enseo", "dormakaba", "guest-room"]) {

@@ -366,7 +366,7 @@ export default function RoomOperationsPage() {
     <main className="min-h-screen bg-slate-950 px-4 py-5 text-slate-100 sm:px-6">
       <div className="mx-auto w-full space-y-4">
         <header className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div data-cmpri-page-heading>
             <div className="flex flex-wrap items-center gap-2">
               <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>

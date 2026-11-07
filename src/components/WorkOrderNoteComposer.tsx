@@ -91,7 +91,7 @@ export default function WorkOrderNoteComposer({ value, onChange, mentions, ticke
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent">
       <div ref={mirror} className="box-border whitespace-pre-wrap break-words p-2 text-sm text-white">{highlighted}{"\u200b"}</div>
     </div>
-    {suggestions.length > 0 && <div id="work-order-mention-options" role="listbox" aria-label="Mention staff, roles or tickets" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
+    {suggestions.length > 0 && <div id="work-order-mention-options" data-cmpri-dropdown="mentions" role="listbox" aria-label="Mention staff, roles or tickets" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
       {suggestions.map((choice, index) => <button id={`work-order-mention-${index}`} role="option" aria-selected={index === active} key={choice.key} type="button" tabIndex={-1}
         onPointerDown={event => event.preventDefault()} onClick={() => accept(choice)} className={`block w-full rounded-lg px-2.5 py-2 text-left hover:bg-sky-900/45 ${index === active ? "bg-sky-900/45" : ""}`}>
         <span className="font-semibold text-sky-200">@{choice.label}</span><span className="ml-2 text-sm text-slate-400">{choice.detail}</span>

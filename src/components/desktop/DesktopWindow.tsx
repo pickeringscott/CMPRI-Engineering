@@ -109,13 +109,13 @@ export default function DesktopWindow({
     >
       <div
         className="cmpri-desktop-titlebar"
-        style={modalTitleStyle(title)}
+        style={modalTitleStyle(modalActionForRoute(windowKey,title))}
         onPointerDown={(event) => begin(event, "move")}
         onPointerMove={update}
         onPointerUp={end}
         onPointerCancel={end}
       >
-        <span aria-hidden="true" style={{backgroundColor:modalTitleStyle(title).borderColor}} className={`size-2 shrink-0 rounded-full ${accentClass}`} />
+        <span aria-hidden="true" style={{backgroundColor:modalTitleStyle(modalActionForRoute(windowKey,title)).borderColor}} className={`size-2 shrink-0 rounded-full ${accentClass}`} />
         <span id={titleId} className="min-w-0 flex-1 truncate">{title}</span>
         {guest && <WorkOrderGuestIndicators guest={guest} />}
         <button type="button" data-cmpri-window-close="true" aria-label={`Close ${title}`} title="Close" onClick={onClose} className="cmpri-desktop-close">

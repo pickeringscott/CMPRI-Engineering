@@ -71,7 +71,6 @@ export default function TicketRoomRankerPage() {
 
   return <main className={styles.page}>
     <div className={styles.heading}>
-      <h1 className={styles.title}>Room Ranker</h1>
       <div className={styles.counts} role="group" aria-label="Filter rooms by rank">
         <button type="button" aria-pressed={filter === "All"} onClick={() => setFilter("All")}><b>{rooms.length}</b> rooms</button>
         {(["A", "B", "C"] as const).map((rank) => <button type="button" key={rank} aria-label={`Show ${counts[rank]} rank ${rank} rooms`} aria-pressed={filter === rank} onClick={() => setFilter(rank)}><b className={`${styles.badge} ${styles[rank]}`}>{rank}</b><span>{counts[rank]}</span></button>)}

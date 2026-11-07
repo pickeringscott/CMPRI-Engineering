@@ -46,8 +46,10 @@ export default function SetupGuidePage() {
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-3xl px-4 py-8">
         <header className="border-b border-slate-800 pb-6">
+          <div data-cmpri-page-heading>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Hawkeye Hotels</p>
           <h1 className="mt-1.5 text-2xl font-bold">CMPRI Setup Guide</h1>
+          </div>
           <p className="mt-2 text-sm text-slate-400">
             Step-by-step instructions for completing the remaining configuration.
             Each value has a Copy button so you can paste it exactly where it needs to go.

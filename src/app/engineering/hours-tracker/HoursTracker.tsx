@@ -152,7 +152,7 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
   </span></>;
 }
 
-export default function HoursTracker({ owner, initial, persist, onClose, requirePersonalSetup = false, today = new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'}) }: { owner:string; initial:SavedState; persist:(body:unknown)=>Promise<NonNullable<SavedState>>; onClose:()=>void; requirePersonalSetup?:boolean; today?:string }) {
+export default function HoursTracker({ initial, persist, onClose, requirePersonalSetup = false, today = new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'}) }: { owner:string; initial:SavedState; persist:(body:unknown)=>Promise<NonNullable<SavedState>>; onClose:()=>void; requirePersonalSetup?:boolean; today?:string }) {
   const [saved,setSaved]=useState(initial);
   const [start,setStart]=useState(()=>currentPeriod(today));
   const [draft,setDraft]=useState(()=>structuredClone(initial?.document.periods.find(p=>p.start===currentPeriod(today))||newPeriod(currentPeriod(today),requirePersonalSetup)));
@@ -226,7 +226,6 @@ export default function HoursTracker({ owner, initial, persist, onClose, require
   },[modalOpen,pending?.kind,decision?.kind]);
   const totals=summary?.weeks[week];
   return <main ref={root} className={styles.tracker} data-cmpri-modal-ignore="true" aria-label="Personal Hours Tracker">
-    <header className={styles.header}><h1>Hours Tracker</h1><span>{owner}</span></header>
     <div className={styles.period}><select aria-label="Pay period" disabled={busy} value={start} onChange={e=>request({kind:'period',start:e.target.value})}>{periods.map(date=><option key={date} value={date}>Period {range(date,periodDates(date).end)} · {date.slice(0,4)}</option>)}</select><span>Pay date: {displayDate(calendar.payday,{weekday:'short',month:'short',day:'numeric'})}</span></div>
     <fieldset disabled={busy||!!pending||!!configuration||!!decision} className={styles.fields}>
     <div className={styles.estimate}>

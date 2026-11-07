@@ -858,7 +858,7 @@ export default function PreventiveMaintenancePage() {
     <main data-pm-mobile="true" className="min-h-screen bg-slate-950 text-white">
       <div inert={Boolean(poolRequired)} className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
         <header className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+          <div data-cmpri-page-heading>
             <p className="text-xs font-bold uppercase tracking-[.22em] text-emerald-300">CMPRI · Preventive Maintenance</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">Preventive Maintenance</h1>
             <p className="pm-desktop-only mt-1 max-w-3xl text-sm text-slate-400">Weekly checklist, room-quarter completion dates, and interactive source forms. Technician checks retain their original worker. Chief Engineer review is shown by checkbox color.</p>

@@ -3,8 +3,10 @@ export default function PolicyPage() {
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:px-6">
       <article className="mx-auto w-full max-w-4xl">
         <header className="border-b border-slate-800 pb-5">
+          <div data-cmpri-page-heading>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">CMPRI Engineering</p>
           <h1 className="mt-2 text-3xl font-bold">Privacy Policy</h1>
+          </div>
           <p className="mt-2 text-sm text-slate-400">Effective Date: September 25, 2026</p>
         </header>
 

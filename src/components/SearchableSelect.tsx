@@ -275,7 +275,7 @@ export default function SearchableSelect({
               event.preventDefault(); setOpen(false); setExpanded(false); setQuery(selected?.label || ""); onDismiss?.(); return;
             }
           }}
-          className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 pr-8 text-[15px] text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+          className="cmpri-searchable-select-input min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 pr-8 text-[15px] text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
         />
         <button
           type="button"
@@ -284,7 +284,7 @@ export default function SearchableSelect({
           aria-label={open ? "Hide choices" : "Show choices"}
           onMouseDown={(event) => event.preventDefault()}
           onClick={toggleOpen}
-          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-slate-300 hover:text-white"
+          className="cmpri-searchable-select-toggle absolute inset-y-0 right-0 flex w-8 items-center justify-center text-slate-300 hover:text-white"
         >
           <span aria-hidden="true" className="text-[14px] leading-none">{open ? "▲" : "▼"}</span>
         </button>
@@ -307,7 +307,7 @@ export default function SearchableSelect({
                 return (
                   <div key={`${option.value}-${optionIndex}`}>
                     {showGroup && (
-                      <div className="border-t border-slate-800 bg-slate-950/70 px-2 py-1 text-[13px] font-bold leading-4 text-slate-300 first:border-t-0">
+                      <div className="cmpri-searchable-select-group border-t border-slate-800 bg-slate-950/70 px-2 py-1 text-[13px] font-bold leading-4 text-slate-300 first:border-t-0">
                         {option.group}
                       </div>
                     )}
@@ -318,6 +318,7 @@ export default function SearchableSelect({
                       id={`${listId}-${optionIndex}`}
                       tabIndex={-1}
                       aria-selected={selectedOption}
+                      data-highlighted={highlighted}
                       onMouseEnter={() => setHighlightedIndex(optionIndex)}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => commit(option)}
@@ -342,7 +343,7 @@ export default function SearchableSelect({
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => { setExpanded(true); setQuery(selected?.label || ""); }}
-                  className="block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
+                  className="cmpri-searchable-select-action block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
                 >
                   See more…
                 </button>
@@ -357,14 +358,14 @@ export default function SearchableSelect({
                     setQuery(selected?.label || "");
                     onFooterAction();
                   }}
-                  className="block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"
+                  className="cmpri-searchable-select-action block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"
                 >
                   {footerActionLabel}
                 </button>
               )}
             </>
           ) : (
-            <div className="px-3 py-2 text-[13px] text-slate-400">{inferredNoMatch}</div>
+            <div className="cmpri-searchable-select-empty px-3 py-2 text-[13px] text-slate-400">{inferredNoMatch}</div>
           )}
         </div>
       )}

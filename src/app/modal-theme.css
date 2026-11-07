@@ -103,3 +103,93 @@
   .cmpri-detail-mobile-name { display:block;margin-top:3px;overflow-wrap:anywhere; }
   :is(.cmpri-detail-mobile-guest,.cmpri-detail-standalone-guest) .cmpri-window-guest-name { display:none; }
 }
+
+/* Shared searchable menus inherit their host modal's palette, including Create Work Order. */
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-input {
+  background-color:var(--cmpri-modal-surface)!important;color:var(--cmpri-modal-text);border-color:var(--cmpri-outline)!important;
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-input::placeholder {
+  color:color-mix(in srgb,var(--cmpri-modal-text) 68%,var(--cmpri-modal-base));
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-input:focus {
+  border-color:rgb(var(--cmpri-action-rgb))!important;outline-color:rgb(var(--cmpri-action-rgb));
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-toggle {
+  color:var(--cmpri-modal-text);
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-listbox {
+  background-color:var(--cmpri-modal-surface)!important;color:var(--cmpri-modal-text);border-color:var(--cmpri-outline)!important;
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-group {
+  background-color:var(--cmpri-modal-base)!important;color:var(--cmpri-modal-text);border-color:var(--cmpri-outline)!important;
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-listbox [role=option] {
+  background-color:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-listbox [role=option][aria-selected=true] {
+  background-color:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 16%,var(--cmpri-modal-base));color:var(--cmpri-modal-text);
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-listbox [role=option]:is([data-highlighted=true],:hover,:focus-visible) {
+  background-color:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 27%,var(--cmpri-modal-base))!important;color:var(--cmpri-modal-text);
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-action {
+  background-color:var(--cmpri-modal-surface)!important;color:var(--cmpri-modal-text);border-color:var(--cmpri-outline)!important;
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-action:hover {
+  background-color:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 23%,var(--cmpri-modal-base))!important;color:var(--cmpri-modal-text);
+}
+[data-cmpri-modal-theme=true] .cmpri-searchable-select-empty {
+  color:var(--cmpri-modal-text);
+}
+[data-cmpri-modal-theme=true] select option,[data-cmpri-modal-theme=true] select optgroup {
+  background-color:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);
+}
+
+/* Native dropdowns throughout modal pages, including module-styled PO and Hours fields. */
+[data-cmpri-modal-theme=true] select {
+  color-scheme:dark;
+  background-color:var(--cmpri-modal-surface)!important;
+  color:var(--cmpri-modal-text)!important;
+  border-color:var(--cmpri-outline)!important;
+  accent-color:rgb(var(--cmpri-action-rgb));
+}
+[data-cmpri-modal-theme=true] select:focus-visible {
+  outline:2px solid rgb(var(--cmpri-action-rgb));outline-offset:2px;
+  border-color:rgb(var(--cmpri-action-rgb))!important;
+}
+[data-cmpri-modal-theme=true] select :is(option,optgroup) {
+  background-color:var(--cmpri-modal-surface)!important;color:var(--cmpri-modal-text)!important;
+}
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown=mentions],
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown-panel],
+.staff-media-popover[data-cmpri-modal-theme=true] {
+  background-color:var(--cmpri-modal-surface)!important;color:var(--cmpri-modal-text);border-color:var(--cmpri-outline)!important;
+}
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown=compact] > summary {
+  background-color:var(--cmpri-modal-surface)!important;color:var(--cmpri-modal-text);border-color:var(--cmpri-outline)!important;
+}
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown=mentions] [role=option],
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown-panel] button,
+.staff-media-popover[data-cmpri-modal-theme=true] button {
+  background-color:transparent!important;color:var(--cmpri-modal-text)!important;
+  -webkit-text-fill-color:currentColor;border-color:var(--cmpri-outline);
+}
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown=mentions] [role=option] span {
+  color:inherit;
+}
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown=mentions] [role=option]:is([aria-selected=true],:hover,:focus-visible),
+[data-cmpri-modal-theme=true] [data-cmpri-dropdown-panel] button:is([aria-pressed=true],:hover,:focus-visible),
+.staff-media-popover[data-cmpri-modal-theme=true] button:is(:hover,:focus-visible) {
+  background-color:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 27%,var(--cmpri-modal-base))!important;color:var(--cmpri-modal-text);
+}
+.staff-media-popover[data-cmpri-modal-theme=true]:after {
+  background-color:var(--cmpri-modal-surface);border-color:var(--cmpri-outline);
+}
+
+/* The host window supplies the title. Keep these page-only title blocks on standalone pages. */
+html[data-cmpri-embedded=true] :is([data-cmpri-page-heading],[data-cmpri-standalone-close]),
+html[data-cmpri-framed=true] :is([data-cmpri-page-heading],[data-cmpri-standalone-close]),
+.cmpri-modal-shell :is([data-cmpri-page-heading],[data-cmpri-standalone-close]),
+.cmpri-desktop-window-body :is([data-cmpri-page-heading],[data-cmpri-standalone-close]) {
+  display:none!important;
+}
