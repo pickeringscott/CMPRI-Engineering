@@ -430,13 +430,13 @@ export default function EngineeringDashboardPage() {
     if (!key || zOrder.at(-1) !== key) return;
     pendingFocusRef.current = "";
     const frame = frameRefs.current.get(key);
-    if (frame) frame.focus();
+    if (frame) frame.focus({ preventScroll: true });
     else if (key === WORK_ORDER_LIST_KEY && (window.matchMedia("(pointer: coarse)").matches
       || window.innerWidth < COMPACT_DESKTOP_WIDTH)) {
       // Keep focus inside the list without opening a touch device's keyboard.
-      desktopRef.current?.querySelector<HTMLElement>("[data-work-order-list-heading]")?.focus();
+      desktopRef.current?.querySelector<HTMLElement>("[data-work-order-list-heading]")?.focus({ preventScroll: true });
     }
-    else desktopRef.current?.querySelector<HTMLElement>(`[data-cmpri-desktop-window="${CSS.escape(key)}"] .cmpri-desktop-window-body button, [data-cmpri-desktop-window="${CSS.escape(key)}"] .cmpri-desktop-window-body input`)?.focus();
+    else desktopRef.current?.querySelector<HTMLElement>(`[data-cmpri-desktop-window="${CSS.escape(key)}"] .cmpri-desktop-window-body button, [data-cmpri-desktop-window="${CSS.escape(key)}"] .cmpri-desktop-window-body input`)?.focus({ preventScroll: true });
   }, [zOrder, windows]);
 
   const openWindow = useCallback((entry: DesktopWindowEntry) => {
@@ -754,7 +754,7 @@ export default function EngineeringDashboardPage() {
     .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
 
   return (
-    <main data-cmpri-modal-ignore="true" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
+    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme="thanksgiving" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">

@@ -1,31 +1,36 @@
 /** Coral Glow palette and inventory order from approved header v23. */
+import { sitePalette, paletteToken } from './site-palette-defaults';
 const names = ["Work Order List", "Daily Room Ops", "Staff Notes", "Pool Log", "Room Ranker", "Preventive Maintenance", "Pool", "Manage Profile", "Connect ChatGPT", "Sign Out", "Front Desk Quick Guides", "Preventative Maintenance", "Manage Rooms", "GSS Reports", "Enseo Assignments", "Room Ranker Old", "Candidate questionnaires", "PO", "Inventory", "Assets", "Manage Users", "Feedback", "Hours Tracker", "Refresh", "All Work Orders"];
-const colors = ["#F3BB75", "#CF90FE", "#FE8B9C", "#62B5F1", "#EFE653", "#75DFB4"];
 export function headerActionStyle(label: string): Record<string,string> {
   label = label.replace(/ \(\d+\)$/,'');
   if (label === 'Manage Locations') label = 'Manage Rooms';
-  if (label === "Sign Out") return {"background-color":"#2a1721","border-color":"#73333e",color:"#fecaca","--action-rgb":"200,100,115","box-shadow":"none"};
+  if (label === "Sign Out") return {"background-color":paletteToken('sign-out-background',sitePalette.signOut.background),"border-color":paletteToken('sign-out-border',sitePalette.signOut.border),color:paletteToken('sign-out-text',sitePalette.signOut.text),"--action-rgb":paletteToken('sign-out-rgb',sitePalette.signOut.rgb),"box-shadow":"none"};
   const index = names.indexOf(label);
   if (index < 0 && !label.includes("Maintenance")) return {};
-  const color = label.includes("Maintenance") ? "#00D492" : colors[index % colors.length];
-  const rgb = color.match(/[a-f0-9]{2}/gi)!.map(value => parseInt(value,16));
-  return {"background-color":`rgba(${rgb.join(',')},0.14)`,"border-color":`rgba(${rgb.join(',')},0.42)`,color:`rgb(${rgb.map(value=>Math.round(value*.18+255*.82)).join(',')})`,"--action-rgb":rgb.join(','),"box-shadow":"none"};
+  const accent = sitePalette.accents[index % sitePalette.accents.length];
+  const maintenance = label.includes('Maintenance');
+  const raw = maintenance ? sitePalette.maintenance : accent.rgb;
+  const rgb = paletteToken(maintenance ? 'maintenance' : accent.name+'-rgb', raw);
+  const text = 'rgb('+raw.split(',').map(value=>Math.round(Number(value)*.18+255*.82)).join(',')+')';
+  return {"background-color":`rgba(${rgb},0.14)`,"border-color":`rgba(${rgb},0.42)`,color:paletteToken(maintenance?'maintenance-text':accent.name+'-text',text),"--action-rgb":rgb,"box-shadow":"none"};
 }
 
 /** Approved work-order modal schemes; dashboard action colors keep their inventory mapping. */
 function modalPaletteStyle(action: string): Record<string,string> {
-  const scheme = action === 'Create Work Order' || action === '+ Work Order'
-    ? { rgb: '148,180,206', base: '#101319' }
+  const name = action === 'Create Work Order' || action === '+ Work Order'
+    ? 'create'
     : action === 'Work Order Detail' || action === 'Work Order'
-      ? { rgb: '162,171,209', base: '#11131a' }
-      : action === 'Hours Tracker' ? { rgb: '142,189,170', base: '#101512' } : null;
-  if (!scheme) return headerActionStyle(modalAction(action));
+      ? 'detail'
+      : action === 'Hours Tracker' ? 'hours' : null;
+  if (!name) return headerActionStyle(modalAction(action));
+  const defaults = sitePalette.special[name];
+  const scheme = { rgb: paletteToken(name+'-rgb', defaults.rgb), base: paletteToken(name+'-base', defaults.base) };
   return {
     '--action-rgb': scheme.rgb,
     '--modal-base': scheme.base,
     'background-color': `color-mix(in srgb, rgb(${scheme.rgb}) 16%, ${scheme.base})`,
     'border-color': `color-mix(in srgb, rgb(${scheme.rgb}) 32%, ${scheme.base})`,
-    color: `color-mix(in srgb, rgb(${scheme.rgb}) 12%, #ffffff)`,
+    color: `color-mix(in srgb, rgb(${scheme.rgb}) 12%, ${paletteToken('white',sitePalette.semantic.white)})`,
   };
 }
 
@@ -48,13 +53,16 @@ export function modalActionForRoute(href: string, title = '') {
 
 export function modalThemeStyle(action: string): Record<string,string> {
   const palette = modalPaletteStyle(action);
-  const rgb = palette['--action-rgb'] || '243,187,117';
-  const base = palette['--modal-base'] || '#0f172a';
+  const rgb = palette['--action-rgb'] || paletteToken('apricot-rgb',sitePalette.accents[0].rgb);
+  const base = palette['--modal-base'] || paletteToken('modal-base',sitePalette.modalBase);
+  const text = palette.color || paletteToken('modal-text','rgb(253,243,230)');
   return {
     '--cmpri-action-rgb': rgb,
     '--cmpri-modal-base': base,
     '--cmpri-modal-surface': `color-mix(in srgb, rgb(${rgb}) 5.5%, ${base})`,
-    '--cmpri-modal-text': palette.color || 'rgb(253,243,230)',
+    '--cmpri-modal-text': text,
+    '--cmpri-modal-muted': `color-mix(in srgb, ${text} 62%, ${base})`,
+    '--cmpri-modal-subtle': `color-mix(in srgb, ${text} 45%, ${base})`,
     '--cmpri-outline': `rgba(${rgb},.42)`,
     '--cmpri-scroll-thumb': `rgba(${rgb},.28)`,
     borderColor: `rgba(${rgb},.42)`,

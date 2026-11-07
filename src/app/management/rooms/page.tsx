@@ -66,14 +66,14 @@ function dueState(nextDueOn: string | null) {
 
 type LocationFields = Pick<Location, "name" | "area" | "room_number" | "location_type">;
 
-function LocationEditor({ location, types, busy, error, onClose, onSave }: {
-  location: Location | null; types: string[]; busy: boolean; error: string;
+function LocationEditor({ location, areas, types, busy, error, onClose, onSave }: {
+  location: Location | null; areas: string[]; types: string[]; busy: boolean; error: string;
   onClose: () => void; onSave: (fields: LocationFields) => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
   const typeList = useId();
-  const [fields, setFields] = useState<LocationFields>(() => ({ name: location?.name || "", area: location?.area || "", room_number: location?.room_number || "", location_type: location?.location_type || "General" }));
+  const [fields, setFields] = useState<LocationFields>(() => ({ name: location?.name || "", area: location?.area || "", room_number: location?.room_number || "", location_type: location?.location_type || (location ? "" : "General") }));
   useEffect(() => { dialog.current?.showModal(); }, []);
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!busy) void onSave(fields); }
   return <dialog ref={dialog} aria-labelledby={title} className="location-editor" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
@@ -81,8 +81,12 @@ function LocationEditor({ location, types, busy, error, onClose, onSave }: {
     <form onSubmit={submit}>
       <fieldset disabled={busy}>
         <label>Name<input autoFocus required maxLength={200} value={fields.name || ""} onChange={event => setFields({ ...fields, name: event.target.value })} /></label>
-        <label>Area<input required maxLength={200} value={fields.area || ""} onChange={event => setFields({ ...fields, area: event.target.value })} /></label>
-        <label>Location Type<input required maxLength={200} list={typeList} value={fields.location_type || ""} onChange={event => setFields({ ...fields, location_type: event.target.value })} /><datalist id={typeList}>{types.map(type => <option key={type} value={type} />)}</datalist></label>
+        <label>Area{location
+          ? <select required value={fields.area || ""} onChange={event => setFields({ ...fields, area: event.target.value })}><option value="" disabled>Select an area</option>{areas.map(area => <option key={area} value={area}>{area}</option>)}</select>
+          : <input required maxLength={200} value={fields.area || ""} onChange={event => setFields({ ...fields, area: event.target.value })} />}</label>
+        <label>Location Type{location
+          ? <select required value={fields.location_type || ""} onChange={event => setFields({ ...fields, location_type: event.target.value })}><option value="" disabled>Select a location type</option>{types.map(type => <option key={type} value={type}>{type}</option>)}</select>
+          : <><input required maxLength={200} list={typeList} value={fields.location_type || ""} onChange={event => setFields({ ...fields, location_type: event.target.value })} /><datalist id={typeList}>{types.map(type => <option key={type} value={type} />)}</datalist></>}</label>
         <label>Room Number (optional)<input maxLength={20} pattern="[A-Za-z0-9 -]+" value={fields.room_number || ""} onChange={event => setFields({ ...fields, room_number: event.target.value })} /></label>
       </fieldset>
       {error && <p role="alert">{error}</p>}
@@ -125,6 +129,8 @@ export default function RoomsPage() {
     return () => { active = false; };
   }, [load]);
   const groups = useMemo(() => groupLocations(locations), [locations]);
+  const areas = useMemo(() => [...new Set(locations.map(location => location.area).filter((area): area is string => !!area?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
+  const types = useMemo(() => [...new Set(locations.map(location => location.location_type).filter((type): type is string => !!type?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
   const draft = locations.find(location => location.id === selectedId) || null;
   const roomOrders = useMemo(() => !draft ? [] : orders.filter(order => order.location_id === draft.id || (!order.location_id && draft.room_number && order.room?.match(/\b\d{2,4}\b/)?.[0] === draft.room_number)), [draft, orders]);
   const locationPmPlans = useMemo(() => pmPlans.filter(plan => plan.location_id === selectedId), [pmPlans, selectedId]);
@@ -166,17 +172,19 @@ export default function RoomsPage() {
                 {plans.length > 0 && <span className="location-pm-count">{plans.length} PM plan{plans.length === 1 ? "" : "s"}</span>}
               </button>
               {open && draft && <div id={`location-details-${location.id}`} className="location-details" role="region" aria-label={`${location.room_number ? `Room ${location.room_number}` : location.name} details`}>
-                <div className="flex justify-end">{canEdit && <button type="button" onClick={() => openEditor(location)} className="rounded border px-3 py-1.5 text-xs font-semibold">Edit Location</button>}</div>
-              <div className="mt-5 border-t border-slate-800 pt-4">
+              <div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-bold">Preventive maintenance</h3>
-                  {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="text-xs font-semibold text-indigo-300 hover:text-indigo-200">Open corporate PM tracker →</ModalNavigationButton>}
+                  <div className="location-actions">
+                    {canEdit && <button type="button" onClick={() => openEditor(location)} className="location-action">Edit Location</button>}
+                    {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="location-action">Open PM Tracker →</ModalNavigationButton>}
+                  </div>
                 </div>
                 <div className="mt-3 space-y-3">
                   {locationPmPlans.length ? locationPmPlans.map((plan) => {
                     const due = dueState(plan.next_due_on);
                     const history = locationPmCompletions.filter((completion) => completion.pm_plan_id === plan.id).slice(0, 4);
-                    return <div key={plan.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                    return <div key={plan.id} className="location-panel rounded-xl border p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <div className="font-semibold">{plan.title}</div>
@@ -192,14 +200,14 @@ export default function RoomsPage() {
                         </div>
                       </div> : <p className="mt-3 text-xs text-slate-500">No completion history recorded yet.</p>}
                     </div>;
-                  }) : <p className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No PM plan is linked to this location yet.</p>}
+                  }) : <p className="location-panel rounded-xl border p-3 text-sm text-slate-500">No PM plan is linked to this location yet.</p>}
                 </div>
               </div>
 
               <div className="mt-5 border-t border-slate-800 pt-4">
                 <h3 className="font-bold">Tickets for this room/location</h3>
                 <div className="mt-3 space-y-2">
-                  {roomOrders.length ? roomOrders.map((order) => <ModalNavigationButton key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="block w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-left hover:border-indigo-500"><div className="font-semibold">{order.issue || "No issue description"}</div><div className="mt-1 text-xs text-slate-500">{order.status || "Open"}</div></ModalNavigationButton>) : <p className="text-sm text-slate-500">No tickets are tied to this location.</p>}
+                  {roomOrders.length ? roomOrders.map((order) => <ModalNavigationButton key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="location-panel location-ticket block w-full rounded-xl border px-3 py-2 text-left"><div className="font-semibold">{order.issue || "No issue description"}</div><div className="mt-1 text-xs text-slate-500">{order.status || "Open"}</div></ModalNavigationButton>) : <p className="text-sm text-slate-500">No tickets are tied to this location.</p>}
                 </div>
               </div>
               </div>}
@@ -210,6 +218,6 @@ export default function RoomsPage() {
       </div>
       {canEdit && <footer className="location-add"><button type="button" data-cmpri-primary onClick={() => openEditor(null)}>Add Location</button></footer>}
     </div>
-    {editor && <LocationEditor location={editor.location} types={[...new Set(["General", ...groups.map(group => group.type)])]} busy={busy} error={editorError} onClose={() => { if (!busy) setEditor(null); }} onSave={save} />}
+    {editor && <LocationEditor location={editor.location} areas={areas} types={editor.location ? types : [...new Set(["General", ...types])]} busy={busy} error={editorError} onClose={() => { if (!busy) setEditor(null); }} onSave={save} />}
   </main>;
 }

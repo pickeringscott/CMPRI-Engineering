@@ -4,6 +4,7 @@ import { authorizationHeaders } from "@/lib/auth/client-session";
 import { createClient } from "@/lib/supabase/client";
 import { isInstalledMobileApp } from "@/lib/notifications/installed-mobile";
 import {subscribeResources} from '@/lib/events/browser';
+import { invalidateCachedResources } from '@/lib/data-cache/browser';
 import {publishStaffNotesSummary,expireStaffNotesFlag,type StaffNotesSummary} from '@/lib/staff-notes-unread';
 export default function StaffNotesUnread() {
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function StaffNotesUnread() {
         }
         if (!channel) {
           channelOwner=owner;
-          channel = client.channel(`staff-notes-unread-${crypto.randomUUID()}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "cmpri_staff_notes", filter: `hotel_id=eq.${value.hotelId}` }, () => void refresh())
+          channel = client.channel(`staff-notes-unread-${crypto.randomUUID()}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "cmpri_staff_notes", filter: `hotel_id=eq.${value.hotelId}` }, () => { void invalidateCachedResources(['notes','inbox']).then(refresh); })
             .subscribe(status => { if (status === "SUBSCRIBED") void refresh(); });
         }
       } catch { /* A signed-out page has no badge or alert authority. */ }

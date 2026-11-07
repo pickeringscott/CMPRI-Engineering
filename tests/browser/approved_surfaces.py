@@ -34,7 +34,7 @@ async def main():
     await page.goto(BASE+'/work-orders/'+WID);await page.get_by_role('heading',name='Notes & Ticket History',exact=True).wait_for(timeout=60000)
     name=page.locator('[data-preview-mobile-guest-name]');issue=page.get_by_text('Fixture drain needs repair',exact=True).first
     if width<640:
-     await expect(name).to_be_visible();n=await name.bounding_box();i=await issue.bounding_box();assert n['y']+n['height']<=i['y']+1,(n,i);assert await name.evaluate('e=>getComputedStyle(e).color')=='rgb(148, 163, 184)',await name.evaluate('e=>({color:getComputedStyle(e).color,theme:document.documentElement.dataset.theme})')
+     await expect(name).to_be_visible();n=await name.bounding_box();i=await issue.bounding_box();assert n['y']+n['height']<=i['y']+1,(n,i);assert await name.evaluate('e=>{const probe=document.createElement("span");probe.style.color="var(--cmpri-modal-muted)";e.append(probe);const same=getComputedStyle(e).color===getComputedStyle(probe).color;probe.remove();return same}'),await name.evaluate('e=>({color:getComputedStyle(e).color,theme:document.documentElement.dataset.theme})')
      assert not await page.locator('.cmpri-detail-standalone-guest .cmpri-window-guest-name').is_visible()
      async with page.expect_file_chooser() as camera:await page.get_by_role('button',name='Open camera',exact=True).click()
      assert await page.locator('input[capture]').get_attribute('capture')=='environment';await (await camera.value).set_files({'name':'Camera.gif','mimeType':'image/gif','buffer':GIF});assert await page.locator('.preview-note-thumbnail').count()==1

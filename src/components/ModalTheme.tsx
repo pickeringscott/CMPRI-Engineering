@@ -2,9 +2,11 @@
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { modalActionForRoute, modalThemeStyle } from '@/lib/ui/header-palette';
+import { followSitePalette } from '@/lib/ui/shared-palette';
 
 export default function ModalTheme() {
   const path = usePathname();
+  useEffect(() => followSitePalette(window), []);
   useEffect(() => {
     const action = modalActionForRoute(path);
     if (!action) return;

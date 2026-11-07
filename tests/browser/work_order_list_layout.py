@@ -9,7 +9,8 @@ async def main():
   browser=await p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
   for width in [1440,390,320]:
    ctx=await browser.new_context(viewport={'width':width,'height':960},is_mobile=width<640,has_touch=width<640,timezone_id='America/Chicago')
-   await install(ctx,'chief_engineer')
+   revisions={'orders':1}
+   await install(ctx,'chief_engineer',revisions=revisions)
    today='2026-11-06'
    examples=[]
    counts={'pending':1,'open':3,'progress':1,'priority':2,'overdue':0,'completed':1,'closed':0,'all':6}
@@ -136,6 +137,8 @@ async def main():
 
    # Six-digit counts must recalculate intrinsic track widths after a data refresh.
    counts.update({key:123456 for key in counts})
+   revisions['orders']+=1
+   await page.evaluate('window.dispatchEvent(new Event("online"))')
    await search.fill('Lobby');await expect(modal.locator('.work-order-ticket-line')).to_have_count(1)
    await search.fill('');await expect(modal.locator('.work-order-ticket-line')).to_have_count(6)
    await expect(modal.locator('[data-preview-kpi=open] .work-order-filter-count')).to_have_text('123456')

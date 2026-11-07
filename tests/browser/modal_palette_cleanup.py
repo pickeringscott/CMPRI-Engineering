@@ -26,7 +26,7 @@ async def main():
     frame=await (await shell.locator('iframe').element_handle()).content_frame()
     await frame.wait_for_selector('html[data-cmpri-framed=true]',timeout=60000)
     if accent:
-     await frame.wait_for_function('(a)=>document.documentElement.style.getPropertyValue("--cmpri-action-rgb")===a',arg=accent)
+     await frame.wait_for_function('(a)=>getComputedStyle(document.documentElement).getPropertyValue("--cmpri-action-rgb").trim()===a',arg=accent)
      actual=await shell.evaluate('e=>getComputedStyle(e).getPropertyValue("--cmpri-action-rgb").trim()')
      assert actual==accent,(width,path,actual)
     if path=='/work-orders':

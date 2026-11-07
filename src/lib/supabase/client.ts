@@ -2,12 +2,14 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createSessionStoragePolicy, SESSION_KEY } from "@/lib/auth/session-storage";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
+import { installDeviceDataCache, clearDeviceDataCache } from "@/lib/data-cache/browser";
 
 export const OAUTH_PENDING_KEY = "cmpri:auth:oauth-pending";
 
 let client: SupabaseClient | undefined;
 let policy: ReturnType<typeof createSessionStoragePolicy> | undefined;
 let signingOut = false;
+let cacheAuthWatch = false;
 
 function sessionPolicy() {
   if (typeof window === "undefined") throw new Error("CMPRI browser sessions are available only in the browser.");
@@ -30,10 +32,12 @@ export function setRememberOnDevice(value: boolean) {
 }
 
 export function clearDeviceSessionStorage() {
+  void clearDeviceDataCache();
   sessionPolicy().clear();
 }
 
 export function createClient() {
+  installDeviceDataCache();
   client ??= createSupabaseClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
       storageKey: SESSION_KEY,
@@ -43,11 +47,18 @@ export function createClient() {
       detectSessionInUrl: true,
     },
   });
+  if (!cacheAuthWatch && typeof client.auth.onAuthStateChange === 'function') {
+    cacheAuthWatch = true;
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) queueMicrotask(() => { void clearDeviceDataCache(); });
+    });
+  }
   return client;
 }
 
 export async function signOutDevice() {
   signingOut = true;
+  await clearDeviceDataCache();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     // Remote revocation is best effort; leaving this device must not wait

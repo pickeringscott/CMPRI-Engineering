@@ -12,6 +12,7 @@ import { staffMentionMatches, staffMentionCompletion, staffTicketReferences, sta
 import {staffMentionQuery,staffMentionSuggestions,staffTargetKey,staffTargetType,rebaseStaffMentions,insertStaffMention,insertStaffReference,selectedStaffMentions,staffReferenceQuery,type StaffMentionRange} from '@/lib/staff-note-targets';
 import {workOrderNumber} from '@/lib/work-order-reference.js';
 import {subscribeResources} from '@/lib/events/browser';
+import { invalidateCachedResources } from '@/lib/data-cache/browser';
 import {resourceViewVisible,watchResourceVisibility} from '@/lib/events/visibility';
 
 type Note = { author_user_id?:string;author_name_id?:string|null;mentions?:StaffMentionRange[];id: string; author_name: string; body: string; parent_id: string | null; created_at: string; attachments?:StaffAttachment[]; gif_ids?:string[] };
@@ -89,9 +90,10 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
   useEffect(() => {
     if (!data?.hotelId) return;
     const client = createClient();
-    const channel = client.channel(`staff-notes-board-${crypto.randomUUID()}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "cmpri_staff_notes", filter: `hotel_id=eq.${data.hotelId}` }, () => void load())
-      .on("postgres_changes", {event:"INSERT",schema:"public",table:"cmpri_staff_note_names",filter:`hotel_id=eq.${data.hotelId}`},()=>void load())
-      .subscribe(status => { setConnection(status === "SUBSCRIBED" ? "" : "Live updates reconnecting…"); if (status === "SUBSCRIBED") void load(); });
+    const changed = () => { void invalidateCachedResources(['notes','inbox']).then(() => load()); };
+    const channel = client.channel(`staff-notes-board-${crypto.randomUUID()}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "cmpri_staff_notes", filter: `hotel_id=eq.${data.hotelId}` }, changed)
+      .on("postgres_changes", {event:"INSERT",schema:"public",table:"cmpri_staff_note_names",filter:`hotel_id=eq.${data.hotelId}`},changed)
+      .subscribe(status => { setConnection(status === "SUBSCRIBED" ? "" : "Live updates reconnecting…"); if (status === "SUBSCRIBED") changed(); });
     const stopResources=subscribeResources(['rooms','session','reference'],()=>load(),false);
     const refresh = () => { if (!document.hidden) void load(); };
     document.addEventListener("visibilitychange", refresh);

@@ -1,25 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import assets from "@/lib/ui/thanksgiving-assets.json";
+import { ensureThanksgivingCache } from "@/lib/ui/thanksgiving-cache";
 
-/** Shared desktop artwork; never mount or download the animation on phones. */
+/** Fixed viewport artwork shared by the approved desktop and mobile layouts. */
 export default function ThanksgivingBackground() {
-  const [desktop, setDesktop] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia("(min-width: 768px)");
-    const update = () => setDesktop(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    void ensureThanksgivingCache();
   }, []);
 
-  if (!desktop) return null;
   return (
-    <iframe
-      title="Thanksgiving desktop background with pause animation control"
-      src="/backgrounds/thanksgiving-animated/index.html"
-      sandbox="allow-scripts"
-      className="absolute inset-0 z-0 h-full w-full border-0"
-    />
+    // Clip to the desktop while keeping the artwork's viewport independent
+    // of header groups wrapping, collapsing, or moving during rearrangement.
+    <div className="absolute inset-0 z-0" style={{ clipPath: "inset(0)" }}>
+      <iframe
+        title="Thanksgiving desktop background with pause animation control"
+        src={assets.entry}
+        // Same-origin access lets the trusted static artwork use the site's asset cache.
+        sandbox="allow-scripts allow-same-origin"
+        className="fixed inset-0 h-full w-full border-0"
+      />
+    </div>
   );
 }

@@ -1,4 +1,17 @@
-/* Match the Coral Glow demo in CMPRI-selected-tabbed-pills: tint over #0f172a. */
+/* Keep action tints over a neutral base; embedded panels inherit the host palette. */
+[data-cmpri-modal-theme=true] {
+  --color-slate-950:var(--cmpri-modal-base);
+  --color-slate-900:var(--cmpri-modal-surface);
+  --color-slate-800:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 12%,var(--cmpri-modal-base));
+  --color-slate-700:var(--cmpri-outline);
+  --color-slate-600:var(--cmpri-modal-subtle);
+  --color-slate-500:var(--cmpri-modal-muted);
+  --color-slate-400:var(--cmpri-modal-muted);
+  --color-slate-300:var(--cmpri-modal-text);
+  --color-slate-200:var(--cmpri-modal-text);
+  --color-slate-100:var(--cmpri-modal-text);
+  --color-slate-50:var(--cmpri-modal-text);
+}
 [data-cmpri-modal-theme=true], [data-cmpri-modal-theme=true] body,
 .cmpri-desktop-window-body {
   background-color: var(--cmpri-modal-surface);
@@ -8,46 +21,54 @@
   background-color: var(--cmpri-modal-base);
 }
 /* The approved modal is dark/tinted even when the surrounding dashboard is light. */
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-300 { color:#cbd5e1; }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-400 { color:#94a3b8; }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-500 { color:#64748b; }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-600 { color:#475569; }
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-300 { color:var(--cmpri-modal-text); }
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] :is(.text-slate-400,.text-slate-500) { color:var(--cmpri-modal-muted); }
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true] .text-slate-600 { color:var(--cmpri-modal-subtle); }
 /* Neutral panels must not paint the old slate/blue surface over the action tint. */
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
-  :is(main,section,article,fieldset,header,footer,form,div,table,thead,tbody,tr,td,th)[class*="bg-slate-"],
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  [class*="bg-slate-"]:not(input,select,textarea,button,[role=button]),
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(main,section,article,fieldset,header,footer,form,div,p,details,summary,nav,ul,ol,li,a)[class*="bg-"]:is([class*="bg-blue-"],[class*="bg-sky-"],[class*="bg-cyan-"],[class*="bg-indigo-"]),
 .cmpri-desktop-window-body > .cmpri-work-order-list {
   background-color: var(--cmpri-modal-surface) !important;
   background-image: none;
   border-color:var(--cmpri-outline);
 }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+/* Dimming layers stay translucent instead of becoming an opaque panel. */
+[data-cmpri-modal-theme=true] :is(.cmpri-modal-backdrop,.fixed.inset-0[class*="bg-slate-"]:not(dialog,[role=dialog],.cmpri-modal-shell)) {
+  background-color:rgb(0 0 0 / .7)!important;
+}
+[data-cmpri-modal-theme=true] [class*="from-slate-"] { background-image:none!important; }
+[data-cmpri-modal-theme=true] [class*="border-slate-"] { border-color:var(--cmpri-outline); }
+[data-cmpri-modal-theme=true] [class*="divide-slate-"] > * { border-color:var(--cmpri-outline); }
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
   :is(.text-white,.text-slate-100,.text-slate-200) { color: var(--cmpri-modal-text); }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
   :is(input,select,textarea) {
   accent-color: rgb(var(--cmpri-action-rgb));
   border-color: var(--cmpri-outline);
-  background-color: rgba(var(--cmpri-action-rgb),.06);
+  background-color: var(--cmpri-modal-surface) !important;
 }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
   :is(input,select,textarea):focus {
   outline-color: rgba(var(--cmpri-action-rgb),.8); border-color: var(--cmpri-outline);
 }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
   :is(button,[role=button]):focus-visible {
   outline: 2px solid rgba(var(--cmpri-action-rgb),.8); outline-offset:2px;
 }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
-  :is(button.bg-sky-700,button[class*="bg-slate-"],.preview-media-split) {
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+  :is(button[class*="bg-sky-"],button[class*="bg-blue-"],button[class*="bg-cyan-"],button[class*="bg-indigo-"],button[class*="bg-slate-"],.preview-media-split) {
   background-color: rgba(var(--cmpri-action-rgb),.14) !important;
   border-color: var(--cmpri-outline) !important;
   color: var(--cmpri-modal-text);
 }
 [data-cmpri-modal-theme=true] .preview-media-split button + button { border-color:var(--cmpri-outline); }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
   :is(button.bg-sky-700,button[class*="bg-slate-"],.preview-media-split button,.cmpri-desktop-close):hover {
   background-color: rgba(var(--cmpri-action-rgb),.23) !important;
 }
-:is(html,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
+:is(html,dialog,.cmpri-desktop-window,.cmpri-modal-shell)[data-cmpri-modal-theme=true]
   :is(button.bg-sky-700,button[class*="bg-slate-"],.preview-media-split button,.cmpri-desktop-close):active {
   background-color: rgba(var(--cmpri-action-rgb),.30) !important;
 }
@@ -73,7 +94,7 @@
 .cmpri-header-shelf { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:end;width:100%; }
 .cmpri-header-identity { display:flex;flex-direction:column;align-items:start;grid-column:1;grid-row:1/3;min-width:0; }
 .cmpri-header-utilities { display:flex;flex-direction:column;align-items:center;gap:3px;grid-column:2;grid-row:1/3; }
-.cmpri-header-create { border-radius:999px;min-height:0;padding:3px 6px;font-size:12px;line-height:1.25;background:#fbbf24;border:1px solid #fcd34d;color:#111827;font-weight:800;white-space:nowrap; }
+.cmpri-header-create { border-radius:999px;min-height:0;padding:3px 6px;font-size:12px;line-height:1.25;background:var(--cmpri-palette-gold,#fbbf24);border:1px solid var(--cmpri-palette-gold-light,#fcd34d);color:#111827;font-weight:800;white-space:nowrap; }
 .cmpri-header-create[data-front-desk=true] { min-height:40px;padding:3px 10px;font-size:14px; }
 .cmpri-header-utilities[data-front-desk=true] .cmpri-header-create { min-height:40px;padding:3px 10px;font-size:14px !important; }
 .cmpri-detail-mobile-guest { display:none; }
@@ -99,6 +120,11 @@
 .cmpri-detail-standalone-guest .cmpri-window-guest { display:flex; }
 
 .cmpri-detail-mobile-name { display:none; }
+/* Shared by every dashboard role, including the separate Technician header. */
+@media(max-width:1023px) {
+  .cmpri-header-utilities { display:grid;grid-template-columns:minmax(0,1fr);justify-items:stretch;align-items:stretch;inline-size:140px;min-inline-size:0; }
+  .cmpri-header-utilities > :is(.cmpri-header-status-pill,.cmpri-header-create) { inline-size:100%;width:100%;min-inline-size:0;max-inline-size:100%;box-sizing:border-box;justify-self:stretch; }
+}
 @media(max-width:720px) {
   .cmpri-detail-mobile-name { display:block;margin-top:3px;overflow-wrap:anywhere; }
   :is(.cmpri-detail-mobile-guest,.cmpri-detail-standalone-guest) .cmpri-window-guest-name { display:none; }

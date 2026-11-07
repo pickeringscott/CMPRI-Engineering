@@ -7,7 +7,9 @@ H=sid(1)
 async def api(request,path,user=2,method='GET',body=None):
  return await request.fetch(BACKEND+path,method=method,max_retries=2,headers={'Authorization':'Bearer fixture:'+sid(user)},**({'data':body} if body is not None else {}))
 async def finish(context):
- await context.unroute_all(behavior='wait');await context.close()
+ # Assertions finish before teardown. A last invalidation read may still be forwarded;
+ # removing interception can retire that route before its backend response arrives.
+ await context.unroute_all(behavior='ignoreErrors');await context.close()
 async def state(request):return await (await api(request,'/fixture/state')).json()
 async def control(request,body):
  r=await api(request,'/fixture/control',method='POST',body=body);assert r.ok,await r.text()

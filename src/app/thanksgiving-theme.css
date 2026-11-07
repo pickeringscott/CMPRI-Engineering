@@ -1,0 +1,26 @@
+/* Seasonal desktop chrome; each app window keeps its own existing theme. */
+[data-cmpri-seasonal-theme="thanksgiving"] {
+  --color-slate-950:var(--cmpri-palette-desktop-tone-1,#241a14);--color-slate-900:var(--cmpri-palette-desktop-tone-2,#302117);--color-slate-800:var(--cmpri-palette-desktop-tone-3,#493321);
+  --color-slate-700:var(--cmpri-palette-desktop-tone-4,#694c32);--color-slate-600:var(--cmpri-palette-desktop-tone-5,#8b6847);--color-slate-500:var(--cmpri-palette-desktop-tone-6,#ad8b61);
+  --color-slate-400:var(--cmpri-palette-desktop-tone-7,#c6a881);--color-slate-300:var(--cmpri-palette-desktop-tone-8,#dfc6a5);--color-slate-200:var(--cmpri-palette-desktop-tone-9,#efdec6);
+  --color-slate-100:var(--cmpri-palette-desktop-tone-10,#fff0d6);--color-sky-200:var(--cmpri-palette-desktop-tone-11,#dbc4a0);--color-amber-300:var(--cmpri-palette-desktop-tone-12,#f4c477);
+  background:var(--cmpri-palette-desktop-tone-13,#271b14);color:var(--cmpri-palette-desktop-tone-10,#fff0d6);
+}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-desktop-topbar {
+  background:linear-gradient(var(--cmpri-palette-desktop-tone-14,#302117f5),var(--cmpri-palette-desktop-tone-15,#211911f5));border-color:var(--cmpri-palette-desktop-tone-16,#9a7046);
+}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 fieldset.group,
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 fieldset.group>legend {background:var(--cmpri-palette-desktop-tone-17,#322319)}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .preview .header fieldset.group>legend {
+  background:var(--cmpri-palette-desktop-tone-18,#694726);color:var(--cmpri-palette-desktop-tone-19,#ffdb91);
+}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .group-outline path {stroke:var(--cmpri-palette-desktop-tone-20,#9e784e)}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .layout-b .groups {border-top-color:var(--cmpri-palette-desktop-tone-21,#765137)}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .action {
+  --action-rgb:var(--cmpri-palette-desktop-action-rgb,198,136,71)!important;background-color:rgba(var(--cmpri-palette-desktop-action-rgb,198,136,71),.19)!important;
+  border-color:rgba(var(--cmpri-palette-desktop-action-rgb,198,136,71),.65)!important;color:var(--cmpri-palette-desktop-tone-22,#ffe8c7)!important;
+}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .action[data-key="sign-out"] {
+  --action-rgb:var(--cmpri-palette-desktop-sign-out-rgb,167,101,73)!important;background-color:var(--cmpri-palette-desktop-tone-23,#562b20)!important;border-color:var(--cmpri-palette-desktop-tone-24,#a76549)!important;color:var(--cmpri-palette-desktop-tone-25,#ffd3b5)!important;
+}
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-create {background:var(--cmpri-palette-desktop-tone-26,#dfac51);border-color:var(--cmpri-palette-desktop-tone-27,#f6c472);color:var(--cmpri-palette-desktop-tone-28,#24180f)}

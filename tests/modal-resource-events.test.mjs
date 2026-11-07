@@ -10,7 +10,7 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function browserModule(view,client) {
  const cache=new Map();
  function load(path){if(cache.has(path))return cache.get(path);const exports={};cache.set(path,exports);
- vm.runInNewContext(ts.transpileModule(readFileSync(`src/lib/events/${path}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,window:view,document:view.document,MutationObserver:view.MutationObserver,crypto:view.crypto,queueMicrotask,require:n=>n==='@/lib/supabase/client'?{createClient:()=>client}:load(n.slice(2))});return exports}return load('browser');
+ vm.runInNewContext(ts.transpileModule(readFileSync(`src/lib/events/${path}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,window:view,document:view.document,MutationObserver:view.MutationObserver,crypto:view.crypto,queueMicrotask,require:n=>n==='@/lib/data-cache/browser'?{invalidateCachedResources:async()=>{},reconcileDeviceDataCache:async()=>{}}:n==='@/lib/supabase/client'?{createClient:()=>client}:load(n.slice(2))});return exports}return load('browser');
 }
 test('host and modal share one channel; hidden layer catches up, iframe removal and last listener release it',async()=>{
  const dom=new JSDOM('<div id="layer"><iframe></iframe></div>',{url:'https://cmpri.test',pretendToBeVisual:true});

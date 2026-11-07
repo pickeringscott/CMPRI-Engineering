@@ -5,18 +5,23 @@
 .manage-locations .location-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:8px 10px;text-align:left;border:0;border-radius:0;font-size:13px}
 .manage-locations .location-toggle small{display:block;margin:2px 0 0 14px;font-size:11px;opacity:.75}
 .manage-locations .location-pm-count{font-size:10px;white-space:nowrap}
-.manage-locations .location-details{padding:8px 12px 12px;border-top:1px solid var(--cmpri-outline);background:var(--cmpri-modal-surface)}
+.manage-locations .location-details{padding:8px 12px 12px;border-top:1px solid var(--cmpri-outline);background:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 7%,var(--cmpri-palette-modal-base,#181818))}
+.manage-locations .location-panel{background:transparent;border-color:var(--cmpri-outline)}
+.manage-locations .location-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.manage-locations .location-action{border:1px solid var(--cmpri-outline);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--cmpri-modal-text);background:rgba(var(--cmpri-action-rgb),.14)}
+.manage-locations .location-action:hover{background:rgba(var(--cmpri-action-rgb),.23)}
 .manage-locations .location-add{padding:6px 0 2px;display:flex;justify-content:flex-end}
 .manage-locations .location-add button{padding:7px 12px;border-radius:5px;font-size:12px;font-weight:700}
 .location-editor{position:fixed;inset:0;margin:auto;width:min(540px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;background:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);border:1px solid var(--cmpri-outline);border-radius:8px;overflow:auto}
-.location-editor::backdrop{background:#020617b3}
+.location-editor::backdrop{background:rgb(0 0 0 / .7)}
 .location-editor>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;background:rgba(var(--cmpri-action-rgb),.14);border-bottom:1px solid var(--cmpri-outline)}
 .location-editor h2{font-size:14px!important;font-weight:700;margin:0}
 .location-editor>header button{width:28px;min-height:28px!important;font-size:20px!important;line-height:1;padding:0}
 .location-editor form{padding:12px}
 .location-editor fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border:0;padding:0}
 .location-editor label{display:grid;gap:4px;min-width:0;font-size:12px}
-.location-editor input{width:100%;min-width:0;padding:7px;border:1px solid var(--cmpri-outline);border-radius:5px;background:var(--cmpri-modal-base);color:var(--cmpri-modal-text);font:inherit}
+.location-editor :is(input,select){width:100%;min-width:0;padding:7px;border:1px solid var(--cmpri-outline);border-radius:5px;background:var(--cmpri-modal-base);color:var(--cmpri-modal-text);font:inherit}
+.location-editor select option{background:var(--cmpri-modal-base);color:var(--cmpri-modal-text)}
 .location-editor footer{display:flex;justify-content:flex-end;gap:6px;margin-top:12px}
 .location-editor footer button{padding:6px 10px;border:1px solid var(--cmpri-outline);border-radius:5px;font-size:12px}
 @media(max-width:450px){.location-editor fieldset{grid-template-columns:1fr}.manage-locations .location-details{padding:8px}}

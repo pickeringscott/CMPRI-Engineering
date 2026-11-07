@@ -1,0 +1,101 @@
+{
+  "accents": [
+    {
+      "name": "apricot",
+      "rgb": "243,187,117"
+    },
+    {
+      "name": "orchid",
+      "rgb": "207,144,254"
+    },
+    {
+      "name": "coral",
+      "rgb": "254,139,156"
+    },
+    {
+      "name": "sky",
+      "rgb": "98,181,241"
+    },
+    {
+      "name": "lemon",
+      "rgb": "239,230,83"
+    },
+    {
+      "name": "mint",
+      "rgb": "117,223,180"
+    }
+  ],
+  "maintenance": "0,212,146",
+  "modalBase": "#181818",
+  "special": {
+    "create": {
+      "rgb": "148,180,206",
+      "base": "#101319"
+    },
+    "detail": {
+      "rgb": "162,171,209",
+      "base": "#11131a"
+    },
+    "hours": {
+      "rgb": "142,189,170",
+      "base": "#101512"
+    }
+  },
+  "signOut": {
+    "rgb": "200,100,115",
+    "background": "#2a1721",
+    "border": "#73333e",
+    "text": "#fecaca"
+  },
+  "semantic": {
+    "gold": "#fbbf24",
+    "gold-light": "#fcd34d",
+    "reply-gold": "#c9b66e",
+    "link": "#7dd3fc",
+    "link-hover": "#bae6fd",
+    "control-rgb": "56,189,248",
+    "white": "#ffffff",
+    "black": "#000000",
+    "pending": "#d8b4fe",
+    "open": "#86efac",
+    "progress": "#fde047",
+    "priority": "#fca5a5",
+    "overdue": "#fdba74",
+    "completed": "#93c5fd",
+    "closed": "#cbd5e1",
+    "all": "#f1f5f9",
+    "modal-text": "rgb(253,243,230)"
+  },
+  "desktop": {
+    "tone-1": "#241a14",
+    "tone-2": "#302117",
+    "tone-3": "#493321",
+    "tone-4": "#694c32",
+    "tone-5": "#8b6847",
+    "tone-6": "#ad8b61",
+    "tone-7": "#c6a881",
+    "tone-8": "#dfc6a5",
+    "tone-9": "#efdec6",
+    "tone-10": "#fff0d6",
+    "tone-11": "#dbc4a0",
+    "tone-12": "#f4c477",
+    "tone-13": "#271b14",
+    "tone-14": "#302117f5",
+    "tone-15": "#211911f5",
+    "tone-16": "#9a7046",
+    "tone-17": "#322319",
+    "tone-18": "#694726",
+    "tone-19": "#ffdb91",
+    "tone-20": "#9e784e",
+    "tone-21": "#765137",
+    "tone-22": "#ffe8c7",
+    "tone-23": "#562b20",
+    "tone-24": "#a76549",
+    "tone-25": "#ffd3b5",
+    "tone-26": "#dfac51",
+    "tone-27": "#f6c472",
+    "tone-28": "#24180f",
+    "action-rgb": "198,136,71",
+    "sign-out-rgb": "167,101,73"
+  }
+}

@@ -27,7 +27,7 @@ export default function EditPoItems({lines,items,received,onSave,onClose,}:{line
   <h3>Edit Items</h3>
   <p>{lines.length} items on this PO. Changes save when you close.</p>
   <fieldset disabled={saving} style={{border:0,padding:0,margin:0}}>
-   {lines.map(line=><section key={line.id} aria-label={`Edit PO line ${line.id}`} style={{borderTop:'1px solid #3c4d67',padding:'5px 0'}}>
+   {lines.map(line=><section key={line.id} aria-label={`Edit PO line ${line.id}`} style={{borderTop:'1px solid var(--cmpri-outline,#555)',padding:'5px 0'}}>
     <EditPoItem register={edit=>{if(edit)edits.current.set(line.id,edit);else edits.current.delete(line.id);}} line={line} items={items} received={received(line.id)} feedback={feedback[line.id]||''} onSave={async body=>{
      try{const ok=await onSave(body);setFeedback(current=>({...current,[line.id]:ok?'Saved this item.':'Could not save this item.'}));return ok;}catch(error){setFeedback(current=>({...current,[line.id]:error instanceof Error?error.message:'Could not save this item.'}));return false;}
     }}/>

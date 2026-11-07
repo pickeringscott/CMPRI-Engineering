@@ -11,7 +11,8 @@ async def main():
   for width,dpr in [(1440,1),(1440,1.25),(1440,2),(390,1),(390,2)]:
    context=await browser.new_context(viewport={'width':width,'height':850},device_scale_factor=dpr,is_mobile=width<640,has_touch=width<640)
    await install(context,'chief_engineer');page=await context.new_page();await page.goto(BASE+'/engineering');bell=page.locator('notification-bell');await bell.wait_for();await page.wait_for_function("document.fonts.check('900 300px BellRounded')")
-   pool=page.locator('.cmpri-header-utilities').get_by_role('button').first;create=page.locator('.cmpri-header-create');pr=await pool.bounding_box();cr=await create.bounding_box()
+   # Measure both controls in one frame: Pool status hydration can change its label width.
+   pr,cr=await page.locator('.cmpri-header-utilities').evaluate('e=>[e.querySelector(".cmpri-header-status-pill"),e.querySelector(".cmpri-header-create")].map(x=>x.getBoundingClientRect().toJSON())')
    assert 0<=cr['y']-pr['y']-pr['height']<=5 and abs(cr['x']+cr['width']/2-pr['x']-pr['width']/2)<1,(pr,cr)
    for count in ['0','1','18','123','1234']:
     await bell.evaluate('(e,n)=>e.setAttribute("count",n)',count)

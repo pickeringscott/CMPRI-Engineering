@@ -9,9 +9,10 @@ CAPS=json.loads(Path(__file__).with_name('role-capabilities.json').read_text())
 orders=[{'id':WID,'display_id':'4218','revision':1,'room':'204','location_id':'loc-1','issue':'Fixture drain needs repair','status':'Open','priority':'High','technician_name':'Alex Morgan','created_at':'2026-11-06T12:00:00Z','guest_name':'Current Guest','loyalty_tier':'Silver','guest_group_badge':'big-ten','incoming_reserved':True,'incoming_loyalty_tier':'Ambassador','incoming_group_badge':'flyover-studios','room_status':'Occupied','notes':'','creator_name':'Reporter','created_by':UID}]
 
 GIF=__import__('base64').b64decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
-async def install(context,role,layouts=None,notes=None,counts=None,posts=None,connected=True,user_id=UID,hotel_id=HOTEL):
+async def install(context,role,layouts=None,notes=None,counts=None,posts=None,connected=True,user_id=UID,hotel_id=HOTEL,revisions=None):
  layouts=layouts if layouts is not None else {}; notes=notes if notes is not None else []; counts=counts if counts is not None else {}; posts=posts if posts is not None else []
  display_names=[]
+ revisions=revisions if revisions is not None else {key:1 for key in ['orders','inbox','pool','rooms','feedback','session','reference']}
  sess={'access_token':'fixture-token','refresh_token':'fixture-refresh','expires_at':int(time.time())+7200,'expires_in':7200,'token_type':'bearer','user':{'id':user_id,'email':'fixture@example.invalid'}}
  await context.add_init_script('try{sessionStorage.setItem("cmpri:auth:v1",'+json.dumps(json.dumps(sess))+');}catch{}')
  async def route(r):
@@ -25,6 +26,7 @@ async def install(context,role,layouts=None,notes=None,counts=None,posts=None,co
   if not u.path.startswith('/api/'):return await r.continue_()
   data={}
   if u.path=='/api/session':data={'user':{'id':user_id,'name':'Alex Morgan','role':role,'email':'fixture@example.invalid'},'hotelId':hotel_id,'landing':'/front-desk' if role=='front_desk' else '/engineering','capabilities':CAPS[role]}
+  elif u.path=='/api/resource-revisions':data={'userId':user_id,'hotelId':hotel_id,'versions':revisions}
   elif u.path=='/api/profile/header-layout':
    if r.request.method=='PUT':layouts[role]=r.request.post_data_json['layout'];posts.append({'path':u.path,'body':r.request.post_data_json})
    data={'layout':layouts.get(role,{})}

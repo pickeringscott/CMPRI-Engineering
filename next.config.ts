@@ -20,6 +20,17 @@ const nextConfig: NextConfig = {
 	outputFileTracingExcludes: {
 		"/*": [".env.example", ".env.local"],
 	},
+	async headers() {
+		const immutable = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
+		const revalidate = [{ key: "Cache-Control", value: "no-cache" }];
+		return [
+			{ source: "/sw.js", headers: revalidate },
+			{ source: "/backgrounds/thanksgiving-animated/cache-worker.js", headers: revalidate },
+			{ source: "/backgrounds/thanksgiving-animated/index.html", headers: revalidate },
+			{ source: "/backgrounds/thanksgiving-animated/:asset((?:index|scene|leaves)\\.[a-f0-9]{16}\\.(?:html|css|js))", headers: immutable },
+			{ source: "/backgrounds/thanksgiving-animated/assets/:asset([a-z-]+\\.[a-f0-9]{16}\\.png)", headers: immutable },
+		];
+	},
 	async redirects() {
 		return [
 			{

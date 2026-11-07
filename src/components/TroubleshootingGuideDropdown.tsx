@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import GuidePdfViewer from "./GuidePdfViewer";
+import { modalThemeStyle } from "@/lib/ui/header-palette";
 import styles from "./TroubleshootingGuideDropdown.module.css";
 
 type GuideId = "enseo" | "dormakaba" | "guest-room";
@@ -677,7 +678,7 @@ export default function TroubleshootingGuideDropdown() {
         {GUIDE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
       </select>
       {selected && createPortal(
-        <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); closeViewer(); }} onClose={closeViewer} className="fixed inset-0 m-auto h-[90dvh] w-[94vw] max-w-6xl overflow-hidden rounded-xl border border-slate-600 bg-slate-950 p-0 text-white backdrop:bg-black/70">
+        <dialog ref={dialogRef} data-cmpri-modal-theme="true" style={modalThemeStyle("Front Desk Quick Guides")} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); closeViewer(); }} onClose={closeViewer} className="fixed inset-0 m-auto h-[90dvh] w-[94vw] max-w-6xl overflow-hidden rounded-xl border border-slate-600 bg-slate-950 p-0 text-white backdrop:bg-black/70">
           <div className="flex h-full min-h-0 flex-col">
             <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-700 p-3">
               <h2 id={titleId} className="mr-auto text-sm font-bold">{selected.title}</h2>

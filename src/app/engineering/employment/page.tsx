@@ -25,14 +25,14 @@ export default function EmploymentReview() {
     return String(value || "Not provided");
   }
   const labels: Record<string,string> = {name:"Full name",email:"Email address",phone:"Phone number",history:"Relevant work history / training",example:"Repair example",workingDays:"Available working days",skills:"Tasks you have done",interview:"Interview days"};
-  return <main style={{maxWidth:850,margin:"auto",padding:12,color:"#f4f6fa",background:"#101b2b",minHeight:"100vh"}}>
+  return <main style={{maxWidth:850,margin:"auto",padding:12,color:"var(--cmpri-modal-text,#f4f6fa)",background:"var(--cmpri-modal-surface,#202020)",minHeight:"100vh"}}>
     <div data-cmpri-page-heading>
       <h1 style={{fontSize:22,margin:"0 0 8px"}}>Candidate questionnaires</h1>
       <p style={{fontSize:12,margin:"0 0 8px"}}>Private work-account review. Human review only.</p>
     </div>
     <button onClick={()=>void load()} className="rounded border px-3 py-1">{selected ? "Back to questionnaires" : "Refresh"}</button>
     <p role="status">{message}</p>
-    {selected ? <dl>{Object.entries(selected.answers || {}).map(([key,value])=><div key={key} style={{padding:"5px 0",borderBottom:"1px solid #344359"}}><dt style={{fontSize:12,color:"#b6c4d7"}}>{labels[key]||key}</dt><dd style={{margin:"2px 0",whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{display(value)}</dd></div>)}</dl> : <div>{!message && list.length===0 && <p>No questionnaires yet.</p>}{list.map(item=><button key={item.id} onClick={()=>void load(item.id)} style={{display:"block",width:"100%",textAlign:"left",padding:"7px 4px",borderBottom:"1px solid #344359",overflowWrap:"anywhere"}}><strong>{item.name}</strong> · {item.email}<br/><small>{new Date(item.created_at).toLocaleString()}</small></button>)}</div>}
+    {selected ? <dl>{Object.entries(selected.answers || {}).map(([key,value])=><div key={key} style={{padding:"5px 0",borderBottom:"1px solid var(--cmpri-outline,#555)"}}><dt style={{fontSize:12,color:"var(--cmpri-modal-muted,#a3a3a3)"}}>{labels[key]||key}</dt><dd style={{margin:"2px 0",whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{display(value)}</dd></div>)}</dl> : <div>{!message && list.length===0 && <p>No questionnaires yet.</p>}{list.map(item=><button key={item.id} onClick={()=>void load(item.id)} style={{display:"block",width:"100%",textAlign:"left",padding:"7px 4px",borderBottom:"1px solid var(--cmpri-outline,#555)",overflowWrap:"anywhere"}}><strong>{item.name}</strong> · {item.email}<br/><small>{new Date(item.created_at).toLocaleString()}</small></button>)}</div>}
   </main>;
 }
 

@@ -5,7 +5,7 @@
 [data-pool-log] .pool-flags input[type=checkbox]{width:14px;height:14px;min-width:14px;min-height:14px!important;margin:0;padding:0!important;accent-color:rgb(var(--cmpri-action-rgb,98,181,241))}
 [data-pool-log] .pool-save-actions{display:flex;justify-content:flex-end;width:100%}
 .pool-specs{position:fixed;inset:0;margin:auto;width:min(640px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--cmpri-outline);border-radius:8px;background:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);overflow:auto}
-.pool-specs::backdrop{background:#020617b3}
+.pool-specs::backdrop{background:rgb(0 0 0 / .7)}
 .pool-specs>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;background:rgba(var(--cmpri-action-rgb),.14);border-bottom:1px solid var(--cmpri-outline)}
 .pool-specs>header h2{font-size:14px!important;font-weight:700;margin:0}
 .pool-specs>header button{width:28px;min-height:28px!important;padding:0;font-size:20px!important;line-height:1}
