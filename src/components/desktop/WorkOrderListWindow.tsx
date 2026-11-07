@@ -7,6 +7,9 @@ import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 import GuestGroupBadge from "@/components/GuestGroupBadge";
 import type { RoomGroupBadge } from "@/lib/room-group-badges";
 
+import WorkOrderFilters, { type WorkOrderListFilter } from "@/components/WorkOrderFilters";
+export type { WorkOrderListFilter } from "@/components/WorkOrderFilters";
+
 import LoyaltyBadge from "@/components/LoyaltyBadge";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -14,6 +17,7 @@ import { authorizationHeaders } from "@/lib/auth/client-session";
 import { subscribeResources } from "@/lib/events/browser";
 import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { roomStatusBadge } from "@/lib/room-availability";
+import { normalizePrintedTime } from "@/lib/room-operations-reports";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 
 export type DesktopWorkOrder = Record<string, unknown> & {
@@ -42,7 +46,6 @@ export type DesktopWorkOrder = Record<string, unknown> & {
   created_at?: string | null;
 };
 
-export type WorkOrderListFilter = "pending" | "open" | "progress" | "priority" | "overdue" | "completed" | "closed" | "all";
 export type DesktopWorkOrderDraft = {
   id: string;
   location_id?: string | null;
@@ -108,6 +111,20 @@ export function checkoutLabel(date?: string | null, time?: string | null) {
   return { label: `${displayDate}${when}`, className: "border-transparent bg-transparent text-slate-400" };
 }
 
+export function listCheckoutLabel(date?: string | null, time?: string | null, roomStatus?: string | null, today = hotelDate()) {
+  if (!date) return null;
+  const parsed = new Date(`${date.slice(0, 10)}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || parsed.toISOString().slice(0, 10) !== date) return null;
+  const displayDate = parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const normalized = normalizePrintedTime(time || "") || "11:00:00";
+  const [hour, minute] = normalized.split(":").map(Number);
+  const displayTime = `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "a.m." : "p.m."}`;
+  return {
+    label: `C/O ${displayDate}${date === today ? ` · ${displayTime}` : ""}`,
+    className: roomStatusBadge(roomStatus)?.className || "border-slate-600 bg-slate-900 text-slate-300",
+  };
+}
+
 export function priorityLabel(priority?: string | null) {
   const value = String(priority || "").trim();
   const normalized = value.toLowerCase();
@@ -142,17 +159,6 @@ export function groupWorkOrders<T extends DesktopWorkOrder>(orders: T[], drafts:
     all: [...orders, ...draftOrders],
   };
 }
-
-const KPI_CARDS: Array<{ key: WorkOrderListFilter; label: string; compactLabel: string; tone: string }> = [
-  { key: "pending", label: "Pending", compactLabel: "Pending", tone: "text-purple-200" },
-  { key: "open", label: "Open", compactLabel: "Open", tone: "text-green-200" },
-  { key: "progress", label: "In Progress", compactLabel: "Progress", tone: "text-yellow-200" },
-  { key: "priority", label: "Urgent / High", compactLabel: "Urgent/High", tone: "text-red-200" },
-  { key: "overdue", label: "Overdue", compactLabel: "Overdue", tone: "text-orange-200" },
-  { key: "completed", label: "Completed", compactLabel: "Done", tone: "text-blue-200" },
-  { key: "closed", label: "Closed", compactLabel: "Closed", tone: "text-slate-300" },
-  { key: "all", label: "All", compactLabel: "All", tone: "text-white" },
-];
 
 const ROW_LIMIT = 200;
 
@@ -213,16 +219,16 @@ export default function WorkOrderListWindow({
     <div data-front-desk-list={undefined} className="cmpri-work-order-list cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.3em] overflow-hidden bg-slate-950 p-[0.45em] text-white">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-[0.35em]">
 
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-[0.3em] @md:flex-nowrap">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-[0.3em] @md:flex-nowrap">
           <label className="flex min-w-0 items-center gap-[0.3em] text-[0.85em] text-slate-300">
-            <select aria-label="Sort work orders" data-sort-default={sort==="default"} value={sort} onChange={event=>{setSort(event.target.value as WorkOrderSort);setPage(0);}} className="min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-900 px-[0.4em] py-[0.45em] text-white focus:border-sky-400">
+            <select aria-label="Sort work orders" data-sort-default={sort==="default"} value={sort} onChange={event=>{setSort(event.target.value as WorkOrderSort);setPage(0);}} className="work-order-sort min-w-0 max-w-full px-[0.6em] py-[0.45em] text-white">
               <option value="default">Sort by…</option><option value="tier-high">Bonvoy Tier: high to low</option><option value="tier-low">Bonvoy Tier: low to high</option><option value="created-newest">Created: newest first</option>
               <option value="created-oldest">Created: oldest first</option>
               <option value="due-earliest">Due: earliest first</option>
               <option value="due-latest">Due: latest first</option>
             </select>
           </label>
-          <div className="relative min-w-[12em] flex-1 @md:max-w-[32em]">
+          <div className="relative min-w-[12em] flex-1 @md:max-w-[32em] @md:ml-auto">
             <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute left-[0.65em] top-1/2 size-[1em] -translate-y-1/2 fill-none stroke-slate-400" strokeWidth="1.7">
               <circle cx="8.5" cy="8.5" r="5.5" />
               <path d="m13 13 4 4" strokeLinecap="round" />
@@ -240,29 +246,13 @@ export default function WorkOrderListWindow({
         </div>
       </header>
 
-      {true && <div id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0 grid-cols-2 gap-[0.2em] @md:grid-cols-4 @3xl:grid-cols-8">
-        {KPI_CARDS.map((card) => {
-          const selected = !normalizedQuery && filter === card.key;
-          return (
-            <button
-              key={card.key}
-              data-preview-kpi={card.key}
-              type="button"
-              title={card.label}
-              aria-label={`${card.label}: ${loading ? "loading" : countFor(card.key)}`}
-              aria-pressed={selected}
-              onClick={() => { setFilter(card.key); {setQuery(""); setPage(0);}; setPage(0); }}
-              className={`flex min-w-0 items-center justify-between gap-[0.25em] rounded border px-[0.4em] py-[0.18em] text-left ${selected ? "border-sky-400 bg-slate-800" : "border-slate-700 bg-slate-900 hover:border-slate-500"}`}
-            >
-              <span className="min-w-0 break-words text-[calc(0.78em+3px)] font-semibold uppercase leading-tight tracking-wide text-slate-300">
-                <span className="@md:hidden">{card.key==="priority"?<>Urgent/<wbr/>High</>:card.compactLabel}</span>
-                <span className="hidden @md:inline">{card.label}</span>
-              </span>
-              <span className={`shrink-0 text-[calc(0.78em+3px)] font-bold leading-tight ${card.tone}`}>{loading ? "—" : countFor(card.key)}</span>
-            </button>
-          );
-        })}
-      </div>}
+      <WorkOrderFilters
+        filter={filter}
+        searching={!!normalizedQuery}
+        loading={loading}
+        countFor={countFor}
+        onChange={key => { setFilter(key); setQuery(""); setPage(0); }}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (
@@ -272,7 +262,7 @@ export default function WorkOrderListWindow({
           <div className="flex flex-col gap-[0.2em]">
             {rows.slice(0, ROW_LIMIT).map((order) => {
               const occupancy = roomStatusBadge(order.room_status);
-              const checkout = checkoutLabel(order.checkout_date, order.checkout_time);
+              const checkout = listCheckoutLabel(order.checkout_date, order.checkout_time, order.room_status);
               const isDraft = order.is_draft === true;
               const sourceDraftId = typeof order.source_draft_id === "string" ? order.source_draft_id : "";
               return (
@@ -286,26 +276,27 @@ export default function WorkOrderListWindow({
                   className="flex w-full min-w-0 items-center gap-x-[0.5em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >
                   <div className="preview-row-content">
-                    <div className="preview-row-heading">
-                      <div className="preview-location">
-                        {!isDraft && order.display_id && <span className="preview-wo-number">{formatWorkOrder(order.display_id)}</span>}
-                        <span className="preview-room">{order.room || "No location"}</span>
-                        {!isDraft&&<>{order.cn_room&&order.guest_group_badge!=='railway-cn'&&<Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge"/>}<GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.loyalty_tier}/></>}
-                        {occupancy&&<span data-preview-room-status className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
-                        {!isDraft && <WorkOrderImportPill order={order} />}
-                      </div>
-                      <div data-preview-pills>
-                        {!isDraft && order.priority && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
-                        <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.72em] font-semibold leading-tight ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
-                      </div>
-
+                    <div className="work-order-ticket-line" data-preview-pills>
+                      {!isDraft && order.display_id && <span className="preview-wo-number">{formatWorkOrder(order.display_id)}</span>}
+                      <span className={`work-order-pill ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
+                      {!isDraft && order.priority && <span className={`work-order-pill ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
+                      {!isDraft && <WorkOrderImportPill order={order} />}
+                    </div>
+                    <div className="work-order-room-line">
+                      <span className="preview-room">{order.room || "No location"}</span>
+                      {!isDraft && <>
+                        {order.cn_room && order.guest_group_badge !== 'railway-cn' && <Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge" />}
+                        <GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge" />
+                        <LoyaltyBadge tier={order.loyalty_tier} />
+                      </>}
+                      {occupancy && <span data-preview-room-status className={`work-order-pill ${occupancy.className}`}>{occupancy.label}</span>}
+                      {checkout && <span data-work-order-checkout className={`work-order-pill ${checkout.className}`}>{checkout.label}</span>}
                     </div>
                   <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
                   {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">Draft — awaiting Chief Engineer approval{order.potential_duplicate === true ? " · Possible duplicate — review" : ""}</span>}
                   <span data-preview-technician className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
                   <div data-room-occupancy className="preview-incoming">
                     {!isDraft && order.incoming_reserved&&<><GuestGroupBadge badge={order.incoming_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.incoming_loyalty_tier}/><span className="reserved-pill">Reserved</span></>}
-                    {checkout && <span className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   </div>
                   </div>
                 </button>

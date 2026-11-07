@@ -1,7 +1,7 @@
 /* Approved Work Order design, standalone version 7. Scoped component selectors. */
 .tier-m{display:inline-flex;align-items:center;justify-content:center;flex:none;width:23px;height:23px;vertical-align:middle}.tier-m svg{width:21px;height:21px}.tier-platinum{background:#2c2c2c;border-radius:50%;border:1px solid #707070}.tier-ambassador{background:#000080;border-radius:50%;border:1px solid #d4af37}.tier-base{background:#d7d7d7;border-radius:3px}.reserved-pill{border:1px solid #b897df66;border-radius:99px;background:#5b217633;color:#e9ccff;font-size:.7em;padding:.08em .45em;white-space:nowrap}
 [data-sort-default=true]{color:#94a3b8!important}
-#work-order-kpi-filters{grid-template-columns:repeat(8,minmax(0,1fr))!important;gap:4px!important}
+#work-order-kpi-filters{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:4px!important}
 #work-order-kpi-filters button{min-height:28px!important;padding:3px 6px!important;background:color-mix(in srgb,var(--tile) 11%,#0f172a)!important;border-color:color-mix(in srgb,var(--tile) 35%,#334155)!important;color:var(--tile)!important}
 #work-order-kpi-filters button>span{font-size:11px!important;color:inherit!important;letter-spacing:.02em}
 #work-order-kpi-filters button[aria-pressed=true]{outline:1px solid var(--tile);outline-offset:-1px;background:color-mix(in srgb,var(--tile) 22%,#0f172a)!important}
@@ -60,3 +60,57 @@
 @supports not selector(::-webkit-scrollbar){html[data-cmpri-embedded],.cmpri-work-order-list>.overflow-y-auto{scrollbar-color:rgba(71,85,105,.48) transparent}}
 /* Final mobile Detail action fit: preserve typography and row placement. */
 @media(max-width:639px){.preview-locked-actions>button{flex:none;width:max-content;min-width:0;min-height:0!important;height:auto;padding:1px 3px!important}}
+
+/* Label and count widths are measured together as the modal resizes. */
+.cmpri-work-order-list #work-order-kpi-filters button {
+  display:flex;align-items:center;justify-content:space-between;gap:8px!important;
+  min-width:0;padding-inline:6px!important;white-space:nowrap;line-height:1.25;
+}
+.cmpri-work-order-list #work-order-kpi-filters button>span {
+  flex:none;white-space:nowrap;font-size:var(--filter-font-size,11px)!important;color:inherit;
+}
+.cmpri-work-order-list #work-order-kpi-filters .filter-label-full { display:inline; }
+.cmpri-work-order-list #work-order-kpi-filters .filter-label-short { display:none; }
+.cmpri-work-order-list #work-order-kpi-filters[data-compact=true] button { gap:4px!important;padding-inline:3px!important; }
+.cmpri-work-order-list #work-order-kpi-filters[data-compact=true] button>span { letter-spacing:0; }
+.cmpri-work-order-list #work-order-kpi-filters[data-compact=true] .filter-label-full { display:none; }
+.cmpri-work-order-list #work-order-kpi-filters[data-compact=true] .filter-label-short { display:inline; }
+.cmpri-work-order-list .work-order-sort {
+  border:0!important;border-radius:9px;background-color:rgba(var(--cmpri-action-rgb),.14);
+  color:var(--cmpri-modal-text);box-shadow:none;outline:none;
+}
+.cmpri-work-order-list .work-order-sort:focus { border:0!important;box-shadow:none;outline:none; }
+.cmpri-work-order-list .work-order-sort:focus-visible { outline:2px solid rgba(var(--cmpri-action-rgb),.8);outline-offset:2px; }
+.cmpri-work-order-list .work-order-sort option { background:var(--cmpri-modal-base);color:var(--cmpri-modal-text); }
+.cmpri-work-order-list .preview-row-content { display:flex;flex:1;flex-direction:column;gap:4px;align-items:stretch; }
+.cmpri-work-order-list :is(.work-order-ticket-line,.work-order-room-line) { display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-start;gap:5px;max-width:none;padding:0; }
+.cmpri-work-order-list .preview-wo-number { width:auto;font-size:.9em; }
+.cmpri-work-order-list .preview-room { width:auto;font-size:1.05em; }
+.cmpri-work-order-list .work-order-room-line>.preview-group-badge { height:1.05em;width:auto;max-width:2em; }
+.cmpri-work-order-list .work-order-room-line>.tier-m { width:1.05em;height:1.05em; }
+.cmpri-work-order-list .work-order-room-line>.tier-m svg { width:100%;height:100%; }
+.cmpri-work-order-list .work-order-pill { display:inline-flex;flex:none;white-space:nowrap;border-width:1px;border-radius:999px;padding:.08em .45em;font-size:.72em;font-weight:600;line-height:1.3; }
+.work-order-tier-key { position:relative;display:flex;align-items:center;flex:none; }
+.work-order-tier-help {
+  position:relative;display:grid;place-items:center;width:30px;height:26px;min-height:0;
+  padding:0 5px 0 0;border:0;border-radius:4px;background:transparent;cursor:pointer;
+}
+.work-order-tier-help>.tier-m { width:21px;height:21px; }
+.work-order-tier-help>.tier-m svg { width:19px;height:19px; }
+.work-order-tier-question {
+  position:absolute;top:0;right:0;display:grid;place-items:center;width:12px;height:12px;
+  border:1px solid #f87171;border-radius:50%;background:#dc2626;color:white;
+  font-family:Arial,sans-serif;font-size:9px;line-height:1;font-weight:800;
+}
+.work-order-tier-popover {
+  position:absolute;top:calc(100% + 5px);right:0;z-index:20;width:215px;padding:9px;
+  border:1px solid var(--cmpri-outline);border-radius:8px;background:var(--cmpri-modal-surface);
+  color:var(--cmpri-modal-text);box-shadow:0 12px 36px #0008;white-space:normal;
+  font-size:10px;font-weight:400;line-height:1.3;cursor:default;
+}
+.work-order-tier-popover h2 { margin:0 0 8px;font-size:11px!important;font-weight:700; }
+.work-order-tier-popover ol { display:flex;flex-direction:column;gap:6px;list-style:none;padding:0;margin:0; }
+.work-order-tier-popover li,.work-order-tier-popover p { display:flex;align-items:center;gap:7px;font-size:10px; }
+.work-order-tier-popover .tier-m { width:15px;height:15px; }
+.work-order-tier-popover .tier-m svg { width:14px;height:14px; }
+.work-order-tier-popover p { margin:8px 0 0;padding-top:7px;border-top:1px solid var(--cmpri-outline);font-size:9px;line-height:1.4;color:inherit; }

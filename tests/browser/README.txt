@@ -43,3 +43,11 @@ redundant heading/close suppression, searchable dropdowns, and the unchanged
 unsaved-hours close guard. All APIs are intercepted with local fixtures; this
 test produces JSON results without a visual preview. It runs at the end of
 npm run test:approved-ui, or can be run directly with the same localhost setup.
+
+work_order_list_layout.py tests the deployable Work Order List with mock API data:
+CN and membership badges, two-line ticket details, report checkout times and the
+11 a.m. default, sorting/search/filtering, title-bar Bonvoy help with its red ?
+badge, keyboard/touch dismissal, row selection, real desktop window resizing,
+and six-digit filter counts at phone widths. Run npm run test:work-order-list-ui
+against the local app using the same synthetic environment configuration above.
+It makes no production reads or work-order writes.

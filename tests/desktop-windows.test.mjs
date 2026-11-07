@@ -174,11 +174,12 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(dashboard, /onClick=\{openApprovals\}/);
   assert.doesNotMatch(dashboard, /WorkOrderNotificationBanner|resolved_notification_ids/);
   assert.doesNotMatch(dashboard, /Awaiting Approval|KPI/, 'KPI cards live in the work order list window');
-  assert.match(listWindow, /Pending/);
-  assert.match(listWindow, /compactLabel/);
-  assert.match(listWindow, /@md:hidden/);
-  assert.match(listWindow, /@md:inline/);
-  assert.match(listWindow, /aria-label=\{\`\$\{card\.label\}:/);
+  const filters = readFileSync(new URL('../src/components/WorkOrderFilters.tsx', import.meta.url), 'utf8');
+  assert.match(listWindow, /<WorkOrderFilters/);
+  assert.match(filters, /Pending/);
+  assert.match(filters, /compactLabel/);
+  assert.match(filters, /ResizeObserver/);
+  assert.match(filters, /aria-label=\{\`\$\{card\.label\}:/);
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /<WorkOrderAttachmentHistory items=\{workOrderImages\}/);
   assert.match(workOrderDetail, /<WorkOrderMediaComposer/);
@@ -197,6 +198,4 @@ test('approval modal removes only redundant controls and hides only an empty app
  assert.match(source,/<span className="font-bold text-slate-400">\{awaitingApproval.length\}/);
  assert.match(source,/onClick=\{onClearAll\}/);
  assert.match(source,/onClick=\{\(\) => onClear\(notification.id\)\}/);
- const list=readFileSync(new URL('../src/components/desktop/WorkOrderListWindow.tsx',import.meta.url),'utf8');
- assert.equal((list.match(/text-\[calc\(0.78em\+3px\)\]/g)||[]).length,2);
 });
