@@ -44,7 +44,7 @@ async def main():
    f=page.frames[1];await f.wait_for_function('Array.from(document.images).every(i=>i.complete&&i.naturalWidth>0)')
    async def geometry(frame):return await frame.locator('.decor').evaluate_all('es=>Object.fromEntries(es.map(e=>[e.id,{x:parseFloat(e.style.left),y:parseFloat(e.style.top),width:parseFloat(e.style.width),height:parseFloat(e.style.height),layer:+e.style.zIndex-10}]))')
    assert await geometry(f)==layouts['desktop']['objects']
-   assert await f.locator('.leaf').count()==96
+   assert await f.locator('.leaf:not(.settled)').count()==96
    assert await f.locator('#scene').get_attribute('data-leaf-size')=='41'
    files=set(manifest['files']);counts=Counter(h for h in hits if h in files)
    assert all(counts[path]==1 for path in files),counts

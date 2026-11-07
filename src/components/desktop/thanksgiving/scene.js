@@ -3,6 +3,8 @@
   const layouts = JSON.parse(document.getElementById('theme-layouts').textContent);
   const scene = document.getElementById('scene');
   const mobile = matchMedia('(max-width: 767px)');
+  let header;
+  try { header = window.parent.document.querySelector('.cmpri-desktop-topbar'); } catch {}
   function renderLayout() {
     const mode = mobile.matches ? 'mobile' : 'desktop';
     const layout = layouts[mode];
@@ -17,6 +19,18 @@
         zIndex: String(10 + object.layer),
       });
     }
+    if (mode === 'desktop') {
+      const object = layout.objects.greeting;
+      const clearance = 20 * scale;
+      const safeTop = Math.max(object.y * scale, (header?.getBoundingClientRect().bottom || 0) + clearance);
+      const available = Math.max(0, innerHeight - safeTop - 12 * scale);
+      const greetingScale = Math.min(scale, available / object.height);
+      Object.assign(document.getElementById('greeting').style, {
+        left: innerWidth - 24 * scale - object.width * greetingScale + 'px',
+        top: safeTop + 'px', width: object.width * greetingScale + 'px',
+        height: object.height * greetingScale + 'px', visibility: available ? 'visible' : 'hidden',
+      });
+    } else document.getElementById('greeting').style.removeProperty('visibility');
     for (const [id, layer] of Object.entries(layout.leaves.layers)) {
       document.getElementById(id).style.zIndex = String(10 + layer.layer);
     }
@@ -26,5 +40,10 @@
   }
   mobile.addEventListener('change', renderLayout);
   addEventListener('resize', renderLayout);
+  // Only the desktop greeting follows the header's clearance. The turkey,
+  // pumpkins, leaf layers and full-viewport origin retain their fixed layout.
+  const headerResize = header && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(renderLayout) : null;
+  headerResize?.observe(header);
+  addEventListener('pagehide', () => headerResize?.disconnect(), { once: true });
   renderLayout();
 })();

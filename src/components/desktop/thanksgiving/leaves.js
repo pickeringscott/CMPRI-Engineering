@@ -15,16 +15,49 @@
   {name:'Bur oak',outline:'M30 3C42 1 49 10 41 17C54 12 61 24 47 29C59 31 57 42 42 40L36 44C48 44 53 54 41 58L33 57L32 67L29 67L28 57C14 63 9 54 21 46L23 41C3 47-1 33 14 30C0 24 6 13 19 18C11 9 18 2 30 3Z',veins:'M30 9L30 66M30 20L22 11M30 20L38 11M30 31L12 22M30 31L49 22M30 39L13 37M30 39L47 36M30 51L18 53M30 51L43 52'},
   {name:'Pawpaw',outline:'M30 2C43 6 49 18 47 32C45 47 36 58 31 64L31 69L28 69L29 63C20 54 12 43 12 29C11 15 20 6 30 2Z',veins:'M30 7L30 67M30 18L38 13M30 28L43 20M30 38L43 29M30 48L40 40M30 56L35 50M30 22L21 15M30 32L17 24M30 42L18 34M30 52L23 44'}
  ];
+ // Retain landed leaves separately from the 96 falling leaves. Each field keeps
+ // its own bounded pile, preserving its existing place behind/in front of the art.
+ const capacity=600, piles={leavesA:[],leavesB:[]};
  let config={count:0,size:42},pool=[],last=0,elapsed=0,paused=false;
  const rnd=(a,b)=>a+Math.random()*(b-a);
+ const fieldFor=v=>v.index%2===0?'leavesA':'leavesB';
+ const pileHeight=h=>Math.min(100,h*.125);
  function shapeMarkup(shape){return '<svg viewBox="0 0 60 70" aria-hidden="true"><path d="'+shape.outline+'" fill="currentColor" stroke="#743c20" stroke-width="1.1"/><path d="'+shape.veins+'" fill="none" stroke="#69371b" stroke-opacity=".78" stroke-width="1.05" stroke-linecap="round"/></svg>'}
  function applySize(v){v.size=config.size*v.scale;v.e.style.width=v.size+'px';v.e.style.height=v.size*70/60+'px'}
- function create(index){const e=document.createElement('span'),species=index%shapes.length;e.className='leaf';e.dataset.species=shapes[species].name;e.innerHTML=shapeMarkup(shapes[species]);e.style.color=colors[index%colors.length];const v={e,index,species,scale:rnd(.8,1.2),duration:rnd(9500,16500),x:rnd(.03,.97),depth:rnd(0,1),phase:rnd(0,7),sway:rnd(20,80),turn:rnd(-540,540),angle:rnd(0,360),born:0};v.born=elapsed-(index+.5)/Math.max(1,config.count)*v.duration;applySize(v);return v}
- function position(v,p,w,h){const flat=.28,cap=Math.min(80,h*.1),rise=v.size*flat*.71+v.depth*cap,y=h-rise,dx=Math.sin(p*7+v.phase)*v.sway*(1-p);v.e.style.transform='translate('+(v.x*w+dx-v.size/2)+'px,'+(-v.size+(y+v.size)*p-v.size/2)+'px) scaleY('+(1-p*(1-flat))+') rotate('+(v.angle+(1-p)*v.turn)+'deg)';v.e.classList.toggle('settled',p>=1)}
- function paint(){let active=0,settled=0;const w=scene.clientWidth,h=scene.clientHeight;for(const v of pool){const p=reduced.matches?1:Math.min(1,(elapsed-v.born)/v.duration);position(v,p,w,h);if(p>=1)settled++;else active++;}scene.dataset.active=active;scene.dataset.settled=settled;scene.dataset.leafCount=pool.length;scene.dataset.leafSize=config.size;}
- function configure(next){const count=Math.max(0,Math.min(96,Math.round(next.count))),size=Math.max(12,Math.min(100,Math.round(next.size))),changed=size!==config.size;config={count,size};while(pool.length>count)pool.pop().e.remove();while(pool.length<count)pool.push(create(pool.length));for(const v of pool){const target=fields[v.index%2===0?'leavesA':'leavesB'];if(v.e.parentNode!==target)target.append(v.e);if(changed)applySize(v);}paint();}
- function frame(t){const dt=last?Math.min(t-last,100):0;last=t;if(!paused&&!reduced.matches&&!document.hidden){elapsed+=dt;for(const v of pool){if(elapsed-v.born>v.duration+1400){v.born=elapsed;v.x=rnd(.03,.97);v.phase=rnd(0,7);v.turn=rnd(-540,540);}}paint();}requestAnimationFrame(frame)}
+ function create(index){const e=document.createElement('span'),species=index%shapes.length;e.className='leaf';e.dataset.species=shapes[species].name;e.innerHTML=shapeMarkup(shapes[species]);e.style.color=colors[index%colors.length];const v={e,index,species,scale:rnd(.8,1.2),duration:rnd(9500,16500),x:rnd(.01,.99),depth:rnd(0,1),phase:rnd(0,7),sway:rnd(20,80),turn:rnd(-540,540),angle:rnd(0,360),born:0};v.born=elapsed-(index+.5)/Math.max(1,config.count)*v.duration;applySize(v);return v}
+ function position(v,p,w,h){const flat=.28,radius=v.size*flat*.71,cap=Math.max(radius*2,pileHeight(h)),rise=radius+v.depth*Math.max(0,cap-radius*2),y=h-rise,dx=Math.sin(p*7+v.phase)*v.sway*(1-p);v.e.style.transform='translate('+(v.x*w+dx-v.size/2)+'px,'+(-v.size+(y+v.size)*p-v.size/2)+'px) scaleY('+(1-p*(1-flat))+') rotate('+(v.angle+(1-p)*v.turn)+'deg)';v.e.classList.toggle('settled',p>=1)}
+ function land(v,w,h){
+  const field=fieldFor(v),pile=piles[field],limit=capacity/2;
+  // Reuse a ground leaf only after this layer reaches its capacity. Nothing
+  // disappears from the accumulated pile when a falling leaf starts again.
+  const e=pile.length===limit?pile.shift().e:v.e.cloneNode(true);
+  e.innerHTML=v.e.innerHTML;e.dataset.species=v.e.dataset.species;e.style.cssText=v.e.style.cssText;
+  const leaf={...v,e,depth:v.depth*Math.sqrt((pile.length+1)/limit)};
+  position(leaf,1,w,h);pile.push(leaf);fields[field].append(e);
+  v.born=elapsed;v.x=rnd(.01,.99);v.phase=rnd(0,7);v.turn=rnd(-540,540);
+ }
+ function paint(ground=false){
+  const w=scene.clientWidth,h=scene.clientHeight;
+  for(const v of pool)position(v,reduced.matches?1:Math.min(1,(elapsed-v.born)/v.duration),w,h);
+  if(ground)for(const pile of Object.values(piles))for(const v of pile)position(v,1,w,h);
+  const landed=piles.leavesA.length+piles.leavesB.length;
+  scene.dataset.active=reduced.matches?0:pool.length;scene.dataset.settled=landed+(reduced.matches?pool.length:0);
+  scene.dataset.leafCount=pool.length;scene.dataset.totalLeaves=pool.length+landed;scene.dataset.leafSize=config.size;
+  scene.dataset.pileCapacity=capacity;scene.dataset.pileHeight=pileHeight(h);
+ }
+ function configure(next){
+  const count=Math.max(0,Math.min(96,Math.round(next.count))),size=Math.max(12,Math.min(100,Math.round(next.size))),changed=size!==config.size;config={count,size};
+  while(pool.length>count)pool.pop().e.remove();while(pool.length<count)pool.push(create(pool.length));
+  for(const v of pool){const target=fields[fieldFor(v)];if(v.e.parentNode!==target)target.append(v.e);if(changed)applySize(v);}
+  for(const pile of Object.values(piles)){if(!count){for(const v of pile)v.e.remove();pile.length=0;}else if(changed)for(const v of pile)applySize(v);}
+  paint(true);
+ }
+ function frame(t){
+  const dt=last?Math.min(t-last,100):0;last=t;
+  if(!paused&&!reduced.matches&&!document.hidden){elapsed+=dt;const w=scene.clientWidth,h=scene.clientHeight;for(const v of pool)if(elapsed-v.born>=v.duration)land(v,w,h);paint();}
+  requestAnimationFrame(frame);
+ }
  const toggle=document.getElementById('toggle');toggle.addEventListener('click',()=>{paused=!paused;scene.classList.toggle('paused',paused);toggle.setAttribute('aria-pressed',String(paused));toggle.setAttribute('aria-label',paused?'Resume animation':'Pause animation');});
- reduced.addEventListener('change',paint);addEventListener('resize',paint);
+ reduced.addEventListener('change',()=>paint(true));addEventListener('resize',()=>paint(true));
  window.cmpriLeaves={configure,species:shapes.map(s=>s.name),shapeMarkup};configure(layouts[matchMedia('(max-width: 767px)').matches?'mobile':'desktop'].leaves);requestAnimationFrame(frame);
 })();

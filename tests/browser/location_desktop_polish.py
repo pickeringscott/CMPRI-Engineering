@@ -27,10 +27,12 @@ async def main():
     await bg.locator('#scene').wait_for()
     origin=await bg.evaluate('performance.timeOrigin')
     initial=await background.bounding_box()
-    greeting=await bg.locator('#greeting').bounding_box()
+    artwork=await bg.locator('#turkey,#orange,#pale').evaluate_all('es=>es.map(e=>e.style.cssText)')
     async def stable():
      assert await background.bounding_box()==initial,(initial,await background.bounding_box())
-     assert await bg.locator('#greeting').bounding_box()==greeting
+     assert await bg.locator('#turkey,#orange,#pale').evaluate_all('es=>es.map(e=>e.style.cssText)')==artwork
+     g=await bg.locator('#greeting').bounding_box();header=await page.locator('.cmpri-desktop-topbar').bounding_box()
+     assert g['y']>=header['y']+header['height']+19
      assert await bg.evaluate('performance.timeOrigin')==origin
     # Header resizing and group reordering must not rescale the artwork.
     ops=page.locator('fieldset').filter(has=page.locator('legend',has_text='Operations'))
