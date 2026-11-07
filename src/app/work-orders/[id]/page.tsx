@@ -2043,7 +2043,7 @@ export default function WorkOrderTicketPage() {
                   <div className="min-w-0">
                     <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
                       <span className="truncate">{order.room || "Work Order"}</span>
-                      {roomOperationalContext.cnRoom && (
+                      {roomOperationalContext.cnRoom && roomOperationalContext.groupBadge !== 'railway-cn' && (
                         <Image
                           src="/railway-cn-logo.png"
                           alt="CN"

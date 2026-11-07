@@ -12,9 +12,8 @@ import GuestReportsImport from "./GuestReportsImport";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
-import { isRailwayCnGuestName } from "@/lib/room-operations";
+import { currentRoomGroupBadges } from "@/lib/room-group-badges";
 import GuestGroupBadge from "@/components/GuestGroupBadge";
-import Image from "next/image";
 
 type RoomOperation = {
   company?: string; group_name?: string; incoming_company?: string;
@@ -160,20 +159,9 @@ function summaryFor(rows: RoomOperation[]): Summary {
 }
 
 function RoomIdentity({ row }: { row: RoomOperation }) {
-  const railwayGuest = isRailwayCnGuestName(row.guest_name) || isRailwayCnGuestName(row.company);
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="text-lg font-black text-white">Room {row.room}</span>
-      {railwayGuest ? (
-        <Image
-          src="/railway-cn-logo.png"
-          alt=""
-          aria-hidden="true"
-          width={42}
-          height={27}
-          className="h-[1.5em] w-auto rounded-[4px] object-contain text-lg"
-        />
-      ) : null}
     </div>
   );
 }
@@ -229,13 +217,13 @@ function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
         <CheckoutPill row={row} today={today} />
         <MovePill row={row} />
       </div>
-      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400"><LoyaltyBadge tier={row.loyalty_tier}/>{row.guest_name} <GuestGroupBadge group={row.group_name || row.company}/></div> : null}
+      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400"><LoyaltyBadge tier={row.loyalty_tier}/>{row.guest_name} <GuestGroupBadge badge={currentRoomGroupBadges(row).guest_group_badge}/></div> : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
         {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
       </div>
       {row.incoming_name || row.incoming_type || row.incoming_code || row.arrival_date || row.arrival_time || row.incoming_block_indicator ? (
         <div className="mt-1 text-sm text-sky-200">
-          Incoming: {row.incoming_loyalty_tier&&<LoyaltyBadge tier={row.incoming_loyalty_tier}/>} {row.incoming_name || "Name unavailable"} <GuestGroupBadge group={row.incoming_company}/>
+          Incoming: {row.incoming_loyalty_tier&&<LoyaltyBadge tier={row.incoming_loyalty_tier}/>} {row.incoming_name || "Name unavailable"} <GuestGroupBadge badge={currentRoomGroupBadges(row).incoming_group_badge}/>
           {row.incoming_type ? ` · ${row.incoming_type}` : ""}
           {row.incoming_code ? ` · ${row.incoming_code}` : ""}
           {row.arrival_date ? ` · ${displayDate(row.arrival_date)}` : ""}

@@ -821,9 +821,9 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.doesNotMatch(page, /<div className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300"><div className="font-semibold text-slate-500">Move/);
   assert.doesNotMatch(page, /Incoming<\/div>|<strong className="text-slate-400">Incoming:/);
   assert.match(page, /function RoomIdentity/);
-  assert.match(page, /isRailwayCnGuestName\(row\.guest_name\)/);
-  assert.match(page, /src="\/railway-cn-logo\.png"/);
-  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">[\s\S]*?\{row\.guest_name\} <GuestGroupBadge group=\{row\.group_name \|\| row\.company\}\/><\/div>/);
+  assert.match(page, /currentRoomGroupBadges\(row\)\.guest_group_badge/);
+  assert.match(page, /currentRoomGroupBadges\(row\)\.incoming_group_badge/);
+  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">[\s\S]*?\{row\.guest_name\} <GuestGroupBadge badge=\{currentRoomGroupBadges\(row\)\.guest_group_badge\}\/><\/div>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
@@ -877,7 +877,7 @@ test("room cards and summary modal share a soft guest layout and preserve report
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
     exports: components, React, LoyaltyBadge:()=>null, GuestGroupBadge: () => null, Image: props => React.createElement("img", props),
-    isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
+    currentRoomGroupBadges: () => ({guest_group_badge:null,incoming_group_badge:null}), isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
     room: "103", guest_name: "RAILWAY/CN-NJ8", room_status: "OOO",

@@ -2,6 +2,7 @@ import Image from 'next/image';
 import { roomGroupBadge, type RoomGroupBadge } from '@/lib/room-group-badges';
 
 const badges = {
+  'railway-cn': { src: '/railway-cn-logo.png', alt: 'CN', width: 128, height: 83 },
   'big-ten': { src: '/big10.png', alt: 'Big Ten', width: 500, height: 300 },
   'flyover-studios': { src: '/FFS_Logo6.avif', alt: 'Flyover Film Studios', width: 906, height: 644 },
 } as const;
