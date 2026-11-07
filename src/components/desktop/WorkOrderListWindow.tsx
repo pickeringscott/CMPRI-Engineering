@@ -290,7 +290,7 @@ export default function WorkOrderListWindow({
                       <div className="preview-location">
                         {!isDraft && order.display_id && <span className="preview-wo-number">{formatWorkOrder(order.display_id)}</span>}
                         <span className="preview-room">{order.room || "No location"}</span>
-                        {!isDraft&&<>{order.cn_room&&<Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge"/>}<GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.loyalty_tier}/></>}
+                        {!isDraft&&<>{order.cn_room&&order.guest_group_badge!=='railway-cn'&&<Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge"/>}<GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.loyalty_tier}/></>}
                         {occupancy&&<span data-preview-room-status className={`inline-flex rounded-full border px-[0.45em] py-[0.08em] text-[0.7em] font-semibold leading-tight ${occupancy.className}`}>{occupancy.label}</span>}
                         {!isDraft && <WorkOrderImportPill order={order} />}
                       </div>

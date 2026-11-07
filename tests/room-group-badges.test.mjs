@@ -43,5 +43,26 @@ test('shared renderer labels both groups, preserves dimensions and renders nothi
  const flyover=renderToStaticMarkup(React.createElement(Badge,{group:'FLYOVER STUDIOS'}));
  assert.match(flyover,/alt="Flyover Film Studios"/);assert.match(flyover,/width="906" height="644"/);assert.match(flyover,/w-auto/);assert.match(flyover,/FFS_Logo6.avif/);
  assert.match(renderToStaticMarkup(React.createElement(Badge,{badge:'big-ten'})),/alt="Big Ten"/);
+ assert.match(renderToStaticMarkup(React.createElement(Badge,{badge:'railway-cn'})),/alt="CN"/);
+ assert.match(renderToStaticMarkup(React.createElement(Badge,{group:'CN'})),/railway-cn-logo.png/);
  assert.equal(renderToStaticMarkup(React.createElement(Badge,{group:'Unrelated'})),'');
+});
+
+test('CN resolves company/group labels and legacy PMS names for current and incoming guests',()=>{
+ for (const label of ['CN',' Canadian National ','CANADIAN NATIONAL RAILWAY','RAILWAY/CN-NJ8','Railway / CN crew']) assert.equal(roomGroupBadge(label),'railway-cn');
+ for (const label of ['CN Other Company','Other Canadian National Supplier','SCN',null,42]) assert.equal(roomGroupBadge(label),null);
+ assert.deepEqual(currentRoomGroupBadges({guest_name:'Current Guest',company:'CN',incoming_name:'Railway/CN-next',incoming_reserved:true}),{guest_group_badge:'railway-cn',incoming_group_badge:'railway-cn'});
+ assert.equal(currentRoomGroupBadges({guest_name:'Railway/CN-NJ8'}).guest_group_badge,'railway-cn');
+ assert.equal(currentRoomGroupBadges({guest_name:'Current Guest',group_name:'Other group',company:'CN'}).guest_group_badge,'railway-cn');
+ assert.deepEqual(currentRoomGroupBadges({company:'CN',incoming_company:'CN',incoming_name:'Next Guest',reserved:false}),{guest_group_badge:null,incoming_group_badge:null});
+ assert.equal(currentRoomGroupBadges({guest_name:'CN',company:'Other'}).guest_group_badge,null);
+});
+
+test('CN badge transfers from incoming to current and clears after checkout',()=>{
+ const source={room:'101',guest_name:'Outgoing Guest',company:'CN',room_status:'Occupied',checkout_date:'2026-11-06',checkout_time:'11:00:00',incoming_name:'Incoming Guest',incoming_company:'CN',incoming_reserved:true,reserved:true,arrival_date:'2026-11-06',arrival_time:'15:00:00',incoming_checkout_date:'2026-11-07',incoming_checkout_time:'11:00:00'};
+ const badges=at=>currentRoomGroupBadges(projectGuestRoom(source,new Date(at),'America/Chicago'));
+ assert.deepEqual(badges('2026-11-06T16:59:00Z'),{guest_group_badge:'railway-cn',incoming_group_badge:'railway-cn'});
+ assert.deepEqual(badges('2026-11-06T18:00:00Z'),{guest_group_badge:null,incoming_group_badge:'railway-cn'});
+ assert.deepEqual(badges('2026-11-06T21:00:00Z'),{guest_group_badge:'railway-cn',incoming_group_badge:null});
+ assert.deepEqual(badges('2026-11-07T18:00:00Z'),{guest_group_badge:null,incoming_group_badge:null});
 });
