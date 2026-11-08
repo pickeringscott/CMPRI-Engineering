@@ -619,7 +619,7 @@ a[href="/work-orders"].bg-amber-500 {
 /* Compact dashboard chrome for every role; equal-width mobile utilities stay paired. */
 .cmpri-desktop-root .cmpri-desktop-topbar { gap:2px;padding:2px; }
 .cmpri-desktop-root .cmpri-desktop-topbar > .cmpri-header-shelf:first-child {
-  grid-template-columns:minmax(0,max-content) max-content;justify-content:start;
+  grid-template-columns:minmax(0,1fr) auto;justify-content:stretch;
   align-items:start;gap:0 2px;padding-bottom:0;
 }
 .cmpri-desktop-root [data-dashboard-account] { margin-top:1px; }
