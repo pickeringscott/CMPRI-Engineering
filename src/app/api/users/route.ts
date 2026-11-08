@@ -112,6 +112,23 @@ export async function GET(request: NextRequest) {
   if (profileError) return NextResponse.json({ error: "Unable to read CMPRI user profiles." }, { status: 503 });
   if (allMembershipsError) return NextResponse.json({ error: "Unable to verify property account scope." }, { status: 503 });
 
+  // Read Auth metadata only for accounts already scoped to this property.
+  const authActivity = new Map<string, { last_sign_in_at: string | null; waiting_for_verification: boolean }>();
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY && typeof admin.auth.admin.getUserById === "function") {
+    // Bound concurrent Auth requests for larger properties.
+    for (let offset = 0; offset < (profiles || []).length; offset += 10) {
+      await Promise.all((profiles || []).slice(offset, offset + 10).map(async (profile) => {
+        try {
+          const { data, error } = await admin.auth.admin.getUserById(profile.id);
+          if (!error && data.user) authActivity.set(profile.id, {
+            last_sign_in_at: data.user.last_sign_in_at || null,
+            waiting_for_verification: !data.user.email_confirmed_at && !data.user.phone_confirmed_at,
+          });
+        } catch { /* Unavailable metadata must not be reported as an unverified account. */ }
+      }));
+    }
+  }
+
   const callerProfile = principal.profile;
   const callerId = principal.identity?.id ?? principal.profile.id;
   const membershipsByUserId = new Map((propertyMemberships || []).map((membership) => [String(membership.user_id), membership]));
@@ -120,6 +137,7 @@ export async function GET(request: NextRequest) {
     .map((membership) => String(membership.user_id)));
   const users = (profiles || []).map((user: { id: string; role: unknown; active: boolean | null }) => ({
     ...user,
+    ...(authActivity.get(user.id) || { last_sign_in_at: null, waiting_for_verification: null }),
     active: user.active === true && membershipsByUserId.get(user.id)?.active === true,
     can_manage: !userIdsWithOtherPropertyMemberships.has(user.id)
       && callerCanChangeAccount(callerProfile, callerId, { id: user.id, role: user.role }),

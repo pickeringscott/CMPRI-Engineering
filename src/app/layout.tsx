@@ -4,6 +4,7 @@ import WorkOrderMentionsInbox from "@/components/WorkOrderMentionsInbox";
 import StaffNotesUnread from "@/components/StaffNotesUnread";
 import ProfileNotificationInbox from "@/components/ProfileNotificationInbox";
 import GlobalModalHost from "@/components/GlobalModalHost";
+import UserPresence from "@/components/UserPresence";
 import ModalTheme from "@/components/ModalTheme";
 import { SITE_THEME_COLOR } from "@/lib/ui/site-seasonal-theme";
 import "./globals.css";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <ModalTheme />
+        <UserPresence />
         {children}
         <GlobalModalHost />
         <StaffNotesUnread />

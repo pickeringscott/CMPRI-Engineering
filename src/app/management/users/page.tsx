@@ -3,17 +3,26 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
+import { useOnlineUsers, presenceKey } from "@/components/UserPresence";
 import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 
-type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[]; active: boolean | null; can_manage: boolean };
+type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[]; active: boolean | null; can_manage: boolean; last_sign_in_at?: string | null; waiting_for_verification?: boolean | null };
 
 export default function UserManagementPage() {
+  const onlineUsers = useOnlineUsers();
   const embedded = useEmbeddedModal();
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [presenceKeys, setPresenceKeys] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let current = true;
+    void Promise.all(users.map(async (user) => [user.id, await presenceKey(user.id)] as const)).then((entries) => { if (current) setPresenceKeys(Object.fromEntries(entries)); });
+    return () => { current = false; };
+  }, [users]);
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -98,7 +107,7 @@ export default function UserManagementPage() {
       const res = await fetch("/api/users", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify({ id: user.id, ...patch }) });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) { setMessage(payload.error || "Unable to update user."); return; }
-      setUsers((rows) => rows.map((row) => (row.id === user.id ? payload.user : row)));
+      setUsers((rows) => rows.map((row) => (row.id === user.id ? { ...row, ...payload.user } : row)));
     } catch { setMessage("The account update could not be confirmed. Reload to check its status."); }
     finally { setBusy(false); }
   }
@@ -142,7 +151,10 @@ export default function UserManagementPage() {
                 <p className="break-words font-semibold">{user.full_name || "Unnamed user"}</p>
                 {user.can_manage && <p className="text-xs text-sky-200">{accountRoleDisplayName(user)}</p>}
                 <p className="mt-1 break-all text-sm text-slate-300">{user.email || "No email on file"}</p>
-                <p className="mt-1 text-xs text-slate-500">{user.active === true ? "Active" : "Inactive"}</p>
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                  <span>{user.active === true ? "Active" : "Deactivated"} · {user.waiting_for_verification === true ? "Waiting for verification" : user.last_sign_in_at ? `Last sign-in: ${new Date(user.last_sign_in_at).toLocaleString()}` : user.waiting_for_verification === false ? "Never signed in" : "Sign-in unavailable"}</span>
+                  {user.active === true && onlineUsers.has(presenceKeys[user.id]) && <span role="img" aria-label="Currently online" title="Currently online" className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
+                </p>
               </div>
               {user.can_manage ? (
                 <div className="min-w-0">

@@ -63,6 +63,7 @@ function fixture(config={}) {
   };
 
   const adminAuth={
+    getUserById:async(id)=>({data:{user:config.authUsers?.[id] ?? null},error:config.authActivityError?{message:"Unavailable"}:null}),
     inviteUserByEmail:async function(){assert.strictEqual(this,adminAuth);writes.push('invite');return {data:{user:{id:'invited'}},error:null};},
     createUser:async function(attributes){assert.strictEqual(this,adminAuth);writes.push('createUser');createdAuthAttributes.push(attributes);return {data:{user:{id:'created'}},error:null};},
     ...(config.noAuthRoleUpdate?{}:{updateUserById:async function(id,attributes){assert.strictEqual(this,adminAuth);writes.push('setAuthRole');authRoleUpdates.push({id,role:attributes.role});return {data:{user:{id}},error:config.authRoleError?{message:'Auth role update failed'}:null};}}),
@@ -516,4 +517,21 @@ test('role policy gives General Manager manager permissions without granting the
   assert.equal(accessExports.allows({ ...engineerWithViewerMembership, membership: { ...base.membership, role: 'manager' } }, 'edit_tickets'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Front Desk'), true);
   assert.equal(rolesExports.canManageTargetRole('General Manager', 'Chief Engineer'), false);
+});
+
+test('user list exposes scoped Supabase sign-in and verification metadata', async () => {
+  const f = fixture({authUsers:{
+    caller:{last_sign_in_at:'2026-11-08T10:00:00Z',email_confirmed_at:'2026-10-01T00:00:00Z'},
+    target:{last_sign_in_at:null,email_confirmed_at:null},
+  }});
+  const response = await f.handlers.GET(f.request);
+  assert.equal(response.body.users.find(u=>u.id==='caller').last_sign_in_at,'2026-11-08T10:00:00Z');
+  assert.equal(response.body.users.find(u=>u.id==='caller').waiting_for_verification,false);
+  assert.equal(response.body.users.find(u=>u.id==='target').waiting_for_verification,true);
+});
+test('Auth lookup failure does not mislabel users as waiting for verification', async () => {
+  const f = fixture({authActivityError:true});
+  const response = await f.handlers.GET(f.request);
+  assert.equal(response.status,200);
+  assert.equal(response.body.users[0].waiting_for_verification,null);
 });
