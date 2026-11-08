@@ -1,5 +1,6 @@
 "use client";
-import ThanksgivingBackground from "@/components/desktop/ThanksgivingBackground";
+import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
+import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
@@ -754,7 +755,7 @@ export default function EngineeringDashboardPage() {
     .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
 
   return (
-    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme="thanksgiving" className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
+    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">
@@ -793,7 +794,7 @@ export default function EngineeringDashboardPage() {
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
-        <ThanksgivingBackground />
+        <SiteSeasonalBackground />
         {windows.length === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
         )}

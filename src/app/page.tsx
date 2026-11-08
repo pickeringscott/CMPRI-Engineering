@@ -11,6 +11,8 @@ import {
   OAUTH_PENDING_KEY,
 } from "@/lib/supabase/client";
 import { APP_TITLE } from "@/lib/constants";
+import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
+import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 
 async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering" | "/front-desk"> {
   const response = await fetch("/api/session", {
@@ -147,24 +149,19 @@ export default function SignInPage() {
   }
 
   const disabled = initializing || busy || redirecting;
-  if (redirecting || (initializing && processingOAuthCallback)) {
-    return (
-      <main className="flex min-h-[100dvh] w-full items-start justify-center bg-slate-950 px-4 pt-4 text-center text-amber-400">
-        <p role="status" aria-live="polite" className="text-[16pt] font-semibold">
-          Loading Dashboard...<br />
-          Have a wonderful day!
-        </p>
-      </main>
-    );
-  }
+  const showLoading = redirecting || (initializing && processingOAuthCallback);
   return (
-    <main className="grid min-h-[100svh] w-full items-start justify-items-center overflow-y-auto overscroll-contain bg-slate-950 px-4 pt-4 text-white sm:pt-6">
-      <section aria-busy={disabled} className="w-full max-w-[22rem] rounded-[22px] border border-slate-800/80 bg-slate-900 p-4 shadow-lg shadow-slate-950/25">
+    <main data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-sign-in relative isolate grid min-h-[100svh] w-full items-start justify-items-center overflow-y-auto overscroll-contain px-4 pb-8 pt-4 sm:pt-6">
+      <SiteSeasonalBackground />
+      {showLoading ? <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 rounded-[22px] border p-4 text-center text-[16pt] font-semibold">
+        Loading Dashboard...<br />
+        Have a wonderful day!
+      </p> : <section aria-busy={disabled} className="cmpri-sign-in-card relative z-10 w-full max-w-[22rem] rounded-[22px] border p-4">
         <div className="text-center">
-          <p className="text-[0.79rem] font-semibold uppercase tracking-[0.2em] text-amber-400">Hawkeye Hotels</p>
+          <p className="cmpri-sign-in-brand text-[0.79rem] font-semibold uppercase tracking-[0.2em]">Hawkeye Hotels</p>
           <h1 className="mt-1 text-[1.7rem] font-bold leading-tight">{APP_TITLE}</h1>
         </div>
-        {message ? <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-200">{message}</p> : null}
+        {message ? <p role="status" aria-live="polite" className="cmpri-sign-in-message mt-3 rounded-lg border p-2.5 text-sm">{message}</p> : null}
         <div className="mt-3 space-y-3">
           <button type="button" disabled={disabled} onClick={() => void signInWithGoogle()} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition hover:bg-[#f7f8f8] disabled:opacity-60">
             <svg aria-hidden="true" className="h-5 w-5 shrink-0" viewBox="0 0 48 48">
@@ -176,7 +173,7 @@ export default function SignInPage() {
             <span>{busy ? "Opening Google…" : "Continue with Google"}</span>
           </button>
           <div className="flex items-center justify-between gap-3 px-1.5">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="cmpri-sign-in-muted flex items-center gap-2 text-sm">
               <input type="checkbox" disabled={disabled} checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4" />
               Remember me
             </label>
@@ -186,14 +183,14 @@ export default function SignInPage() {
               aria-expanded={showPasswordAccess}
               aria-controls="password-access"
               onClick={() => setShowPasswordAccess((open) => !open)}
-              className="min-h-9 px-2 text-sm font-semibold text-sky-300 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-200 disabled:opacity-50"
+              className="cmpri-sign-in-link min-h-9 px-2 text-sm font-semibold underline underline-offset-2 disabled:opacity-50"
             >
               More…
             </button>
           </div>
           {showPasswordAccess && (
-            <div id="password-access" className="border-t border-slate-800 pt-3">
-              <p className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-400">Password access</p>
+            <div id="password-access" className="cmpri-sign-in-divider border-t pt-3">
+              <p className="cmpri-sign-in-muted text-[0.66rem] uppercase tracking-[0.22em]">Password access</p>
               <form onSubmit={signInWithPassword} className="mt-2 space-y-2.5">
               <input
                 required
@@ -204,7 +201,7 @@ export default function SignInPage() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="Email"
-                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white"
+                className="cmpri-sign-in-input min-h-11 w-full rounded-lg border px-3"
               />
               <input
                 required
@@ -214,16 +211,16 @@ export default function SignInPage() {
                 aria-label="Password"
                 ref={passwordRef}
                 placeholder="Password"
-                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white"
+                className="cmpri-sign-in-input min-h-11 w-full rounded-lg border px-3"
               />
-              <button type="submit" disabled={disabled} className="min-h-11 w-full rounded-lg border border-amber-400 px-4 font-bold text-amber-300 transition hover:bg-amber-400/10 disabled:opacity-60">
+              <button type="submit" disabled={disabled} className="cmpri-sign-in-submit min-h-11 w-full rounded-lg border px-4 font-bold transition disabled:opacity-60">
                 {busy ? "Signing in…" : "Sign in with Password"}
               </button>
               </form>
             </div>
           )}
         </div>
-      </section>
+      </section>}
     </main>
   );
 }

@@ -1,0 +1,33 @@
+/* Sign-in follows the same shared palette as the desktop, including later seasons. */
+.cmpri-sign-in {
+  background: var(--cmpri-palette-desktop-tone-13, #271b14);
+  color: var(--cmpri-palette-desktop-tone-10, #fff0d6);
+}
+.cmpri-sign-in-card {
+  background: var(--cmpri-palette-desktop-tone-14, #302117f5);
+  border-color: var(--cmpri-palette-desktop-tone-16, #9a7046);
+  box-shadow: 0 12px 36px rgb(0 0 0 / .25);
+}
+.cmpri-sign-in-brand, .cmpri-sign-in-link, .cmpri-sign-in-submit {
+  color: var(--cmpri-palette-desktop-tone-19, #ffdb91);
+}
+.cmpri-sign-in-muted {
+  color: var(--cmpri-palette-desktop-tone-8, #dfc6a5);
+}
+.cmpri-sign-in-link:hover {
+  color: var(--cmpri-palette-desktop-tone-10, #fff0d6);
+}
+.cmpri-sign-in-divider { border-color: var(--cmpri-palette-desktop-tone-5, #8b6847); }
+.cmpri-sign-in-input, .cmpri-sign-in-message {
+  background: var(--cmpri-palette-desktop-tone-1, #241a14);
+  border-color: var(--cmpri-palette-desktop-tone-5, #8b6847);
+  color: var(--cmpri-palette-desktop-tone-10, #fff0d6);
+}
+.cmpri-sign-in-input::placeholder { color: var(--cmpri-palette-desktop-tone-8, #dfc6a5); opacity: 1; }
+.cmpri-sign-in-submit { border-color: var(--cmpri-palette-desktop-tone-27, #f6c472); }
+.cmpri-sign-in-submit:hover { background: var(--cmpri-palette-desktop-tone-18, #694726); }
+.cmpri-sign-in input[type="checkbox"] { accent-color: var(--cmpri-palette-desktop-tone-26, #dfac51); }
+.cmpri-sign-in :is(button,input):focus-visible {
+  outline: 3px solid var(--cmpri-palette-desktop-tone-27, #f6c472);
+  outline-offset: 3px;
+}

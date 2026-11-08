@@ -5,6 +5,7 @@ import StaffNotesUnread from "@/components/StaffNotesUnread";
 import ProfileNotificationInbox from "@/components/ProfileNotificationInbox";
 import GlobalModalHost from "@/components/GlobalModalHost";
 import ModalTheme from "@/components/ModalTheme";
+import { SITE_THEME_COLOR } from "@/lib/ui/site-seasonal-theme";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#020617",
+  themeColor: SITE_THEME_COLOR,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
