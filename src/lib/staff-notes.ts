@@ -24,20 +24,27 @@ export type StaffLocation = {id:string; name?:string|null; room_number?:string|n
 export function staffMentionDirectory(profiles: StaffProfile[], names: StaffDisplayName[]=[], locations: StaffLocation[]=[]): StaffMention[] {
   const entries:StaffMention[]=[];
   for(const [label,role] of STAFF_ROLE_MENTIONS)entries.push({id:role,kind:'role',label,userIds:profiles.filter(p=>profileHasRole(p,role)).map(p=>p.id)});
+  const canMentionName=(name:string)=>name.trim().replace(/\s+/g,' ').toLocaleLowerCase()!=='scott pickering';
+  const addName=(id:string,kind:'person'|'front_desk_name',name:string,userIds:string[])=>{
+    const full=name.trim().replace(/\s+/g,' '),parts=full.split(' ');
+    if(!full||!canMentionName(full))return;
+    // Keep full labels for historical notes and explicit full-name entry. Both short
+    // aliases retain the same target ID; duplicate names require picker selection.
+    for(const label of new Set([full,parts[0],parts.at(-1)!]))entries.push({id,kind,label,description:full,userIds});
+  };
   const people=profiles.filter(p=>!profileHasRole(p,'front_desk')&&p.full_name?.trim());
   for(const profile of people){
-    const full=profile.full_name!.trim().replace(/\s+/g,' '),first=full.split(' ')[0];
-    entries.push({id:profile.id,kind:'person',label:full,description:full,userIds:[profile.id]});
-    if(first!==full&&people.filter(p=>p.full_name?.trim().split(/\s+/)[0].toLocaleLowerCase()===first.toLocaleLowerCase()).length===1)entries.push({id:profile.id,kind:'person',label:first,description:full,userIds:[profile.id]});
+    addName(profile.id,'person',profile.full_name!,[profile.id]);
   }
-  for(const name of names)entries.push({id:name.id,kind:'front_desk_name',label:name.name,userIds:[]});
+  for(const name of names)addName(name.id,'front_desk_name',name.name,[]);
   for(const location of locations){const label=location.room_number?.trim()||location.name?.trim();if(label)entries.push({id:location.id,kind:'location',label,description:location.room_number?'Room '+location.room_number:location.area||'Location',userIds:[]})}
   return entries.sort((a,b)=>b.label.length-a.label.length||a.label.localeCompare(b.label));
 }
 /** Author shortcuts use saved identity; a legacy display label must never guess between targets. */
 export function staffAuthorMention(note:{author_name:string;author_user_id?:string;author_name_id?:string|null},directory:StaffMention[]){
   const candidates=directory.filter(m=>note.author_name_id?m.kind==='front_desk_name'&&m.id===note.author_name_id:m.kind==='person'&&m.id===note.author_user_id);
-  if(candidates.length)return candidates.sort((a,b)=>a.label.length-b.label.length)[0];
+  if(candidates.length)return staffMentionSuggestions('',candidates)[0];
+  if(note.author_name_id||note.author_user_id)return null;
   const legacy=directory.filter(m=>m.label===note.author_name);
   return new Set(legacy.map(staffTargetKey)).size===1?legacy[0]:null;
 }

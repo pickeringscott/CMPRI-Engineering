@@ -101,7 +101,7 @@ async def main():
    assert note['author_user_id']==sid(6) and note['author_name']=='Alex Rivera' and note['author_name_id']==captured['id']
    assert next(p for p in s['profiles'] if p['id']==sid(6))['full_name']=='Front Desk'
    await q.reload();await expect(q.locator('#note-'+note['id'])).to_contain_text('Alex Rivera')
-   await q.locator('#note-'+note['id']).get_by_role('button',name='Alex Rivera',exact=True).click();await expect(text).to_have_value('@Alex Rivera ')
+   await q.locator('#note-'+note['id']).get_by_role('button',name='Alex Rivera',exact=True).click();await expect(text).to_have_value('@Alex ')
    shortcut,s=await post(q,c.request);assert shortcut['mentions'][0]['kind']=='front_desk_name' and shortcut['mentions'][0]['id']==captured['id']
    assert not errors,errors;await finish(c);results.append({'width':width,'sharedFrontDeskNameCaptureAndPost':True,'profileUnchanged':True});print(json.dumps(results[-1]),flush=True)
   expected={'person':('person',sid(4)),'role':('role','front_desk_manager'),'front_desk_name':('front_desk_name',captured['id']),'location':('location',sid(21)),'work_order':('work_order',sid(31))}

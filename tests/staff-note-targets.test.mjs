@@ -1,22 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {staffMentionDirectory,staffMentionCompletion,resolveStaffMentions,staffRecipients,STAFF_ROLE_MENTIONS,staffTicketReferences,staffAuthorMention} from '../src/lib/staff-notes.ts';
+import {staffMentionDirectory,staffMentionMatches,staffMentionCompletion,resolveStaffMentions,staffRecipients,STAFF_ROLE_MENTIONS,staffTicketReferences,staffAuthorMention} from '../src/lib/staff-notes.ts';
 import {staffMentionSuggestions,staffMentionQuery,staffReferenceQuery,insertStaffMention,rebaseStaffMentions,selectedStaffMentions} from '../src/lib/staff-note-targets.ts';
 import {staffNoteFlagExpiry,staffNoteFlagCutoff,staffNoteFlagWindows} from '../src/lib/staff-note-flags.ts';
 import {staffNotesDatabase,staffId as id,staffHotel as hotel,foreignHotel,staffProfiles} from './helpers/staff-notes-db.mjs';
 const profiles=staffProfiles.filter(p=>p.active&&!p.hotel_id);
+test('first and last aliases bind people and registered names without guessing duplicate first names',()=>{
+ const people=[{id:'alex-one',role:'technician',full_name:'Alex Chen'},{id:'alex-two',role:'technician',full_name:'Alex Rivera'}];
+ const directory=staffMentionDirectory(people,[{id:'desk-taylor',name:'Taylor Reed'}]);
+ const choices=staffMentionSuggestions('Alex',directory);
+ assert.deepEqual(choices.map(m=>[m.id,m.label,m.description]),[['alex-one','Alex','Alex Chen'],['alex-two','Alex','Alex Rivera']]);
+ assert.equal(staffMentionMatches('@Alex',directory).length,0);
+ const chosen=insertStaffMention('@Alex',{start:0,end:5},choices[1],[]);
+ assert.equal(chosen.value,'@Alex ');assert.equal(resolveStaffMentions(chosen.value,chosen.mentions,directory)[0].id,'alex-two');
+ assert.equal(staffMentionSuggestions('Tay',directory)[0].label,'Taylor');
+ assert.equal(resolveStaffMentions('@Taylor thanks',[],directory)[0].id,'desk-taylor');
+ assert.equal(resolveStaffMentions('@Reed thanks',[],directory)[0].id,'desk-taylor');
+ assert.equal(staffAuthorMention({author_name:'Alex Rivera',author_user_id:'alex-two'},directory).label,'Alex');
+});
+test('Scott Pickering and all his aliases are unavailable, without excluding another Scott',()=>{
+ const directory=staffMentionDirectory([{id:'admin',role:'system_admin',full_name:' Scott  Pickering '},{id:'other-scott',role:'technician',full_name:'Scott Reed'}]);
+ assert.equal(directory.some(m=>m.kind==='person'&&m.id==='admin'),false);
+ assert.equal(staffMentionSuggestions('Pickering',directory).length,0);
+ assert.deepEqual(staffMentionSuggestions('Scott',directory).map(m=>m.id),['other-scott']);
+ assert.equal(staffAuthorMention({author_name:'Scott',author_user_id:'admin'},directory),null);
+ assert.equal(resolveStaffMentions('@Scott Pickering',[],directory).some(m=>m.id==='admin'),false);
+ assert.throws(()=>resolveStaffMentions('@Scott',[{id:'admin',kind:'person',label:'Scott',start:0,end:6}],directory),/no longer available/);
+});
 test('first names precede surname matches while surnames keep full target identity',()=>{
  const directory=staffMentionDirectory([
   {id:'first',role:'technician',full_name:'Morgan Lane'},
   {id:'last',role:'technician',full_name:'Alex Morgan'},
  ],[{id:'desk',name:'Taylor Morgan'}],[{id:'room',name:'Lobby Morgan'}]);
  const matches=staffMentionSuggestions('morg',directory);
- assert.deepEqual(matches.map(m=>[m.id,m.label]),[['first','Morgan'],['last','Alex Morgan'],['desk','Taylor Morgan']]);
+ assert.deepEqual(matches.map(m=>[m.id,m.label]),[['first','Morgan'],['last','Morgan'],['desk','Morgan']]);
  const surname=staffMentionSuggestions('lane',directory);
- assert.equal(surname[0].id,'first');assert.equal(surname[0].label,'Morgan Lane');
+ assert.equal(surname[0].id,'first');assert.equal(surname[0].label,'Lane');
  assert.equal(staffMentionCompletion('@lane',5,directory),null);
  const inserted=insertStaffMention('@lane',{start:0,end:5},surname[0],[]);
- assert.equal(inserted.value,'@Morgan Lane ');
+ assert.equal(inserted.value,'@Lane ');
  assert.equal(resolveStaffMentions(inserted.value,inserted.mentions,directory)[0].id,'first');
 });
 test('the real public directory keeps alias identity without exposing private recipient arrays',()=>{

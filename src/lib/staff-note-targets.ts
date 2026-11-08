@@ -18,12 +18,18 @@ export function staffMentionQuery(body: string, caret: number) {
 }
 export function staffMentionSuggestions(query: string, directory: StaffMention[]) {
   const prefix=query.toLocaleLowerCase();
+  const preference=(m:StaffMention)=>{
+    if((m.kind!=='person'&&m.kind!=='front_desk_name')||!m.description)return 0;
+    const parts=m.description.trim().split(/\s+/);
+    return m.label===parts[0]?0:m.label===parts.at(-1)?1:2;
+  };
   const rank=(m:StaffMention)=>m.label.toLocaleLowerCase().startsWith(prefix)?0:
     (m.kind==='person'||m.kind==='front_desk_name')&&m.label.trim().split(/\s+/).length>1&&m.label.trim().split(/\s+/).at(-1)!.toLocaleLowerCase().startsWith(prefix)?1:2;
   const candidates=directory.filter(m=>rank(m)<2);
   const unique=new Map<string,StaffMention>();
-  for(const candidate of candidates){const key=staffTargetKey(candidate),prior=unique.get(key);if(!prior||rank(candidate)<rank(prior)||(rank(candidate)===rank(prior)&&candidate.label.length<prior.label.length))unique.set(key,candidate)}
-  return [...unique.values()].sort((a,b)=>rank(a)-rank(b)||a.label.localeCompare(b.label)||a.kind.localeCompare(b.kind));
+  const compare=(a:StaffMention,b:StaffMention)=>rank(a)-rank(b)||preference(a)-preference(b)||a.label.length-b.label.length;
+  for(const candidate of candidates){const key=staffTargetKey(candidate),prior=unique.get(key);if(!prior||compare(candidate,prior)<0)unique.set(key,candidate)}
+  return [...unique.values()].sort((a,b)=>rank(a)-rank(b)||preference(a)-preference(b)||a.label.localeCompare(b.label)||(a.description||'').localeCompare(b.description||'')||a.kind.localeCompare(b.kind));
 }
 export function rebaseStaffMentions(before: string, after: string, mentions: StaffMentionRange[]) {
   if(before===after)return mentions;

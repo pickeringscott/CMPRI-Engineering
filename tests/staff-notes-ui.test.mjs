@@ -94,4 +94,7 @@ test('real Staff Notes component completes a first name and displays matching WO
  h.find(tree,'textarea').props.onKeyDown({key:'Tab',nativeEvent:{},preventDefault(){}});
  tree=h.render();assert.equal(h.find(tree,'textarea').props.value,'@Scott ');
  assert.equal(h.posts.length,0);
+ h.find(tree,'textarea').props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault(){}});
+ await h.settle();assert.equal(h.posts.length,1);assert.equal(h.posts[0].body,'@Scott ');
+ assert.equal(h.posts[0].mentions[0].id,'scott-id');assert.equal(h.posts[0].mentions[0].label,'Scott');
 });

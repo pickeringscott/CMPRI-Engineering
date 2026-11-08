@@ -147,7 +147,10 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
     observe(); document.addEventListener("visibilitychange", observe);
     return () => { stopVisibility();observer.disconnect(); clearTimeout(timer); document.removeEventListener("visibilitychange", observe); };
   }, [data]);
-  const query=nameMode||composing?null:staffMentionQuery(body,caret);
+  const typedQuery=nameMode||composing?null:staffMentionQuery(body,caret);
+  // A chosen short name is complete. Its trailing space must not start offering
+  // the full-name alias again or turn the next Enter into a second completion.
+  const query=typedQuery&&selected.some(m=>m.start===typedQuery.start&&caret>=m.end)?null:typedQuery;
   const reference=nameMode||composing?null:staffReferenceQuery(body,caret);
   const lookupNumber=reference?.number||((query?.query.match(/^(?:WO\s*[#-]?\s*|work\s+order\s*#?\s*|#)?(\d+)$/i)||[])[1]||'');
   useEffect(()=>{
@@ -165,7 +168,7 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
   const ticketTargets=ticketChoices.number===lookupNumber?ticketChoices.targets:[];
   const options=[...candidates,...ticketTargets];
   const showSuggestions=!dismissed&&!nameMode&&!composing&&options.length>0&&Boolean(query||reference);
-  const completion=composing||dismissed?null:staffMentionCompletion(body,caret,data?.mentions||[]);
+  const completion=composing||dismissed||!query?null:staffMentionCompletion(body,caret,data?.mentions||[]);
   useLayoutEffect(()=>{
     if(!showSuggestions)return;const option=document.getElementById(suggestionsId+'-'+activeSuggestion%options.length),box=option?.parentElement;
     if(option&&box){if(option.offsetTop<box.scrollTop)box.scrollTop=option.offsetTop;else if(option.offsetTop+option.offsetHeight>box.scrollTop+box.clientHeight)box.scrollTop=option.offsetTop+option.offsetHeight-box.clientHeight}
@@ -272,7 +275,7 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
           </div>
         </div>
         </div>
-        <div hidden={!showSuggestions} id={suggestionsId} role="listbox" aria-label="Mention targets" className="staff-mention-options">{options.map((target,index)=><button key={staffTargetKey(target)} id={suggestionsId+'-'+index} type="button" role="option" aria-selected={index===activeSuggestion%options.length} aria-label={`Mention ${target.label} (${staffTargetType(target.kind)})`} onPointerDown={e=>e.preventDefault()} onClick={()=>acceptMention(target)}><span>{target.label}{target.description&&target.description!==target.label?' · '+target.description:''}</span><small>{staffTargetType(target.kind)}</small></button>)}</div>
+        <div hidden={!showSuggestions} id={suggestionsId} role="listbox" aria-label="Mention targets" className="staff-mention-options">{options.map((target,index)=><button key={staffTargetKey(target)} id={suggestionsId+'-'+index} type="button" role="option" aria-selected={index===activeSuggestion%options.length} aria-label={`Mention ${target.description&&(target.kind==='person'||target.kind==='front_desk_name')?target.description:target.label} (${staffTargetType(target.kind)})`} onPointerDown={e=>e.preventDefault()} onClick={()=>acceptMention(target)}><span>{target.label}{target.description&&target.description!==target.label?' · '+target.description:''}</span><small>{staffTargetType(target.kind)}</small></button>)}</div>
       </div>
       <StaffNotesMedia disabled={pending||nameMode||!data} onFiles={chooseFiles} onGif={chooseGif} postButton={<button type="submit" disabled={!data||pending||nameMode||(!body.trim()&&!files.length&&!gifIds.length)} className="font-bold">{pending?"…":"Post"}</button>}/>
     </div>
