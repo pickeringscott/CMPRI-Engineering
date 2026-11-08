@@ -27,7 +27,7 @@
     "test:work-order-screen": "node --experimental-strip-types --test tests/work-order-screen.test.mjs tests/ticket-save.test.mjs tests/work-order-access.test.mjs tests/nested-asset-refresh.test.mjs tests/work-order-reference.test.mjs",
     "test:po": "node scripts/test-po.mjs",
     "test:release": "node --import ./tests/helpers/resolve-ts.mjs tests/pool-status.test.mjs && node tests/pool-status-database.test.mjs && node tests/po-cumulative.test.mjs && node tests/po-package-database.test.mjs",
-    "test:employment": "node --experimental-strip-types --test tests/employment.test.mjs",
+    "test:employment": "node --import ./tests/helpers/resolve-ts.mjs --experimental-strip-types --test tests/employment.test.mjs tests/combined-employment-flow.test.mjs tests/combined-employment-resume.test.mjs",
     "test:work-order-list-ui": "python tests/browser/work_order_list_layout.py",
     "build:thanksgiving": "node scripts/build-thanksgiving-background.mjs",
     "predev": "npm run build:palette && npm run build:thanksgiving",
