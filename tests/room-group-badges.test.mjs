@@ -49,7 +49,7 @@ test('shared renderer labels both groups, preserves dimensions and renders nothi
 });
 
 test('CN assignments use imported group columns for current and incoming guests',()=>{
- for (const label of ['CN',' Canadian National ','CANADIAN NATIONAL RAILWAY','RAILWAY/CN-NJ8','Railway / CN crew']) assert.equal(roomGroupBadge(label),'railway-cn');
+ for (const label of ['CN','CN RAILWAYS','Cn Railway',' Canadian National ','CANADIAN NATIONAL RAILWAY','RAILWAY/CN-NJ8','Railway / CN crew']) assert.equal(roomGroupBadge(label),'railway-cn');
  for (const label of ['CN Other Company','Other Canadian National Supplier','SCN',null,42]) assert.equal(roomGroupBadge(label),null);
  assert.deepEqual(currentRoomGroupBadges({guest_name:'Current Guest',group_name:'CN',incoming_name:'Incoming Guest',incoming_group_name:'CN',incoming_reserved:true}),{guest_group_badge:'railway-cn',incoming_group_badge:'railway-cn'});
  assert.equal(currentRoomGroupBadges({guest_name:'Railway/CN-NJ8'}).guest_group_badge,null);
@@ -94,4 +94,10 @@ test('shared modal guest indicators show CN immediately after the name without r
  });
  const html=renderToStaticMarkup(React.createElement(exports.default,{guest:{guest_name:'Sample Guest',guest_group_badge:'railway-cn',loyalty_tier:'Gold'}}));
  assert.match(html,/Sample Guest<\/span><img alt="railway-cn"\/><span>Gold/);
+});
+
+test('observed in-house CN RAILWAYS group assigns the badge regardless of the guest name',()=>{
+ assert.equal(currentRoomGroupBadges({guest_name:'Cn Railway',group_name:'CN RAILWAYS'}).guest_group_badge,'railway-cn');
+ assert.equal(currentRoomGroupBadges({guest_name:'Another Guest',group_name:'CN RAILWAYS'}).guest_group_badge,'railway-cn');
+ assert.equal(currentRoomGroupBadges({guest_name:'Cn Railway',group_name:''}).guest_group_badge,null);
 });

@@ -5,8 +5,10 @@ The split Upload Room Ops control uses the existing attachment folder
 `maint.cmpri@hawkeyehotels.com` OAuth grant. No new Google permissions, watches,
 cron jobs, database tables, or purchase-order intake behavior are introduced.
 
-- **Drive** expands the form and explicitly fetches newer CSV reports. No fetch
-  occurs on mount, on a timer, on focus, or during ordinary room-data refreshes.
+- **Drive** explicitly fetches newer CSV reports, validates them, and saves the
+  validated batch immediately. The manual form and confirmation preview stay
+  closed. Success or the specific failure reason is displayed beside the control.
+  No fetch occurs on mount, on a timer, on focus, or during ordinary room-data refreshes.
 - **File** expands the form and opens the existing report file picker. The
   report-format selector and filename lists are removed; the import preview and
   explicit confirmation remain.
@@ -22,12 +24,16 @@ require correction instead of arbitrary selection. Byte count, version, filename
 file identity, and folder membership are verified before returning a download.
 Raw CSV responses bypass the device data cache.
 
-Fetched files use the unchanged guest-reports validation and confirmation API.
+Fetched files use the unchanged guest-reports validation and commit API; Drive
+performs validation and the concurrency-checked commit in one server request.
 In-House Guest List Details is required first; Housekeeping Departures and
 Housekeeping Arrivals are optional, and can be added after today's guest list is
 accepted. The five-minute timing allowance, required columns, active room
 validation, stale-preview protection, idempotency, and atomic commit remain.
-Fetching or failed validation does not advance accepted timestamps.
+Fetching or failed validation does not advance accepted timestamps. The direct
+Drive response records fetch, validation, and save durations in Server-Timing
+and total server duration in X-CMPRI-Import-Duration-Ms. The total appears in the
+success message; structured timing logs contain no guest data.
 
 The acquisition endpoint requires the existing `edit_tickets` capability and
 CMPRI hotel scope. Integration safe mode is honored. No Drive credentials are
@@ -37,8 +43,8 @@ Verification: `tests/drive-room-reports.test.mjs`,
 `tests/drive-room-reports-api.test.mjs`, existing guest-report and room-operation
 regressions, and `python tests/browser/drive_room_reports.py` against a local
 server. The browser test uses synthetic transport and confirms that only Drive
-clicks initiate fetching, File opens the picker, both paths use the existing
-preview, and writes require confirmation.
+clicks initiate fetching, File opens the picker, Drive commits directly after validation without opening manual controls, while
+File uploads keep their existing preview and explicit confirmation.
 
 The connected account can exercise this same flow through the existing
 `room_operations.import` action: preview with `{source:"drive",validate_only:true}`;

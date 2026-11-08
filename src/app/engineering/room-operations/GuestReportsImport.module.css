@@ -6,8 +6,8 @@
 .picker button:focus-visible { outline:2px solid rgba(var(--cmpri-action-rgb,243,187,117),.8);outline-offset:2px; }
 .selection { display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0;font-size:11px; }
 .uploadControl { width:188px;flex:none;color:#fef3c7; }
-.controlTitle { display:block;margin-bottom:4px;text-align:center;font-size:14px;font-weight:700;line-height:20px; }
-.splitFrame { --control-height:37px;position:relative;height:39px;border:1px solid #fbbf2480;border-radius:13px;overflow:hidden;background:#451a034d; }
+.controlTitle { display:block;margin-bottom:4px;text-align:center;font-size:12px;font-weight:700;line-height:18px; }
+.splitFrame { --control-height:38px;position:relative;height:40px;border:1px solid #fbbf2480;border-radius:13px;overflow:hidden;background:#451a034d; }
 .splitFrame::after { content:'';position:absolute;pointer-events:none;width:1px;height:calc(var(--control-height) * 1.41421356);left:50%;top:50%;background:#fbbf2480;transform:translate(-50%,-50%) rotate(45deg); }
 .splitFrame button { position:absolute;inset:0;width:100%;height:100%;min-height:0!important;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font-size:14px;font-weight:700;cursor:pointer; }
 .splitFrame button:hover { background:#78350f66; }
@@ -16,9 +16,12 @@
 .splitFrame button>span { position:absolute;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;gap:5px;width:calc(100% - var(--control-height) / 2); }
 .drive>span { left:-3px; }
 .file>span { right:0; }
-.splitFrame span svg { width:21px;height:21px;flex:none; }
+.splitFrame span svg { width:18px;height:18px;flex:none; }
 .splitFrame .disclosure { inset:auto 0 0 auto;width:18px;height:13px;z-index:1; }
 .disclosure svg { display:block;width:8px;height:5px;margin:auto; }
 .splitFrame .drive,.splitFrame .file { width:calc(50% + var(--control-height) / 2); }
 .splitFrame .drive { right:auto;clip-path:polygon(0 0,100% 0,calc(100% - var(--control-height)) 100%,0 100%); }
 .splitFrame .file { left:auto;clip-path:polygon(var(--control-height) 0,100% 0,100% 100%,0 100%); }
+
+.dateControl { display:block;text-align:center;font-size:12px;font-weight:700;line-height:18px; }
+.dateControl input { box-sizing:border-box;height:40px;min-height:40px;margin-top:4px;font-size:14px;line-height:20px;padding:7px 9px; }

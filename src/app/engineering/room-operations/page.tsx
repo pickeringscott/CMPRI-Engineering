@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import GuestReportsImport, { type GuestReportsImportHandle } from "./GuestReportsImport";
 import RoomOpsUploadControl from "./RoomOpsUploadControl";
+import uploadStyles from "./GuestReportsImport.module.css";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -217,13 +218,13 @@ function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
         <CheckoutPill row={row} today={today} />
         <MovePill row={row} />
       </div>
-      {row.guest_name ? <div data-room-ops-guest className="mt-1 flex flex-wrap items-center gap-1 break-words text-lg font-normal text-slate-100"><span>{row.guest_name}</span><LoyaltyBadge tier={row.loyalty_tier}/><GuestGroupBadge badge={currentRoomGroupBadges(row).guest_group_badge}/></div> : null}
+      {row.guest_name ? <div data-room-ops-guest className="mt-1 flex flex-wrap items-center gap-1 break-words text-sm font-normal text-slate-100"><span>{row.guest_name}</span><GuestGroupBadge badge={currentRoomGroupBadges(row).guest_group_badge} className="inline-block h-[1em] w-auto max-w-[2em] shrink-0 object-contain"/><LoyaltyBadge tier={row.loyalty_tier}/></div> : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
         {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
       </div>
       {row.incoming_name || row.incoming_type || row.incoming_code || row.arrival_date || row.arrival_time || row.incoming_block_indicator ? (
         <div className="mt-1 text-sm text-sky-200">
-          Incoming: {row.incoming_loyalty_tier&&<LoyaltyBadge tier={row.incoming_loyalty_tier}/>} {row.incoming_name || "Name unavailable"} <GuestGroupBadge badge={currentRoomGroupBadges(row).incoming_group_badge}/>
+          Incoming: {row.incoming_loyalty_tier&&<LoyaltyBadge tier={row.incoming_loyalty_tier}/>} {row.incoming_name || "Name unavailable"} <GuestGroupBadge badge={currentRoomGroupBadges(row).incoming_group_badge} className="inline-block h-[1em] w-auto max-w-[2em] object-contain"/>
           {row.incoming_type ? ` · ${row.incoming_type}` : ""}
           {row.incoming_code ? ` · ${row.incoming_code}` : ""}
           {row.arrival_date ? ` · ${displayDate(row.arrival_date)}` : ""}
@@ -366,21 +367,21 @@ export default function RoomOperationsPage() {
     <main className="min-h-screen bg-slate-950 px-4 py-5 text-slate-100 sm:px-6">
       <div className="mx-auto w-full space-y-4">
         <header className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl sm:flex-row sm:items-center sm:justify-between">
-          <div data-cmpri-page-heading>
+          <div data-cmpri-page-heading className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink>
               <h1 className="text-xl font-black tracking-tight">Daily Room Operations</h1>
             </div>
             <p className="mt-2 text-sm text-slate-400">The latest accepted report stays available until a newer verified report replaces it. Guest stays expire at their recorded dates and times without another upload. Scheduled checkout is not physical checkout confirmation.</p>
           </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-center text-xs font-semibold text-slate-300">
+          <div className="flex flex-wrap items-end gap-2 sm:shrink-0 sm:flex-nowrap">
+            <label className={uploadStyles.dateControl}>
               Report Date
               <input type="date" min={previousHotelDate()} max={today} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
             </label>
             {hasCapability(session, "edit_tickets") ? (
               <RoomOpsUploadControl open={importOpen} busy={guestImportBusy}
-                onDrive={()=>{setImportOpen(true);guestImportRef.current?.fetchDrive();}}
+                onDrive={()=>{setImportOpen(false);guestImportRef.current?.fetchDrive();}}
                 onFile={()=>{setImportOpen(true);guestImportRef.current?.chooseFiles();}}
                 onToggle={()=>setImportOpen(open=>!open)}/>
             ) : null}

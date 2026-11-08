@@ -6,6 +6,7 @@ import { DriveRoomReportError } from '@/lib/room-report-drive';
 import type { GuestReport, GuestReportKind } from '@/lib/room-guest-reports';
 import { fetchNewerDriveRoomReports } from '@/lib/server/drive-room-reports';
 import { DriveAccessError } from '@/lib/server/drive-po-api';
+import { POST as importGuestReports } from '../route';
 import { isIntegrationsSafeMode } from '@/lib/server/integrations-safe-mode';
 
 export const runtime = 'nodejs';
@@ -27,4 +28,35 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof DriveAccessError || error instanceof DriveRoomReportError ? error.message : 'Drive reports could not be fetched. Check the attachment folder and try again.' }, { status: 502, headers });
   }
+}
+
+/** A Drive click validates and commits once; the manual upload preview remains separate. */
+export async function POST(request: NextRequest) {
+  const started = Date.now();
+  const timings: Record<string, number> = {};
+  let stageStarted = started;
+  const mark = (stage: string) => { timings[stage] = Date.now() - stageStarted; stageStarted = Date.now(); };
+  const finish = (response: Response) => {
+    const duration = Date.now() - started;
+    response.headers.set('Server-Timing', Object.entries(timings).map(([stage, ms]) => `${stage};dur=${ms}`).join(', '));
+    response.headers.set('X-CMPRI-Import-Duration-Ms', String(duration));
+    console.info(JSON.stringify({ event: 'drive_room_reports_import', status: response.status, duration_ms: duration, ...timings }));
+    return response;
+  };
+  const acquired = await GET(request);
+  mark("drive_fetch");
+  if (!acquired.ok) return finish(acquired);
+  const { files } = await acquired.json();
+  if (!files.length) return finish(NextResponse.json({ ok: true, imported: false, message: 'No newer reports for today were found in the attachment folder.' }, { headers }));
+  const makeRequest = (validateOnly: boolean, previousId?: string | null) => new NextRequest(new URL('/api/room-operations/guest-reports', request.url), {
+    method: 'POST', headers: { Authorization: request.headers.get('authorization') || '', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files, validateOnly, ...(validateOnly ? {} : { previousId }) }),
+  });
+  const validated = await importGuestReports(makeRequest(true));
+  mark("validation");
+  if (!validated.ok) return finish(validated);
+  const preview = await validated.json();
+  const committed = await importGuestReports(makeRequest(false, preview.previousId));
+  mark("save");
+  return finish(committed);
 }

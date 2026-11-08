@@ -50,13 +50,14 @@ export default forwardRef<GuestReportsImportHandle, {
   if (inFlight.current) return;
   setPreview(null); setFiles([]); setSelectedFiles([]);
   await run(async () => {
-   const response = await fetch("/api/room-operations/guest-reports/drive", { headers: await authorizationHeaders(), cache: "no-store" });
+   const response = await fetch("/api/room-operations/guest-reports/drive", { headers: await authorizationHeaders(), method: "POST", cache: "no-store" });
    const result = await response.json();
    if (!response.ok) throw Error(result.error || "The Drive reports could not be fetched.");
-   const reports = result.files as ReportFile[];
-   if (!reports.length) { setNotice("No newer reports for today were found in the attachment folder."); return; }
-   const reviewed = await request(reports, true);
-   setFiles(reports); setSelectedFiles([]); setPreview(reviewed);
+   if (result.imported === false) { setNotice(result.message); return; }
+   onCommitted(result.date, result.rows, result.import_id);
+   if (date !== result.date) onDateChange(result.date);
+   const duration = Number(response.headers.get("X-CMPRI-Import-Duration-Ms"));
+   setNotice(duration > 0 ? `Room Reports Imported. (${(duration / 1000).toFixed(1)} seconds)` : "Room Reports Imported.");
   });
  }
  async function submit(){
@@ -77,7 +78,14 @@ export default forwardRef<GuestReportsImportHandle, {
    setFiles(reports); setPreview(await request(reports, true));
   });
  }
- return <section id="room-ops-upload-form" hidden={!open} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label="Upload Room Operations">
+ const feedback = <>
+  {busy && <p role="status">Processing Reports...</p>}
+  {error && <p role="alert" className="text-red-300">{error}</p>}
+  {notice && <p role="status" className="text-green-300">{notice}</p>}
+ </>;
+ return <>
+ {!open && <div className="text-sm">{feedback}</div>}
+ <section id="room-ops-upload-form" hidden={!open} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label="Upload Room Operations">
   <p className="text-sm text-slate-300"><strong>In-House Guest List Details</strong> is required first. <strong>Housekeeping Departures</strong> and <strong>Housekeeping Arrivals</strong> are optional and may also be added after today’s guest list is accepted.</p>
   <p className="text-xs text-slate-400">Keep the original timestamped filenames. Updated reports must be newer than the accepted report of the same type. Review the preview before confirming.</p>
   <div className={styles.picker} role="group" aria-label="Report files" onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect=busy?'none':'copy'}} onDrop={event=>{event.preventDefault();choose(Array.from(event.dataTransfer.files))}}>
@@ -86,9 +94,7 @@ export default forwardRef<GuestReportsImportHandle, {
    {selectedFiles.length>0&&<div className={styles.selection}><span>{selectedFiles.length} {selectedFiles.length===1?"report":"reports"} selected</span><button type="button" disabled={busy} onClick={()=>{setSelectedFiles([]);setFiles([]);setPreview(null);setError("");setNotice("")}}>Clear</button></div>}
    <button type="button" className={styles.submit} disabled={busy||!selectedFiles.length} onClick={()=>void submit()}>Submit</button>
   </div>
-  {busy && <p role="status">Processing Reports...</p>}
-  {error && <p role="alert" className="text-red-300">{error}</p>}
-  {notice && <p role="status" className="text-green-300">{notice}</p>}
+  {open && feedback}
   {preview && <>
    <h3 className="font-bold">Review {preview.date} — {preview.rows.length} Rooms</h3>
    <div className="max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr>{["Room", "Guest", "Company", "Pets", "VIP", "Arrival", "Departure", "Incoming"].map(title => <th key={title} className="p-2">{title}</th>)}</tr></thead>
@@ -100,5 +106,6 @@ export default forwardRef<GuestReportsImportHandle, {
     setPreview(null); setFiles([]); setSelectedFiles([]); setNotice("Room Reports Imported.");
    })}>Confirm Import</button>
   </>}
- </section>;
+ </section>
+ </>;
 });

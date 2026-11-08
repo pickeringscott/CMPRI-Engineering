@@ -6,7 +6,7 @@ export type RoomGroupBadge = 'big-ten' | 'flyover-studios' | 'railway-cn';
 export function roomGroupBadge(value: unknown): RoomGroupBadge | null {
   if (typeof value !== 'string') return null;
   const group = value.trim().replace(/\s+/g, ' ').toLowerCase();
-  if (group === 'cn' || group === 'canadian national' || group === 'canadian national railway' || isRailwayCnGuestName(group)) return 'railway-cn';
+  if (group === 'cn railways' || group === 'cn railway' || group === 'cn' || group === 'canadian national' || group === 'canadian national railway' || isRailwayCnGuestName(group)) return 'railway-cn';
   if (group === 'flyover studios' || group === 'flyover film studios') return 'flyover-studios';
   return isBigTenGroup(value) ? 'big-ten' : null;
 }

@@ -824,7 +824,7 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.match(page, /function RoomIdentity/);
   assert.match(page, /currentRoomGroupBadges\(row\)\.guest_group_badge/);
   assert.match(page, /currentRoomGroupBadges\(row\)\.incoming_group_badge/);
-  assert.match(page, /row\.guest_name \? <div data-room-ops-guest[^>]*><span>\{row\.guest_name\}<\/span><LoyaltyBadge tier=\{row\.loyalty_tier\}\/><GuestGroupBadge badge=\{currentRoomGroupBadges\(row\)\.guest_group_badge\}\/><\/div>/);
+  assert.match(page, /row\.guest_name \? <div data-room-ops-guest[^>]*><span>\{row\.guest_name\}<\/span><GuestGroupBadge badge=\{currentRoomGroupBadges\(row\)\.guest_group_badge\}[^>]*\/><LoyaltyBadge tier=\{row\.loyalty_tier\}\/><\/div>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
@@ -893,7 +893,7 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
     checkout_date: "2026-10-07", checkout_time: "10:30 AM",
   }, today: "2026-10-05" }));
   assert.match(html, /text-lg font-black text-white">Room 103/);
-  assert.match(html, /h-\[27px\] w-auto/);
+  assert.match(html, /h-\[1em\] w-auto/);
   assert.equal((html.match(/src="\/railway-cn-logo.png"/g)||[]).length,1);
   assert.match(html,/alt="CN"/);
   const dom = new JSDOM(html), document = dom.window.document;
@@ -901,8 +901,8 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
   assert.ok(guest.classList.contains('font-normal'));
   assert.ok(guest.classList.contains('text-slate-100'));
   assert.equal(guest.children[0].textContent, 'RAILWAY/CN-NJ8');
-  assert.equal(guest.children[1].getAttribute('data-test-loyalty'), 'Silver');
-  assert.equal(guest.children[2].getAttribute('alt'), 'CN');
+  assert.equal(guest.children[2].getAttribute('data-test-loyalty'), 'Silver');
+  assert.equal(guest.children[1].getAttribute('alt'), 'CN');
   const incoming = [...document.querySelectorAll('div')].find(node=>node.textContent.trim().startsWith('Incoming:'));
   assert.equal(incoming.querySelector('[data-test-loyalty]').getAttribute('data-test-loyalty'), 'Gold');
   assert.ok(incoming.innerHTML.indexOf('data-test-loyalty') < incoming.innerHTML.indexOf('Arriving Guest'));
