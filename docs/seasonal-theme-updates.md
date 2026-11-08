@@ -14,6 +14,8 @@ not enabled by this change.
 - Add the approved Christmas artwork renderer and asset cache to the shared
   background registry, then change the single active theme selection.
 - Update the shared desktop palette and seasonal desktop chrome together.
+- Keep home-page tab buttons connected to their destination modal's native colors
+  through `modalLauncherStyle`; seasonal chrome must not override those colors.
 - Include the public sign-in page: normal Google sign-in, Remember me, expanded
   password access, validation/error messages, OAuth return and dashboard loading.
 - Verify sign-in and desktop at desktop and mobile widths, short viewports,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
-import {modalActionForRoute,modalThemeStyle,modalTitleStyle,modalDisplayTitle} from '@/lib/ui/header-palette';
+import {modalActionForRoute,modalThemeStyle,modalTitleStyle,modalDisplayTitle,hasBonvoyTierHelp} from '@/lib/ui/header-palette';
+import WorkOrderTierKey from './WorkOrderTierKey';
 import WorkOrderGuestIndicators from './WorkOrderGuestIndicators';
 
 type ModalEntry = {
@@ -495,6 +496,7 @@ export default function GlobalModalHost() {
                 <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />
                 <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
                 {entry.guest && <WorkOrderGuestIndicators guest={entry.guest} />}
+                {hasBonvoyTierHelp(entryPath) && <WorkOrderTierKey />}
                 <button type="button" className="cmpri-desktop-close" aria-label={`Close ${displayTitle}`} onClick={()=>requestModalClose(entry.id)}>×</button>
               </div>
               <iframe

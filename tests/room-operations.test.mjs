@@ -825,7 +825,6 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.match(page, /currentRoomGroupBadges\(row\)\.guest_group_badge/);
   assert.match(page, /currentRoomGroupBadges\(row\)\.incoming_group_badge/);
   assert.match(page, /row\.guest_name \? <div data-room-ops-guest[^>]*><span>\{row\.guest_name\}<\/span><LoyaltyBadge tier=\{row\.loyalty_tier\}\/><GuestGroupBadge badge=\{currentRoomGroupBadges\(row\)\.guest_group_badge\}\/><\/div>/);
-  assert.match(page, /<WorkOrderTierKey\s*\/>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {

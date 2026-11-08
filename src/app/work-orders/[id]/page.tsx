@@ -2,7 +2,6 @@
 import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
 import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
 import WorkOrderGuestIndicators from "@/components/WorkOrderGuestIndicators";
-import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import {type RoomGroupBadge} from "@/lib/room-group-badges";
 import {loyaltyTier} from "@/lib/loyalty-tier";
 
@@ -2082,7 +2081,6 @@ export default function WorkOrderTicketPage() {
             <WorkOrderImportPill order={order} />
 
           </div><div data-preview-locked-actions className="preview-locked-actions">
-              <WorkOrderTierKey />
               <button
                 type="button"
                 onClick={cancelTicket}

@@ -1,7 +1,6 @@
 "use client";
 import {profileHasRole} from "@/lib/server/roles";
 import LoyaltyBadge from "@/components/LoyaltyBadge";
-import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 
 import { resourceViewVisible } from "@/lib/events/visibility";
 import { subscribeResources } from "@/lib/events/browser";
@@ -375,7 +374,6 @@ export default function RoomOperationsPage() {
             <p className="mt-2 text-sm text-slate-400">The latest accepted report stays available until a newer verified report replaces it. Guest stays expire at their recorded dates and times without another upload. Scheduled checkout is not physical checkout confirmation.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <WorkOrderTierKey />
             <label className="text-xs font-semibold text-slate-300">
               Report date
               <input type="date" min={previousHotelDate()} max={today} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />

@@ -16,11 +16,5 @@
 }
 [data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .group-outline path {stroke:var(--cmpri-palette-desktop-tone-20,#9e784e)}
 [data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .layout-b .groups {border-top-color:var(--cmpri-palette-desktop-tone-21,#765137)}
-[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .action {
-  --action-rgb:var(--cmpri-palette-desktop-action-rgb,198,136,71)!important;background-color:rgba(var(--cmpri-palette-desktop-action-rgb,198,136,71),.19)!important;
-  border-color:rgba(var(--cmpri-palette-desktop-action-rgb,198,136,71),.65)!important;color:var(--cmpri-palette-desktop-tone-22,#ffe8c7)!important;
-}
-[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-v23 .action[data-key="sign-out"] {
-  --action-rgb:var(--cmpri-palette-desktop-sign-out-rgb,167,101,73)!important;background-color:var(--cmpri-palette-desktop-tone-23,#562b20)!important;border-color:var(--cmpri-palette-desktop-tone-24,#a76549)!important;color:var(--cmpri-palette-desktop-tone-25,#ffd3b5)!important;
-}
+/* Tab actions inherit each modal's palette through modalLauncherStyle. */
 [data-cmpri-seasonal-theme="thanksgiving"] .cmpri-header-create {background:var(--cmpri-palette-desktop-tone-26,#dfac51);border-color:var(--cmpri-palette-desktop-tone-27,#f6c472);color:var(--cmpri-palette-desktop-tone-28,#24180f)}

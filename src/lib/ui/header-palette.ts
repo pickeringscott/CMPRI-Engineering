@@ -22,7 +22,10 @@ function modalPaletteStyle(action: string): Record<string,string> {
     : action === 'Work Order Detail' || action === 'Work Order'
       ? 'detail'
       : action === 'Hours Tracker' ? 'hours' : null;
-  if (!name) return headerActionStyle(modalAction(action));
+  if (!name) {
+    const palette = headerActionStyle(modalAction(action));
+    return Object.keys(palette).length ? palette : headerActionStyle('Work Order List');
+  }
   const defaults = sitePalette.special[name];
   const scheme = { rgb: paletteToken(name+'-rgb', defaults.rgb), base: paletteToken(name+'-base', defaults.base) };
   return {
@@ -38,6 +41,16 @@ function modalPaletteStyle(action: string): Record<string,string> {
 export function modalTitleStyle(title: string) {
   const palette=modalPaletteStyle(title);
   return {backgroundColor:palette["background-color"],borderColor:palette["border-color"],color:palette.color};
+}
+
+/** Home-page tab buttons use the native modal scheme, including special palettes. */
+export function modalLauncherStyle(href: string, title: string): Record<string,string> {
+  return { ...modalPaletteStyle(modalActionForRoute(href, title)), 'box-shadow': 'none' };
+}
+
+export function hasBonvoyTierHelp(href: string): boolean {
+  const path = href.split(/[?#]/)[0];
+  return path === 'work-order-list' || path === '/engineering/room-operations' || path.startsWith('/work-orders/');
 }
 
 function modalAction(title: string) {

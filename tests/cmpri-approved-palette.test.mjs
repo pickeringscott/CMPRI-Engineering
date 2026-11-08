@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
-import {headerActionStyle as rawHeader,modalThemeStyle as rawTheme,modalTitleStyle as rawTitle,modalActionForRoute,modalDisplayTitle} from '../src/lib/ui/header-palette.ts';
+import {headerActionStyle as rawHeader,modalThemeStyle as rawTheme,modalTitleStyle as rawTitle,modalLauncherStyle,modalActionForRoute,modalDisplayTitle,hasBonvoyTierHelp} from '../src/lib/ui/header-palette.ts';
 import {sitePaletteTokens} from '../src/lib/ui/site-palette-defaults.ts';
 function resolveTokens(value){
  let text=value;
@@ -14,6 +14,18 @@ function resolveTokens(value){
 }
 const resolved=style=>Object.fromEntries(Object.entries(style).map(([key,value])=>[key,resolveTokens(value)]));
 const headerActionStyle=name=>resolved(rawHeader(name)),modalThemeStyle=name=>resolved(rawTheme(name)),modalTitleStyle=name=>resolved(rawTitle(name));
+test('home tab buttons use their destination modal colors, including Hours Tracker and route aliases',()=>{
+ for(const [href,label] of [['work-order-list','Work Order List'],['/engineering/room-operations','Daily Room Ops'],['/staff-notes','Staff Notes'],['/engineering/hours-tracker','Hours Tracker'],['/management/rooms','Manage Rooms'],['/engineering/purchasing','PO'],['/feedback','Feedback (7)'],['sign-out','Sign Out'],['/technician','Technician Dashboard']]){
+  const launcher=modalLauncherStyle(href,label),modal=rawTitle(modalActionForRoute(href,label));
+  assert.equal(launcher['background-color'],modal.backgroundColor,label);
+  assert.equal(launcher['border-color'],modal.borderColor,label);
+  assert.equal(launcher.color,modal.color,label);
+ }
+});
+test('Bonvoy help belongs to the list, ticket and Daily Room Ops modal title bars',()=>{
+ for(const href of ['work-order-list','/work-orders/00000000-0000-4000-8000-000000000001?embedded=1','/engineering/room-operations'])assert.equal(hasBonvoyTierHelp(href),true,href);
+ for(const href of ['/work-orders','/staff-notes','/engineering/hours-tracker','/engineering'])assert.equal(hasBonvoyTierHelp(href),false,href);
+});
 test('every action retains the actual approved Coral Glow mapping, including numbered Feedback labels',()=>{
  const html=readFileSync('.bridge/ChatGPT Errors/CMPRI-selected-tabbed-pills (2).html','utf8');
  const inventory=JSON.parse(html.match(/const inventories=(\{[^\n]+\});/)[1]);const palettes=JSON.parse(html.match(/const previewPalettes=(\[[^\n]+\]);/)[1]);
