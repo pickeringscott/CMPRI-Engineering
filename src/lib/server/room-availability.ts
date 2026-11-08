@@ -3,7 +3,6 @@ import {loyaltyTier, type LoyaltyTier} from "@/lib/loyalty-tier";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { roomKey } from "@/lib/room-availability";
-import { isRailwayCnGuestName } from "@/lib/room-operations";
 import { loadEffectiveRoomOperationsSnapshot } from "@/lib/server/cmpri-room-operations-snapshot";
 import { currentRoomGroupBadges, type RoomGroupBadge } from "@/lib/room-group-badges";
 
@@ -43,11 +42,12 @@ export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
     const status = typeof row.room_status === "string" ? row.room_status.trim() : "";
     if (key && status) statuses.set(key, status);
     if (key) {
+      const badges = currentRoomGroupBadges(row);
       operations.set(key, {
         checkout_date: typeof row.checkout_date === "string" ? row.checkout_date : null,
         checkout_time: typeof row.checkout_time === "string" ? row.checkout_time : null,
-        cn_room: isRailwayCnGuestName(typeof row.guest_name === "string" ? row.guest_name : null),
-        ...currentRoomGroupBadges(row),
+        cn_room: badges.guest_group_badge === "railway-cn",
+        ...badges,
         guest_name: typeof row.guest_name === "string" ? row.guest_name : null,
         loyalty_tier: row.guest_name ? loyaltyTier(row.loyalty_tier) : null,
         incoming_reserved: !!row.incoming_name && (row.reserved === true || row.incoming_reserved === true),

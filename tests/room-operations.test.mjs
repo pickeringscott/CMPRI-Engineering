@@ -887,7 +887,7 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
     currentRoomGroupBadges, isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
-    room: "103", guest_name: "RAILWAY/CN-NJ8", loyalty_tier: "Silver", room_status: "OOO",
+    room: "103", guest_name: "RAILWAY/CN-NJ8", group_name: "CN", loyalty_tier: "Silver", room_status: "OOO",
     incoming_name: "Arriving Guest", incoming_loyalty_tier: "Gold",
     guest_arrival_date: "2026-10-01", stay_nights: 4, room_type: "Hidden type", guest_code: "Hidden code",
     checkout_date: "2026-10-07", checkout_time: "10:30 AM",

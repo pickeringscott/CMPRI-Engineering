@@ -11,10 +11,12 @@ export function roomGroupBadge(value: unknown): RoomGroupBadge | null {
   return isBigTenGroup(value) ? 'big-ten' : null;
 }
 
-/** Railway/CN is a legacy PMS guest label; other brands must come from group/company fields. */
-function guestBadge(group: unknown, company: unknown, name: unknown): RoomGroupBadge | null {
-  return roomGroupBadge(group) ?? roomGroupBadge(company)
-    ?? (typeof name === 'string' && isRailwayCnGuestName(name) ? 'railway-cn' : null);
+/** The imported Group Name is authoritative for CN; company/name text is not a CN assignment. */
+function guestBadge(group: unknown, company: unknown): RoomGroupBadge | null {
+  const assigned = roomGroupBadge(group);
+  if (assigned) return assigned;
+  const companyBadge = roomGroupBadge(company);
+  return companyBadge === 'railway-cn' ? null : companyBadge;
 }
 
 /** Consume the already projected occupancy snapshot; do not infer a guest or change arrival times. */
@@ -23,7 +25,7 @@ export function currentRoomGroupBadges(row: Record<string, unknown>) {
   const incoming = (row.reserved === true || row.incoming_reserved === true)
     && typeof row.incoming_name === 'string' && !!row.incoming_name.trim();
   return {
-    guest_group_badge: current ? guestBadge(row.group_name, row.company, row.guest_name) : null,
-    incoming_group_badge: incoming ? guestBadge(null, row.incoming_company, row.incoming_name) : null,
+    guest_group_badge: current ? guestBadge(row.group_name, row.company) : null,
+    incoming_group_badge: incoming ? guestBadge(row.incoming_group_name, row.incoming_company) : null,
   };
 }

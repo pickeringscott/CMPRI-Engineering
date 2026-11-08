@@ -11,7 +11,6 @@ import WorkOrderFilters, { type WorkOrderListFilter } from "@/components/WorkOrd
 export type { WorkOrderListFilter } from "@/components/WorkOrderFilters";
 
 import LoyaltyBadge from "@/components/LoyaltyBadge";
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { subscribeResources } from "@/lib/events/browser";
@@ -285,15 +284,12 @@ export default function WorkOrderListWindow({
                     </div>
                     <div className="work-order-room-line">
                       <span className="preview-room">{order.room || "No location"}</span>
-                      {!isDraft && <>
-                        {order.cn_room && order.guest_group_badge !== 'railway-cn' && <Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge" />}
-                        <GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge" />
-                      </>}
                       {occupancy && <span data-preview-room-status className={`work-order-pill ${occupancy.className}`}>{occupancy.label}</span>}
                       {checkout && <span data-work-order-checkout className={`work-order-pill ${checkout.className}`}>{checkout.label}</span>}
                     </div>
-                    {!isDraft && (order.guest_name || order.loyalty_tier) && <div className="work-order-guest-line">
+                    {!isDraft && (order.guest_name || order.loyalty_tier || order.guest_group_badge) && <div className="work-order-guest-line">
                       {order.guest_name && <span>{order.guest_name}</span>}
+                      <GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge" />
                       <LoyaltyBadge tier={order.loyalty_tier} />
                     </div>}
                   <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>

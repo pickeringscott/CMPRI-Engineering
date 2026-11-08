@@ -9,7 +9,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import sharp from 'sharp';
 const {roomGroupBadge,currentRoomGroupBadges}=await import('../src/lib/room-group-badges.ts');
-const {projectGuestRoom}=await import('../src/lib/room-guest-reports.ts');
+const {projectGuestRoom,parseGuestReport,roomsFromGuestReports}=await import('../src/lib/room-guest-reports.ts');
 
 test('Flyover matches the observed group label and full brand, never an unrelated guest or company',()=>{
  for(const group of ['FLYOVER STUDIOS','Flyover Film Studios','  flyover  studios  '])assert.equal(roomGroupBadge(group),'flyover-studios');
@@ -48,21 +48,50 @@ test('shared renderer labels both groups, preserves dimensions and renders nothi
  assert.equal(renderToStaticMarkup(React.createElement(Badge,{group:'Unrelated'})),'');
 });
 
-test('CN resolves company/group labels and legacy PMS names for current and incoming guests',()=>{
+test('CN assignments use imported group columns for current and incoming guests',()=>{
  for (const label of ['CN',' Canadian National ','CANADIAN NATIONAL RAILWAY','RAILWAY/CN-NJ8','Railway / CN crew']) assert.equal(roomGroupBadge(label),'railway-cn');
  for (const label of ['CN Other Company','Other Canadian National Supplier','SCN',null,42]) assert.equal(roomGroupBadge(label),null);
- assert.deepEqual(currentRoomGroupBadges({guest_name:'Current Guest',company:'CN',incoming_name:'Railway/CN-next',incoming_reserved:true}),{guest_group_badge:'railway-cn',incoming_group_badge:'railway-cn'});
- assert.equal(currentRoomGroupBadges({guest_name:'Railway/CN-NJ8'}).guest_group_badge,'railway-cn');
- assert.equal(currentRoomGroupBadges({guest_name:'Current Guest',group_name:'Other group',company:'CN'}).guest_group_badge,'railway-cn');
+ assert.deepEqual(currentRoomGroupBadges({guest_name:'Current Guest',group_name:'CN',incoming_name:'Incoming Guest',incoming_group_name:'CN',incoming_reserved:true}),{guest_group_badge:'railway-cn',incoming_group_badge:'railway-cn'});
+ assert.equal(currentRoomGroupBadges({guest_name:'Railway/CN-NJ8'}).guest_group_badge,null);
+ assert.equal(currentRoomGroupBadges({guest_name:'Current Guest',group_name:'Other group',company:'CN'}).guest_group_badge,null);
  assert.deepEqual(currentRoomGroupBadges({company:'CN',incoming_company:'CN',incoming_name:'Next Guest',reserved:false}),{guest_group_badge:null,incoming_group_badge:null});
  assert.equal(currentRoomGroupBadges({guest_name:'CN',company:'Other'}).guest_group_badge,null);
 });
 
 test('CN badge transfers from incoming to current and clears after checkout',()=>{
- const source={room:'101',guest_name:'Outgoing Guest',company:'CN',room_status:'Occupied',checkout_date:'2026-11-06',checkout_time:'11:00:00',incoming_name:'Incoming Guest',incoming_company:'CN',incoming_reserved:true,reserved:true,arrival_date:'2026-11-06',arrival_time:'15:00:00',incoming_checkout_date:'2026-11-07',incoming_checkout_time:'11:00:00'};
+ const source={room:'101',guest_name:'Outgoing Guest',group_name:'CN',company:'Other company',room_status:'Occupied',checkout_date:'2026-11-06',checkout_time:'11:00:00',incoming_name:'Incoming Guest',incoming_group_name:'CN',incoming_company:'Other company',incoming_reserved:true,reserved:true,arrival_date:'2026-11-06',arrival_time:'15:00:00',incoming_checkout_date:'2026-11-07',incoming_checkout_time:'11:00:00'};
  const badges=at=>currentRoomGroupBadges(projectGuestRoom(source,new Date(at),'America/Chicago'));
  assert.deepEqual(badges('2026-11-06T16:59:00Z'),{guest_group_badge:'railway-cn',incoming_group_badge:'railway-cn'});
  assert.deepEqual(badges('2026-11-06T18:00:00Z'),{guest_group_badge:null,incoming_group_badge:'railway-cn'});
  assert.deepEqual(badges('2026-11-06T21:00:00Z'),{guest_group_badge:'railway-cn',incoming_group_badge:null});
  assert.deepEqual(badges('2026-11-07T18:00:00Z'),{guest_group_badge:null,incoming_group_badge:null});
+});
+
+test('in-house Group Name drives CN for ordinary guest names and repairs preserved report projections',()=>{
+ const report=parseGuestReport('In House Guest List Details_CMPRI_2026-11-08_08-00-00.csv',
+  'ROOM NUMBER,GUEST NAME,ARRIVAL,DEPARTURE,NIGHTS,COMPANY,GROUP NAME\n101,"Guest, Sample",2026-11-07,2026-11-09,2,Other Company,CN');
+ const rows=roomsFromGuestReports({guests:report},['101'],[]);
+ assert.equal(rows[0].group_name,'CN');
+ assert.equal(currentRoomGroupBadges(rows[0]).guest_group_badge,'railway-cn');
+ const old={...rows[0],group_name:''};
+ const recovered=projectGuestRoom(old,new Date('2026-11-08T15:00:00Z'),'America/Chicago',{guests:report});
+ assert.equal(currentRoomGroupBadges(recovered).guest_group_badge,'railway-cn');
+ assert.equal(old.group_name,'');
+ const corrected={...report,rows:report.rows.map(r=>({...r,'GROUP NAME':''}))};
+ const cleared=projectGuestRoom({...rows[0],guest_name:'Sample Guest'},new Date('2026-11-08T15:00:00Z'),'America/Chicago',{guests:corrected});
+ assert.equal(currentRoomGroupBadges(cleared).guest_group_badge,null);
+});
+test('shared modal guest indicators show CN immediately after the name without requiring cn_room',()=>{
+ const source=readFileSync(new URL('../src/components/WorkOrderGuestIndicators.tsx',import.meta.url),'utf8');
+ const exports={};
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText,{
+  exports,React,require(name){
+   if(name==='./GuestGroupBadge')return {default:({badge})=>badge?React.createElement('img',{alt:badge}):null};
+   if(name==='./LoyaltyBadge')return {default:({tier})=>tier?React.createElement('span',null,tier):null};
+   if(name==='@/lib/loyalty-tier')return {loyaltyTier:value=>value};
+   throw Error(name);
+  }
+ });
+ const html=renderToStaticMarkup(React.createElement(exports.default,{guest:{guest_name:'Sample Guest',guest_group_badge:'railway-cn',loyalty_tier:'Gold'}}));
+ assert.match(html,/Sample Guest<\/span><img alt="railway-cn"\/><span>Gold/);
 });

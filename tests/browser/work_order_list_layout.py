@@ -22,7 +22,7 @@ async def main():
     ('Lobby','Open','High',None,None,None,None,None,False),
     ('106','Open','Normal','Occupied',today,'10:30 AM','Silver',None,True),
    ]):
-    examples.append({**orders[0],'id':f'sample-{index}','display_id':str(4218+index),'room':room,'status':status,'priority':priority,'room_status':room_status,'checkout_date':checkout,'checkout_time':time,'loyalty_tier':tier,'guest_group_badge':badge,'cn_room':cn,'incoming_reserved':False,'issue':['Bathroom sink drains slowly','Inspect air conditioner noise','Replace desk lamp','Shower repair verified','Inspect lobby ceiling light','Adjust door closer'][index]})
+    examples.append({**orders[0],'id':f'sample-{index}','display_id':str(4218+index),'room':room,'status':status,'priority':priority,'room_status':room_status,'checkout_date':checkout,'checkout_time':time,'loyalty_tier':tier,'guest_group_badge':('railway-cn' if cn else badge),'cn_room':cn,'incoming_reserved':False,'issue':['Bathroom sink drains slowly','Inspect air conditioner noise','Replace desk lamp','Shower repair verified','Inspect lobby ceiling light','Adjust door closer'][index]})
    async def extra(route):
     path=urlparse(route.request.url).path
     if path=='/api/work-orders/sample-0':return await route.fulfill(json={'workOrder':examples[0],'mentionTickets':[]})
@@ -74,9 +74,11 @@ async def main():
    for index in [0,5]:
     cn=modal.locator('[data-preview-status]').nth(index).locator('img[alt="CN"]')
     await expect(cn).to_have_count(1);await expect(cn).to_be_visible()
+    await expect(modal.locator('[data-preview-status]').nth(index).locator('.work-order-guest-line img[alt="CN"]')).to_have_count(1)
+    await expect(modal.locator('[data-preview-status]').nth(index).locator('.work-order-room-line img[alt="CN"]')).to_have_count(0)
    assert await first.locator('.work-order-ticket-line > span').all_text_contents()==['WO#4218','Open','High Priority']
-   sizes=await first.evaluate('e=>({number:parseFloat(getComputedStyle(e.querySelector(".preview-wo-number")).fontSize),room:parseFloat(getComputedStyle(e.querySelector(".preview-room")).fontSize),badge:e.querySelector("img[alt=CN]").getBoundingClientRect().height})')
-   assert sizes['number']<sizes['room'] and abs(sizes['badge']-sizes['room'])<1,sizes
+   sizes=await first.evaluate('e=>({number:parseFloat(getComputedStyle(e.querySelector(".preview-wo-number")).fontSize),room:parseFloat(getComputedStyle(e.querySelector(".preview-room")).fontSize),guest:parseFloat(getComputedStyle(e.querySelector(".work-order-guest-line")).fontSize),badge:e.querySelector("img[alt=CN]").getBoundingClientRect().height})')
+   assert sizes['number']<sizes['room'] and abs(sizes['badge']-sizes['guest'])<1,sizes
    await expect(first.locator('[data-work-order-checkout]')).to_have_text('C/O Nov 6 · 11:00 a.m.')
    await expect(modal.locator('[data-work-order-checkout]').nth(1)).to_have_text('C/O Nov 6 · 2:30 p.m.')
    await expect(modal.locator('[data-work-order-checkout]').nth(2)).to_have_text('C/O Nov 7')
@@ -146,6 +148,10 @@ async def main():
    await modal.locator('[data-preview-status]').first.click()
    detail=page.locator('[data-cmpri-desktop-window="/work-orders/sample-0"]')
    await expect(detail).to_be_visible()
+   await expect(detail.locator('.cmpri-desktop-titlebar .cmpri-window-guest img[alt="CN"]')).to_have_count(1)
+   ticket=detail.frame_locator('iframe')
+   await expect(ticket.locator('[data-work-order-guest] img[alt="CN"]')).to_have_count(1)
+   await expect(ticket.locator('[data-preview-detail-title] img[alt="CN"]')).to_have_count(0)
    await detail.get_by_role('button',name='Close Work Order',exact=False).first.click()
    await expect(modal).to_be_visible()
    assert not writes,writes

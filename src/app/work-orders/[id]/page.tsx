@@ -27,7 +27,6 @@ import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 import { troubleshootingStepAlreadyDone } from "@/lib/troubleshooting-completed-steps";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
@@ -44,7 +43,6 @@ import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry }
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
 import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
-import { isRailwayCnGuestName } from "@/lib/room-operations";
 import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
 import { type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
@@ -155,7 +153,6 @@ type RoomOperationalContext = {
   roomStatus: string;
   checkoutDate: string;
   checkoutTime: string;
-  cnRoom: boolean;
   checkoutError: string;
   loading: boolean;
 };
@@ -678,7 +675,7 @@ export default function WorkOrderTicketPage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [externalActivity, setExternalActivity] = useState<ExternalActivity>({ purchases: [], enseo: [], warranties: [], followups: [] });
-  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: false });
+  const [roomOperationalContext, setRoomOperationalContext] = useState<RoomOperationalContext>({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", checkoutError: "", loading: false });
   const [initialFingerprint, setInitialFingerprint] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const cmpriSessionRef = useRef<CmpriClientSession | null>(null);
@@ -893,14 +890,14 @@ export default function WorkOrderTicketPage() {
     const generation = ++roomContextGeneration.current;
     const roomText = String(roomLabel || "");
     const room = roomText.match(/\b(?:\d{2,4}|MGR)\b/i)?.[0] || "";
-    if (!room) { setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: false }); return; }
-    setRoomOperationalContext((current) => ({ ...current, ranker: null, rankerError: "", guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, loading: true }));
+    if (!room) { setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", checkoutError: "", loading: false }); return; }
+    setRoomOperationalContext((current) => ({ ...current, ranker: null, rankerError: "", guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", loading: true }));
     try {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) {
         if (generation !== roomContextGeneration.current) return;
-        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "Today's checkout time could not be loaded.", loading: false });
+        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", checkoutError: "Today's checkout time could not be loaded.", loading: false });
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
@@ -930,7 +927,7 @@ export default function WorkOrderTicketPage() {
         }
       } catch (error) { checkoutError = error instanceof Error ? error.message : 'Guest context is unavailable.'; }
       if (generation !== roomContextGeneration.current) return;
-      setRoomOperationalContext(previous => ({ ...previous, pm: {}, loyaltyTier:guestTier, groupBadge, guestName, roomStatus, checkoutDate, checkoutTime, cnRoom: isRailwayCnGuestName(guestName), checkoutError, loading: false }));
+      setRoomOperationalContext(previous => ({ ...previous, pm: {}, loyaltyTier:guestTier, groupBadge, guestName, roomStatus, checkoutDate, checkoutTime, checkoutError, loading: false }));
     } catch (error) {
       if (generation !== roomContextGeneration.current) return;
       const message = error instanceof Error ? error.message : "Room context could not be loaded.";
@@ -942,7 +939,6 @@ export default function WorkOrderTicketPage() {
         roomStatus: "",
         checkoutDate: "",
         checkoutTime: "",
-        cnRoom: false,
         checkoutError: message,
         loading: false,
       });
@@ -1694,7 +1690,7 @@ export default function WorkOrderTicketPage() {
 
     if (savedRow && !notesOnly && roomChanged) {
       roomContextGeneration.current++;
-      setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", cnRoom: false, checkoutError: "", loading: true });
+      setRoomOperationalContext({ ranker: null, rankerError: "", pm: null, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", checkoutError: "", loading: true });
     }
     if (savedRow) setOrder({ ...order, ...savedRow, can_correct_report: savedRow.can_correct_report ?? order.can_correct_report, creator_name: order.creator_name, creator_display_role: order.creator_display_role, technician_view_entries: order.technician_view_entries });
     if (statusOverride !== undefined) setStatus(saveStatus);
@@ -2043,15 +2039,6 @@ export default function WorkOrderTicketPage() {
                   <div className="min-w-0">
                     <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
                       <span className="truncate">{order.room || "Work Order"}</span>
-                      {roomOperationalContext.cnRoom && roomOperationalContext.groupBadge !== 'railway-cn' && (
-                        <Image
-                          src="/railway-cn-logo.png"
-                          alt="CN"
-                          width={42}
-                          height={27}
-                          className="h-[17px] w-auto shrink-0 self-center rounded-[3px] object-contain"
-                        />
-                      )}
                     </h1>
 
                   </div>

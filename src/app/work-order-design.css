@@ -86,7 +86,7 @@
 .cmpri-work-order-list :is(.work-order-ticket-line,.work-order-room-line) { display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-start;gap:5px;max-width:none;padding:0; }
 .cmpri-work-order-list .preview-wo-number { width:auto;font-size:.9em; }
 .cmpri-work-order-list .preview-room { width:auto;font-size:1.05em; }
-.cmpri-work-order-list .work-order-room-line>.preview-group-badge { height:1.05em;width:auto;max-width:2em; }
+.cmpri-work-order-list .work-order-guest-line>.preview-group-badge { height:1.05em;width:auto;max-width:2em; }
 .cmpri-work-order-list .work-order-room-line>.tier-m { width:1.05em;height:1.05em; }
 .cmpri-work-order-list .work-order-room-line>.tier-m svg { width:100%;height:100%; }
 .cmpri-work-order-list .work-order-pill { display:inline-flex;flex:none;white-space:nowrap;border-width:1px;border-radius:999px;padding:.08em .45em;font-size:.72em;font-weight:600;line-height:1.3; }

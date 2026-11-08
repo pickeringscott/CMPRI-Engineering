@@ -93,7 +93,7 @@ export function roomsFromGuestReports(reports:Partial<Record<GuestReportKind,Gue
     }
     if(room.incoming_name && guestIdentity(String(room.incoming_name))===guestIdentity(name))continue;
     if(room.incoming_name)throw Error(`Room ${room.room}: multiple incoming reservations require correction.`);
-    Object.assign(room,{incoming_name:guestDisplayName(name),incoming_loyalty_tier:loyaltyTier(field(arrival,"LOYALTY TIER")),incoming_company:field(arrival,"GROUP NAME","GROUP","COMPANY","COMPANY NAME"),reserved:true,incoming_reserved:true,...incomingStay(arrival,reports.arrivals!.date)});
+    Object.assign(room,{incoming_name:guestDisplayName(name),incoming_loyalty_tier:loyaltyTier(field(arrival,"LOYALTY TIER")),incoming_company:field(arrival,"GROUP NAME","GROUP","COMPANY","COMPANY NAME"),incoming_group_name:field(arrival,"GROUP NAME","GROUP"),reserved:true,incoming_reserved:true,...incomingStay(arrival,reports.arrivals!.date)});
   }
   for(const row of rows.values()){
     const key=guestIdentity(row.guest_name);if(!key)continue;
@@ -117,15 +117,17 @@ export function projectGuestRoom<T extends GuestRoom>(source:T,now:Date,timeZone
   // Recover recorded timing from preserved reports too: older imports need no re-upload.
   const current=reports?.guests?.rows?.find(guest=>field(guest,"ROOM NUMBER")===row.room&&guestIdentity(field(guest,"GUEST NAME"))===guestIdentity(String(row.guest_name||""))&&dateField(guest,"ARRIVAL")===row.guest_arrival_date&&dateField(guest,"DEPARTURE")===row.checkout_date);
   if(current){
+    Object.assign(row,{group_name:field(current,"GROUP NAME","GROUP")});
     const departure=reports?.departures?.rows?.find(guest=>field(guest,"ROOM NUMBER")===row.room&&guestIdentity(field(guest,"GUEST NAME"))===guestIdentity(row.guest_name)&&(dateField(guest,"DEPARTURE","DEPARTURE DATE","CHECKOUT DATE")||reports.departures!.date)===row.checkout_date);
     const time=normalizePrintedTime(field(departure||{},"DEPARTURE TIME","CHECKOUT TIME","TIME"))||normalizePrintedTime(field(current,"DEPARTURE TIME","CHECKOUT TIME"));
     if(time)row.checkout_time=time;
   }
   if(row.incoming_name&&reports?.arrivals){
     const arrival=reports.arrivals.rows?.find(guest=>field(guest,"ROOM NUMBER")===row.room&&guestIdentity(field(guest,"GUEST NAME"))===guestIdentity(String(row.incoming_name))&&(dateField(guest,"ARRIVAL","ARRIVAL DATE")||reports.arrivals!.date)===row.arrival_date);
+    if(arrival)Object.assign(row,{incoming_group_name:field(arrival,"GROUP NAME","GROUP")});
     if(arrival&&!row.incoming_checkout_date)Object.assign(row,incomingStay(arrival,reports.arrivals.date));
   }
-  const clearIncoming=()=>Object.assign(row,{incoming_name:"",incoming_company:"",incoming_loyalty_tier:null,incoming_reserved:false,reserved:false,arrival_date:null,arrival_time:null,incoming_checkout_date:null,incoming_checkout_time:null,incoming_stay_nights:0});
+  const clearIncoming=()=>Object.assign(row,{incoming_name:"",incoming_company:"",incoming_group_name:"",incoming_loyalty_tier:null,incoming_reserved:false,reserved:false,arrival_date:null,arrival_time:null,incoming_checkout_date:null,incoming_checkout_time:null,incoming_stay_nights:0});
   const expire=(date:string,time:string)=>{
     row.room_status="Vacant Dirty";
     if(date<today||(time<="15:00:00"&&checkoutDeadlinePassed(today,"15:00:00",now,timeZone)))row.room_status="Vacant Ready";
@@ -141,7 +143,7 @@ export function projectGuestRoom<T extends GuestRoom>(source:T,now:Date,timeZone
     clearIncoming();
   }
   if(row.incoming_name && typeof row.arrival_date==="string" && row.arrival_date<=today && !row.guest_name && checkoutDeadlinePassed(row.arrival_date,String(row.arrival_time||"15:00:00"),now,timeZone)){
-    Object.assign(row,{guest_name:row.incoming_name,loyalty_tier:loyaltyTier(row.incoming_loyalty_tier),company:row.incoming_company||"",group_name:row.incoming_company||"",room_status:"Occupied",guest_arrival_date:row.arrival_date,checkout_date:row.incoming_checkout_date||null,checkout_time:row.incoming_checkout_time||null,stay_nights:row.incoming_stay_nights||0});
+    Object.assign(row,{guest_name:row.incoming_name,loyalty_tier:loyaltyTier(row.incoming_loyalty_tier),company:row.incoming_company||"",group_name:row.incoming_group_name||"",room_status:"Occupied",guest_arrival_date:row.arrival_date,checkout_date:row.incoming_checkout_date||null,checkout_time:row.incoming_checkout_time||null,stay_nights:row.incoming_stay_nights||0});
     clearIncoming();
   }
   if(/vacant dirty/i.test(row.room_status)&&checkoutDeadlinePassed(today,"16:00:00",now,timeZone))row.room_status="Vacant Ready";
