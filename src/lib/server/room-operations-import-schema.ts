@@ -244,11 +244,23 @@ export const ROOM_OPERATIONS_IMPORT_INPUT_SCHEMA = {
     inputOptions({
       file: csvValue,
     }, ["file"]),
+    {
+      type: "object", additionalProperties: false,
+      description: "Explicitly fetch newer Daily Room Ops CSV reports from the configured approved-attachment Drive folder. Uses the same validation and confirmation as the upload UI; no timer or automatic import.",
+      properties: {
+        source: { type: "string", const: "drive" },
+        validate_only: { type: "boolean", description: "Required true for preview; false to confirm an explicitly requested live import using the preview's previousId and source_digest." },
+        previousId: { type: ["string", "null"], description: "Accepted import id returned by preview; preserve null when there is no previous import." },
+        source_digest: { type: "string", pattern: "^[a-f0-9]{64}$", description: "Exact source_digest returned by preview. Changed Drive files require a new preview." },
+      },
+      required: ["source", "validate_only"],
+    },
+
 
   ],
 } as const;
 
-export const ROOM_OPERATIONS_IMPORT_INSTRUCTIONS = "Read all supplied report photos in ChatGPT. Extract every source-backed field in input_schema into report_data, keeping current guest and incoming/block columns separate. Preserve printed dates/times and source pages; do not substitute today's date or upload time, invent unreadable values, or omit rooms. Ask for unresolved source details. Submit action room_operations.import with input {report_data, validate_only: true}; inspect validation errors and normalized rows, then save the identical data with validate_only omitted or false only when the user requested import. Validation is not a saved import. This connected route does not accept images or call server AI/OCR. After save success, read room_operations and verify the source date, count, OOO rooms and moves.";
+export const ROOM_OPERATIONS_IMPORT_INSTRUCTIONS = "For Daily Room Ops CSVs in Drive, use {source: \"drive\", validate_only: true} to fetch and preview the newest reports. Only on an explicit import/save request, confirm with {source: \"drive\", validate_only: false, previousId, source_digest} using the exact values returned by preview. Changed files or an accepted report change require a new preview. In-House Guest List Details is required first; Housekeeping Departures and Arrivals are optional. No background fetch occurs. Read all supplied report photos in ChatGPT. Extract every source-backed field in input_schema into report_data, keeping current guest and incoming/block columns separate. Preserve printed dates/times and source pages; do not substitute today's date or upload time, invent unreadable values, or omit rooms. Ask for unresolved source details. Submit action room_operations.import with input {report_data, validate_only: true}; inspect validation errors and normalized rows, then save the identical data with validate_only omitted or false only when the user requested import. Validation is not a saved import. This connected route does not accept images or call server AI/OCR. After save success, read room_operations and verify the source date, count, OOO rooms and moves.";
 
 export const ROOM_OPERATIONS_IMPORT_CONTRACT = {
   action: "room_operations.import",

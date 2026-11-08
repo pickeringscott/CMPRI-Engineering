@@ -47,7 +47,7 @@ test('user, property, permission signature, route filters and transient response
   for(const response of [Response.json({error:'denied'},{status:403}),new Response('file'),json({access_token:'must-not-persist'}),json({signedUrl:'temporary'}),json({url:'https://example.invalid/storage/v1/object/sign/file?token=secret'})]){
     const isolated=new MemoryDataStore();await new DeviceDataCache(isolated).read('a','/data',policy,async()=>response);assert.equal(isolated.entries.size,0);
   }
-  assert.equal(dataCachePolicy('/api/session'),null);assert.equal(dataCachePolicy('/api/profile'),null);assert.equal(dataCachePolicy('/api/work-orders/00000000-0000-4000-8000-000000000001'),null);
+  assert.equal(dataCachePolicy('/api/room-operations/guest-reports/drive'),null);assert.equal(dataCachePolicy('/api/session'),null);assert.equal(dataCachePolicy('/api/profile'),null);assert.equal(dataCachePolicy('/api/work-orders/00000000-0000-4000-8000-000000000001'),null);
   assert.equal(dataCachePolicy('/api/work-orders/references').durable,true);
   assert.equal(dataCachePolicy('/api/staff-notes').durable,false);
   assert.deepEqual(mutationTopics('/api/profile/header-layout'),[]);

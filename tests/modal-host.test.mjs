@@ -311,8 +311,8 @@ test('room operations import form and commit workflow live in the Daily Room Ope
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const page = readFileSync(new URL('../src/app/engineering/room-operations/page.tsx', import.meta.url), 'utf8');
   const importer = readFileSync(new URL('../src/app/engineering/room-operations/RoomOperationsImport.tsx', import.meta.url), 'utf8');
-  assert.match(page, /importOpen && hasCapability\(session, "edit_tickets"\)/);
-  assert.match(page, /<RoomOperationsImport date=\{date\} onDateChange=\{setDate\} onCommitted=\{handleImportCommitted\}/);
+  assert.match(page, /hasCapability\(session, "edit_tickets"\)/);
+  assert.match(page, /<GuestReportsImport ref=\{guestImportRef\} open=\{importOpen\} date=\{date\} onDateChange=\{setDate\} onCommitted=\{handleImportCommitted\}/);
   assert.doesNotMatch(dashboard, /Import Room Ops|showRoomOpsImport|Import Daily Room Operations/);
   assert.match(importer, /Upload today(?:&apos;|')s printed Room Status Report and optional Expected Departures report/);
   assert.match(importer, /Upload RoomStatus Images \(ChatGPT Auto-Import\)/);

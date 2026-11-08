@@ -2,6 +2,8 @@ export type CachePolicy = { topics: string[]; ttl: number; durable: boolean };
 const second = 1000;
 /** App-local JSON only. Authentication, secrets, signed URLs and private files stay on the network. */
 export function dataCachePolicy(path: string): CachePolicy | null {
+  // Explicit Drive acquisition must always reach Drive and never persist raw CSVs on the device.
+  if (path === "/api/room-operations/guest-reports/drive") return null;
   // Opening a ticket records engineering/technician views; those reads must reach the server.
   if (/^\/api\/work-orders\/[0-9a-f-]{36}$/i.test(path)) return null;
   if (!path.startsWith('/api/') || /\/(session|resource-revisions|auth|integrations|assistant|chat|ai|oauth|settings|config|account|permissions)(\/|$)/.test(path)

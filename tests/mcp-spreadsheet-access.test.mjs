@@ -127,7 +127,7 @@ test('MCP tools/list exposes the complete room-operations import contract for th
   assert.equal(importBranch.properties.action.const,'room_operations.import');
   assert.deepEqual(
     Array.from(importBranch.properties.input.oneOf,({required})=>Array.from(required).join(',')),
-    ['report_data','status_csv','csv','text','content','file'],
+    ['report_data','status_csv','csv','text','content','file','source,validate_only'],
   );
   assert.match(importBranch.properties.input.description,/10Oct26 01:17 PM/);
   assert.match(importBranch.properties.input.oneOf[1].properties.status_csv.description,/Printed Date/);
@@ -208,7 +208,7 @@ test('Room Ops import contract discovery returns all modes and source-backed val
   const roomOperationsSchema=payload.result.structuredContent.input_schema;
   assert.ok(roomOperationsSchema);
   const inputModes=roomOperationsSchema.oneOf.map(({required})=>Array.from(required).join(','));
-  assert.deepEqual(inputModes,['report_data','status_csv','csv','text','content','file']);
+  assert.deepEqual(inputModes,['report_data','status_csv','csv','text','content','file','source,validate_only']);
   const structured=roomOperationsSchema.oneOf[0].properties.report_data;
   assert.deepEqual(Array.from(structured.required),['room_status']);
   assert.deepEqual(Array.from(structured.properties.room_status.required),['printed_date','pages','rows']);

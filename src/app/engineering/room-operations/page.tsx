@@ -7,8 +7,8 @@ import { subscribeResources } from "@/lib/events/browser";
 import { nextGuestDisplayChange } from "@/lib/room-guest-reports";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
-import RoomOperationsImport from "./RoomOperationsImport";
-import GuestReportsImport from "./GuestReportsImport";
+import GuestReportsImport, { type GuestReportsImportHandle } from "./GuestReportsImport";
+import RoomOpsUploadControl from "./RoomOpsUploadControl";
 import { useRouter } from "next/navigation";
 import { authorizationHeaders, hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
@@ -249,7 +249,7 @@ export default function RoomOperationsPage() {
   const [message, setMessage] = useState("");
   const [activeSummary, setActiveSummary] = useState<keyof Summary | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [guestReportImport, setGuestReportImport] = useState(true);
+  const guestImportRef = useRef<GuestReportsImportHandle>(null);
   const [guestImportBusy, setGuestImportBusy] = useState(false);
 
   useEffect(() => {
@@ -374,28 +374,21 @@ export default function RoomOperationsPage() {
             <p className="mt-2 text-sm text-slate-400">The latest accepted report stays available until a newer verified report replaces it. Guest stays expire at their recorded dates and times without another upload. Scheduled checkout is not physical checkout confirmation.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs font-semibold text-slate-300">
-              Report date
+            <label className="text-center text-xs font-semibold text-slate-300">
+              Report Date
               <input type="date" min={previousHotelDate()} max={today} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
             </label>
             {hasCapability(session, "edit_tickets") ? (
-              <button type="button" disabled={guestImportBusy} onClick={() => setImportOpen((open) => !open)} className="rounded-lg border border-amber-400/50 bg-amber-950/30 px-3 py-2 text-sm font-bold text-amber-100 hover:bg-amber-900/40">{importOpen ? "Hide Upload Form" : "Upload Room Ops"}</button>
+              <RoomOpsUploadControl open={importOpen} busy={guestImportBusy}
+                onDrive={()=>{setImportOpen(true);guestImportRef.current?.fetchDrive();}}
+                onFile={()=>{setImportOpen(true);guestImportRef.current?.chooseFiles();}}
+                onToggle={()=>setImportOpen(open=>!open)}/>
             ) : null}
           </div>
         </header>
 
-        {importOpen && hasCapability(session, "edit_tickets") ? (
-          <div className="space-y-3">
-            <label className="block text-sm text-slate-300">Report format
-              <select disabled={guestImportBusy} value={guestReportImport ? "guests" : "legacy"} onChange={event => setGuestReportImport(event.target.value === "guests")} className="ml-2 rounded bg-slate-900 p-2">
-                <option value="guests">In House Guest List / Housekeeping</option>
-                <option value="legacy">Room Status / Expected Departures</option>
-              </select>
-            </label>
-            {guestReportImport
-              ? <GuestReportsImport date={date} onDateChange={setDate} onCommitted={handleImportCommitted} onBusyChange={setGuestImportBusy}/>
-              : <RoomOperationsImport date={date} onDateChange={setDate} onCommitted={handleImportCommitted}/>}
-          </div>
+        {hasCapability(session, "edit_tickets") ? (
+          <GuestReportsImport ref={guestImportRef} open={importOpen} date={date} onDateChange={setDate} onCommitted={handleImportCommitted} onBusyChange={setGuestImportBusy}/>
         ) : null}
 
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">

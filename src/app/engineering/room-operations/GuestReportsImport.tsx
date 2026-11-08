@@ -1,20 +1,25 @@
 "use client";
-import { useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { guestReportName, type GuestRoom } from "@/lib/room-guest-reports";
 import styles from './GuestReportsImport.module.css';
 type ReportFile = { name: string; text: string };
 type Preview = { date: string; rows: GuestRoom[]; previousId: string | null };
-export default function RoomOperationsImport({ date, onDateChange, onCommitted, onBusyChange }: {
- date: string; onDateChange: (date: string) => void;
+export type GuestReportsImportHandle = { fetchDrive: () => void; chooseFiles: () => void };
+export default forwardRef<GuestReportsImportHandle, {
+ open: boolean; date: string; onDateChange: (date: string) => void;
  onCommitted: (date: string, rows?: unknown[], importId?: string) => void; onBusyChange?: (busy: boolean) => void;
-}) {
+}>(function GuestReportsImport({ open, date, onDateChange, onCommitted, onBusyChange }, ref) {
  const [files, setFiles] = useState<ReportFile[]>([]);
  const [selectedFiles,setSelectedFiles]=useState<File[]>([]);
  const [preview, setPreview] = useState<Preview | null>(null);
  const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
  const inFlight = useRef(false);
  const picker=useRef<HTMLInputElement>(null);
+ useImperativeHandle(ref, () => ({
+  fetchDrive: () => { void fetchDriveReports(); },
+  chooseFiles: () => { if (!inFlight.current) picker.current?.click(); },
+ }));
  async function run(action: () => Promise<void>) {
   if (inFlight.current) return;
   inFlight.current = true; setBusy(true); onBusyChange?.(true); setError(""); setNotice("");
@@ -37,8 +42,22 @@ export default function RoomOperationsImport({ date, onDateChange, onCommitted, 
    const kinds=next.map(file=>guestReportName(file.name).kind);
    if(new Set(kinds).size!==kinds.length)throw Error('Choose only one file for each report type.');
    for(const file of next)if(file.size>3*1024*1024)throw Error(`${file.name}: use a file no larger than 3 MB.`);
+   next.sort((a,b)=>["guests","departures","arrivals"].indexOf(guestReportName(a.name).kind)-["guests","departures","arrivals"].indexOf(guestReportName(b.name).kind));
    setSelectedFiles(next);setPreview(null);setFiles([]);
   }catch(e){setError(e instanceof Error?e.message:'The files could not be added.')}
+ }
+ async function fetchDriveReports(){
+  if (inFlight.current) return;
+  setPreview(null); setFiles([]); setSelectedFiles([]);
+  await run(async () => {
+   const response = await fetch("/api/room-operations/guest-reports/drive", { headers: await authorizationHeaders(), cache: "no-store" });
+   const result = await response.json();
+   if (!response.ok) throw Error(result.error || "The Drive reports could not be fetched.");
+   const reports = result.files as ReportFile[];
+   if (!reports.length) { setNotice("No newer reports for today were found in the attachment folder."); return; }
+   const reviewed = await request(reports, true);
+   setFiles(reports); setSelectedFiles([]); setPreview(reviewed);
+  });
  }
  async function submit(){
   if(inFlight.current||!selectedFiles.length)return;
@@ -58,14 +77,13 @@ export default function RoomOperationsImport({ date, onDateChange, onCommitted, 
    setFiles(reports); setPreview(await request(reports, true));
   });
  }
- return <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label="Upload Room Operations">
-  <h2 className="text-lg font-bold">Upload Room Operations</h2>
-  <p className="text-sm text-slate-300">In Agilysys Dynamic Reporting, export today’s <strong>In House Guest List Details</strong>. You may include <strong>Housekeeping Arrivals</strong> and <strong>Housekeeping Departures</strong>, or add them later after today’s guest list is accepted.</p>
-  <p className="text-sm text-slate-400">Keep the original CMPRI timestamped filenames. Updated reports must be newer than their accepted versions. Optional reports may be up to five minutes earlier than the guest list. CSV is preferred; PNG, JPEG and WebP scans up to 3 MB are also accepted. Review every extracted value before importing.</p>
+ return <section id="room-ops-upload-form" hidden={!open} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label="Upload Room Operations">
+  <p className="text-sm text-slate-300"><strong>In-House Guest List Details</strong> is required first. <strong>Housekeeping Departures</strong> and <strong>Housekeeping Arrivals</strong> are optional and may also be added after today’s guest list is accepted.</p>
+  <p className="text-xs text-slate-400">Keep the original timestamped filenames. Updated reports must be newer than the accepted report of the same type. Review the preview before confirming.</p>
   <div className={styles.picker} role="group" aria-label="Report files" onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect=busy?'none':'copy'}} onDrop={event=>{event.preventDefault();choose(Array.from(event.dataTransfer.files))}}>
    <button type="button" disabled={busy} className={styles.add} onClick={()=>picker.current?.click()}>Drag/add files here</button>
    <input ref={picker} type="file" multiple accept=".csv,.png,.jpg,.jpeg,.webp" hidden disabled={busy} onChange={event=>{choose(Array.from(event.target.files||[]));event.target.value=''}}/>
-   {selectedFiles.length>0&&<ul aria-label="Selected reports" className={styles.files}>{selectedFiles.map((file,index)=><li key={file.name}><span>{file.name}</span><button type="button" className={styles.remove} aria-label={'Remove '+file.name} disabled={busy} onClick={()=>{setSelectedFiles(old=>old.filter((_,i)=>i!==index));setFiles([]);setPreview(null);setError('');setNotice('')}}>×</button></li>)}</ul>}
+   {selectedFiles.length>0&&<div className={styles.selection}><span>{selectedFiles.length} {selectedFiles.length===1?"report":"reports"} selected</span><button type="button" disabled={busy} onClick={()=>{setSelectedFiles([]);setFiles([]);setPreview(null);setError("");setNotice("")}}>Clear</button></div>}
    <button type="button" className={styles.submit} disabled={busy||!selectedFiles.length} onClick={()=>void submit()}>Submit</button>
   </div>
   {busy && <p role="status">Processing Reports...</p>}
@@ -83,4 +101,4 @@ export default function RoomOperationsImport({ date, onDateChange, onCommitted, 
    })}>Confirm Import</button>
   </>}
  </section>;
-}
+});
