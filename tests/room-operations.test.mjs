@@ -7,6 +7,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import sharp from "sharp";
 import React from "react";
+import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { detectRoomMoves, expiredRoomOperationsBefore, formatCheckoutRoomWorkOrders, isRailwayCnGuestName, isBigTenGroup, summarizeRoomOperations } from "../src/lib/room-operations.ts";
 import { createRoomOperationsOcrCrops, createRoomOperationsRecoveryCrops } from "../src/lib/room-operations-report-images.ts";
@@ -823,7 +824,8 @@ test("room operations do not show move or out-of-order event bubbles", () => {
   assert.match(page, /function RoomIdentity/);
   assert.match(page, /currentRoomGroupBadges\(row\)\.guest_group_badge/);
   assert.match(page, /currentRoomGroupBadges\(row\)\.incoming_group_badge/);
-  assert.match(page, /row\.guest_name \? <div className="mt-1 break-words text-lg font-normal text-slate-400">[\s\S]*?\{row\.guest_name\} <GuestGroupBadge badge=\{currentRoomGroupBadges\(row\)\.guest_group_badge\}\/><\/div>/);
+  assert.match(page, /row\.guest_name \? <div data-room-ops-guest[^>]*><span>\{row\.guest_name\}<\/span><LoyaltyBadge tier=\{row\.loyalty_tier\}\/><GuestGroupBadge badge=\{currentRoomGroupBadges\(row\)\.guest_group_badge\}\/><\/div>/);
+  assert.match(page, /<WorkOrderTierKey\s*\/>/);
 });
 
 test("checkout emphasis is limited to today, tomorrow and overdue dates", () => {
@@ -862,7 +864,7 @@ test("checkout emphasis is limited to today, tomorrow and overdue dates", () => 
   }
 });
 
-test("room cards and summary modal share a soft guest layout and preserve reported OOO status", async () => {
+test("room cards and summary modal put Bonvoy after the guest and before arrivals while preserving reported OOO status", async () => {
   const {roomGroupBadge,currentRoomGroupBadges}=await import("../src/lib/room-group-badges.ts");
   const badgeModule={exports:{}};
   const badgeSource=readFileSync(new URL("../src/components/GuestGroupBadge.tsx",import.meta.url),"utf8");
@@ -882,11 +884,12 @@ test("room cards and summary modal share a soft guest layout and preserve report
     `${functions.join("\n")}\nexports.RoomDetails = RoomDetails;`,
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
-    exports: components, React, LoyaltyBadge:()=>null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
+    exports: components, React, LoyaltyBadge:({tier})=>tier?React.createElement('span',{'data-test-loyalty':tier},tier):null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
     currentRoomGroupBadges, isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
-    room: "103", guest_name: "RAILWAY/CN-NJ8", room_status: "OOO",
+    room: "103", guest_name: "RAILWAY/CN-NJ8", loyalty_tier: "Silver", room_status: "OOO",
+    incoming_name: "Arriving Guest", incoming_loyalty_tier: "Gold",
     guest_arrival_date: "2026-10-01", stay_nights: 4, room_type: "Hidden type", guest_code: "Hidden code",
     checkout_date: "2026-10-07", checkout_time: "10:30 AM",
   }, today: "2026-10-05" }));
@@ -894,7 +897,17 @@ test("room cards and summary modal share a soft guest layout and preserve report
   assert.match(html, /h-\[27px\] w-auto/);
   assert.equal((html.match(/src="\/railway-cn-logo.png"/g)||[]).length,1);
   assert.match(html,/alt="CN"/);
-  assert.match(html, /<div class="mt-1 break-words text-lg font-normal text-slate-400">RAILWAY\/CN-NJ8\s*<img[^>]*><\/div>/);
+  const dom = new JSDOM(html), document = dom.window.document;
+  const guest = document.querySelector('[data-room-ops-guest]');
+  assert.ok(guest.classList.contains('font-normal'));
+  assert.ok(guest.classList.contains('text-slate-100'));
+  assert.equal(guest.children[0].textContent, 'RAILWAY/CN-NJ8');
+  assert.equal(guest.children[1].getAttribute('data-test-loyalty'), 'Silver');
+  assert.equal(guest.children[2].getAttribute('alt'), 'CN');
+  const incoming = [...document.querySelectorAll('div')].find(node=>node.textContent.trim().startsWith('Incoming:'));
+  assert.equal(incoming.querySelector('[data-test-loyalty]').getAttribute('data-test-loyalty'), 'Gold');
+  assert.ok(incoming.innerHTML.indexOf('data-test-loyalty') < incoming.innerHTML.indexOf('Arriving Guest'));
+  dom.window.close();
   assert.match(html, /text-sm text-slate-400/);
   assert.doesNotMatch(html, /Current arrival|2026-10-01/);
   assert.match(html, /LOS: 4 nights/);
