@@ -2,6 +2,15 @@
 .cmpri-staff-notes { min-width:0; }
 .cmpri-staff-notes form { flex-shrink:0; }
 .cmpri-staff-notes textarea { min-height:24px!important;padding:2px 8px!important;font-size:14px!important;line-height:20px!important; }
+.cmpri-staff-notes .staff-compose-shell textarea { border:0!important;background:transparent!important; }
+.staff-name-entry { display:flex;align-items:center;gap:4px;padding:5px 7px 1px;min-height:32px; }
+.cmpri-staff-notes .staff-name-entry input { box-sizing:content-box;width:10ch;min-width:0;max-width:calc(100% - 75px);padding:3px 5px;font-size:12px;line-height:18px;border:1px solid var(--cmpri-outline,#555);border-radius:5px;background:var(--cmpri-modal-surface,#202020);color:var(--cmpri-modal-text,#eee); }
+.cmpri-staff-notes .staff-name-entry button { min-height:0!important;padding:3px 7px;font-size:11px;line-height:18px;border:1px solid var(--cmpri-outline,#555);border-radius:5px;color:var(--cmpri-modal-text,#eee);background:var(--cmpri-modal-surface,#202020); }
+.staff-confirmed-identity { display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;padding:5px 8px 0;min-height:25px;font-size:11px;line-height:16px;color:var(--cmpri-modal-muted,#a3a3a3); }
+.cmpri-staff-notes .staff-confirmed-identity button { min-height:0!important;padding:0;font-size:inherit;line-height:inherit;color:inherit;text-decoration:underline;background:transparent; }
+.cmpri-staff-notes .staff-note-author:has(.staff-front-desk-badge) { display:inline-flex;align-items:baseline;gap:4px;max-width:45%; }
+.staff-author-name { min-width:0; }
+.cmpri-staff-notes .staff-note-author .staff-front-desk-badge { flex:none;white-space:nowrap;font-size:9px;font-weight:normal;color:var(--cmpri-modal-muted,#a3a3a3)!important;-webkit-text-fill-color:var(--cmpri-modal-muted,#a3a3a3); }
 .cmpri-staff-notes [data-staff-note] { font-size:12px;line-height:1.25; }
 .cmpri-staff-notes [data-staff-note] button { min-height:0!important;padding:0;font-size:inherit!important; }
 .cmpri-staff-notes .staff-note-author { max-width:28%;overflow-wrap:anywhere;text-align:left;color:var(--cmpri-palette-gold,#fbbf24)!important;-webkit-text-fill-color:var(--cmpri-palette-gold,#fbbf24); }

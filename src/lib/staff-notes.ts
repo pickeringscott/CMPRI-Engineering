@@ -78,5 +78,8 @@ export function staffMentionCompletion(body:string,caret:number,directory:StaffM
   const range=staffMentionQuery(body,caret);if(!range?.query)return null;
   if(directory.some(item=>item.label.toLocaleLowerCase()===range.query.toLocaleLowerCase()))return null;
   const candidates=staffMentionSuggestions(range.query,directory);if(candidates.length!==1)return null;
-  const mention=candidates[0];return {mention,start:range.start+1,typed:range.query,suffix:mention.label.slice(range.query.length)};
+  const mention=candidates[0];
+  // Surname matches appear in the picker; inline ghost text only extends a prefix.
+  if(!mention.label.toLocaleLowerCase().startsWith(range.query.toLocaleLowerCase()))return null;
+  return {mention,start:range.start+1,typed:range.query,suffix:mention.label.slice(range.query.length)};
 }

@@ -9,8 +9,11 @@ let ready=false;backend.stdout.on('data',data=>{if(data.toString().includes('"re
 try{
  for(let i=0;i<150&&!ready;i++){if(backend.exitCode!==null)throw Error('The isolated Staff Notes backend failed.');await new Promise(resolve=>setTimeout(resolve,100))}
  if(!ready)throw Error('The isolated Staff Notes backend did not become ready.');
- const browser=spawn('python',['tests/browser/staff_notes_mentions.py'],{stdio:'inherit',env:process.env});
- const [code,signal]=await once(browser,'exit');process.exitCode=signal?1:(code??1);
+ for(const script of ['tests/browser/staff_notes_name.py','tests/browser/staff_notes_mentions.py']){
+  const browser=spawn('python',[script],{stdio:'inherit',env:process.env});
+  const [code,signal]=await once(browser,'exit');process.exitCode=signal?1:(code??1);
+  if(process.exitCode)break;
+ }
 }finally{
  if(backend.exitCode===null&&backend.signalCode===null){backend.kill('SIGTERM');await once(backend,'exit');}
 }

@@ -17,10 +17,13 @@ export function staffMentionQuery(body: string, caret: number) {
   return {start:caret-match[1].length-1,end:caret,query:match[1]};
 }
 export function staffMentionSuggestions(query: string, directory: StaffMention[]) {
-  const candidates=directory.filter(m=>m.label.toLocaleLowerCase().startsWith(query.toLocaleLowerCase()));
+  const prefix=query.toLocaleLowerCase();
+  const rank=(m:StaffMention)=>m.label.toLocaleLowerCase().startsWith(prefix)?0:
+    (m.kind==='person'||m.kind==='front_desk_name')&&m.label.trim().split(/\s+/).length>1&&m.label.trim().split(/\s+/).at(-1)!.toLocaleLowerCase().startsWith(prefix)?1:2;
+  const candidates=directory.filter(m=>rank(m)<2);
   const unique=new Map<string,StaffMention>();
-  for(const candidate of candidates){const key=staffTargetKey(candidate),prior=unique.get(key);if(!prior||candidate.label.length<prior.label.length)unique.set(key,candidate)}
-  return [...unique.values()].sort((a,b)=>a.label.localeCompare(b.label)||a.kind.localeCompare(b.kind));
+  for(const candidate of candidates){const key=staffTargetKey(candidate),prior=unique.get(key);if(!prior||rank(candidate)<rank(prior)||(rank(candidate)===rank(prior)&&candidate.label.length<prior.label.length))unique.set(key,candidate)}
+  return [...unique.values()].sort((a,b)=>rank(a)-rank(b)||a.label.localeCompare(b.label)||a.kind.localeCompare(b.kind));
 }
 export function rebaseStaffMentions(before: string, after: string, mentions: StaffMentionRange[]) {
   if(before===after)return mentions;

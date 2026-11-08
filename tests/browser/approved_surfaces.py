@@ -14,7 +14,7 @@ async def main():
     await install(context,role,notes=notes,posts=posts,layouts=layouts);page=await context.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
     await page.goto(BASE+'/staff-notes');await page.locator('.cmpri-staff-notes').wait_for(timeout=60000);await page.get_by_text('Existing #handoff',exact=False).wait_for()
     if role=='front_desk':
-     name=page.get_by_role('textbox',name='Your name',exact=True);await name.fill('Jamie Front Desk');await name.press('Enter');await expect(page.get_by_role('textbox',name='Write a comment',exact=True)).to_be_visible();assert not [p for p in posts if p['path']=='/api/staff-notes']
+     name=page.get_by_role('textbox',name='Your actual name',exact=True);await name.fill('Jamie Front Desk');await page.get_by_role('button',name='Confirm',exact=True).click();await expect(page.get_by_role('textbox',name='Write a comment',exact=True)).to_be_enabled();assert not [p for p in posts if p['path']=='/api/staff-notes']
     assert not await page.get_by_role('textbox',name='Your initials',exact=True).count()
     composer=page.locator('.cmpri-staff-notes form');feed=page.locator('.cmpri-staff-notes > div.overflow-y-auto');a=await composer.bounding_box();f=await feed.bounding_box();assert a['y']>=f['y']+f['height']-1,(role,width,a,f)
     split=page.locator('.staff-notes-split');bounds=await split.bounding_box();assert abs(bounds['width']-76)<1 and abs(bounds['height']-24)<1,(role,width,bounds)

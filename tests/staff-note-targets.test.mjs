@@ -5,6 +5,20 @@ import {staffMentionSuggestions,staffMentionQuery,staffReferenceQuery,insertStaf
 import {staffNoteFlagExpiry,staffNoteFlagCutoff,staffNoteFlagWindows} from '../src/lib/staff-note-flags.ts';
 import {staffNotesDatabase,staffId as id,staffHotel as hotel,foreignHotel,staffProfiles} from './helpers/staff-notes-db.mjs';
 const profiles=staffProfiles.filter(p=>p.active&&!p.hotel_id);
+test('first names precede surname matches while surnames keep full target identity',()=>{
+ const directory=staffMentionDirectory([
+  {id:'first',role:'technician',full_name:'Morgan Lane'},
+  {id:'last',role:'technician',full_name:'Alex Morgan'},
+ ],[{id:'desk',name:'Taylor Morgan'}],[{id:'room',name:'Lobby Morgan'}]);
+ const matches=staffMentionSuggestions('morg',directory);
+ assert.deepEqual(matches.map(m=>[m.id,m.label]),[['first','Morgan'],['last','Alex Morgan'],['desk','Taylor Morgan']]);
+ const surname=staffMentionSuggestions('lane',directory);
+ assert.equal(surname[0].id,'first');assert.equal(surname[0].label,'Morgan Lane');
+ assert.equal(staffMentionCompletion('@lane',5,directory),null);
+ const inserted=insertStaffMention('@lane',{start:0,end:5},surname[0],[]);
+ assert.equal(inserted.value,'@Morgan Lane ');
+ assert.equal(resolveStaffMentions(inserted.value,inserted.mentions,directory)[0].id,'first');
+});
 test('the real public directory keeps alias identity without exposing private recipient arrays',()=>{
  const publicDirectory=staffMentionDirectory(profiles).map(m=>({...m,userIds:[]}));
  const completion=staffMentionCompletion('@Sc',3,publicDirectory);

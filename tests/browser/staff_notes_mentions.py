@@ -81,12 +81,12 @@ async def main():
   cleanup=await browser.new_context();await control(cleanup.request,{'clearNotes':True,'now':None,'failNextPost':False,'rename':{'id':sid(4),'name':'Alex Rivera'}});await cleanup.close()
   # Capture a real display-only Front Desk name, including the explicit handoff/change control.
   c,q,requests,errors=await setup(browser,390,'front_desk',6);await q.goto(BASE+'/staff-notes')
-  name=q.get_by_role('textbox',name='Your name',exact=True);await name.wait_for();await name.fill('Alex Rivera');await name.press('Enter')
-  await expect(q.get_by_role('textbox',name='Write a comment',exact=True)).to_be_visible();await expect(q.get_by_text('Posting as Alex Rivera',exact=False)).to_be_visible()
+  name=q.get_by_role('textbox',name='Your actual name',exact=True);await name.wait_for();await name.fill('Alex Rivera');await name.press('Enter')
+  await expect(q.get_by_role('textbox',name='Write a comment',exact=True)).to_be_visible();await expect(q.locator('.staff-confirmed-identity').filter(has_text='Alex Rivera')).to_be_visible()
   captured=next(n for n in (await state(c.request))['names'] if n['name']=='Alex Rivera')
   assert not [r for r in requests if r['path']=='/api/staff-notes' and r['method']=='POST']
   await q.reload();await expect(q.get_by_role('textbox',name='Write a comment',exact=True)).to_be_visible()
-  await q.get_by_role('button',name='Change name',exact=True).click();await expect(q.get_by_role('textbox',name='Your name',exact=True)).to_be_visible();assert not errors,errors;await finish(c)
+  await q.get_by_role('button',name='Change name',exact=True).click();await expect(q.get_by_role('textbox',name='Your actual name',exact=True)).to_be_visible();assert not errors,errors;await finish(c)
   # Only shared accounts can capture names; captured names never rename the profile.
   c=await browser.new_context()
   for value in ['', 'Front Desk', 'Staff', 'A'*81]:
@@ -96,7 +96,7 @@ async def main():
   await c.close()
   for width in [1440,390]:
    c,q,requests,errors=await setup(browser,width,'front_desk',6);await q.goto(BASE+'/staff-notes')
-   name=q.get_by_role('textbox',name='Your name',exact=True);await name.wait_for();await name.fill('Alex Rivera');await name.press('Enter')
+   name=q.get_by_role('textbox',name='Your actual name',exact=True);await name.wait_for();await name.fill('Alex Rivera');await name.press('Enter')
    text=q.get_by_role('textbox',name='Write a comment',exact=True);await text.fill(f'Named Front Desk handoff {width} 😀');note,s=await post(q,c.request)
    assert note['author_user_id']==sid(6) and note['author_name']=='Alex Rivera' and note['author_name_id']==captured['id']
    assert next(p for p in s['profiles'] if p['id']==sid(6))['full_name']=='Front Desk'
