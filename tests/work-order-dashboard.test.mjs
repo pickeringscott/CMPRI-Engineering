@@ -202,7 +202,7 @@ test("technician landing uses the shared desktop shell with the technician-scope
    assert.ok(status.searchExpressions.every(value=>!value.includes('status.ilike')));
  });
 
-test("list receives group badge identifiers without exposing guest company or names", async()=>{
+test("list receives current guest name and badges without exposing guest company", async()=>{
  const response=await fixture({roomOperation:{guest_group_badge:'flyover-studios',incoming_group_badge:null,guest_name:'Private fixture',company:'FLYOVER STUDIOS'}}).get();
- const row=response.body.work_orders[0];assert.equal(row.guest_group_badge,'flyover-studios');assert.equal(row.incoming_group_badge,null);assert.equal(row.guest_name,undefined);assert.equal(row.company,undefined);
+ const row=response.body.work_orders[0];assert.equal(row.guest_group_badge,'flyover-studios');assert.equal(row.incoming_group_badge,null);assert.equal(row.guest_name,'Private fixture');assert.equal(row.company,undefined);
 });

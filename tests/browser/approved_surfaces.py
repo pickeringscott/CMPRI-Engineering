@@ -30,16 +30,16 @@ async def main():
     assert await page.locator('[data-staff-note] .staff-note-tag').count()==2
     await page.locator('[data-staff-note]').last.get_by_role('button',name='Open Photo.png',exact=True).click();await expect(page.get_by_role('dialog',name='Photo.png')).to_be_visible();await page.get_by_role('button',name='Close media').click()
     await page.reload();await expect(page.locator('[data-staff-note]')).to_have_count(2);await expect(page.get_by_role('textbox',name='Write a comment',exact=True)).to_be_visible();await expect(page.locator('[data-staff-note] .staff-note-attachments img')).to_have_count(2)
-    # Detail guest name occupies a dedicated muted line above the issue on mobile.
+    # Guest name and Bonvoy badge share a normal-contrast line below the room at every width.
     await page.goto(BASE+'/work-orders/'+WID);await page.get_by_role('heading',name='Notes & Ticket History',exact=True).wait_for(timeout=60000)
-    name=page.locator('[data-preview-mobile-guest-name]');issue=page.get_by_text('Fixture drain needs repair',exact=True).first
+    name=page.locator('[data-work-order-guest] .cmpri-window-guest-name');issue=page.get_by_text('Fixture drain needs repair',exact=True).first
+    await expect(name).to_be_visible();n=await name.bounding_box();i=await issue.bounding_box();assert n['y']+n['height']<=i['y']+1,(n,i)
+    assert await name.evaluate("e=>getComputedStyle(e).color===getComputedStyle(e.closest('[data-work-order-guest] .cmpri-window-guest')).color")
     if width<640:
-     await expect(name).to_be_visible();n=await name.bounding_box();i=await issue.bounding_box();assert n['y']+n['height']<=i['y']+1,(n,i);assert await name.evaluate('e=>{const probe=document.createElement("span");probe.style.color="var(--cmpri-modal-muted)";e.append(probe);const same=getComputedStyle(e).color===getComputedStyle(probe).color;probe.remove();return same}'),await name.evaluate('e=>({color:getComputedStyle(e).color,theme:document.documentElement.dataset.theme})')
-     assert not await page.locator('.cmpri-detail-standalone-guest .cmpri-window-guest-name').is_visible()
      async with page.expect_file_chooser() as camera:await page.get_by_role('button',name='Open camera',exact=True).click()
      assert await page.locator('input[capture]').get_attribute('capture')=='environment';await (await camera.value).set_files({'name':'Camera.gif','mimeType':'image/gif','buffer':GIF});assert await page.locator('.preview-note-thumbnail').count()==1
     else:
-     await expect(name).to_be_hidden()
+     await expect(name).to_be_visible()
      if role=='chief_engineer':
       await context.grant_permissions(['camera'],origin=BASE);await page.get_by_role('button',name='Open camera',exact=True).click();await expect(page.get_by_role('button',name='Take photo',exact=True)).to_be_enabled(timeout=20000);await page.get_by_role('button',name='Take photo',exact=True).click();await expect(page.locator('.preview-camera')).to_have_count(0);assert await page.locator('.preview-note-thumbnail').count()==1
     assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'),(role,width,'horizontal overflow')

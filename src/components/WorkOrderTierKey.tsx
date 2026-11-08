@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import LoyaltyBadge from "@/components/LoyaltyBadge";
 
 const TIERS = ["Titanium", "Platinum", "Gold", "Silver", "Base"] as const;
@@ -10,11 +11,28 @@ export default function WorkOrderTierKey() {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const popover = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const box = trigger.current?.getBoundingClientRect(), panel = popover.current;
+      if (!box || !panel) return;
+      const theme = getComputedStyle(trigger.current!);
+      for (const name of ['--cmpri-outline','--cmpri-modal-surface','--cmpri-modal-text']) panel.style.setProperty(name, theme.getPropertyValue(name));
+      panel.style.position = 'fixed';panel.style.right = 'auto';panel.style.zIndex = '10000';
+      panel.style.maxWidth = 'calc(100vw - 16px)';panel.style.maxHeight = 'calc(100dvh - 16px)';panel.style.overflowY = 'auto';
+      panel.style.left = Math.max(8, Math.min(box.right - panel.offsetWidth, innerWidth - panel.offsetWidth - 8)) + 'px';
+      panel.style.top = Math.max(8, Math.min(box.bottom + 5, innerHeight - panel.offsetHeight - 8)) + 'px';
+    }
+    place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);
+    return () => { window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true); };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function dismiss(event: PointerEvent) {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node) && !popover.current?.contains(event.target as Node)) setOpen(false);
     }
     function escape(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -35,10 +53,10 @@ export default function WorkOrderTierKey() {
       <LoyaltyBadge tier="Ambassador" />
       <span className="work-order-tier-question" aria-hidden="true">?</span>
     </button>
-    {open && <section id={id} className="work-order-tier-popover" aria-label="Marriott Bonvoy membership tiers">
+    {open && createPortal(<section ref={popover} id={id} className="work-order-tier-popover" aria-label="Marriott Bonvoy membership tiers">
       <h2>Marriott Bonvoy tiers</h2>
       <ol>{TIERS.map(tier => <li key={tier}><LoyaltyBadge tier={tier} /><span>{tier === "Base" ? "Member" : `${tier} Elite`}</span></li>)}</ol>
       <p><LoyaltyBadge tier="Ambassador" /><span>Ambassador Elite is the highest tier, shown by the symbol in the title bar.</span></p>
-    </section>}
+    </section>, document.body)}
   </div>;
 }

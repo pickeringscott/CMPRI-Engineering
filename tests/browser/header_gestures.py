@@ -104,12 +104,12 @@ async def main():
    assert await order(q)==saved['groups'];assert await keys(group(q,'Operations'))==saved['buttons']['Operations'];assert 'collapsed' in (await group(q,'Operations').get_attribute('class'));await fresh.close()
    results.append({'input':'touch' if touch else 'pointer','width':width,'passed':True});print(json.dumps(results[-1]),flush=True)
   # A short mobile viewport forces header edge scrolling; expanded Operations still reaches last.
-  layouts.clear();context=await browser.new_context(viewport={'width':390,'height':240},is_mobile=True,has_touch=True);await install(context,'chief_engineer',layouts=layouts);page=await context.new_page();await page.goto(BASE+'/engineering');ops=group(page,'Operations');await ops.locator('legend').wait_for();await settle(page)
+  layouts.clear();context=await browser.new_context(viewport={'width':390,'height':200},is_mobile=True,has_touch=True);await install(context,'chief_engineer',layouts=layouts);page=await context.new_page();await page.goto(BASE+'/engineering');ops=group(page,'Operations');await ops.locator('legend').wait_for();await settle(page)
   header=page.locator('.cmpri-desktop-topbar');assert await header.evaluate('h=>h.scrollHeight>h.clientHeight')
   session=await context.new_cdp_session(page);pointer=Pointer(page,session,True);title=ops.locator('legend');a=await title.bounding_box();h=await header.bounding_box()
   await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(h['x']+h['width']-10,h['y']+h['height']-5);await page.wait_for_timeout(1200);await pointer.up();await settle(page)
   assert (await order(page))[-1]=='Operations';assert 'collapsed' not in (await ops.get_attribute('class'));assert await header.evaluate('h=>h.scrollTop')>0
-  results.append({'input':'touch','width':390,'height':240,'edgeScroll':True,'passed':True});print(json.dumps(results[-1]),flush=True);await context.close()
+  results.append({'input':'touch','width':390,'height':200,'edgeScroll':True,'passed':True});print(json.dumps(results[-1]),flush=True);await context.close()
   # An invalid whole-group drop restores the header's pre-drag scroll and exact source position.
   layouts.clear();context=await browser.new_context(viewport={'width':390,'height':220},is_mobile=True,has_touch=True);await install(context,'chief_engineer',layouts=layouts);page=await context.new_page();await page.goto(BASE+'/engineering');ops=group(page,'Operations');await ops.locator('legend').wait_for();await settle(page)
   header=page.locator('.cmpri-desktop-topbar');session=await context.new_cdp_session(page);pointer=Pointer(page,session,True)

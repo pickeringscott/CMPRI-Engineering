@@ -35,6 +35,7 @@ async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: Su
       checkout_date: operation?.checkout_date || null,
       checkout_time: operation?.checkout_time || null,
       cn_room: operation?.cn_room ?? null,
+      guest_name: operation?.guest_name ?? null,
       guest_group_badge: operation?.guest_group_badge ?? null,
       incoming_group_badge: operation?.incoming_group_badge ?? null,
       loyalty_tier: operation?.loyalty_tier ?? null,

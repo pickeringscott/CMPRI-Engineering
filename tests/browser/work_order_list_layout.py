@@ -108,14 +108,14 @@ async def main():
    before=await modal.bounding_box()
    if width<640:await help.tap()
    else:await help.click()
-   key=modal.locator('.work-order-tier-popover');await expect(key).to_be_visible()
+   key=page.locator('.work-order-tier-popover');await expect(key).to_be_visible()
    assert await modal.bounding_box()==before,'Opening help must not drag the host window'
    assert await key.locator('li').all_text_contents()==['Titanium Elite','Platinum Elite','Gold Elite','Silver Elite','Member']
-   menu=await key.evaluate('e=>({title:getComputedStyle(e.querySelector("h2")).fontSize,item:getComputedStyle(e.querySelector("li")).fontSize,foot:getComputedStyle(e.querySelector("p")).fontSize,background:getComputedStyle(e).backgroundColor,modal:getComputedStyle(e.closest(".cmpri-desktop-window").querySelector(".cmpri-desktop-window-body")).backgroundColor})')
+   menu=await key.evaluate('e=>({title:getComputedStyle(e.querySelector("h2")).fontSize,item:getComputedStyle(e.querySelector("li")).fontSize,foot:getComputedStyle(e.querySelector("p")).fontSize,background:getComputedStyle(e).backgroundColor,modal:getComputedStyle(document.querySelector(".cmpri-desktop-window-body")).backgroundColor})')
    assert menu['title']=='11px' and menu['item']=='10px' and menu['foot']=='9px',menu
    assert menu['background']==menu['modal'],menu
    menu_box=await key.bounding_box()
-   assert menu_box['x']>=before['x'] and menu_box['x']+menu_box['width']<=before['x']+before['width']
+   assert menu_box['x']>=0 and menu_box['x']+menu_box['width']<=width
    await modal.screenshot(path=str(OUT/f'work-order-key-{width}.png'))
    await help.press('Escape');await expect(key).to_have_count(0);await expect(help).to_be_focused();await expect(modal).to_be_visible()
    await help.press('Enter');await expect(key).to_be_visible()
@@ -166,7 +166,7 @@ async def main():
    help=dialog.get_by_role('button',name='Marriott Bonvoy membership tier key')
    if role_width<640:await help.tap()
    else:await help.click()
-   await expect(dialog.locator('.work-order-tier-popover')).to_be_visible()
+   await expect(page.locator('.work-order-tier-popover')).to_be_visible()
    await help.press('Escape');await expect(help).to_be_focused()
    results.append({'role':role,'width':role_width,'passed':True})
    await context.close()

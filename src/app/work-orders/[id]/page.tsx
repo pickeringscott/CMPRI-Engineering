@@ -2,6 +2,7 @@
 import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
 import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
 import WorkOrderGuestIndicators from "@/components/WorkOrderGuestIndicators";
+import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import {type RoomGroupBadge} from "@/lib/room-group-badges";
 import {loyaltyTier} from "@/lib/loyalty-tier";
 
@@ -2058,9 +2059,9 @@ export default function WorkOrderTicketPage() {
                   {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
-                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span><span className={embedded ? "cmpri-detail-mobile-guest" : "cmpri-detail-standalone-guest"}><WorkOrderGuestIndicators guest={order as unknown as Record<string,unknown>} showName={!embedded} /></span>
+                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
                 </div>
-                {order.guest_name && <p data-preview-mobile-guest-name className="cmpri-detail-mobile-name text-sm text-slate-400">{order.guest_name}</p>}
+                <div data-work-order-guest className="cmpri-detail-guest-row"><WorkOrderGuestIndicators guest={order as unknown as Record<string,unknown>} /></div>
                 <div className="mt-1 flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-x-2">
                   <p className="w-full min-w-0 break-words text-sm leading-5 text-white sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
                   <p className="w-full truncate text-[11px] leading-tight text-sky-200/75 sm:max-w-[45%] sm:shrink-0 sm:text-right" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
@@ -2081,6 +2082,7 @@ export default function WorkOrderTicketPage() {
             <WorkOrderImportPill order={order} />
 
           </div><div data-preview-locked-actions className="preview-locked-actions">
+              <WorkOrderTierKey />
               <button
                 type="button"
                 onClick={cancelTicket}
@@ -2127,7 +2129,7 @@ export default function WorkOrderTicketPage() {
 
         <div aria-busy={saving} className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
           <div className="min-w-0 space-y-2">
-            <section className="rounded-xl border border-slate-800 bg-slate-900 p-2.5">
+            <section data-reported-issue className="rounded-xl border border-slate-800 bg-slate-900 p-1.5">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue{pendingField("issue")}</h2>
@@ -2158,7 +2160,7 @@ export default function WorkOrderTicketPage() {
                   </div>
                 </>
               ) : (
-                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label="Edit reported issue" className="mt-2 min-h-10 w-full whitespace-pre-wrap break-words text-left text-sm leading-5 text-slate-200">{issue || "No issue"}</button>
+                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label="Edit reported issue" className="mt-0.5 w-full whitespace-pre-wrap break-words py-0.5 text-left text-sm leading-5 text-slate-200">{issue || "No issue"}</button>
               )}
 
               {order.can_correct_report && (
@@ -2190,28 +2192,28 @@ export default function WorkOrderTicketPage() {
               <div data-preview-metadata className="mt-1 grid gap-1.5 sm:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment{pendingField("assetId")}</div>
-                  {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
+                  {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category{pendingField("category")}</div>
-                  {editingField === "category" && canEditField("category") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("category") || saving} onClick={() => setEditingField("category")} aria-label="Edit category" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{category || "General"}</button>}
+                  {editingField === "category" && canEditField("category") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("category") || saving} onClick={() => setEditingField("category")} aria-label="Edit category" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{category || "General"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority{pendingField("priority")}</div>
-                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
+                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician{pendingField("technicianName")}</div>
-                  {editingField === "technician_name" && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("technician_name") || saving} onClick={() => setEditingField("technician_name")} aria-label="Edit technician name" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{technicianName || "Unassigned"}</button>}
+                  {editingField === "technician_name" && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("technician_name") || saving} onClick={() => setEditingField("technician_name")} aria-label="Edit technician name" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{technicianName || "Unassigned"}</button>}
                   {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status{pendingField("status")}</div>
-                  {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
+                  {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By{pendingField("dueBy")}</div>
-                  {editingField === "due_by" && canEditField("due_by") ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving} onClick={() => setEditingField("due_by")} aria-label="Edit due by" className="mt-1 min-h-10 w-full text-left text-sm text-slate-200">{dueBy || "No due date"}</button>}
+                  {editingField === "due_by" && canEditField("due_by") ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving} onClick={() => setEditingField("due_by")} aria-label="Edit due by" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{dueBy || "No due date"}</button>}
                 </div>
               </div>
             </section>
@@ -2485,7 +2487,7 @@ export default function WorkOrderTicketPage() {
                   rows={3}
                   placeholder="Repair performed, root cause, or reason not completed..."
                   className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-amber-400"
-                /> : <button type="button" disabled={!canEditField("action_root_cause") || saving} onClick={() => setEditingField("action_root_cause")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{actionRootCause || "None"}</button>}
+                /> : <button type="button" disabled={!canEditField("action_root_cause") || saving} onClick={() => setEditingField("action_root_cause")} aria-label="Edit action root cause" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{actionRootCause || "None"}</button>}
               </details>
             )}
 
@@ -2564,7 +2566,7 @@ export default function WorkOrderTicketPage() {
                   disabled={!canEditField("parts") || saving}
                   className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
                   placeholder="Parts used / ordered"
-                /> : <button type="button" disabled={!canEditField("parts") || saving} onClick={() => setEditingField("parts")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{parts || "None"}</button>}
+                /> : <button type="button" disabled={!canEditField("parts") || saving} onClick={() => setEditingField("parts")} aria-label="Edit parts" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{parts || "None"}</button>}
               </label>
 
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -2580,7 +2582,7 @@ export default function WorkOrderTicketPage() {
                     onChange={(event) => setHours(event.target.value)}
                     disabled={!canEditField("hours") || saving}
                     className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  /> : <button type="button" disabled={!canEditField("hours") || saving} onClick={() => setEditingField("hours")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{hours || "None"}</button>}
+                  /> : <button type="button" disabled={!canEditField("hours") || saving} onClick={() => setEditingField("hours")} aria-label="Edit hours" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{hours || "None"}</button>}
                 </label>
 
                 <label className="block">
@@ -2595,7 +2597,7 @@ export default function WorkOrderTicketPage() {
                     onChange={(event) => setCost(event.target.value)}
                     disabled={!canEditField("cost") || saving}
                     className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  /> : <button type="button" disabled={!canEditField("cost") || saving} onClick={() => setEditingField("cost")} className="block min-h-10 w-full whitespace-pre-wrap text-left text-sm">{cost || "None"}</button>}
+                  /> : <button type="button" disabled={!canEditField("cost") || saving} onClick={() => setEditingField("cost")} aria-label="Edit cost" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{cost || "None"}</button>}
                 </label>
               </div>
             </section>

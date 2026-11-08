@@ -33,6 +33,7 @@ export type DesktopWorkOrder = Record<string, unknown> & {
   guest_group_badge?: RoomGroupBadge | null;
   incoming_group_badge?: RoomGroupBadge | null;
   loyalty_tier?: string|null;
+  guest_name?: string|null;
   incoming_loyalty_tier?: string|null;
   incoming_reserved?: boolean;
   room_next_transition_at?: number|null;
@@ -287,14 +288,16 @@ export default function WorkOrderListWindow({
                       {!isDraft && <>
                         {order.cn_room && order.guest_group_badge !== 'railway-cn' && <Image src="/railway-cn-logo.png" alt="CN" width={42} height={27} className="preview-group-badge" />}
                         <GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge" />
-                        <LoyaltyBadge tier={order.loyalty_tier} />
                       </>}
                       {occupancy && <span data-preview-room-status className={`work-order-pill ${occupancy.className}`}>{occupancy.label}</span>}
                       {checkout && <span data-work-order-checkout className={`work-order-pill ${checkout.className}`}>{checkout.label}</span>}
                     </div>
+                    {!isDraft && (order.guest_name || order.loyalty_tier) && <div className="work-order-guest-line">
+                      {order.guest_name && <span>{order.guest_name}</span>}
+                      <LoyaltyBadge tier={order.loyalty_tier} />
+                    </div>}
                   <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
                   {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">Draft — awaiting Chief Engineer approval{order.potential_duplicate === true ? " · Possible duplicate — review" : ""}</span>}
-                  <span data-preview-technician className="block break-words text-[0.78em] leading-tight text-slate-300">Assigned to: {order.technician_name || "Unassigned"}</span>
                   <div data-room-occupancy className="preview-incoming">
                     {!isDraft && order.incoming_reserved&&<><GuestGroupBadge badge={order.incoming_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.incoming_loyalty_tier}/><span className="reserved-pill">Reserved</span></>}
                   </div>

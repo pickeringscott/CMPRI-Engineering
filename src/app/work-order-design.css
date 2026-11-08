@@ -114,3 +114,20 @@
 .work-order-tier-popover .tier-m { width:15px;height:15px; }
 .work-order-tier-popover .tier-m svg { width:14px;height:14px; }
 .work-order-tier-popover p { margin:8px 0 0;padding-top:7px;border-top:1px solid var(--cmpri-outline);font-size:9px;line-height:1.4;color:inherit; }
+
+/* Guest identity sits below the room with the same contrast as other content. */
+.cmpri-work-order-list .work-order-guest-line {
+  display:flex;align-items:center;flex-wrap:wrap;gap:4px;font-size:.9em;
+  font-weight:400;color:var(--cmpri-modal-text,#fdf3e6);
+}
+.work-order-guest-line .tier-m { width:20px;height:20px; }
+.cmpri-detail-guest-row .cmpri-window-guest {
+  display:flex;flex-wrap:wrap;white-space:normal;margin:2px 0 0;
+  font-size:14px;font-weight:400;color:var(--cmpri-modal-text,#fdf3e6);
+}
+.cmpri-detail-guest-row .cmpri-window-guest-name { max-width:none;overflow:visible;overflow-wrap:anywhere; }
+.cmpri-ticket-field {
+  border:1px solid var(--cmpri-outline,#777);border-radius:8px;
+  padding:5px 8px;background:var(--cmpri-modal-base,#181818);color:var(--cmpri-modal-text,#fdf3e6);
+}
+.cmpri-ticket-field:focus-visible { outline:2px solid rgb(var(--cmpri-action-rgb,243,187,117));outline-offset:2px; }

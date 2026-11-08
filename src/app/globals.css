@@ -615,3 +615,27 @@ a[href="/work-orders"].bg-amber-500 {
  color-scheme:only light; color:#000 !important;
  -webkit-text-fill-color:#000 !important; text-shadow:none;
 }
+
+/* Compact dashboard chrome for every role; equal-width mobile utilities stay paired. */
+.cmpri-desktop-root .cmpri-desktop-topbar { gap:2px;padding:2px; }
+.cmpri-desktop-root .cmpri-desktop-topbar > .cmpri-header-shelf:first-child {
+  grid-template-columns:minmax(0,max-content) max-content;justify-content:start;
+  align-items:center;gap:0 2px;padding-bottom:0;
+}
+.cmpri-desktop-root [data-dashboard-account] { margin-top:1px; }
+.cmpri-desktop-root [data-dashboard-role] { margin-top:0; }
+.cmpri-desktop-root .cmpri-header-utilities { gap:2px; }
+.cmpri-desktop-root .cmpri-header-v23 .preview .header .groups { gap:2px;padding-block:1px;border-top:0; }
+.cmpri-desktop-root .cmpri-header-v23 .preview .header fieldset.group:not(.collapsed) {
+  height:26px;margin-top:14px;margin-bottom:1px;padding:1px 2px 2px;
+}
+.cmpri-desktop-root .cmpri-header-v23 .preview .header fieldset.group:has(.group-scroll:not([hidden])) { margin-bottom:10px; }
+.cmpri-desktop-root .cmpri-header-v23 .preview .header fieldset.group.collapsed { margin:0; }
+.cmpri-desktop-root .cmpri-header-v23 .preview .header fieldset.group .buttons { height:21px; }
+@media(max-width:1023px) {
+  .cmpri-desktop-root .cmpri-desktop-topbar > .cmpri-header-shelf:first-child { grid-template-columns:minmax(0,1fr) auto;justify-content:stretch; }
+  .cmpri-desktop-root .cmpri-header-utilities { width:122px;inline-size:122px; }
+  .cmpri-desktop-root .cmpri-header-utilities > :is(.cmpri-header-status-pill,.cmpri-header-create) {
+    min-height:28px;height:28px;padding:2px 5px;font-size:11px!important;line-height:18px!important;
+  }
+}

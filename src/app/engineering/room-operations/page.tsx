@@ -1,6 +1,7 @@
 "use client";
 import {profileHasRole} from "@/lib/server/roles";
 import LoyaltyBadge from "@/components/LoyaltyBadge";
+import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 
 import { resourceViewVisible } from "@/lib/events/visibility";
 import { subscribeResources } from "@/lib/events/browser";
@@ -217,7 +218,7 @@ function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
         <CheckoutPill row={row} today={today} />
         <MovePill row={row} />
       </div>
-      {row.guest_name ? <div className="mt-1 break-words text-lg font-normal text-slate-400"><LoyaltyBadge tier={row.loyalty_tier}/>{row.guest_name} <GuestGroupBadge badge={currentRoomGroupBadges(row).guest_group_badge}/></div> : null}
+      {row.guest_name ? <div data-room-ops-guest className="mt-1 flex flex-wrap items-center gap-1 break-words text-lg font-normal text-slate-100"><span>{row.guest_name}</span><LoyaltyBadge tier={row.loyalty_tier}/><GuestGroupBadge badge={currentRoomGroupBadges(row).guest_group_badge}/></div> : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
         {row.stay_nights ? <span>LOS: {row.stay_nights} nights</span> : null}
       </div>
@@ -374,6 +375,7 @@ export default function RoomOperationsPage() {
             <p className="mt-2 text-sm text-slate-400">The latest accepted report stays available until a newer verified report replaces it. Guest stays expire at their recorded dates and times without another upload. Scheduled checkout is not physical checkout confirmation.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            <WorkOrderTierKey />
             <label className="text-xs font-semibold text-slate-300">
               Report date
               <input type="date" min={previousHotelDate()} max={today} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100" />
