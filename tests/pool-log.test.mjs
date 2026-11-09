@@ -186,7 +186,7 @@ function fixture(config={}) {
    single:async()=>config.dbError?{data:null,error:config.dbError}:config.saveError||config.concurrent?{data:null,error:{code:config.concurrent?'PGRST116':'23505'}}:{data:{...changed,id:'saved',revision:2},error:null}};
   return q;
  }};
- function load(file){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'}},
+ function load(file){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_PO_ENABLED:config.inventoryDisabled?'false':'true'}},
   require(name){
    if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
    if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'actor'},profile:{role:config.role||'system_admin',full_name:'Scott Pickering'},admin:db}};
@@ -530,4 +530,25 @@ test('existing pool operators can add an independent hold but cannot silently cl
  assert.throws(()=>updatePool(held,{manual_closure:false}),PoolLogConflictError);
  const legacyCaller=updatePool(saved,{closure_condition:true,closure_reason:'Equipment repair pending'});
  assert.equal(legacyCaller.manual_closure,true);assert.equal(legacyCaller.closure_condition,true);
+});
+
+const chemicalUse={id:'00000000-0000-4000-8000-000000000010',item:'00000000-0000-4000-8000-000000000011',quantity:2,unit:'OZ'};
+test('pool chemical usage is part of the same pool log write, with authenticated attribution',async()=>{
+ const f=fixture({body:{chemical_uses:[{...chemicalUse,actor:'spoof'}]}});
+ assert.equal((await f.handlers.POST(f.request)).status,200);
+ assert.equal(f.writes.length,1);assert.equal(f.writes[0].chemical_uses.length,1);
+ assert.equal(f.writes[0].chemical_uses[0].id,chemicalUse.id);
+ assert.equal('actor' in f.writes[0].chemical_uses[0],false);assert.equal(f.writes[0].updated_by,'actor');
+});
+test('chemical writes reject disabled inventory, invalid quantities and duplicate operation IDs',async()=>{
+ for(const config of [{inventoryDisabled:true,body:{chemical_uses:[chemicalUse]}},{body:{chemical_uses:[{...chemicalUse,quantity:0}]}},{body:{chemical_uses:[chemicalUse,chemicalUse]}}]) {
+  const f=fixture(config);assert.ok([400,409].includes((await f.handlers.POST(f.request)).status));assert.equal(f.writes.length,0);
+ }
+});
+test('lost-response chemical retry confirms existing saved log before stale replace revision checks',async()=>{
+ const existing={...poolLogInput(input),id:'saved',revision:3,chemical_uses:[{...chemicalUse,actor:'actor'}]};
+ const f=fixture({existing,body:{chemical_uses:[chemicalUse],edit_mode:'replace',expected_revision:2}});
+ const result=await f.handlers.POST(f.request);assert.equal(result.status,200);assert.equal(result.body.unchanged,true);assert.equal(f.writes.length,0);
+ const conflicting=fixture({existing,body:{chemical_uses:[{...chemicalUse,quantity:3}]}});
+ assert.equal((await conflicting.handlers.POST(conflicting.request)).status,409);assert.equal(conflicting.writes.length,0);
 });

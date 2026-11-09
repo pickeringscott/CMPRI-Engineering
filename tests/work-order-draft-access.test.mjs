@@ -1,3 +1,4 @@
+import {partsStatusDependency} from "./helpers/load-ts.mjs";
 import * as workOrderSort from '../src/lib/work-order-sort.ts';
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
@@ -106,7 +107,7 @@ function fixture(role, actorId = "actor") {
   const exports = {};
   vm.runInNewContext(compiled, {
     exports,
-    require(name) {
+    require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
@@ -178,7 +179,7 @@ function submittedDraftRetryFixture() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     exports: routeExports,
-    require(name) {
+    require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;

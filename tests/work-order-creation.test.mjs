@@ -1,3 +1,4 @@
+import {partsStatusDependency} from "./helpers/load-ts.mjs";
 import { ticketReadDependency, loadTs } from "./helpers/load-ts.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +25,7 @@ function fixture(body,config={}) {
   function load(file) {
     const exports={};
     vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:config.noServiceRole?{}:{SUPABASE_SERVICE_ROLE_KEY:'service-role-test'}},
-      require(name){
+      require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:(url,key,options)=>{clients.push({url,key,options});return db;}};

@@ -1,3 +1,4 @@
+import { attachPartsStatuses } from "@/lib/server/work-order-parts-status";
 import { persistMentionedWorkOrder } from "@/lib/server/work-order-mentions";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { canReadWorkOrder, canReadWorkOrderForMutation, workOrderReadFilter } from "@/lib/work-order-read-policy";
@@ -131,9 +132,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     mentionTickets = (mentionRows ?? []) as Array<Record<string, unknown>>;
   }
 
+  let partsStatus;
+  try { [partsStatus] = await attachPartsStatuses(auth.admin,[workOrder]); }
+  catch { return NextResponse.json({error:"Parts status could not be loaded."},{status:503}); }
+
   return NextResponse.json({
     workOrder: {
       ...workOrder,
+      parts_status: partsStatus.parts_status,
       can_correct_report: reportCorrectionAllowed(auth.principal.profile, workOrder.status, canReadWorkOrderForMutation(workOrderReader(auth.principal), workOrder)),
       room_status: currentRoomStatus(roomStatuses.statuses, workOrder.room),
       ...currentRoomOperation(roomStatuses.operations!, workOrder.room),

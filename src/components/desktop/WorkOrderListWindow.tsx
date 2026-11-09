@@ -3,6 +3,8 @@
 import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-reference.js";
 
 import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
+import PartsStatusPill from "@/components/PartsStatusPill";
+import type {PartStatus} from "@/lib/work-order-parts";
 import WorkOrderImportPill from "@/components/WorkOrderImportPill";
 import GuestGroupBadge from "@/components/GuestGroupBadge";
 import type { RoomGroupBadge } from "@/lib/room-group-badges";
@@ -40,6 +42,7 @@ export type DesktopWorkOrder = Record<string, unknown> & {
   category?: string | null;
   issue?: string | null;
   priority?: string | null;
+  parts_status?: PartStatus | null;
   technician_name?: string | null;
   status?: string | null;
   due_by?: string | null;
@@ -280,6 +283,7 @@ export default function WorkOrderListWindow({
                       {!isDraft && order.display_id && <span className="preview-wo-number">{formatWorkOrder(order.display_id)}</span>}
                       <span className={`work-order-pill ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
                       {!isDraft && order.priority && <span className={`work-order-pill ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
+                      {!isDraft && <PartsStatusPill status={order.parts_status} />}
                       {!isDraft && <WorkOrderImportPill order={order} />}
                     </div>
                     <div className="work-order-room-line">

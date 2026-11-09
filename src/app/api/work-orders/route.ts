@@ -1,3 +1,4 @@
+import { attachPartsStatuses } from "@/lib/server/work-order-parts-status";
 import {sortWorkOrders, type WorkOrderSort} from "@/lib/work-order-sort";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { workOrderReadFilter } from "@/lib/work-order-read-policy";
@@ -21,12 +22,14 @@ import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
 const ACTIVE_DUPLICATE_LIMIT = 1000;
 
-async function attachCurrentRoomStatuses<T extends { room?: unknown }>(admin: SupabaseClient, orders: T[]) {
-  const roomStatuses = await loadCurrentRoomStatuses(admin);
+async function attachCurrentRoomStatuses<T extends { id:string; room?: unknown }>(admin: SupabaseClient, orders: T[]) {
+  let combined;
+  try { combined = await Promise.all([attachPartsStatuses(admin,orders),loadCurrentRoomStatuses(admin)]); } catch { return null; }
+  const [withParts,roomStatuses] = combined;
   const statuses = roomStatuses.statuses;
   const operations = roomStatuses.operations;
   if (roomStatuses.error || !statuses || !operations) return null;
-  return orders.map((order) => {
+  return withParts.map((order) => {
     const operation = currentRoomOperation(operations, order.room);
     return {
       ...order,
@@ -144,7 +147,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Technician work could not be loaded." }, { status: 503 });
     }
     const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, workOrders);
-    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability or parts status could not be loaded." }, { status: 503 });
     return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "no-store" } });
   }
 
@@ -164,7 +167,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: "Existing work orders could not be checked for duplicates." }, { status: 503 });
     const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, data || []);
-    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+    if (!enrichedOrders) return NextResponse.json({ error: "Current room availability or parts status could not be loaded." }, { status: 503 });
     return NextResponse.json({ work_orders: enrichedOrders }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
@@ -224,7 +227,7 @@ export async function GET(request: NextRequest) {
     allRows.push(...next.data);
   }
   const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, allRows);
-  if (!enrichedOrders) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
+  if (!enrichedOrders) return NextResponse.json({ error: "Current room availability or parts status could not be loaded." }, { status: 503 });
   return NextResponse.json({ work_orders: customSort ? sortWorkOrders(enrichedOrders,sort as WorkOrderSort).slice(page*pageSize,(page+1)*pageSize) : enrichedOrders, page, page_size: pageSize, total: result.count || 0,
     counts: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])) }, { headers: { "Cache-Control": "no-store" } });
 
