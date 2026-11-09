@@ -7,6 +7,7 @@ import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { groupLocations } from "@/lib/location-management";
+import { subscribeResources } from "@/lib/events/browser";
 import { modalTitleStyle } from "@/lib/ui/header-palette";
 import "./locations.css";
 
@@ -110,11 +111,14 @@ export default function RoomsPage() {
   const [message, setMessage] = useState("");
   const [editorError, setEditorError] = useState("");
   const [busy, setBusy] = useState(false);
+  const loadGeneration = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     const session = await getValidSession();
     if (!session) { window.location.replace("/"); return; }
     const response = await fetch("/api/rooms", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
     const result = await response.json();
+    if (generation !== loadGeneration.current) return;
     if (!response.ok) { setMessage(result.error || "Locations could not be loaded."); return; }
     setLocations(result.locations || []); setOrders(result.work_orders || []);
     setPmPlans(result.pm_plans || []); setPmCompletions(result.pm_completions || []);
@@ -127,8 +131,12 @@ export default function RoomsPage() {
       if (!hasCapability(session, "view_engineering_operations")) { window.location.replace(session.landing); return; }
       setPageAllowed(true); void load();
     }).catch(() => { if (active) window.location.replace("/"); });
-    return () => { active = false; };
+    return () => { active = false; loadGeneration.current++; };
   }, [load]);
+  useEffect(() => {
+    if (!pageAllowed) return;
+    return subscribeResources(["rooms", "orders", "reference"], load, false);
+  }, [pageAllowed, load]);
   const groups = useMemo(() => groupLocations(locations), [locations]);
   const areas = useMemo(() => [...new Set(locations.map(location => location.area).filter((area): area is string => !!area?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
   const types = useMemo(() => [...new Set(locations.map(location => location.location_type).filter((type): type is string => !!type?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
