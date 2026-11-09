@@ -10,11 +10,11 @@ import {JSDOM} from 'jsdom';
 import {loadTs} from './helpers/load-ts.mjs';
 const {groupLocations}=loadTs('src/lib/location-management.ts');
 
-test('open Manage Locations refreshes on resource changes, retains expansion and ignores stale reads',async()=>{
+test('open Manage Locations refreshes on resource changes, retains expansion and ignores stale reads',{timeout:15000},async()=>{
  const dom=new JSDOM('<div id="app"></div>',{url:'https://fixture.test/management/rooms'});
  const previous={window:globalThis.window,document:globalThis.document,IS_REACT_ACT_ENVIRONMENT:globalThis.IS_REACT_ACT_ENVIRONMENT};
  Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
- let refresh,topics,stopped=false,reads=0,pending=[];
+ let refresh,topics,notifyRequests,stopped=false,reads=0,pending=[];
  const records=(count,planned=false)=>({locations:[{id:'room',name:'Room 204',room_number:'204',area:'Guest Rooms',location_type:'Guest Room',active:true}],
   work_orders:Array.from({length:count},(_,i)=>({id:String(i),location_id:'room',room:'204',issue:'Sample issue',status:'Open'})),
   pm_plans:planned?[{id:'plan',location_id:'room',asset_id:null,title:'Room inspection',description:null,checklist:[],frequency_value:3,frequency_unit:'MONTH',last_completed_on:null,active:true,next_due_on:'2100-01-01'}]:[],pm_completions:[],can_edit:true,can_manage_corporate_pm:true});
@@ -36,7 +36,7 @@ test('open Manage Locations refreshes on resource changes, retains expansion and
  const source=readFileSync(new URL('../src/app/management/rooms/page.tsx',import.meta.url),'utf8');
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{
   exports,require:name=>{assert.ok(name in deps,name);return deps[name];},window:dom.window,document:dom.window.document,
-  fetch:async url=>{assert.equal(url,'/api/rooms');reads++;return defer?new Promise(resolve=>pending.push(resolve)):response(payload);}
+  fetch:async url=>{assert.equal(url,'/api/rooms');reads++;return defer?new Promise(resolve=>{pending.push(resolve);if(pending.length===2)notifyRequests?.();}):response(payload);}
  });
  const root=createRoot(dom.window.document.getElementById('app'));
  try {
@@ -56,7 +56,8 @@ test('open Manage Locations refreshes on resource changes, retains expansion and
   assert.ok(doc.querySelector('[role=region]'),'expanded location stays open');
   defer=true;
   await React.act(async()=>{
-   const old=refresh(),latest=refresh();await Promise.resolve();await Promise.resolve();
+   const requestsStarted=new Promise(resolve=>{notifyRequests=resolve;});
+   const old=refresh(),latest=refresh();await requestsStarted;
    assert.equal(pending.length,2);
    pending[1](response(records(5,true)));await latest;
    pending[0](response(records(4,false)));await old;
