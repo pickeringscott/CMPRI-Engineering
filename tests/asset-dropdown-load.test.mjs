@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import {inventoryRequest} from "../src/lib/inventory.ts";
 import { fetchAllPages } from "../src/lib/server/paginated-query.ts";
 
 const hotelId = "c81ad01a-7a9f-4880-ac1c-5e849f30bad6";
@@ -22,6 +23,7 @@ const assetRows = Array.from({ length: 1001 }, (_, index) => ({
 
 function routeFixture(routePath, failOffset = null) {
   const admin = {
+    async rpc(name,args) {assert.equal(name,"cmpri_inventory_snapshot");assert.equal(args.p_hotel,hotelId);return failOffset===1000?{data:null,error:new Error("Snapshot unavailable")}:{data:{assets:assetRows,inventory:[]},error:null};},
     from(table) {
       const query = { table, filters: [], from: 0, to: 999 };
       query.select = () => query;
@@ -51,6 +53,7 @@ function routeFixture(routePath, failOffset = null) {
     exports,
     require(name) {
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
+      if (name === "@/lib/inventory") return {inventoryRequest};
       if (name === "@/lib/constants") return { HOTEL_ID: hotelId };
       if (name === "@/lib/server/auth") return {
         requireUser: async () => ({ principal, admin }),

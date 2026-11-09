@@ -1,5 +1,5 @@
 /** Pool usage is staged locally and committed with the pool log, never on selection. */
-export type PoolChemicalUse = { id: string; item: string; quantity: number; unit: string };
+export type PoolChemicalUse = { id: string; item: string; quantity: number; unit: string; name?: string };
 export type PoolSupply = { id: string; item_name: string; quantity_on_hand: number; quantity_reserved: number; unit_of_measure: string };
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export function poolChemicalUses(value: unknown): PoolChemicalUse[] {

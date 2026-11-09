@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import { subscribeResources } from "@/lib/events/browser";
+import { inventoryUnitOptions } from "@/lib/inventory";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { chemicalRemark, type PoolChemicalUse, type PoolSupply } from "@/lib/pool-chemicals";
 import PoolSpecs from "./PoolSpecs";
@@ -196,6 +198,8 @@ export default function PoolLogPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
+  const [chemicalOpen,setChemicalOpen]=useState(false);
+  const [poolSupplyLocation,setPoolSupplyLocation]=useState<{id:string;name:string}|null>(null);
   const [supplies, setSupplies] = useState<PoolSupply[]>([]);
   const [supplyError, setSupplyError] = useState("");
   const [chemicalItem, setChemicalItem] = useState("");
@@ -245,25 +249,28 @@ export default function PoolLogPage() {
   }, [date, facilityChoice, reload]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      setSupplies([]); setSupplyError("");
-      const session = await getValidSession();
-      if (!session || !canEdit) return;
-      const response = await fetch("/api/pool-log/supplies", {headers:{Authorization:`Bearer ${session.access_token}`},cache:"reload",signal:controller.signal});
-      const result = await response.json();
-      if (!response.ok) throw Error(result.error || "Inventory could not be loaded.");
-      if (!controller.signal.aborted) setSupplies(result.items || []);
-    })().catch(error => {if (!controller.signal.aborted) setSupplyError(error.message);});
-    return () => controller.abort();
-  }, [canEdit, reload, saved]);
+    if(!chemicalOpen||!canEdit)return;
+    const controller=new AbortController();let running:Promise<void>|null=null;
+    const loadSupplies=()=>{
+      if(running)return running;
+      running=(async()=>{
+        setSupplyError("");
+        const session=await getValidSession();if(!session)return;
+        const response=await fetch("/api/pool-log/supplies",{headers:{Authorization:`Bearer ${session.access_token}`},cache:"reload",signal:controller.signal});
+        const result=await response.json();if(!response.ok)throw Error(result.error||"Pool Pump Room chemicals could not be loaded.");
+        if(!controller.signal.aborted){setSupplies(result.items||[]);setPoolSupplyLocation(result.location||null);}
+      })().catch(error=>{if(!controller.signal.aborted){setSupplies([]);setPoolSupplyLocation(null);setSupplyError(error.message);}}).finally(()=>{running=null;});return running;
+    };
+    const stop=subscribeResources(["reference"],loadSupplies);
+    return()=>{controller.abort();stop();};
+  },[chemicalOpen,canEdit,reload]);
 
   function addChemical() {
     const quantity = Number(chemicalQuantity);
     if (!selectedChemical || !Number.isFinite(quantity) || quantity <= 0 || quantity > 999999999 || Math.abs(quantity * 1000 - Math.round(quantity * 1000)) > 0.0001 || chemicalUses.length >= 100) {
       setMessage("Choose the chemical and quantity actually used."); return;
     }
-    const use = {id:crypto.randomUUID(),item:selectedChemical.id,quantity,unit:chemicalUnit || selectedChemical.unit_of_measure};
+    const use = {id:crypto.randomUUID(),item:selectedChemical.id,quantity,unit:chemicalUnit || selectedChemical.unit_of_measure,name:selectedChemical.item_name};
     setChemicalUses(current => [...current,use]);
     change("remarks", [String(form.remarks || "").trim(),chemicalRemark(use,selectedChemical.item_name)].filter(Boolean).join("\n"));
     setChemicalQuantity(""); setMessage("Chemical added to Remarks. Inventory updates when the pool log is saved.");
@@ -498,20 +505,22 @@ export default function PoolLogPage() {
                 {saved?.closure_condition === true && saved.manual_closure == null ? <p className="text-amber-200">This older closure has no recorded source. Its reason must be classified before a passing test can clear it automatically.</p> : null}
                 {(closureRequired || saved?.closure_reason) ? <label className="block font-semibold text-red-200">Closure reason / actions (required)<textarea id="pool-closure_reason" required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} placeholder="Why the pool is closed and what was done (for example, adjusted chemicals, retest scheduled)." onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
                 <label className="block">Remarks / actions taken<textarea disabled={uncertainChemicalSave} value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
-                <details className="pool-chemical-usage">
+                <details className="pool-chemical-usage" onToggle={event=>setChemicalOpen(event.currentTarget.open)}>
                   <summary className="cursor-pointer text-sm font-semibold">Chemical usage</summary>
                   <div className="mt-1 space-y-1 text-sm">
+                    <p className="text-xs"><strong>{poolSupplyLocation?.name||"Pool Pump Room"}</strong> · Chemical items stored here only</p>
+                    {chemicalOpen&&!supplyError&&!supplies.length&&<p className="text-xs">No eligible chemicals. Inventory must mark the item Chemical and assign it to Pool Pump Room.</p>}
                     <label className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-1">Supply<select aria-label="Pool chemical supply" className={fieldClass} value={chemicalItem} disabled={saving || uncertainChemicalSave || !supplies.length} onChange={event => {setChemicalItem(event.target.value);setChemicalUnit("");}}>
                       <option value="">Choose supply</option>{supplies.map(item => <option key={item.id} value={item.id}>{item.item_name} · {Number(item.quantity_on_hand)-Number(item.quantity_reserved)} {item.unit_of_measure} available</option>)}
                     </select></label>
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="text-xs">Quantity used<input aria-label="Pool chemical quantity used" className={fieldClass} style={{width:96}} type="number" min="0.001" max="999999999" step="0.001" value={chemicalQuantity} disabled={saving || uncertainChemicalSave} onChange={event=>setChemicalQuantity(event.target.value)}/></label>
-                      <label className="text-xs">Unit<select aria-label="Pool chemical usage unit" className={fieldClass} style={{width:96}} value={chemicalUnit} disabled={saving || uncertainChemicalSave} onChange={event=>setChemicalUnit(event.target.value)}><option value="">{selectedChemical?.unit_of_measure || "Inventory unit"}</option>{["EA","LB","OZ","G","KG"].map(unit=><option key={unit}>{unit}</option>)}</select></label>
+                      <label className="text-xs">Unit<select aria-label="Pool chemical usage unit" className={fieldClass} style={{width:96}} value={chemicalUnit} disabled={saving || uncertainChemicalSave} onChange={event=>setChemicalUnit(event.target.value)}><option value="">{selectedChemical?.unit_of_measure || "Inventory unit"}</option>{inventoryUnitOptions(selectedChemical?.unit_of_measure||"EA").map(unit=><option key={unit}>{unit}</option>)}</select></label>
                       <button type="button" className="rounded-lg border border-current px-2 py-1 text-xs disabled:opacity-50" disabled={saving || uncertainChemicalSave || !selectedChemical || !(Number(chemicalQuantity)>0)} onClick={addChemical}>Add chemical use</button>
                     </div>
-                    {chemicalUses.map(use => <div key={use.id} className="flex items-center justify-between gap-2 text-xs"><span>{chemicalRemark(use,supplies.find(item=>item.id===use.item)?.item_name || "Chemical")}</span><button type="button" className="underline" disabled={saving || uncertainChemicalSave} onClick={()=>{
+                    {chemicalUses.map(use => <div key={use.id} className="flex items-center justify-between gap-2 text-xs"><span>{chemicalRemark(use,use.name || supplies.find(item=>item.id===use.item)?.item_name || "Chemical")}</span><button type="button" className="underline" disabled={saving || uncertainChemicalSave} onClick={()=>{
                       setChemicalUses(current=>current.filter(entry=>entry.id!==use.id));
-                      const name=supplies.find(item=>item.id===use.item)?.item_name || "Chemical";
+                      const name=use.name || supplies.find(item=>item.id===use.item)?.item_name || "Chemical";
                       const lines=String(form.remarks || "").split("\n");const index=lines.indexOf(chemicalRemark(use,name));if(index>=0)lines.splice(index,1);change("remarks",lines.join("\n"));
                     }}>Remove</button></div>)}
                     {chemicalUses.length ? <p className="text-xs">{chemicalUses.length} chemical usage(s) pending. Save the pool log to update inventory.</p> : null}
