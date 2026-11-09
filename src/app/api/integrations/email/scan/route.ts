@@ -194,7 +194,9 @@ async function saveOperationalRecord(admin: Admin, message: OperationalMessage) 
     if (error) throw new Error(`Supplier follow-up save failed: ${error.message}`);
   }
 
-  if (parsed.category === "gss") {
+  // A GSS discussion or an image-only message can classify as GSS without
+  // producing scores. Do not replace an existing weekly report with it.
+  if (parsed.category === "gss" && Object.keys(parsed.gssScores).length > 0) {
     const date = new Date(messageAt);
     const day = date.getUTCDay();
     date.setUTCDate(date.getUTCDate() - ((day + 6) % 7));

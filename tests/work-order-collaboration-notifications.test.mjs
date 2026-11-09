@@ -8,6 +8,7 @@ import * as roles from '../src/lib/server/roles.ts';
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const hotel=id(1),ticket=id(100);
 const migration=readdirSync('supabase/migrations').find(x=>x.endsWith('_work_order_collaboration_notifications.sql'));
+const statusMigration=readdirSync('supabase/migrations').find(x=>x.endsWith('_notify_chief_and_technicians_of_status_changes.sql'));
 const sql=name=>readFileSync('supabase/migrations/'+name,'utf8');
 const collaborators=[10,11,12,14,18].map(id); // Chief, system admin, assigned tech, submitter, secondary Chief.
 async function database({apply=true}={}){
@@ -57,7 +58,7 @@ async function database({apply=true}={}){
   await db.query('insert into hotel_members values($1,$2,$3)',[h,id(n),memberActive]);
   await db.query('insert into cmpri_web_push_subscriptions values($1,$2,$3,true)',[id(n+50),h,id(n)]);
  }
- if(apply)await db.exec(sql(migration));
+ if(apply){await db.exec(sql(migration));await db.exec(sql(statusMigration));}
  return db;
 }
 async function create(db,{key=ticket,status='Open',creator=id(14),submitted=null,notes='Initial note supplied with ticket',assigned='Assigned Tech',actor=creator}={}){
@@ -107,16 +108,17 @@ test('system/change entries and removed notes do not alert; plain appended comme
  }finally{await db.close();}
 });
 
-test('status changes from every author target the same collaborators; no legacy duplicate status event is emitted',async()=>{
+test('status changes reach every Chief and active technician, without notifying other collaborators',async()=>{
  const db=await database();try{
   await create(db);
   for(const [status,actor] of [['In Progress',15],['Closed',10],['Open',12]]){
    await db.query('update work_orders set status=$1,history_actor_user_id=$2 where id=$3',[status,id(actor),ticket]);
    const rows=(await inbox(db,'work-order-status:')).filter(x=>x.message.includes('→ '+status+' by'));
-   assert.deepEqual(rows.map(x=>x.recipient_user_id),collaborators);
+   assert.deepEqual(rows.map(x=>x.recipient_user_id),[10,12,13,18].map(id));
+   assert.ok(rows.every(x=>x.push_requested));
   }
-  assert.equal((await inbox(db,'history:')).length,0);assert.equal((await inbox(db,'work-order-status:')).length,15);
-  await db.query('update work_orders set status=status where id=$1',[ticket]);assert.equal((await inbox(db,'work-order-status:')).length,15);
+  assert.equal((await inbox(db,'history:')).length,0);assert.equal((await inbox(db,'work-order-status:')).length,12);
+  await db.query('update work_orders set status=status where id=$1',[ticket]);assert.equal((await inbox(db,'work-order-status:')).length,12);
   assert.equal((await inbox(db,'work-order-note:')).length,0);
  }finally{await db.close();}
 });
@@ -146,7 +148,7 @@ test('assignment and viewed notifications keep their existing recipients and mes
 test('rollout creates no historical alerts; inbox failure rolls back the note; private functions cannot be invoked by browser roles',async()=>{
  const db=await database({apply:false});try{
   await create(db,{notes:note(0)});const before=(await db.query('select count(*)::int n from cmpri_dashboard_notifications')).rows[0].n;
-  await db.exec(sql(migration));assert.equal((await db.query('select count(*)::int n from cmpri_dashboard_notifications')).rows[0].n,before);
+  await db.exec(sql(migration));await db.exec(sql(statusMigration));assert.equal((await db.query('select count(*)::int n from cmpri_dashboard_notifications')).rows[0].n,before);
   await db.exec("create function reject_note() returns trigger language plpgsql as $$begin if new.notification_key like 'work-order-note:%' then raise exception 'Inbox unavailable';end if;return new;end$$;create trigger reject_note before insert on cmpri_dashboard_notifications for each row execute function reject_note();");
   await assert.rejects(append(db,note(1)),/Inbox unavailable/);
   let row=(await db.query('select notes,revision from work_orders where id=$1',[ticket])).rows[0];assert.equal(row.notes,note(0));assert.equal(Number(row.revision),1);
@@ -154,6 +156,7 @@ test('rollout creates no historical alerts; inbox failure rolls back the note; p
   for(const role of ['anon','authenticated']){
    assert.equal((await db.query("select has_function_privilege($1,'cmpri_private.notify_work_order_collaborators(uuid,uuid,text,text,timestamptz)','execute') ok",[role])).rows[0].ok,false);
    assert.equal((await db.query("select has_function_privilege($1,'cmpri_private.notify_added_work_order_notes()','execute') ok",[role])).rows[0].ok,false);
+   assert.equal((await db.query("select has_function_privilege($1,'cmpri_private.notify_work_order_status_team(uuid,uuid,text,text,timestamptz)','execute') ok",[role])).rows[0].ok,false);
   }
  }finally{await db.close();}
 });
@@ -176,5 +179,15 @@ test('migration refuses to overwrite an independently changed notification produ
   await assert.rejects(db.exec(sql(migration)),/notification policy changed/);
   await db.exec('rollback');
   assert.equal((await db.query("select count(*)::int n from pg_trigger where tgname='event_work_notes'")).rows[0].n,0);
+ }finally{await db.close();}
+});
+
+test('status recipient migration refuses to overwrite an independently changed producer',async()=>{
+ const db=await database({apply:false});try{
+  await db.exec(sql(migration));
+  await db.exec("create or replace function cmpri_private.materialize_work_notification() returns trigger language plpgsql security definer set search_path='' as $$begin return null;end$$;");
+  await assert.rejects(db.exec(sql(statusMigration)),/notification policy changed/);
+  await db.exec('rollback');
+  assert.equal((await db.query("select to_regprocedure('cmpri_private.notify_work_order_status_team(uuid,uuid,text,text,timestamptz)') is null absent")).rows[0].absent,true);
  }finally{await db.close();}
 });

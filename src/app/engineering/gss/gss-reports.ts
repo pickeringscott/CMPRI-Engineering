@@ -1,28 +1,28 @@
 export type GssSnapshot = {
-  period: "MTD" | "September" | "Wave to Date";
+  period: string;
   sampleSize: number;
   scores: readonly [number, number, number, number, number, number];
-  trend: "up" | "down";
+  trend: "up" | "down" | "flat";
 };
 
-// Transcribed from the CMPRI row in Taylor Johnson's four dated email reports.
-// These are dated source snapshots, not weekly-only scores. Never aggregate them
-// or infer comparisons across the September/October reporting-period reset.
+// Transcribed from the CMPRI row in Taylor Johnson's dated email reports.
+// These are source snapshots, not weekly-only scores. Do not aggregate them
+// or infer comparisons across reporting-period resets.
 export const verifiedGssReports: readonly { date: string; snapshots: readonly GssSnapshot[] }[] = [
-  { date: "2026-10-12", snapshots: [
-    { period: "MTD", sampleSize: 11, scores: [54.5, 40.0, 63.6, 72.7, 36.4, 11.1], trend: "down" },
-    { period: "Wave to Date", sampleSize: 125, scores: [56.0, 58.7, 58.9, 64.2, 48.8, 46.1], trend: "down" },
+  { date: "2026-11-09", snapshots: [
+    { period: "MTD", sampleSize: 6, scores: [83.3, 75.0, 83.3, 100.0, 66.7, 66.7], trend: "up" },
+    { period: "Wave to Date", sampleSize: 151, scores: [55.6, 59.5, 59.3, 66.4, 47.7, 47.7], trend: "up" },
   ] },
-  { date: "2026-10-05", snapshots: [
-    { period: "September", sampleSize: 32, scores: [59.4, 61.1, 59.4, 65.6, 46.9, 45.5], trend: "down" },
-    { period: "Wave to Date", sampleSize: 115, scores: [56.5, 60.3, 58.8, 63.7, 50.4, 49.4], trend: "up" },
+  { date: "2026-11-02", snapshots: [
+    { period: "October", sampleSize: 31, scores: [48.4, 50.0, 58.1, 71.0, 35.5, 38.5], trend: "down" },
+    { period: "Wave to Date", sampleSize: 145, scores: [54.5, 58.6, 58.3, 65.0, 46.9, 47.2], trend: "down" },
   ] },
-  { date: "2026-09-28", snapshots: [
-    { period: "MTD", sampleSize: 30, scores: [60.0, 64.7, 60.0, 66.7, 50.0, 45.0], trend: "up" },
-    { period: "Wave to Date", sampleSize: 111, scores: [55.9, 60.7, 58.2, 63.3, 50.5, 49.4], trend: "up" },
+  { date: "2026-10-26", snapshots: [
+    { period: "MTD", sampleSize: 24, scores: [50.0, 50.0, 58.3, 66.7, 33.3, 40.0], trend: "flat" },
+    { period: "Wave to Date", sampleSize: 138, scores: [55.1, 58.8, 58.4, 64.0, 47.1, 48.0], trend: "down" },
   ] },
-  { date: "2026-09-21", snapshots: [
-    { period: "MTD", sampleSize: 20, scores: [55.0, 61.5, 60.0, 70.0, 50.0, 40.0], trend: "up" },
-    { period: "Wave to Date", sampleSize: 101, scores: [54.5, 59.6, 58.0, 63.6, 50.5, 48.6], trend: "up" },
+  { date: "2026-10-19", snapshots: [
+    { period: "MTD", sampleSize: 16, scores: [50.0, 42.9, 62.5, 68.8, 37.5, 35.7], trend: "down" },
+    { period: "Wave to Date", sampleSize: 130, scores: [55.4, 58.5, 58.9, 64.1, 48.4, 47.9], trend: "down" },
   ] },
 ];

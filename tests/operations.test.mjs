@@ -68,6 +68,43 @@ test("restricted engineering pages and data APIs require explicit engineering-op
 });
 test("Monday GSS included", () => assert.equal(parseOperationalEmail({subject: "GSS report", messageAt:"2026-09-14T12:00:00Z"}).category, "gss"));
 test("Tuesday GSS excluded", () => assert.equal(parseOperationalEmail({subject: "GSS report", messageAt:"2026-09-15T12:00:00Z"}).category, "other"));
+test("scoreless GSS messages cannot replace a weekly report", async () => {
+  const source = readFileSync(new URL("../src/app/api/integrations/email/scan/route.ts", import.meta.url), "utf8");
+  const exports = {};
+  const dependencies = {
+    "next/server": {},
+    "@/lib/integrations/email-parser": { parseOperationalEmail },
+    "@/lib/constants": { HOTEL_ID: "hotel" },
+    "@/lib/server/auth": {},
+    "@/lib/server/supabase-admin": {},
+    "@/lib/integrations/email-provider": {},
+    "@/lib/integrations/operations": { mergedPurchaseStatus, parentStatusFromShipments, matchEnseoWorkOrder },
+    "@/lib/server/integrations-safe-mode": {},
+  };
+  vm.runInNewContext(ts.transpileModule(`${source}\nexport { saveOperationalRecord };`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports, require: name => { assert.ok(Object.hasOwn(dependencies, name), name); return dependencies[name]; } });
+
+  let report;
+  let completed = 0;
+  const admin = { from(table) {
+    if (table === "cmpri_email_events") return {
+      select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: null }) }),
+      upsert: () => ({ select: () => ({ single: async () => ({ data: { id: "event" } }) }) }),
+      update: () => ({ eq: async () => { completed++; return {}; } }),
+    };
+    if (table === "cmpri_gss_reports") return { upsert: async row => { report = row; return {}; } };
+    assert.fail(`Unexpected table ${table}`);
+  } };
+  const message = { id: "1", subject: "Weekly GSS report", text: "Overall Satisfaction: 87.5%", from: "sender", to: "recipient", direction: "inbound", messageAt: "2026-09-14T12:00:00Z" };
+  await exports.saveOperationalRecord(admin, message);
+  assert.equal(report.scores["Overall Satisfaction"], 87.5);
+  await exports.saveOperationalRecord(admin, { ...message, id: "2", subject: "Re: Weekly GSS report", text: "Thanks for the report." });
+  assert.equal(report.scores["Overall Satisfaction"], 87.5);
+  await exports.saveOperationalRecord(admin, { ...message, id: "3", text: "Overall Satisfaction: 0%" });
+  assert.equal(report.scores["Overall Satisfaction"], 0);
+  assert.equal(completed, 3);
+});
 test("credit memo retained as warranty case", () => assert.equal(parseOperationalEmail({subject: "Credit memo for returned part"}).category, "warranty"));
 test("in transit purchase status", () => assert.equal(parseOperationalEmail({subject: "HD Supply shipment PO 12345",text: "In transit"}).purchaseStatus, "In Transit"));
 test("not delivered does not mean delivered", () => assert.notEqual(parseOperationalEmail({subject: "HD Supply PO 12345",text: "Shipment not delivered"}).purchaseStatus, "Delivered"));

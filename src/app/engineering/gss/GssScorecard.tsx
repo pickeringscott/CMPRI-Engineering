@@ -10,8 +10,8 @@ export default function GssScorecard() {
   const [latest, ...previous] = verifiedGssReports;
   return <div className={styles.scorecard}>
     <section aria-labelledby="gss-latest-title" className={styles.latest}>
-      <header className={styles.heading}><h1 data-cmpri-page-heading id="gss-latest-title">GSS Reports</h1><time dateTime={latest.date}>{dateLabel(latest.date)}</time></header>
-      <div className={styles.fullPaper}>{latestRankings.map((ranking, index) => <FullRanking key={ranking.period} ranking={ranking} withLegend={index === 0} />)}</div>
+      <header className={styles.heading}><h1 data-cmpri-page-heading id="gss-latest-title">GSS Reports</h1><time dateTime={latest.date}>Verified report · {dateLabel(latest.date)}</time></header>
+      <div className={styles.fullPaper}>{latestRankings.map((ranking, index) => <FullRanking key={ranking.period} ranking={ranking} reportDateLabel={dateLabel(latest.date)} withLegend={index === 0} />)}</div>
     </section>
     <section className={styles.history} aria-labelledby="gss-history-title">
       <h2 id="gss-history-title">CMPRI · Previous three reports</h2>
@@ -21,7 +21,7 @@ export default function GssScorecard() {
         <tbody>{report.snapshots.map(snapshot => <tr key={snapshot.period}><th scope="row">{snapshot.period}</th><td data-label="Sample Size">{snapshot.sampleSize}</td>{snapshot.scores.map((score, index) => <td key={metrics[index]} data-label={metrics[index]}>{score.toFixed(1)}</td>)}<td className={styles.trend} data-label="Source trend"><Trend direction={snapshot.trend} /></td></tr>)}</tbody>
       </table></div></div></article>)}
     </section>
-    <p className={styles.note}>Taylor Johnson’s weekly GSS reports · Scores retain their source reporting periods: MTD, September, and Wave to Date. Arrows reproduce the source indicators.</p>
+    <p className={styles.note}>Taylor Johnson’s weekly GSS reports · Scores retain their source reporting periods. Arrows reproduce the source indicators.</p>
   </div>;
 }
 

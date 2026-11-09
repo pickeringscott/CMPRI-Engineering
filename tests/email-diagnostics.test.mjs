@@ -20,7 +20,7 @@ function load(relative, env, imports = {}) {
 }
 function diagnostic(env) {
   return load('lib/server/email-diagnostics.ts', env, {
-    '../integrations/email-provider': load('lib/integrations/email-provider.ts', env),
+    '../integrations/email-provider': load('lib/integrations/email-provider.ts', env, { './gss-source': {} }),
     './integrations-safe-mode': load('lib/server/integrations-safe-mode.ts', env),
   }).emailDiagnostics;
 }

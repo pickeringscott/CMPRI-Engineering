@@ -1,5 +1,6 @@
 import type {PdfEvidence} from "../po-attachment-intake";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { gssSourceDate, marriottImageParts, safeGssPng } from "./gss-source";
 /** Read-only mailbox adapters. The only POST is an OAuth token exchange. */
 export type EmailProvider = "gmail" | "microsoft365";
 export type OperationalMessage = { id: string; threadId?: string; subject: string; from: string; to: string; text: string; html?: string; labelIds?: string[]; pdfEvidence?: PdfEvidence[]; messageAt: string; direction: "inbound" | "outbound" };
@@ -25,7 +26,7 @@ export function htmlToText(html: string) {
     .replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/[ \t]+/g, " ").trim();
 }
 
-type MimePart = { partId?: string; filename?: string; mimeType?: string; body?: { data?: string; size?: number; attachmentId?: string }; parts?: MimePart[] };
+type MimePart = { partId?: string; filename?: string; mimeType?: string; headers?: { name: string; value: string }[]; body?: { data?: string; size?: number; attachmentId?: string }; parts?: MimePart[] };
 function gmailHtml(part?: MimePart): string {
  const chunks:string[]=[];const visit=(p?:MimePart)=>{if(p?.mimeType==='text/html'&&p.body?.data)chunks.push(Buffer.from(p.body.data,'base64url').toString('utf8'));for(const child of p?.parts||[])visit(child);};visit(part);return chunks.join('\n');
 }
@@ -49,7 +50,7 @@ export function messageDirection(from: string, account: string): "inbound" | "ou
   return account && addresses.includes(account.trim().toLowerCase()) ? "outbound" : "inbound";
 }
 
-type RequestStage = "OAuth token exchange" | "Gmail list" | "Gmail retrieval" | "Gmail PDF attachment" | "Microsoft messages";
+type RequestStage = "OAuth token exchange" | "Gmail list" | "Gmail retrieval" | "Gmail PDF attachment" | "Gmail GSS retrieval" | "Gmail GSS attachment" | "Microsoft messages";
 const SAFE_OAUTH_CODES = new Set(["deleted_client", "disabled_client", "invalid_dpop_proof", "use_dpop_nonce", "invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "unsupported_grant_type", "invalid_scope", "temporarily_unavailable", "server_error"]);
 const SAFE_GMAIL_CODES = new Set(["authError", "insufficientPermissions", "accessNotConfigured", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded", "backendError", "notFound", "forbidden", "domainPolicy", "UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED", "INVALID_ARGUMENT", "NOT_FOUND", "UNAVAILABLE", "INTERNAL"]);
 function safeProviderCodes(body: unknown, stage: RequestStage): string[] {
@@ -151,14 +152,15 @@ async function jsonRequest(url: string, init: RequestInit, stage: RequestStage, 
     throw new Error(`Mailbox ${stage} failed (${response.status}${codes.length ? `; ${codes.join(", ")}` : ""}).${shape}`);
   }
   try {
-    if (stage === "Gmail PDF attachment") {
+    if (stage === "Gmail PDF attachment" || stage === "Gmail GSS retrieval" || stage === "Gmail GSS attachment") {
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Missing attachment body');
       const chunks: Uint8Array[] = []; let size = 0;
       while (true) {
         const {done,value} = await reader.read(); if (done) break;
         size += value.length;
-        if (size > 14 * 1024 * 1024) { await reader.cancel(); throw new Error('Attachment limit'); }
+        const limit = stage === "Gmail PDF attachment" ? 14 * 1024 * 1024 : 6 * 1024 * 1024;
+        if (size > limit) { await reader.cancel(); throw new Error('Attachment limit'); }
         chunks.push(value);
       }
       return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Json;
@@ -254,4 +256,52 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
   // Chronological ingestion prevents old updates replacing newer state and discovers outbound threads first.
   messages.sort((a, b) => a.messageAt.localeCompare(b.messageAt));
   return { provider, messages, truncated, nextPageToken:continuation };
+}
+
+/** Read only the two Marriott source images from the latest matching weekly
+ * Gmail message. Never return the email body or unrelated attachments. */
+export async function fetchLatestGssSource() {
+  if (configuredEmailProvider() !== 'gmail') throw new Error('GSS source requires Gmail');
+  const token = await accessToken('gmail');
+  const headers = { authorization: `Bearer ${token}` };
+  const base = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(process.env.CMPRI_GMAIL_USER || 'me')}`;
+  const params = new URLSearchParams({ q: 'from:taylor.johnson@hawkeyehotels.com subject:"Hawkeye Hotel Weekly GSS Update"', maxResults: '10' });
+  const list = await jsonRequest(`${base}/messages?${params}`, { headers }, 'Gmail list');
+  const entries = Array.isArray(list.messages) ? list.messages.slice(0, 10) as { id?: unknown }[] : [];
+  const candidates = (await Promise.all(entries.map(async entry => {
+    if (typeof entry.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(entry.id)) return null;
+    // Read headers first, and fetch the full content of only the selected report.
+    const query = new URLSearchParams([['format', 'metadata'], ['metadataHeaders', 'From'], ['metadataHeaders', 'Subject']]);
+    const message = await jsonRequest(`${base}/messages/${encodeURIComponent(entry.id)}?${query}`, { headers }, 'Gmail GSS retrieval');
+    const payload = message.payload as MimePart | undefined;
+    if (!payload) return null;
+    const header = (name: string) => payload.headers?.find(item => item.name.toLowerCase() === name)?.value || '';
+    const date = gssSourceDate(header('from'), header('subject'));
+    return date ? { id: entry.id, date } : null;
+  }))).filter((item): item is { id: string; date: string } => item !== null);
+  // The Gmail result order is receipt order; a later correction of an older
+  // report must not supersede the newer reporting date.
+  candidates.sort((a, b) => b.date.localeCompare(a.date));
+  const candidate = candidates[0];
+  if (candidate) {
+    const { date, id: messageId } = candidate;
+    const full = await jsonRequest(`${base}/messages/${encodeURIComponent(messageId)}?format=full`, { headers }, 'Gmail GSS retrieval');
+    const payload = full.payload as MimePart | undefined;
+    const header = (name: string) => payload?.headers?.find(item => item.name.toLowerCase() === name)?.value || '';
+    if (!payload || gssSourceDate(header('from'), header('subject')) !== date) throw new Error('GSS source changed');
+    const parts = marriottImageParts(gmailHtml(payload), payload);
+    const images = await Promise.all(parts.map(async part => {
+      let data = part.body?.data;
+      if (!data && part.body?.attachmentId) {
+        const id = part.body.attachmentId;
+        if (id.length > 4096) throw new Error('Invalid GSS attachment');
+        const result = await jsonRequest(`${base}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(id)}`, { headers }, 'Gmail GSS attachment');
+        data = typeof result.data === 'string' ? result.data : undefined;
+      }
+      if (!data || data.length > 4 * 1024 * 1024 || !/^[A-Za-z0-9_-]+={0,2}$/.test(data)) throw new Error('Invalid GSS attachment');
+      return safeGssPng(Buffer.from(data, 'base64url'));
+    }));
+    return { date, images: [{ period: 'First ranking', dataUrl: images[0] }, { period: 'Second ranking', dataUrl: images[1] }] };
+  }
+  throw new Error('No matching GSS source');
 }
