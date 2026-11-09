@@ -172,7 +172,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const db = auth.admin;
 
   const { data: existing, error: lookupError } = await db.from("work_orders")
-    .select("id, display_id, hotel_id, created_by, submitted_by_name, issue, room, status, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, notes, revision")
+    .select("id, display_id, hotel_id, created_by, submitted_by_name, issue, room, status, priority, location_id, asset_id, asset_name, technician_name, last_assigned_technician_name, notes, revision")
     .eq("hotel_id", HOTEL_ID)
     .eq("id", id)
     .maybeSingle();
@@ -368,6 +368,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
   if (!data) return NextResponse.json({ error: "This ticket changed while you were saving. Your edits were not saved. Reload before combining the changes." }, { status: 409 });
+  // Deferred rank recalculation can change this row after RETURNING is evaluated.
+  // Avoid an extra read for ordinary saves; reload only when rank inputs changed.
+  const rankInputChanged = (["status", "priority", "location_id", "room"] as const).some(
+    field => Object.prototype.hasOwnProperty.call(update, field) && update[field] !== existing[field],
+  );
+  let committed = data;
+  if (rankInputChanged) {
+    const { data: current, error: reloadError } = await db.from("work_orders")
+      .select("*").eq("hotel_id", HOTEL_ID).eq("id", id).maybeSingle();
+    if (reloadError || !current) {
+      return NextResponse.json({ saved: true, error: "Your changes were saved, but the updated ticket could not be loaded. Reload it before making more changes." });
+    }
+    committed = current;
+  }
   if (isEngineeringWorkOrderActor(auth.principal.profile)) {
     try {
       await recordEngineeringWorkOrderView(auth.admin, { id, display_id: existing.display_id }, {
@@ -377,7 +391,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: resolutionError instanceof Error ? resolutionError.message : "Technician notifications could not be resolved." }, { status: 503 });
     }
   }
-  return NextResponse.json({ workOrder: { ...data, can_correct_report: reportCorrectionAllowed(auth.principal.profile, data.status, canReadWorkOrder(workOrderReader(auth.principal), data)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, data.room) } : {}) } });
+  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) } });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

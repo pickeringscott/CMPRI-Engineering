@@ -76,7 +76,7 @@ export default function TicketRoomRankerPage() {
         {(["A", "B", "C"] as const).map((rank) => <button type="button" key={rank} aria-label={`Show ${counts[rank]} rank ${rank} rooms`} aria-pressed={filter === rank} onClick={() => setFilter(rank)}><b className={`${styles.badge} ${styles[rank]}`}>{rank}</b><span>{counts[rank]}</span></button>)}
       </div>
       {embedded && <ModalDashboardLink className={styles.dashboard}>Dashboard</ModalDashboardLink>}
-      <span className={styles.source}>CMPRI tickets · Highest active priority</span>
+      <span className={styles.source}>CMPRI tickets · Active priorities and counts</span>
     </div>
     {error && <p role="alert" className={styles.error}>{error}{loaded && " Displaying the last successful refresh."}</p>}
     {!loaded && !error && <p role="status" className={styles.message}>Loading rooms and active tickets…</p>}
@@ -99,7 +99,7 @@ export default function TicketRoomRankerPage() {
         </section>;
       })}
     </div>
-    <p className={styles.legend}>A = Low or no active tickets · B = Medium · C = High / Urgent. Completed, Closed and Will Not Do excluded. +N more shows only additional issues.</p>
+    <p className={styles.legend}>A: fewer than 3 Low and no higher-priority tickets. B: 3 Low or 1–2 Medium. C: 4 or more Low, 3 or more Medium, or any High / Urgent. The highest applicable rank wins. Counts use each ticket&apos;s base priority; affected tickets are raised automatically and return to their base priority as the room improves. Completed, Closed and Will Not Do tickets are excluded. +N more shows additional issues.</p>
     <dialog ref={dialog} className={styles.dialog}>
       <button type="button" className={styles.close} onClick={() => dialog.current?.close()}>Close</button>
       <h2 className={styles.detailTitle}>Room {selected?.number}<span>{extras.length} additional issue{extras.length === 1 ? "" : "s"}</span></h2>

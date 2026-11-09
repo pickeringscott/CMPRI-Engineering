@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
         .select("id,room_number,name,location_type,active").eq("hotel_id", hotel).eq("active", true)
         .eq("location_type", "Guest Room").order("id").range(from, to)),
       fetchAllPages<RankingTicket>((from, to) => auth.admin.from("work_orders")
-        .select("id,location_id,room,issue,priority,status").eq("hotel_id", hotel)
+        .select("id,location_id,room,issue,priority,ranker_base_priority,status").eq("hotel_id", hotel)
         .not("status", "in", '("Completed","Closed","Will Not Do")').order("id").range(from, to)),
     ]);
     if (locations.error || tickets.error) throw new Error("Rooms or active tickets could not be loaded.");

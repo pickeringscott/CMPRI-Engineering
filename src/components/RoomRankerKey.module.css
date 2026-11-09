@@ -1,0 +1,9 @@
+.trigger { display:grid;place-items:center;flex:none;width:24px;height:24px;min-height:0!important;border:1px solid currentColor;border-radius:50%;background:transparent;color:inherit;font:700 13px/1 Arial,sans-serif;cursor:pointer;touch-action:manipulation }
+.trigger:hover,.trigger:focus-visible { background:var(--cmpri-outline);outline:2px solid currentColor;outline-offset:1px }
+.panel { position:absolute;z-index:30;top:30px;right:6px;width:min(370px,calc(100% - 12px));max-height:calc(100% - 36px);overflow:auto;padding:12px;border:1px solid var(--cmpri-outline);border-radius:8px;background:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);box-shadow:0 12px 36px #0009;font:400 13px/1.4 Arial,sans-serif;user-select:text;touch-action:pan-y }
+.panel h2 { margin:0 28px 8px 0;font-size:15px;font-weight:700 }
+.panel p { margin:8px 0 }
+.panel ul { margin:8px 0;padding-left:20px }
+.panel li + li { margin-top:5px }
+.close { float:right;display:grid;place-items:center;width:26px;height:26px;min-height:0!important;border:1px solid var(--cmpri-outline);border-radius:4px;background:transparent;color:inherit;font-size:20px;line-height:1;cursor:pointer }
+.close:focus-visible { outline:2px solid currentColor;outline-offset:1px }

@@ -25,6 +25,7 @@ test('event push policy follows existing recipient lists, including secondary ro
       const profile = { role, secondary_roles };
       assert.equal(policy.receivesEventPush(profile, { id:'pool-closed:fixture' }), roles.receivesPoolClosedNotifications(profile));
       assert.equal(policy.receivesEventPush(profile, { id:'room-operations:fixture' }), roles.profileHasRole(profile, 'engineer'));
+      assert.equal(policy.receivesEventPush(profile, { id:'room-rank-change:fixture', work_order_id:null }), true);
       assert.equal(policy.receivesEventPush(profile, { id:'new-order:fixture' }), roles.receivesWorkOrderNotifications(profile));
       assert.equal(policy.receivesEventPush(profile, { id:'uuid-history', work_order_id:'fixture' }), roles.receivesWorkOrderNotifications(profile));
       assert.equal(policy.receivesEventPush(profile, { id:'unrecognized' }), false);

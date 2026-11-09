@@ -24,7 +24,7 @@ const assignment=loadTs('src/lib/server/work-order-assignment.ts');
 const tick=()=>new Promise(r=>setImmediate(r));
 
 // Actual PATCH route and actual database revision trigger, with all data isolated in memory.
-async function fixture(){
+async function fixture(config={}){
  const db=new PGlite();
  await db.exec(`create table work_orders(id uuid primary key,hotel_id text,created_by text,display_id text,issue text,room text,status text,revision int,technician_name text,last_assigned_technician_name text,notes text,category text,priority text,asset_id uuid,asset_name text,action_root_cause text,parts text,cost numeric,hours numeric,due_by text,location_id uuid,history_actor_user_id text,history_source text);`);
  const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
@@ -32,9 +32,15 @@ async function fixture(){
  await db.exec(baseline.slice(start,baseline.indexOf('$$;',start)+3));
  await db.exec('create trigger revision before insert or update on work_orders for each row execute function cmpri_bump_work_order_revision();');
  await db.query(`insert into work_orders(id,hotel_id,created_by,display_id,issue,room,status,technician_name,last_assigned_technician_name,notes,category,priority,asset_name,action_root_cause,parts) values($1,'hotel','actor','fixture','Original issue','Room 101','Closed','Scott','Scott','Saved history','General','Medium','','','')`,[id]);
- let role='Chief Engineer',fail='',release,hold=false,requests=[],beforeUpdate=null;
+ if(config.deferredRanker) await db.exec(`
+  create function simulate_rank_change() returns trigger language plpgsql as $$
+  begin update work_orders set priority='Urgent' where id=new.id and priority<>'Urgent'; return null; end $$;
+  create constraint trigger simulated_rank_change after update on work_orders deferrable initially deferred
+    for each row when (old.status is distinct from new.status and new.status='Open') execute function simulate_rank_change();
+ `);
+ let role='Chief Engineer',fail='',release,hold=false,requests=[],beforeUpdate=null,readCount=0;
  const admin={from(table){assert.equal(table,'work_orders');const filters=[];let patch;const q={select(){return q},eq(k,v){filters.push([k,v]);return q},update(v){patch=v;return q},async maybeSingle(){return run()},async single(){return run()}};
-  async function run(){if(patch&&beforeUpdate){const fn=beforeUpdate;beforeUpdate=null;await fn()}
+  async function run(){if(!patch && ++readCount>1 && config.failReload)return {data:null,error:{message:'reload failed'}};if(patch&&beforeUpdate){const fn=beforeUpdate;beforeUpdate=null;await fn()}
    const entries=Object.entries(patch||{}),params=entries.map(([,v])=>v).concat(filters.map(([,v])=>v));
    const where=filters.map(([k],i)=>`${k}=$${entries.length+i+1}`).join(' and ');
    const sql=patch?`update work_orders set ${entries.map(([k],i)=>`${k}=$${i+1}`).join(',')} where ${where} returning *`:`select * from work_orders where ${where}`;
@@ -46,7 +52,12 @@ async function fixture(){
   '@/lib/constants':{HOTEL_ID:'hotel'},'@/lib/server/auth':{requireUser:async()=>({principal:{...principal,profile:{...principal.profile,role}},admin})},
   '@/lib/server/access':{allows:(p,c)=>roles.profileAllows(p.profile,c)},'@/lib/server/roles':roles,
   '@/lib/work-order-edit-policy':editPolicy,'@/lib/server/work-order-assignment':assignment,
-  '@/lib/server/work-order-mentions':{persistMentionedWorkOrder:async()=>null},
+  '@/lib/server/work-order-mentions':{persistMentionedWorkOrder:async(_admin,input)=>{
+   if(!config.mention || typeof input.update.notes!=='string' || !input.update.notes.includes('@')) return null;
+   const entries=Object.entries(input.update), params=entries.map(([,value])=>value).concat([input.id,input.revision]);
+   const result=await db.query(`update work_orders set ${entries.map(([key],i)=>`${key}=$${i+1}`).join(',')} where id=$${entries.length+1} and revision=$${entries.length+2} returning *`,params);
+   return {data:result.rows[0]||null,error:null};
+  }},
   '@/lib/server/room-ranker':{processRoomRankerSyncForWorkOrder:async()=>{}},
   '@/lib/server/work-order-notification-resolution':{isEngineeringWorkOrderActor:()=>false},
   '@/lib/server/room-availability':{loadCurrentRoomStatuses:async()=>({statuses:new Map()}),currentRoomOperation:()=>null,currentRoomStatus:()=>null},
@@ -68,7 +79,7 @@ async function fixture(){
   fetch:async(url,options)=>{const body=JSON.parse(options.body);requests.push(body);if(hold){hold=false;await new Promise(r=>release=r)}if(fail==='network')throw Error('Network unavailable');if(fail==='api')return {ok:false,json:async()=>({error:'Rejected fixture'})};const result=await patch(body);if(fail==='lost')throw Error('Response lost');return {ok:result.status===200,json:async()=>fail==='unconfirmed'?{}:result.body}},
  };
  vm.runInNewContext(code,ctx);
- return {ctx,messages,requests,row,patch,db,blur:()=>ctx.exports.blur({currentTarget:{value:ctx.issue}}),save:ctx.exports.save,issue:ctx.exports.issue,claim:ctx.exports.claim,hold(){hold=true},release(){release()},fail(v){fail=v},role(v){role=v},race(fn){beforeUpdate=fn},async flush(){while(ctx.issueSaveCount.current||ctx.saveInFlight.current)await tick()}};
+ return {ctx,messages,requests,row,patch,db,reads:()=>readCount,blur:()=>ctx.exports.blur({currentTarget:{value:ctx.issue}}),save:ctx.exports.save,issue:ctx.exports.issue,claim:ctx.exports.claim,hold(){hold=true},release(){release()},fail(v){fail=v},role(v){role=v},race(fn){beforeUpdate=fn},async flush(){while(ctx.issueSaveCount.current||ctx.saveInFlight.current)await tick()}};
 }
 
 test('actual blur without Done saves issue alone, then reopen/save uses its confirmed revision',async()=>{
@@ -115,4 +126,30 @@ test('modal cancellation waits for the blur save, including before React renders
  let closed=0,prompted=0;
  for(const pending of [1,2])vm.runInNewContext(`(()=>{${callback}})()`,{saving:false,issueSaveCount:{current:pending},saveInFlight:{current:false},hasUnsavedChanges:true,setShowCancelConfirm:()=>prompted++,closeEmbeddedTicket:()=>closed++});
  assert.equal(closed,0);assert.equal(prompted,0);
+});
+
+for (const mentioned of [false,true]) test(`PATCH returns post-commit ranker revision and values after ${mentioned?'mention RPC':'ordinary update'}`,async()=>{
+ const f=await fixture({deferredRanker:true,mention:mentioned});try{
+  const first=await f.patch({expected_revision:1,status:'Open',...(mentioned?{notes:'Saved history\n@Scott please review'}:{})});
+  assert.equal(first.status,200);
+  const current=await f.row();
+  assert.equal(current.priority,'Urgent');assert.equal(current.revision,3);
+  assert.equal(first.body.workOrder.priority,'Urgent');assert.equal(first.body.workOrder.revision,current.revision);
+  const next=await f.patch({expected_revision:first.body.workOrder.revision,issue:'Second edit'});
+  assert.equal(next.status,200);assert.equal((await f.row()).issue,'Second edit');
+ }finally{await f.db.close()}
+});
+
+test('unchanged full-save rank fields and issue autosaves avoid an extra read',async()=>{
+ const f=await fixture();try{
+  const result=await f.patch({expected_revision:1,status:'Closed',priority:'Medium',issue:'Ordinary edit'});
+  assert.equal(result.status,200);assert.equal(f.reads(),1);
+ }finally{await f.db.close()}
+});
+test('a failed post-commit read reports that the save succeeded and requires reload',async()=>{
+ const f=await fixture({deferredRanker:true,failReload:true});try{
+  const result=await f.patch({expected_revision:1,status:'Open'});
+  assert.equal(result.status,200);assert.equal(result.body.saved,true);assert.match(result.body.error,/saved.*Reload/i);
+  assert.equal((await f.row()).status,'Open');assert.equal((await f.row()).revision,3);
+ }finally{await f.db.close()}
 });

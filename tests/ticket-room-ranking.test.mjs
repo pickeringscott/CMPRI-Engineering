@@ -14,10 +14,33 @@ test('priority and status changes recompute rather than preserve a corporate or 
  for(const [priority,expected]of [['Low','A'],['Medium','B'],['High','C'],['Urgent','C']])assert.equal(ranking.rankTicketRooms([location('r1','101')],[ticket('t',priority)])[0].rank,expected);
  for(const status of ['Completed','Closed','Will Not Do']){const r=ranking.rankTicketRooms([location('r1','101')],[ticket('high','Urgent',status),ticket('low','Low')])[0];assert.equal(r.rank,'A');assert.equal(r.issues.length,1)}
 });
+test('accumulated priorities raise the room rank at their own thresholds',()=>{
+ const rank=(priorities)=>ranking.rankTicketRooms([location('r1','101')],priorities.map((priority,i)=>ticket(String(i),priority)))[0].rank;
+ for(const [priorities,expected] of [
+  [[], 'A'], [['Low','Low'],'A'], [['Low','Low','Low'],'B'], [['Low','Low','Low','Low'],'C'],
+  [['Medium'],'B'], [['Medium','Medium'],'B'], [['Medium','Medium','Medium'],'C'],
+  [['Low','Low','Medium'],'B'], [['Low','Low','Low','Medium'],'B'],
+  [['Low','Low','Low','Low','Medium'],'C'], [['Low','Medium','Medium','Medium'],'C'],
+  [['Low','High'],'C'], [['Low','Urgent'],'C'],
+ ]) assert.equal(rank(priorities),expected,priorities.join(','));
+});
+test('auto-escalated tickets use original priorities and removed tickets no longer count',()=>{
+ const rank=(tickets)=>ranking.rankTicketRooms([location('r1','101')],tickets)[0].rank;
+ const escalated=(id,status='Open')=>({...ticket(id,'Urgent',status),ranker_base_priority:'Low'});
+ assert.equal(rank([escalated('1'),escalated('2'),escalated('3'),escalated('4')]),'C');
+ assert.equal(rank([escalated('1'),escalated('2'),escalated('3'),escalated('4','Completed')]),'B');
+ assert.equal(rank([escalated('1'),escalated('2')]),'A');
+});
 test('inventory is authoritative; general hall room numbers never leak into a guest room',()=>{
  const inventory=[location('r1','101'),{...location('hall','101'),location_type:'General'},{...location('inactive','103'),active:false},location('r2','102')];
  const rooms=ranking.rankTicketRooms(inventory,[ticket('hall-ticket','Urgent','Open','hall'),ticket('fallback','Medium','Open',null,'Room 102'),ticket('unknown','High','Open',null,'Room 999')]);
  assert.equal(rooms.length,2);assert.equal(rooms[0].rank,'A');assert.equal(rooms[1].rank,'B');
+});
+test('fallback matching chooses the first location ID when names repeat, as the database does',()=>{
+ const inventory=[{...location('z','102'),name:'Shared name'},{...location('a','101'),name:'Shared name'}];
+ const rooms=ranking.rankTicketRooms(inventory,[ticket('fallback','Medium','Open',null,'Shared name')]);
+ assert.equal(rooms.find(room=>room.id==='a').rank,'B');
+ assert.equal(rooms.find(room=>room.id==='z').rank,'A');
 });
 test('zero/one/two/four issues expose only hidden extras after the lead',()=>{
  for(const count of [0,1,2,4]){const room=ranking.rankTicketRooms([location('r1','101')],Array.from({length:count},(_,i)=>ticket(String(i),'High')))[0];assert.equal(room.issues.slice(1).length,Math.max(0,count-1))}

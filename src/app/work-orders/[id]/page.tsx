@@ -98,6 +98,7 @@ type WorkOrder = {
   category?: string | null;
   issue?: string | null;
   priority?: string | null;
+  ranker_base_priority?: string | null;
   parts_status?: PartStatus | null;
   technician_name?: string | null;
   status?: string | null;
@@ -108,6 +109,7 @@ type WorkOrder = {
   cost?: number | null;
   hours?: number | null;
   due_by?: string | null;
+  ranker_auto_urgent?: boolean | null;
   creator_name?: string | null;
   creator_display_role?: string | null;
   created_at?: string | null;
@@ -1647,7 +1649,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       || actionRootCause !== (order.action_root_cause || "")
       || parts !== (order.parts || explicitPartSuggestion(cleanTicketReportedIssue(order.issue || "", order.room || "")))
       || cost !== (order.cost == null ? "" : String(order.cost)) || hours !== (order.hours == null ? "" : String(order.hours))
-      || dueBy !== (order.due_by ? String(order.due_by).slice(0,10) : "");
+      || (!order.ranker_auto_urgent && dueBy !== (order.due_by ? String(order.due_by).slice(0,10) : ""));
     if (!notesOnly && roomChanged && otherFieldEdits) {
       setMessage("Save or discard other field edits before correcting Room/Location. Your edits are still here.");
       return false;
@@ -1671,7 +1673,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if ((order.technician_name || "") !== technicianName.trim()) fieldChanges.push(`Technician: ${order.technician_name || "Unassigned"} → ${technicianName.trim() || "Unassigned"}`);
     if ((order.status || "Open") !== saveStatus) fieldChanges.push(`Status: ${order.status || "Open"} → ${saveStatus}`);
     const originalDue = order.due_by ? String(order.due_by).slice(0,10) : "";
-    if (originalDue !== dueBy) fieldChanges.push(`Due By: ${originalDue || "None"} → ${dueBy || "None"}`);
+    if (!order.ranker_auto_urgent && originalDue !== dueBy) fieldChanges.push(`Due By: ${originalDue || "None"} → ${dueBy || "None"}`);
     if (cleanTicketReportedIssue(order.issue || "", order.room || "") !== normalizedIssue) fieldChanges.push("Reported Issue updated");
     const changeLines = fieldChanges.map((text, index) => historyLine({ id: `change-${index}`, timestamp: new Date(Date.now() + index).toISOString(), actor: currentActor, kind: "change", text }));
     const notesWithChanges = [editorNotes.trim(), ...changeLines].filter(Boolean).join("\n");
@@ -1706,7 +1708,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         parts: parts.trim(),
         cost: cost.trim() === "" ? 0 : Number(cost),
         hours: hours.trim() === "" ? 0 : Number(hours),
-        due_by: dueBy || null,
+        ...(!order.ranker_auto_urgent ? { due_by: dueBy || null } : {}),
       });
     } else if (canEditField("asset_id")) {
       Object.assign(updatePayload, {
@@ -2288,7 +2290,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </div>
                 <div className="cmpri-ticket-metadata-field min-w-0">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority{pendingField("priority")}</div>
-                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
+                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" aria-describedby={order.ranker_base_priority && order.ranker_base_priority !== order.priority ? "ranker-priority-hint" : undefined} className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
+                  {order.ranker_base_priority && order.ranker_base_priority !== order.priority && <p id="ranker-priority-hint" className="mt-1 text-xs text-amber-300">Room Ranker temporarily raised this priority from {order.ranker_base_priority}. Saving a value different from the saved priority changes the underlying priority, but it may stay raised until the room improves. Selecting the saved priority again does not change the underlying priority.</p>}
                 </div>
                 <div className="cmpri-ticket-metadata-field min-w-0">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician{pendingField("technicianName")}</div>
@@ -2300,8 +2303,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
                 </div>
                 <div className="cmpri-ticket-metadata-field min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By{pendingField("dueBy")}</div>
-                  {editingField === "due_by" && canEditField("due_by") ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving} onClick={() => setEditingField("due_by")} aria-label="Edit due by" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{dueBy || "No due date"}</button>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By{!order.ranker_auto_urgent && pendingField("dueBy")}</div>
+                  {editingField === "due_by" && canEditField("due_by") && !order.ranker_auto_urgent ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving || Boolean(order.ranker_auto_urgent)} onClick={() => setEditingField("due_by")} aria-label="Edit due by" aria-describedby={order.ranker_auto_urgent ? "ranker-due-date-hint" : undefined} className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{(order.ranker_auto_urgent ? order.due_by?.slice(0, 10) : dueBy) || "No due date"}</button>}
+                  {order.ranker_auto_urgent && <p id="ranker-due-date-hint" className="mt-1 text-xs text-amber-300">Room Ranker made this ticket urgent and set its due date to the day urgency began. Its previous due date returns when automatic urgency ends; due date edits cannot be saved here until then.</p>}
                 </div>
               </div>
             </section>
