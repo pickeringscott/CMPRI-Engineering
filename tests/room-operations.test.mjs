@@ -928,32 +928,11 @@ test("room-operations API accepts direct CSV payload and lenient LOS/reserved va
   assert.match(api, /Number\.isSafeInteger\(parsed\)/);
 });
 
-test("room-operations image extraction endpoint sends image parts to ChatGPT vision", () => {
-  const extractRoute = readFileSync(new URL("../src/app/api/room-operations/extract/route.ts", import.meta.url), "utf8");
+test("connected room imports remain independent of disabled website image extraction", () => {
   const mcpWrites = readFileSync(new URL("../src/lib/server/cmpri-mcp-writes.ts", import.meta.url), "utf8");
-  assert.match(extractRoute, /requireCapability\(request, "edit_tickets"\)/);
-  assert.match(extractRoute, /OPENAI_API_KEY/);
-  assert.match(extractRoute, /api\.openai\.com\/v1\/chat\/completions/);
-  assert.match(extractRoute, /image_url/);
-  assert.match(extractRoute, /createRoomOperationsOcrCrops/);
-  assert.match(extractRoute, /two enlarged, slightly overlapping table crops/);
-  assert.match(extractRoute, /gpt-4o/);
-  assert.match(extractRoute, /Return ONLY one valid JSON object/);
-  assert.match(extractRoute, /"room_status"/);
-  assert.match(extractRoute, /"expected_departures"/);
   assert.doesNotMatch(mcpWrites, /extractAndValidateRoomOperations|api\/room-operations\/extract/);
   assert.match(mcpWrites, /validate_only: true/);
   assert.match(mcpWrites, /submit verified report_data/);
-  assert.match(extractRoute, /JSON\.parse\(cleanJson\)/);
-  assert.match(extractRoute, /report_data: reportData/);
-});
-
-test("room-operations importer supports direct image upload and auto-import with ChatGPT", () => {
-  const importer = readFileSync(new URL("../src/app/engineering/room-operations/RoomOperationsImport.tsx", import.meta.url), "utf8");
-  assert.match(importer, /handleImageUpload/);
-  assert.match(importer, /\/api\/room-operations\/extract/);
-  assert.match(importer, /accept="\.csv,\.tsv,\.txt,image\/\*"/);
-  assert.match(importer, /Upload RoomStatus Images/);
 });
 
 test("guest snapshot preserves group fields without querying legacy live rows", async () => {

@@ -25,6 +25,8 @@ const nextConfig: NextConfig = {
 		const revalidate = [{ key: "Cache-Control", value: "no-cache" }];
 		return [
 			{ source: "/sw.js", headers: revalidate },
+			// Assets are generated from pinned packages and the URL changes with their versions.
+			{ source: "/local-ocr/tesseract-7.0.0-core-7.0.0-eng-1.0.0-pdf-6.3.289-app-v1/:path*", headers: immutable },
 			{ source: "/backgrounds/thanksgiving-animated/cache-worker.js", headers: revalidate },
 			{ source: "/backgrounds/thanksgiving-animated/index.html", headers: revalidate },
 			{ source: "/backgrounds/thanksgiving-animated/:asset((?:index|scene|leaves)\\.[a-f0-9]{16}\\.(?:html|css|js))", headers: immutable },

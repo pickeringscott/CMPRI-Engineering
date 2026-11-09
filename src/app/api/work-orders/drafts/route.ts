@@ -107,14 +107,60 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireCapability(request, "submit");
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { admin, principal } = auth;
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid draft is required." }, { status: 400 });
 
   const locationId = text(body.location_id, 100, true);
   const issue = text(body.issue, 4000, true);
-  const notes = text(body.notes, 20000) ?? "";
-  if (!locationId || !issue || notes === null) {
+  const notes = text(body.notes, 20000);
+  if (!locationId || !issue) {
     return NextResponse.json({ error: "A draft requires a valid room/location and issue." }, { status: 400 });
+  }
+  if (notes === null) return NextResponse.json({ error: "Draft notes must be text of 20,000 characters or fewer. Your changes have not been saved." }, { status: 400 });
+  const creationId = body.creation_id;
+  if (creationId !== undefined && (typeof creationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(creationId))) {
+    return NextResponse.json({ error: "Invalid draft creation identifier." }, { status: 400 });
+  }
+  const canSetEngineeringFields = roleAllows(auth.principal.profile.role, "edit_tickets")
+    || roleAllows(auth.principal.profile.role, "review_tickets");
+  // Compare only request-derived fields. The room label is copied from a
+  // location and may have changed since the original draft was created.
+  const requestRow = {
+    ...(typeof creationId === "string" ? { id: creationId.toLowerCase() } : {}),
+    hotel_id: HOTEL_ID,
+    created_by: auth.principal.identity.id,
+    staff_first_name: text(body.staff_first_name, 80) || null,
+    location_id: locationId,
+    issue,
+    notes,
+    asset_id: canSetEngineeringFields ? text(body.asset_id, 100) || null : null,
+    asset_name: canSetEngineeringFields ? text(body.asset_name, 500) || "" : "",
+    category: canSetEngineeringFields ? text(body.category, 500) || "General" : "General",
+    priority: canSetEngineeringFields ? text(body.priority, 100) || "Medium" : "Medium",
+  };
+  const replayMatches = (existing: Record<string, unknown>) => Object.entries(requestRow).every(([key, value]) => existing[key] === value);
+  const conflict = () => NextResponse.json({ error: "This draft save could not be safely retried. Keep your changes and check your saved drafts." }, { status: 409 });
+  if (typeof creationId === "string") {
+    // A delayed retry must not normally recreate a draft already turned into a
+    // work order. Submission can still race this lookup; complete protection
+    // after deletion would require an atomic, durable creation receipt.
+    const { data: submitted, error: submittedError } = await auth.admin.from("work_orders")
+      .select("id").eq("hotel_id", HOTEL_ID).eq("source_draft_created_by", auth.principal.identity.id)
+      .eq("source_draft_id", creationId.toLowerCase()).maybeSingle();
+    if (submittedError) return NextResponse.json({ error: "The draft save could not be confirmed. Keep your changes and retry." }, { status: 503 });
+    if (submitted) return NextResponse.json({ error: "This draft was already submitted as a work order. Check your work orders before continuing." }, { status: 409 });
+  }
+
+  // Only look for a previous insert when the location cannot be verified or
+  // the insert collides. Normal first saves do not need this extra read.
+  async function recoverPreviousDraft() {
+    if (typeof creationId !== "string") return null;
+    const { data: existing, error: lookupError } = await admin.from("cmpri_work_order_drafts")
+      .select("*").eq("hotel_id", HOTEL_ID).eq("created_by", principal.identity.id)
+      .eq("id", creationId.toLowerCase()).maybeSingle();
+    if (lookupError) return NextResponse.json({ error: "The draft save could not be confirmed. Keep your changes and retry." }, { status: 503 });
+    return existing ? (replayMatches(existing) ? NextResponse.json({ draft: existing, already_saved: true }) : conflict()) : null;
   }
 
   const { data: location, error: locationError } = await auth.admin
@@ -123,23 +169,19 @@ export async function POST(request: NextRequest) {
     .eq("hotel_id", HOTEL_ID)
     .eq("id", locationId)
     .maybeSingle();
-  if (locationError) return NextResponse.json({ error: "Location could not be verified." }, { status: 503 });
-  if (!location || location.active === false) return NextResponse.json({ error: "Select an active CMPRI location." }, { status: 400 });
+  if (locationError || !location || location.active === false) {
+    // A committed save can be retried even after the location changes or the
+    // location lookup fails. Verify the original row before rejecting it.
+    const recovered = await recoverPreviousDraft();
+    if (recovered) return recovered;
+    if (locationError) return NextResponse.json({ error: "Location could not be verified." }, { status: 503 });
+    return NextResponse.json({ error: "Select an active CMPRI location." }, { status: 400 });
+  }
 
-  const canSetEngineeringFields = roleAllows(auth.principal.profile.role, "edit_tickets")
-    || roleAllows(auth.principal.profile.role, "review_tickets");
   const row = {
-    hotel_id: HOTEL_ID,
-    created_by: auth.principal.identity.id,
-    staff_first_name: text(body.staff_first_name, 80) || null,
+    ...requestRow,
     location_id: location.id,
     room: location.name,
-    issue,
-    notes,
-    asset_id: canSetEngineeringFields ? text(body.asset_id, 100) || null : null,
-    asset_name: canSetEngineeringFields ? text(body.asset_name, 500) || "" : "",
-    category: canSetEngineeringFields ? text(body.category, 500) || "General" : "General",
-    priority: canSetEngineeringFields ? text(body.priority, 100) || "Medium" : "Medium",
   };
 
   const { data, error } = await auth.admin
@@ -147,7 +189,12 @@ export async function POST(request: NextRequest) {
     .insert(row)
     .select("*")
     .single();
-  if (error) return NextResponse.json({ error: "Draft could not be saved." }, { status: 400 });
+  if (error && error.code === "23505" && typeof creationId === "string") {
+    // The insert may have committed before the client lost its response. An ID is
+    // only reusable for the same user's identical request; never overwrite later edits.
+    return await recoverPreviousDraft() || conflict();
+  }
+  if (error) return NextResponse.json({ error: "The draft could not be saved. Keep your changes and try again." }, { status: 503 });
   return NextResponse.json({ draft: data });
 }
 
@@ -191,6 +238,11 @@ export async function PATCH(request: NextRequest) {
     update.room = location.name;
   }
   if (!Object.keys(update).length) return NextResponse.json({ error: "No draft changes were supplied." }, { status: 400 });
+  // Avoid creating revision conflicts merely because an unchanged draft was
+  // autosaved. The original revision is still checked above.
+  if (Object.entries(update).every(([key, value]) => existing[key] === value)) {
+    return NextResponse.json({ draft: existing });
+  }
 
   const { data, error } = await auth.admin.from("cmpri_work_order_drafts")
     .update({ ...update, updated_at: new Date().toISOString(), revision: existing.revision + 1 })

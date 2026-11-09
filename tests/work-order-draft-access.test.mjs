@@ -44,7 +44,11 @@ function fixture(role, actorId = "actor") {
     },
   ];
   const locations = [{ id: "room-1", hotel_id: hotelId, name: "Room 101", active: true }];
+  const workOrders = [];
   const writes = [];
+  const queries = [];
+  let locationReadError = false;
+  let insertRace;
   const admin = {
     from(table) {
       let action = "select";
@@ -64,12 +68,16 @@ function fixture(role, actorId = "actor") {
         then(onFulfilled, onRejected) { return Promise.resolve(execute(false)).then(onFulfilled, onRejected); },
       };
       function execute(single) {
+        queries.push({ table, action });
+        if (table === "locations" && action === "select" && locationReadError) return { data: null, error: { message: "Location read failed" } };
         const rows = table === "profiles" ? profiles
           : table === "cmpri_work_order_drafts" ? drafts
-            : table === "locations" ? locations : [];
+            : table === "locations" ? locations : table === "work_orders" ? workOrders : [];
         const matched = rows.filter((row) => filters.every((filter) => filter(row)));
         if (action === "insert") {
-          const inserted = { id: "new-draft", revision: 1, ...value };
+          if (insertRace) { insertRace(rows, value); insertRace = undefined; }
+          const inserted = { id: `new-draft-${writes.length}`, revision: 1, ...value };
+          if (rows.some((row) => row.id === inserted.id)) return { data: null, error: { code: "23505" } };
           rows.push(inserted);
           writes.push({ action, table, id: inserted.id });
           return { data: inserted, error: null };
@@ -118,6 +126,11 @@ function fixture(role, actorId = "actor") {
   });
   return {
     drafts,
+    locations,
+    workOrders,
+    queries,
+    failLocationReads: () => { locationReadError = true; },
+    simulateInsertRace: (handler) => { insertRace = handler; },
     writes,
     get: (params = {}) => exports.GET({ ...request(), nextUrl: { searchParams: new URLSearchParams(params) } }),
     post: (body) => exports.POST(request(body)),
@@ -269,6 +282,125 @@ test("General Managers cannot set engineering fields in their own drafts", async
   assert.equal(updated.body.draft.asset_name, "");
   assert.equal(updated.body.draft.category, "General");
   assert.equal(updated.body.draft.priority, "Medium");
+});
+
+test("new draft notes are validated before saving rather than silently discarded", async () => {
+  const route = fixture("Chief Engineer");
+  for (const notes of ["x".repeat(20001), { bad: true }]) {
+    const response = await route.post({ location_id: "room-1", issue: "Repair", notes });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /notes/i);
+    assert.equal(route.writes.length, 0);
+  }
+  const accepted = await route.post({ location_id: "room-1", issue: "Repair", notes: "x".repeat(20000) });
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.draft.notes.length, 20000);
+  const absent = await route.post({ location_id: "room-1", issue: "Repair" });
+  assert.equal(absent.status, 200);
+  assert.equal(absent.body.draft.notes, "");
+});
+
+test("new draft retries reuse the saved row only for the same actor and identical contents", async () => {
+  const route = fixture("Chief Engineer");
+  const creationId = "62d3ece0-e80b-4fb6-ae18-7537b3bd1589";
+  const input = { creation_id: creationId, location_id: "room-1", issue: "Air conditioner", notes: "Inspection needed" };
+  const first = await route.post(input);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.draft.id, creationId);
+  assert.deepEqual(route.queries.map(({table, action}) => `${table}:${action}`), ["work_orders:select", "locations:select", "cmpri_work_order_drafts:insert"], "a normal create does not read the draft table before insertion");
+  const replay = await route.post(input);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.already_saved, true);
+  assert.equal(route.writes.length, 1);
+  assert.equal((await route.post({ ...input, notes: "Different" })).status, 409);
+  assert.equal(route.writes.length, 1);
+  first.body.draft.created_by = "submitter";
+  const foreign = await route.post(input);
+  assert.equal(foreign.status, 409);
+  assert.equal(foreign.body.draft, undefined);
+  assert.equal(route.writes.length, 1);
+  assert.equal((await route.post({ ...input, creation_id: "not-a-uuid" })).status, 400);
+});
+
+test("retry recovers a committed draft when location lookup fails", async () => {
+  const route = fixture("Chief Engineer");
+  const input = { creation_id: "62d3ece0-e80b-4fb6-ae18-7537b3bd1589", location_id: "room-1", issue: "Air conditioner" };
+  assert.equal((await route.post(input)).status, 200);
+  route.failLocationReads();
+  const retry = await route.post(input);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.already_saved, true);
+  assert.equal(route.writes.length, 1);
+  const fresh = await route.post({ ...input, creation_id: "a26b6509-4e33-4a12-9941-67ddad9169cc" });
+  assert.equal(fresh.status, 503);
+});
+
+test("committed draft retries survive a renamed, deactivated, or missing location without overwriting edits", async () => {
+  for (const changeLocation of [
+    (locations) => { locations[0].name = "Renamed room"; },
+    (locations) => { locations[0].active = false; },
+    (locations) => { locations.splice(0); },
+  ]) {
+    const route = fixture("Chief Engineer");
+    const creationId = "62d3ece0-e80b-4fb6-ae18-7537b3bd1589";
+    const input = { creation_id: creationId, location_id: "room-1", issue: "Air conditioner", notes: "Original notes" };
+    assert.equal((await route.post(input)).status, 200);
+    changeLocation(route.locations);
+    const replay = await route.post(input);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.already_saved, true);
+    assert.equal(replay.body.draft.notes, "Original notes");
+    assert.equal(route.writes.length, 1);
+    replay.body.draft.notes = "Updated by another session";
+    assert.equal((await route.post(input)).status, 409);
+    assert.equal(replay.body.draft.notes, "Updated by another session");
+    assert.equal(route.writes.length, 1);
+  }
+});
+
+test("concurrent duplicate inserts recover an identical save and reject a different one", async () => {
+  const input = { creation_id: "62d3ece0-e80b-4fb6-ae18-7537b3bd1589", location_id: "room-1", issue: "Air conditioner", notes: "Inspection needed" };
+  for (const different of [false, true]) {
+    const route = fixture("Chief Engineer");
+    route.simulateInsertRace((rows, value) => rows.push({ ...value, notes: different ? "Changed elsewhere" : value.notes, revision: 1 }));
+    const result = await route.post(input);
+    assert.equal(result.status, different ? 409 : 200);
+    if (!different) assert.equal(result.body.already_saved, true);
+    assert.equal(route.writes.length, 0);
+  }
+});
+
+test("retry does not recreate a draft already submitted by the same user at this property", async () => {
+  const route = fixture("Chief Engineer");
+  const creationId = "62d3ece0-e80b-4fb6-ae18-7537b3bd1589";
+  const input = { creation_id: creationId, location_id: "room-1", issue: "Air conditioner" };
+  route.workOrders.push({ id: "work-order", hotel_id: hotelId, source_draft_created_by: "actor", source_draft_id: creationId });
+  const response = await route.post(input);
+  assert.equal(response.status, 409);
+  assert.match(response.body.error, /already submitted/);
+  assert.equal(route.writes.length, 0);
+
+  // A different property or creator must not affect this user's request or
+  // reveal the existence of another work order.
+  for (const existing of [
+    { hotel_id: "other-hotel", source_draft_created_by: "actor" },
+    { hotel_id: hotelId, source_draft_created_by: "submitter" },
+  ]) {
+    const other = fixture("Chief Engineer");
+    other.workOrders.push({ id: "other-order", source_draft_id: creationId, ...existing });
+    assert.equal((await other.post(input)).status, 200);
+    assert.equal(other.writes.length, 1);
+  }
+});
+
+test("an unchanged autosave keeps its revision and still rejects stale callers", async () => {
+  const route = fixture("Chief Engineer");
+  const noChange = await route.patch({ id: "own-draft", expected_revision: 1, issue: "Actor draft", notes: "" });
+  assert.equal(noChange.status, 200);
+  assert.equal(noChange.body.draft.revision, 1);
+  assert.equal(route.writes.length, 0);
+  const stale = await route.patch({ id: "own-draft", expected_revision: 0, issue: "Actor draft" });
+  assert.equal(stale.status, 409);
 });
 
 test("engineer reviewers may edit and delete another submitter's draft", async () => {

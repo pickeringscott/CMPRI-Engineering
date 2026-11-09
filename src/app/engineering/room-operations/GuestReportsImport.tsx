@@ -2,6 +2,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { guestReportName, type GuestRoom } from "@/lib/room-guest-reports";
+import LocalOcrReview from "@/components/LocalOcrReview";
 import styles from './GuestReportsImport.module.css';
 type ReportFile = { name: string; text: string };
 type Preview = { date: string; rows: GuestRoom[]; previousId: string | null };
@@ -13,6 +14,7 @@ export default forwardRef<GuestReportsImportHandle, {
  const [files, setFiles] = useState<ReportFile[]>([]);
  const [selectedFiles,setSelectedFiles]=useState<File[]>([]);
  const [preview, setPreview] = useState<Preview | null>(null);
+ const [ocrOpen, setOcrOpen] = useState(false);
  const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
  const inFlight = useRef(false);
  const picker=useRef<HTMLInputElement>(null);
@@ -39,6 +41,7 @@ export default forwardRef<GuestReportsImportHandle, {
   try{
    const next=[...selectedFiles,...selected];
    if(next.length>3)throw Error('Choose one to three different reports.');
+   if(next.some(file=>!/\.csv$/i.test(file.name)))throw Error('Choose CSV report files. Use the local OCR tool below to review text from images or PDFs.');
    const kinds=next.map(file=>guestReportName(file.name).kind);
    if(new Set(kinds).size!==kinds.length)throw Error('Choose only one file for each report type.');
    for(const file of next)if(file.size>3*1024*1024)throw Error(`${file.name}: use a file no larger than 3 MB.`);
@@ -66,14 +69,8 @@ export default forwardRef<GuestReportsImportHandle, {
   await run(async () => {
    const reports: ReportFile[] = [];
    for (const file of selectedFiles) {
-    if (/\.csv$/i.test(file.name)) reports.push({ name: file.name, text: await file.text() });
-    else {
-     const form = new FormData(); form.append("file", file);
-     const response = await fetch("/api/room-operations/guest-reports/extract", { method: "POST", headers: await authorizationHeaders(), body: form });
-     const result = await response.json();
-     if (!response.ok) throw Error(result.error || "The scan could not be read.");
-     reports.push({ name: file.name, text: result.text });
-    }
+    if (!/\.csv$/i.test(file.name)) throw Error('Choose CSV report files. Use the local OCR tool below to review text from images or PDFs.');
+    reports.push({ name: file.name, text: await file.text() });
    }
    setFiles(reports); setPreview(await request(reports, true));
   });
@@ -87,14 +84,19 @@ export default forwardRef<GuestReportsImportHandle, {
  {!open && <div className="text-sm">{feedback}</div>}
  <section id="room-ops-upload-form" hidden={!open} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label="Upload Room Operations">
   <p className="text-sm text-slate-300"><strong>In-House Guest List Details</strong> is required first. <strong>Housekeeping Departures</strong> and <strong>Housekeeping Arrivals</strong> are optional and may also be added after today’s guest list is accepted.</p>
-  <p className="text-xs text-slate-400">Keep the original timestamped filenames. Updated reports must be newer than the accepted report of the same type. Review the preview before confirming.</p>
+  <p className="text-xs text-slate-400">Upload CSV reports with their original timestamped names. Updated reports must be newer than the accepted report of the same type. Review the preview before confirming.</p>
   <div className={styles.picker} role="group" aria-label="Report files" onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect=busy?'none':'copy'}} onDrop={event=>{event.preventDefault();choose(Array.from(event.dataTransfer.files))}}>
    <button type="button" disabled={busy} className={styles.add} onClick={()=>picker.current?.click()}>Drag/add files here</button>
-   <input ref={picker} type="file" multiple accept=".csv,.png,.jpg,.jpeg,.webp" hidden disabled={busy} onChange={event=>{choose(Array.from(event.target.files||[]));event.target.value=''}}/>
+   <input ref={picker} type="file" multiple accept=".csv,text/csv" hidden disabled={busy} onChange={event=>{choose(Array.from(event.target.files||[]));event.target.value=''}}/>
    {selectedFiles.length>0&&<div className={styles.selection}><span>{selectedFiles.length} {selectedFiles.length===1?"report":"reports"} selected</span><button type="button" disabled={busy} onClick={()=>{setSelectedFiles([]);setFiles([]);setPreview(null);setError("");setNotice("")}}>Clear</button></div>}
    <button type="button" className={styles.submit} disabled={busy||!selectedFiles.length} onClick={()=>void submit()}>Submit</button>
   </div>
   {open && feedback}
+  <details className="rounded-xl border border-slate-700 p-3" onToggle={event=>setOcrOpen(event.currentTarget.open)}>
+   <summary className="cursor-pointer text-sm font-semibold">Read a report image or PDF locally</summary>
+   <p className="mt-2 text-xs text-slate-400">OCR text is a reference, not an import. Review every page and value against the source, then prepare a supported CSV and use the file import above. OCR cannot confirm that every source row was recognized.</p>
+   {open && ocrOpen && <LocalOcrReview />}
+  </details>
   {preview && <>
    <h3 className="font-bold">Review {preview.date} — {preview.rows.length} Rooms</h3>
    <div className="max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr>{["Room", "Guest", "Company", "Pets", "VIP", "Arrival", "Departure", "Incoming"].map(title => <th key={title} className="p-2">{title}</th>)}</tr></thead>

@@ -35,7 +35,32 @@ test('confirmed import uses one atomic RPC; stale review refuses save',async()=>
  const stale=harness();assert.equal((await stale.run({files:[guest],previousId:'old-id'})).status,409);assert.equal(stale.writes.length,0);
 });
 test('different incoming guests reject entire batch',async()=>{const h=harness();const r=await h.run({files:[guest,{...arrivals,text:arrivals.text+'\n101,Other Guest,Other,c'}],previousId:null});assert.equal(r.status,422);assert.equal(h.writes.length,0)});
-test('group name is retained in scan extraction contract',()=>{const s=readFileSync(new URL('../src/app/api/room-operations/guest-reports/extract/route.ts',import.meta.url),'utf8');assert.match(s,/COMPANY,GROUP NAME,PETS/)});
+for (const route of ['guest-reports/extract', 'extract']) {
+ test(`${route} refuses image extraction without reading or transmitting reports even when a key exists`, async () => {
+  const source = readFileSync(new URL(`../src/app/api/room-operations/${route}/route.ts`, import.meta.url), 'utf8');
+  for (const allowed of [true, false]) {
+   let reads = 0, calls = 0, checks = 0;
+   const exports = {};
+   const request = { formData: async () => { reads++; throw Error('report body must not be read'); }, json: async () => { reads++; throw Error('report body must not be read'); } };
+   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, {
+    exports,
+    process: { env: { OPENAI_API_KEY: 'unused-test-key' } },
+    fetch: async () => { calls++; throw Error('disabled extraction must not call a provider'); },
+    require(name) {
+     if (name === 'next/server') return { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200, headers: options.headers }) } };
+     if (name === '@/lib/server/auth') return { requireCapability: async (actual, capability) => { checks++; assert.equal(actual, request); assert.equal(capability, 'edit_tickets'); return allowed ? {} : null; } };
+     throw Error(`Unexpected route dependency: ${name}`);
+    },
+   });
+   const result = await exports.POST(request);
+   assert.equal(result.status, allowed ? 410 : 403);
+   if (allowed) assert.match(result.body.error, /disabled.*CSV/i);
+   assert.equal(checks, 1);
+   assert.equal(reads, 0);
+   assert.equal(calls, 0);
+  }
+ });
+}
 test('unassigned arrival rows and repeated Preferences commit one incoming stay through the real parser',async()=>{
  const file={...arrivals,text:'ROOM NUMBER,GUEST NAME,PREFERENCES\n,Unassigned Guest,High floor\n101,Sam Guest,High floor\n101,Sam Guest,Extra pillows'};
  const h=harness();const r=await h.run({files:[guest,file],previousId:null});assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(h.writes.length,1);assert.equal(r.body.rows[0].incoming_name,'Sam Guest');assert.equal(r.body.rows.length,1);

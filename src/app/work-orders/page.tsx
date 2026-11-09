@@ -45,6 +45,7 @@ import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-kno
 import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
+import { draftFieldsKey, guardedDraftRequest, mergeConfirmedOwnDraft, saveDraftWithRecovery, type DraftFields, type PendingDraftSave, type SavedDraft } from "@/lib/work-orders/draft-save";
 
 type WorkOrderDraft = {
   id: string;
@@ -539,6 +540,33 @@ export default function WorkOrdersPage() {
   const [activeDraftId, setActiveDraftId] = useState("");
   const [activeDraftRevision, setActiveDraftRevision] = useState<number | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
+  const draftSaveInFlight = useRef<symbol | null>(null);
+  const pendingDraftSave = useRef<PendingDraftSave | null>(null);
+  const [lastSavedDraftKey, setLastSavedDraftKey] = useState("");
+  const [unconfirmedCreationId, setUnconfirmedCreationId] = useState("");
+  const draftIdentityScope = useRef("");
+  const draftIdentityGeneration = useRef(0);
+  useEffect(() => {
+    const scope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
+    if (draftIdentityScope.current !== scope) draftIdentityGeneration.current++;
+    if (draftIdentityScope.current && draftIdentityScope.current !== scope) {
+      pendingDraftSave.current = null;
+      draftSaveInFlight.current = null;
+      draftRequestRef.current++;
+      setDrafts([]);
+      setReviewDraft(null);
+      setDraftBusy(false);
+      resetWorkOrderForm(true);
+      setMessage("The account changed. The previous account's form was closed.");
+    }
+    draftIdentityScope.current = scope;
+    // Restore only the scoped, text-free recovery marker as the account changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    try { setUnconfirmedCreationId(scope ? sessionStorage.getItem(`cmpri:unconfirmed-draft:${scope}`) || "" : ""); }
+    catch { setUnconfirmedCreationId(""); }
+    // Reset is intentionally tied to the account scope, not each form edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmpriSession]);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const autoOpenedDraftRef = useRef("");
 
@@ -553,7 +581,7 @@ export default function WorkOrdersPage() {
     };
   }, []);
 
-  const loadDrafts = useCallback(async () => {
+  const loadDrafts = useCallback(async (reportFailure = true) => {
     const requestId = ++draftRequestRef.current;
     setDrafts([]);
     setReviewDraft(null);
@@ -568,12 +596,15 @@ export default function WorkOrdersPage() {
       });
       const payload = await response.json().catch(() => ({}));
       const current = await getValidSession();
-      if (requestId !== draftRequestRef.current || current?.user.id !== session.user.id) return;
+      if (requestId !== draftRequestRef.current || current?.user.id !== session.user.id) return false;
       if (!response.ok) throw new Error(payload.error || "Drafts could not be loaded.");
       setDrafts(((payload.drafts || []) as WorkOrderDraft[]).filter(draft => draft.created_by === session.user.id));
       if (reviewId && payload.review_draft?.id === reviewId && payload.review_draft.can_edit) setReviewDraft(payload.review_draft);
+      else setReviewDraft(null);
+      return true;
     } catch (error) {
-      if (requestId === draftRequestRef.current) setMessage(error instanceof Error ? error.message : "Drafts could not be loaded.");
+      if (reportFailure && requestId === draftRequestRef.current) setMessage(error instanceof Error ? error.message : "Drafts could not be loaded.");
+      return false;
     }
   }, []);
 
@@ -1012,10 +1043,38 @@ export default function WorkOrdersPage() {
       }
     );
 
+  const draftFields: DraftFields = {
+    staff_first_name: staffFirstName.trim(),
+    location_id: locationId,
+    issue: cleanIssueLocationPrefix(issue, locations, locations.find(item => item.id === locationId)).issue,
+    notes,
+    asset_id: systemAssignedTechnicalFields ? null : (assets.find(item => item.id === assetId)?.id || null),
+    asset_name: systemAssignedTechnicalFields ? "" : (assets.find(item => item.id === assetId)?.name || ""),
+    category: systemAssignedTechnicalFields ? "General" : category,
+    priority: systemAssignedTechnicalFields ? "Medium" : priority,
+  };
+  const currentDraftFields = useRef(draftFields);
+  currentDraftFields.current = draftFields;
+  const currentDraftKey = draftFieldsKey(draftFields);
+
   const restoreDraft = useCallback((draft: WorkOrderDraft) => {
     if (draft.created_by !== cmpriSession?.user.id && !draft.can_edit) return;
+    if (pendingDraftSave.current) {
+      setMessage("First retry the unconfirmed draft save. Your text is still here; loading another draft would replace it.");
+      return;
+    }
+    if (photos.length) {
+      setMessage("Selected photos are not part of a saved draft. Remove or submit them before loading a different draft.");
+      return;
+    }
+    if ((issue.trim() || notes.trim() || locationId) && !window.confirm("Loading this draft replaces the text currently in the form. Copy any unsaved changes first. Continue?")) return;
+    if (draft.id === unconfirmedCreationId) {
+      try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${draftIdentityScope.current}`); } catch {}
+      setUnconfirmedCreationId("");
+    }
     setActiveDraftId(draft.id);
     setActiveDraftRevision(draft.revision);
+    setLastSavedDraftKey(draftFieldsKey(draft));
     setStaffFirstName(draft.staff_first_name || "");
     setLocationId(draft.location_id || "");
     setAssetId(draft.asset_id || "");
@@ -1028,7 +1087,7 @@ export default function WorkOrdersPage() {
     setManualCategory(false);
     setManualPriority(false);
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
-  }, [cmpriSession?.user.id]);
+  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId]);
 
   useEffect(() => {
     if (!cmpriSession) return;
@@ -1042,66 +1101,129 @@ export default function WorkOrdersPage() {
   }, [activeDraftId, cmpriSession, drafts, reviewDraft, restoreDraft]);
 
   async function saveDraft(automatic = false) {
+    if (draftSaveInFlight.current) return;
     if (!locationId || !issue.trim()) {
       setMessage("Select a room/location and enter the issue before saving a draft.");
       return;
     }
+    if (unconfirmedCreationId && !pendingDraftSave.current && !activeDraftId) {
+      setMessage("A previous draft save is unconfirmed. Check Saved Drafts before starting another draft.");
+      return;
+    }
+    const saveToken = Symbol("draft-save");
+    draftSaveInFlight.current = saveToken;
     setDraftBusy(true);
     setMessage("");
+    const scope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
+    const generation = draftIdentityGeneration.current;
     try {
-      const selected = locations.find((item) => item.id === locationId);
-      const asset = assets.find((item) => item.id === assetId);
-      const body = {
-        ...(activeDraftId ? { id: activeDraftId, expected_revision: activeDraftRevision } : {}),
-        staff_first_name: staffFirstName.trim(),
-        location_id: locationId,
-        issue: cleanIssueLocationPrefix(issue, locations, selected).issue,
-        notes,
-        asset_id: systemAssignedTechnicalFields ? null : (asset?.id || null),
-        asset_name: systemAssignedTechnicalFields ? "" : (asset?.name || ""),
-        category: systemAssignedTechnicalFields ? "General" : category,
-        priority: systemAssignedTechnicalFields ? "Medium" : priority,
+      const checkSession = async () => {
+        const current = await getValidSession();
+        if (!current?.access_token || current.user.id !== cmpriSession?.user.id || !scope || draftIdentityScope.current !== scope || draftIdentityGeneration.current !== generation) throw new Error("Account changed");
+        return current.access_token;
       };
-      const response = await fetch("/api/work-orders/drafts", {
-        method: activeDraftId ? "PATCH" : "POST",
-        headers: await apiHeaders(true),
-        body: JSON.stringify(body),
+      await checkSession();
+      const fields = { ...draftFields };
+      if (activeDraftId && !pendingDraftSave.current && draftFieldsKey(fields) === lastSavedDraftKey) {
+        setMessage("No local changes to save. Refresh Saved Drafts to check for updates.");
+        return;
+      }
+      const saved = await saveDraftWithRecovery({
+        fields,
+        isCurrent: () => draftIdentityScope.current === scope && draftIdentityGeneration.current === generation,
+        active: activeDraftId && activeDraftRevision !== null ? { id: activeDraftId, revision: activeDraftRevision } : null,
+        pending: pendingDraftSave,
+        newId: () => crypto.randomUUID(),
+        send: async (method, body) => guardedDraftRequest(checkSession, token => {
+          if (method === "POST" && typeof body.creation_id === "string") {
+            try { sessionStorage.setItem(`cmpri:unconfirmed-draft:${scope}`, body.creation_id); } catch {}
+            setUnconfirmedCreationId(body.creation_id);
+          }
+          return fetch("/api/work-orders/drafts", {
+            method,
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(body),
+          });
+        }),
+        read: async id => {
+          const review = reviewDraft?.id === id ? `&review_draft_id=${encodeURIComponent(id)}` : "";
+          const response = await guardedDraftRequest(checkSession, token => fetch(`/api/work-orders/drafts?scope=own${review}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }));
+          if (!response.ok) throw new Error("Could not check the saved draft.");
+          const result = await response.json();
+          return (result.drafts as SavedDraft[] | undefined)?.find(draft => draft.id === id) || result.review_draft || null;
+        },
+        confirmed: saved => {
+          if (draftIdentityScope.current !== scope || draftIdentityGeneration.current !== generation) throw new Error("Account changed");
+          try { if (sessionStorage.getItem(`cmpri:unconfirmed-draft:${scope}`) === saved.id) sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
+          setUnconfirmedCreationId(current => current === saved.id ? "" : current);
+          setActiveDraftId(saved.id); setActiveDraftRevision(saved.revision);
+        },
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Draft could not be saved.");
-      const saved = payload.draft as WorkOrderDraft;
-      setActiveDraftId(saved.id);
-      setActiveDraftRevision(saved.revision);
-      setMessage(automatic ? "Draft autosaved after 30 minutes of inactivity." : "Draft saved.");
-      await loadDrafts();
+      await checkSession();
+      setLastSavedDraftKey(draftFieldsKey(fields));
+      const row = saved as WorkOrderDraft;
+      let refreshed = true;
+      if (typeof row.created_by === "string" && typeof row.issue === "string" && typeof row.location_id === "string") {
+        // A previous list request must not replace the just-confirmed row.
+        draftRequestRef.current++;
+        setDrafts(current => mergeConfirmedOwnDraft(current, row, cmpriSession!.user.id, cmpriSession!.user.name));
+        setReviewDraft(current => current?.id === row.id ? { ...current, ...row } : current);
+      } else {
+        // Unexpected response shape: keep the existing authenticated refresh fallback.
+        refreshed = await loadDrafts(false);
+        await checkSession();
+      }
+      const editedDuringSave = draftFieldsKey(currentDraftFields.current) !== draftFieldsKey(fields);
+      setMessage(`${automatic ? "Draft autosaved after 30 minutes of inactivity." : "Draft saved."}${editedDuringSave ? " Changes made while saving have not yet been saved." : ""}${photos.length ? " Selected photos are not saved in drafts; reselect them after reopening." : ""}${refreshed ? "" : " The saved-draft list could not be refreshed."}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Draft could not be saved.");
+      if (!activeDraftId && !pendingDraftSave.current && draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) {
+        try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
+        setUnconfirmedCreationId("");
+      }
+      if (draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) setMessage(error instanceof Error && error.message !== "Account changed" ? error.message : "Your session changed. Sign in again before saving.");
     } finally {
-      setDraftBusy(false);
+      if (draftSaveInFlight.current === saveToken) {
+        draftSaveInFlight.current = null;
+        if (draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) setDraftBusy(false);
+      }
     }
+  }
+
+  async function removeSavedDraft(id: string) {
+    const scope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
+    const generation = draftIdentityGeneration.current;
+    const checkSession = async () => {
+      const current = await getValidSession();
+      if (!current?.access_token || current.user.id !== cmpriSession?.user.id || !scope || draftIdentityScope.current !== scope || draftIdentityGeneration.current !== generation) throw new Error("Account changed");
+      return current.access_token;
+    };
+    const response = await guardedDraftRequest(checkSession, token => fetch(`/api/work-orders/drafts?id=${encodeURIComponent(id)}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+    }));
+    const payload = await response.json().catch(() => ({}));
+    await checkSession();
+    if (!response.ok) throw new Error(payload.error || "Draft could not be deleted.");
+    draftRequestRef.current++;
+    setDrafts(current => current.filter(draft => draft.id !== id));
+    setReviewDraft(current => current?.id === id ? null : current);
   }
 
   async function deleteDraft(draft: WorkOrderDraft) {
     if (!draft.can_delete) return;
+    const generation = draftIdentityGeneration.current;
     setDraftBusy(true);
     try {
-      const response = await fetch(`/api/work-orders/drafts?id=${encodeURIComponent(draft.id)}`, {
-        method: "DELETE",
-        headers: await apiHeaders(),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Draft could not be deleted.");
+      await removeSavedDraft(draft.id);
       if (activeDraftId === draft.id) {
         setActiveDraftId("");
         setActiveDraftRevision(null);
         resetWorkOrderForm();
       }
-      await loadDrafts();
       setMessage("Draft deleted.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Draft could not be deleted.");
+      if (draftIdentityGeneration.current === generation) setMessage(error instanceof Error ? error.message : "Draft could not be deleted.");
     } finally {
-      setDraftBusy(false);
+      if (draftIdentityGeneration.current === generation) setDraftBusy(false);
     }
   }
 
@@ -1126,6 +1248,8 @@ export default function WorkOrdersPage() {
       return;
     }
     setActiveDraftId("");
+    pendingDraftSave.current = null;
+    setLastSavedDraftKey("");
     setReviewDraft(null);
     setActiveDraftRevision(null);
     setStaffFirstName("");
@@ -1273,20 +1397,15 @@ export default function WorkOrdersPage() {
   async function confirmCancelCreateForm() {
     if (loading || draftBusy || retryingPhotoUpload) return;
     if (activeDraftId && pendingPhotoUploads.length === 0) {
+      const generation = draftIdentityGeneration.current;
       setDraftBusy(true);
       try {
-        const response = await fetch(`/api/work-orders/drafts?id=${encodeURIComponent(activeDraftId)}`, {
-          method: "DELETE",
-          headers: await apiHeaders(),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "The draft could not be discarded.");
-        await loadDrafts();
+        await removeSavedDraft(activeDraftId);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "The draft could not be discarded.");
+        if (draftIdentityGeneration.current === generation) setMessage(error instanceof Error ? error.message : "The draft could not be discarded.");
         return;
       } finally {
-        setDraftBusy(false);
+        if (draftIdentityGeneration.current === generation) setDraftBusy(false);
       }
     }
     finishCancelCreateForm();
@@ -1750,6 +1869,11 @@ export default function WorkOrdersPage() {
   async function createWorkOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submittingRef.current || loading || createState !== "idle") return;
+    if (draftSaveInFlight.current) { setMessage("Wait for the draft save to finish before submitting."); return; }
+    if (pendingDraftSave.current || (unconfirmedCreationId && !activeDraftId)) {
+      setMessage("First retry the unconfirmed draft save. Your text is still here, and the earlier save may have succeeded.");
+      return;
+    }
     if (isFrontDeskUser && !validFirstName(staffFirstName)) {
       setMessage("Enter your first name before submitting.");
       return;
@@ -1894,11 +2018,12 @@ export default function WorkOrdersPage() {
   );
   useEffect(() => {
     if (!createHasUnsavedChanges || !locationId || !issue.trim() || loading || draftBusy) return;
+    if (activeDraftId && !pendingDraftSave.current && currentDraftKey === lastSavedDraftKey) return;
     const timeout = window.setTimeout(() => { void saveDraft(true); }, 30 * 60 * 1000);
     return () => window.clearTimeout(timeout);
     // saveDraft is intentionally omitted: the form values above reset this timer on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, loading, draftBusy]);
+  }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, loading, draftBusy, activeDraftId, currentDraftKey, lastSavedDraftKey]);
   const isSpanish = formLanguage === "es";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
   const categoryLabelEs: Record<string, string> = {
@@ -1996,12 +2121,27 @@ export default function WorkOrdersPage() {
                 <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading} onSelect={files=>acceptSelectedPhotos(files)} />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
                 {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="min-h-10 rounded-lg border border-sky-600/70 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
-                <button type="submit" disabled={loading || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
+                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>
             </div>
 
+            {!isSubmitOnlyUser && <p className="text-xs text-slate-400">{tx("Drafts save text only. Selected photos must be added again after reopening. Autosave runs after 30 minutes of inactivity once a location and issue are entered.", "Los borradores guardan solo texto. Vuelve a seleccionar las fotos al abrirlos. El guardado automático ocurre tras 30 minutos de inactividad cuando hay ubicación y problema.")}</p>}
+            {pendingDraftSave.current && <button type="button" disabled={draftBusy} className="text-xs text-amber-300 underline" onClick={() => {
+              if (!window.confirm("Stop retrying this save? It may have succeeded. Your current text will stay here. Check Saved Drafts before creating another to avoid a duplicate.")) return;
+              pendingDraftSave.current = null;
+              setMessage("Retry stopped. Your text is still here. Check Saved Drafts and compare before continuing.");
+            }}>{tx("Stop retrying and check saved drafts", "Detener reintentos y revisar borradores")}</button>}
+            {unconfirmedCreationId && !pendingDraftSave.current && <div role="status" className="rounded-lg border border-amber-600 p-2 text-xs text-amber-200">
+              <p>{tx("A previous draft save was not confirmed. Check Saved Drafts and load the matching draft before starting another one.", "No se confirmó un guardado anterior. Revisa los borradores y carga el correspondiente antes de crear otro.")}</p>
+              <button type="button" className="mr-3 mt-2 underline" onClick={() => void loadDrafts()}>{tx("Refresh saved drafts", "Actualizar borradores")}</button>
+              <button type="button" className="mt-2 underline" onClick={() => {
+                if (!window.confirm("Clear this reminder? If the previous save succeeded, creating another draft can make a duplicate.")) return;
+                try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${draftIdentityScope.current}`); } catch {}
+                setUnconfirmedCreationId("");
+              }}>{tx("Clear reminder and start another draft", "Borrar aviso y crear otro borrador")}</button>
+            </div>}
             {(photos.length > 0 || photoUploadError) && <div className="space-y-2">
               {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label="Selected photo previews">{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} removeLabel={tx("Remove selected photo", "Quitar foto seleccionada")} onRemove={!loading && createState === "idle" && !mainWorkOrderCreated && !retryingPhotoUpload && pendingPhotoUploads.length === 0 ? () => removeSelectedPhoto(photo.uploadId) : undefined} />)}</div>}
               {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{photoUploadError}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
@@ -2184,9 +2324,11 @@ export default function WorkOrdersPage() {
           }}>
             <div role="dialog" aria-modal="true" aria-labelledby="create-cancel-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
               <h2 id="create-cancel-title" className="text-xl font-bold">{pendingPhotoUploads.length > 0 ? tx("Cancel remaining photo uploads?", "¿Cancelar las cargas de fotos pendientes?") : tx("Cancel work-order creation?", "¿Cancelar la creación de la orden?")}</h2>
-              <p className="mt-2 text-sm text-slate-400">{pendingPhotoUploads.length > 0 ? tx("The work order already exists. It and any saved photos will be kept. Photos still waiting to upload will not be saved.", "La orden ya existe. Se conservarán la orden y las fotos guardadas. No se guardarán las fotos pendientes de cargar.") : tx("Your unsaved work and selected photos will be discarded. Any saved draft for this work will also be deleted.", "Se descartarán el trabajo no guardado y las fotos seleccionadas. También se eliminará cualquier borrador guardado de este trabajo.")}</p>
+              <p className="mt-2 text-sm text-slate-400">{pendingPhotoUploads.length > 0 ? tx("The work order already exists. It and any saved photos will be kept. Photos still waiting to upload will not be saved.", "La orden ya existe. Se conservarán la orden y las fotos guardadas. No se guardarán las fotos pendientes de cargar.") : tx("Selected photos and changes since the last save will be lost if you close. Discard also deletes the saved draft.", "Al cerrar se perderán las fotos seleccionadas y los cambios posteriores al último guardado. Descartar también elimina el borrador guardado.")}</p>
+              {pendingDraftSave.current && <p className="mt-2 text-sm text-amber-300">{tx("A previous draft save was not confirmed and may have succeeded. Retry it before leaving, or check Saved Drafts when you return.", "No se confirmó un guardado anterior y puede haberse completado. Reinténtalo antes de salir o revisa los borradores al volver.")}</p>}
               <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button type="button" autoFocus disabled={draftBusy} onClick={() => setShowCancelConfirm(false)} className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Keep Editing", "Seguir editando")}</button>
+                {activeDraftId && !pendingPhotoUploads.length && !pendingDraftSave.current && <button type="button" disabled={draftBusy} onClick={finishCancelCreateForm} className="rounded-lg border border-sky-600 px-5 py-3 text-sm font-semibold text-sky-200 hover:bg-sky-950 disabled:opacity-60">{tx("Keep saved draft and close", "Conservar borrador guardado y cerrar")}</button>}
                 <button type="button" disabled={draftBusy} onClick={() => void confirmCancelCreateForm()} className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">{draftBusy ? tx("Discarding...", "Descartando...") : tx("Confirm Cancel", "Confirmar cancelación")}</button>
               </div>
             </div>

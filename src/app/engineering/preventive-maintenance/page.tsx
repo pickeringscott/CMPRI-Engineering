@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { loadCmpriSession } from "@/lib/auth/client-session";
@@ -155,6 +156,27 @@ function sourceRoutineStatus(template: PmTemplate, period: string, itemId: strin
 
 function SourceNote({ template }: { template: PmTemplate }) {
   return <span className="text-[11px] text-slate-500">{template.sourceReference}</span>;
+}
+
+const LocalOcrReview = dynamic(() => import("@/components/LocalOcrReview"), {
+  ssr: false,
+  loading: () => <p role="status" className="text-sm text-slate-300">Loading document reader…</p>,
+});
+
+/** OCR is a reference inside the existing form, not a PM save or approval. */
+function PmOcrReference() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-3" aria-label="Read an inspection document">
+      <button type="button" aria-expanded={open} aria-controls="pm-ocr-reference" onClick={() => setOpen(value => !value)} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200">
+        {open ? "Close document reader" : "Read a document for reference"}
+      </button>
+      {open && <div id="pm-ocr-reference" className="mt-3 space-y-2">
+        <p className="text-xs text-slate-300">Compare recognized text with the original document. Copy only reviewed information into this form. Reading a document does not save, complete, or approve a PM record.</p>
+        <LocalOcrReview />
+      </div>}
+    </section>
+  );
 }
 
 function FieldInput({
@@ -1096,6 +1118,7 @@ export default function PreventiveMaintenancePage() {
               {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
               {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
               {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}
+              {activeCanEdit && <PmOcrReference />}
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Source period</p><p className="mt-1 text-sm font-semibold">{periodLabel(activeTemplate, activeForm.periodStart)}</p></div>

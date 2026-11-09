@@ -32,9 +32,18 @@ These browser fixtures complement API, RLS and database tests in npm test.
 They do not certify live provider responses or physical phone camera UI.
 
 daily_ops_files.py checks the compact Daily Ops picker at desktop/mobile widths:
-click/drop staging without requests, red removal controls, explicit Submit,
-scan extraction, retained review/confirmation, failed-save retry and unchanged
-General Manager upload restrictions.
+CSV click/drop staging without requests, rejection of images from the import
+picker, access to the separate on-device OCR reference tool, explicit Submit,
+review/confirmation, failed-save retry and General Manager upload restrictions.
+
+local_ocr_privacy.py is a standalone synthetic OCR and network test. With the
+same localhost setup above, run `npm run build:local-ocr` and
+`node tests/browser/role-capabilities.mjs`, start the localhost development
+server, then run `python tests/browser/local_ocr_privacy.py`. It generates a
+fictional PNG and PDF in the browser, checks recognition, blocks and records
+non-local requests, and verifies the OCR worker, runtime, model and PDF worker
+load from the local app. It does not use production data or certify OCR accuracy
+or complete row recognition for actual hotel reports.
 
 modal_palette_cleanup.py verifies the approved Steel Blue create modal, Dusty
 Indigo work-order detail, and Eucalyptus Hours Tracker at phone and desktop

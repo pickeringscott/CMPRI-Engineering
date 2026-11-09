@@ -36,7 +36,9 @@ test('field controls have individual activation and all Chief statuses expand im
  assert.match(detail,/Edit reported issue/);assert.match(detail,/>Done<\/button>/);
  assert.doesNotMatch(detail,/noteHeading\(entry.authorRole/);
  assert.match(detail,/entry.actor.trim\(\).split/);
- assert.match(detail,/h-\[17px\]/);
+ // Guest indicators moved to a shared component; its rendered badges are
+ // exercised separately in room-group-badges.test.mjs.
+ assert.match(detail,/<WorkOrderGuestIndicators guest=\{order/);
 });
 test('creation inputs no longer wait for inventory; drafts retain revision and scoped identity',()=>{
  const input=create.slice(create.indexOf('value={locationId}',create.indexOf('return (')));
@@ -48,16 +50,30 @@ test('creation inputs no longer wait for inventory; drafts retain revision and s
  assert.match(detail,/if \(!order \|\| !ticketReady \|\| saveInFlight.current\) return/);
 });
 
-test('real draft effect persists editor and staged text across unmount, isolates accounts, and removes confirmed drafts',()=>{
- let effect;function visit(n){if(ts.isCallExpression(n)&&n.expression.getText(ast)==='useEffect'&&n.getText(ast).includes('localStorage.setItem'))effect=n.getText(ast);ts.forEachChild(n,visit);}visit(ast);assert.ok(effect);
- const code=ts.transpileModule(effect,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+test('local draft persistence retains text, isolates accounts, and reports storage failures',()=>{
+ const code=extract('persistLocalDraft');
  const data=new Map(),storage={setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
- const ctx={useEffect:fn=>fn(),cmpriSession:{hotelId:'hotel-a',user:{id:'actor-a'}},order:{id:'ticket-a',revision:7},initialFingerprint:'{}',currentFingerprint:JSON.stringify({notes:'saved\nstaged',issue:'Local edit'}),recoveredDraft:{current:true},noteDraft:'Closed door.',stagedNoteIds:['staged'],hasUnsavedChanges:true,localStorage:storage};
- vm.runInNewContext(code,ctx);const key='cmpri:ticket-draft:hotel-a:actor-a:ticket-a';
+ const changes=[],exports={};
+ const ctx={exports,cmpriSession:{hotelId:'hotel-a',user:{id:'actor-a'}},order:{id:'ticket-a',revision:7},initialFingerprint:'{}',currentFingerprint:JSON.stringify({notes:'saved\nstaged',issue:'Local edit'}),recoveredDraft:{current:true},noteDraft:'Closed door.',stagedNoteIds:['staged'],hasUnsavedChanges:true,localStorage:storage,setLocalDraftFailed:value=>changes.push(value)};
+ vm.runInNewContext(code,ctx);assert.equal(exports.run(),true);const key='cmpri:ticket-draft:hotel-a:actor-a:ticket-a';
  assert.equal(JSON.parse(data.get(key)).noteDraft,'Closed door.');assert.equal(JSON.parse(data.get(key)).revision,7);
- const other={...ctx,cmpriSession:{hotelId:'hotel-a',user:{id:'actor-b'}}};vm.runInNewContext(code,other);assert.equal(data.size,2);
- vm.runInNewContext(code,{...ctx,hasUnsavedChanges:false});assert.equal(data.has(key),false);assert.equal(data.size,1);
- assert.doesNotThrow(()=>vm.runInNewContext(code,{...ctx,localStorage:{setItem(){throw Error('blocked')}}}));
+ ctx.cmpriSession={hotelId:'hotel-a',user:{id:'actor-b'}};assert.equal(exports.run(),true);assert.equal(data.size,2);
+ ctx.cmpriSession={hotelId:'hotel-a',user:{id:'actor-a'}};ctx.hasUnsavedChanges=false;assert.equal(exports.run(),true);assert.equal(data.has(key),false);assert.equal(data.size,1);
+ ctx.hasUnsavedChanges=true;ctx.localStorage={setItem(){throw Error('blocked')}};assert.equal(exports.run(),false);assert.equal(changes.at(-1),true);
+ ctx.localStorage=storage;assert.equal(exports.run(),true);assert.equal(changes.at(-1),false);
+});
+
+test('close and keep draft retries the current write and never closes after a failure or with pending attachments',()=>{
+ const exports={};let closed=0,writes=0,success=false,saved='',failed=false;
+ const ctx={exports,saving:false,hasPendingNoteMedia:false,cmpriSession:{hotelId:'hotel',user:{id:'actor'}},order:{id:'ticket',revision:3},initialFingerprint:'{}',currentFingerprint:JSON.stringify({issue:'Latest edit'}),recoveredDraft:{current:true},noteDraft:'New note',stagedNoteIds:[],hasUnsavedChanges:true,
+  localStorage:{setItem(_key,value){writes++;if(!success)throw Error('storage full');saved=value}},setLocalDraftFailed:value=>{failed=value},closeEmbeddedTicket:()=>closed++};
+ vm.runInNewContext(extract('persistLocalDraft'),ctx);ctx.persistLocalDraft=exports.run;
+ vm.runInNewContext(extract('closeAndKeepDraft'),ctx);
+ exports.run();assert.equal(writes,1);assert.equal(closed,0,'failed write keeps the editor open');assert.equal(failed,true);
+ success=true;ctx.hasPendingNoteMedia=true;exports.run();assert.equal(writes,1);assert.equal(closed,0,'unuploaded files are not silently lost');
+ ctx.hasPendingNoteMedia=false;exports.run();assert.equal(writes,2);assert.equal(closed,1);assert.equal(failed,false);assert.equal(JSON.parse(saved).fields.issue,'Latest edit');
+ assert.match(detail,/The draft could not be saved on this device/);
+ assert.match(detail,/Selected attachments are not saved in a device draft/);
 });
 
 test('actual recovery restores unsaved text and keeps stale revision instead of overwriting concurrent work',()=>{

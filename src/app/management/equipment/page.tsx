@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
+import LocalOcrReview, { type ReviewedOcrText } from "@/components/LocalOcrReview";
 import { getValidSession } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
@@ -9,6 +10,7 @@ import SearchableSelect, { type SearchableSelectOption } from "@/components/Sear
 import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-install-year";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { equipmentOptionLabel } from "@/lib/equipment-selection";
+import { suggestionsFromReviewedOcr } from "@/lib/equipment-ocr-suggestions";
 
 type Asset = {
   id: string;
@@ -383,6 +385,20 @@ export default function ManageEquipmentPage() {
     setMessage("Reviewed documentation information loaded into the equipment record. Make any final corrections, then Save Equipment.");
   }
 
+  function useReviewedOcr(result: ReviewedOcrText) {
+    if (!selectedId || !canManage || verified || !editing) return;
+    const suggestions = suggestionsFromReviewedOcr(result.pages);
+    if (!suggestions) {
+      setDialogMessage("No supported labeled equipment values were found in the reviewed text. The text is still available above for manual entry; no equipment fields were changed.");
+      return;
+    }
+    if (extracted && !window.confirm("Replace the suggestions currently under review? Equipment fields already entered will not be changed.")) return;
+    setExtracted(suggestions);
+    setExtractedDraft(suggestions);
+    setDialogMessage("On-device OCR suggestions are unverified. Compare them with the original equipment label or manual before applying. The OCR file has not been uploaded or attached.");
+    setMessage("OCR suggestions are ready for review. Equipment fields have not been changed.");
+  }
+
   async function verify() {
     if (!selectedId || !canManage || verifying || unsavedEquipment) { if (unsavedEquipment) setMessage("Save equipment changes before verification."); return; }
     setVerifying(true);
@@ -549,6 +565,12 @@ export default function ManageEquipmentPage() {
             </div>
 
             <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadAssets(selected.id); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
+
+            <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
+              <summary className="cursor-pointer font-semibold">Read an equipment label or document on this device</summary>
+              <p className="mt-2 text-sm text-slate-400">Review recognized text against the original. Reading a file here does not upload it or attach it to this equipment; use the PDF controls above to save documentation separately.</p>
+              <LocalOcrReview key={selected.id} onUseText={useReviewedOcr} useTextLabel="Suggest equipment values" />
+            </details>
 
             {dialogMessage && <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${/processed/i.test(dialogMessage) ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-200" : /failed|could not|not configured|not loaded/i.test(dialogMessage) ? "border-red-500/40 bg-red-950/25 text-red-200" : "border-slate-700 bg-slate-950 text-slate-300"}`}>{dialogMessage}</div>}
 

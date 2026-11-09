@@ -606,6 +606,7 @@ export default function WorkOrderTicketPage() {
   const [embedded, setEmbedded] = useState(true);
   const [modalToken, setModalToken] = useState("");
   const [message, setMessage] = useState("");
+  const [localDraftFailed, setLocalDraftFailed] = useState(false);
   const [editingIssue, setEditingIssue] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [showAddAsset, setShowAddAsset] = useState(false);
@@ -1347,13 +1348,25 @@ export default function WorkOrderTicketPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, ticketReady, cmpriSession]);
 
-  useEffect(() => {
-    if (!cmpriSession || !order || !initialFingerprint || !recoveredDraft.current) return;
+  function persistLocalDraft() {
+    if (!cmpriSession || !order || !initialFingerprint || !recoveredDraft.current) return false;
     const key = `cmpri:ticket-draft:${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`;
     try {
       if (hasUnsavedChanges) localStorage.setItem(key, JSON.stringify({ version: 1, revision: order.revision, fields: JSON.parse(currentFingerprint), noteDraft, stagedNoteIds }));
       else localStorage.removeItem(key);
-    } catch { /* Storage may be unavailable; current in-memory edits remain intact. */ }
+      setLocalDraftFailed(false);
+      return true;
+    } catch {
+      setLocalDraftFailed(true);
+      return false;
+    }
+  }
+  useEffect(() => {
+    // The warning reflects the result of an external browser-storage write.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    persistLocalDraft();
+    // The form snapshot and identity below determine exactly what is stored.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cmpriSession, order, initialFingerprint, currentFingerprint, hasUnsavedChanges, noteDraft, stagedNoteIds]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges) event.preventDefault(); };
@@ -1725,6 +1738,13 @@ export default function WorkOrderTicketPage() {
     const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
     const link = document.createElement("a"); link.href = url; link.download = "cmpri-work-order-draft.json"; link.click();
     URL.revokeObjectURL(url);
+  }
+  function closeAndKeepDraft() {
+    if (saving || hasPendingNoteMedia) return;
+    // Persist the current render synchronously: an effect may not have run yet,
+    // and storage can fail after an earlier successful write.
+    if (!persistLocalDraft()) return;
+    closeEmbeddedTicket();
   }
   function discardLocalDraftAndClose() {
     if (saving || !cmpriSession || !order) return;
@@ -2105,6 +2125,13 @@ export default function WorkOrderTicketPage() {
           <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm">
             {message}
             {hasUnsavedChanges && <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">Download draft copy</button>}
+          </div>
+        )}
+
+        {localDraftFailed && hasUnsavedChanges && (
+          <div role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">
+            Your changes could not be saved on this device. Keep this view open and save the work order, or download a copy of your text before leaving.
+            <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">Download draft copy</button>
           </div>
         )}
 
@@ -2615,9 +2642,12 @@ export default function WorkOrderTicketPage() {
         }}>
           <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
             <h2 className="text-xl font-bold">Leave this ticket view?</h2>
-            <p className="mt-2 text-sm text-slate-400">Your unsaved changes will be kept as a draft on this device. They have not been saved to the work order. Leaving this view does not change the ticket status.</p>
+            <p className="mt-2 text-sm text-slate-400">Your changes have not been saved to the work order. You can keep a draft on this device if browser storage is available. Leaving this view does not change the ticket status.</p>
+            {localDraftFailed && <p role="alert" className="mt-2 text-sm text-amber-300">The draft could not be saved on this device. Keep editing, save the work order, or download a copy before leaving.</p>}
+            {hasPendingNoteMedia && <p role="alert" className="mt-2 text-sm text-amber-300">Selected attachments are not saved in a device draft. Submit or remove them before closing and keeping your text.</p>}
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" disabled={saving} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">Discard draft and close</button>
+              <button type="button" onClick={exportUnsavedDraft} className="min-h-10 rounded-lg border border-sky-600 px-3 text-sm text-sky-200">Download draft copy</button>
               <button
                 type="button"
                 autoFocus
@@ -2628,8 +2658,8 @@ export default function WorkOrderTicketPage() {
               </button>
               <button
                 type="button"
-                onClick={closeEmbeddedTicket}
-                disabled={saving}
+                onClick={closeAndKeepDraft}
+                disabled={saving || hasPendingNoteMedia}
                 className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500"
               >
                 Close and keep draft

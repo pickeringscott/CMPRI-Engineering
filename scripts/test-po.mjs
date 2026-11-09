@@ -13,7 +13,7 @@ const cases=[
  'tests/po-database.test.mjs','tests/po-source-parser.test.mjs','tests/po-supplier-intake.test.mjs',
  'tests/po-attachment-intake.test.mjs','tests/po-mailbox-batch.test.mjs',
  'tests/purchasing-history.test.mjs','tests/purchasing-history-route.test.mjs',
- 'tests/po-pdf.test.mjs','tests/plain-text-links.test.mjs'
+ 'tests/po-pdf.test.mjs','tests/po-local-ocr-ui.test.mjs','tests/plain-text-links.test.mjs'
 ];
 for(const file of cases){
  const result=spawnSync(process.execPath,['--import','./tests/helpers/resolve-ts.mjs',file],{stdio:'inherit',windowsHide:true});
