@@ -8,6 +8,7 @@ import ts from 'typescript';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import sharp from 'sharp';
+import {loadTs} from './helpers/load-ts.mjs';
 const {roomGroupBadge,currentRoomGroupBadges}=await import('../src/lib/room-group-badges.ts');
 const {projectGuestRoom,parseGuestReport,roomsFromGuestReports}=await import('../src/lib/room-guest-reports.ts');
 
@@ -94,6 +95,46 @@ test('shared modal guest indicators show CN immediately after the name without r
  });
  const html=renderToStaticMarkup(React.createElement(exports.default,{guest:{guest_name:'Sample Guest',guest_group_badge:'railway-cn',loyalty_tier:'Gold'}}));
  assert.match(html,/Sample Guest<\/span><img alt="railway-cn"\/><span>Gold/);
+});
+
+test('work order title follows the occupied guest through checkout to the incoming reservation',()=>{
+ const source=readFileSync(new URL('../src/components/WorkOrderTitleGuest.tsx',import.meta.url),'utf8');
+ const exports={};
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText,{
+  exports,React,require(name){
+   if(name==='@/components/GuestGroupBadge')return {default:({badge})=>badge?React.createElement('img',{alt:badge}):null};
+   if(name==='@/components/LoyaltyBadge')return {default:({tier})=>tier?React.createElement('span',null,tier):null};
+   if(name==='@/lib/loyalty-tier')return {loyaltyTier:value=>value};
+   throw Error(name);
+  }
+ });
+ const row={room:'101',guest_name:'Current Guest',room_status:'Occupied',group_name:'CN',loyalty_tier:'Gold',checkout_date:'2026-11-06',checkout_time:'11:00:00',incoming_name:'Next Guest',incoming_group_name:'Big Ten',incoming_loyalty_tier:'Silver',incoming_reserved:true,reserved:true,arrival_date:'2026-11-06',arrival_time:'15:00:00'};
+ const render=(room,status='Closed')=>renderToStaticMarkup(React.createElement(exports.default,{guest:{...room,...currentRoomGroupBadges(room),status}}));
+ const before=render(projectGuestRoom(row,new Date('2026-11-06T16:59:00Z'),'America/Chicago'));
+ assert.match(before,/>Occupied<\/span><img alt="railway-cn"\/><span>Gold<\/span><span class="cmpri-title-guest-name">Current Guest/);
+ assert.doesNotMatch(before,/Reserved|Next Guest/);
+ const after=render(projectGuestRoom(row,new Date('2026-11-06T18:00:00Z'),'America/Chicago'));
+ assert.match(after,/Reserved<\/span><img alt="big-ten"\/><span>Silver<\/span><span class="cmpri-title-guest-name">Next Guest/);
+ assert.doesNotMatch(after,/Current Guest/);
+ const missingCurrentName=render({room_status:'Occupied',guest_name:'',incoming_reserved:true,incoming_name:'Next Guest'});
+ assert.match(missingCurrentName,/>Occupied<\/span>/);
+ assert.doesNotMatch(missingCurrentName,/Reserved|Next Guest/);
+ assert.match(render({room_status:'Vacant Dirty',incoming_reserved:true,incoming_name:''}),/>Reserved<\/span>/);
+});
+
+test('work order room context carries the incoming name and a reservation without a name',async()=>{
+ const rows=[{room:'101',incoming_name:'Next Guest',incoming_reserved:true,incoming_loyalty_tier:'Silver'},{room:'102',incoming_name:'',incoming_reserved:true}];
+ const {loadCurrentRoomStatuses}=loadTs('src/lib/server/room-availability.ts',{
+  '@/lib/room-guest-reports':{nextGuestDisplayChange:()=>null},
+  '@/lib/loyalty-tier':{loyaltyTier:value=>value||null},
+  '@/lib/constants':{HOTEL_TIME_ZONE:'America/Chicago'},
+  '@/lib/room-availability':{roomKey:value=>value},
+  '@/lib/server/cmpri-room-operations-snapshot':{loadEffectiveRoomOperationsSnapshot:async()=>({rows,error:null})},
+  '@/lib/room-group-badges':{currentRoomGroupBadges},
+ });
+ const result=await loadCurrentRoomStatuses({});
+ assert.equal(result.operations.get('101').incoming_name,'Next Guest');
+ assert.equal(result.operations.get('102').incoming_reserved,true);
 });
 
 test('observed in-house CN RAILWAYS group assigns the badge regardless of the guest name',()=>{

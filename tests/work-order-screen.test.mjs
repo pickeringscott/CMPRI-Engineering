@@ -37,9 +37,9 @@ test('field controls have individual activation and all Chief statuses expand im
  assert.match(detail,/Edit reported issue/);assert.match(detail,/>Done<\/button>/);
  assert.doesNotMatch(detail,/noteHeading\(entry.authorRole/);
  assert.match(detail,/entry.actor.trim\(\).split/);
- // Guest indicators moved to a shared component; its rendered badges are
- // exercised separately in room-group-badges.test.mjs.
- assert.match(detail,/<WorkOrderGuestIndicators guest=\{order/);
+ // Standalone tickets display the same title guest as embedded work orders.
+ assert.match(detail,/<WorkOrderTitleGuest guest=\{order/);
+ assert.doesNotMatch(detail,/<WorkOrderGuestIndicators guest=\{order/);
 });
 test('creation inputs no longer wait for inventory; drafts retain revision and scoped identity',()=>{
  const input=create.slice(create.indexOf('value={locationId}',create.indexOf('return (')));

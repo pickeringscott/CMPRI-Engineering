@@ -3,7 +3,7 @@ import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground"
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
-import {mergeConfirmedWorkOrder,reconcileWorkOrderList} from "@/lib/work-order-list-sync";
+import {mergeConfirmedWorkOrder,reconcileWorkOrderList,workOrderListSnapshot} from "@/lib/work-order-list-sync";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -153,6 +153,7 @@ export default function EngineeringDashboardPage() {
   const [bounds, setBounds] = useState<DesktopBounds>({ width: 0, height: 0 });
   const boundsRef = useRef<DesktopBounds>({ width: 0, height: 0 });
   const [windows, setWindows] = useState<DesktopWindowEntry[]>([]);
+  const [windowGuests, setWindowGuests] = useState<Record<string, Record<string, unknown>>>({});
   const windowsRef = useRef<DesktopWindowEntry[]>([]);
   const [zOrder, setZOrder] = useState<string[]>([]);
   const [rects, setRects] = useState<Record<string, WindowRect>>({});
@@ -458,6 +459,7 @@ export default function EngineeringDashboardPage() {
     windowsRef.current = windowsRef.current.filter((entry) => entry.key !== key);
     windowOpenedAtRef.current.delete(key);
     setWindows(windowsRef.current);
+    setWindowGuests(current => { const next = { ...current }; delete next[key]; return next; });
     setZOrder((current) => current.filter((entry) => entry !== key));
     frameRefs.current.delete(key);
   }, []);
@@ -533,7 +535,11 @@ export default function EngineeringDashboardPage() {
         if (!source?.src || new URL(source.src,window.location.origin).searchParams.get("modalToken") !== data.modalToken) return;
         const sourceId = /^\/work-orders\/([^/]+)$/.exec(key)?.[1];
         if (!sourceId || decodeURIComponent(sourceId) !== data.workOrderId) return;
-        if (data.workOrder && typeof data.workOrder === 'object' && 'id' in data.workOrder && data.workOrder.id === data.workOrderId) setOrders(previous => mergeConfirmedWorkOrder(previous,data.workOrder));
+        if (data.workOrder && typeof data.workOrder === 'object' && 'id' in data.workOrder && data.workOrder.id === data.workOrderId) {
+          const snapshot = workOrderListSnapshot(data.workOrder);
+          if (snapshot) setWindowGuests(previous => ({ ...previous, [key]: snapshot }));
+          setOrders(previous => mergeConfirmedWorkOrder(previous,data.workOrder));
+        }
         if (data.type === "cmpri-work-order-loaded") return;
       }
       switch (data.type) {
@@ -810,7 +816,7 @@ export default function EngineeringDashboardPage() {
           const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
           return (
             <DesktopWindow
-              guest={orders.find(order => entry.key === `/work-orders/${order.id}`)}
+              guest={windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`)}
               key={entry.key}
               windowKey={entry.key}
               title={entry.title}

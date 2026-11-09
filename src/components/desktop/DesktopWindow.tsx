@@ -3,7 +3,7 @@
 import {modalTitleStyle,modalThemeStyle,modalActionForRoute,modalDisplayTitle,hasBonvoyTierHelp} from "@/lib/ui/header-palette";
 import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import RoomRankerKey from "@/components/RoomRankerKey";
-import WorkOrderGuestIndicators from '@/components/WorkOrderGuestIndicators';
+import WorkOrderTitleGuest from '@/components/WorkOrderTitleGuest';
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   clampWindowRect,
@@ -111,7 +111,7 @@ export default function DesktopWindow({
       onFocusCapture={onFocus}
     >
       <div
-        className="cmpri-desktop-titlebar"
+        className={`cmpri-desktop-titlebar${/^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(windowKey) ? " cmpri-work-order-titlebar" : ""}`}
         style={modalTitleStyle(modalActionForRoute(windowKey,title))}
         onPointerDown={(event) => begin(event, "move")}
         onPointerMove={update}
@@ -119,8 +119,10 @@ export default function DesktopWindow({
         onPointerCancel={end}
       >
         <span aria-hidden="true" style={{backgroundColor:modalTitleStyle(modalActionForRoute(windowKey,title)).borderColor}} className={`size-2 shrink-0 rounded-full ${accentClass}`} />
-        <span id={titleId} className="min-w-0 flex-1 truncate">{displayTitle}</span>
-        {guest && <WorkOrderGuestIndicators guest={guest} />}
+        <span className="cmpri-title-content">
+          <span id={titleId} className="min-w-0 flex-1 truncate">{displayTitle}</span>
+          {guest && <WorkOrderTitleGuest guest={guest} />}
+        </span>
         {hasBonvoyTierHelp(windowKey) && <WorkOrderTierKey />}
         {windowKey.split(/[?#]/)[0] === "/engineering/room-ranking" && <RoomRankerKey />}
         <button type="button" data-cmpri-window-close="true" aria-label={`Close ${displayTitle}`} title="Close" onClick={onClose} className="cmpri-desktop-close">

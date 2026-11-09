@@ -1,7 +1,8 @@
 "use client";
 import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
 import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
-import WorkOrderGuestIndicators from "@/components/WorkOrderGuestIndicators";
+import WorkOrderTitleGuest from "@/components/WorkOrderTitleGuest";
+import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import {type RoomGroupBadge} from "@/lib/room-group-badges";
 import {loyaltyTier} from "@/lib/loyalty-tier";
 
@@ -45,7 +46,7 @@ import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry }
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import PartsStatusPill from "@/components/PartsStatusPill";
 import type {PartStatus} from "@/lib/work-order-parts";
-import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
+import { checkoutLabel, listCheckoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
 import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
 import { type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
@@ -81,6 +82,7 @@ type WorkOrder = {
   guest_name?: string|null;
   loyalty_tier?: string|null;
   guest_group_badge?: RoomGroupBadge|null;
+  incoming_name?: string|null;
   incoming_group_badge?: RoomGroupBadge|null;
   incoming_loyalty_tier?: string|null;
   incoming_reserved?: boolean;
@@ -919,7 +921,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       const token = session?.access_token;
       if (!token) {
         if (generation !== roomContextGeneration.current) return;
-        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", checkoutError: "Today's checkout time could not be loaded.", loading: false });
+        setRoomOperationalContext({ ranker: null, rankerError: "Your CMPRI session has expired. Sign in again.", pm: { error: "Your CMPRI session has expired. Sign in again." }, guestName: "", roomStatus: "", checkoutDate: "", checkoutTime: "", checkoutError: "The checkout date could not be loaded.", loading: false });
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
@@ -945,7 +947,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         checkoutTime = context.checkout_time || '';
         if (generation === roomContextGeneration.current) {
           setRoomNextBoundary(typeof payload.next_guest_transition_at === 'number' ? payload.next_guest_transition_at : null);
-          setOrder(orderRef.current && orderRef.current.id === context.id ? { ...orderRef.current, guest_name: guestName, loyalty_tier:guestTier, guest_group_badge:groupBadge, incoming_reserved:context.incoming_reserved, incoming_loyalty_tier:context.incoming_loyalty_tier, incoming_group_badge:context.incoming_group_badge } : orderRef.current);
+          setOrder(orderRef.current && orderRef.current.id === context.id ? { ...orderRef.current, guest_name: guestName, loyalty_tier:guestTier, guest_group_badge:groupBadge, room_status:roomStatus, incoming_name:context.incoming_name, incoming_reserved:context.incoming_reserved, incoming_loyalty_tier:context.incoming_loyalty_tier, incoming_group_badge:context.incoming_group_badge } : orderRef.current);
         }
       } catch (error) { checkoutError = error instanceof Error ? error.message : 'Guest context is unavailable.'; }
       if (generation !== roomContextGeneration.current) return;
@@ -2100,13 +2102,22 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   historyEntries.splice(0, historyEntries.length, ...Array.from(uniqueHistory.values()));
   historyEntries.sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const roomOccupancy = roomStatusBadge(order.room_status || roomOperationalContext.roomStatus);
-  const checkout = checkoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime);
+  const checkout = checkoutLabel(roomOperationalContext.checkoutDate);
+  const checkoutDisplay = listCheckoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime);
 
   return (
     <main data-ticket-layout aria-busy={exitFlushing} className="min-h-screen bg-slate-950 text-[16px] text-white">
       {exitFlushing && <p role="status" className="sr-only">Saving checklist activity before leaving this work order.</p>}
       <div inert={exitFlushing} className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
-        <div data-preview-locked-pane className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
+        <div data-preview-locked-pane className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
+          {!embedded && <div className="cmpri-desktop-titlebar cmpri-work-order-titlebar cmpri-standalone-work-order-titlebar w-full">
+            <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-amber-400" />
+            <span className="cmpri-title-content">
+              <span className="min-w-0 flex-1 truncate">Work Order</span>
+              <WorkOrderTitleGuest guest={order as unknown as Record<string, unknown>} />
+            </span>
+            <WorkOrderTierKey />
+          </div>}
           <div data-preview-mobile-number><button
               type="button"
               title="Copy work order number"
@@ -2127,7 +2138,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 ← Engineering Dashboard
               </Link>
             )}
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-xl border border-sky-900 bg-slate-900/70 p-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 p-2">
               <div className="min-w-0 flex-1">
                 <div data-preview-detail-title className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   <div className="min-w-0">
@@ -2137,15 +2148,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
                   </div>
                   {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
-                  {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
+                  {checkout && checkoutDisplay && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkoutDisplay.label}</span>}
                   {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
                   <PartsStatusPill status={order.parts_status} />
                   <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
                 </div>
-                <div data-work-order-guest className="cmpri-detail-guest-row"><WorkOrderGuestIndicators guest={order as unknown as Record<string,unknown>} /></div>
                 <div className="mt-1 flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-x-2">
                   <p className="w-full min-w-0 break-words text-sm leading-5 text-white sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
-                  <p className="w-full truncate text-[11px] leading-tight text-sky-200/75 sm:max-w-[45%] sm:shrink-0 sm:text-right" title={technicianName || "Unassigned"}>Assigned to: {technicianName || "Unassigned"}</p>
                 </div>
               </div>
             </div>
@@ -2219,10 +2228,12 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
         <div aria-busy={saving} className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
           <div className="min-w-0 space-y-2">
-            <section data-reported-issue className="rounded-xl border border-slate-800 bg-slate-900 p-1.5">
+            <details data-reported-issue data-ticket-accordion="reported-issue" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
+              <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">Reported Issue{pendingField("issue")}</h2>
+              </summary>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold leading-tight tracking-tight">Reported Issue{pendingField("issue")}</h2>
                   {issueSaving && <span role="status" className="text-xs text-sky-200">Saving issue...</span>}
                   {editingIssue && <button type="button" onClick={() => { void saveReportedIssue(); }} className="min-h-9 rounded-lg border border-amber-400 px-3 text-xs text-amber-100">Done</button>}
                 </div>
@@ -2308,7 +2319,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   {order.ranker_auto_urgent && <p id="ranker-due-date-hint" className="mt-1 text-xs text-amber-300">Room Ranker made this ticket urgent and set its due date to the day urgency began. Its previous due date returns when automatic urgency ends; due date edits cannot be saved here until then.</p>}
                 </div>
               </div>
-            </section>
+            </details>
 
 
             <section data-preview-conversation className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
@@ -2592,20 +2603,21 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         </div>
 
         {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
-          <section className="mt-2 grid gap-1.5 rounded-xl border border-cyan-500/30 bg-slate-900 p-1.5">
+          <details data-ticket-accordion="preventative-maintenance" className="mt-2 rounded-2xl border border-slate-800 bg-slate-900 p-1">
+            <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400"><h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">Preventative Maintenance</h2></summary>
             {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
                 <b className="text-sm">PM checks and quarterly room forms</b>
                 {roomOperationalContext.pm?.error
                   ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
                   : <p className="mt-1 text-xs leading-tight text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
-                <Link href="/engineering/preventive-maintenance" onClick={event => {
-                  if (embedded && window.parent !== window || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                  event.preventDefault(); requestTicketNavigation("/engineering/preventive-maintenance");
-                }} className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
+                <Link href={`/engineering/preventive-maintenance?workOrder=${encodeURIComponent(order.id)}`} onClick={event => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault(); requestTicketNavigation(`/engineering/preventive-maintenance?workOrder=${encodeURIComponent(order.id)}`);
+                }} className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventative Maintenance Form</Link>
               </div>
             </>}
-          </section>
+          </details>
         )}
 
         <section className="cmpri-ticket-note-bar mt-2" aria-label="Add a work order note">

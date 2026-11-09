@@ -5,6 +5,10 @@ import { requireUser } from "@/lib/server/auth";
 import { findPmTemplate, PM_TEMPLATES, PM_ROOM_NUMBERS, pmWeekDates, validPmPeriod } from "@/lib/pm/catalog";
 import { projectLinkedFormReviews } from "@/lib/pm/linked-form-review";
 import { profileHasRole } from "@/lib/server/roles";
+import { canReadWorkOrder } from "@/lib/work-order-read-policy";
+import { workOrderReader } from "@/lib/server/work-order-reader";
+import { isUuid } from "@/lib/uuid";
+import { pmRoomNumber } from "@/lib/pm/work-order-form-target";
 
 const PM_MONTH_SHEETS = ["JAN", "FEB", "MAR", "APRIL", "MAY", "JUNE", "JULY", "AUG", "SEPT", "OCT", "NOV", "DEC"];
 type PmProposedCell = {
@@ -91,6 +95,32 @@ export async function GET(request: NextRequest) {
   }
   const week = request.nextUrl.searchParams.get("week") || "";
   if (!validWeek(week)) return NextResponse.json({ error: "Select a week beginning on Monday." }, { status: 400 });
+  const workOrderId = request.nextUrl.searchParams.get("workOrder") || "";
+  if (workOrderId && !isUuid(workOrderId)) return NextResponse.json({ error: "A valid work-order ID is required." }, { status: 400 });
+
+  let linkedForm: { template_id: string; period_start: string; scope_key: string } | null = null;
+  let workOrderLocationId: string | null = null;
+  let workOrderRoom: string | null = null;
+  if (workOrderId) {
+    const workOrder = await auth.admin.from("work_orders").select("*")
+      .eq("hotel_id", HOTEL_ID).eq("id", workOrderId).maybeSingle();
+    if (workOrder.error) return responseError(workOrder.error, "The work order could not be read.");
+    if (!workOrder.data || !canReadWorkOrder(workOrderReader(auth.principal), workOrder.data)) {
+      return NextResponse.json({ error: "This work order is not available to your account." }, { status: 403 });
+    }
+    workOrderLocationId = workOrder.data.location_id || null;
+    workOrderRoom = pmRoomNumber(workOrder.data.room, PM_ROOM_NUMBERS);
+    const linked = await auth.admin.from("cmpri_pm_proposals")
+      .select("template_id, period_start, scope_key")
+      .eq("hotel_id", HOTEL_ID).contains("payload", { work_order_id: workOrderId })
+      .neq("status", "rejected").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (linked.error) return responseError(linked.error, "The linked PM form could not be read.");
+    const template = linked.data && findPmTemplate(linked.data.template_id);
+    if (linked.data && template && template.kind !== "routine" && validDate(linked.data.period_start)
+      && validPmPeriod(template, linked.data.period_start) && typeof linked.data.scope_key === "string") {
+      linkedForm = linked.data;
+    }
+  }
 
   const from = new Date(`${week}T12:00:00Z`);
   from.setUTCDate(from.getUTCDate() - 100);
@@ -160,6 +190,9 @@ export async function GET(request: NextRequest) {
     entries: projectLinkedFormReviews([...latestByKey.values()], PM_TEMPLATES),
     review_queue: reviewQueue?.data || [],
     locations: locations.data || [],
+    linked_form: linkedForm,
+    work_order_location_id: workOrderLocationId,
+    work_order_room: workOrderRoom,
     actor_id: auth.principal.identity.id,
     actor_name: auth.principal.profile.full_name || "CMPRI User",
     can_edit: isSystemAdmin || ((isEngineer || profileHasRole(auth.principal.profile, "technician")) && allows(auth.principal, "edit_tickets")),

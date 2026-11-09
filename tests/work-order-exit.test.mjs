@@ -161,3 +161,43 @@ test('dirty or uncertain part edits block modal exit before any visit finalizes'
  assert.equal(await h.run(h.leave),false);assert.equal(h.state.left,0);assert.match(h.state.errors.at(-1),/Save or discard/);
  h.context.partExitGuard.current=null;h.context.checklistExitFlushes.current.clear();assert.equal(await h.run(h.leave),true);
 });
+
+test('the embedded PM link waits for exit finalizers and preserves modified clicks', async () => {
+  let handler, navigation;
+  function visit(node) {
+    if (ts.isJsxOpeningElement(node) && node.tagName.getText(ast) === 'Link'
+      && node.attributes.getText(ast).includes('/engineering/preventive-maintenance?workOrder=')) {
+      handler = node.attributes.properties.find(prop => ts.isJsxAttribute(prop) && prop.name.getText(ast) === 'onClick')?.initializer?.expression;
+    }
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'requestTicketNavigation') navigation = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(handler, 'PM link click handler');
+  assert.ok(navigation, 'guarded navigation');
+  const pending = deferred(), destinations = [];
+  const h = fixture([() => pending.promise]);
+  const context = {
+    ...h.context, embedded: true, modalToken: 'fixture', order: { id: 'ticket-42' },
+    window: { parent: {}, location: { origin: 'https://example.invalid' } },
+    pendingExitAction: { current: null }, saving: false, issueSaveCount: { current: 0 }, saveInFlight: { current: false },
+    hasUnsavedChanges: false, setShowCancelConfirm: () => assert.fail('unexpected dirty prompt'),
+    router: { push: href => destinations.push(href) }, runTicketExit: h.run,
+  };
+  context.closeEmbeddedTicket = pageCallback('closeEmbeddedTicket', context);
+  const code = ts.transpileModule(`${navigation.getText(ast)}\nexports.click = ${handler.getText(ast)};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, encodeURIComponent, ...context });
+  let prevented = false;
+  const event = { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, preventDefault: () => { prevented = true; } };
+  exports.click(event);
+  assert.equal(prevented, true);
+  assert.deepEqual(destinations, [], 'navigation waits for the active checklist to flush');
+  pending.resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(destinations, ['/engineering/preventive-maintenance?workOrder=ticket-42']);
+  prevented = false;
+  exports.click({ ...event, ctrlKey: true });
+  assert.equal(prevented, false, 'modified clicks retain normal browser behavior');
+  assert.equal(destinations.length, 1);
+});

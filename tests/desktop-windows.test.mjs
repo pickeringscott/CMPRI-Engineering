@@ -183,7 +183,9 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /<WorkOrderAttachmentHistory items=\{workOrderImages\}/);
   assert.match(workOrderDetail, /<WorkOrderMediaComposer/);
-  assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
+  assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate\)/);
+  assert.match(workOrderDetail, /listCheckoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
+  assert.match(workOrderDetail, /\{checkoutDisplay\.label\}/);
   assert.match(workOrderDetail, /data-ticket-accordion="troubleshooting"[\s\S]*?Suggested Troubleshooting/);
   assert.doesNotMatch(workOrderDetail, /Closure Details/);
   assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);

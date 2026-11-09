@@ -39,6 +39,7 @@ async function attachCurrentRoomStatuses<T extends { id:string; room?: unknown }
       checkout_time: operation?.checkout_time || null,
       cn_room: operation?.cn_room ?? null,
       guest_name: operation?.guest_name ?? null,
+      incoming_name: operation?.incoming_name ?? null,
       guest_group_badge: operation?.guest_group_badge ?? null,
       incoming_group_badge: operation?.incoming_group_badge ?? null,
       loyalty_tier: operation?.loyalty_tier ?? null,

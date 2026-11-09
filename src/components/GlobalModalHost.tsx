@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Synt
 import {modalActionForRoute,modalThemeStyle,modalTitleStyle,modalDisplayTitle,hasBonvoyTierHelp} from '@/lib/ui/header-palette';
 import WorkOrderTierKey from './WorkOrderTierKey';
 import RoomRankerKey from './RoomRankerKey';
-import WorkOrderGuestIndicators from './WorkOrderGuestIndicators';
+import WorkOrderTitleGuest from './WorkOrderTitleGuest';
 
 type ModalEntry = {
   guest?: Record<string,unknown>;
@@ -493,10 +493,12 @@ export default function GlobalModalHost() {
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
               style={panelStyle}
             >
-              <div className="cmpri-desktop-titlebar" style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
+              <div className={`cmpri-desktop-titlebar${isWorkOrderDetail ? " cmpri-work-order-titlebar" : ""}`} style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
                 <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />
-                <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
-                {entry.guest && <WorkOrderGuestIndicators guest={entry.guest} />}
+                <span className="cmpri-title-content">
+                  <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
+                  {entry.guest && <WorkOrderTitleGuest guest={entry.guest} />}
+                </span>
                 {hasBonvoyTierHelp(entryPath) && <WorkOrderTierKey />}
                 {isRoomRanking && <RoomRankerKey />}
                 <button type="button" className="cmpri-desktop-close" aria-label={`Close ${displayTitle}`} onClick={()=>requestModalClose(entry.id)}>×</button>

@@ -11,6 +11,7 @@ export type CurrentRoomOperation = {
   checkout_time: string | null;
   cn_room: boolean;
   guest_name: string | null;
+  incoming_name: string | null;
   loyalty_tier: LoyaltyTier | null;
   incoming_loyalty_tier: LoyaltyTier | null;
   incoming_reserved: boolean;
@@ -49,9 +50,10 @@ export async function loadCurrentRoomStatuses(admin: SupabaseClient) {
         cn_room: badges.guest_group_badge === "railway-cn",
         ...badges,
         guest_name: typeof row.guest_name === "string" ? row.guest_name : null,
+        incoming_name: typeof row.incoming_name === "string" && (row.reserved === true || row.incoming_reserved === true) ? row.incoming_name : null,
         loyalty_tier: row.guest_name ? loyaltyTier(row.loyalty_tier) : null,
-        incoming_reserved: !!row.incoming_name && (row.reserved === true || row.incoming_reserved === true),
-        incoming_loyalty_tier: row.incoming_name && (row.reserved === true || row.incoming_reserved === true) ? loyaltyTier(row.incoming_loyalty_tier) : null,
+        incoming_reserved: row.reserved === true || row.incoming_reserved === true,
+        incoming_loyalty_tier: row.reserved === true || row.incoming_reserved === true ? loyaltyTier(row.incoming_loyalty_tier) : null,
       });
     }
   }

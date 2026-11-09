@@ -106,6 +106,20 @@
 .cmpri-window-guest .tier-m svg { width:16px;height:16px; }
 .cmpri-window-guest .preview-group-badge { height:18px; }
 .cmpri-window-guest-name { max-width:15rem;overflow:hidden;text-overflow:ellipsis; }
+/* Work-order guest identity shares the title's font and sits next to its helper. */
+.cmpri-work-order-titlebar { position:relative;gap:2px;border-bottom:0; }
+.cmpri-work-order-titlebar > :first-child { margin-right:6px; }
+.cmpri-title-content { position:relative;display:flex;align-items:center;gap:4px;flex:1;min-width:0;height:100%; }
+.cmpri-title-guest { display:flex;align-items:center;gap:4px;min-width:0;flex-shrink:1;white-space:nowrap;font:inherit;color:inherit; }
+.cmpri-title-occupied { display:inline-flex;align-items:center;border:1px solid #475569;border-radius:999px;background:#0f172a;color:#cbd5e1;padding:.08em .45em;font-size:.72em;font-weight:600;line-height:1.25; }
+.cmpri-title-guest .tier-m { width:18px;height:18px; }
+.cmpri-title-guest .tier-m svg { width:16px;height:16px; }
+.cmpri-title-guest-badge { height:18px;width:auto;max-width:36px;object-fit:contain; }
+.cmpri-title-guest-name { overflow:hidden;text-overflow:ellipsis; }
+@media(max-width:720px) {
+  .cmpri-title-guest { position:absolute;z-index:1;right:0;top:0;min-height:28px;max-width:100%;background:var(--cmpri-modal-surface,#202020); }
+  .cmpri-title-guest-name { white-space:normal;overflow-wrap:anywhere; }
+}
 @media(max-width:720px) {
   .cmpri-header-utilities { flex-direction:column;align-items:stretch;gap:3px;width:140px; }
   .cmpri-header-utilities .cmpri-header-status-pill,.cmpri-header-create { width:100%;height:34px;min-height:34px;padding:5px 8px;font-size:14px; }

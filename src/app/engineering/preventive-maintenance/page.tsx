@@ -10,6 +10,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
+import { workOrderFormTarget } from "@/lib/pm/work-order-form-target";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -74,6 +75,7 @@ type LivePmWorkbook = {
 type PmLocation = { id: string; name: string; room_number: string | null; area: string | null; location_type: string | null };
 type PmTab = "week" | "inspections" | "rooms" | "history";
 type ActiveForm = { templateId: string; periodStart: string; scopeKey: string };
+type WorkOrderTarget = { form: ActiveForm | null; locationId: string | null; room: string | null; week: string };
 type PendingWorkOrderLink = {
   id: string;
   displayId: string;
@@ -243,6 +245,8 @@ export default function PreventiveMaintenancePage() {
   const [reviewBusyId, setReviewBusyId] = useState("");
   const [roomSearch, setRoomSearch] = useState("");
   const [activeForm, setActiveForm] = useState<ActiveForm | null>(null);
+  const [workOrderTarget, setWorkOrderTarget] = useState<WorkOrderTarget | null>(null);
+  const openedWorkOrderTarget = useRef(false);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [checklist, setChecklist] = useState<Record<string, ChecklistState>>({});
   const [repeatableRows, setRepeatableRows] = useState<Array<Record<string, string>>>([]);
@@ -271,7 +275,10 @@ export default function PreventiveMaintenancePage() {
         window.location.replace(cmpriSession.landing);
         return;
       }
-      const response = await fetch(`/api/preventive-maintenance?week=${encodeURIComponent(week)}`, {
+      const workOrder = new URLSearchParams(window.location.search).get("workOrder") || "";
+      const query = new URLSearchParams({ week });
+      if (workOrder) query.set("workOrder", workOrder);
+      const response = await fetch(`/api/preventive-maintenance?${query}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
@@ -282,6 +289,16 @@ export default function PreventiveMaintenancePage() {
       setLiveWorkbook(result.workbook as LivePmWorkbook);
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
       setLocations(Array.isArray(result.locations) ? result.locations as PmLocation[] : []);
+      if (workOrder && !openedWorkOrderTarget.current) {
+        const form = result.linked_form;
+        setWorkOrderTarget({
+          form: form && typeof form.template_id === "string" && typeof form.period_start === "string" && typeof form.scope_key === "string"
+            ? { templateId: form.template_id, periodStart: form.period_start, scopeKey: form.scope_key } : null,
+          locationId: typeof result.work_order_location_id === "string" ? result.work_order_location_id : null,
+          room: typeof result.work_order_room === "string" ? result.work_order_room : null,
+          week,
+        });
+      }
       setAccessRoles(Array.isArray(result.access_roles) ? result.access_roles.filter((role: unknown): role is string => typeof role === "string") : []);
       setSpreadsheetSyncEnabled(result.spreadsheet_sync_enabled === true);
       setCanEdit(result.can_edit === true || result.can_review === true);
@@ -462,6 +479,33 @@ export default function PreventiveMaintenancePage() {
     setError("");
     setMessage("");
   }
+
+  useEffect(() => {
+    if (!workOrderTarget || loading || openedWorkOrderTarget.current) return;
+    const linked = workOrderTarget.form;
+    const targetWeek = linked ? pmWeekStart(linked.periodStart) : weekStart;
+    if (targetWeek !== weekStart) {
+      // Resolve a historical linked form against the records for its period.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setWeekStart(targetWeek);
+      return;
+    }
+    // Wait for the selected period's records before opening a saved form.
+    if (workOrderTarget.week !== weekStart) return;
+    const location = locations.find((item) => item.id === workOrderTarget.locationId);
+    const target = workOrderFormTarget(linked, location, PM_ROOM_NUMBERS, PM_ROOM_TEMPLATE_ID, currentQuarterPeriod, workOrderTarget.room);
+    const template = target && findPmTemplate(target.templateId);
+    openedWorkOrderTarget.current = true;
+    if (!target || !template) {
+      setMessage("No linked PM form or quarterly guest-room form was found for this work order. Select a form below.");
+      return;
+    }
+    setTab(template.kind === "room" ? "rooms" : "inspections");
+    openForm(template, target.periodStart, target.scopeKey);
+    if (location) setDeficiencyLocationId(location.id);
+  // openForm reads the records and actor loaded for this week; the ref prevents reopening.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workOrderTarget, loading, weekStart, locations, currentQuarterPeriod]);
 
   useEffect(() => {
     if (!focusTask || loading) return;
