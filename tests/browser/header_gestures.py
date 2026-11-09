@@ -15,10 +15,74 @@ def group(page,name):return page.locator('.cmpri-header-v23 fieldset.group').fil
 async def order(page):return await page.locator('.cmpri-header-v23 fieldset legend').all_text_contents()
 async def keys(g):return await g.locator('.buttons .action').evaluate_all('bs=>bs.map(b=>b.dataset.layoutKey||b.dataset.key)')
 async def settle(page):await page.wait_for_timeout(450)
+async def mouse_regressions(browser):
+ # Exercise the production menu implementation with inert actions so immediate
+ # mouse/keyboard interactions can be observed without network or window timing.
+ context=await browser.new_context(viewport={'width':1440,'height':850});page=await context.new_page()
+ await page.set_content('<main class="cmpri-desktop-topbar"><div id="fixture" class="cmpri-header-v23"></div></main>')
+ await page.add_style_tag(content=Path('src/app/approved-header.css').read_text())
+ await page.add_style_tag(content=Path('src/app/modal-theme.css').read_text())
+ script=Path('src/lib/ui/approved-header-menus.js').read_text().replace('export function mountApprovedMenus','function mountApprovedMenus')
+ await page.add_script_tag(content=script+"""
+ window.launches=[];window.saves=[];
+ mountApprovedMenus(document.getElementById('fixture'),[
+  {label:'First group',items:[{key:'first',label:'First action'},{key:'second',label:'Second action'}]},
+  {label:'Second group',items:[{key:'third',label:'Third action'}]}
+ ],action=>launches.push(action.key),{groups:[],buttons:{},widths:{},collapsed:[]},layout=>saves.push(layout));
+ """)
+ first=page.get_by_role('button',name='First action');second=page.get_by_role('button',name='Second action')
+ title=page.locator('legend',has_text='First group');other_title=page.locator('legend',has_text='Second group')
+ assert await first.evaluate('e=>getComputedStyle(e).cursor')=='pointer'
+ assert await title.evaluate('e=>getComputedStyle(e).cursor')=='pointer'
+ box=await first.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
+ await page.mouse.move(x,y);await page.mouse.down();await page.wait_for_timeout(370);await page.mouse.up()
+ assert await page.evaluate('launches.slice()')==['first']
+ b=await title.bounding_box();await page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);await page.mouse.down();await page.wait_for_timeout(370);await page.mouse.up()
+ assert await title.get_attribute('aria-expanded')=='false';await title.click();assert await title.get_attribute('aria-expanded')=='true'
+ # A press at the edge, released just outside without crossing the 12px drag
+ # threshold, must preserve the browser's native cancel-click behavior.
+ box=await first.bounding_box();y=box['y']+box['height']/2
+ await page.mouse.move(box['x']+box['width']-1,y);await page.mouse.down();await page.mouse.move(box['x']+box['width']+5,y);await page.mouse.up()
+ assert await page.evaluate('launches.slice()')==['first']
+ async def drag_start():
+  box=await first.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
+  await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+14,y)
+  ghost=page.locator('body>.moving-copy');await expect(ghost).to_be_visible();g=await ghost.bounding_box()
+  assert abs(g['x']-box['x']-14)<.3 and abs(g['y']-box['y'])<.3,(g,box)
+  assert await first.evaluate('e=>getComputedStyle(e).cursor')=='grabbing'
+  await page.mouse.up()
+  assert await page.locator('body>.moving-copy').count()==0
+ await drag_start();assert await page.evaluate('launches.slice()')==['first']
+ # Keyboard activation and fresh same-target click must not inherit suppression.
+ await first.focus();await page.keyboard.press('Enter');assert await page.evaluate('launches.slice()')==['first','first']
+ await drag_start();await first.click();assert await page.evaluate('launches.slice()')==['first','first','first']
+ # Unrelated controls remain responsive immediately after a completed drag.
+ await drag_start();await second.click();assert await page.evaluate('launches.slice()')==['first','first','first','second']
+ await drag_start();await other_title.click();assert await other_title.get_attribute('aria-expanded')=='false'
+ await other_title.press('Enter');assert await other_title.get_attribute('aria-expanded')=='true'
+ # Resize still advertises resizing, including while the handle is held.
+ edge=page.locator('fieldset').first.locator('.resize-edge');assert await edge.evaluate('e=>getComputedStyle(e).cursor')=='ew-resize'
+ b=await edge.bounding_box();await page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);await page.mouse.down()
+ assert await edge.evaluate('e=>getComputedStyle(e).cursor')=='ew-resize';await page.mouse.up()
+ # Esc cancels the active drag, without launching on subsequent release.
+ box=await first.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
+ before=await page.evaluate('launches.slice()');await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+14,y)
+ await expect(page.locator('body>.moving-copy')).to_be_visible();await page.keyboard.press('Escape')
+ assert await page.locator('body>.moving-copy').count()==0;await page.mouse.up();assert await page.evaluate('launches.slice()')==before
+ # Cancellation before a touch long-press expires must not leave a late ghost.
+ touch=await context.new_cdp_session(page);box=await first.bounding_box();point={'x':box['x']+box['width']/2,'y':box['y']+box['height']/2,'id':1}
+ await touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[point]});await page.wait_for_timeout(100)
+ await touch.send('Input.dispatchTouchEvent',{'type':'touchCancel','touchPoints':[]});await page.wait_for_timeout(370)
+ assert await page.locator('body>.moving-copy').count()==0
+ assert not await page.locator('body').evaluate("e=>e.classList.contains('menu-reordering')")
+ await context.close()
 async def main():
  results=[];layouts={}
  async with async_playwright() as p:
   browser=await p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+  await mouse_regressions(browser)
+  if os.environ.get('CMPRI_POINTER_UNIT_ONLY')=='1':
+   await browser.close();return
   for touch,width in [(False,1440),(True,390)]:
    layouts.clear();posts=[]
    context=await browser.new_context(viewport={'width':width,'height':850},is_mobile=touch,has_touch=touch)
@@ -29,20 +93,42 @@ async def main():
    # Single tap/click collapses/expands with a tight visible, colored title.
    await title.click();assert 'collapsed' in (await ops.get_attribute('class'));assert await title.get_attribute('aria-expanded')=='false'
    await expect(title).to_be_visible();await expect(ops.locator('.buttons')).to_be_hidden();await title.click();assert 'collapsed' not in (await ops.get_attribute('class'))
+   if not touch:
+    # A deliberate mouse click must still work when the press lasts longer than
+    # the touch long-press threshold, for both section titles and actions.
+    box=await title.bounding_box();await pointer.down(box['x']+box['width']/2,box['y']+box['height']/2);await page.wait_for_timeout(370);await pointer.up()
+    assert 'collapsed' in (await ops.get_attribute('class'));await title.click();assert 'collapsed' not in (await ops.get_attribute('class'))
    # A normal action opens its own modal. Closing it leaves the header intact.
    await ops.get_by_role('button',name='Work Order List',exact=True).click();await page.get_by_role('dialog').last.wait_for();await page.locator('.cmpri-desktop-close').last.click();await settle(page)
    first=ops.locator('.buttons .action').first;box=await first.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
    await pointer.down(x,y);await page.wait_for_timeout(370)
    if not touch:
-    await expect(page.locator('body > .moving-copy')).to_have_count(0);await pointer.up();await settle(page);assert await page.get_by_role('dialog').count()==0
-    await pointer.down(x,y);await pointer.move(x+10,y)
+    await expect(page.locator('body > .moving-copy')).to_have_count(0);await pointer.up()
+    await expect(page.get_by_role('dialog').last).to_be_visible();await page.locator('.cmpri-desktop-close').last.click();await settle(page)
+    box=await first.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
+    assert await first.evaluate('e=>getComputedStyle(e).cursor')=='pointer'
+    assert await title.evaluate('e=>getComputedStyle(e).cursor')=='pointer'
+    # Pressing near an edge then releasing outside is a canceled click, not a launch.
+    await pointer.down(box['x']+box['width']-1,y);await pointer.move(box['x']+box['width']+5,y);await pointer.up()
+    assert await page.get_by_role('dialog').count()==0
+    await pointer.down(x,y);await pointer.move(x+14,y)
    ghost=page.locator('body > .moving-copy');await expect(ghost).to_be_visible()
-   copied=await ghost.bounding_box();assert abs(copied['x']-(x+(8 if touch else 18)))<.2 and abs(copied['y']-y-8)<.2,(box,copied)
+   copied=await ghost.bounding_box();expected_x=x+8 if touch else box['x']+14;expected_y=y+8 if touch else box['y']
+   # CSS :active subtly scales the original between the pre-press measurement
+   # and pickup, so allow subpixel variation while rejecting a visible jump.
+   assert abs(copied['x']-expected_x)<.6 and abs(copied['y']-expected_y)<.6,(box,copied)
+   if not touch:assert await first.evaluate('e=>getComputedStyle(e).cursor')=='grabbing'
    assert abs(copied['width']-box['width'])<.1 and abs(copied['height']-box['height'])<.1,(box,copied)
    style="e=>{const s=getComputedStyle(e);return [s.font,s.color,s.backgroundColor,s.borderRadius]}";actual=await first.evaluate(style);copy_style=await ghost.evaluate(style);assert actual==copy_style,(actual,copy_style)
    assert await page.evaluate('getSelection().toString()')=='';assert await page.locator('body').evaluate("e=>getComputedStyle(e).userSelect")=='none'
    # Long press and release without movement must not launch the button.
-   await pointer.up();await settle(page);assert await page.get_by_role('dialog').count()==0
+   await pointer.up()
+   if not touch:
+    # A separate mouse or keyboard click immediately after a drag must work.
+    other=group(page,'Admin').locator('legend');was_collapsed='collapsed' in (await group(page,'Admin').get_attribute('class'))
+    await other.click();assert ('collapsed' in (await group(page,'Admin').get_attribute('class')))!=was_collapsed
+    await other.press('Enter');assert ('collapsed' in (await group(page,'Admin').get_attribute('class')))==was_collapsed
+   await settle(page);assert await page.get_by_role('dialog').count()==0
    # Move a real button, and observe actual peer movement before releasing.
    original=await keys(ops);first=ops.locator('.buttons .action').first;peer=ops.locator('.buttons .action').nth(1);a=await first.bounding_box();b=await peer.bounding_box()
    await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(b['x']+b['width']*.8,b['y']+b['height']/2)
@@ -75,18 +161,21 @@ async def main():
    await row.evaluate('r=>r.scrollLeft=40');row_scroll=await row.evaluate('r=>r.scrollLeft')
    groups_before=await order(page);a=await title.bounding_box();bar=await page.locator('.cmpri-header-v23 .groups').bounding_box()
    await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370)
-   if not touch:await pointer.move(a['x']+a['width']/2+10,a['y']+a['height']/2)
+   if not touch:await pointer.move(a['x']+a['width']/2+14,a['y']+a['height']/2)
    source_rect=await ops.bounding_box();ghost_rect=await ghost.bounding_box();assert abs(source_rect['width']-ghost_rect['width'])<.1 and abs(source_rect['height']-ghost_rect['height'])<.1
-   assert abs(ghost_rect['x']-a['x']-a['width']/2-(8 if touch else 18))<.2 and abs(ghost_rect['y']-a['y']-a['height']/2-8)<.2,(source_rect,ghost_rect)
+   expected_x=a['x']+a['width']/2+8 if touch else source_rect['x']+14;expected_y=a['y']+a['height']/2+8 if touch else source_rect['y']
+   assert abs(ghost_rect['x']-expected_x)<.2 and abs(ghost_rect['y']-expected_y)<.2,(source_rect,ghost_rect)
    assert await ops.locator('svg path').get_attribute('d')==await ghost.locator('svg path').get_attribute('d')
    assert abs(await ghost.locator('.buttons').evaluate('r=>r.scrollLeft')-row_scroll)<.1
    await pointer.move(bar['x']+bar['width']-6,bar['y']+bar['height']-4);await pointer.up();await settle(page)
    assert (await order(page))[-1]=='Operations',(groups_before,await order(page));assert 'collapsed' not in (await ops.get_attribute('class'))
    # Collapsed group is also draggable, and remains collapsed on release.
-   await title.click();assert 'collapsed' in (await ops.get_attribute('class'));a=await title.bounding_box();target=await page.locator('.cmpri-header-v23 fieldset').first.bounding_box()
+   await title.click();assert 'collapsed' in (await ops.get_attribute('class'));a=await title.bounding_box();target=await page.locator('.cmpri-header-v23 fieldset').first.bounding_box();source_before=await ops.bounding_box()
    await pointer.down(a['x']+a['width']/2,a['y']+a['height']/2);await page.wait_for_timeout(370);await pointer.move(target['x']+4,target['y']+5)
    collapsed_copy=await ghost.bounding_box();collapsed_real=await ops.bounding_box();assert abs(collapsed_copy['width']-collapsed_real['width'])<.2 and abs(collapsed_copy['height']-collapsed_real['height'])<.2
-   assert abs(collapsed_copy['x']-target['x']-12)<.2 and abs(collapsed_copy['y']-target['y']-13)<.2
+   expected_x=target['x']+12 if touch else source_before['x']+(target['x']+4-a['x']-a['width']/2)
+   expected_y=target['y']+13 if touch else source_before['y']+(target['y']+5-a['y']-a['height']/2)
+   assert abs(collapsed_copy['x']-expected_x)<.2 and abs(collapsed_copy['y']-expected_y)<.2
    await pointer.up();await settle(page)
    assert (await order(page))[0]=='Operations';assert 'collapsed' in (await ops.get_attribute('class'))
    # Account width caps at content fitting width and persists after collapse/reopen.

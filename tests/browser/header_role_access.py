@@ -32,7 +32,7 @@ async def main():
     if width<640:await session.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':box['x']+box['width']/2,'y':box['y']+box['height']/2,'id':1}]})
     else:await page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2);await page.mouse.down()
     await page.wait_for_timeout(370)
-    if width>=640:await page.mouse.move(box['x']+box['width']/2+10,box['y']+box['height']/2)
+    if width>=640:await page.mouse.move(box['x']+box['width']/2+14,box['y']+box['height']/2)
     await expect(page.locator('body > .moving-copy')).to_be_visible()
     if width<640:await session.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
     else:await page.mouse.up()

@@ -29,16 +29,18 @@ async def main():
     before=await page.locator('.cmpri-header-v23 legend').all_text_contents();box=await title.bounding_box()
     await page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2);await page.mouse.down();await page.wait_for_timeout(650)
     await expect(page.locator('body > .moving-copy')).to_have_count(0);assert await page.locator('.cmpri-header-v23 legend').all_text_contents()==before
-    await page.mouse.up();await page.wait_for_timeout(450);assert ('collapsed' in await admin.get_attribute('class'))==collapsed
+    # A long stationary mouse hold is a normal click, not a drag.
+    await page.mouse.up();assert ('collapsed' in await admin.get_attribute('class'))!=collapsed
+    await title.click();assert ('collapsed' in await admin.get_attribute('class'))==collapsed
    await title.click();await page.wait_for_timeout(450)
    # A non-first title remains in its own slot when moved slightly along the raised tab row.
    before=await page.locator('.cmpri-header-v23 legend').all_text_contents();box=await title.bounding_box()
-   await page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2);await page.mouse.down();await page.wait_for_timeout(370);await page.mouse.move(box['x']+box['width']/2+10,box['y']+box['height']/2);await page.wait_for_timeout(300)
+   await page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2);await page.mouse.down();await page.wait_for_timeout(370);await page.mouse.move(box['x']+box['width']/2+14,box['y']+box['height']/2);await page.wait_for_timeout(300)
    assert await page.locator('.cmpri-header-v23 legend').all_text_contents()==before;await page.mouse.up();await page.wait_for_timeout(450)
    # Actual neighboring button pixels must interpolate during the reordering animation.
    ops=page.locator('fieldset').filter(has=page.locator('legend',has_text='Operations'));first=await ops.locator('.action').nth(0).element_handle();peer=await ops.locator('.action').nth(1).element_handle();a=await first.bounding_box();b=await peer.bounding_box()
    await page.mouse.move(a['x']+a['width']/2,a['y']+a['height']/2);await page.mouse.down();await page.wait_for_timeout(370)
-   await page.mouse.move(a['x']+a['width']/2+10,a['y']+a['height']/2)
+   await page.mouse.move(a['x']+a['width']/2+14,a['y']+a['height']/2)
    ghost=await page.locator('body > .moving-copy').bounding_box();assert abs(ghost['width']-a['width'])<.1 and abs(ghost['height']-a['height'])<.1
    await page.mouse.move(b['x']+b['width']*.85,b['y']+b['height']/2);motion=await rendered_slide(peer);assert motion['interpolating'],motion
    await page.mouse.up();await page.wait_for_timeout(450);assert await page.get_by_role('dialog').count()==0

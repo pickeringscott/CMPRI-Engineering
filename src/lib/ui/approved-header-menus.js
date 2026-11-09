@@ -1,7 +1,7 @@
 /* Approved v23 appearance. Gestures only reorder these already-authorized DOM controls. */
 export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
- const PRESS_MS=320,SLIDE_MS=240;
- let observer,suppressClickUntil=0,cancelGesture;
+ const PRESS_MS=320,SLIDE_MS=240,MOUSE_DRAG_PX=12,TOUCH_DRAG_PX=8;
+ let observer,suppressedClick,cancelGesture;
  const ghosts=new Set(),cleanups=[];
  root.replaceChildren();
  const preview=document.createElement('div');preview.className='preview layout-b';
@@ -10,6 +10,13 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
  const label=group=>group.querySelector('legend').textContent;
  const emit=()=>onSave({groups:[...bar.children].map(label),buttons:Object.fromEntries([...bar.children].map(g=>[label(g),[...g.querySelectorAll('.buttons>.action')].map(b=>b.dataset.layoutKey)])),widths:Object.fromEntries([...bar.children].map(g=>[label(g),parseFloat(g.classList.contains('collapsed')?g.expandedWidth:g.style.width)||g.offsetWidth])),collapsed:[...bar.children].filter(g=>g.classList.contains('collapsed')).map(label)});
  const listen=(name,fn,options)=>{document.addEventListener(name,fn,options);return()=>document.removeEventListener(name,fn,options)};
+ const suppressFor=target=>{suppressedClick={target,until:performance.now()+400}};
+ const shouldSuppress=(target,event)=>{
+  if(!suppressedClick)return false;
+  if(performance.now()>suppressedClick.until){suppressedClick=undefined;return false}
+  if(event&&event.detail!==0&&suppressedClick.target===target){suppressedClick=undefined;return true}
+  return false;
+ };
  const clearMotion=nodes=>nodes.forEach(n=>n.getAnimations().forEach(a=>a.cancel()));
  function slide(peers,change){
   const before=new Map(peers.map(n=>[n,n.getBoundingClientRect()]));change();clearMotion(peers);
@@ -30,9 +37,14 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
  }
  function startDrag(event,item,container,isButton){
   if(event.button!==0||event.isPrimary===false||cancelGesture)return;
-  const captureTarget=event.currentTarget;captureTarget.setPointerCapture(event.pointerId);
+  const captureTarget=event.currentTarget;
+  // A new press is a new gesture, including when the browser emitted no click
+  // after the previous drag. Keyboard activation must never be suppressed.
+  suppressedClick=undefined;
   const initial=[...container.children],host=root.closest('.cmpri-desktop-topbar')||header;
   const start={x:event.clientX,y:event.clientY,scroll:container.scrollLeft,hostLeft:host.scrollLeft,hostTop:host.scrollTop};
+  const rect=item.getBoundingClientRect(),grab={x:start.x-rect.left,y:start.y-rect.top};
+  const position=e=>event.pointerType==='mouse'?{x:e.clientX-grab.x,y:e.clientY-grab.y}:{x:e.clientX+8,y:e.clientY+8};
   let last=event,active=false,moved=false,swipe=false,ghost,frame,slideUntil=0;
   const within=()=>{const r=isButton?container.closest('fieldset').getBoundingClientRect():container.getBoundingClientRect(),h=host.getBoundingClientRect();return last.clientX>=r.left&&last.clientX<=r.right&&last.clientY>=Math.max(r.top-(isButton?0:24),h.top)&&last.clientY<=Math.min(r.bottom+(isButton?0:24),h.bottom)};
   const arrange=()=>{
@@ -61,13 +73,14 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   };
   const startedAt=performance.now();
   const activate=()=>{
-   active=true;document.body.classList.add('drag-active');window.getSelection()?.removeAllRanges();
-   ghost=copy(item,last.clientX+8,last.clientY+8);item.classList.add('landing-copy');arrange();frame=requestAnimationFrame(edgeScroll);
+   active=true;document.body.classList.add('drag-active','menu-reordering');window.getSelection()?.removeAllRanges();
+   captureTarget.setPointerCapture(event.pointerId);
+   const p=position(last);ghost=copy(item,p.x,p.y);item.classList.add('landing-copy');arrange();frame=requestAnimationFrame(edgeScroll);
   };
   const timer=event.pointerType==='mouse'?undefined:window.setTimeout(activate,PRESS_MS);
   const move=e=>{
    if(e.pointerId!==event.pointerId)return;last=e;
-   const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.hypot(dx,dy)>8)moved=true;
+   const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.hypot(dx,dy)>(event.pointerType==='mouse'?MOUSE_DRAG_PX:TOUCH_DRAG_PX))moved=true;
    if(!active){
     if(event.pointerType==='mouse'){if(!moved)return;activate()}
     else{
@@ -75,17 +88,17 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
      if(isButton&&swipe&&Math.abs(dx)>Math.abs(dy)){e.preventDefault();container.scrollLeft=start.scroll-dx}return;
     }
    }
-   e.preventDefault();ghost.style.setProperty('left',(e.clientX+8)+'px','important');ghost.style.setProperty('top',(e.clientY+8)+'px','important');arrange();
+   e.preventDefault();const p=position(e);ghost.style.setProperty('left',p.x+'px','important');ghost.style.setProperty('top',p.y+'px','important');arrange();
   };
   const finish=(e,cancel=false)=>{
    if(e.pointerId!==event.pointerId)return;last=e;window.clearTimeout(timer);cancelAnimationFrame(frame);
    if(active){
-    suppressClickUntil=performance.now()+400;
+    suppressFor(captureTarget);
     if(cancel||!within()){clearMotion(initial);initial.forEach(n=>container.append(n));container.scrollLeft=start.scroll;host.scrollLeft=start.hostLeft;host.scrollTop=start.hostTop}else emit();
     ghost.remove();ghosts.delete(ghost);item.style.visibility='';item.classList.remove('landing-copy');
-   }else if(moved||performance.now()-startedAt>=PRESS_MS)suppressClickUntil=performance.now()+400;
+   }else if(event.pointerType!=='mouse'&&(moved||performance.now()-startedAt>=PRESS_MS))suppressFor(captureTarget);
    if(captureTarget.hasPointerCapture(event.pointerId))captureTarget.releasePointerCapture(event.pointerId);
-   document.body.classList.remove('drag-active','drag-invalid');off.forEach(fn=>fn());cancelGesture=undefined;
+   document.body.classList.remove('drag-active','drag-invalid','menu-reordering');off.forEach(fn=>fn());cancelGesture=undefined;
   };
   const off=[listen('pointermove',move,{passive:false}),listen('pointerup',e=>finish(e)),listen('pointercancel',e=>finish(e,true)),listen('keydown',e=>{if(e.key==='Escape'){e.preventDefault();finish(last,true)}})];
   cancelGesture=()=>finish(last,true);
@@ -98,7 +111,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
    const b=document.createElement('button');b.type='button';b.className='action';b.dataset.key=action.key;b.dataset.layoutKey=action.key+'::'+action.label.replace(/ \(\d+\)$/,'');b.dataset.control=action.label;b.textContent=action.label;
    for(const [key,value]of Object.entries(action.style||{}))b.style.setProperty(key,value);
    b.title='Drag to reorder within '+group.label+' (touch: long press)';b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
-   b.onclick=()=>{if(performance.now()>=suppressClickUntil)onLaunch(action,Date.now())};
+   b.onclick=e=>{if(!shouldSuppress(b,e))onLaunch(action,Date.now())};
    b.onkeydown=e=>{if(e.altKey&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=e.key==='ArrowLeft'?b.previousElementSibling:b.nextElementSibling;if(other){if(e.key==='ArrowLeft')other.before(b);else other.after(b);emit();b.focus()}}};buttons.append(b);
   }
   const saved=layout.buttons[group.label]||[],rank=b=>{const specific=saved.indexOf(b.dataset.layoutKey),n=specific<0?saved.indexOf(b.dataset.key):specific;return n<0?999:n};[...buttons.children].sort((a,b)=>rank(a)-rank(b)).forEach(n=>buttons.append(n));
@@ -115,7 +128,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
    scroll.max=Math.max(0,buttons.scrollWidth-buttons.clientWidth);scroll.hidden=Number(scroll.max)<1;scroll.value=buttons.scrollLeft;
   };
   scroll.oninput=()=>buttons.scrollLeft=Number(scroll.value);buttons.onscroll=()=>scroll.value=buttons.scrollLeft;
-  const toggle=()=>{if(performance.now()<suppressClickUntil)return;const closed=field.classList.toggle('collapsed');if(closed){field.expandedWidth=field.style.width;field.style.width=(title.offsetWidth+2)+'px'}else field.style.width=field.expandedWidth;title.setAttribute('aria-expanded',String(!closed));field.drawOutline();emit()};
+  const toggle=e=>{if(shouldSuppress(title,e))return;const closed=field.classList.toggle('collapsed');if(closed){field.expandedWidth=field.style.width;field.style.width=(title.offsetWidth+2)+'px'}else field.style.width=field.expandedWidth;title.setAttribute('aria-expanded',String(!closed));field.drawOutline();emit()};
   title.onclick=toggle;title.onpointerdown=e=>startDrag(e,field,bar,false);title.oncontextmenu=e=>e.preventDefault();
   title.onkeydown=e=>{if(e.altKey&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=e.key==='ArrowLeft'?field.previousElementSibling:field.nextElementSibling;if(other){if(e.key==='ArrowLeft')other.before(field);else other.after(field);emit();title.focus()}}else if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle()}};
   const edge=document.createElement('span');edge.className='resize-edge';edge.tabIndex=0;edge.setAttribute('role','separator');edge.setAttribute('aria-orientation','vertical');edge.setAttribute('aria-label','Resize '+group.label);edge.title='Drag horizontally to resize';field.append(edge);
@@ -132,5 +145,5 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
  const rank=g=>{const i=layout.groups.indexOf(label(g));return i<0?999:i};[...bar.children].sort((a,b)=>rank(a)-rank(b)).forEach(g=>bar.append(g));
  observer=new ResizeObserver(()=>[...bar.children].forEach(g=>g.drawOutline()));for(const field of bar.children){observer.observe(field);observer.observe(field.querySelector('legend'));field.drawOutline()}
  const blur=()=>cancelGesture?.();window.addEventListener('blur',blur);cleanups.push(()=>window.removeEventListener('blur',blur));
- return()=>{cancelGesture?.();observer.disconnect();cleanups.forEach(fn=>fn());for(const ghost of ghosts)ghost.remove();document.body.classList.remove('drag-active','drag-invalid');root.replaceChildren()};
+ return()=>{cancelGesture?.();observer.disconnect();cleanups.forEach(fn=>fn());for(const ghost of ghosts)ghost.remove();document.body.classList.remove('drag-active','drag-invalid','menu-reordering');root.replaceChildren()};
 }

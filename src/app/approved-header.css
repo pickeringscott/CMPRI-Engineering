@@ -53,7 +53,7 @@
 /* Desktop-only adjustable menu groups. Mobile remains the approved layout. */
 @media(min-width:0px){
 .cmpri-header-v23 .preview .header fieldset.group{padding:4px 6px 5px;margin-top:15px;border-color:transparent;flex:0 0 auto;max-width:100%;height:40px;min-width:100px;position:relative}
-.cmpri-header-v23 .preview .header fieldset.group>legend{position:absolute;top:-14px;left:7px;height:15px;line-height:14px;padding:0 6px;margin:0;border:0;background:transparent;white-space:nowrap;max-width:none;cursor:grab;user-select:none}
+.cmpri-header-v23 .preview .header fieldset.group>legend{position:absolute;top:-14px;left:7px;height:15px;line-height:14px;padding:0 6px;margin:0;border:0;background:transparent;white-space:nowrap;max-width:none;cursor:pointer;user-select:none}
 .cmpri-header-v23 .preview .header fieldset.group .buttons{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;height:28px;align-items:flex-start;scrollbar-width:thin}
 .cmpri-header-v23 .preview .header fieldset.group .action{white-space:nowrap;max-width:none}
 .cmpri-header-v23 .preview .header .groups{display:flex;flex-wrap:wrap;gap:5px;align-items:flex-start}
@@ -67,8 +67,8 @@
 .cmpri-header-v23 .preview .header fieldset.group .buttons{height:23px;scrollbar-width:none;touch-action:pan-y}
 .cmpri-header-v23 .preview .header fieldset.group .buttons::-webkit-scrollbar{display:none}
 .cmpri-header-v23 .preview .header fieldset.group>legend{touch-action:none}
-.cmpri-header-v23 .preview .header fieldset.group .action{touch-action:none;cursor:grab}
-.cmpri-header-v23 .group-scroll{position:absolute;left:5px;bottom:-13px;width:calc(100% - 10px);height:9px;margin:0;appearance:none;background:transparent;cursor:ew-resize;touch-action:none}
+.cmpri-header-v23 .preview .header fieldset.group .action{touch-action:none;cursor:pointer}
+.cmpri-header-v23 .group-scroll{position:absolute;left:5px;bottom:-13px;width:calc(100% - 10px);height:9px;margin:0;appearance:none;background:transparent;cursor:pointer;touch-action:none}
 .cmpri-header-v23 .group-scroll::-webkit-slider-runnable-track{height:4px;border-radius:9px;background:#fcd34d30}
 .cmpri-header-v23 .group-scroll::-webkit-slider-thumb{appearance:none;width:26px;height:7px;margin-top:-1.5px;border-radius:9px;background:#fcd34d88}
 .cmpri-header-v23 .group-scroll::-moz-range-track{height:4px;border-radius:9px;background:#fcd34d30}
@@ -83,6 +83,7 @@
 .cmpri-header-v23 .preview .header fieldset.group>legend{left:50%;transform:translateX(-50%);text-align:center}
 .cmpri-header-v23 .preview .header .group .buttons .action{touch-action:pan-y;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
 body.drag-active,body.drag-active *{user-select:none!important;-webkit-user-select:none!important;-webkit-touch-callout:none!important}
+body.menu-reordering,body.menu-reordering *{cursor:grabbing!important}
 body.drag-invalid,body.drag-invalid *{cursor:not-allowed!important}
 .cmpri-header-v23 .group.group-drop-target{filter:drop-shadow(0 0 3px var(--cmpri-palette-gold-light,#fcd34d))}
 .cmpri-header-v23 .preview .header fieldset.group>legend{-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
