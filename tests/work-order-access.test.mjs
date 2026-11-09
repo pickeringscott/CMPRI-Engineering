@@ -400,7 +400,7 @@ test('work-order labor and parts inputs use field-level permissions',()=>{
   for(const field of ['issue','asset_id','category','priority','technician_name','status','due_by']){
     assert.ok(source.includes(`canEditField("${field}")`),`${field} control must follow the shared edit policy`);
   }
-  assert.match(source,/disabled=\{!canEditField\("action_root_cause"\) \|\| saving\}/);
+  assert.doesNotMatch(source,/Closure Details/);
   assert.match(source,/const values = \["Open", "In Progress", "Completed"\]/);
   assert.match(source,/else if \(canEditField\("asset_id"\)\) \{\s*Object\.assign\(updatePayload, \{\s*asset_id: assetId \|\| null,\s*category,\s*status: saveStatus,\s*notes: notesWithChanges,/);
 });

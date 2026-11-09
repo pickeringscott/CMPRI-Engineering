@@ -58,7 +58,6 @@ export default function WorkOrderSupplies({jobId,cacheScope="",issue="",notes=""
      if(saved.pending&&["part","use"].includes(saved.pending.kind)&&typeof saved.pending.body?.id==="string"){
       pending.current=saved.pending;setPendingKind(saved.pending.kind);setUncertain(true);setMessage("A previous save is unconfirmed. Retry the same operation to confirm it without duplicating stock or parts.");
      }else setMessage("Unsaved part details restored from this device. Review before saving.");
-     const section=document.getElementById("cmpri-labor-parts") as HTMLDetailsElement|null;if(section)section.open=true;
     }
    }catch{setMessage("Local part draft could not be read. Check the ticket notes before retrying a prior save.");}
    setDraftReady(true);

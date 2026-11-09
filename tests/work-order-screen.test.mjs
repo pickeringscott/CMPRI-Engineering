@@ -26,11 +26,12 @@ test('metadata deduplication lasts only while the authorized fetch is pending',a
  const c=exports.run();assert.equal(count,2);finish([]);await c;assert.equal(pending.current,null);
 });
 test('field controls have individual activation and all Chief statuses expand immediately',()=>{
- for(const field of ['asset_id','category','priority','technician_name','status','due_by','hours','cost','action_root_cause']){
+ for(const field of ['asset_id','category','priority','technician_name','status','due_by','hours','cost']){
   assert.ok(detail.includes(`editingField === "${field}"`),field);
   assert.ok(detail.includes(`setEditingField("${field}")`),field);
   assert.ok(!detail.includes(`editingIssue && canEditField("${field}")`),field);
  }
+ assert.doesNotMatch(detail,/Closure Details/);
  assert.match(detail,/expandOnOpen=\{chief\}/);
  assert.match(detail,/if \(chief && canEditField\("status"\)\) return \["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"\]/);
  assert.match(detail,/Edit reported issue/);assert.match(detail,/>Done<\/button>/);

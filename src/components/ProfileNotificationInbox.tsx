@@ -11,12 +11,14 @@ import { fetchDashboardInbox, markServerDashboardNotificationsRead, unreadWorkOr
 export default function ProfileNotificationInbox() {
   const path = usePathname();
   const ownedByDashboard = ["/engineering", "/front-desk", "/technician"].includes(path);
+  // Ticket views use the dashboard inbox; a floating personal inbox obscures fields.
+  const hideInbox = ownedByDashboard || path.startsWith("/work-orders/");
   const [signedIn, setSignedIn] = useState(false);
   const [items, setItems] = useState<WorkOrderNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (ownedByDashboard || window.self !== window.top) return;
+    if (hideInbox || window.self !== window.top) return;
     let active = true;
     const stop = subscribeResources(["inbox", "session"], async () => {
       try {
@@ -28,8 +30,8 @@ export default function ProfileNotificationInbox() {
       } catch { if (active) setError("Notifications could not be loaded."); }
     });
     return () => { active = false; stop(); };
-  }, [ownedByDashboard]);
-  if (ownedByDashboard || !signedIn) return null;
+  }, [hideInbox]);
+  if (hideInbox || !signedIn) return null;
   const count = unreadWorkOrderNotificationCount(items);
   async function markRead(item: WorkOrderNotification) {
     const session = await getValidSession();

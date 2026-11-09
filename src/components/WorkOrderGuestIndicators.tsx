@@ -11,6 +11,6 @@ export default function WorkOrderGuestIndicators({ guest, showName = true }: { g
     {showName && name && <span className="cmpri-window-guest-name" title={name}>{name}</span>}
     <GuestGroupBadge badge={badge(guest.guest_group_badge)} className="preview-group-badge" />
     <LoyaltyBadge tier={loyaltyTier(guest.loyalty_tier)} />
-    {guest.incoming_reserved === true && <><GuestGroupBadge badge={badge(guest.incoming_group_badge)} className="preview-group-badge" /><LoyaltyBadge tier={loyaltyTier(guest.incoming_loyalty_tier)} /><span className="reserved-pill">Reserved</span></>}
+    {guest.incoming_reserved === true && <span className="cmpri-window-incoming" aria-label="Incoming guest"><GuestGroupBadge badge={badge(guest.incoming_group_badge)} className="preview-group-badge" /><LoyaltyBadge tier={loyaltyTier(guest.incoming_loyalty_tier)} /><span className="reserved-pill">Reserved</span></span>}
   </span>;
 }

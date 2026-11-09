@@ -134,3 +134,37 @@
 
 /* Shared literal dimensions keep list/detail parts pills identical at every viewport. */
 .cmpri-parts-status-pill { display:inline-flex;align-items:center;flex:none;box-sizing:border-box;height:18px;white-space:nowrap;border-width:1px;border-style:solid;border-radius:999px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px; }
+
+/* Compact ticket metadata and a final, single-row note composer. */
+[data-ticket-layout] [data-preview-metadata]{gap:6px 8px}
+[data-ticket-layout] .cmpri-ticket-metadata-field{padding:0}
+[data-ticket-layout] details>summary{display:flex;align-items:center;gap:6px;list-style:none}
+[data-ticket-layout] details>summary::-webkit-details-marker{display:none}
+[data-ticket-layout] details>summary::before{content:"▸";flex:none;color:var(--cmpri-modal-text,#fdf3e6)}
+[data-ticket-layout] details[open]>summary::before{content:"▾"}
+[data-ticket-layout] details>summary>h2{display:inline;margin:0}
+[data-ticket-layout] .cmpri-ticket-status input{min-height:40px!important;font-size:15px}
+[data-ticket-layout] .cmpri-ticket-note-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:6px}
+.cmpri-ticket-note-bar>.relative>div{margin-top:0}
+.cmpri-ticket-note-bar .preview-note-actions{margin-top:0;flex-wrap:wrap;max-width:220px}
+.cmpri-ticket-note-bar .preview-note-thumbnails:empty{display:none}
+.cmpri-ticket-note-bar .preview-note-thumbnails:not(:empty){order:3;flex-basis:100%}
+.cmpri-ticket-note-bar>p{grid-column:1/-1}
+.cmpri-ticket-note-bar #technician-note-editor{height:32px;min-height:32px!important;line-height:20px;padding:5px 7px!important}
+.cmpri-ticket-note-bar #technician-note-editor+div>div{line-height:20px;padding:5px 7px!important}
+[data-ticket-layout] aside select{min-height:40px;padding:7px 9px;font-size:14px;border:1px solid var(--cmpri-outline,#777);border-radius:6px}
+@media(max-width:639px){.cmpri-ticket-note-bar #technician-note-editor{height:40px;min-height:40px!important;padding-top:9px!important;padding-bottom:9px!important}.cmpri-ticket-note-bar #technician-note-editor+div>div{padding-top:9px!important;padding-bottom:9px!important}}
+
+[data-ticket-layout] aside :is(input:not([type=checkbox]),textarea){width:100%;min-height:32px;padding:5px 8px;border:1px solid var(--cmpri-outline,#777);border-radius:6px;background:var(--cmpri-modal-base,#181818);color:var(--cmpri-modal-text,#fdf3e6)}
+
+/* Shared titles and persistent state indicators for both ticket accordions. */
+[data-ticket-layout] [data-ticket-accordion]>summary::before{color:currentColor;content:"▸";display:inline-block;flex:0 0 10px;line-height:1}
+[data-ticket-layout] [data-ticket-accordion][open]>summary::before{content:"▾"}
+[data-ticket-layout] [data-ticket-accordion]>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:3px}
+
+.cmpri-window-incoming{display:inline-flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:4px;margin-left:auto;max-width:100%}
+.cmpri-detail-guest-row .cmpri-window-guest{width:100%}
+.cmpri-work-order-list .preview-incoming{margin-left:auto;max-width:100%;flex-wrap:wrap}
+
+[data-ticket-layout] .cmpri-ticket-accordion-title{flex-wrap:wrap}
+[data-ticket-layout] #cmpri-parts-status select{width:148px;min-width:148px;max-width:none;min-height:36px!important;font-size:14px!important}

@@ -184,8 +184,8 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(workOrderDetail, /<WorkOrderAttachmentHistory items=\{workOrderImages\}/);
   assert.match(workOrderDetail, /<WorkOrderMediaComposer/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
-  assert.match(workOrderDetail, /<summary className="list-item cursor-pointer">[\s\S]*?Suggested Troubleshooting/);
-  assert.match(workOrderDetail, /<summary className="cursor-pointer text-sm font-semibold">Closure Details\{pendingField\("actionRootCause"\)\}<\/summary>/);
+  assert.match(workOrderDetail, /data-ticket-accordion="troubleshooting"[\s\S]*?Suggested Troubleshooting/);
+  assert.doesNotMatch(workOrderDetail, /Closure Details/);
   assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);
   assert.match(styles, /html\.cmpri-desktop-interacting iframe \{\s*pointer-events: none !important;/);
   assert.match(styles, /container-type: inline-size;/);

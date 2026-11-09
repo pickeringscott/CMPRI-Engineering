@@ -4,7 +4,9 @@
 .manage-locations .location-row+.location-row{border-top:1px solid var(--cmpri-outline)}
 .manage-locations .location-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:8px 10px;text-align:left;border:0;border-radius:0;font-size:13px}
 .manage-locations .location-toggle small{display:block;margin:2px 0 0 14px;font-size:11px;opacity:.75}
-.manage-locations .location-pm-count{font-size:10px;white-space:nowrap}
+.manage-locations .location-indicators{display:grid;justify-items:stretch;align-content:center;gap:5px;flex:none;min-width:118px;text-align:center;font-size:10px;font-weight:600;line-height:1.3}
+.manage-locations .location-work-order-count{color:var(--cmpri-palette-danger-text,#fca5a5);border:1px solid color-mix(in srgb,currentColor 45%,transparent);background:color-mix(in srgb,currentColor 8%,transparent);border-radius:999px;padding:3px 7px;white-space:nowrap}
+.manage-locations .location-pm-status{border:1px solid;border-radius:999px;padding:3px 7px;white-space:nowrap}
 .manage-locations .location-details{padding:8px 12px 12px;border-top:1px solid var(--cmpri-outline);background:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 7%,var(--cmpri-palette-modal-base,#181818))}
 .manage-locations .location-panel{background:transparent;border-color:var(--cmpri-outline)}
 .manage-locations .location-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}

@@ -126,6 +126,8 @@ async def main():
    await page.get_by_label('Part name',exact=True).fill('Locally retained part edit')
    await page.wait_for_function("Object.keys(localStorage).some(key=>key.startsWith('cmpri:parts-draft:')&&localStorage.getItem(key).includes('Locally retained part edit'))")
    count=len(state['parts']);page.once('dialog',lambda dialog:dialog.accept());await page.reload()
+   await expect(panel).not_to_have_attribute('open','')
+   await summary.locator('h2').click()
    await expect(page.get_by_label('Part name',exact=True)).to_have_value('Locally retained part edit')
    assert len(state['parts'])==count
    page.once('dialog',lambda dialog:dialog.accept())

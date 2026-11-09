@@ -7,6 +7,7 @@ import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { groupLocations } from "@/lib/location-management";
+import { modalTitleStyle } from "@/lib/ui/header-palette";
 import "./locations.css";
 
 interface Location {
@@ -131,6 +132,18 @@ export default function RoomsPage() {
   const groups = useMemo(() => groupLocations(locations), [locations]);
   const areas = useMemo(() => [...new Set(locations.map(location => location.area).filter((area): area is string => !!area?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
   const types = useMemo(() => [...new Set(locations.map(location => location.location_type).filter((type): type is string => !!type?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
+  const workOrderCounts = useMemo(() => {
+    const byLocation = new Map<string, number>();
+    const byRoom = new Map<string, number>();
+    for (const order of orders) {
+      if (order.location_id) byLocation.set(order.location_id, (byLocation.get(order.location_id) || 0) + 1);
+      else {
+        const room = order.room?.match(/\b\d{2,4}\b/)?.[0];
+        if (room) byRoom.set(room, (byRoom.get(room) || 0) + 1);
+      }
+    }
+    return { byLocation, byRoom };
+  }, [orders]);
   const draft = locations.find(location => location.id === selectedId) || null;
   const roomOrders = useMemo(() => !draft ? [] : orders.filter(order => order.location_id === draft.id || (!order.location_id && draft.room_number && order.room?.match(/\b\d{2,4}\b/)?.[0] === draft.room_number)), [draft, orders]);
   const locationPmPlans = useMemo(() => pmPlans.filter(plan => plan.location_id === selectedId), [pmPlans, selectedId]);
@@ -166,10 +179,17 @@ export default function RoomsPage() {
           {group.locations.map(location => {
             const open = selectedId === location.id;
             const plans = pmPlans.filter(plan => plan.location_id === location.id);
+            const ticketCount = (workOrderCounts.byLocation.get(location.id) || 0) + (location.room_number ? workOrderCounts.byRoom.get(location.room_number) || 0 : 0);
+            const activePlans = plans.filter(plan => plan.active);
+            const nextDue = activePlans.map(plan => plan.next_due_on).filter((date): date is string => !!date).sort()[0];
+            const pmLabel = !activePlans.length ? "PM: Not scheduled" : !nextDue ? "PM: Due date not set" : dueState(nextDue).label.startsWith("Overdue") ? "PM: Overdue" : "PM: Scheduled";
             return <article key={location.id} className="location-row">
               <button type="button" className="location-toggle" aria-expanded={open} aria-controls={`location-details-${location.id}`} onClick={() => setSelectedId(current => current === location.id ? "" : location.id)}>
                 <span><span aria-hidden="true">{open ? "▾" : "▸"}</span> {location.room_number ? `Room ${location.room_number}` : location.name || "Location"}<small>{location.area}{location.room_number && location.name && location.name !== `Room ${location.room_number}` ? ` · ${location.name}` : ""}</small></span>
-                {plans.length > 0 && <span className="location-pm-count">{plans.length} PM plan{plans.length === 1 ? "" : "s"}</span>}
+                <span className="location-indicators">
+                  <span className="location-work-order-count">{ticketCount} Work Order{ticketCount === 1 ? "" : "s"}</span>
+                  <span className="location-pm-status" style={modalTitleStyle("Preventive Maintenance")} title={nextDue ? `Next due ${localDate(nextDue)}` : pmLabel}>{pmLabel}</span>
+                </span>
               </button>
               {open && draft && <div id={`location-details-${location.id}`} className="location-details" role="region" aria-label={`${location.room_number ? `Room ${location.room_number}` : location.name} details`}>
               <div>
