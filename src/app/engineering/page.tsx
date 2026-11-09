@@ -589,8 +589,16 @@ export default function EngineeringDashboardPage() {
 
   if (!cmpriSession) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-950 p-4 text-white" aria-busy="true">
-        <p role="status" className="text-sm text-slate-300">Loading your authorized dashboard…</p>
+      <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden text-white lg:h-dvh" aria-busy="true">
+        {/* Keep the same element tree when the authorized dashboard appears.
+            The hidden header lets the artwork observe its eventual height. */}
+        <header className="cmpri-desktop-topbar" hidden aria-hidden="true" />
+        <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
+          <SiteSeasonalBackground />
+          <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 mx-auto mt-4 w-fit rounded-[22px] border p-4 text-center text-[16pt] font-semibold">
+            Loading Dashboard...<br />Have a wonderful day!
+          </p>
+        </div>
       </main>
     );
   }

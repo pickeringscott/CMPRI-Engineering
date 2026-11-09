@@ -31,6 +31,12 @@ against rendered modal body/title colors and the 28-CSS-pixel titlebar.
 These browser fixtures complement API, RLS and database tests in npm test.
 They do not certify live provider responses or physical phone camera UI.
 
+signin_dashboard_transition.py checks the sign-in-to-dashboard transition with
+synthetic Chief Engineer and Front Desk sessions at desktop and mobile widths.
+It delays session checks to verify the seasonal background, hidden dashboard
+controls during authorization and background continuity after authorization.
+Run it with the same local app setup and CMPRI_UI_BASE described above.
+
 daily_ops_files.py checks the compact Daily Ops picker at desktop/mobile widths:
 CSV click/drop staging without requests, rejection of images from the import
 picker, access to the separate on-device OCR reference tool, explicit Submit,
