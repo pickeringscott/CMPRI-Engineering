@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import {inventoryRequest} from "../src/lib/inventory.ts";
 import { isUuid } from "../src/lib/uuid.ts";
 
 function loadRoute(path, admin = { from() { throw new Error("Invalid input must not reach database writes."); } }) {
@@ -16,6 +17,7 @@ function loadRoute(path, admin = { from() { throw new Error("Invalid input must 
     require(name) {
       if (name === "next/server") return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === "@/lib/constants") return { HOTEL_ID: "audit-hotel" };
+      if (name === "@/lib/inventory") return {inventoryRequest};
       if (name === "@/lib/uuid") return { isUuid };
       if (name === "@/lib/server/auth") return {
         requireCapability: async () => ({ principal: { identity: { id: "audit-user" }, profile: { role: "Engineer", full_name: "Audit User" } }, admin }),

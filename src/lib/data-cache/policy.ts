@@ -17,6 +17,7 @@ export function dataCachePolicy(path: string, search?: URLSearchParams): CachePo
   if (/^\/api\/(profile|users|management\/users)(\/|$)/.test(path) || /employment|hours-tracker/.test(path)) return null;
   if (/staff-notes/.test(path)) return { topics: ['notes','inbox'], ttl: 15*second, durable: false };
   if (/notifications|mentions/.test(path)) return { topics: ['inbox','orders'], ttl: 10*second, durable: false };
+  if (path === '/api/pool-log/supplies') return {topics:['pool','reference'],ttl:5*60*second,durable:true};
   if (/pool/.test(path)) return { topics: ['pool'], ttl: 15*second, durable: true };
   if (/work-orders|purchas|warrant|followup|enseo/.test(path)) return { topics: ['orders','reference'], ttl: 30*second, durable: true };
   if (/rooms|room-operations|room-ranker|room-ranking|ticket-room-ranker/.test(path)) return { topics: ['rooms','orders','reference'], ttl: 30*second, durable: true };
@@ -30,6 +31,7 @@ export function mutationTopics(path: string): string[] | undefined {
   if (/^\/api\/(profile|users|session)(\/|$)/.test(path)) return undefined;
   if (/staff-notes/.test(path)) return ['notes','inbox'];
   if (/notifications|mentions/.test(path)) return ['inbox'];
+  if (path === '/api/pool-log/supplies') return ['pool','reference'];
   if (/pool/.test(path)) return ['pool'];
   if (/work-orders|purchas|warrant|followup|enseo/.test(path)) return ['orders','rooms','reference'];
   return dataCachePolicy(path)?.topics;
