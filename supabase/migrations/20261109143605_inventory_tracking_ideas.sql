@@ -64,4 +64,3 @@ begin
 end $$;
 revoke all on function public.cmpri_inventory_idea_mutate(uuid,uuid,uuid,uuid,jsonb) from public,anon,authenticated;
 grant execute on function public.cmpri_inventory_idea_mutate(uuid,uuid,uuid,uuid,jsonb) to service_role;
-

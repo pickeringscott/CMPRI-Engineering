@@ -94,4 +94,3 @@ insert into public.cmpri_inventory_notes(id,hotel_id,inventory_item_id,actor_id,
  coalesce(nullif(m.notes,''),m.movement_type||' '||abs(m.quantity_change)::text||' '||i.unit_of_measure),i.unit_of_measure,m.id,m.work_order_id,l.order_id
  from public.cmpri_inventory_movements m join public.cmpri_inventory_items i on i.id=m.inventory_item_id and i.hotel_id=m.hotel_id
  left join public.profiles p on p.id=m.performed_by_user_id left join public.cmpri_po_receipts r on r.id=m.id and r.hotel_id=m.hotel_id left join public.cmpri_po_lines l on l.id=r.line_id and l.hotel_id=r.hotel_id;
-
