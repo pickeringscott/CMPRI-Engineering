@@ -337,7 +337,7 @@ export async function PATCH(request: NextRequest) {
     if (kind === "idea") {
       const status = text(body.status, "Status", 50, true);
       if (!["Idea", "Ready To Order", "Ordered", "Received", "Dismissed"].includes(status)) throw new Error("Order-idea status is invalid.");
-      const { data, error } = await auth.admin.from("cmpri_order_ideas").update({ status, updated_at: now }).eq("hotel_id", HOTEL_ID).eq("id", id).select("*").single();
+      const { data, error } = await auth.admin.rpc("cmpri_update_idea_ticket_status", { p_hotel: HOTEL_ID, p_actor: auth.principal.identity.id, p_id: id, p_status: status });
       if (error) throw new Error(error.message);
       return NextResponse.json({ idea: data });
     }

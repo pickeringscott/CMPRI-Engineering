@@ -580,6 +580,11 @@ export default function WorkOrderTicketPage() {
 function WorkOrderTicketEditor({ id }: { id: string }) {
   const router = useRouter();
   const [troubleshootingVisitId] = useState(() => crypto.randomUUID());
+  const partExitGuard = useRef<(() => Promise<void>) | null>(null);
+  const registerPartExitGuard = useCallback((guard: () => Promise<void>) => {
+    partExitGuard.current = guard;
+    return () => { if (partExitGuard.current === guard) partExitGuard.current = null; };
+  }, []);
   const checklistExitFlushes = useRef(new Set<() => Promise<void>>());
   const exitFallbackGeneration = useRef(0);
   const exitInFlight = useRef(false);
@@ -1406,6 +1411,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     setExitError("");
     const lifetime = readLifetime.current;
     try {
+      if (partExitGuard.current) await partExitGuard.current();
       for (const flush of checklistExitFlushes.current) await flush();
       if (!lifetime.active || readLifetime.current !== lifetime) return false;
       leave();
@@ -2549,22 +2555,15 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               </section>
             ) : null}
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-semibold">Labor & Parts</h2>
-              {order?.id && cmpriSession?.capabilities.includes("manage_assets") && <WorkOrderSupplies key={order.id} jobId={order.id}/> }
+            <section>
+            <details id="cmpri-labor-parts" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
+              <summary className="list-item cursor-pointer">
+                <span id="cmpri-parts-status" className="float-right ml-1" />
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">Labor & Parts</h2>
+              </summary>
+              {order?.id && cmpriSession?.capabilities.includes("manage_assets") && <WorkOrderSupplies key={`${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`} jobId={order.id} cacheScope={`${cmpriSession.hotelId}:${cmpriSession.user.id}`} issue={issue} notes={notes} disabled={saving || hasUnsavedChanges} onRecorded={() => loadTicket(false, false, true)} registerExitGuard={registerPartExitGuard}/> }
 
-              <label className="mt-2 block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Parts{pendingField("parts")}
-                </span>
-                {editingField === "parts" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="parts"
-                  value={parts}
-                  onChange={(event) => setParts(event.target.value)}
-                  disabled={!canEditField("parts") || saving}
-                  className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  placeholder="Parts used / ordered"
-                /> : <button type="button" disabled={!canEditField("parts") || saving} onClick={() => setEditingField("parts")} aria-label="Edit parts" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{parts || "None"}</button>}
-              </label>
+              {order.parts?.trim() && <p className="mt-1 text-xs text-slate-400">Previously recorded parts: {order.parts}</p>}
 
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <label className="block">
@@ -2597,6 +2596,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   /> : <button type="button" disabled={!canEditField("cost") || saving} onClick={() => setEditingField("cost")} aria-label="Edit cost" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{cost || "None"}</button>}
                 </label>
               </div>
+            </details>
             </section>
 
           </aside>

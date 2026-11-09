@@ -7,6 +7,9 @@ export function dataCachePolicy(path: string, search?: URLSearchParams): CachePo
     || (path === '/api/maintenance-reference' && search?.get('source') === 'asset-upload')) return null;
   // Explicit Drive acquisition must always reach Drive and never persist raw CSVs on the device.
   if (path === "/api/room-operations/guest-reports/drive") return null;
+  // Parts snapshots may paint immediately, but their UI always revalidates cache hits
+  // and blocks mutations until fresh inventory/PO data has arrived.
+  if (/^\/api\/work-orders\/[0-9a-f-]{36}\/parts$/i.test(path)) return { topics: ['orders','reference'], ttl: 24*60*60*second, durable: true };
   // Opening a ticket records engineering/technician views; those reads must reach the server.
   if (/^\/api\/work-orders\/[0-9a-f-]{36}$/i.test(path)) return null;
   if (!path.startsWith('/api/') || /\/(session|resource-revisions|auth|integrations|assistant|chat|ai|oauth|settings|config|account|permissions)(\/|$)/.test(path)
