@@ -348,3 +348,62 @@ test('Gmail unauthorized_client descriptions are exact allowlisted labels withou
   }
  }finally{globalThis.fetch=originalFetch;for(const k of Object.keys(fixture))if(backup[k]===undefined)delete process.env[k];else process.env[k]=backup[k];}
 });
+
+test('Gmail operational scan skips completed bodies without hiding new thread messages or exceeding the scan bound', async () => {
+  const fixture = { CMPRI_EMAIL_PROVIDER:'gmail', CMPRI_GMAIL_CLIENT_ID:'id', CMPRI_GMAIL_CLIENT_SECRET:'secret', CMPRI_GMAIL_REFRESH_TOKEN:'token', CMPRI_GMAIL_ADDRESS:'work@example.com' };
+  const backup = Object.fromEntries(Object.keys(fixture).map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    Object.assign(process.env, fixture);
+    globalThis.fetch = async url => {
+      const value = String(url);
+      if (value.includes('/token')) return Response.json({ access_token:'token' });
+      const parsed = new URL(value);
+      if (parsed.pathname.endsWith('/messages')) {
+        const page = Number(parsed.searchParams.get('pageToken') || 0);
+        const messages = Array.from({ length:100 }, (_, i) => ({ id:`m${page * 100 + i}` }));
+        return Response.json({ messages, nextPageToken:String(page + 1) });
+      }
+      const id = parsed.pathname.split('/').pop();
+      requested.push(id);
+      return Response.json({ id, threadId:'shared', internalDate:'1000000000000', payload:{headers:[],parts:[]} });
+    };
+    const batches = [];
+    const result = await fetchOperationalMessages({completedGmailIds:async ids => {
+      batches.push(ids);
+      return new Set(ids.filter(id => id !== 'm0' && id !== 'm200'));
+    }});
+    assert.equal(batches.length, 5);
+    assert.equal(result.truncated, true);
+    assert.equal(result.alreadyProcessed, 498);
+    assert.deepEqual(requested, ['m0','m200']);
+    assert.deepEqual(result.messages.map(message => message.id), ['m0','m200']);
+    assert.equal(result.messages[0].threadId, result.messages[1].threadId);
+    await assert.rejects(fetchOperationalMessages({completedGmailIds:async () => { throw Error('lookup failed'); }}), /lookup failed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of Object.keys(fixture)) if (backup[key] === undefined) delete process.env[key]; else process.env[key] = backup[key];
+  }
+});
+
+test('Gmail purchasing review always loads original messages despite an operational completion filter', async () => {
+  const fixture = { CMPRI_EMAIL_PROVIDER:'gmail', CMPRI_GMAIL_CLIENT_ID:'id', CMPRI_GMAIL_CLIENT_SECRET:'secret', CMPRI_GMAIL_REFRESH_TOKEN:'token', CMPRI_GMAIL_ADDRESS:'work@example.com' };
+  const backup = Object.fromEntries(Object.keys(fixture).map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  try {
+    Object.assign(process.env, fixture);
+    globalThis.fetch = async url => {
+      const value = String(url);
+      if (value.includes('/token')) return Response.json({ access_token:'token' });
+      if (new URL(value).pathname.endsWith('/messages')) return Response.json({ messages:[{id:'review'}] });
+      return Response.json({ threadId:'thread', internalDate:'1000000000000', payload:{headers:[],parts:[]} });
+    };
+    const result = await fetchOperationalMessages({scope:'po-history',completedGmailIds:async () => { throw Error('must not run'); }});
+    assert.deepEqual(result.messages.map(message => message.id), ['review']);
+    assert.equal(result.alreadyProcessed, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of Object.keys(fixture)) if (backup[key] === undefined) delete process.env[key]; else process.env[key] = backup[key];
+  }
+});

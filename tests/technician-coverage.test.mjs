@@ -20,6 +20,11 @@ function fixture(config = {}) {
   const profile = config.profile ?? { active: true, role: 'Maintenance Technician', full_name: 'Morgan Lee' };
   const rows = config.workOrders ?? [];
   const db = {
+    rpc(name, params) {
+      assert.equal(name, 'cmpri_work_order_dashboard_counts');
+      assert.equal(params.p_hotel, 'hotel-id');
+      return Promise.resolve({ data: { all: rows.filter(row => row.hotel_id === params.p_hotel).length }, error: null });
+    },
     from(table) {
       const filters = [];
       const query = {

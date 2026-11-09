@@ -17,18 +17,26 @@ const dashboardRows = Array.from({ length: 2501 }, (_, index) => ({
   status: index % 3 === 0 ? "Closed" : index % 3 === 1 ? "Open" : "In Progress",
 }));
 
-function fixture({ failAt, role = "System Administrator", hasDashboard = true, page = 0, search = "", roomOperation = null } = {}) {
+function fixture({ failAt, role = "System Administrator", hasDashboard = true, page = 0, search = "", sort = "created-newest", roomOperation = null } = {}) {
   const ranges = [];
   const projections = [];
   const searchExpressions = [];
+  const orders = [];
+  const rpcs = [];
   let allowedStatuses = null;
   const admin = {
+    rpc(name, params) {
+      rpcs.push({ name, params });
+      assert.equal(name, "cmpri_work_order_dashboard_counts");
+      assert.equal(params.p_hotel, hotelId);
+      return Promise.resolve({ data: { all: dashboardRows.length, pending: 0, open: 1667, progress: 833, priority: 0, overdue: 0, completed: 0, closed: 834 }, error: null });
+    },
     from(table) {
       const query = { from: 0, to: 99, head: false, statuses: null };
       query.select = (columns, options) => { projections.push(columns); query.head = options?.head; return query; };
       query.eq = (field, value) => { if (field === "status") query.statuses = [value]; return query; };
       query.lt = () => query;
-      query.order = () => query;
+      query.order = (field) => { orders.push(field); return query; };
       query.or = (expression) => { searchExpressions.push(expression); return query; };
       query.in = (field, values) => { if (field === "status") query.statuses = values; return query; };
       query.range = (from, to) => {
@@ -110,9 +118,20 @@ function fixture({ failAt, role = "System Administrator", hasDashboard = true, p
       throw new Error(`Unexpected module ${name}`);
     },
   });
-  const request = { nextUrl: { searchParams: new URLSearchParams({page: String(page), q: search}) } };
-  return { get: () => exports.GET(request), ranges, projections, searchExpressions };
+  const request = { nextUrl: { searchParams: new URLSearchParams({page: String(page), q: search, sort}) } };
+  return { get: () => exports.GET(request), ranges, projections, searchExpressions, orders, rpcs };
 }
+
+test("default dashboard orders and pages in the database and requests one counts aggregate", async () => {
+  const route = fixture({ sort: "default", page: 1 });
+  const response = await route.get();
+  assert.equal(response.status, 200);
+  assert.equal(response.body.work_orders.length, 100);
+  assert.deepEqual(route.ranges, [[100, 199]]);
+  assert.deepEqual(route.orders, ["cmpri_dashboard_status_rank", "cmpri_dashboard_created_ms", "id"]);
+  assert.equal(route.rpcs.length, 1);
+  assert.equal(response.body.counts.all, 2501);
+});
 
 test("dashboard returns one bounded page and keeps older work orders accessible", async () => {
   const route = fixture();

@@ -62,15 +62,15 @@ async def main():
    await frame.evaluate('advanceThemeLeaves(50)')
    assert await first.evaluate('e=>e.isConnected') and await first.get_attribute('style')==pose
    await frame.evaluate('advanceThemeLeaves(1400)')
-   assert await frame.locator('.leaf.settled').count()==600
+   assert await frame.locator('.leaf.settled').count()==480
    for name,layer in [('leavesA',1),('leavesB',6)]:
-    assert await frame.locator('#'+name+' .settled').count()==300
+    assert await frame.locator('#'+name+' .settled').count()==240
     assert await frame.locator('#'+name).evaluate('e=>+e.style.zIndex')==layer+10
    assert await frame.locator('#scene').get_attribute('data-pile-height')=='100'
    assert not any('/api/' in url or 'supabase' in url for url in art_requests),art_requests
    assert not errors,errors
    await page.screenshot(path=str(OUT/f'cmpri-{mode}-fixed.png'))
-   results.append({'mode':mode,'approvedArtworkPositions':True,'greetingClearsExpandedTabs':True,'windowCloseStable':True,'fallingLeaves':96,'persistentGroundLeaves':600,'pileHeight':100,'originalLeafLayers':[1,6],'unexpectedNavy':len(audit['findings'])+len(header['findings']),'artworkDatabaseRequests':0})
+   results.append({'mode':mode,'approvedArtworkPositions':True,'greetingClearsExpandedTabs':True,'windowCloseStable':True,'fallingLeaves':96,'persistentGroundLeaves':480,'pileHeight':100,'originalLeafLayers':[1,6],'unexpectedNavy':len(audit['findings'])+len(header['findings']),'artworkDatabaseRequests':0})
    await context.close()
   await browser.close()
  (OUT/'desktop-integration.json').write_text(json.dumps(results,indent=2));print(json.dumps(results,indent=2))

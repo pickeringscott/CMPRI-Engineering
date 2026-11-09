@@ -59,29 +59,44 @@ async function dispatchPendingInboxNotifications(admin: SupabaseClient, profile:
   return count;
 }
 
-async function dispatch(admin: SupabaseClient) {
-  const { data: subscriptions, error: subscriptionError } = await admin.from("cmpri_web_push_subscriptions")
-    .select("recipient_user_id")
-    .eq("hotel_id", HOTEL_ID)
-    .eq("enabled", true);
-  if (subscriptionError) throw new Error("Phone notification subscribers could not be loaded.");
-  const userIds = Array.from(new Set((subscriptions || []).map((row: { recipient_user_id: string }) => row.recipient_user_id)));
+async function pendingRecipients(admin: SupabaseClient) {
+  const ids: string[] = [];
+  // Walk by id, so concurrent inserts/deletes cannot shift offset pages. New
+  // earlier ids are picked up by their webhook or the next recovery run.
+  let after: string | null = null;
+  for (;;) {
+    const { data, error } = await admin.rpc("cmpri_pending_push_recipients", {
+      p_hotel: HOTEL_ID, p_after: after, p_limit: PAGE_SIZE,
+    });
+    if (error) throw new Error("Pending phone notification recipients could not be loaded.");
+    const page = (data || []) as Array<{ recipient_user_id: string }>;
+    ids.push(...page.map(row => row.recipient_user_id));
+    if (page.length < PAGE_SIZE) break;
+    after = page[page.length - 1].recipient_user_id;
+  }
+  return ids;
+}
+
+async function dispatch(admin: SupabaseClient, requestedRecipients?: string[]) {
+  const userIds = requestedRecipients ?? await pendingRecipients(admin);
   if (!userIds.length) return { users: 0, notifications: 0 };
 
-  const [{ data: profiles, error: profilesError }, { data: memberships, error: membershipError }] = await Promise.all([
-    admin.from("profiles").select("id, email, role, secondary_roles, full_name, active").eq("active", true).in("id", userIds),
-    admin.from("hotel_members").select("user_id").eq("hotel_id", HOTEL_ID).eq("active", true).in("user_id", userIds),
-  ]);
-  if (profilesError || membershipError) throw new Error("Phone notification recipients could not be verified.");
-  const activeMembers = new Set((memberships || []).map((row: { user_id: string }) => row.user_id));
-  const recipients = ((profiles || []) as PushProfile[]).filter((profile) =>
-    activeMembers.has(profile.id),
-  );
-  let notificationCount = 0;
-  for (const profile of recipients) {
-    notificationCount += await dispatchPendingInboxNotifications(admin, profile);
+  let notificationCount = 0, users = 0;
+  // Keep PostgREST filters bounded even if an insert or recovery contains a
+  // large number of recipients. Delivery claims remain atomic per device.
+  for (let offset = 0; offset < userIds.length; offset += 200) {
+    const batch = userIds.slice(offset, offset + 200);
+    const [{ data: profiles, error: profilesError }, { data: memberships, error: membershipError }] = await Promise.all([
+      admin.from("profiles").select("id, email, role, secondary_roles, full_name, active").eq("active", true).in("id", batch),
+      admin.from("hotel_members").select("user_id").eq("hotel_id", HOTEL_ID).eq("active", true).in("user_id", batch),
+    ]);
+    if (profilesError || membershipError) throw new Error("Phone notification recipients could not be verified.");
+    const activeMembers = new Set((memberships || []).map((row: { user_id: string }) => row.user_id));
+    const recipients = ((profiles || []) as PushProfile[]).filter(profile => activeMembers.has(profile.id));
+    users += recipients.length;
+    for (const profile of recipients) notificationCount += await dispatchPendingInboxNotifications(admin, profile);
   }
-  return { users: recipients.length, notifications: notificationCount };
+  return { users, notifications: notificationCount };
 }
 
 export async function GET(request: NextRequest) {
@@ -115,6 +130,13 @@ export async function POST(request: NextRequest) {
   if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: 'Notification service is unavailable.' }, { status: 503 });
-  try { return NextResponse.json({ ok: true, ...(await dispatch(admin)) }, { headers: { 'Cache-Control': 'no-store' } }); }
+  try {
+    const body = await request.json().catch(() => null);
+    // Older database triggers send no recipient list and retain full recovery.
+    const recipients = Array.isArray(body?.recipient_user_ids)
+      && body.recipient_user_ids.every((id: unknown) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+      ? Array.from(new Set(body.recipient_user_ids as string[])) : undefined;
+    return NextResponse.json({ ok: true, ...(await dispatch(admin, recipients)) }, { headers: { 'Cache-Control': 'no-store' } });
+  }
   catch { return NextResponse.json({ error: 'Phone notifications could not be dispatched.' }, { status: 503 }); }
 }

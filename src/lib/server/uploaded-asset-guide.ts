@@ -15,6 +15,48 @@ import { inspectUploadedGuideMedia, renderUploadedGuideMedia, type InspectedUplo
 const bucket = 'asset-documentation';
 const verificationMarker = '_cmpri-verification.json';
 const headers = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Authorization' };
+// These are derived only from the downloaded bytes, never from a user's access
+// or an asset's approval. Every request still downloads and hashes the source,
+// verifies the current association, and rechecks the asset/register afterward.
+// This bounded warm-instance cache avoids re-parsing the same PDF for each
+// guide and illustration request; failures are never cached.
+const derivativeLimit = 16 * 1024 * 1024, derivativeEntries = 32, derivativeTtl = 5 * 60 * 1000;
+type Derivative = { promise: Promise<unknown>; bytes: number; expires: number };
+const derivatives = new Map<string, Derivative>();
+function cachedDerivative<T>(key: string, calculate: () => Promise<T> | T): Promise<T> {
+  const old = derivatives.get(key);
+  if (old && old.expires > Date.now()) {
+    derivatives.delete(key); derivatives.set(key, old);
+    return old.promise as Promise<T>;
+  }
+  if (old) derivatives.delete(key);
+  const entry: Derivative = { promise: Promise.resolve().then(calculate), bytes: 0, expires: Date.now() + derivativeTtl };
+  derivatives.set(key, entry);
+  const trim = () => {
+    let bytes = [...derivatives.values()].reduce((sum, value) => sum + value.bytes, 0);
+    while (derivatives.size > derivativeEntries || bytes > derivativeLimit) {
+      const first = derivatives.entries().next().value as [string, Derivative] | undefined;
+      if (!first) break;
+      derivatives.delete(first[0]); bytes -= first[1].bytes;
+    }
+  };
+  trim();
+  void entry.promise.then(value => {
+    if (derivatives.get(key) !== entry) return;
+    try {
+      // UTF-16 JSON size is a conservative estimate for the cached objects.
+      const serialized = value instanceof Uint8Array ? null : JSON.stringify(value);
+      if (serialized === undefined) throw new Error('Derivative size is unavailable');
+      entry.bytes = value instanceof Uint8Array ? value.byteLength : serialized!.length * 2;
+      entry.expires = Date.now() + derivativeTtl;
+      trim();
+    } catch {
+      // Do not retain an unaccounted value or reject an otherwise valid read.
+      if (derivatives.get(key) === entry) derivatives.delete(key);
+    }
+  }, () => { if (derivatives.get(key) === entry) derivatives.delete(key); });
+  return entry.promise as Promise<T>;
+}
 type Asset = {
   id: string;
   hotel_id: string;
@@ -102,7 +144,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       continue;
     }
     let text: string;
-    try { text = await extractManualPdfText(bytes); }
+    try { text = await cachedDerivative(`text:v1:${sha256}`, () => extractManualPdfText(bytes)); }
     catch {
       failures.push({ status: 'unreadable_uploaded_document', message: `${file.name}: readable text could not be extracted from the attached PDF. Open it for review or use on-device OCR with human verification.` });
       continue;
@@ -130,10 +172,10 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   const actions = uploadedManualActions(selected.text);
   let media: InspectedUploadedGuideMedia[] = [];
   try {
-    media = await inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps: [
+    media = await cachedDerivative(`media:v1:${selected.sha256}`, () => inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps: [
       ...actions.symptom_rules.flatMap(rule => rule.steps.map(stepLabel => ({ stepLabel, sourcePages: rule.source_pages || [] }))),
       ...actions.error_codes.map(code => ({ stepLabel: code.action, sourcePages: code.source_pages || [] })),
-    ] });
+    ] }));
   } catch {
     if (image) return unavailable('uploaded_image_unavailable', 'The source illustration could not be read safely. Open the approved source PDF instead.');
     failures.push({ status: 'uploaded_image_unavailable', message: 'Some source illustrations could not be read safely. The instructions remain verbatim; open the approved source PDF to view its figures.' });
@@ -142,7 +184,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   if (image) {
     const selectedMedia = media.find(item => item.descriptor.id === image.id);
     if (!selectedMedia) return unavailable('uploaded_image_unavailable', 'This image is not associated with a current instruction in the approved source PDF. Reload the guide.');
-    try { rendered = await renderUploadedGuideMedia(selected.bytes, selectedMedia); }
+    try { rendered = await cachedDerivative(`image:v1:${selected.sha256}:${image.id}`, () => renderUploadedGuideMedia(selected.bytes, selectedMedia)); }
     catch { return unavailable('uploaded_image_unavailable', 'The source illustration could not be rendered safely. Open the approved source PDF instead.'); }
   }
   // Recheck the complete register after reading source bytes, including any

@@ -198,9 +198,9 @@ async function accessToken(provider: EmailProvider) {
   return data.access_token;
 }
 
-export async function fetchOperationalMessages(options: { scope?: "po-label" | "po-history"; pageToken?: string; withPdfAttachments?: boolean } = {}) {
+export async function fetchOperationalMessages(options: { scope?: "po-label" | "po-history"; pageToken?: string; withPdfAttachments?: boolean; completedGmailIds?: (ids: string[]) => Promise<ReadonlySet<string>> } = {}) {
   const provider = configuredEmailProvider();
-  if (!provider) return { provider, messages: [] as OperationalMessage[], truncated: false };
+  if (!provider) return { provider, messages: [] as OperationalMessage[], truncated: false, alreadyProcessed: 0 };
   if (options.scope && provider !== "gmail") throw new Error("PO label review requires the existing work Gmail provider.");
   const token = await accessToken(provider);
   const headers = { authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"' };
@@ -208,18 +208,31 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
   const messageLimit=options.withPdfAttachments?25:MAX_MESSAGES;
   let truncated = false;
   let continuation: string | undefined;
+  let alreadyProcessed = 0;
   if (provider === "gmail") {
     const base = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(process.env.CMPRI_GMAIL_USER || "me")}`;
     // Include ordinary replies and sent messages so established vendor threads remain visible.
     const query = options.scope === 'po-history' ? 'in:anywhere' : options.scope === "po-label" ? 'label:"POs"' : process.env.CMPRI_GMAIL_QUERY || "newer_than:14d";
     let pageToken = options.scope==='po-history'?options.pageToken||"":"";
+    let scanned = 0;
     do {
       const params = new URLSearchParams({ q: query, maxResults: String(Math.min(100,messageLimit)) });
       if (pageToken) params.set("pageToken", pageToken);
       if(options.scope==='po-history')params.set("includeSpamTrash","true");
       const list = await jsonRequest(`${base}/messages?${params}`, { headers }, "Gmail list");
-      for (const item of (list.messages || []) as { id: string }[]) {
-        if (messages.length >= messageLimit) { truncated = true; break; }
+      const listed = (list.messages || []) as { id: string }[];
+      const batch = listed.slice(0, messageLimit - scanned);
+      if (listed.length > batch.length) truncated = true;
+      scanned += batch.length;
+      // Only the regular operational scan may skip already-completed messages.
+      // PO review needs every original message and its attachment evidence.
+      let completed: ReadonlySet<string> = new Set();
+      if (!options.scope && options.completedGmailIds && batch.length) {
+        if (batch.some(item => typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(item.id))) throw new Error('Invalid Gmail message identity.');
+        completed = await options.completedGmailIds(batch.map(item => item.id));
+      }
+      for (const item of batch) {
+        if (completed.has(item.id)) { alreadyProcessed++; continue; }
         const row = await jsonRequest(`${base}/messages/${encodeURIComponent(item.id)}?format=full`, { headers }, "Gmail retrieval");
         const payload = row.payload as MimePart & { headers?: { name: string; value: string }[] };
         const header = (name: string) => payload?.headers?.find(entry => entry.name.toLowerCase() === name.toLowerCase())?.value || "";
@@ -228,7 +241,7 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
         messages.push({ id: item.id, threadId: String(row.threadId || item.id), subject: header("subject"), from, to: header("to"), text: gmailText(payload), ...(pdfEvidence?{pdfEvidence}:{}), ...(options?.scope?{html:gmailHtml(payload),labelIds:Array.isArray(row.labelIds)?row.labelIds as string[]:[]}:{}), messageAt: new Date(Number(row.internalDate)).toISOString(), direction: messageDirection(from, process.env.CMPRI_GMAIL_ADDRESS || "") });
       }
       pageToken = String(list.nextPageToken || "");
-      if (pageToken && messages.length >= messageLimit) truncated = true;
+      if (pageToken && scanned >= messageLimit) truncated = true;
     } while (pageToken && !truncated);
     if(options.scope==='po-history')continuation=pageToken||undefined;
   } else {
@@ -255,7 +268,7 @@ export async function fetchOperationalMessages(options: { scope?: "po-label" | "
   }
   // Chronological ingestion prevents old updates replacing newer state and discovers outbound threads first.
   messages.sort((a, b) => a.messageAt.localeCompare(b.messageAt));
-  return { provider, messages, truncated, nextPageToken:continuation };
+  return { provider, messages, truncated, alreadyProcessed, nextPageToken:continuation };
 }
 
 /** Read only the two Marriott source images from the latest matching weekly

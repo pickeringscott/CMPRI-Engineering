@@ -1,7 +1,7 @@
 /* Generated allowlist: cache only immutable Thanksgiving artwork, never app data. */
 (() => {
-  const cacheName = 'cmpri-thanksgiving-68032e3531d5e2fe';
-  const files = ["/backgrounds/thanksgiving-animated/assets/turkey.8934e07aa880f4d4.png","/backgrounds/thanksgiving-animated/assets/greeting.bd3767aa5f2b6ee9.png","/backgrounds/thanksgiving-animated/assets/pumpkin-orange.dde1dc2fa1952c57.png","/backgrounds/thanksgiving-animated/assets/pumpkin-pale.6c7612e4bcfe7c30.png","/backgrounds/thanksgiving-animated/scene.bfc89175a05bbced.css","/backgrounds/thanksgiving-animated/leaves.fcef915657ac115a.js","/backgrounds/thanksgiving-animated/scene.6dc36d6decadb4f0.js","/backgrounds/thanksgiving-animated/index.b547c948703f3ebb.html"];
+  const cacheName = 'cmpri-thanksgiving-34994bf2d9dd0465';
+  const files = ["/backgrounds/thanksgiving-animated/assets/turkey.8934e07aa880f4d4.png","/backgrounds/thanksgiving-animated/assets/greeting.bd3767aa5f2b6ee9.png","/backgrounds/thanksgiving-animated/assets/pumpkin-orange.dde1dc2fa1952c57.png","/backgrounds/thanksgiving-animated/assets/pumpkin-pale.6c7612e4bcfe7c30.png","/backgrounds/thanksgiving-animated/scene.bfc89175a05bbced.css","/backgrounds/thanksgiving-animated/leaves.a3b76e550bc9e2ec.js","/backgrounds/thanksgiving-animated/scene.6dc36d6decadb4f0.js","/backgrounds/thanksgiving-animated/index.d82fdc49d79478ce.html"];
   const allowed = new Set(files.map(path => new URL(path, self.location.origin).href));
   const pending = new Map();
   self.addEventListener('install', event => {

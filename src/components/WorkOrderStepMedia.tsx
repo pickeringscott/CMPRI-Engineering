@@ -57,6 +57,7 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
   const pending = useRef(new Map<string, Promise<string>>());
   const controllers = useRef(new Set<AbortController>());
   const openGeneration = useRef(0);
+  const section = useRef<HTMLElement>(null);
 
   const release = useCallback(() => {
     for (const controller of controllers.current) controller.abort();
@@ -119,13 +120,28 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
   }, [host, sourceUrl, userId]);
 
   useEffect(() => {
-    if (!desktop || !authorized) return;
-    queueMicrotask(() => {
+    if (!desktop || !authorized || !section.current) return;
+    const byId = new Map(media.map(item => [item.id, item]));
+    const request = (item: TroubleshootingStepMedia) => {
       if (!alive.current || !allowed.current) return;
-      for (const item of media) void load(item).catch(failure => {
+      void load(item).catch(failure => {
         if (alive.current && allowed.current) setErrors(previous => ({ ...previous, [item.id]: failure instanceof Error ? failure.message : "This source image could not be loaded." }));
       });
-    });
+    };
+    if (typeof IntersectionObserver === "undefined") {
+      queueMicrotask(() => media.forEach(request));
+      return;
+    }
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        const item = byId.get((entry.target as HTMLElement).dataset.mediaId || "");
+        if (item) request(item);
+      }
+    }, { rootMargin: "200px" });
+    section.current.querySelectorAll("[data-media-id]").forEach(element => observer.observe(element));
+    return () => observer.disconnect();
   }, [authorized, desktop, load, media]);
 
   async function open(item: TroubleshootingStepMedia) {
@@ -140,15 +156,15 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
   }
 
   if (!authorized) return null;
-  return <section aria-label="Step images and diagrams" className="space-y-0">
-    {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={item.id} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
+  return <section ref={section} aria-label="Step images and diagrams" className="space-y-0">
+    {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={item.id} data-media-id={item.id} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
       {semantics && <span className="text-[10px] leading-tight" style={{ color: semantics.color }}>{semantics.label}</span>}
       {desktop
         ? images[item.id] ? <a href={sourceUrl(item)} aria-label={`Open image/diagram: ${item.caption || "uploaded manual illustration"}`} onClick={event => { event.preventDefault(); event.stopPropagation(); void open(item); }} className="block w-fit max-w-full">
             {/* Source pixels are held locally; flat neutral artwork alone follows the host palette. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img data-diagram-adapted={adapted[item.id] ? "true" : "false"} src={images[item.id]} alt={item.caption || "Image/diagram from the uploaded manual"} width={item.width} height={item.height} className="max-h-64 w-auto max-w-full object-contain" />
-          </a> : <p className="text-[10px] leading-tight text-slate-400">{errors[item.id] ? "Image unavailable" : "Loading image…"}</p>
+          </a> : <p className="text-[10px] leading-tight text-slate-400" style={{ width: item.width, maxWidth: "100%", maxHeight: 256, aspectRatio: `${item.width} / ${item.height}` }}>{errors[item.id] ? "Image unavailable" : "Loading image…"}</p>
         : <a href={sourceUrl(item)} aria-disabled={opening === item.id} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== item.id) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,#f0f1f6)" }}>{opening === item.id ? "Opening image…" : "Open image/diagram"}</a>}
       {errors[item.id] && <p role="status" className="text-[10px] leading-tight text-amber-200">{errors[item.id]}</p>}
     </div>; })}

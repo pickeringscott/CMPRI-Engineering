@@ -189,6 +189,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid work-order list request." }, { status: 400 });
   }
   const readerFilter = workOrderReadFilter(workOrderReader(auth.principal));
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
   const projection = "id, display_id, revision, updated_at, room, asset_name, category, issue, priority, technician_name, status, due_by, created_at, import_source, import_external_id";
   const queryFor = (selected: string, head = false) => {
     let query = auth.admin.from("work_orders").select(projection, { count: "exact", head }).eq("hotel_id", HOTEL_ID);
@@ -200,7 +201,7 @@ export async function GET(request: NextRequest) {
       query = query.in("status", ["Open", "In Progress", "Done"]);
       if (selected === "progress") query = query.eq("status", "In Progress");
       if (selected === "priority") query = query.in("priority", ["Urgent", "High"]);
-      if (selected === "overdue") query = query.lt("due_by", new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()));
+      if (selected === "overdue") query = query.lt("due_by", today);
     }
     return query;
   };
@@ -216,11 +217,24 @@ export async function GET(request: NextRequest) {
     if (statuses.length) expressions.push(`status.in.(${statuses.map(status => JSON.stringify(status)).join(",")})`);
     query = query.or(expressions.join(","));
   }
-  const customSort = sort === "default" || sort.startsWith("tier-");
-  query = query.order(sort.startsWith("due-") ? "due_by" : "created_at", { ascending: sort.endsWith("oldest") || sort.endsWith("earliest"), nullsFirst: false })
+  // Tier order depends on the dynamically projected room snapshot; until that
+  // projection is available in SQL, retain the complete in-memory tier sort.
+  const customSort = sort.startsWith("tier-");
+  if (sort === "default") query = query.order("cmpri_dashboard_status_rank", { ascending: true });
+  query = query.order(sort === "default" ? "cmpri_dashboard_created_ms" : sort.startsWith("due-") ? "due_by" : "created_at", { ascending: sort.endsWith("oldest") || sort.endsWith("earliest"), nullsFirst: false })
     .order("id", { ascending: true }).range(customSort ? 0 : page * pageSize, customSort ? 999 : (page + 1) * pageSize - 1);
-  const [result, ...counts] = await Promise.all([query, ...filters.map(key => queryFor(key, true))]);
-  if (result.error || counts.some(result => result.error)) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
+  // The aggregate is hotel-wide and safe only for the existing unfiltered
+  // reader policy. Keep the scoped query path for any narrower policy.
+  const [result, countResult] = await Promise.all([
+    query,
+    readerFilter
+      ? Promise.all(filters.map(key => queryFor(key, true))).then(counts => ({
+          data: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])),
+          error: counts.find(count => count.error)?.error || null,
+        }))
+      : auth.admin.rpc("cmpri_work_order_dashboard_counts", { p_hotel: HOTEL_ID, p_today: today }),
+  ]);
+  if (result.error || countResult.error || !countResult.data) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
   const allRows = [...(result.data || [])];
   if(customSort)for(let offset=allRows.length;offset<(result.count||0);offset+=1000){
     const next=await query.range(offset,offset+999);
@@ -230,7 +244,7 @@ export async function GET(request: NextRequest) {
   const enrichedOrders = await attachCurrentRoomStatuses(auth.admin, allRows);
   if (!enrichedOrders) return NextResponse.json({ error: "Current room availability or parts status could not be loaded." }, { status: 503 });
   return NextResponse.json({ work_orders: customSort ? sortWorkOrders(enrichedOrders,sort as WorkOrderSort).slice(page*pageSize,(page+1)*pageSize) : enrichedOrders, page, page_size: pageSize, total: result.count || 0,
-    counts: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])) }, { headers: { "Cache-Control": "no-store" } });
+    counts: countResult.data }, { headers: { "Cache-Control": "no-store" } });
 
 }
 

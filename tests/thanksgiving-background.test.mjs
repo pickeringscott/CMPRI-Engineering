@@ -9,12 +9,13 @@ const html = readFileSync('public' + assets.entry, 'utf8');
 const scripts = assets.files.filter(path => path.endsWith('.js')).map(path => readFileSync('public' + path, 'utf8'));
 function mount({ reduce = false, width = 1440, height = 900, headerBottom = 0 } = {}) {
   const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true });
-  const w = dom.window; let next, clock = 1;
+  const w = dom.window; let next, clock = 1, animationId = 0;
   Object.defineProperties(w, { innerWidth: { value: width, writable: true }, innerHeight: { value: height, writable: true } });
   const reduced = { matches: reduce, addEventListener(_, callback) { this.changed = callback; } };
   const mobile = { get matches() { return w.innerWidth < 768; }, addEventListener() {} };
   w.matchMedia = query => query.includes('reduced') ? reduced : mobile;
-  w.requestAnimationFrame = fn => { next = fn; };
+  w.requestAnimationFrame = fn => { next = fn; return ++animationId; };
+  w.cancelAnimationFrame = () => { next = undefined; };
   const observers = [];
   w.ResizeObserver = class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} };
   if (headerBottom) {
@@ -24,7 +25,7 @@ function mount({ reduce = false, width = 1440, height = 900, headerBottom = 0 } 
   const scene = w.document.querySelector('#scene');
   Object.defineProperties(scene, { clientWidth: { get: () => w.innerWidth }, clientHeight: { get: () => w.innerHeight } });
   scripts.forEach(script => w.eval(script));
-  return { dom, scene, reduced, resizeHeader(bottom) { headerBottom = bottom; observers.forEach(fn => fn()); }, step(n) { for (let i = 0; i < n; i++) { clock += 100; next(clock); } } };
+  return { dom, scene, reduced, resizeHeader(bottom) { headerBottom = bottom; observers.forEach(fn => fn()); }, hasFrame() { return Boolean(next); }, step(n) { for (let i = 0; i < n; i++) { clock += 100; const frame = next; next = undefined; frame?.(clock); } } };
 }
 test('approved desktop and mobile coordinates, cropping and layer order are applied exactly', () => {
   for (const [mode, layout] of Object.entries(layouts)) {
@@ -53,13 +54,20 @@ test('landed leaves persist and build a higher bounded pile in both original lay
     assert.ok(first.isConnected, 'A grounded leaf must remain after another falling cycle');
     assert.equal(first.style.transform, transform);
     a.step(1400);
-    assert.equal(a.scene.querySelectorAll('.leaf.settled').length, 600);
+    assert.equal(a.scene.querySelectorAll('.leaf.settled').length, 480);
     assert.equal(a.scene.querySelectorAll('.leaf:not(.settled)').length, 96);
     for (const field of ['leavesA', 'leavesB']) {
-      assert.equal(a.scene.querySelectorAll('#' + field + ' .settled').length, 300);
+      assert.equal(a.scene.querySelectorAll('#' + field + ' .settled').length, 240);
       assert.equal(a.scene.querySelectorAll('#' + field + ' .leaf:not(.settled)').length, 48);
       assert.equal(+a.scene.querySelector('#' + field).style.zIndex, layout.leaves.layers[field].layer + 10);
     }
+    const settled = [...a.scene.querySelectorAll('.leaf.settled')];
+    const poses = settled.map(leaf => leaf.style.transform);
+    const falling = [...a.scene.querySelectorAll('.leaf:not(.settled)')].map(leaf => leaf.style.transform);
+    a.step(500);
+    assert.deepEqual([...a.scene.querySelectorAll('.leaf.settled')], settled, 'A full pile must not replace settled leaves');
+    assert.deepEqual(settled.map(leaf => leaf.style.transform), poses, 'Settled leaves stay in place');
+    assert.notDeepEqual([...a.scene.querySelectorAll('.leaf:not(.settled)')].map(leaf => leaf.style.transform), falling, 'Falling leaves continue restarting');
     assert.equal(+a.scene.dataset.pileHeight, 100);
     a.dom.window.cmpriLeaves.configure({ count: 0, size: layout.leaves.size });
     assert.equal(a.scene.querySelectorAll('.leaf').length, 0);
@@ -72,13 +80,21 @@ test('pause freezes both falling leaves and the pile, and reduced motion stops f
   const transforms = () => [...a.scene.querySelectorAll('.leaf')].map(e => e.style.transform);
   const before = transforms(); a.step(10); assert.notDeepEqual(transforms(), before);
   a.dom.window.document.getElementById('toggle').click();
+  assert.equal(a.hasFrame(), false, 'Pause cancels the animation loop');
   const paused = transforms(); a.step(200); assert.deepEqual(transforms(), paused);
   a.dom.window.document.getElementById('toggle').click(); a.step(10); assert.notDeepEqual(transforms(), paused);
   a.reduced.matches = true; a.reduced.changed();
+  assert.equal(a.hasFrame(), false, 'Reduced motion cancels the animation loop');
   const still = transforms(); a.step(200); assert.deepEqual(transforms(), still);
   assert.equal(+a.scene.dataset.active, 0);
   assert.equal(+a.scene.dataset.settled, a.scene.querySelectorAll('.leaf').length);
   a.reduced.matches = false; a.reduced.changed(); a.step(20); assert.notDeepEqual(transforms(), still);
+  Object.defineProperty(a.dom.window.document, 'hidden', { configurable: true, value: true });
+  a.dom.window.document.dispatchEvent(new a.dom.window.Event('visibilitychange'));
+  assert.equal(a.hasFrame(), false, 'A hidden page cancels the animation loop');
+  Object.defineProperty(a.dom.window.document, 'hidden', { configurable: true, value: false });
+  a.dom.window.document.dispatchEvent(new a.dom.window.Event('visibilitychange'));
+  assert.equal(a.hasFrame(), true, 'A visible page resumes the animation loop');
   a.dom.window.close();
 });
 test('desktop greeting docks right and clears expanded tabs without moving the other artwork; mobile stays fixed', () => {

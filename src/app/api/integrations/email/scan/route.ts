@@ -241,9 +241,16 @@ async function scan(request: NextRequest) {
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "Supabase service configuration is missing." }, { status: 503 });
   try {
-    const { provider, messages, truncated } = await fetchOperationalMessages();
+    const { provider, messages, truncated, alreadyProcessed = 0 } = await fetchOperationalMessages({
+      completedGmailIds: async ids => {
+        const { data, error } = await admin.from("cmpri_email_events").select("gmail_message_id")
+          .eq("hotel_id", HOTEL_ID).in("gmail_message_id", ids).not("processed_at", "is", null);
+        if (error) throw new Error("Completed email events could not be checked.");
+        return new Set((data || []).map(row => row.gmail_message_id as string));
+      },
+    });
     if (!provider) return NextResponse.json({ configured: false, error: "Configure a read-only Microsoft 365 or Gmail mailbox before scanning." }, { status: 503 });
-    let saved = 0, duplicates = 0, skipped = 0;
+    let saved = 0, duplicates = alreadyProcessed, skipped = 0;
     const categories: Record<string, number> = {};
     const errors: string[] = [];
     for (const message of messages) {
@@ -260,7 +267,7 @@ async function scan(request: NextRequest) {
       }
     }
     const complete = !truncated && errors.length === 0;
-    return NextResponse.json({ configured: true, provider, complete, truncated, found: messages.length, saved, duplicates, skipped, categories, errors }, { status: errors.length ? 502 : 200 });
+    return NextResponse.json({ configured: true, provider, complete, truncated, found: messages.length + alreadyProcessed, saved, duplicates, skipped, categories, errors }, { status: errors.length ? 502 : 200 });
   } catch (error) {
     return NextResponse.json({ configured: false, error: error instanceof Error ? error.message : "Mailbox scan failed." }, { status: 503 });
   }

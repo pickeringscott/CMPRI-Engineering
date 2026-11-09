@@ -189,18 +189,25 @@ export default function WorkOrderListWindow({
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    const stop = subscribeResources(["orders", "rooms"], async () => {
+    let stop: (() => void) | undefined;
+    const controller = new AbortController();
+    const load = async () => {
       if (active) setPageLoading(true);
       try {
         const params = new URLSearchParams({ page: String(page), filter, sort, q: query });
-        const response = await fetch(`/api/work-orders?${params}`, { headers: await authorizationHeaders(), cache: "no-store" });
+        const response = await fetch(`/api/work-orders?${params}`, { headers: await authorizationHeaders(), cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Work orders could not be loaded.");
         if (active) { setRemote({ orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
       } catch (error) { if (active) setError(error instanceof Error ? error.message : "Work orders could not be loaded."); }
       finally { if (active) setPageLoading(false); }
-    });
-    return () => { active = false; stop(); };
+    };
+    // Wait for a pause in typing before subscribing and loading the results.
+    // The initial subscription refresh catches changes during that short wait.
+    const timer = window.setTimeout(() => {
+      if (active) stop = subscribeResources(["orders", "rooms"], load);
+    }, query ? 300 : 0);
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); stop?.(); };
   }, [page, filter, sort, query,boundaryVersion]);
   useEffect(()=>{
     // A single business-boundary wake-up, not recurring network polling. The

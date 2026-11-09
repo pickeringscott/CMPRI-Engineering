@@ -131,7 +131,7 @@ export default function WorkOrderSupplies({jobId,cacheScope="",issue="",notes=""
  }
  if(!enabled)return message?<p role="status" className="text-xs text-amber-300">{message}</p>:null;
  const header=document.getElementById("cmpri-parts-status");
- const statusControl=<label className="inline-flex items-center gap-1 text-xs font-semibold" onClick={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>Status<select aria-label="Selected part status" className={`${field} w-auto max-w-36 text-xs`} value={displayedStatus} disabled={locked||Boolean(draft.poLine)} title={draft.poLine?"Status follows the linked PO and physical receiving records":"Status of this part"} onChange={event=>edit({status:event.target.value as Draft["status"]})}>{PART_STATUSES.map(status=><option key={status} disabled={status==="On Order"||status==="Received"}>{status}</option>)}</select></label>;
+ const statusControl=<label className="inline-flex items-center gap-1 text-[11px] font-semibold" onClick={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>Status<select aria-label="Selected part status" className={`${field} w-auto max-w-36 text-xs`} value={displayedStatus} disabled={locked||Boolean(draft.poLine)} title={draft.poLine?"Status follows the linked PO and physical receiving records":"Status of this part"} onChange={event=>edit({status:event.target.value as Draft["status"]})}>{PART_STATUSES.map(status=><option key={status} disabled={status==="On Order"||status==="Received"}>{status}</option>)}</select></label>;
  return <div className="mt-1 space-y-1 border-t border-slate-700 pt-1 text-sm">
   {header?createPortal(statusControl,header):statusControl}
   <h3 className="text-sm font-semibold">Supplies Used / Parts</h3>

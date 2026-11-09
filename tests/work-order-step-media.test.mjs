@@ -20,15 +20,16 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});retur
 
 function harness(options={}){
   let desktop=options.desktop||false,authId='user-a',authCallback;
-  const mediaListeners=new Set(),requests=[],created=[],revoked=[],adaptations=[],paletteObservers=[];
+  const mediaListeners=new Set(),requests=[],created=[],revoked=[],adaptations=[],paletteObservers=[],intersectionObservers=[];
   let paletteColor='rgb(25, 27, 36)';
   class MutationObserver {constructor(callback){this.callback=callback;paletteObservers.push(this);}observe(){}disconnect(){this.disconnected=true;}}
+  class IntersectionObserver {constructor(callback){this.callback=callback;this.elements=new Set();intersectionObservers.push(this);}observe(element){this.elements.add(element);}unobserve(element){this.elements.delete(element);}disconnect(){this.elements.clear();}}
   window.matchMedia=()=>({matches:desktop,addEventListener:(_name,callback)=>mediaListeners.add(callback),removeEventListener:(_name,callback)=>mediaListeners.delete(callback)});
   const nativeURL=URL;
   class MediaURL extends nativeURL {static createObjectURL(blob){const url='blob:authorized-'+(created.length+1);created.push({url,blob});return url;}static revokeObjectURL(url){revoked.push(url);}}
   const reply=(type='image/png',body=new Blob(['fictional PNG bytes'],{type}))=>({ok:true,status:200,headers:new Headers({'content-type':type}),blob:async()=>body});
   const exports={};
-  vm.runInNewContext(code,{exports,Error,window,URL:MediaURL,URLSearchParams,AbortController,queueMicrotask,MutationObserver,getComputedStyle:()=>({backgroundColor:paletteColor,color:'rgb(240, 241, 246)'}),
+  vm.runInNewContext(code,{exports,Error,window,URL:MediaURL,URLSearchParams,AbortController,queueMicrotask,MutationObserver,IntersectionObserver:options.intersection?IntersectionObserver:undefined,getComputedStyle:()=>({backgroundColor:paletteColor,color:'rgb(240, 241, 246)'}),
     fetch:async(url,init)=>{requests.push({url,init});return options.fetch?options.fetch(url,init):reply();},
     require(name){
       if(name==='react'||name==='react/jsx-runtime')return require(name);
@@ -47,8 +48,21 @@ function harness(options={}){
   const auth=async value=>{authId=value;await React.act(async()=>authCallback('SIGNED_OUT',value?{user:{id:value}}:null));};
   const dispose=async()=>{await React.act(async()=>root.unmount());host.remove();};
   const palette=async value=>{paletteColor=value;await React.act(async()=>{for(const observer of paletteObservers)if(!observer.disconnected)observer.callback();});};
-  return {host,render,click,resize,auth,dispose,requests,created,revoked,adaptations,palette,reply,setAuth:value=>{authId=value;}};
+  const reveal=async element=>React.act(async()=>{for(const observer of intersectionObservers)if(observer.elements.has(element))observer.callback([{target:element,isIntersecting:true}]);});
+  return {host,render,click,resize,auth,dispose,requests,created,revoked,adaptations,palette,reveal,reply,setAuth:value=>{authId=value;}};
 }
+
+test('desktop requests only images near the viewport',async()=>{
+  const second={...descriptor,id:'media-'+ 'c'.repeat(64),caption:'Figure 2'};
+  const h=harness({desktop:true,intersection:true,props:{media:[descriptor,second]}});
+  try{
+    await h.render();assert.equal(h.requests.length,0);
+    const items=h.host.querySelectorAll('[data-media-id]');
+    await h.reveal(items[0]);assert.equal(h.requests.length,1);assert.equal(items[0].querySelector('img').alt,descriptor.caption);
+    assert.equal(items[1].querySelector('img'),null);
+    await h.reveal(items[1]);assert.equal(h.requests.length,2);assert.equal(items[1].querySelector('img').alt,second.caption);
+  }finally{await h.dispose();}
+});
 
 test('mobile shows only a compact image link and fetches the exact approved source on demand',async()=>{
   const h=harness();

@@ -2322,8 +2322,10 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             </details>
 
 
-            <section data-preview-conversation className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
-              <h2 className="text-sm font-bold tracking-tight text-slate-100">{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
+            <details open data-preview-conversation data-ticket-accordion="notes-history" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
+              <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
+              </summary>
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
                   const when = new Date(entry.timestamp);
@@ -2343,7 +2345,14 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             {workOrderImageError&&<div role="alert" className="text-xs text-red-200">{workOrderImageError}<button type="button" onClick={()=>void loadWorkOrderImages()} disabled={workOrderImagesLoading}>Retry attachments</button></div>}{workOrderImagesLoading&&<p role="status" className="text-xs text-slate-400">Loading attachments…</p>}{photoUploadError&&<p role="alert" className="text-xs text-red-200">{photoUploadError}</p>}{photoUploadMessage&&<p role="status" className="text-xs text-emerald-300">{photoUploadMessage}</p>}
 
 
-            </section>
+              <section className="cmpri-ticket-note-bar mt-2" aria-label="Add a work order note">
+                <div className="relative">
+                  <WorkOrderNoteComposer placeholder="Add a note…" label={noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)} disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
+                  {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{mentionDirectoryError}</p>}
+                </div>
+                <WorkOrderMediaComposer key={order.id} workOrderId={order.id} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
+              </section>
+            </details>
 
 
             <details data-ticket-accordion="troubleshooting" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
@@ -2619,14 +2628,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             </>}
           </details>
         )}
-
-        <section className="cmpri-ticket-note-bar mt-2" aria-label="Add a work order note">
-              <div className="relative">
-                <WorkOrderNoteComposer placeholder="Add a note…" label={noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)} disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
-                {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{mentionDirectoryError}</p>}
-              </div>
-              <WorkOrderMediaComposer key={order.id} workOrderId={order.id} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
-        </section>
 
       </div>
 

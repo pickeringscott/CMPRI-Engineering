@@ -46,7 +46,7 @@ const asset = { id: assetId, hotel_id: hotel, active: true, manufacturer: 'ACME'
 const file = { id: 'file-original', name: 'Washer service manual.pdf', storage_path: path, preferred: false, created_at: '2026-11-07T12:00:00Z', updated_at: '2026-11-07T12:00:00Z' };
 
 function fixture(overrides = {}) {
-  const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, failDownload: false, authenticated: true, role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
+  const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, extractions: 0, inspections: 0, renders: 0, failDownload: false, authenticated: true, role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
   const client = {
     from(table) {
       state.queries.push(table); assert.equal(table, 'assets', 'strict reads must never query catalog or troubleshooting caches');
@@ -65,8 +65,8 @@ function fixture(overrides = {}) {
     '@/lib/constants': { HOTEL_ID: hotel }, '@/lib/uuid': { isUuid }, '@/lib/server/roles': roles, '@/lib/server/access': access,
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
-    '@/lib/manual-pdf-knowledge': realPdf, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions,
-    '@/lib/server/uploaded-guide-media': guideMedia,
+    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async bytes => { state.extractions++; return realPdf.extractManualPdfText(bytes); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions,
+    '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); } },
   }, { Response, Uint8Array, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
   return { state, principal, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
     const query = new URLSearchParams({ source: 'asset-upload', assetId: id, ...image });
@@ -74,6 +74,32 @@ function fixture(overrides = {}) {
     return { status: response.status, headers: response.headers, body: response.headers.get('content-type')?.startsWith('image/png') ? new Uint8Array(await response.arrayBuffer()) : await response.json() };
   } };
 }
+
+test('concurrent and repeat reads reuse byte-derived work but reauthorize and recheck current source', async () => {
+  const h = fixture();
+  const [first, second] = await Promise.all([h.request(), h.request()]);
+  assert.equal(first.body.documentation_status, 'verified'); assert.equal(second.body.documentation_status, 'verified');
+  assert.equal(h.state.extractions, 1); assert.equal(h.state.inspections, 1);
+  assert.equal(h.state.downloads.length, 2); assert.equal(h.state.registryReads, 4);
+  await h.request();
+  assert.equal(h.state.extractions, 1); assert.equal(h.state.inspections, 1);
+  assert.equal(h.state.downloads.length, 3); assert.equal(h.state.registryReads, 6);
+  h.state.bytes.set(path, new Uint8Array(Buffer.concat([Buffer.from(original), Buffer.from('% replacement\n')])));
+  await h.request();
+  assert.equal(h.state.extractions, 2); assert.equal(h.state.inspections, 2);
+  h.state.authenticated = false;
+  assert.equal((await h.request()).status, 401); assert.equal(h.state.downloads.length, 4);
+  h.state.authenticated = true; h.state.files = [];
+  assert.equal((await h.request()).body.documentation_status, 'no_uploaded_document');
+  assert.equal(h.state.downloads.length, 4, 'cached derivatives do not authorize an unlinked source');
+});
+
+test('failed extraction is retried instead of caching a failure', async () => {
+  const h = fixture({ bytes: new Map([[path, new Uint8Array(Buffer.from('%PDF-invalid'))]]) });
+  assert.equal((await h.load()).documentation_status, 'unreadable_uploaded_document');
+  assert.equal((await h.load()).documentation_status, 'unreadable_uploaded_document');
+  assert.equal(h.state.extractions, 2);
+});
 
 test('attached PDF bytes produce verbatim page-linked actions and immutable source provenance without catalog access', async () => {
   const h = fixture(); const result = await h.request();
@@ -217,6 +243,13 @@ const diagramPdf = new Uint8Array(readFileSync(new URL('./fixtures/uploaded-guid
 const replacementDiagramPdf = new Uint8Array(readFileSync(new URL('./fixtures/uploaded-guide-diagrams-replacement.pdf', import.meta.url)));
 const diagramAsset = { ...asset, manufacturer: 'Fixture Laundry', model_family: 'Demonstrator', model_number: 'TEST-1' };
 
+test('a derivative that cannot be sized is evicted without failing the authorized guide', async () => {
+  const h = fixture({ asset: structuredClone(diagramAsset), bytes: new Map([[path, diagramPdf]]), circularMedia: true });
+  assert.equal((await h.request()).body.documentation_status, 'verified');
+  assert.equal((await h.request()).body.documentation_status, 'verified');
+  assert.equal(h.state.extractions, 1); assert.equal(h.state.inspections, 2);
+});
+
 test('authorized uploaded PDF figures become bounded private PNGs only for explicit current source steps', async () => {
   const h = fixture({ asset: structuredClone(diagramAsset), bytes: new Map([[path, diagramPdf]]) });
   const loaded = await h.request(); assert.equal(loaded.status, 200);
@@ -231,6 +264,9 @@ test('authorized uploaded PDF figures become bounded private PNGs only for expli
   assert.ok(!current.steps.some(step => step.media?.some(item => item.sourcePage === 5)), 'fill diagram is not attached to drain steps');
   const image = await h.request(assetId, { imageId: drain.id, sha256: guide.source.sha256 });
   assert.equal(image.status, 200); assert.deepEqual([...image.body.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const again = await h.request(assetId, { imageId: drain.id, sha256: guide.source.sha256 });
+  assert.deepEqual(again.body, image.body); assert.equal(h.state.extractions, 1); assert.equal(h.state.inspections, 1); assert.equal(h.state.renders, 1);
+  assert.equal(h.state.downloads.length, 3); assert.equal(h.state.registryReads, 6);
   assert.match(image.headers.get('cache-control'), /private.*no-store/); assert.equal(image.headers.get('vary'), 'Authorization');
   assert.equal(image.headers.get('x-content-type-options'), 'nosniff'); assert.equal(image.headers.get('content-type'), 'image/png');
   assert.ok(drain.width <= 1400 && drain.height <= 1400 && drain.width * drain.height <= 2_000_000);
