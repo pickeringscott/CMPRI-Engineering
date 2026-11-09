@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
 const hotel=id(1),actor=id(2),job=id(3),item=id(4),order=id(5),line=id(6);
-const migration=readFileSync('supabase/migrations/20261109101524_ticket_parts_workflow.sql','utf8');
+const migration=readFileSync('supabase/migrations/20261109105237_ticket_parts_workflow.sql','utf8');
 const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
 const db=new PGlite();
 await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
