@@ -23,9 +23,10 @@ async def main():
   page=await ctx.new_page();errors=[];page.on('pageerror',lambda e:errors.append(e.stack or str(e)))
   await page.goto(BASE+'/engineering');await page.locator('[data-dashboard-title]').wait_for(timeout=60000)
   bar=page.get_by_role('navigation',name='Work order windows')
+  list_menu=page.locator('[data-key="work-order-list"]:visible').first
   lst=page.locator('[data-cmpri-desktop-window="work-order-list"]')
   for item in fixtures[:1]:
-   await bar.get_by_role('button',name='Work order list').click()
+   await list_menu.click()
    await lst.get_by_text(item['issue'],exact=False).first.click()
    await expect(page.locator('[data-cmpri-desktop-window="/work-orders/'+item['id']+'"]')).to_have_count(1)
   await page.locator('[data-key="/staff-notes"]:visible').first.click()
@@ -35,7 +36,7 @@ async def main():
   await expect(page.locator('[data-cmpri-desktop-window="/work-orders/'+fixtures[1]['id']+'"]')).to_have_count(1)
   await expect(notes_window).to_have_count(1)
   for item in fixtures[2:4]:
-   await bar.get_by_role('button',name='Work order list').click()
+   await list_menu.click()
    await lst.get_by_text(item['issue'],exact=False).first.click()
    await expect(page.locator('[data-cmpri-desktop-window="/work-orders/'+item['id']+'"]')).to_have_count(1)
   first=page.locator('[data-cmpri-desktop-window="/work-orders/'+fixtures[0]['id']+'"]')

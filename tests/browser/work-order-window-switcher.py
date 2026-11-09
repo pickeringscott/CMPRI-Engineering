@@ -18,7 +18,10 @@ async def main():
     await ctx.route('**/api/work-orders/'+ticket['id'],ticket_route)
    page=await ctx.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
    await page.goto(BASE+'/engineering'); await page.locator('[data-dashboard-title]').wait_for(timeout=30000)
-   bar=page.get_by_role('navigation',name='Work order windows');await bar.get_by_role('button',name='Work order list').click()
+   bar=page.get_by_role('navigation',name='Work order windows')
+   assert await bar.count() == 0
+   list_menu=page.locator('[data-key="work-order-list"]:visible').first
+   await list_menu.click()
    await page.locator('[data-cmpri-desktop-window="work-order-list"]').wait_for()
    lst=page.locator('[data-cmpri-desktop-window="work-order-list"]')
    await lst.get_by_text('Fixture drain needs repair',exact=False).first.click()
@@ -31,7 +34,7 @@ async def main():
    notes_window=page.locator('[data-cmpri-desktop-window="/staff-notes"]');await expect(notes_window).to_have_count(1)
    await page.locator('[data-key="/management/rooms"]:visible').first.click()
    locations_window=page.locator('[data-cmpri-desktop-window="/management/rooms"]');await expect(locations_window).to_have_count(1)
-   await bar.get_by_role('button',name='Work order list').click()
+   await list_menu.click()
    await expect(pool).to_have_count(1)
    await lst.get_by_text('Second fixture',exact=False).first.click()
    other=page.locator('[data-cmpri-desktop-window="/work-orders/'+second['id']+'"]');await expect(other).to_be_visible()
@@ -41,14 +44,14 @@ async def main():
    assert await first.get_attribute('data-active') == 'true'
    assert await other.count() == 1
    for ticket in extras[:3]:
-    await bar.get_by_role('button',name='Work order list').click()
+    await list_menu.click()
     await lst.get_by_text(ticket['issue'],exact=False).first.click()
     await expect(page.locator('[data-cmpri-desktop-window="/work-orders/'+ticket['id']+'"]')).to_have_count(1)
    await expect(switch.locator('option')).to_have_count(6)
    await expect(notes_window).to_have_count(1)
    await expect(locations_window).to_have_count(1)
    await expect(lst).to_have_count(1)
-   await bar.get_by_role('button',name='Work order list').click()
+   await list_menu.click()
    await lst.get_by_text(extras[3]['issue'],exact=False).first.click()
    await expect(page.get_by_role('alert').filter(has_text='up to five work orders')).to_be_visible()
    await expect(page.locator('[data-cmpri-desktop-window="/work-orders/'+extras[3]['id']+'"]')).to_have_count(0)
@@ -57,7 +60,7 @@ async def main():
    assert await other.get_attribute('data-active') == 'true'
    await other.locator('[data-cmpri-window-close]').click(no_wait_after=True)
    await expect(other).to_have_count(0)
-   await bar.get_by_role('button',name='Work order list').click()
+   if await lst.get_attribute('data-active') != 'true': await list_menu.click()
    await lst.get_by_text(extras[3]['issue'],exact=False).first.click()
    await expect(page.locator('[data-cmpri-desktop-window="/work-orders/'+extras[3]['id']+'"]')).to_have_count(1)
    await switch.select_option('/work-orders/'+WID)

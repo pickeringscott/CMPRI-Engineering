@@ -721,6 +721,12 @@ export default function EngineeringDashboardPage() {
     },
   ];
   function launchWindow(key: string, clickedAt: number, open: () => void) {
+    // The approved list launcher must bring a background list forward even
+    // immediately after it was opened, so other windows can stay mounted.
+    if (key === WORK_ORDER_LIST_KEY && zOrder.at(-1) !== key) {
+      open();
+      return;
+    }
     const openedAt = windowOpenedAtRef.current.get(key);
     if (windowsRef.current.some((entry) => entry.key === key) && openedAt !== undefined && clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS) {
       requestCloseWindow(key);
@@ -837,8 +843,6 @@ export default function EngineeringDashboardPage() {
             return { ...entry, title: title + (details.room ? ` · ${String(details.room)}` : "") };
           })}
           activeKey={activeKey}
-          listKey={WORK_ORDER_LIST_KEY}
-          onOpenList={openWorkOrderList}
           onRaise={key => raise(key, true)}
         />}
 

@@ -22,28 +22,42 @@ function find(node, type) {
   }
 }
 
-test('list remains available and selecting open tickets raises the requested window', () => {
+test('the switcher raises open tickets without adding another list button', () => {
   const actions = [];
   const tickets = [{ key: '/work-orders/a', title: 'WO#123 · Room 101' }, { key: '/work-orders/b', title: 'WO#456 · Room 102' }];
-  const props = { tickets, activeKey: '/management/equipment', listKey: 'work-order-list', onOpenList: () => actions.push('list'), onRaise: key => actions.push(key) };
+  const props = { tickets, activeKey: '/management/equipment', onRaise: key => actions.push(key) };
   const tree = exports.default(props);
-  const list = find(tree, 'button'), select = find(tree, 'select');
+  const select = find(tree, 'select');
   assert.equal(tree.props['aria-label'], 'Work order windows');
   assert.equal(select.props['aria-label'], 'Switch open work order');
   assert.equal(select.props.value, '');
-  assert.equal(list.props['aria-pressed'], false);
-  list.props.onClick();
+  assert.equal(find(tree, 'button'), undefined);
   select.props.onChange({ target: { value: '/work-orders/b' } });
-  assert.deepEqual(actions, ['list', '/work-orders/b']);
+  assert.deepEqual(actions, ['/work-orders/b']);
   assert.deepEqual(tickets.map(ticket => ticket.key), ['/work-orders/a', '/work-orders/b']);
   assert.equal(find(exports.default({ ...props, activeKey: '/work-orders/a' }), 'select').props.value, '/work-orders/a');
-  assert.equal(find(exports.default({ ...props, activeKey: 'work-order-list' }), 'button').props['aria-pressed'], true);
 });
 
-test('list is available even before a ticket is open', () => {
-  const tree = exports.default({ tickets: [], activeKey: '/profile', listKey: 'work-order-list', onOpenList() {}, onRaise() {} });
-  assert.ok(find(tree, 'button'));
-  assert.equal(find(tree, 'select'), undefined);
+test('no extra switcher occupies the header before a ticket is open', () => {
+  const tree = exports.default({ tickets: [], activeKey: '/profile', onRaise() {} });
+  assert.equal(tree, null);
+});
+
+test('the existing list menu raises a background list and retains active quick-toggle behavior', () => {
+  const page = readFileSync('src/app/engineering/page.tsx', 'utf8');
+  const ast = ts.createSourceFile('page.tsx', page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let method = '';
+  function findMethod(node) { if (ts.isFunctionDeclaration(node) && node.name?.text === 'launchWindow') method = node.getText(ast); ts.forEachChild(node, findMethod); }
+  findMethod(ast);
+  assert.ok(method);
+  const code = ts.transpileModule(`${method}\nexports.launch = launchWindow;`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const calls = [];
+  const context = { exports: {}, WORK_ORDER_LIST_KEY: 'work-order-list', zOrder: ['work-order-list', '/staff-notes'], windowOpenedAtRef: { current: new Map([['work-order-list', 100]]) }, windowsRef: { current: [{ key: 'work-order-list' }] }, LAUNCHER_CLOSE_WINDOW_MS: 5000, requestCloseWindow: key => calls.push(`close ${key}`) };
+  vm.runInNewContext(code, context);
+  context.exports.launch('work-order-list', 101, () => calls.push('raise'));
+  context.zOrder = ['/staff-notes', 'work-order-list'];
+  context.exports.launch('work-order-list', 102, () => calls.push('raise'));
+  assert.deepEqual(calls, ['raise', 'close work-order-list']);
 });
 
 test('the cap and activation are shared synchronously across same-origin hosts', () => {
