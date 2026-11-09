@@ -3,6 +3,7 @@ import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory"
 import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
 import WorkOrderTitleGuest from "@/components/WorkOrderTitleGuest";
 import WorkOrderTierKey from "@/components/WorkOrderTierKey";
+import WorkOrderSectionIcon from "@/components/WorkOrderSectionIcon";
 import {type RoomGroupBadge} from "@/lib/room-group-badges";
 import {loyaltyTier} from "@/lib/loyalty-tier";
 
@@ -624,9 +625,14 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
   const [order, setOrderState] = useState<WorkOrder | null>(null);
   const orderRef = useRef<WorkOrder | null>(null);
+  // A visit's opening values stay fixed as individual selections are saved.
+  const metadataBaseline = useRef<{ id: string; values: Record<string, string> } | null>(null);
   const ticketWrites = useRef(createTicketWriteQueue());
   const [issueSaving, setIssueSaving] = useState(false);
   const issueSaveCount = useRef(0);
+  const [metadataSaving, setMetadataSaving] = useState(false);
+  const metadataSaveCount = useRef(0);
+  const metadataSelectionVersion = useRef<Record<string, number>>({});
   function setOrder(next: WorkOrder | null) {
     // Publish the confirmed revision before another queued callback can run.
     orderRef.current = next;
@@ -1084,6 +1090,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       setMentionTickets(((payload.mentionTickets ?? []) as MentionTicket[]).filter((ticket) => !!ticket.id));
       if (generation !== ticketLoadGeneration.current) return;
       const row = payload.workOrder as WorkOrder;
+      if (metadataBaseline.current?.id !== row.id) {
+        metadataBaseline.current = { id: row.id, values: {
+          asset_id: row.asset_id || "", category: row.category || "General", priority: row.priority || "Medium",
+          technician_name: row.technician_name || "", status: row.status || "Open",
+          due_by: row.due_by ? String(row.due_by).slice(0, 10) : "",
+        } };
+      }
       const loadedSearch = new URLSearchParams(window.location.search);
       if (loadedSearch.get("embedded") === "1" && window.parent !== window) window.parent.postMessage({type:"cmpri-work-order-loaded",workOrderId:row.id,workOrder:workOrderListSnapshot(row),modalToken:loadedSearch.get("modalToken")||""},window.location.origin);
       assetSelectionChanged.current = false;
@@ -1281,19 +1294,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.documentation_revision_id, selectedAsset?.documentation_verified_at, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
 
-  function handleAssetChange(newAssetId: string) {
-    assetSelectionChanged.current = true;
-    setManualResult(null);
-    setAssetId(newAssetId);
-
-    const asset = assets.find((item) => item.id === newAssetId);
-    if (asset) {
-      const nextCategory = categoryForAsset(asset);
-      setCategory(nextCategory);
-      if (roleKey(cmpriSession?.user.role) !== "technician") setPriority(priorityForCategory(nextCategory));
-    }
-  }
-
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
     && !!manualKnowledge.source.storage_path && /^[a-f0-9]{64}$/i.test(manualKnowledge.source.sha256 || "") && !!manualKnowledge.source.registered_file_id;
@@ -1374,8 +1374,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   });
   const hasUnsavedChanges = !!initialFingerprint && (currentFingerprint !== initialFingerprint || !!noteDraft.trim() || hasPendingNoteMedia);
   useLayoutEffect(() => {
-    editState.current = { dirty: hasUnsavedChanges, fingerprint: currentFingerprint + noteDraft, revision: order?.revision || 0, saving };
-  }, [hasUnsavedChanges, currentFingerprint, noteDraft, order?.revision, saving]);
+    editState.current = { dirty: hasUnsavedChanges, fingerprint: currentFingerprint + noteDraft, revision: order?.revision || 0, saving: saving || metadataSaving || issueSaving };
+  }, [hasUnsavedChanges, currentFingerprint, noteDraft, order?.revision, saving, metadataSaving, issueSaving]);
   useEffect(() => {
     if (!ticketReady || !cmpriSession) return;
     const stop = subscribeResources(["orders"], async () => {
@@ -1407,7 +1407,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cmpriSession, order, initialFingerprint, currentFingerprint, hasUnsavedChanges, noteDraft, stagedNoteIds]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges || exitFlushing) event.preventDefault(); };
+    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges || exitFlushing || issueSaveCount.current > 0 || metadataSaveCount.current > 0 || saveInFlight.current) event.preventDefault(); };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [hasUnsavedChanges, exitFlushing]);
@@ -1448,7 +1448,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     router.push("/engineering");
   }), [embedded, modalToken, order?.id, router, runTicketExit]);
   function requestTicketNavigation(href: string) {
-    if (saving || issueSaveCount.current > 0 || saveInFlight.current || exitInFlight.current) return;
+    if (saving || issueSaveCount.current > 0 || metadataSaveCount.current > 0 || saveInFlight.current || exitInFlight.current) return;
     pendingExitAction.current = () => router.push(href);
     if (hasUnsavedChanges) { setShowCancelConfirm(true); return; }
     void closeEmbeddedTicket();
@@ -1554,12 +1554,10 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), technicianName: assignedName }));
       setSaveState("idle");
       setMessage("This work order is now assigned to you.");
-      if (embedded && window.parent !== window) {
-        await runTicketExit(() => window.parent.postMessage(
-          { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken },
-          window.location.origin,
-        ));
-      }
+      if (embedded && window.parent !== window) window.parent.postMessage(
+        { type: "cmpri-work-order-loaded", modalKind: "workOrder", workOrderId: order.id, workOrder: workOrderListSnapshot(claimed), modalToken },
+        window.location.origin,
+      );
       return true;
     } catch (error) {
       setMessage(`Assignment error: ${error instanceof Error ? error.message : "This work order could not be assigned to you."}`);
@@ -1582,6 +1580,103 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     } finally {
       saveInFlight.current = false;
       setSaving(false); setSaveState("idle");
+    }
+  }
+
+  // Each selection is committed independently of other drafts. The shared queue
+  // supplies the last confirmed revision, including for rapid A → B → A changes.
+  async function saveMetadataSelection(field: "asset_id" | "category" | "priority" | "technician_name" | "status" | "due_by", value: string) {
+    if (!order || !ticketReady || !canEditField(field)) return;
+    const ticketId = order.id;
+    const selections: Record<string, string> = {};
+    const select = (name: string, next: string, setter: (value: string) => void) => {
+      selections[name] = next;
+      metadataSelectionVersion.current[name] = (metadataSelectionVersion.current[name] || 0) + 1;
+      setter(next);
+    };
+    if (field === "asset_id") {
+      assetSelectionChanged.current = true;
+      setManualResult(null);
+      select("asset_id", value, setAssetId);
+      const asset = assets.find(item => item.id === value);
+      if (asset && canEditField("category")) {
+        const nextCategory = categoryForAsset(asset);
+        select("category", nextCategory, setCategory);
+        if (canEditField("priority") && roleKey(cmpriSession?.user.role) !== "technician") {
+          select("priority", priorityForCategory(nextCategory), setPriority);
+        }
+      }
+    } else if (field === "category") select(field, value, setCategory);
+    else if (field === "priority") select(field, value, setPriority);
+    else if (field === "technician_name") select(field, value, setTechnicianName);
+    else if (field === "status") select(field, value, setStatus);
+    else select(field, value, setDueBy);
+
+    const versions = { ...metadataSelectionVersion.current };
+    metadataSaveCount.current++;
+    setMetadataSaving(true);
+    try {
+      await ticketWrites.current.enqueue(async () => {
+        const current = orderRef.current;
+        if (!current || current.id !== ticketId) return false;
+        const normalized = (row: WorkOrder) => ({
+          asset_id: row.asset_id || "", category: row.category || "General", priority: row.priority || "Medium",
+          technician_name: row.technician_name || "", status: row.status || "Open", due_by: row.due_by ? String(row.due_by).slice(0, 10) : "",
+        });
+        const before = normalized(current);
+        const changes = Object.fromEntries(Object.entries(selections).filter(([key, next]) => before[key as keyof typeof before] !== next));
+        if (!Object.keys(changes).length) return true;
+        const body: Record<string, unknown> = { expected_revision: current.revision, ...changes };
+        if ("asset_id" in body && !body.asset_id) body.asset_id = null;
+        if ("due_by" in body && !body.due_by) body.due_by = null;
+        try {
+          const session = await getValidSession();
+          const response = await fetch(`/api/work-orders/${encodeURIComponent(ticketId)}`, {
+            method: "PATCH", headers: { Authorization: `Bearer ${session?.access_token || ""}`, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const payload = await response.json().catch(() => ({}));
+          const saved = payload.workOrder as WorkOrder | undefined;
+          if (!response.ok || !saved || saved.id !== ticketId || !Number.isSafeInteger(saved.revision)) {
+            throw new Error(payload.error || "This change could not be confirmed. Your selection is retained; check the saved ticket before retrying.");
+          }
+          const after = normalized(saved);
+          setOrder({ ...current, ...saved, can_correct_report: saved.can_correct_report ?? current.can_correct_report });
+          const fingerprintKeys: Record<string, string> = { asset_id: "assetId", category: "category", priority: "priority", technician_name: "technicianName", status: "status", due_by: "dueBy" };
+          const setters: Record<string, (updater: (old: string) => string) => void> = {
+            asset_id: setAssetId, category: setCategory, priority: setPriority, technician_name: setTechnicianName, status: setStatus, due_by: setDueBy,
+          };
+          for (const key of Object.keys(after) as Array<keyof typeof after>) {
+            if (!(key in changes) && before[key] === after[key]) continue;
+            // Do not overwrite a selection made after this request was queued,
+            // or an unrelated local draft when the server changes a dependent field.
+            if ((metadataSelectionVersion.current[key] || 0) === (versions[key] || 0)) {
+              const expected = key in selections ? selections[key] : before[key];
+              setters[key](old => old === expected ? after[key] : old);
+            }
+          }
+          setInitialFingerprint(previous => {
+            const baseline = JSON.parse(previous || "{}");
+            for (const key of Object.keys(after) as Array<keyof typeof after>) {
+              if (key in changes || before[key] !== after[key]) baseline[fingerprintKeys[key]] = after[key];
+            }
+            return JSON.stringify(baseline);
+          });
+          if (field === "asset_id" && (metadataSelectionVersion.current.asset_id || 0) === (versions.asset_id || 0)) assetSelectionChanged.current = false;
+          setMessage("");
+          if (embedded && window.parent !== window) window.parent.postMessage(
+            { type: "cmpri-work-order-loaded", modalKind: "workOrder", workOrderId: ticketId, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin);
+          return true;
+        } catch (error) {
+          setMessage(`Save error: ${error instanceof Error ? error.message : "Your selection could not be confirmed."} Your selection is retained. Check the saved ticket before retrying with Save Changes.`);
+          return false;
+        }
+      });
+    } catch {
+      setMessage("Save error: Your selection could not be confirmed and is retained.");
+    } finally {
+      metadataSaveCount.current--;
+      setMetadataSaving(metadataSaveCount.current > 0);
     }
   }
 
@@ -1618,8 +1713,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
           setIssue(latest => latest === text ? normalized : latest);
           setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), issue: normalized }));
           setMessage("Reported Issue saved.");
-          if (embedded && window.parent !== window) await runTicketExit(() => window.parent.postMessage(
-            { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: current.id, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin));
+          if (embedded && window.parent !== window) window.parent.postMessage(
+            { type: "cmpri-work-order-loaded", modalKind: "workOrder", workOrderId: current.id, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin);
           return true;
         } catch (error) {
           setMessage(`Save error: ${error instanceof Error ? error.message : "Reported Issue update failed."}`);
@@ -1826,7 +1921,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     void closeEmbeddedTicket(() => { recoveredDraft.current = false; });
   }
   const cancelTicket = useCallback(() => {
-    if (saving || issueSaveCount.current > 0 || saveInFlight.current) return;
+    if (saving || issueSaveCount.current > 0 || metadataSaveCount.current > 0 || saveInFlight.current) return;
     if (hasUnsavedChanges) {
       setShowCancelConfirm(true);
       return;
@@ -2024,6 +2119,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     return status === "Pending Verification" ? ["Pending Verification", ...values] : values;
   })();
   const statusOptions = Array.from(new Set(statusValues)).map((value) => ({ value, label: value }));
+  // Color only a confirmed change, and restore the normal color if the opening value is selected again.
+  const metadataSelectionChanged = (field: string, selected: string, confirmed: string) =>
+    selected === confirmed && metadataBaseline.current?.id === order.id && metadataBaseline.current.values[field] !== confirmed;
   function ticketMentionLabel(ticket: MentionTicket) {
     return formatWorkOrder(ticket.display_id, `WO-${ticket.id.slice(0, 8)}`);
   }
@@ -2175,7 +2273,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               <button
                 type="button"
                 onClick={cancelTicket}
-                disabled={saving || issueSaving || exitFlushing}
+                disabled={saving || issueSaving || metadataSaving || exitFlushing}
                 className="min-h-9 whitespace-nowrap rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
               >
                 Cancel
@@ -2230,7 +2328,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
           <div className="min-w-0 space-y-2">
             <details data-reported-issue data-ticket-accordion="reported-issue" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
-                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">Reported Issue{pendingField("issue")}</h2>
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="report" />Reported Issue{pendingField("issue")}</h2>
               </summary>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -2290,41 +2388,53 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </div>
               )}
 
-              <div data-preview-metadata className="mt-1 grid gap-1.5 sm:grid-cols-3">
-                <div className="cmpri-ticket-metadata-field min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Asset / Equipment{pendingField("assetId")}</div>
-                  {editingField === "asset_id" && canEditField("asset_id") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={assetId} onChange={handleAssetChange} disabled={saving || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />{assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}{systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-2 text-xs font-semibold text-emerald-400">System best guess</p>}</div> : <button type="button" disabled={!canEditField("asset_id") || saving} onClick={() => setEditingField("asset_id")} aria-label="Edit asset id" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{selectedAsset?.name || order.asset_name || "Not identified"}</button>}
-                </div>
-                <div className="cmpri-ticket-metadata-field min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category{pendingField("category")}</div>
-                  {editingField === "category" && canEditField("category") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={category} onChange={setCategory} placeholder="Category" options={categoryOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("category") || saving} onClick={() => setEditingField("category")} aria-label="Edit category" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{category || "General"}</button>}
-                </div>
-                <div className="cmpri-ticket-metadata-field min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority{pendingField("priority")}</div>
-                  {editingField === "priority" && canEditField("priority") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={priority} onChange={setPriority} placeholder="Priority" options={priorityOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("priority") || saving} onClick={() => setEditingField("priority")} aria-label="Edit priority" aria-describedby={order.ranker_base_priority && order.ranker_base_priority !== order.priority ? "ranker-priority-hint" : undefined} className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{priority || "Medium"}</button>}
-                  {order.ranker_base_priority && order.ranker_base_priority !== order.priority && <p id="ranker-priority-hint" className="mt-1 text-xs text-amber-300">Room Ranker temporarily raised this priority from {order.ranker_base_priority}. Saving a value different from the saved priority changes the underlying priority, but it may stay raised until the room improves. Selecting the saved priority again does not change the underlying priority.</p>}
-                </div>
-                <div className="cmpri-ticket-metadata-field min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technician{pendingField("technicianName")}</div>
-                  {editingField === "technician_name" && canEditField("technician_name") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={technicianName} onChange={setTechnicianName} placeholder="Technician" options={technicianOptions} topSuggestions={2} /></div> : <button type="button" disabled={!canEditField("technician_name") || saving} onClick={() => setEditingField("technician_name")} aria-label="Edit technician name" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{technicianName || "Unassigned"}</button>}
-                  {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
-                </div>
-                <div className="cmpri-ticket-metadata-field cmpri-ticket-status min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status{pendingField("status")}</div>
-                  {editingField === "status" && canEditField("status") ? <div className="mt-1"><SearchableSelect onDismiss={chief ? () => setEditingField(null) : undefined} value={status} onChange={setStatus} placeholder="Status" options={statusOptions} topSuggestions={2} expandOnOpen={chief} /></div> : <button type="button" disabled={!canEditField("status") || saving} onClick={() => setEditingField("status")} aria-label="Edit status" className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{status || "Open"}</button>}
-                </div>
-                <div className="cmpri-ticket-metadata-field min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due By{!order.ranker_auto_urgent && pendingField("dueBy")}</div>
-                  {editingField === "due_by" && canEditField("due_by") && !order.ranker_auto_urgent ? <input disabled={saving} autoFocus aria-label="Due By" onBlur={() => setEditingField(null)} type="date" value={dueBy} onChange={(event) => setDueBy(event.target.value)} className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400" /> : <button type="button" disabled={!canEditField("due_by") || saving || Boolean(order.ranker_auto_urgent)} onClick={() => setEditingField("due_by")} aria-label="Edit due by" aria-describedby={order.ranker_auto_urgent ? "ranker-due-date-hint" : undefined} className="cmpri-ticket-field mt-1 min-h-8 w-full text-left text-sm text-slate-200">{(order.ranker_auto_urgent ? order.due_by?.slice(0, 10) : dueBy) || "No due date"}</button>}
-                  {order.ranker_auto_urgent && <p id="ranker-due-date-hint" className="mt-1 text-xs text-amber-300">Room Ranker made this ticket urgent and set its due date to the day urgency began. Its previous due date returns when automatic urgency ends; due date edits cannot be saved here until then.</p>}
-                </div>
+              <div data-preview-metadata className="cmpri-ticket-metadata-groups mt-2 grid gap-2 md:grid-cols-2">
+                <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label="Work details">
+                  <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">Work details</h3>
+                  <div className="grid gap-2">
+                    <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("asset_id", assetId, order.asset_id || "")}>
+                      <div className="mb-1 text-xs font-semibold text-slate-400">Asset / Equipment{pendingField("assetId")}</div>
+                      <SearchableSelect value={assetId} onChange={value => saveMetadataSelection("asset_id", value)} disabled={saving || !canEditField("asset_id") || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions.some(option => option.value === assetId) ? assetOptions : [{ value: assetId, label: order.asset_name || "Current equipment" }, ...assetOptions]} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />
+                      {assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}
+                      {systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-1 text-xs font-semibold text-emerald-400">System best guess</p>}
+                    </div>
+                    <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("category", category, order.category || "General")}>
+                      <label htmlFor="ticket-category" className="mb-1 block text-xs font-semibold text-slate-400">Category{pendingField("category")}</label>
+                      <select id="ticket-category" value={category} onChange={event => saveMetadataSelection("category", event.target.value)} disabled={saving || !canEditField("category")} className="cmpri-ticket-select">{categoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                    </div>
+                  </div>
+                </section>
+                <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label="Assignment and timing">
+                  <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">Assignment &amp; timing</h3>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("priority", priority, order.priority || "Medium")}>
+                      <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">Priority{pendingField("priority")}</label>
+                      <select id="ticket-priority" value={priority} onChange={event => saveMetadataSelection("priority", event.target.value)} disabled={saving || !canEditField("priority")} aria-describedby={order.ranker_base_priority && order.ranker_base_priority !== order.priority ? "ranker-priority-hint" : undefined} className="cmpri-ticket-select">{priorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                      {order.ranker_base_priority && order.ranker_base_priority !== order.priority && <p id="ranker-priority-hint" className="mt-1 text-xs text-amber-300">Room Ranker temporarily raised this priority from {order.ranker_base_priority}. Saving a value different from the saved priority changes the underlying priority, but it may stay raised until the room improves. Selecting the saved priority again does not change the underlying priority.</p>}
+                    </div>
+                    <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("technician_name", technicianName, order.technician_name || "")}>
+                      <div className="mb-1 text-xs font-semibold text-slate-400">Technician{pendingField("technicianName")}</div>
+                      <SearchableSelect value={technicianName} onChange={value => saveMetadataSelection("technician_name", value)} disabled={saving || !canEditField("technician_name")} placeholder="Technician" options={technicianOptions} topSuggestions={2} expandOnOpen />
+                      {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
+                    </div>
+                    <div className="cmpri-ticket-metadata-field cmpri-ticket-status min-w-0" data-changed={metadataSelectionChanged("status", status, order.status || "Open")}>
+                      <label htmlFor="ticket-status" className="mb-1 block text-xs font-semibold text-slate-400">Status{pendingField("status")}</label>
+                      <select id="ticket-status" value={status} onChange={event => saveMetadataSelection("status", event.target.value)} disabled={saving || !canEditField("status")} className="cmpri-ticket-select">{statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                    </div>
+                    <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("due_by", dueBy, order.due_by ? String(order.due_by).slice(0, 10) : "")}>
+                      <label htmlFor="ticket-due-by" className="mb-1 block text-xs font-semibold text-slate-400">Due By{!order.ranker_auto_urgent && pendingField("dueBy")}</label>
+                      <input id="ticket-due-by" type="date" value={dueBy} onChange={event => saveMetadataSelection("due_by", event.target.value)} disabled={saving || !canEditField("due_by") || Boolean(order.ranker_auto_urgent)} aria-describedby={order.ranker_auto_urgent ? "ranker-due-date-hint" : undefined} className="cmpri-ticket-select" />
+                      {order.ranker_auto_urgent && <p id="ranker-due-date-hint" className="mt-1 text-xs text-amber-300">Room Ranker made this ticket urgent and set its due date to the day urgency began. Its previous due date returns when automatic urgency ends; due date edits cannot be saved here until then.</p>}
+                    </div>
+                  </div>
+                </section>
               </div>
             </details>
 
 
             <details open data-preview-conversation data-ticket-accordion="notes-history" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
-                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="notes" />{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
               </summary>
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
@@ -2358,6 +2468,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             <details data-ticket-accordion="troubleshooting" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
                 <h2 className="text-base font-bold leading-tight tracking-tight text-amber-400">
+                  <WorkOrderSectionIcon section="troubleshooting" />
                   Suggested Troubleshooting
                 </h2>
                 {selectedAsset && (
@@ -2567,7 +2678,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             <section>
             <details data-ticket-accordion="labor-parts" id="cmpri-labor-parts" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
-                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">Labor & Parts</h2>
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="labor" />Labor & Parts</h2>
                 <span id="cmpri-parts-status" className="ml-auto" />
               </summary>
               {order?.id && cmpriSession?.capabilities.includes("manage_assets") && <WorkOrderSupplies key={`${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`} jobId={order.id} cacheScope={`${cmpriSession.hotelId}:${cmpriSession.user.id}`} issue={issue} notes={notes} disabled={saving || hasUnsavedChanges} onRecorded={() => loadTicket(false, false, true)} registerExitGuard={registerPartExitGuard}/> }
@@ -2613,7 +2724,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
         {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
           <details data-ticket-accordion="preventative-maintenance" className="mt-2 rounded-2xl border border-slate-800 bg-slate-900 p-1">
-            <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400"><h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400">Preventative Maintenance</h2></summary>
+            <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400"><h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="maintenance" />Preventative Maintenance</h2></summary>
             {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
                 <b className="text-sm">PM checks and quarterly room forms</b>

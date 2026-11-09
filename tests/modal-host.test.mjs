@@ -102,7 +102,7 @@ test('embedded pages keep their existing actions without an injected navigation 
 test('global route modals scale down from their dashboard and retain usable mobile width', () => {
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   assert.match(source, /className="cmpri-modal-shell cmpri-dashboard-overlay-panel/);
-  assert.match(source, /const scale = 0\.9 \*\* \(index \+ 1\)/);
+  assert.match(source, /const scale = 0\.9 \*\* \(Math\.min\(index, 2\) \+ 1\)/);
   const sizingStart = source.indexOf('const scale =');
   const sizingEnd = source.indexOf('return (', sizingStart);
   assert.ok(sizingStart >= 0 && sizingEnd > sizingStart, 'modal sizing block must exist');
@@ -112,10 +112,10 @@ test('global route modals scale down from their dashboard and retain usable mobi
   for (const href of ['/engineering/purchasing', '/profile', '/work-orders', '/work-orders?embedded=1', '/work-orders/wo-1?embedded=1', 'https://cmpri.example/work-orders/wo-1?embedded=1']) {
     const detail = href.includes('/work-orders/');
     const purchasing = href.includes('/engineering/purchasing');
-    for (const index of [0, 1, 2]) {
+    for (const index of [0, 1, 2, 5]) {
       const result = {};
       vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
-      const scale = 0.9 ** (index + 1);
+      const scale = 0.9 ** (Math.min(index, 2) + 1);
       const inset = (detail ? 24 : 16) * scale;
       assert.deepEqual({ ...result.panelStyle }, {
         '--cmpri-modal-width': `min(${(detail || purchasing ? 94 : 66) * scale}vw, ${(detail || purchasing ? 88 : 72) * scale}rem)`,
@@ -185,23 +185,23 @@ test('modal navigation accepts same-origin paths but rejects external, API, and 
 });
 
 test('only the top modal layer remains interactive while nested navigation opens a new layer', () => {
-  assert.match(source, /setStack\(\(current\) => \[\.\.\.current, \{/);
+  assert.match(source, /setStack\(current => \[\.\.\.current, entry\]\)/);
   assert.match(source, /inert=\{!isTop\}/);
   assert.match(source, /pointerEvents: isTop \? "auto" : "none"/);
   assert.match(source, /element\.inert = true/);
   assert.match(source, /element\.inert = inert/);
-  assert.match(source, /event\.source !== frameRefs\.current\.get\(top\.id\)\?\.contentWindow/);
+  assert.match(source, /stack\.find\(entry => event\.source === frameRefs\.current\.get\(entry\.id\)\?\.contentWindow\)/);
 });
 
 test('related work orders open above the current modal rather than replacing it', () => {
-  assert.match(source, /const related = modalHref\(`\/work-orders\/\$\{encodeURIComponent\(event\.data\.targetWorkOrderId\)\}`\);[\s\S]*?setStack\(\(current\) => \[\.\.\.current, \{/);
+  assert.match(source, /const related = modalHref\(`\/work-orders\/\$\{encodeURIComponent\(event\.data\.targetWorkOrderId\)\}`\);[\s\S]*?openEntry\(\{/);
 });
 
 test('dashboard return works for tokenless modals and respects embedded cancel guards', () => {
   assert.match(source, /event\.data\.modalToken !== ""/);
-  assert.match(source, /event\.data\.type === "cmpri-modal-dashboard"\) \{\s*setStack\(\[\]\)/);
+  assert.match(source, /event\.data\.type === "cmpri-modal-dashboard"\) \{\s*requestModalClose\(top\.id\)/);
   assert.match(source, /data-cmpri-modal-dashboard='true'/);
-  assert.match(source, /if \(returnToDashboard\) \{\s*if \(stack\.length === 0\) return;\s*event\.preventDefault\(\);\s*setStack\(\[\]\)/);
+  assert.match(source, /if \(returnToDashboard\) \{\s*if \(stack\.length === 0\) return;\s*event\.preventDefault\(\);\s*if \(activeId\) requestModalClose\(activeId\)/);
   assert.match(source, /button\[data-cmpri-modal-dashboard='true'\]/);
   assert.match(source, /embeddedCleanupRefs\.current\.get\(entry\.id\)/);
 });
@@ -211,7 +211,7 @@ test('standalone dashboard buttons keep their navigation when no modal is open',
   const handlerEnd = source.indexOf('const handleKeydown =', handlerStart);
   assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
   const handler = source.slice(handlerStart, handlerEnd);
-  assert.match(handler, /if \(isDashboardAction\) \{\s*if \(stack\.length === 0\) return;\s*event\.preventDefault\(\);\s*setStack\(\[\]\);\s*return;/);
+  assert.match(handler, /if \(isDashboardAction\) \{\s*if \(stack\.length === 0\) return;\s*event\.preventDefault\(\);\s*if \(activeId\) requestModalClose\(activeId\);\s*return;/);
 });
 
 test('dashboard return actions are omitted from embedded modal pages', () => {

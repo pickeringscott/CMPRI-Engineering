@@ -4,6 +4,8 @@ import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList,workOrderListSnapshot} from "@/lib/work-order-list-sync";
+import { formatWorkOrder } from "@/lib/work-order-reference.js";
+import { claimWorkOrder, releaseWorkOrder } from "@/lib/open-work-orders";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -45,6 +47,7 @@ import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder, type DesktopWorkOrderDraft } from "@/components/desktop/WorkOrderListWindow";
 import WorkOrderApprovalsWindow from "@/components/desktop/WorkOrderApprovalsWindow";
+import WorkOrderWindowSwitcher from "@/components/desktop/WorkOrderWindowSwitcher";
 import { canAccessTroubleshootingGuides } from "@/lib/room-ranker-access";
 import { likelyDuplicate } from "@/lib/work-order-duplicates";
 
@@ -52,6 +55,7 @@ const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
 const APPROVALS_KEY = "work-order-approvals";
+const WORK_ORDER_LIMIT_MESSAGE = "You can have up to five work orders open. Close a work order before opening another.";
 const DEFAULT_WINDOW_SIZE: WindowSize = { width: 1040, height: 720 };
 
 type DesktopWindowEntry = {
@@ -155,6 +159,7 @@ export default function EngineeringDashboardPage() {
   const [windows, setWindows] = useState<DesktopWindowEntry[]>([]);
   const [windowGuests, setWindowGuests] = useState<Record<string, Record<string, unknown>>>({});
   const windowsRef = useRef<DesktopWindowEntry[]>([]);
+  const workOrderRegistryOwner = useRef("");
   const [zOrder, setZOrder] = useState<string[]>([]);
   const [rects, setRects] = useState<Record<string, WindowRect>>({});
   const layoutsRef = useRef<Record<string, WindowRect>>({});
@@ -446,6 +451,14 @@ export default function EngineeringDashboardPage() {
       raise(entry.key, true);
       return;
     }
+    const workOrderMatch = /^\/work-orders\/([^/]+)$/.exec(entry.key);
+    if (workOrderMatch) {
+      const owner = workOrderRegistryOwner.current || (workOrderRegistryOwner.current = crypto.randomUUID());
+      const outcome = claimWorkOrder(decodeURIComponent(workOrderMatch[1]), owner, () => raise(entry.key, true));
+      if (outcome === "limit") { setMessage(WORK_ORDER_LIMIT_MESSAGE); return; }
+      if (outcome === "existing") return;
+      setMessage(previous => previous === WORK_ORDER_LIMIT_MESSAGE ? "" : previous);
+    }
     const saved = layoutsRef.current[windowLayoutKey(entry.key)];
     const rect = saved || defaultWindowRect(boundsRef.current, entry.preferred, windowsRef.current.length);
     windowsRef.current = [...windowsRef.current, entry];
@@ -456,12 +469,26 @@ export default function EngineeringDashboardPage() {
   }, [raise]);
 
   const closeWindow = useCallback((key: string) => {
+    const workOrderMatch = /^\/work-orders\/([^/]+)$/.exec(key);
+    if (workOrderMatch && workOrderRegistryOwner.current) {
+      releaseWorkOrder(decodeURIComponent(workOrderMatch[1]), workOrderRegistryOwner.current);
+      setMessage(previous => previous === WORK_ORDER_LIMIT_MESSAGE ? "" : previous);
+    }
     windowsRef.current = windowsRef.current.filter((entry) => entry.key !== key);
     windowOpenedAtRef.current.delete(key);
     setWindows(windowsRef.current);
     setWindowGuests(current => { const next = { ...current }; delete next[key]; return next; });
     setZOrder((current) => current.filter((entry) => entry !== key));
     frameRefs.current.delete(key);
+  }, []);
+
+  useEffect(() => () => {
+    const owner = workOrderRegistryOwner.current;
+    if (!owner) return;
+    for (const entry of windowsRef.current) {
+      const workOrderMatch = /^\/work-orders\/([^/]+)$/.exec(entry.key);
+      if (workOrderMatch) releaseWorkOrder(decodeURIComponent(workOrderMatch[1]), owner);
+    }
   }, []);
 
   const requestCloseWindow = useCallback((key: string) => {
@@ -801,6 +828,19 @@ export default function EngineeringDashboardPage() {
         <nav aria-label="Open dashboard windows" className="w-full min-w-0">
           <ApprovedDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
+
+        {hasCapability(session, "view_work_orders") && <WorkOrderWindowSwitcher
+          tickets={windows.filter(entry => /^\/work-orders\/[^/]+$/.test(entry.key)).map(entry => {
+            const details = windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`);
+            if (!details) return entry;
+            const title = formatWorkOrder(details.display_id);
+            return { ...entry, title: title + (details.room ? ` · ${String(details.room)}` : "") };
+          })}
+          activeKey={activeKey}
+          listKey={WORK_ORDER_LIST_KEY}
+          onOpenList={openWorkOrderList}
+          onRaise={key => raise(key, true)}
+        />}
 
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
 

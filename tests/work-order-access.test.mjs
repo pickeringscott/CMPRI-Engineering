@@ -388,7 +388,7 @@ test('current revision permits a save without writing client revision into the r
 
 test('work-order labor and parts inputs use field-level permissions',()=>{
   const source=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  const heading=source.match(/<h2\b[^>]*>Labor & Parts<\/h2>/);
+  const heading=source.match(/<h2\b[^>]*>(?:<WorkOrderSectionIcon\b[^>]*\/>\s*)?Labor & Parts<\/h2>/);
   assert.ok(heading, 'Labor & Parts heading must exist independently of its styling');
   const sectionEnd=source.indexOf('</section>',heading.index);
   assert.ok(sectionEnd>heading.index, 'Labor & Parts must have a containing section');

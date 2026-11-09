@@ -124,8 +124,19 @@ test('a no-op save does not cancel a following issue blur',async()=>{
 test('modal cancellation waits for the blur save, including before React renders',()=>{
  const callback=source.match(/const cancelTicket = useCallback\(\(\) => \{([\s\S]*?)\n  \},/)[1];
  let closed=0,prompted=0;
- for(const pending of [1,2])vm.runInNewContext(`(()=>{${callback}})()`,{saving:false,issueSaveCount:{current:pending},saveInFlight:{current:false},hasUnsavedChanges:true,setShowCancelConfirm:()=>prompted++,closeEmbeddedTicket:()=>closed++});
+ for(const [issue,metadata] of [[1,0],[2,0],[0,1]])vm.runInNewContext(`(()=>{${callback}})()`,{saving:false,issueSaveCount:{current:issue},metadataSaveCount:{current:metadata},saveInFlight:{current:false},hasUnsavedChanges:true,setShowCancelConfirm:()=>prompted++,closeEmbeddedTicket:()=>closed++});
  assert.equal(closed,0);assert.equal(prompted,0);
+});
+
+test('embedded issue autosave updates the parent without closing the editor',async()=>{
+ const f=await fixture();try{
+  const posts=[];f.ctx.embedded=true;f.ctx.modalToken='nonce';
+  f.ctx.window={location:{origin:'https://test.example'},parent:{postMessage:data=>posts.push(data)}};
+  f.ctx.workOrderListSnapshot=row=>row;
+  await f.issue();
+  assert.equal(posts.length,1);assert.equal(posts[0].type,'cmpri-work-order-loaded');
+  assert.equal(f.ctx.noteDraft,'Unsaved note');assert.equal(f.ctx.priority,'Urgent');
+ }finally{await f.db.close()}
 });
 
 for (const mentioned of [false,true]) test(`PATCH returns post-commit ranker revision and values after ${mentioned?'mention RPC':'ordinary update'}`,async()=>{

@@ -25,19 +25,26 @@ test('metadata deduplication lasts only while the authorized fetch is pending',a
  const a=exports.run(),b=exports.run();assert.equal(a,b);assert.equal(count,1);finish([]);await a;
  const c=exports.run();assert.equal(count,2);finish([]);await c;assert.equal(pending.current,null);
 });
-test('field controls have individual activation and all Chief statuses expand immediately',()=>{
- for(const field of ['asset_id','category','priority','technician_name','status','due_by','hours','cost']){
+test('metadata controls are directly usable and all permitted Chief statuses are available',()=>{
+ const metadata=detail.slice(detail.indexOf('<div data-preview-metadata'),detail.indexOf('</details>',detail.indexOf('<div data-preview-metadata')));
+ for(const field of ['asset_id','category','priority','technician_name','status','due_by']){
+  assert.match(metadata,new RegExp(`saveMetadataSelection\\("${field}",`),field);
+  assert.ok(!metadata.includes(`editingField === "${field}"`),field);
+  assert.match(metadata,new RegExp(`canEditField\\("${field}"\\)`),field+' respects edit permissions');
+ }
+ for(const label of ['ticket-category','ticket-priority','ticket-status','ticket-due-by'])assert.match(metadata,new RegExp(`htmlFor="${label}"`));
+ assert.match(metadata,/<SearchableSelect value=\{assetId\}/);assert.match(metadata,/<SearchableSelect value=\{technicianName\}/);
+ assert.match(metadata,/assetReferenceLoading \|\| Boolean\(assetReferenceError\)/);
+ assert.match(metadata,/ranker_auto_urgent/);assert.match(metadata,/ranker-priority-hint/);
+ for(const field of ['hours','cost']){
   assert.ok(detail.includes(`editingField === "${field}"`),field);
   assert.ok(detail.includes(`setEditingField("${field}")`),field);
-  assert.ok(!detail.includes(`editingIssue && canEditField("${field}")`),field);
  }
  assert.doesNotMatch(detail,/Closure Details/);
- assert.match(detail,/expandOnOpen=\{chief\}/);
  assert.match(detail,/if \(chief && canEditField\("status"\)\) return \["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"\]/);
  assert.match(detail,/Edit reported issue/);assert.match(detail,/>Done<\/button>/);
  assert.doesNotMatch(detail,/noteHeading\(entry.authorRole/);
  assert.match(detail,/entry.actor.trim\(\).split/);
- // Standalone tickets display the same title guest as embedded work orders.
  assert.match(detail,/<WorkOrderTitleGuest guest=\{order/);
  assert.doesNotMatch(detail,/<WorkOrderGuestIndicators guest=\{order/);
 });
@@ -110,7 +117,8 @@ test('Chief Engineer pending markers track saved values, revert and save outcome
  assert.equal(pendingTicketField(true,saved,JSON.stringify({...JSON.parse(saved),hours:'1.00'}),'hours'),false);
  assert.equal(pendingTicketField(true,'',saved,'priority'),false);
  assert.match(detail,/onBlur=\{\(event\) => \{ void saveReportedIssue\(event.currentTarget.value\); \}\}/);
- assert.equal((detail.match(/onDismiss=\{chief \? \(\) => setEditingField\(null\) : undefined\}/g)||[]).length,5);
+ assert.match(detail,/selected === confirmed && metadataBaseline.current\?\.id === order.id && metadataBaseline.current.values\[field\] !== confirmed/);
+ for(const field of ['asset_id','category','priority','technician_name','status','due_by'])assert.match(detail,new RegExp(`metadataSelectionChanged\\("${field}",`));
  assert.match(detail,/data-pending-field=\{key\}[\s\S]*?fontSize: "inherit"/);
  assert.doesNotMatch(detail,/onBlur=\{[^}]*saveTicket/);
 });

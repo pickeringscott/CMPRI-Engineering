@@ -126,8 +126,13 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
-  const headerStart = engineering.indexOf('<header className="cmpri-desktop-topbar');
-  const engineeringHeader = engineering.slice(headerStart, engineering.indexOf('</header>', headerStart));
+  // The loading state has a hidden self-closing header. Inspect the visible header only.
+  const headerTag = [...engineering.matchAll(/<header\b[^>]*\bclassName="[^"]*\bcmpri-desktop-topbar\b[^"]*"[^>]*>/g)]
+    .find(match => !/\/\s*>$/.test(match[0]) && !/\shidden(?:\s|=|>)/.test(match[0]));
+  assert.ok(headerTag, 'visible desktop header exists');
+  const headerEnd = engineering.indexOf('</header>', headerTag.index);
+  assert.ok(headerEnd > headerTag.index, 'visible desktop header has a closing tag');
+  const engineeringHeader = engineering.slice(headerTag.index, headerEnd);
   assert.match(engineering, /text-\[14pt\] font-bold leading-none tracking-tight/);
   assert.match(engineering, /<span className="text-amber-300">\{frontDeskLayout \? "Front Desk" : isHousekeepingDashboard \? "Housekeeping" : "Engineering"\}<\/span>/);
   assert.match(engineering, /max-w-\[18rem\] truncate text-\[14pt\] font-semibold tracking-tight text-slate-100/);

@@ -109,10 +109,15 @@ test('a last-moment navigation failure keeps the view open and reports its reaso
 
 test('the cancel guard waits for an exit decision before finalizing a dirty visit', () => {
   let closed = 0, prompted = 0;
+  const metadataSaveCount = { current: 1 };
   const cancel = pageCallback('cancelTicket', {
-    saving: false, issueSaveCount: { current: 0 }, saveInFlight: { current: false }, hasUnsavedChanges: true,
+    saving: false, issueSaveCount: { current: 0 }, metadataSaveCount, saveInFlight: { current: false }, hasUnsavedChanges: true,
     setShowCancelConfirm: () => { prompted++; }, closeEmbeddedTicket: () => { closed++; },
   });
+  cancel();
+  assert.equal(prompted, 0, 'metadata save must finish before the exit decision');
+  assert.equal(closed, 0);
+  metadataSaveCount.current = 0;
   cancel();
   assert.equal(prompted, 1);
   assert.equal(closed, 0);
@@ -180,7 +185,7 @@ test('the embedded PM link waits for exit finalizers and preserves modified clic
   const context = {
     ...h.context, embedded: true, modalToken: 'fixture', order: { id: 'ticket-42' },
     window: { parent: {}, location: { origin: 'https://example.invalid' } },
-    pendingExitAction: { current: null }, saving: false, issueSaveCount: { current: 0 }, saveInFlight: { current: false },
+    pendingExitAction: { current: null }, saving: false, issueSaveCount: { current: 0 }, metadataSaveCount: { current: 1 }, saveInFlight: { current: false },
     hasUnsavedChanges: false, setShowCancelConfirm: () => assert.fail('unexpected dirty prompt'),
     router: { push: href => destinations.push(href) }, runTicketExit: h.run,
   };
@@ -192,6 +197,10 @@ test('the embedded PM link waits for exit finalizers and preserves modified clic
   const event = { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, preventDefault: () => { prevented = true; } };
   exports.click(event);
   assert.equal(prevented, true);
+  assert.deepEqual(destinations, [], 'navigation is blocked while metadata is saving');
+  assert.equal(context.pendingExitAction.current, null);
+  context.metadataSaveCount.current = 0;
+  exports.click(event);
   assert.deepEqual(destinations, [], 'navigation waits for the active checklist to flush');
   pending.resolve();
   await new Promise(resolve => setImmediate(resolve));
