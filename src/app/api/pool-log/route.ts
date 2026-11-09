@@ -8,6 +8,8 @@ import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, p
 import { fetchAllPages } from "@/lib/server/paginated-query";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 
+import { poolChemicalUses } from "@/lib/pool-chemicals";
+
 type DatabaseError = { code?: string; message?: string; details?: string | null; hint?: string | null } | null;
 
 function saveFailure(error: DatabaseError) {
@@ -132,6 +134,21 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (readError) return NextResponse.json({ error: "The existing log could not be checked. Nothing was saved." }, { status: 503 });
 
+  let chemicalUses: ReturnType<typeof poolChemicalUses>;
+  try { chemicalUses = poolChemicalUses(body.chemical_uses); }
+  catch (error) { return NextResponse.json({error: error instanceof Error ? error.message : "Invalid chemical usage."},{status:400}); }
+  if (chemicalUses.length && process.env.CMPRI_PO_ENABLED !== "true") return NextResponse.json({error:"Inventory usage is not enabled."},{status:409});
+
+  // Confirm a lost-response retry before optimistic revision checks; never consume the same IDs twice.
+  const priorUses = Array.isArray(existing?.chemical_uses) ? existing.chemical_uses : [];
+  const replayed = chemicalUses.filter(use => priorUses.some((prior: Record<string, unknown>) => prior.id === use.id));
+  if (replayed.length) {
+    const matches = replayed.every(use => priorUses.some((prior: Record<string, unknown>) => prior.id === use.id && prior.item === use.item
+      && Number(prior.quantity) === use.quantity && prior.unit === use.unit && prior.actor === auth.user.id));
+    if (!matches) return NextResponse.json({error:"Chemical usage key already has different details."},{status:409});
+    if (replayed.length === chemicalUses.length) return NextResponse.json({log:existing,unchanged:true,status:poolLogStatus(existing)});
+  }
+
   const canEditSaved = roleCanEditSavedPoolLog(auth.profile.role);
   // An authorized pool-log editor correcting the saved log on the web page replaces it as shown.
   // Every other save (later AM/PM samples, voice logging) is merged into the saved log.
@@ -149,7 +166,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid readings." }, { status: 400 });
   }
 
-  if (existing && !poolLogChanged(existing, row)) {
+  if (existing && !chemicalUses.length && !poolLogChanged(existing, row)) {
     return NextResponse.json({ log: existing, unchanged: true, status: poolLogStatus(existing) });
   }
 
@@ -157,6 +174,7 @@ export async function POST(request: NextRequest) {
   const savedInitials = typeof existing?.completed_by_initials === "string" ? existing.completed_by_initials.trim() : "";
   const fields = {
     ...row,
+    ...(chemicalUses.length ? { chemical_uses: chemicalUses } : {}),
     completed_by_initials: (savedInitials && !savedInitials.split(/\s*\/\s*/).includes(initials)
       ? `${savedInitials} / ${initials}`
       : savedInitials || initials).slice(0, 20),

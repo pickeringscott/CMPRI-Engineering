@@ -79,4 +79,31 @@ assert.ok((await db.query(`select message from cmpri_dashboard_notifications whe
 const before=await count();await db.query(`select cmpri_pool_reconcile('${h}','${f}',true)`);assert.equal(await count(),before);
 await db.exec('set role authenticated');await assert.rejects(db.query(`select cmpri_pool_action('${h}','${f}','${eng}','${id(30)}','open','',0)`),/permission denied/);await db.exec('reset role');
 console.log('PASS real PostgreSQL: persisted manual close, reason validation, Engineering/GM/AGM-only open/clear, GM/AGM log create/edit with validation and actor history, overnight denials, clear without reopen, testing-triggered closure/recipient record, repeated-reconcile dedup, direct-role denial');
+// Pool chemicals share the real pool stamping, role, revision and audit path.
+const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
+for(const name of ['cmpri_inventory_items','cmpri_inventory_movements']){
+ const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${name}" (`);
+ await db.exec(baseline.slice(start,baseline.indexOf('\n);',start)+3));
+ await db.exec(`alter table ${name} add primary key(id)`);
+}
+const unitSql=readFileSync('supabase/migrations/20261022070436_cmpri_po_package_units.sql','utf8');
+const unitStart=unitSql.indexOf('create function public.cmpri_unit_grams');
+await db.exec(unitSql.slice(unitStart,unitSql.indexOf('$$;',unitStart)+3));
+await db.exec(readFileSync('supabase/migrations/20261109113001_pool_log_chemical_usage.sql','utf8'));
+await db.exec('alter table cmpri_pool_log_history add column hotel_id uuid, add column actor_id uuid');
+const auditStart=baseline.indexOf('CREATE OR REPLACE FUNCTION "public"."cmpri_audit_pool_log"');
+await db.exec(baseline.slice(auditStart,baseline.indexOf('$$;',auditStart)+3));
+await db.exec('create trigger cmpri_pool_log_audit after insert or update on pool_daily_logs for each row execute function cmpri_audit_pool_log()');
+await db.query(`insert into cmpri_inventory_items(id,hotel_id,item_name,unit_of_measure,quantity_on_hand,quantity_reserved) values($1,$2,'Pool bromine','LB',10,2)`,[id(900),h]);
+const initial=(await db.query('select * from pool_daily_logs where id=$1',[log])).rows[0];
+const firstUse={id:id(901),item:id(900),quantity:16,unit:'OZ'};
+const first=(await db.query('update pool_daily_logs set chemical_uses=$1,remarks=$2,updated_by=$3 where id=$4 returning *',[[firstUse],initial.remarks,eng,log])).rows[0];
+assert.equal(first.chemical_uses.length,1);assert.match(first.remarks,/Chemical used: 16 OZ Pool bromine/);
+const second=(await db.query('update pool_daily_logs set chemical_uses=$1,remarks=$2,updated_by=$3 where id=$4 returning *',[[{...firstUse,id:id(902)}],first.remarks+'\nRetested after adjustment.\nChemical used: 16 OZ Pool bromine.',eng,log])).rows[0];
+assert.ok(second.remarks.startsWith(first.remarks));assert.equal(second.chemical_uses.length,2);
+assert.equal(Number((await db.query('select quantity_on_hand from cmpri_inventory_items where id=$1',[id(900)])).rows[0].quantity_on_hand),8);
+const history=(await db.query('select snapshot from cmpri_pool_log_history where pool_log_id=$1',[log])).rows;
+assert.ok(history.some(row=>row.snapshot.chemical_uses?.length===2 && row.snapshot.remarks===second.remarks));
+assert.equal(Number(second.revision),Number(initial.revision)+2);
+console.log('PASS pool chemical usage with real operator restrictions, saved Remarks prefix, stamp revision and complete audit snapshot');
 await db.close();

@@ -1,3 +1,4 @@
+import {partsStatusDependency} from "./helpers/load-ts.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -282,7 +283,7 @@ test('notification read API updates only the signed-in recipient and unread row'
   const exports = {};
   vm.runInNewContext(code, {
     exports,
-    require(name) {
+    require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@/lib/constants') return { HOTEL_ID: 'cmpri-hotel' };
       if (name === '@/lib/server/access') return { allows: (_user, capability) => capability === 'receive_pool_closed_notifications' };

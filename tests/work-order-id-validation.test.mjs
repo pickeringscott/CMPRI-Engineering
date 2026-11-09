@@ -1,3 +1,4 @@
+import {partsStatusDependency} from "./helpers/load-ts.mjs";
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as accountDisplay from "../src/lib/account-display.ts";
@@ -47,7 +48,7 @@ function routeFixture(relativePath, config = {}) {
     exports,
     console,
     process: { env: {} },
-    require(name) {if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
+    require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/account-display") return accountDisplay;
       if (name === 'next/server') return { NextResponse: response };

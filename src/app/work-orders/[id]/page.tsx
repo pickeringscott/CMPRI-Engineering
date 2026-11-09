@@ -43,6 +43,8 @@ import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from 
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry } from "@/lib/ticket-note-presentation";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
+import PartsStatusPill from "@/components/PartsStatusPill";
+import type {PartStatus} from "@/lib/work-order-parts";
 import { checkoutLabel, priorityClass, priorityLabel, statusClass } from "@/components/desktop/WorkOrderListWindow";
 import { normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
 import { resolveWorkOrderImages, type WorkOrderImage } from "@/lib/work-orders/attachment-response";
@@ -96,6 +98,7 @@ type WorkOrder = {
   category?: string | null;
   issue?: string | null;
   priority?: string | null;
+  parts_status?: PartStatus | null;
   technician_name?: string | null;
   status?: string | null;
   notes?: string | null;
@@ -1542,7 +1545,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         throw new Error(payload.error || "This work order could not be assigned to you.");
       }
       const claimed = payload.workOrder as WorkOrder;
-      setOrder({ ...claimed, technician_view_entries: order.technician_view_entries });
+      setOrder({ ...order, ...claimed, technician_view_entries: order.technician_view_entries });
       setTechnicianName(assignedName);
       setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), technicianName: assignedName }));
       setSaveState("idle");
@@ -2134,6 +2137,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
                   {checkout && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkout.label}</span>}
                   {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
+                  <PartsStatusPill status={order.parts_status} />
                   <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
                 </div>
                 <div data-work-order-guest className="cmpri-detail-guest-row"><WorkOrderGuestIndicators guest={order as unknown as Record<string,unknown>} /></div>

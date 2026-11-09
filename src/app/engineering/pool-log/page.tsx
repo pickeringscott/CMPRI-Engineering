@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import { invalidateCachedResources } from "@/lib/data-cache/browser";
+import { chemicalRemark, type PoolChemicalUse, type PoolSupply } from "@/lib/pool-chemicals";
 import PoolSpecs from "./PoolSpecs";
 import "./pool-log.css";
 import { getValidSession } from "@/lib/supabase/client";
@@ -194,7 +196,15 @@ export default function PoolLogPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
-  const dirty = baseline !== "" && JSON.stringify(form) !== baseline;
+  const [supplies, setSupplies] = useState<PoolSupply[]>([]);
+  const [supplyError, setSupplyError] = useState("");
+  const [chemicalItem, setChemicalItem] = useState("");
+  const [chemicalQuantity, setChemicalQuantity] = useState("");
+  const [chemicalUnit, setChemicalUnit] = useState("");
+  const [chemicalUses, setChemicalUses] = useState<PoolChemicalUse[]>([]);
+  const [uncertainChemicalSave, setUncertainChemicalSave] = useState(false);
+  const selectedChemical = supplies.find(item => item.id === chemicalItem);
+  const dirty = chemicalUses.length > 0 || baseline !== "" && JSON.stringify(form) !== baseline;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -202,6 +212,7 @@ export default function PoolLogPage() {
       setLoading(true);
       setMessage("");
       setEditingSavedLog(false);
+      setChemicalUses([]); setChemicalItem(""); setChemicalQuantity(""); setUncertainChemicalSave(false);
       const session = await getValidSession();
       if (!session) { window.location.replace("/"); return; }
       const query = new URLSearchParams({ date, ...(facilityChoice ? { facility: facilityChoice } : {}) });
@@ -232,6 +243,31 @@ export default function PoolLogPage() {
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [date, facilityChoice, reload]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      setSupplies([]); setSupplyError("");
+      const session = await getValidSession();
+      if (!session || !canEdit) return;
+      const response = await fetch("/api/pool-log/supplies", {headers:{Authorization:`Bearer ${session.access_token}`},cache:"reload",signal:controller.signal});
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || "Inventory could not be loaded.");
+      if (!controller.signal.aborted) setSupplies(result.items || []);
+    })().catch(error => {if (!controller.signal.aborted) setSupplyError(error.message);});
+    return () => controller.abort();
+  }, [canEdit, reload, saved]);
+
+  function addChemical() {
+    const quantity = Number(chemicalQuantity);
+    if (!selectedChemical || !Number.isFinite(quantity) || quantity <= 0 || quantity > 999999999 || Math.abs(quantity * 1000 - Math.round(quantity * 1000)) > 0.0001 || chemicalUses.length >= 100) {
+      setMessage("Choose the chemical and quantity actually used."); return;
+    }
+    const use = {id:crypto.randomUUID(),item:selectedChemical.id,quantity,unit:chemicalUnit || selectedChemical.unit_of_measure};
+    setChemicalUses(current => [...current,use]);
+    change("remarks", [String(form.remarks || "").trim(),chemicalRemark(use,selectedChemical.item_name)].filter(Boolean).join("\n"));
+    setChemicalQuantity(""); setMessage("Chemical added to Remarks. Inventory updates when the pool log is saved.");
+  }
 
   useEffect(() => {
     if (!dirty) return;
@@ -269,15 +305,19 @@ export default function PoolLogPage() {
       const session = await getValidSession();
       if (!session) throw new Error("Sign in again before saving. Your readings have not been discarded.");
       const payload = formPayload(form, date, facility.id);
+      if (chemicalUses.length) payload.chemical_uses = chemicalUses;
       payload.expected_revision = saved?.revision ?? null;
       if (saved && editingSavedLog) payload.edit_mode = "replace";
+      if (chemicalUses.length) setUncertainChemicalSave(true);
       const response = await fetch("/api/pool-log", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const result = await response.json() as { error?: string; log?: Log; unchanged?: boolean; closure_reasons?: string[]; closure_required?: boolean; warnings?: string[]; notifications_recorded?: boolean };
-      if (!response.ok || !result.log) throw new Error(result.error || "Unable to save readings.");
+      if (!response.ok || !result.log) { if (response.status < 500) setUncertainChemicalSave(false); throw new Error(result.error || "Unable to save readings."); }
+      setChemicalUses([]); setUncertainChemicalSave(false);
+      if (chemicalUses.length) void invalidateCachedResources(["pool","reference","orders"]).catch(()=>{});
       const values = formFromLog(result.log);
       setSaved(result.log);
       setForm(values);
@@ -371,7 +411,7 @@ export default function PoolLogPage() {
           <div className="flex flex-wrap gap-3">
             <label>Date<input type="date" max={poolLogTodayDate()} value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className={fieldClass} /></label>
             {facilities.length > 1 ? <label className="min-w-56">Pool<SearchableSelect value={facilityChoice || facility?.id || ""} disabled={saving || dirty || historyLoading} onChange={chooseFacility} placeholder="Pool" options={facilities.map((item) => ({ value: item.id, label: item.pool_name }))} /></label> : null}
-            <button type="button" disabled={saving || loading} className="self-end rounded-lg border border-slate-600 p-2" onClick={() => setReload((value) => value + 1)}>{dirty ? "Discard edits and reload" : "Reload"}</button>
+            <button type="button" disabled={saving || loading || uncertainChemicalSave} className="self-end rounded-lg border border-slate-600 p-2" onClick={() => setReload((value) => value + 1)}>{dirty ? "Discard edits and reload" : "Reload"}</button>
           </div>
           {message ? <p role="alert" aria-live="assertive" className="my-3 whitespace-pre-wrap rounded-lg border border-amber-400 p-3">{message}</p> : null}
           {loading ? <p className="py-4">Loading saved readings…</p> : facility ? (
@@ -385,7 +425,7 @@ export default function PoolLogPage() {
                 <h2 className="text-lg font-bold">Out-of-range reading</h2>
                 <ul className="mt-2 list-inside list-disc">{readingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
               </section> : null}
-              <fieldset disabled={!canEditForm || saving} className="space-y-4 disabled:opacity-80">
+              <fieldset disabled={!canEditForm || saving || uncertainChemicalSave} className="space-y-4 disabled:opacity-80">
                 <div className="pool-water-samples">
                   {periods.map((period) => {
                     const label = period.toUpperCase();
@@ -457,13 +497,34 @@ export default function PoolLogPage() {
                 </div>
                 {saved?.closure_condition === true && saved.manual_closure == null ? <p className="text-amber-200">This older closure has no recorded source. Its reason must be classified before a passing test can clear it automatically.</p> : null}
                 {(closureRequired || saved?.closure_reason) ? <label className="block font-semibold text-red-200">Closure reason / actions (required)<textarea id="pool-closure_reason" required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} placeholder="Why the pool is closed and what was done (for example, adjusted chemicals, retest scheduled)." onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
-                <label className="block">Remarks / actions taken<textarea value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
+                <label className="block">Remarks / actions taken<textarea disabled={uncertainChemicalSave} value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
+                <details className="pool-chemical-usage">
+                  <summary className="cursor-pointer text-sm font-semibold">Chemical usage</summary>
+                  <div className="mt-1 space-y-1 text-sm">
+                    <label className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-1">Supply<select aria-label="Pool chemical supply" className={fieldClass} value={chemicalItem} disabled={saving || uncertainChemicalSave || !supplies.length} onChange={event => {setChemicalItem(event.target.value);setChemicalUnit("");}}>
+                      <option value="">Choose supply</option>{supplies.map(item => <option key={item.id} value={item.id}>{item.item_name} · {Number(item.quantity_on_hand)-Number(item.quantity_reserved)} {item.unit_of_measure} available</option>)}
+                    </select></label>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-xs">Quantity used<input aria-label="Pool chemical quantity used" className={fieldClass} style={{width:96}} type="number" min="0.001" max="999999999" step="0.001" value={chemicalQuantity} disabled={saving || uncertainChemicalSave} onChange={event=>setChemicalQuantity(event.target.value)}/></label>
+                      <label className="text-xs">Unit<select aria-label="Pool chemical usage unit" className={fieldClass} style={{width:96}} value={chemicalUnit} disabled={saving || uncertainChemicalSave} onChange={event=>setChemicalUnit(event.target.value)}><option value="">{selectedChemical?.unit_of_measure || "Inventory unit"}</option>{["EA","LB","OZ","G","KG"].map(unit=><option key={unit}>{unit}</option>)}</select></label>
+                      <button type="button" className="rounded-lg border border-current px-2 py-1 text-xs disabled:opacity-50" disabled={saving || uncertainChemicalSave || !selectedChemical || !(Number(chemicalQuantity)>0)} onClick={addChemical}>Add chemical use</button>
+                    </div>
+                    {chemicalUses.map(use => <div key={use.id} className="flex items-center justify-between gap-2 text-xs"><span>{chemicalRemark(use,supplies.find(item=>item.id===use.item)?.item_name || "Chemical")}</span><button type="button" className="underline" disabled={saving || uncertainChemicalSave} onClick={()=>{
+                      setChemicalUses(current=>current.filter(entry=>entry.id!==use.id));
+                      const name=supplies.find(item=>item.id===use.item)?.item_name || "Chemical";
+                      const lines=String(form.remarks || "").split("\n");const index=lines.indexOf(chemicalRemark(use,name));if(index>=0)lines.splice(index,1);change("remarks",lines.join("\n"));
+                    }}>Remove</button></div>)}
+                    {chemicalUses.length ? <p className="text-xs">{chemicalUses.length} chemical usage(s) pending. Save the pool log to update inventory.</p> : null}
+                    {uncertainChemicalSave ? <p role="status" className="text-xs">Save not yet confirmed. Retry Save Pool Log to confirm the same usage without reducing inventory twice.</p> : null}
+                    {supplyError ? <p role="status" className="text-xs">{supplyError}</p> : null}
+                  </div>
+                </details>
               </fieldset>
               {canEditForm && dirty && stillNeeded.length ? <section aria-live="polite" className="rounded-xl border border-amber-400/70 bg-amber-950/40 p-3 text-sm text-amber-100">
                 <h2 className="font-bold">Still needed before saving</h2>
                 <ul className="mt-1 list-inside list-disc">{stillNeeded.map(([id, text]) => <li key={id + text}><button type="button" className="underline" onClick={() => document.getElementById(id)?.focus()}>{text}</button></li>)}</ul>
               </section> : null}
-              <div className="pool-save-actions">{canEditForm ? <button type="submit" data-cmpri-primary disabled={saving || !dirty} className="rounded-lg px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : saved && !editingSavedLog ? "Add to today's pool log" : "Save Pool Log"}</button> : <p className="text-slate-300">View-only access</p>}</div>
+              <div className="pool-save-actions">{canEditForm ? <button type="submit" data-cmpri-primary disabled={saving || !dirty} className="rounded-lg px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : uncertainChemicalSave ? "Retry Save Pool Log" : saved && !editingSavedLog ? "Add to today's pool log" : "Save Pool Log"}</button> : <p className="text-slate-300">View-only access</p>}</div>
               {saved && canEditForm ? <p className="text-sm text-slate-400">Saved readings are locked.{canEditSavedLog ? " Select Edit saved log to correct them." : " Only a System Administrator, General Manager or Assistant General Manager can change them."} Empty fields (such as the PM sample) can still be added.</p> : null}
               {saved ? <p className="text-sm text-slate-400">Recorded by {saved.completed_by_initials} · Revision {saved.revision}</p> : null}
             </form>

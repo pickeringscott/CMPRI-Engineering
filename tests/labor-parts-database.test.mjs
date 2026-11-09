@@ -20,6 +20,7 @@ for(const file of ['20261017181855_cmpri_po_receiving.sql','20261017181912_cmpri
 await db.exec('alter table cmpri_po_lines add column if not exists purchase_unit_price_cents bigint');
 await db.exec(readFileSync('supabase/migrations/20261022070436_cmpri_po_package_units.sql','utf8'));
 await db.exec(migration);
+await db.exec(readFileSync('supabase/migrations/20261109113005_work_order_parts_pills.sql','utf8'));
 await db.exec(`insert into profiles values('${actor}','Scott','engineer');insert into work_orders(id,hotel_id) values('${job}','${hotel}');
 insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand,quantity_reserved,unit_of_measure) values('${item}','${hotel}','Replacement bulb',12,2,'EA');
 insert into cmpri_po_orders(id,hotel_id,supplier,origin,created_by) values('${order}','${hotel}','Fixture supplier','manual','${actor}');
@@ -96,5 +97,21 @@ await test('decimal split receipts use exact SQL numeric for both PO and ticket 
  const result=(await db.query('select cmpri_read_ticket_parts($1,$2) result',[hotel,job])).rows[0].result;
  assert.equal(result.parts.find(p=>p.id===id(63)).status,'Received');assert.equal(result.receiptTotals.find(t=>t.line_id===id(62)).received,'0.8');
  assert.equal((await db.query('select status from cmpri_order_ideas where id=$1',[id(63)])).rows[0].status,'Received');
+});
+await test('batch pill summary uses authoritative PO/receipt states, mixed precedence and property scope',async()=>{
+ const context=(await db.query('select cmpri_read_ticket_parts($1,$2) result',[hotel,job])).rows[0].result;
+ const rank=['Need to Order','On Order','In-House','Received'];
+ const expected=[...context.parts].sort((a,b)=>rank.indexOf(a.status)-rank.indexOf(b.status))[0].status;
+ const result=await db.query('select * from cmpri_ticket_parts_statuses($1,$2)',[hotel,[job,id(999)]]);
+ assert.equal(result.rows.length,1);assert.equal(result.rows[0].status,expected);
+ assert.equal((await db.query('select * from cmpri_ticket_parts_statuses($1,$2)',[id(999),[job]])).rows.length,0);
+ // Isolate each recorded stage to prove the summary equals the parts editor, including decimal receipt totals.
+ for(const part of context.parts){
+  await db.exec('begin');
+  await db.query('delete from cmpri_ticket_parts where work_order_id=$1 and id<>$2',[job,part.id]);
+  assert.equal((await db.query('select * from cmpri_ticket_parts_statuses($1,$2)',[hotel,[job]])).rows[0].status,part.status);
+  await db.exec('rollback');
+ }
+ assert.equal((await db.query("select has_function_privilege('authenticated','cmpri_ticket_parts_statuses(uuid,uuid[])','execute') allowed")).rows[0].allowed,false);
 });
 await db.close();
