@@ -8,7 +8,7 @@ const h=id(1),actor=id(2),order=id(3),line=id(4),item=id(5),job=id(6);
 const q=sql=>db.exec(sql);const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
 await q('create role anon;create role authenticated;create role service_role bypassrls;create table work_orders(id uuid primary key,hotel_id uuid);');
 for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inventory_movements']){const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${table}" (`);await q(baseline.slice(start,baseline.indexOf('\n);',start)+3));await q(`alter table ${table} add primary key(id);grant all on ${table} to service_role;`);}
-await q(readFileSync('supabase/migrations/20261016211655_cmpri_po_receiving.sql','utf8'));
+await q(readFileSync('supabase/migrations/20261017181855_cmpri_po_receiving.sql','utf8'));
 await q(`insert into work_orders values('${job}','${h}');grant select on work_orders to service_role;insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand) values('${item}','${h}','Filter',4);insert into cmpri_po_orders(id,hotel_id,supplier,origin,created_by) values('${order}','${h}','Doug','manual','${actor}');insert into cmpri_po_lines(id,hotel_id,order_id,description,ordered,uom,inventory_item_id,units_per_order_unit) values('${line}','${h}','${order}','Filter',10,'EA','${item}',1);`);
 const receive=(key,qty=2,hotel=h)=>`select cmpri_receive_po('${hotel}','${actor}','${id(key)}','${line}',${qty},'2026-10-16','Counted');`;
 const consumeSupply=(key,qty=1,hotel=h)=>`select cmpri_use_supply('${hotel}','${actor}','${id(key)}','${job}','${item}',${qty},'Installed');`;

@@ -9,7 +9,7 @@ const db=new PGlite();
 await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table work_orders(id uuid primary key,hotel_id uuid);');
 const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
 for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inventory_movements']){const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${table}" (`);await db.exec(baseline.slice(start,baseline.indexOf('\n);',start)+3));await db.exec(`alter table ${table} add primary key(id);`);}
-await db.exec(readFileSync('supabase/migrations/20261016211655_cmpri_po_receiving.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/20261017181855_cmpri_po_receiving.sql','utf8'));
 await db.exec(readFileSync(process.env.PO_IDENTITY_MIGRATION||'supabase/migrations/20261017184618_cmpri_reviewed_po_identities.sql','utf8'));
 const hotel='00000000-0000-0000-0000-000000000001',actor='00000000-0000-0000-0000-000000000002';
 const refs=['37193699802','37237886735','37249725170'];

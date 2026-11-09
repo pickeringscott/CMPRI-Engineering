@@ -62,6 +62,6 @@ test('history target extraction preserves external URLs and distinguishes room n
  assert.match(page,/workOrderReferenceTargets\(referenceText\)/);
  assert.match(page,/offset < targets.length; offset \+= 100/);
  assert.match(page,/referenceTickets.filter/);
- assert.match(page,/router.push\(`\/work-orders\//);
+ assert.match(page,/requestTicketNavigation\(`\/work-orders\/\$\{encodeURIComponent\(ticket\.id\)\}`\)/);
  assert.match(page,/targetWorkOrderId: ticket.id/);
 });

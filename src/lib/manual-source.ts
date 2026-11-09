@@ -40,9 +40,26 @@ export function relevantSourcePassages(passages: SourcePassage[], issue: string)
   return ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).map(item => item.passage);
 }
 
-/** Require an explicit diagnostic cue; temperatures and imported ticket IDs are not fault codes. */
+/** Require a positive diagnostic report; negated/hypothetical mentions are not reports. */
 export function reportedDiagnosticCode(text: string): string | null {
-  const clean = text.split(/\n/).filter(line => !/original source ticket|canonical id|approved import row|source ticket id/i.test(line)).join("\n");
-  const match = clean.match(/\b(?:error(?:\s+code)?|fault(?:\s+code)?|diagnostic\s+code|code)\s*(?:is\s+)?[:#=-]?\s*([a-z]{0,4}[- ]?\d{1,4}[a-z0-9-]{0,6})\b/i);
-  return match ? match[1].replace(/[^a-z0-9]/gi, "").toUpperCase() : null;
+  const clean = text.split(/\n/).filter(line => !/original source ticket|canonical id|approved import row|source ticket id/i.test(line)).join("\n")
+    .replace(/[’‘]/g, "'").replace(/\bcan't\b/gi, 'cannot').replace(/\bwon't\b/gi, 'will not')
+    .replace(/\b(is|was|does|do|did|has|have|are|were|could|would|should)n't\b/gi, '$1 not');
+  const clauses = clean.split(/[;\n.!?]+/);
+  for (const clause of clauses) {
+    const matches = clause.matchAll(/\b(?:error(?:\s+code)?|fault(?:\s+code)?|diagnostic\s+code|code)\s*(?:is\s+)?[:#=-]?\s*([a-z]{0,4}[- ]?\d{1,4}[a-z0-9-]{0,6})\b/gi);
+    for (const match of matches) {
+      // Scope neighboring negations without splitting a literal code such as
+      // AND-42 or BUT-10 into words before its identifier has been captured.
+      const before = clause.slice(0, match.index).split(/\b(?:but|however|instead|yet|and)\b/i).at(-1)!.trim();
+      const after = clause.slice(match.index! + match[0].length).split(/\b(?:but|however|instead|yet|and)\b/i)[0].trim();
+      const negatedBefore = /\b(?:no|not|without)(?:\s+(?:any|an?|the|active|current|actual))?\s*$/i.test(before)
+        || /\b(?:not|cannot|never|no longer)\s+(?:see(?:ing)?|show(?:ing|s)?|display(?:ing|s)?|observe(?:d)?|report(?:ing)?|find|have|receive|getting)(?:\s+(?:any|an?|the))?\s*$/i.test(before);
+      const hypothetical = /\b(?:if|unless|whether|maybe|possibly|perhaps|suspected|might|could|unsure|not sure)\b[^,]*$/i.test(before);
+      const negatedAfter = /^(?:(?:has been|have been|had been|is|was|does|did|will|can|could|has|have|had|are|were)\s+)?(?:not|no longer|never)\s+(?:(?:been|be)\s+)?(?:display(?:ed|ing)?|show(?:n|ing)?|present|visible|active|appear(?:ed|ing)?|report(?:ed|ing)?|occur(?:red|ring)?|seen|observed|found|detected|confirmed|recorded|there|on\s+(?:the\s+)?(?:screen|display|panel)|coming up|come up)\b/i.test(after)
+        || /^(?:(?:is|was|has been)\s+)?(?:absent|cleared|resolved|unconfirmed)\b/i.test(after);
+      if (!negatedBefore && !hypothetical && !negatedAfter) return match[1].replace(/[^a-z0-9]/gi, '').toUpperCase();
+    }
+  }
+  return null;
 }

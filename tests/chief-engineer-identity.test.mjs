@@ -99,7 +99,7 @@ test('migration retains old roles and accounts, rejects unknown roles, and leave
       INSERT INTO profiles(id,role,secondary_roles) VALUES (1,'engineer',ARRAY['technician']);`);
     const before = (await db.query('SELECT * FROM profiles')).rows;
     const policies = (await db.query("SELECT policyname,qual,with_check FROM pg_policies WHERE tablename='profiles'")).rows;
-    const migration = readFileSync(new URL('../supabase/migrations/20261011230319_cmpri_chief_engineer_role_identity.sql', import.meta.url), 'utf8');
+    const migration = readFileSync(new URL('../supabase/migrations/20261012011549_cmpri_chief_engineer_role_identity.sql', import.meta.url), 'utf8');
     await db.exec(migration);
     await db.exec(migration);
     assert.deepEqual((await db.query('SELECT * FROM profiles')).rows, before);

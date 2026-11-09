@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS trg_cmpri_email_events_updated_at ON public.cmpri_email_events;

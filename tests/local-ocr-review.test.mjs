@@ -27,10 +27,10 @@ function harness(recognize, props = {}, overrides = {}) {
  const authClient={auth:{onAuthStateChange(callback){authCallback=callback;queueMicrotask(()=>callback('INITIAL_SESSION',{user:{id:'user-a'}}));return {data:{subscription:{unsubscribe(){unsubscribed=true;}}}};}}};
  vm.runInNewContext(compiled, {exports, URL:mockUrl, Blob:dom.window.Blob, navigator:fakeNavigator, AbortController, console,
   fetch:()=>{requests++;throw Error('OCR review must not initiate network requests');},
-  require(name){if(name==='react')return require('react');if(name==='react/jsx-runtime')return require('react/jsx-runtime');if(name==='@/lib/supabase/client')return {createClient:()=>authClient};if(name==='@/lib/ocr/local-ocr')return {recognizeLocalDocument:recognize,localOcrFileKind:overrides.validateFile || (async file=>{if(file.name.startsWith('renamed-html'))throw Error('Invalid signature');return file.name.endsWith('.pdf')?'pdf':'image';}),localOcrImageDimensions:async file=>{if(file.name==='huge.png')throw Error('Image dimensions are too large');return {width:100,height:100};}};throw Error(name);}});
+  require(name){if(name==='react')return require('react');if(name==='react/jsx-runtime')return require('react/jsx-runtime');if(name==='@/lib/supabase/client')return {createClient:()=>authClient};if(name==='@/lib/ocr/local-ocr')return {recognizeLocalDocument:recognize,localOcrFileKind:overrides.validateFile || (async file=>{if(file.name.startsWith('renamed-html'))throw Error('Invalid signature');return file.name.endsWith('.pdf')?'pdf':'image';}),localOcrImageDimensions:async file=>{if(file.name==='invalid.png')throw Error('Image dimensions are invalid');return file.name==='huge.png'?{width:8000,height:600}:{width:100,height:100};}};throw Error(name);}});
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
  const render=()=>React.act(async()=>root.render(React.createElement(exports.default,{...props,onUseText:props.onUseText===false?undefined:result=>applied.push(result)})));
- const choose=async(name='report.png',type='image/png')=>{const input=parent.querySelector('input[type=file]');const file=new dom.window.File(['image'],name,{type});Object.defineProperty(input,'files',{configurable:true,value:[file]});await React.act(async()=>input.dispatchEvent(new dom.window.Event('change',{bubbles:true})));return file;};
+ const choose=async(name='report.png',type='image/png',size)=>{const input=parent.querySelector('input[type=file]');const file=new dom.window.File(['image'],name,{type});if(size!==undefined)Object.defineProperty(file,'size',{value:size});Object.defineProperty(input,'files',{configurable:true,value:[file]});await React.act(async()=>input.dispatchEvent(new dom.window.Event('change',{bubbles:true})));return file;};
  const button=label=>[...parent.querySelectorAll('button')].find(item=>item.textContent.trim()===label);
  const click=async el=>React.act(async()=>el.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})));
  const dispose=async()=>{await React.act(async()=>root.unmount());parent.remove();};
@@ -94,12 +94,12 @@ test('reference-only use exposes reviewed copy without an import or save action'
  } finally {await h.dispose();}
 });
 
-test('renamed HTML and oversized images are rejected before creating a preview or starting OCR', async()=>{
+test('renamed HTML and invalid dimensions are rejected before creating a preview or starting OCR', async()=>{
  let reads=0;
  const h=harness(async()=>{reads++;return {pages:[]};});
  try {
   await h.render();
-  for (const name of ['renamed-html.png','renamed-html.pdf','huge.png']) {
+  for (const name of ['renamed-html.png','renamed-html.pdf','invalid.png']) {
    await h.choose(name,'text/html');
    assert.equal(h.parent.querySelector('img'),null,name);
    assert.equal(h.parent.querySelector('iframe'),null,name);
@@ -111,9 +111,56 @@ test('renamed HTML and oversized images are rejected before creating a preview o
  } finally {await h.dispose();}
 });
 
+test('large supported files remain selectable without eagerly decoding a large original preview', async()=>{
+ const seen=[];
+ const h=harness(async file=>{seen.push(file);return {fileName:file.name,pages:[{page:1,text:'Large document',confidence:90,words:[]}],totalPages:1};});
+ try {
+  await h.render();
+  const image=await h.choose('huge.png','image/png',80*1024*1024);
+  assert.equal(h.parent.querySelector('[role=alert]'),null);
+  assert.equal(h.button('Read text').disabled,false);
+  assert.equal(h.parent.querySelector('img'),null,'large original is not eagerly decoded by an image preview');
+  assert.ok(h.parent.querySelector('a[download="huge.png"]'));
+  await h.click(h.button('Read text'));assert.equal(seen[0],image);
+  const pdf=await h.choose('large.pdf','application/pdf',150*1024*1024);
+  assert.equal(h.parent.querySelector('[role=alert]'),null);
+  assert.equal(h.button('Read text').disabled,false);
+  await h.click(h.button('Read text'));assert.equal(seen[1],pdf);
+  assert.equal(h.applied.length,0);assert.equal(h.requests(),0);
+ } finally {await h.dispose();}
+});
+
+test('next PDF batch preserves source numbers and requires a fresh review before use', async()=>{
+ const calls=[];
+ const h=harness(async(file,options)=>{
+  calls.push(options);
+  const start=options.pageRange?.start??1,end=options.pageRange?.end??10;
+  return {fileName:file.name,totalPages:21,pages:Array.from({length:end-start+1},(_,index)=>({page:start+index,text:`Source page ${start+index}`,confidence:90,words:[]}))};
+ });
+ try {
+  await h.render();await h.choose('manual.pdf','application/pdf');await h.click(h.button('Read text'));
+  assert.match(h.parent.textContent,/Pages 1–10 of 21 are ready/);
+  assert.ok(h.button('Read pages 11–20').disabled);
+  await h.click(h.parent.querySelector('input[type=checkbox]'));
+  await h.click(h.button('Copy reviewed text'));
+  await h.click(h.button('Read pages 11–20'));
+  assert.equal(calls[1].pageRange.start,11);assert.equal(calls[1].pageRange.end,20);
+  assert.equal(h.parent.querySelector('textarea').getAttribute('aria-label'),'Extracted text, page 11');
+  assert.equal(h.parent.querySelector('input[type=checkbox]').checked,false);
+  assert.ok(h.button('Copy reviewed text').disabled);assert.ok(h.button('Use reviewed text').disabled);
+  assert.ok(h.button('Read pages 21–21').disabled);
+  await h.click(h.parent.querySelector('input[type=checkbox]'));await h.click(h.button('Read pages 21–21'));
+  assert.equal(calls[2].pageRange.start,21);assert.equal(calls[2].pageRange.end,21);
+  assert.equal(h.parent.querySelectorAll('textarea').length,1);
+  assert.equal(h.parent.querySelector('textarea').getAttribute('aria-label'),'Extracted text, page 21');
+  assert.equal([...h.parent.querySelectorAll('button')].some(button=>/^Read pages /.test(button.textContent)),false);
+  assert.equal(h.applied.length,0);assert.equal(h.requests(),0);
+ } finally {await h.dispose();}
+});
+
 test('long PDFs use an explicit bounded page range and review describes only that pass', async()=>{
  const calls=[];
- const h=harness(async(file,options)=>{calls.push(options);return {fileName:file.name,pages:[{page:11,text:'Manual page 11',confidence:90,words:[]}]};});
+ const h=harness(async(file,options)=>{calls.push(options);return {fileName:file.name,totalPages:100,pages:Array.from({length:10},(_,index)=>({page:11+index,text:`Manual page ${11+index}`,confidence:90,words:[]}))};});
  try {
   await h.render();await h.choose('manual.pdf','application/pdf');
   const setter=Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set;

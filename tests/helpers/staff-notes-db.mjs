@@ -35,9 +35,9 @@ export async function staffNotesDatabase(beforeTargets){
  create table untouched(value jsonb);insert into untouched values('{"hours":19,"profile":"unchanged","feedback":"private"}');
  insert into hotels values('${staffHotel}'),('${foreignHotel}');`);
  for(const p of staffProfiles){await db.query('insert into profiles values($1,$2,$3,$4,$5,$6)',[p.id,p.active,p.role,p.secondary_roles,p.full_name,p.email]);await db.query('insert into hotel_members values($1,$2,true)',[p.id,p.hotel_id||staffHotel]);}
- await db.exec(readFileSync('supabase/migrations/20261015090000_cmpri_staff_notes.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/20261015055427_cmpri_staff_notes.sql','utf8'));
  await db.exec(readFileSync('supabase/migrations/20261105004859_staff_notes_media_and_room_guest_import.sql','utf8'));
- await db.exec(readFileSync('supabase/migrations/20261013143835_cmpri_prospective_event_push.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/20261013145012_cmpri_prospective_event_push.sql','utf8'));
  if(beforeTargets)await beforeTargets(db);
  await db.exec(readFileSync('supabase/migrations/20261106225339_staff_notes_target_identity_and_flags.sql','utf8'));
  await db.query('insert into locations values($1,$2,$3,$4,$5,true),($6,$7,$8,$9,$10,true)',[staffId(21),staffHotel,'204','Room 204','Guest Rooms',staffId(22),foreignHotel,'999','Foreign Room','Other']);

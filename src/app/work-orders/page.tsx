@@ -1,5 +1,6 @@
 "use client";
 import WorkOrderMediaControl from "@/components/WorkOrderMediaControl";
+import WorkOrderStepMedia from "@/components/WorkOrderStepMedia";
 import { subscribeResources } from "@/lib/events/browser";
 import PoolStatus from "@/components/desktop/PoolStatus";
 
@@ -46,6 +47,9 @@ import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
 import { draftFieldsKey, guardedDraftRequest, mergeConfirmedOwnDraft, saveDraftWithRecovery, type DraftFields, type PendingDraftSave, type SavedDraft } from "@/lib/work-orders/draft-save";
+import { guideRulesForIssue } from "@/lib/work-orders/guide-selection";
+import { sourceSemantics } from "@/lib/work-orders/source-semantics";
+import { manualMatchesEquipment } from "@/lib/manual-document-match";
 
 type WorkOrderDraft = {
   id: string;
@@ -78,12 +82,19 @@ type Asset = {
   active: boolean;
   status: string;
   manufacturer: string | null;
+  model_family?: string | null;
   model_number: string | null;
   serial_number: string | null;
   generation: string | null;
   install_year: number | null;
   documentation_key: string | null;
+  documentation_revision_id?: string | null;
+  documentation_verified_at?: string | null;
 };
+
+function createGuideAssetKey(asset?: Asset) {
+  return asset ? JSON.stringify([asset.id, asset.active, asset.manufacturer || '', asset.model_family || '', asset.model_number || '', asset.documentation_key || '', asset.documentation_revision_id || '', asset.documentation_verified_at || '']) : '';
+}
 
 type WorkOrder = {
   id: string;
@@ -518,8 +529,10 @@ export default function WorkOrdersPage() {
   const [currentRole, setCurrentRole] = useState("");
   const [troubleshootingResult, setTroubleshootingResult] = useState<{
     assetKey: string;
+    userId?: string;
     knowledge: ManualKnowledge | null;
     error: string;
+    reason?: string;
   } | null>(null);
   const [formLanguage, setFormLanguage] = useState<"en" | "es">("en");
   useEffect(() => {
@@ -774,42 +787,53 @@ export default function WorkOrdersPage() {
   const systemAssignedTechnicalFields = isSubmitOnlyUser || !canSetEngineeringFields;
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
   const selectedCreateAssetId = selectedCreateAsset?.id;
-  const selectedCreateDocumentationKey = selectedCreateAsset?.documentation_key;
-  const troubleshootingAssetKey = selectedCreateAssetId
-    ? `${selectedCreateAssetId}:${selectedCreateDocumentationKey || ""}`
-    : "";
-  const currentTroubleshootingResult = troubleshootingResult?.assetKey === troubleshootingAssetKey
+  const troubleshootingAssetKey = createGuideAssetKey(selectedCreateAsset);
+  const troubleshootingUserId = cmpriSession?.user.id;
+  const currentTroubleshootingResult = troubleshootingResult?.assetKey === troubleshootingAssetKey && troubleshootingResult.userId === troubleshootingUserId
     ? troubleshootingResult
     : null;
   const troubleshootingKnowledge = currentTroubleshootingResult?.knowledge || null;
   const troubleshootingLoading = Boolean(canViewTroubleshootingGuide && selectedCreateAsset && !currentTroubleshootingResult);
   const troubleshootingError = currentTroubleshootingResult?.error || "";
+  const troubleshootingReason = currentTroubleshootingResult?.reason || "";
 
   useEffect(() => {
     let current = true;
+    let requestNumber = 0;
     if (!canViewTroubleshootingGuide || !selectedCreateAssetId) {
       return () => { current = false; };
     }
 
-    const assetKey = `${selectedCreateAssetId}:${selectedCreateDocumentationKey || ""}`;
-    void (async () => {
+    const assetKey = troubleshootingAssetKey;
+    const loadGuide = async () => {
+      if (!current) return;
+      const request = ++requestNumber;
+      setTroubleshootingResult(null);
       try {
         const session = await getValidSession();
-        if (!session?.access_token) throw new Error("Sign in again to load troubleshooting guidance.");
-        const response = await fetch(`/api/maintenance-reference?assetId=${encodeURIComponent(selectedCreateAssetId)}`, {
+        if (!session?.access_token || session.user.id !== troubleshootingUserId) throw new Error("Sign in with the same account to load troubleshooting guidance.");
+        const response = await fetch(`/api/maintenance-reference?assetId=${encodeURIComponent(selectedCreateAssetId)}&source=asset-upload`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
           cache: "no-store",
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || "Troubleshooting guidance could not be loaded.");
-        if (current) setTroubleshootingResult({ assetKey, knowledge: normalizeManualKnowledge(payload.manualKnowledge), error: "" });
+        const latestSession = await getValidSession();
+        if (latestSession?.user.id !== troubleshootingUserId) throw new Error("Your account changed. Reopen the work-order form before reading its guide.");
+        const sourceAsset = Array.isArray(payload.assets) ? payload.assets.find((item: Asset) => item?.id === selectedCreateAssetId) : null;
+        if (payload.asset_id !== selectedCreateAssetId || !sourceAsset || createGuideAssetKey(sourceAsset) !== assetKey) throw new Error("The equipment or its document review changed. Refresh the equipment list before reading its guide.");
+        const candidate = normalizeManualKnowledge(payload.manualKnowledge);
+        const source = candidate?.source;
+        const uploaded = source?.verified === true && source.source_kind === 'asset-upload' && source.storage_path && source.registered_file_id && /^[a-f0-9]{64}$/i.test(source.sha256 || '') && manualMatchesEquipment(sourceAsset, candidate!);
+        if (candidate && !uploaded) throw new Error("Only this equipment's approved uploaded document can provide instructions.");
+        if (current && request === requestNumber) setTroubleshootingResult({ assetKey, userId: troubleshootingUserId, knowledge: uploaded ? candidate : null, error: "", reason: payload.documentation_status === 'verified' ? '' : String(payload.documentation_reason || "The approved uploaded document is not ready to provide instructions.") });
       } catch (error) {
-        if (current) setTroubleshootingResult({ assetKey, knowledge: null, error: error instanceof Error ? error.message : "Troubleshooting guidance could not be loaded." });
+        if (current && request === requestNumber) setTroubleshootingResult({ assetKey, userId: troubleshootingUserId, knowledge: null, error: error instanceof Error ? error.message : "Troubleshooting guidance could not be loaded." });
       }
-    })();
-
-    return () => { current = false; };
-  }, [canViewTroubleshootingGuide, selectedCreateAssetId, selectedCreateDocumentationKey]);
+    };
+    const stop = subscribeResources(["reference"], loadGuide);
+    return () => { current = false; stop(); };
+  }, [canViewTroubleshootingGuide, selectedCreateAssetId, troubleshootingAssetKey, troubleshootingUserId]);
 
   function applySmartSuggestions(
     newIssue: string,
@@ -2052,14 +2076,19 @@ export default function WorkOrdersPage() {
   const activeDraft = drafts.find((draft) => draft.id === activeDraftId) || (reviewDraft?.id === activeDraftId ? reviewDraft : null);
   const approvingDraft = Boolean(activeDraft && activeDraft.created_by !== cmpriSession?.user.id);
 
-  const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true ? troubleshootingKnowledge : null;
+  const trustedTroubleshootingKnowledge = troubleshootingKnowledge?.source?.verified === true && troubleshootingKnowledge.source.source_kind === 'asset-upload'
+    && troubleshootingKnowledge.source.storage_path && troubleshootingKnowledge.source.registered_file_id && /^[a-f0-9]{64}$/i.test(troubleshootingKnowledge.source.sha256 || '')
+    && selectedCreateAsset && manualMatchesEquipment(selectedCreateAsset, troubleshootingKnowledge) ? troubleshootingKnowledge : null;
   const trustedManualUrl = trustedTroubleshootingKnowledge?.source?.file_url || trustedTroubleshootingKnowledge?.source?.pdf_url;
-  const troubleshootingEvidence = `${issue} ${notes}`.toLowerCase();
-  const matchingTroubleshootingSteps = trustedTroubleshootingKnowledge?.symptom_rules
-    ?.filter((rule) => !rule.match?.length || rule.match.some((phrase) => troubleshootingEvidence.includes(phrase.toLowerCase())))
-    .flatMap((rule) => rule.steps) ?? [];
+  const troubleshootingEvidence = `${issue} ${notes}`;
+  const matchingTroubleshootingRules = guideRulesForIssue(trustedTroubleshootingKnowledge, troubleshootingEvidence);
+  const matchingTroubleshootingSteps = matchingTroubleshootingRules.flatMap((rule) => rule.steps);
   const troubleshootingSteps = Array.from(new Set(matchingTroubleshootingSteps))
     .filter((step) => !troubleshootingStepAlreadyDone(step, notes));
+  const troubleshootingMediaContext = JSON.stringify([troubleshootingUserId, troubleshootingAssetKey, issue, notes,
+    trustedTroubleshootingKnowledge?.source?.storage_path, trustedTroubleshootingKnowledge?.source?.sha256,
+    trustedTroubleshootingKnowledge?.source?.registered_file_id, trustedTroubleshootingKnowledge?.source?.registered_updated_at,
+    trustedTroubleshootingKnowledge?.step_media]);
 
 
   return (
@@ -2266,22 +2295,16 @@ export default function WorkOrdersPage() {
             </label>
 
             {canViewTroubleshootingGuide && (
-              <section aria-label="Troubleshooting Guide" className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+              <section aria-label="Troubleshooting Guide" className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <h2 className="text-lg font-bold text-amber-300">Suggested Troubleshooting</h2>
-                    <p className="mt-1 text-xs text-slate-400">Only verified guidance for the selected equipment and reported issue is shown.</p>
+                    <p className="mt-1 text-xs text-slate-400">Only instructions from this equipment&apos;s approved uploaded document are shown. No AI-generated instructions.</p>
                   </div>
                   {troubleshootingLoading && <span className="text-xs text-slate-400">Loading equipment guidance...</span>}
                 </div>
                 {selectedCreateAsset && trustedTroubleshootingKnowledge?.source?.title && (
-                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
-                    <p className="text-sm font-semibold text-slate-200">{trustedTroubleshootingKnowledge.source.title}</p>
-                    <p className="mt-1 text-xs text-emerald-400">Verified equipment documentation</p>
-                    {trustedManualUrl && (
-                      <button type="button" onClick={() => window.open(trustedManualUrl, "_blank", "noopener,noreferrer")} className="mt-2 inline-block text-xs font-semibold text-sky-300 hover:underline">Open Manual</button>
-                    )}
-                  </div>
+                  <p className="mt-2 text-xs text-slate-300">Source: {trustedManualUrl ? <a href={trustedManualUrl} target="_blank" rel="noreferrer" className="font-semibold text-sky-300 underline">{trustedTroubleshootingKnowledge.source.source_file_name || trustedTroubleshootingKnowledge.source.title}</a> : trustedTroubleshootingKnowledge.source.source_file_name || trustedTroubleshootingKnowledge.source.title}</p>
                 )}
                 {selectedCreateAsset && troubleshootingKnowledge?.source?.title && !trustedTroubleshootingKnowledge && (
                   <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.</p>
@@ -2289,18 +2312,27 @@ export default function WorkOrdersPage() {
                 {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">Select equipment to check for an exact verified manual match.</p>}
                 {troubleshootingError && <p role="status" className="mt-3 text-xs text-amber-200">{troubleshootingError}</p>}
                 {troubleshootingSteps.length > 0
-                  ? <ol className="mt-3 space-y-2 text-sm text-slate-300">
-                    {troubleshootingSteps.map((step, index) => (
+                  ? <ol className="mt-2 space-y-1 text-sm text-slate-300">
+                    {troubleshootingSteps.map((step, index) => {
+                      const semantics = sourceSemantics(step);
+                      return (
                       <li key={`${step}-${index}`} className="flex gap-2">
                         <span className="font-semibold text-amber-400">{index + 1}.</span>
-                        <span>{step}</span>
+                        <div className="min-w-0">
+                          <span>{step}</span>{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}
+                          {selectedCreateAsset && troubleshootingUserId && trustedTroubleshootingKnowledge?.source?.sha256 && (
+                            <WorkOrderStepMedia media={(trustedTroubleshootingKnowledge.step_media || []).filter(item => item.stepLabel === step && matchingTroubleshootingRules.some(rule => rule.steps.includes(step) && rule.source_pages?.includes(item.sourcePage)))} assetId={selectedCreateAsset.id}
+                              sourceSha256={trustedTroubleshootingKnowledge.source.sha256} userId={troubleshootingUserId} contextIdentity={troubleshootingMediaContext} />
+                          )}
+                        </div>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ol>
                   : selectedCreateAsset && !troubleshootingLoading && !troubleshootingError && (
                     <p className="mt-3 text-xs text-slate-400">{matchingTroubleshootingSteps.length
                       ? "The matched checks are already recorded as completed or ruled out in Notes / Actions Taken."
-                      : "No issue-matched troubleshooting steps from verified documentation are available for this equipment."}</p>
+                      : troubleshootingReason || "No instructions in this equipment's approved document match yet. Describe what you observe, such as a leak, noise, or not turning on. A fault code is not required."}</p>
                   )}
               </section>
             )}

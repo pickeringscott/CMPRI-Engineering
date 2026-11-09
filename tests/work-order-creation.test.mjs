@@ -1,4 +1,4 @@
-import { ticketReadDependency } from "./helpers/load-ts.mjs";
+import { ticketReadDependency, loadTs } from "./helpers/load-ts.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
@@ -315,4 +315,104 @@ test('Front Desk common-area selection preserves ticket and physical asset locat
   if(physical==='pbx'){assert.equal(f.writes[0].location_id,'desk');assert.equal(f.writes[0].asset_id,'selected');assert.equal(assets[0].location_id,'pbx');}
   else assert.equal(f.writes.length,0);
  }
+});
+
+// Execute the real creation-guide effect with controlled response ordering.
+// Source parsing, equipment identity and issue matching use their real helpers.
+const creationGuideSource=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
+const creationGuideAst=ts.createSourceFile('creation.tsx',creationGuideSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+const creationGuideComponent=creationGuideAst.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='WorkOrdersPage');
+const creationGuideEffect=creationGuideComponent.body.statements.find(node=>ts.isExpressionStatement(node)&&node.getText(creationGuideAst).startsWith('useEffect(')&&node.getText(creationGuideAst).includes('&source=asset-upload')).getText(creationGuideAst);
+let creationGuideMediaExpression;
+function findCreationGuideMedia(node){
+  if(ts.isJsxSelfClosingElement(node)&&node.tagName.getText(creationGuideAst)==='WorkOrderStepMedia')creationGuideMediaExpression=node.attributes.properties.find(attribute=>attribute.name?.text==='media').initializer.expression.getText(creationGuideAst);
+  ts.forEachChild(node,findCreationGuideMedia);
+}
+findCreationGuideMedia(creationGuideAst);assert.ok(creationGuideMediaExpression);
+const creationGuideKeySource=creationGuideAst.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='createGuideAssetKey').getText(creationGuideAst);
+const creationGuideRuntime={};
+vm.runInNewContext(ts.transpileModule(creationGuideKeySource+'\nexports.key=createGuideAssetKey;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports:creationGuideRuntime});
+const creationGuideHelpers={
+  ...loadTs('src/lib/manual-knowledge.ts'),
+  ...loadTs('src/lib/manual-document-match.ts'),
+  ...loadTs('src/lib/work-orders/guide-selection.ts'),
+  ...loadTs('src/lib/troubleshooting-completed-steps.ts'),
+  createGuideAssetKey:creationGuideRuntime.key,
+};
+const guideAsset={id:'00000000-0000-4000-8000-000000000071',active:true,manufacturer:'ACME',model_family:null,model_number:'W1',documentation_key:'approved-guide',documentation_revision_id:null,documentation_verified_at:'2026-11-08T20:00:00Z'};
+const guideKnowledge={manufacturer:'ACME',model_family:'',model_number:'W1',source:{verified:true,source_kind:'asset-upload',storage_path:'hotel/asset/manual.pdf',registered_file_id:'registered-upload',sha256:'a'.repeat(64),title:'Washer manual.pdf',source_file_name:'Washer manual.pdf',file_url:'https://example.invalid/washer.pdf'},symptom_rules:[{match:['No heat'],steps:['Check the source thermostat.'],source_pages:[4]},{match:['No Fill'],steps:['Inspect the source inlet valve.'],source_pages:[5]}],error_codes:[],general_checks:['This generic check must never appear.'],manual_tests:[]};
+const settleCreationGuide=()=>new Promise(resolve=>setImmediate(resolve));
+const guidePayload=(asset=guideAsset,knowledge=guideKnowledge)=>({asset_id:asset.id,assets:[asset],manualKnowledge:knowledge,documentation_status:'verified'});
+function creationGuideHarness(asset=guideAsset,{allowed=true,userId='actor-a'}={}){
+  const writes=[],requests=[],pending=[];let currentUser=userId,cleanup,refresh,result=null;
+  const context={...creationGuideHelpers,canViewTroubleshootingGuide:allowed,selectedCreateAssetId:asset?.id,troubleshootingAssetKey:creationGuideRuntime.key(asset),troubleshootingUserId:userId,
+    getValidSession:async()=>currentUser?{access_token:'fixture-token',user:{id:currentUser}}:null,
+    setTroubleshootingResult:value=>{result=value;writes.push(value);},
+    fetch:(url,options)=>{requests.push({url,options});return new Promise(resolve=>pending.push(resolve));},
+    subscribeResources:(topics,load)=>{assert.deepEqual(Array.from(topics),['reference']);refresh=load;void load();return ()=>{};},
+    useEffect:run=>{cleanup=run();},
+  };
+  vm.runInNewContext(ts.transpileModule(creationGuideEffect,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+  return {writes,requests,pending,get result(){return result;},refresh:()=>refresh(),close:()=>cleanup?.(),user:value=>{currentUser=value;},respond(index,payload,status=200){pending[index]({ok:status===200,json:async()=>payload});}};
+}
+function creationGuideView(asset,result,{userId='actor-a',issue='It will not get warm',notes=''}={}){
+  const names=['troubleshootingAssetKey','troubleshootingUserId','currentTroubleshootingResult','troubleshootingKnowledge','trustedTroubleshootingKnowledge','trustedManualUrl','troubleshootingEvidence','matchingTroubleshootingRules','matchingTroubleshootingSteps','troubleshootingSteps','troubleshootingMediaContext'];
+  const declarations=names.map(name=>creationGuideComponent.body.statements.find(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(declaration=>declaration.name.getText(creationGuideAst)===name)).getText(creationGuideAst));
+  const context={...creationGuideHelpers,selectedCreateAsset:asset,troubleshootingResult:result,cmpriSession:{user:{id:userId}},issue,notes};
+  vm.runInNewContext(ts.transpileModule(declarations.join('\n')+`\nglobalThis.view={knowledge:trustedTroubleshootingKnowledge,url:trustedManualUrl,steps:troubleshootingSteps,media:troubleshootingSteps.map(step=>({step,items:${creationGuideMediaExpression}})),mediaContext:troubleshootingMediaContext};`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+  return JSON.parse(JSON.stringify(context.view));
+}
+test('creation guide uses one authenticated strict-source read and the shared everyday issue matcher',async()=>{
+  const h=creationGuideHarness();try{
+    await settleCreationGuide();assert.equal(h.requests.length,1);
+    const request=h.requests[0],url=new URL(request.url,'https://example.invalid');
+    assert.equal(url.pathname,'/api/maintenance-reference');assert.equal(url.searchParams.get('assetId'),guideAsset.id);assert.equal(url.searchParams.get('source'),'asset-upload');
+    assert.equal(request.options.headers.Authorization,'Bearer fixture-token');assert.equal(request.options.cache,'no-store');
+    h.respond(0,guidePayload());await settleCreationGuide();assert.equal(h.result.error,'');
+    assert.deepEqual(creationGuideView(guideAsset,h.result).steps,['Check the source thermostat.']);
+    assert.deepEqual(creationGuideView(guideAsset,h.result,{issue:"It won't fill"}).steps,['Inspect the source inlet valve.']);
+    assert.deepEqual(creationGuideView(guideAsset,h.result,{issue:'It is broken'}).steps,[]);
+    assert.deepEqual(creationGuideView(guideAsset,h.result,{issue:'No issue with heating'}).steps,[]);
+    assert.equal(creationGuideView(guideAsset,h.result).url,guideKnowledge.source.file_url);assert.equal(h.requests.length,1,'issue changes match the approved source without a second service');
+  }finally{h.close();}
+});
+test('creation diagrams follow the matched source page even when unrelated rules share the same instruction',async()=>{
+  const label='Inspect the source connection.';
+  const candidate=structuredClone(guideKnowledge);
+  candidate.symptom_rules=[{match:['No heat'],steps:[label],source_pages:[4]},{match:['No Fill'],steps:[label],source_pages:[5]}];
+  const image=(id,page,stepLabel=label)=>({id:`media-${id.repeat(64)}`,stepLabel,sourcePage:page,caption:`Figure ${page}. Source connection`,width:100,height:100});
+  candidate.step_media=[image('a',4),image('b',5),image('c',4,'An unrelated source instruction.')];
+  const h=creationGuideHarness();try{
+    await settleCreationGuide();h.respond(0,guidePayload(guideAsset,candidate));await settleCreationGuide();
+    const heating=creationGuideView(guideAsset,h.result,{issue:'It will not get warm'}),filling=creationGuideView(guideAsset,h.result,{issue:"It won't fill"});
+    assert.deepEqual(heating.steps,[label]);assert.deepEqual(filling.steps,[label]);
+    assert.deepEqual(heating.media[0].items.map(item=>item.id),[candidate.step_media[0].id]);
+    assert.deepEqual(filling.media[0].items.map(item=>item.id),[candidate.step_media[1].id]);
+    assert.notEqual(heating.mediaContext,filling.mediaContext,'an issue change invalidates the old image even when the instruction label is identical');
+  }finally{h.close();}
+});
+test('creation guide ignores an older reference refresh and responses after unmount',async()=>{
+  const h=creationGuideHarness();try{
+    await settleCreationGuide();const refresh=h.refresh();await settleCreationGuide();assert.equal(h.requests.length,2);
+    const newer=structuredClone(guideKnowledge);newer.source.file_url='https://example.invalid/newer.pdf';
+    h.respond(1,guidePayload(guideAsset,newer));await refresh;assert.equal(h.result.knowledge.source.file_url,newer.source.file_url);
+    h.respond(0,guidePayload());await settleCreationGuide();assert.equal(h.result.knowledge.source.file_url,newer.source.file_url);
+    const leaving=h.refresh();await settleCreationGuide();h.close();h.respond(2,guidePayload());await leaving;
+    assert.equal(h.result,null,'a late response cannot restore the source cleared before unmount');
+  }finally{h.close();}
+});
+for(const change of [{model_number:'W2'},{manufacturer:'Other'},{documentation_key:'replacement'},{documentation_revision_id:'pending-review'},{documentation_verified_at:'2026-11-09T00:00:00Z'},{active:false}])test(`creation guide rejects a source response after equipment ${Object.keys(change)[0]} changes`,async()=>{
+  const h=creationGuideHarness();try{await settleCreationGuide();h.respond(0,guidePayload({...guideAsset,...change}));await settleCreationGuide();assert.equal(h.result.knowledge,null);assert.match(h.result.error,/changed/);}finally{h.close();}
+});
+for(const source of [{verified:false},{source_kind:'catalog'},{storage_path:''},{registered_file_id:''},{sha256:'not-a-sha256'}])test(`creation guide refuses unapproved source metadata: ${Object.keys(source)[0]}`,async()=>{
+  const h=creationGuideHarness();try{await settleCreationGuide();const candidate=structuredClone(guideKnowledge);Object.assign(candidate.source,source);h.respond(0,guidePayload(guideAsset,candidate));await settleCreationGuide();assert.equal(h.result.knowledge,null);assert.match(h.result.error,/approved uploaded document/);}finally{h.close();}
+});
+test('creation guide rejects mismatched manual identity and account changes without exposing stale content',async()=>{
+  const wrong=creationGuideHarness();try{await settleCreationGuide();wrong.respond(0,guidePayload(guideAsset,{...guideKnowledge,manufacturer:'Other'}));await settleCreationGuide();assert.equal(wrong.result.knowledge,null);}finally{wrong.close();}
+  const switched=creationGuideHarness();try{await settleCreationGuide();switched.user('actor-b');switched.respond(0,guidePayload());await settleCreationGuide();assert.equal(switched.result.knowledge,null);assert.match(switched.result.error,/account changed/);}finally{switched.close();}
+  const valid=creationGuideHarness();try{await settleCreationGuide();valid.respond(0,guidePayload());await settleCreationGuide();assert.equal(creationGuideView(guideAsset,valid.result,{userId:'actor-b'}).knowledge,null,'the previous account result is hidden before its effect cleanup');}finally{valid.close();}
+});
+test('creation guide preserves unavailable-source explanations and never loads for a disallowed role',async()=>{
+  const h=creationGuideHarness();try{await settleCreationGuide();h.respond(0,{...guidePayload(guideAsset,null),documentation_status:'no_uploaded_document',documentation_reason:'Attach the approved equipment document.'});await settleCreationGuide();assert.equal(h.result.knowledge,null);assert.equal(h.result.reason,'Attach the approved equipment document.');}finally{h.close();}
+  const denied=creationGuideHarness(guideAsset,{allowed:false});try{await settleCreationGuide();assert.equal(denied.requests.length,0);}finally{denied.close();}
 });

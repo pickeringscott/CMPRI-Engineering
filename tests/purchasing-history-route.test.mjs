@@ -2,7 +2,7 @@
 import fs from 'node:fs';import path from 'node:path';import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';import ts from 'typescript';import {PGlite} from '@electric-sql/pglite';
 const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role bypassrls;');
-await db.exec(fs.readFileSync('supabase/migrations/20261016214526_cmpri_purchasing_history.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261017181903_cmpri_purchasing_history.sql','utf8'));
 const hotel='00000000-0000-0000-0000-000000000001',actor='00000000-0000-0000-0000-000000000002';
 let allowed=false;globalThis.__historyAuth=async(_request,capability)=>allowed&&capability==='operate_integrations'?{principal:{identity:{id:actor}},admin:{rpc:async(_name,p)=>{try{const r=await db.query('select cmpri_import_purchasing_history($1,$2,$3,$4,$5::jsonb) result',[p.p_hotel,p.p_actor,p.p_account,p.p_digest,JSON.stringify(p.p_plan)]);return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message}};}}}}:null;
 globalThis.__historySafe=false;

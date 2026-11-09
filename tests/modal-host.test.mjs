@@ -290,7 +290,7 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
   assert.match(dashboard, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);
 });
 
-test('shared modal navigation controls render buttons instead of links', () => {
+test('shared modal navigation actions render buttons while source and media links remain links', () => {
   const navigationButton = readFileSync(new URL('../src/components/ModalNavigationButton.tsx', import.meta.url), 'utf8');
   assert.match(navigationButton, /<button type="button" data-cmpri-modal-trigger="true" data-cmpri-modal-href=\{href\}/);
   assert.doesNotMatch(navigationButton, /<a\b|<Link\b/);
@@ -303,8 +303,30 @@ test('shared modal navigation controls render buttons instead of links', () => {
   ];
   for (const route of routes) {
     const page = readFileSync(new URL(route, import.meta.url), 'utf8');
-    assert.doesNotMatch(page, /<a\b|<Link\b/, `${route} must use buttons for actions`);
+    const pageAst = ts.createSourceFile(route, page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const navigationLinks = [];
+    const visit = (node) => {
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const tag = node.tagName.getText(pageAst);
+        if (tag === 'a' || tag === 'Link') {
+          const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
+          const attribute = name => attributes.find(item => item.name.getText(pageAst) === name)?.initializer?.getText(pageAst) || '';
+          const href = attribute('href');
+          const opensScreen = tag === 'Link'
+            || attributes.some(item => /^data-cmpri-modal-(?:trigger|href)$/.test(item.name.getText(pageAst)))
+            || /(?:^|["'`])\/(?:work-orders|profile|engineering|management|feedback)(?:[/?"'`]|$)/.test(href)
+            || /\b(?:router\.(?:push|replace)|openNestedModal|openDesktopWindow)\s*\(/.test(attribute('onClick'));
+          if (opensScreen) navigationLinks.push(node.getText(pageAst));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(pageAst);
+    assert.deepEqual(navigationLinks, [], `${route} must use buttons for screen navigation`);
   }
+  const creationPage = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
+  assert.match(creationPage, /<ModalNavigationButton href="\/profile"/);
+  assert.match(creationPage, /<a href=\{trustedManualUrl\} target="_blank" rel="noreferrer"/);
 });
 
 test('room operations import form and commit workflow live in the Daily Room Operations modal', () => {

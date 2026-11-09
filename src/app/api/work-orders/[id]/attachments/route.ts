@@ -7,6 +7,7 @@ import { isUuid } from "@/lib/uuid";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MEDIA_SIGNATURE_BYTES = 64;
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -63,24 +64,39 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 }
 
 function hasImageSignature(contentType: string, bytes: Uint8Array) {
-  if(contentType === "video/webm"){
-    if(bytes.length<5||![0x1a,0x45,0xdf,0xa3].every((v,i)=>bytes[i]===v))return false;
-    const vint=(offset:number,keepMarker=false)=>{
-      const first=bytes[offset];if(!first)return null;
-      let length=1,mask=0x80;while(!(first&mask)&&length<=8){length++;mask>>=1}
-      if(length>4||offset+length>bytes.length)return null;
-      let value=keepMarker?first:first&(mask-1);
-      for(let i=1;i<length;i++)value=value*256+bytes[offset+i];
-      return {value,length};
+  if (contentType === "video/webm") {
+    if (bytes.length < 5 || ![0x1a, 0x45, 0xdf, 0xa3].every((value, index) => bytes[index] === value)) return false;
+    const vint = (offset: number, keepMarker = false) => {
+      const first = bytes[offset];
+      if (!first) return null;
+      let length = 1, mask = 0x80;
+      while (!(first & mask) && length <= 8) { length++; mask >>= 1; }
+      if (length > (keepMarker ? 4 : 8) || offset + length > bytes.length) return null;
+      let value = keepMarker ? first : first & (mask - 1);
+      let unknownSize = !keepMarker && value === mask - 1;
+      for (let index = 1; index < length; index++) {
+        value = value * 256 + bytes[offset + index];
+        unknownSize = unknownSize && bytes[offset + index] === 0xff;
+      }
+      if (!Number.isSafeInteger(value) || unknownSize) return null;
+      return { value, length };
     };
-    const header=vint(4);if(!header||header.value>4096)return false;
-    const end=4+header.length+header.value;if(end>bytes.length)return false;
-    for(let offset=4+header.length;offset<end;){
-      const id=vint(offset,true);if(!id)return false;offset+=id.length;
-      const size=vint(offset);if(!size)return false;offset+=size.length;
-      if(offset+size.value>end)return false;
-      if(id.value===0x4282)return size.value===4&&String.fromCharCode(...bytes.slice(offset,offset+4))==="webm";
-      offset+=size.value;
+    const header = vint(4);
+    if (!header || header.value > 4096) return false;
+    const end = 4 + header.length + header.value;
+    for (let offset = 4 + header.length; offset < Math.min(end, bytes.length);) {
+      const id = vint(offset, true);
+      if (!id) return false;
+      offset += id.length;
+      const size = vint(offset);
+      if (!size) return false;
+      offset += size.length;
+      const elementEnd = offset + size.value;
+      if (elementEnd > end || elementEnd > bytes.length) return false;
+      // This is a bounded signature check: a complete WebM DocType is enough,
+      // even when the remaining EBML header extends beyond the sampled bytes.
+      if (id.value === 0x4282) return size.value === 4 && String.fromCharCode(...bytes.subarray(offset, elementEnd)) === "webm";
+      offset = elementEnd;
     }
     return false;
   }
@@ -139,7 +155,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!contentType || (declaredType && declaredType !== "application/octet-stream" && declaredType !== contentType)) {
     return NextResponse.json({ error: "Only supported JPEG, PNG, GIF, WebP, HEIC/HEIF, BMP, MP4, MOV or WebM media can be attached." }, { status: 400 });
   }
-  const signature = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  const signature = new Uint8Array(await file.slice(0, MEDIA_SIGNATURE_BYTES).arrayBuffer());
   if (!hasImageSignature(contentType, signature)) {
     return NextResponse.json({ error: "The selected file is not a valid supported image." }, { status: 400 });
   }
@@ -227,7 +243,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       }
       const bytes = await file.arrayBuffer();
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-      if (hash !== body.sha256 || !hasImageSignature(contentType, new Uint8Array(bytes).subarray(0, 12))) {
+      if (hash !== body.sha256 || !hasImageSignature(contentType, new Uint8Array(bytes).subarray(0, MEDIA_SIGNATURE_BYTES))) {
         throw new PhotoUploadError("The uploaded file is not the selected supported image. Choose the original image again.", 400);
       }
       return file;

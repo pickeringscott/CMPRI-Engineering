@@ -57,7 +57,7 @@ test('actual SQL post transaction, duplicates, parent hotel isolation, RLS, and 
  create table cmpri_dashboard_notifications(id uuid primary key default gen_random_uuid(),hotel_id uuid,recipient_user_id uuid,notification_key text,target_path text,message text,recorded_at timestamptz,push_requested boolean,unique(hotel_id,recipient_user_id,notification_key));
  insert into hotels values('${hotel}'),('${otherHotel}');insert into profiles values('${author}',true),('${recipient}',true);insert into hotel_members values('${author}','${hotel}',true),('${author}','${otherHotel}',true),('${recipient}','${hotel}',true);
  create table untouched(value text);insert into untouched values('original');`);
- await db.exec(readFileSync(new URL('../supabase/migrations/20261015090000_cmpri_staff_notes.sql',import.meta.url),'utf8'));
+ await db.exec(readFileSync(new URL('../supabase/migrations/20261015055427_cmpri_staff_notes.sql',import.meta.url),'utf8'));
  const post=async(h,b,req=request,parent=null,recipients=[{user_id:recipient,push:true}])=>(await db.query('select public.cmpri_post_staff_note($1,$2,$3,$4,$5,$6,$7) id',[h,author,'Scott',b,parent,req,JSON.stringify(recipients)])).rows[0].id;
  const id=await post(hotel,'😀 @Deon #105');assert.equal(await post(hotel,'😀 @Deon #105'),id);
  assert.equal((await db.query('select count(*)::int n from cmpri_staff_notes')).rows[0].n,1);

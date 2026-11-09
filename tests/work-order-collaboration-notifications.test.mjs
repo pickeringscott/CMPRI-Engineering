@@ -33,7 +33,7 @@ async function database({apply=true}={}){
   new.history_actor_user_id=null;new.history_source=null;
   if tg_op='UPDATE' then new.revision=old.revision+1;end if;return new;end$$;
  create trigger capture_actor_and_revision before insert or update on work_orders for each row execute function capture_actor_and_revision();`);
- await db.exec(sql('20261013143835_cmpri_prospective_event_push.sql'));
+ await db.exec(sql('20261013145012_cmpri_prospective_event_push.sql'));
  await db.exec(sql('20261106133302_event_driven_resources.sql'));
  await db.exec(sql('20260930220000_cmpri_work_order_history_notifications.sql'));
  await db.exec(sql('20261008174000_cmpri_group5_work_order_notifications.sql'));

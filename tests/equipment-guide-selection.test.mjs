@@ -16,6 +16,7 @@ const {guideRulesForIssue,equipmentSearchAliases}=load('src/lib/work-orders/guid
 const {manualMatchesEquipment,manualTextContainsExactIdentity}=load('src/lib/manual-document-match.ts');
 const built={id:'built',location_id:'101',active:true,name:'Room AC',asset_type:'HVAC',manufacturer:'Friedrich',model_family:'Vert-I-Pak',documentation_key:'verified'};
 const portable={id:'portable',location_id:'101',active:true,name:'Portable A/C',asset_type:'Air conditioner',manufacturer:'Other'};
+const uploadedSource={verified:true,source_kind:'asset-upload',storage_path:'hotel/asset/original.pdf',sha256:'a'.repeat(64),registered_file_id:'uploaded-file',registered_updated_at:'2026-11-08T20:00:00Z',source_file_name:'uploaded.pdf',file_url:'https://example.invalid/uploaded.pdf'};
 for(const report of ['AC is noisy','A/C is loud','HVAC is rattling','Frederick is noisy','Vertipak is noisy','Vert-I-Pak is noisy']) test(report,()=>assert.equal(inferWorkOrder(report,[built]).assetId,'built'));
 test('portable only room matches portable; multiple units require selection despite available docs',()=>{
  assert.equal(inferWorkOrder('AC is noisy',[portable]).assetId,'portable');
@@ -42,6 +43,34 @@ test('missing/unverified documentation yields no invented instructions',()=>{
  assert.equal(guideRulesForIssue(null,'AC noisy').length,0);
  assert.equal(guideRulesForIssue({source:{verified:false},general_checks:['Untrusted']},'AC noisy').length,0);
 });
+test('denied symptoms, safety qualifiers and diagnostic codes cannot route to source repair actions',()=>{
+ const cases=[
+  ['It is not making any noise.','Abnormal noise'],
+  ["It doesn't make a loud noise.",'Abnormal noise'],
+  ["I don't hear any noise.",'Abnormal noise'],
+  ['It never gets noisy.','Abnormal noise'],
+  ['It is not a water leak.','Water leak'],
+  ['There is no visible water leak.','Water leak'],
+  ['There is no unusual vibration.','Vibration'],
+  ['No leaks or noise.','Abnormal noise'],
+  ['It is not leaking or noisy.','Abnormal noise'],
+  ['The noise is normal.','Abnormal noise'],
+  ['It vibrates normally.','Vibration'],
+  ['No heat with no gas odor present.','No heat — gas odor present'],
+  ['No heat without gas odor present.','No heat — gas odor present'],
+  ['No heat flow switch not open.','No heat flow switch open'],
+  ['No power when door open is ruled out; noisy.','No power when door open'],
+  ['No power when door open was not found; noisy.','No power when door open'],
+  ['No power when door open has not been observed; noisy.','No power when door open'],
+  ['No heat gas odor present is not the problem; noise.','No heat gas odor present'],
+  ['No error code F1 is displayed; only noisy.','Code F1'],
+  ['No error code F1 is displayed; only noisy.','F1 is displayed'],
+ ];
+ for(const [issue,heading] of cases){
+  const knowledge={source:{verified:true},symptom_rules:[{match:[heading],steps:['Use only this source-specific repair.'],source_pages:[27]}]};
+  assert.equal(guideRulesForIssue(knowledge,issue).length,0,`${issue} must not select ${heading}`);
+ }
+});
 test('family punctuation aliases preserve exact manufacturer and model protections',()=>{
  assert.ok(manualMatchesEquipment(built,{manufacturer:'Friedrich',model_family:'Vertipak'}));
  assert.ok(manualTextContainsExactIdentity('Friedrich Vert-I-Pak service manual','Vertipak'));
@@ -50,37 +79,65 @@ test('family punctuation aliases preserve exact manufacturer and model protectio
 });
 const page=fs.readFileSync('src/app/work-orders/[id]/page.tsx','utf8');
 const ast=ts.createSourceFile('page.tsx',page,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-const component=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='WorkOrderTicketPage');
+const component=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='WorkOrderTicketEditor')||ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='WorkOrderTicketPage');
 const manualLoader=component.body.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='loadManualForAsset').getText(ast);
 const effects=component.body.statements.filter(n=>ts.isExpressionStatement(n)&&n.getText(ast).startsWith('useEffect('));
 const manualEffect=effects.find(n=>n.getText(ast).includes('loadManualForAsset(selectedAsset')).getText(ast);
-const documentEffect=effects.find(n=>n.getText(ast).includes('/api/assets/documentation?')).getText(ast);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
-function hydrationHarness(asset,kind='manual') {
- const writes=[],pending=[];let cleanup;
- const globals={selectedAsset:asset,selectedAssetId:asset?.id,assetId:asset?.id,canReadAssetDocuments:true,documentIdentity:JSON.stringify(asset),
+function hydrationHarness(asset) {
+ const writes=[],pending=[],urls=[];let cleanup;
+ const globals={selectedAsset:asset,assetId:asset?.id,
   getValidSession:async()=>({access_token:'fixture'}),authorizationHeaders:async()=>({}),
-  normalizeManualKnowledge:x=>x,setManualResult:x=>writes.push(x),setAssetDocumentResult:x=>writes.push(x),
-  fetch:()=>new Promise(resolve=>pending.push(resolve)),encodeURIComponent,
+  normalizeManualKnowledge:x=>x,setManualResult:x=>writes.push(x),
+  fetch:url=>{urls.push(String(url));return new Promise(resolve=>pending.push(resolve));},encodeURIComponent,
   window:{setInterval:()=>1,clearInterval(){}},document:{addEventListener(){},removeEventListener(){}},
+  subscribeResources(_topics,load,initial=true){if(initial)void load();return ()=>{};},
   useEffect:fn=>{cleanup=fn();}};
- vm.runInNewContext(ts.transpileModule(manualLoader+'\n'+(kind==='manual'?manualEffect:documentEffect),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);
- return {writes,pending,close:()=>cleanup()};
+ vm.runInNewContext(ts.transpileModule(manualLoader+'\n'+manualEffect,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);
+ return {writes,pending,urls,close:()=>cleanup()};
 }
-for(const kind of ['manual','documents']) test(`${kind}: switching, reopening and late responses retain only current selection`,async()=>{
- const first=hydrationHarness(built,kind);await flush();first.close();
- const second=hydrationHarness(portable,kind);await flush();
- second.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{verified:true}},documentation_status:'verified',documents:[{name:'portable.pdf'}]})});await flush();
- first.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{verified:true}},documents:[{name:'old.pdf'}]})});await flush();
+test('switching, reopening and late responses retain only the current uploaded guide and its PDF',async()=>{
+ const first=hydrationHarness(built);await flush();first.close();
+ const second=hydrationHarness(portable);await flush();
+ second.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{...uploadedSource}},documentation_status:'verified'})});await flush();
+ first.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{...uploadedSource,file_url:'https://example.invalid/old.pdf'}}})});await flush();
  assert.equal(first.writes.length,0);assert.equal(second.writes[0].assetId,'portable');second.close();
- const reopened=hydrationHarness(built,kind);await flush();assert.equal(reopened.pending.length,1);reopened.close();
+ assert.equal(second.writes[0].knowledge.source.storage_path,uploadedSource.storage_path);
+ assert.equal(displayedGuide(portable,second.writes[0]).documents[0].url,uploadedSource.file_url);
+ assert.equal(displayedGuide(built,second.writes[0]).documents.length,0);
+ const reopened=hydrationHarness(built);await flush();assert.equal(reopened.pending.length,1);reopened.close();
+});
+test('work-order guidance requests only the selected asset upload source',async()=>{
+ const h=hydrationHarness({...built,id:'asset with spaces'});await flush();
+ assert.equal(h.urls.length,1);const requested=new URL(h.urls[0],'https://example.invalid');
+ assert.equal(requested.pathname,'/api/maintenance-reference');assert.equal(requested.searchParams.get('assetId'),'asset with spaces');assert.equal(requested.searchParams.get('source'),'asset-upload');h.close();
+});
+for(const source of [{verified:true},{...uploadedSource,source_kind:'catalog'}])test(`work-order hydration rejects ${source.source_kind||'legacy'} guidance despite verification`,async()=>{
+ const h=hydrationHarness(built);await flush();h.pending[0]({ok:true,json:async()=>({manualKnowledge:{source},documentation_status:'verified'})});await flush();
+ assert.equal(h.writes[0].knowledge,null);h.close();
 });
 test('manual lookup failure settles explicitly instead of retaining previous guidance',async()=>{
  const h=hydrationHarness(built);await flush();h.pending[0]({ok:false});await flush();
  assert.equal(h.writes[0].knowledge,null);assert.equal(h.writes[0].status,'lookup_unavailable');h.close();
 });
-test('model-number-only changes trigger manual and PDF reloads',()=>{
- assert.match(manualEffect,/selectedAsset\?\.model_number/);assert.match(documentEffect,/documentIdentity/);assert.match(page,/const documentIdentity = JSON.stringify\(\[selectedAssetId, selectedAsset\?\.manufacturer, selectedAsset\?\.model_family, selectedAsset\?\.model_number/);
+test('model-number-only changes invalidate both instructions and their sole source PDF until reloaded',async()=>{
+ assert.match(manualEffect,/selectedAsset\?\.model_number/);
+ const original={...built,model_number:'A1'},h=hydrationHarness(original);await flush();
+ h.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{...uploadedSource}},documentation_status:'verified'})});await flush();h.close();
+ assert.equal(displayedGuide(original,h.writes[0]).documents.length,1);
+ const changed={...original,model_number:'A2'};
+ assert.equal(displayedGuide(changed,h.writes[0]).knowledge,null);assert.equal(displayedGuide(changed,h.writes[0]).documents.length,0);
+ const refreshed=hydrationHarness(changed);await flush();assert.equal(refreshed.pending.length,1);refreshed.close();
+});
+test('server asset changes during guide loading cannot appear against an older selected asset',async()=>{
+ const original={...built,model_number:'A1',documentation_revision_id:null,documentation_verified_at:'2026-11-08T19:00:00Z'};
+ const current={...original,model_number:'A2',documentation_key:'replacement-guide',documentation_verified_at:'2026-11-08T21:00:00Z'};
+ const source={...uploadedSource,storage_path:'hotel/asset/replacement.pdf',sha256:'c'.repeat(64),registered_file_id:'replacement-upload'};
+ const h=hydrationHarness(original);await flush();
+ h.pending[0]({ok:true,json:async()=>({assets:[{id:'unrelated',model_number:'OTHER'},current],manualKnowledge:{source},documentation_status:'verified'})});await flush();h.close();
+ assert.equal(h.urls.length,1);assert.equal(h.writes[0].modelNumber,'A2');assert.equal(h.writes[0].documentationKey,current.documentation_key);
+ const stale=displayedGuide(original,h.writes[0]);assert.equal(stale.knowledge,null);assert.equal(stale.documents.length,0);
+ const refreshed=displayedGuide(current,h.writes[0]);assert.equal(refreshed.knowledge.source.storage_path,source.storage_path);assert.equal(refreshed.documents[0].storage_path,source.storage_path);
 });
 
 test('unclassified technical manual tests are not applied to every symptom',()=>{assert.equal(guideRulesForIssue({source:{verified:true},manual_tests:[{title:'Calibration',steps:['Unrelated technical test']}]},'AC noisy').length,0);});
@@ -93,13 +150,35 @@ test('Room 410 field evidence: GE model unknown never inherits Friedrich guide',
 });
 
 test('empty-guidance footer is hidden when verified manual steps or diagnostic guidance are visible',()=>{
- const expressions=[];function visit(node){if(ts.isJsxExpression(node)&&node.getText(ast).includes('No symptom-specific troubleshooting matched yet.'))expressions.push(node);ts.forEachChild(node,visit);}visit(ast);
+ const expressions=[];function visit(node){if(ts.isJsxExpression(node)&&node.getText(ast).includes('No instructions match this description yet.'))expressions.push(node);ts.forEachChild(node,visit);}visit(ast);
  const node=expressions.sort((a,b)=>a.getWidth(ast)-b.getWidth(ast))[0];assert.ok(node&&ts.isBinaryExpression(node.expression));const condition=node.expression.left.getText(ast);
- const shown=(manual,displayed,codes,loading)=>vm.runInNewContext(condition,{manualSteps:Array(manual),displayedSteps:Array(displayed),relevantErrorCodes:Array(codes),manualLoading:loading,manualKnowledge:null});
- assert.equal(shown(1,0,0,false),false);assert.equal(shown(0,1,0,false),false);assert.equal(shown(0,0,1,false),false);assert.equal(shown(0,0,0,true),false);assert.equal(shown(0,0,0,false),true);
+ const shown=(manual,displayed,codes,loading,trusted=true)=>vm.runInNewContext(condition,{trustedManualKnowledge:trusted,manualSteps:Array(manual),displayedSteps:Array(displayed),relevantErrorCodes:Array(codes),manualLoading:loading,manualKnowledge:null});
+ assert.equal(shown(1,0,0,false),false);assert.equal(shown(0,1,0,false),false);assert.equal(shown(0,0,1,false),false);assert.equal(shown(0,0,0,true),false);assert.equal(shown(0,0,0,false),true);assert.equal(shown(0,0,0,false,false),false);
 });
 const sourceHelpers=load('src/lib/manual-source.ts');
 const ticketDeclaration=name=>component.body.statements.find(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(ast)===name)).getText(ast);
-function ticketCodeSelection(verified,issue,codes){const scope={manualKnowledge:{source:{verified},error_codes:codes},trustedManualKnowledge:verified,issue,order:{reporter_notes:''},normalizeDiagnosticCode:sourceHelpers.normalizeDiagnosticCode,reportedDiagnosticCode:sourceHelpers.reportedDiagnosticCode};vm.runInNewContext(ts.transpileModule(ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='normalizeDiagnosticCode').getText(ast)+'\n'+['reportedCode','manualErrorCodes','matchingErrorCode'].map(ticketDeclaration).join('\n')+'\nglobalThis.result={reportedCode,manualErrorCodes,matchingErrorCode};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,scope);return scope.result;}
+function displayedGuide(asset,manualResult){
+ const scope={selectedAsset:asset,assetId:asset?.id,manualResult};
+ vm.runInNewContext(ts.transpileModule(['manualCurrent','manualKnowledge','guideSource','guideDocuments'].map(ticketDeclaration).join('\n')+'\nglobalThis.result={knowledge:manualKnowledge,documents:guideDocuments};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,scope);
+ return JSON.parse(JSON.stringify(scope.result));
+}
+test('guide links come from the same strict uploaded source without a generic documentation request',()=>{
+ assert.doesNotMatch(page,/\/api\/assets\/documentation\?/);
+ const result={assetId:built.id,documentationKey:built.documentation_key,manufacturer:built.manufacturer,modelFamily:built.model_family,knowledge:{source:{...uploadedSource}}};
+ assert.deepEqual(displayedGuide(built,result).documents,[{name:uploadedSource.source_file_name,storage_path:uploadedSource.storage_path,url:uploadedSource.file_url}]);
+ for(const source of [{...uploadedSource,source_kind:'catalog'},{...uploadedSource,storage_path:''}])assert.equal(displayedGuide(built,{...result,knowledge:{source}}).documents.length,0);
+});
+for(const change of [{manufacturer:'Other'},{model_family:'Other family'},{documentation_key:'new guide'},{documentation_revision_id:'pending'},{documentation_verified_at:'2026-11-09T00:00:00Z'}])test(`changed ${Object.keys(change)[0]} clears stale guidance and its PDF link`,()=>{
+ const result={assetId:built.id,documentationKey:built.documentation_key,manufacturer:built.manufacturer,modelFamily:built.model_family,knowledge:{source:{...uploadedSource}}};
+ const shown=displayedGuide({...built,...change},result);assert.equal(shown.knowledge,null);assert.equal(shown.documents.length,0);
+});
+function ticketCodeSelection(verified,issue,codes,provenance={}){const scope={manualKnowledge:{source:{...uploadedSource,verified,...provenance},error_codes:codes},issue,order:{reporter_notes:''},normalizeDiagnosticCode:sourceHelpers.normalizeDiagnosticCode,reportedDiagnosticCode:sourceHelpers.reportedDiagnosticCode};vm.runInNewContext(ts.transpileModule(ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='normalizeDiagnosticCode').getText(ast)+'\n'+['trustedManualKnowledge','reportedCode','manualErrorCodes','matchingErrorCode'].map(ticketDeclaration).join('\n')+'\nglobalThis.result={reportedCode,manualErrorCodes,matchingErrorCode};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,scope);return scope.result;}
 test('actual ticket matches exact reported diagnostic code and preserves its source page',()=>{const codes=[{code:'40',problem:'Neighbor',action:'Other',source_pages:[40]},{code:'4',problem:'Exact',action:'Reviewed',source_pages:[30]}];const r=ticketCodeSelection(true,'Fault code 4',codes);assert.equal(r.matchingErrorCode.code,'4');assert.equal(r.matchingErrorCode.source_pages[0],30);assert.equal(ticketCodeSelection(true,'Fault code 41',codes).matchingErrorCode,undefined);});
 test('actual ticket refuses diagnostic entries from unverified knowledge',()=>{const r=ticketCodeSelection(false,'Fault code 4',[{code:'4',problem:'Unverified',action:'Do not show'}]);assert.equal(r.manualErrorCodes.length,0);assert.equal(r.matchingErrorCode,undefined);});
+test('actual ticket does not turn a denied diagnostic code into a code-specific repair',()=>{
+ const codes=[{code:'F1',problem:'Exact fault',action:'Replace the fault component.',source_pages:[30]}];
+ for(const issue of ['No error code F1 is displayed; the washer is only noisy.','It is not showing fault F1.','We cannot see error code F1.','It is not the error code F1.','Fault code F1 was not found.','Fault code F1 has not been observed.'])assert.equal(ticketCodeSelection(true,issue,codes).matchingErrorCode,undefined,issue);
+});
+for(const provenance of [{source_kind:'catalog'},{storage_path:''},{sha256:''},{registered_file_id:''}])test(`actual ticket refuses diagnostic guidance without uploaded provenance: ${Object.keys(provenance)[0]}`,()=>{
+ const r=ticketCodeSelection(true,'Fault code 4',[{code:'4',problem:'Verified flag alone',action:'Do not show'}],provenance);assert.equal(r.manualErrorCodes.length,0);assert.equal(r.matchingErrorCode,undefined);
+});
