@@ -17,7 +17,7 @@ test('open Manage Locations refreshes on resource changes, retains expansion and
  let refresh,topics,stopped=false,reads=0,pending=[];
  const records=(count,planned=false)=>({locations:[{id:'room',name:'Room 204',room_number:'204',area:'Guest Rooms',location_type:'Guest Room',active:true}],
   work_orders:Array.from({length:count},(_,i)=>({id:String(i),location_id:'room',room:'204',issue:'Sample issue',status:'Open'})),
-  pm_plans:planned?[{id:'plan',location_id:'room',active:true,next_due_on:'2100-01-01'}]:[],pm_completions:[],can_edit:true,can_manage_corporate_pm:true});
+  pm_plans:planned?[{id:'plan',location_id:'room',asset_id:null,title:'Room inspection',description:null,checklist:[],frequency_value:3,frequency_unit:'MONTH',last_completed_on:null,active:true,next_due_on:'2100-01-01'}]:[],pm_completions:[],can_edit:true,can_manage_corporate_pm:true});
  let payload=records(2),defer=false;
  const response=value=>({ok:true,json:async()=>value});
  const exports={};
