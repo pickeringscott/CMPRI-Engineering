@@ -392,7 +392,7 @@ test('work-order labor and parts inputs use field-level permissions',()=>{
   const sectionEnd=source.indexOf('</section>',heading.index);
   assert.ok(sectionEnd>heading.index, 'Labor & Parts must have a containing section');
   const section=source.slice(heading.index,sectionEnd);
-  assert.match(section,/disabled=\{!canEditField\("parts"\) \|\| saving\}/);
+  assert.match(section,/WorkOrderSupplies[^>]*disabled=\{saving \|\| hasUnsavedChanges\}/);
   assert.match(section,/disabled=\{!canEditField\("hours"\) \|\| saving\}/);
   assert.match(section,/disabled=\{!canEditField\("cost"\) \|\| saving\}/);
   assert.match(source,/workOrderEditableFields\(/);

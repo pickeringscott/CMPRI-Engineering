@@ -37,6 +37,7 @@ function fixture(flushes = []) {
   const lifetime = { active: true };
   const context = {
     exitInFlight: { current: false },
+    partExitGuard: { current: null },
     readLifetime: { current: lifetime },
     checklistExitFlushes: { current: new Set(flushes) },
     setExitFlushing: value => state.busy.push(value),
@@ -152,4 +153,11 @@ test('a bfcache restoration starts a fresh page editing visit', () => {
   assert.equal(restored, 1);
   cleanup();
   assert.equal(callbacks.has('pageshow'), false);
+});
+
+test('dirty or uncertain part edits block modal exit before any visit finalizes',async()=>{
+ const h=fixture([async()=>{throw Error('must not run');}]);
+ h.context.partExitGuard.current=async()=>{throw Error('Save or discard the part changes before closing.');};
+ assert.equal(await h.run(h.leave),false);assert.equal(h.state.left,0);assert.match(h.state.errors.at(-1),/Save or discard/);
+ h.context.partExitGuard.current=null;h.context.checklistExitFlushes.current.clear();assert.equal(await h.run(h.leave),true);
 });

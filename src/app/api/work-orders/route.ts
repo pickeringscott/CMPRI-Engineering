@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
   if (search) {
     // Quote PostgREST values and escape LIKE wildcards; search cannot alter access predicates.
     const value = JSON.stringify("%" + search.replace(/[%_\\]/g, "\\$&") + "%");
-    const expressions = ["display_id", "room", "issue", "asset_name", "category", "technician_name", "priority"].map(field => `${field}.ilike.${value}`);
+    const expressions = ["display_id", "room", "issue", "asset_name", "category", "technician_name", "priority", "notes"].map(field => `${field}.ilike.${value}`);
     const number = search.match(/^@?(?:(?:workorder_|WO\s*[#-]?\s*|work\s+order\s*#?\s*|#))?(\d+)$/i)?.[1];
     if (number) expressions.push(`display_id.ilike.${JSON.stringify("%" + number + "%")}`);
     // status is a PostgreSQL enum; ILIKE is only valid on the text fields above.
