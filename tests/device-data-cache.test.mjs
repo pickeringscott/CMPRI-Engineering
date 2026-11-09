@@ -49,6 +49,9 @@ test('user, property, permission signature, route filters and transient response
   }
   assert.equal(dataCachePolicy('/api/room-operations/guest-reports/drive'),null);assert.equal(dataCachePolicy('/api/session'),null);assert.equal(dataCachePolicy('/api/profile'),null);assert.equal(dataCachePolicy('/api/work-orders/00000000-0000-4000-8000-000000000001'),null);
   assert.equal(dataCachePolicy('/api/work-orders/references').durable,true);
+  assert.equal(dataCachePolicy('/api/work-orders/00000000-0000-4000-8000-000000000001/troubleshooting'),null);
+  assert.equal(dataCachePolicy('/api/maintenance-reference',new URLSearchParams('assetId=asset&source=asset-upload')),null);
+  assert.equal(dataCachePolicy('/api/maintenance-reference').durable,true,'ordinary reference lists retain their cache policy');
   assert.equal(dataCachePolicy('/api/staff-notes').durable,false);
   assert.deepEqual(mutationTopics('/api/profile/header-layout'),[]);
 });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';import path from 'node:path';import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';import ts from 'typescript';import {PGlite} from '@electric-sql/pglite';
 const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table cmpri_inventory_items(quantity_on_hand int);insert into cmpri_inventory_items values(7);create table cmpri_po_receipts(id int);create table cmpri_purchase_orders(id int);');
-await db.exec(fs.readFileSync('supabase/migrations/20261016214526_cmpri_purchasing_history.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261017181903_cmpri_purchasing_history.sql','utf8'));
 const hotel='00000000-0000-0000-0000-000000000001',actor='00000000-0000-0000-0000-000000000002';
 let allowed=false;globalThis.__historySafe=false;
 globalThis.__historyAuth=async(_r,cap)=>allowed&&cap==='operate_integrations'?{principal:{identity:{id:actor}},admin:{rpc:async(name,p)=>{assert.equal(name,'cmpri_import_purchasing_history');try{return {data:(await db.query('select cmpri_import_purchasing_history($1,$2,$3,$4,$5::jsonb) result',[p.p_hotel,p.p_actor,p.p_account,p.p_digest,JSON.stringify(p.p_plan)])).rows[0].result};}catch(e){return {error:{message:e.message}};}}}}:null;

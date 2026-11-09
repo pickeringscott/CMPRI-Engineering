@@ -21,8 +21,8 @@ test('atomic real PostgreSQL correction history, Chief-only persistent push inte
  insert into hotels values('${id(1)}');`);
  await db.exec(sql('20260930200000_cmpri_work_order_history.sql'));
  await db.exec(sql('20260930220000_cmpri_work_order_history_notifications.sql'));
- await db.exec(sql('20261013143835_cmpri_prospective_event_push.sql'));
- await db.exec(sql('20261014200934_work_order_report_corrections.sql'));
+ await db.exec(sql('20261013145012_cmpri_prospective_event_push.sql'));
+ await db.exec(sql('20261014223800_work_order_report_corrections.sql'));
  const roles=['Front Desk Manager','Chief Engineer','Engineer','Technician','system_admin','Front Desk Manager'];
  for(let i=0;i<roles.length;i++) {
   const user=id(i+10);

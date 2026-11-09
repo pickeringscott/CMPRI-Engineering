@@ -17,7 +17,7 @@ insert into profiles values('${eng}','chief_engineer','{}',true),('${fd}','front
 insert into hotel_members values('${eng}','${h}',true),('${fd}','${h}',true);insert into pool_facilities values('${f}','${h}',true);`);
 await db.exec(readFileSync('supabase/migrations/20261012212441_cmpri_pool_retest_status.sql','utf8'));
 await db.exec('create trigger cmpri_pool_log_stamp before insert or update on pool_daily_logs for each row execute function cmpri_stamp_pool_log()');
-await db.exec(readFileSync('supabase/migrations/20261022063155_cmpri_pool_status_controls.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/20261022070428_cmpri_pool_status_controls.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/20261106133521_pool_manager_reopening.sql','utf8'));
 const clock=async s=>db.exec(`create or replace function cmpri_pool_clock() returns timestamptz language sql stable as $$select '${s}'::timestamptz$$`);
 await clock('2026-10-22T15:00:00Z');
@@ -33,7 +33,7 @@ await db.query(`select cmpri_pool_reconcile('${h}','${f}',false)`);assert.equal(
 await assert.rejects(act(fd,12,'open'),/Engineering/);await assert.rejects(act(fd,13,'clear-manual'),/Engineering/);
 await clock('2026-10-23T03:00:00Z');
 await assert.rejects(act(eng,14,'open'),/10 PM/);await assert.rejects(act(fd,15,'close','Night'),/10 PM/);
-await act(eng,16,'clear-manual');assert.equal((await snapshot()).closed,true);assert.equal((await snapshot()).reason,'Closed 10 PM–7 AM');
+await act(eng,16,'clear-manual');assert.equal((await snapshot()).closed,true);assert.equal((await snapshot()).reason,'Closed 10 PM-7 AM');
 await clock('2026-10-23T12:00:00Z');assert.equal((await snapshot()).closed,true);await act(eng,17,'open');assert.equal((await snapshot()).closed,false);
 // GM/AGM can clear Front Desk holds, reopen, create logs and correct saved readings.
 for (const [index,role] of ['manager','assistant_manager','front_desk_manager','housekeeping','technician','senior_management'].entries()) {

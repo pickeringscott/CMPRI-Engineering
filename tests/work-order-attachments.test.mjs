@@ -862,12 +862,70 @@ test('history exposes original filenames and verified uploader metadata from Sto
 });
 
 
-test('video uploads validate container identity and reject mislabeled WebM',async()=>{
- const webm=new Uint8Array([0x1a,0x45,0xdf,0xa3,0x87,0x42,0x82,0x84,0x77,0x65,0x62,0x6d]);
- const route=fixture({role:"Chief Engineer"});
- // Same upload path as images; source filenames are retained in metadata.
- const accepted=await route.post(new File([webm],"Original clip.webm",{type:"video/webm"}));assert.equal(accepted.status,200);
- const bad=new Uint8Array(webm);bad[8]=0x6d;
- assert.equal((await route.post(new File([bad],"fake.webm",{type:"video/webm"}))).status,400);
- assert.equal((await route.post(new File([webm.slice(0,4)],"truncated.webm",{type:"video/webm"}))).status,400);
+// Conventional EBML header: four version/length fields precede DocType=webm.
+// No media clusters are needed for the upload's container signature check.
+const conventionalWebmHeader = Buffer.from("1a45dfa39f4286810142f7810142f2810442f381084282847765626d4287810442858102", "hex");
+
+async function checkWebmUpload(bytes, accepted, label) {
+  const file = new File([bytes], "Original clip.webm", { type: "video/webm" });
+  const settings = { role: "Chief Engineer", userId: "owner", createdBy: "owner" };
+  const legacy = fixture(settings);
+  assert.equal((await legacy.post(file, directUploadId)).status, accepted ? 200 : 400, `${label}: multipart`);
+  assert.equal(legacy.objects.size, accepted ? 1 : 0, `${label}: multipart storage`);
+
+  const direct = fixture(settings);
+  const body = await description(file);
+  const prepared = await direct.put(body);
+  assert.equal(prepared.status, 200);
+  await direct.direct(prepared.body.signedUrl, file);
+  const result = await direct.put({ ...body, action: "finalize" });
+  assert.equal(result.status, accepted ? 200 : 400, `${label}: staged finalize`);
+  const destination = `${hotelId}/work-orders/${workOrderId}/owner_${directUploadId}.webm`;
+  assert.equal(direct.objects.has(destination), accepted, `${label}: staged promotion`);
+  if (accepted) {
+    assert.equal(result.body.complete, true);
+    assert.deepEqual(Buffer.from(await direct.objects.get(destination).arrayBuffer()), Buffer.from(bytes));
+    assert.equal((await direct.put({ ...body, action: "finalize" })).body.complete, true, `${label}: confirmed retry`);
+  }
+}
+
+test("WebM uploads accept a conventional header longer than twelve bytes through multipart and staged finalize", async () => {
+  assert.ok(conventionalWebmHeader.length > 12);
+  await checkWebmUpload(conventionalWebmHeader, true, "conventional header");
+});
+
+test("WebM signature accepts a complete DocType when the rest of the EBML header exceeds the bounded sample", async () => {
+  // Append a valid Void element so the declared EBML body extends past byte 64.
+  const longer = Buffer.concat([conventionalWebmHeader, Buffer.from([0xec, 0xbc]), Buffer.alloc(60)]);
+  longer[4] = 0x80 | (longer.length - 5);
+  assert.ok(longer.length > 64);
+  await checkWebmUpload(longer, true, "partially sampled header");
+});
+
+test("WebM signature supports finite eight-byte EBML sizes without reading beyond their bounds", async () => {
+  const eightByteHeaderSize = Buffer.concat([
+    conventionalWebmHeader.subarray(0, 4), Buffer.from("010000000000001f", "hex"), conventionalWebmHeader.subarray(5),
+  ]);
+  await checkWebmUpload(eightByteHeaderSize, true, "eight-byte header size");
+  await checkWebmUpload(Buffer.from("1a45dfa38e428201000000000000047765626d", "hex"), true, "eight-byte DocType size");
+});
+
+test("WebM uploads reject spoofed, incomplete, unknown-size, and out-of-bounds EBML signatures", async () => {
+  const badDocType = Buffer.from(conventionalWebmHeader);
+  badDocType[badDocType.indexOf(Buffer.from("webm"))] = 0x6d;
+  const cases = [
+    ["wrong DocType", badDocType],
+    ["truncated EBML ID", conventionalWebmHeader.subarray(0, 4)],
+    ["incomplete DocType text", Buffer.from("1a45dfa387428284776562", "hex")],
+    ["truncated element ID", Buffer.from("1a45dfa38142", "hex")],
+    ["truncated size VINT", Buffer.from("1a45dfa38a428240", "hex")],
+    ["DocType exceeds header boundary", Buffer.from("1a45dfa3864282847765626d", "hex")],
+    ["DocType bytes inside another element", Buffer.from("1a45dfa38a4286874282847765626d", "hex")],
+    ["unknown header size", Buffer.from("1a45dfa3ff4282847765626d", "hex")],
+    ["unknown element size", Buffer.from("1a45dfa3874282ff7765626d", "hex")],
+    ["invalid zero VINT", Buffer.from("1a45dfa3004282847765626d", "hex")],
+    ["header exceeds bounded maximum", Buffer.from("1a45dfa350014282847765626d", "hex")],
+    ["unsafe eight-byte size", Buffer.from("1a45dfa3017fffffffffffff4282847765626d", "hex")],
+  ];
+  for (const [label, bytes] of cases) await checkWebmUpload(bytes, false, label);
 });

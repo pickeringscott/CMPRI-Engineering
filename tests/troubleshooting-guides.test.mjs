@@ -58,9 +58,19 @@ test("all required timing and numeric details are present in the HTML guide cont
 });
 
 test("work-order technical guidance never falls back to generic checks", () => {
-  assert.match(workOrderForm, /trustedTroubleshootingKnowledge\?\.symptom_rules/);
-  assert.match(workOrderForm, /No issue-matched troubleshooting steps from verified documentation are available/);
+  assert.match(workOrderForm, /guideRulesForIssue\(trustedTroubleshootingKnowledge, troubleshootingEvidence\)/);
+  assert.match(workOrderForm, /A fault code is not required/);
   assert.doesNotMatch(workOrderForm, /GENERAL_TROUBLESHOOTING_CHECKS|Generic troubleshooting/);
+});
+
+test("creation guidance keeps its single source link above steps without Copy or page links", () => {
+  const start = workOrderForm.indexOf('aria-label="Troubleshooting Guide"');
+  const end = workOrderForm.indexOf('</section>', start);
+  assert.ok(start >= 0 && end > start);
+  const guide = workOrderForm.slice(start, end);
+  assert.equal((guide.match(/>Source:/g) || []).length, 1);
+  assert.ok(guide.indexOf('>Source:') < guide.indexOf('troubleshootingSteps.map'));
+  assert.doesNotMatch(guide, /CopyButton|#page=|Manual p\.|Open Manual|Clear check/);
 });
 
 test("native guide dropdown opens exactly the three local PDF exports", () => {

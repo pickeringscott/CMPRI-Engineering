@@ -27,7 +27,7 @@ const db=new PGlite(),id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0'
 await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table work_orders(id uuid primary key,hotel_id uuid);');
 const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
 for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inventory_movements']){const start=baseline.indexOf(`CREATE TABLE IF NOT EXISTS "public"."${table}" (`);await db.exec(baseline.slice(start,baseline.indexOf('\n);',start)+3));await db.exec(`alter table ${table} add primary key(id);grant all on ${table} to service_role;`);}
-for(const file of ['20261016211655_cmpri_po_receiving.sql','20261017184618_cmpri_reviewed_po_identities.sql','20261020040540_cmpri_offline_po_recovery.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
+for(const file of ['20261017181855_cmpri_po_receiving.sql','20261017184618_cmpri_reviewed_po_identities.sql','20261020040540_cmpri_offline_po_recovery.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
 await db.exec(readFileSync('supabase/migrations/20261020040540_cmpri_offline_po_recovery.sql','utf8')); // Migration replay.
 await db.exec(readFileSync('docs/PO-IMPORT-FIELDS-PROPOSAL.sql','utf8'));
 const admin={rpc:async(name,args)=>{assert.equal(name,'cmpri_recover_offline_po_lines_v2');try{return {data:(await db.query('select cmpri_recover_offline_po_lines_v2($1,$2,$3::jsonb) result',[args.p_hotel,args.p_actor,JSON.stringify(args.p_document)])).rows[0].result};}catch(error){return {error:{message:error.message}};}}};

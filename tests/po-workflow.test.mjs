@@ -36,7 +36,7 @@ for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inve
   await db.exec(baseline.slice(a,baseline.indexOf('\n);',a)+3));
   await db.exec(`alter table ${table} add primary key(id)`);
 }
-await db.exec(fs.readFileSync('supabase/migrations/20261016211655_cmpri_po_receiving.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261017181855_cmpri_po_receiving.sql','utf8'));
 const aclBefore=(await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl;
 await db.exec(fs.readFileSync('supabase/proposals/manual-order-receiving.sql','utf8'));
 assert.equal((await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl,aclBefore);

@@ -87,11 +87,11 @@ test('actual recovery restores unsaved text and keeps stale revision instead of 
  assert.equal(changes.NoteDraft,'Closed door.');assert.equal(changes.Notes,'Original\nStaged');assert.equal(changes.Order.revision,7);assert.match(changes.Message,/changed/);assert.equal(ctx.assetSelectionChanged.current,true);
 });
 
-test('discard affects only the selected local draft and never closes after a storage failure',()=>{
+test('discard affects only the selected local draft and never closes after a storage failure',async()=>{
  const exports={},removed=[],messages=[];let closed=0;const recovered={current:true};
- const ctx={exports,saving:false,cmpriSession:{hotelId:'hotel',user:{id:'actor'}},order:{id:'ticket'},recoveredDraft:recovered,localStorage:{removeItem:key=>removed.push(key)},closeEmbeddedTicket:()=>closed++,setMessage:text=>messages.push(text)};
- vm.runInNewContext(extract('discardLocalDraftAndClose'),ctx);exports.run();assert.deepEqual(removed,['cmpri:ticket-draft:hotel:actor:ticket']);assert.equal(recovered.current,false);assert.equal(closed,1);
- ctx.localStorage={removeItem(){throw Error('blocked')}};recovered.current=true;exports.run();assert.equal(closed,1);assert.equal(recovered.current,true);assert.match(messages.at(-1),/still here/);
+ const ctx={exports,saving:false,cmpriSession:{hotelId:'hotel',user:{id:'actor'}},order:{id:'ticket'},recoveredDraft:recovered,localStorage:{removeItem:key=>removed.push(key)},closeEmbeddedTicket:async beforeClose=>{try{beforeClose?.();closed++;}catch(error){messages.push(error.message);}},setMessage:text=>messages.push(text)};
+ vm.runInNewContext(extract('discardLocalDraftAndClose'),ctx);exports.run();await Promise.resolve();assert.deepEqual(removed,['cmpri:ticket-draft:hotel:actor:ticket']);assert.equal(recovered.current,false);assert.equal(closed,1);
+ ctx.localStorage={removeItem(){throw Error('blocked')}};recovered.current=true;exports.run();await Promise.resolve();assert.equal(closed,1);assert.equal(recovered.current,true);assert.match(messages.at(-1),/still here/);
 });
 
 test('Chief Engineer pending markers track saved values, revert and save outcomes only', async () => {

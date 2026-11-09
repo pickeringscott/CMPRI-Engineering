@@ -39,7 +39,7 @@ test('actual existing database media function atomically saves files/GIF IDs, re
  create table cmpri_dashboard_notifications(id uuid primary key default gen_random_uuid(),hotel_id uuid,recipient_user_id uuid,notification_key text,target_path text,message text,recorded_at timestamptz,push_requested boolean,unique(hotel_id,recipient_user_id,notification_key));
  create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint);
  insert into hotels values('${id(1)}'),('${id(9)}');insert into profiles values('${id(2)}',true,'front_desk','{}'),('${id(3)}',true,'manager','{}');insert into hotel_members values('${id(2)}','${id(1)}',true),('${id(3)}','${id(1)}',true);`);
- await db.exec(readFileSync('supabase/migrations/20261015090000_cmpri_staff_notes.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/20261015055427_cmpri_staff_notes.sql','utf8'));
  await db.exec(readFileSync('supabase/migrations/20261105004859_staff_notes_media_and_room_guest_import.sql','utf8'));
  await db.exec(`insert into cmpri_staff_note_uploads(id,hotel_id,author_user_id,name,media_type,size_bytes,storage_path,ready) values('${id(4)}','${id(1)}','${id(2)}','Original.png','image/png',100,'own',false),('${id(5)}','${id(9)}','${id(2)}','Foreign.png','image/png',100,'foreign',true),('${id(6)}','${id(1)}','${id(3)}','Other user.png','image/png',100,'other',true);`);
  const call=async(request,uploads=[id(4)],body='@Manager #Handoff',gifs=['gif123'])=>(await db.query('select cmpri_post_staff_note_with_files($1,$2,$3,$4,null,$5,$6::jsonb,$7::uuid[],$8::text[],$9::jsonb) id',[id(1),id(2),'Alex Morgan',body,request,JSON.stringify([{user_id:id(3),push:true}]),uploads,['#handoff'],JSON.stringify(gifs)])).rows[0].id;

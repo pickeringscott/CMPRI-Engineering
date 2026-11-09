@@ -60,3 +60,26 @@ badge, keyboard/touch dismissal, row selection, real desktop window resizing,
 and six-digit filter counts at phone widths. Run npm run test:work-order-list-ui
 against the local app using the same synthetic environment configuration above.
 It makes no production reads or work-order writes.
+
+troubleshooting-guide-integrity.py checks Suggested Troubleshooting with fictional
+uploaded-manual responses for Chief Engineer and Technician at phone and desktop
+widths. It checks matched steps and codes, exact excerpts, source filenames,
+one top PDF source link, no per-step source references, and source/issue isolation.
+With the same localhost setup, run
+`python tests/browser/troubleshooting-guide-integrity.py`. Results and screenshots
+default to /tmp/cmpri-troubleshooting-integrity; set CMPRI_GUIDE_OUTPUT to override.
+It blocks external traffic and rejects catalog/AI requests. Checklist, issue-save,
+and exit-note writes use synthetic in-memory records, with no production writes.
+Coverage includes PM role colors, cross-session persistence, worker ownership,
+Chief verification and clearing, failed saves, preserving unsaved work-order
+notes, one combined exit note retaining reversed actions, and exit recovery.
+Immediate read-only issue editing and rejection of late old-issue data run at
+desktop width; null result fields at phone width mean those cases were not run.
+
+troubleshooting-guide-images.py verifies actual diagrams from a fictional
+uploaded PDF. Run `python tests/browser/troubleshooting-guide-images.py` with
+the same local setup. Its helper executes the real PDF/media code under a
+network guard. Desktop images render inline; phones fetch only after Open image.
+Chromium touch input verifies pinch, pan, zoom/reset, and closing. Context/SHA
+changes discard stale images. APIs and records stay synthetic; no provider or
+production writes are used.

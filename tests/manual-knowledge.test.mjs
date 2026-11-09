@@ -52,6 +52,12 @@ test('retains explicit verification and legacy code field names',()=>{
   assert.equal(result.source.verified,true);assert.equal(result.source.title,'Test manual');
   assert.equal(JSON.stringify(result.error_codes),JSON.stringify([{code:'3',problem:'Test fault',action:'Test action',source_pages:[2,4]}]));
 });
+test('normalization preserves the exact uploaded-file provenance used by checklist identity',()=>{
+  const provenance={source_kind:'asset-upload',storage_path:'hotel/asset/original.pdf',sha256:'b'.repeat(64),registered_file_id:'registered-upload',registered_updated_at:'2026-11-08T20:00:00Z'};
+  const result=normalize({source:{verified:true,...provenance}});
+  assert.equal(result.source.verified,true);
+  for(const [key,value] of Object.entries(provenance))assert.equal(result.source[key],value,key);
+});
 test('manufacturer documentation requires an exact manufacturer and model-family match',()=>{
   const asset={manufacturer:'Friedrich',model_family:'Verdepac VTAC'};
   assert.equal(manualMatchesEquipment(asset,{manufacturer:'Friedrich',model_family:'Verdepac VTAC'}),true);
@@ -232,7 +238,7 @@ test('unclassified technical tests are not forced onto every ticket',()=>{
 test('work-order guide has no generic fallback when no verified manual is matched',()=>{
   const pageSource=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
   assert.match(pageSource,/const displayedSteps: ReturnType<typeof generalTroubleshootingFor> = \[\]/);
-  assert.match(pageSource,/No generic troubleshooting fallback is shown/);
+  assert.match(pageSource,/Choose the equipment to read its uploaded manual/);
 });
 
 test('known manual-test topics map to expected issue language',()=>{
@@ -252,7 +258,7 @@ test('reported manufacturer code prefixes are preserved exactly',()=>{
   const source=readFileSync(new URL('../src/lib/manual-source.ts',import.meta.url),'utf8');
   const ast=ts.createSourceFile('manual-source.ts',source,ts.ScriptTarget.Latest,true);
   const fn=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='reportedDiagnosticCode');
-  const runtime={};vm.runInNewContext(ts.transpileModule(fn.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:runtime});
+  const runtime={};vm.runInNewContext(ts.transpileModule(fn.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:runtime});
   assert.equal(runtime.reportedDiagnosticCode('Fault code F1 is displayed'),'F1');
   assert.equal(runtime.reportedDiagnosticCode('Error P1 is displayed'),'P1');
   for(const issue of ['Room 409 is not cooling','AC not working it is 77','Original source ticket ID: AC-6131','Approved import row IMP-0006']) assert.equal(runtime.reportedDiagnosticCode(issue),null);

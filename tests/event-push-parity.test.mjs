@@ -61,7 +61,7 @@ async function database() {
     create trigger cmpri_resolve_late_technician_notification_reads after insert on cmpri_dashboard_notifications
       for each row execute function resolve_fixture();
   `);
-  await db.exec(readFileSync(new URL('supabase/migrations/20261013143835_cmpri_prospective_event_push.sql',root),'utf8'));
+  await db.exec(readFileSync(new URL('supabase/migrations/20261013145012_cmpri_prospective_event_push.sql',root),'utf8'));
   return db;
 }
 async function insert(db,key,{ requested=true, old=false, read=false }={}) {

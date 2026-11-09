@@ -13,6 +13,7 @@ import {
   manualPdfSha256,
 } from "@/lib/manual-pdf-knowledge";
 import { loadVerifiedCatalogManuals } from "@/lib/server/verified-manual-catalog";
+import { readUploadedAssetMaintenanceReference } from "@/lib/server/uploaded-asset-guide";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
@@ -200,6 +201,7 @@ function enrichManualKnowledge(payload: KnowledgePayload | null) {
 }
 
 export async function GET(request: NextRequest) {
+  if (request.nextUrl.searchParams.get('source') === 'asset-upload') return readUploadedAssetMaintenanceReference(request);
   const staged = await dispatchConsolidation(request, baseline.GET);
   if (staged) return staged;
   const auth = await requireCapability(request, "view_dashboard");

@@ -1,4 +1,12 @@
 import type { SourcePassage } from "./manual-source";
+export type TroubleshootingStepMedia = {
+  id: string;
+  stepLabel: string;
+  sourcePage: number;
+  caption: string;
+  width: number;
+  height: number;
+};
 export type ManualErrorCode = {
   code: string;
   problem: string;
@@ -24,6 +32,7 @@ export type ManualTestEntry = {
 };
 
 export type ManualKnowledge = {
+  step_media?: TroubleshootingStepMedia[];
   source_passages?: SourcePassage[];
   manufacturer?: string;
   equipment?: string;
@@ -39,6 +48,10 @@ export type ManualKnowledge = {
     source_file_name?: string;
     file_url?: string;
     pdf_url?: string;
+    source_kind?: string;
+    storage_path?: string;
+    registered_file_id?: string;
+    registered_updated_at?: string | null;
   };
   error_codes?: ManualErrorCode[];
   symptom_rules?: ManualSymptomRule[];
@@ -139,6 +152,14 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     .filter((entry): entry is ManualTestEntry => !!entry);
 
   return {
+    step_media: Array.isArray(payload.step_media) ? payload.step_media.flatMap((entry) => {
+      const item = objectRecord(entry);
+      const sourcePage = Number(item.sourcePage), width = Number(item.width), height = Number(item.height);
+      if (typeof item.id !== 'string' || !/^media-[a-f0-9]{64}$/.test(item.id) || typeof item.stepLabel !== 'string' || !item.stepLabel.trim()
+        || typeof item.caption !== 'string' || !Number.isSafeInteger(sourcePage) || sourcePage < 1
+        || !Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1 || width * height > 4_000_000) return [];
+      return [{ id: item.id, stepLabel: item.stepLabel, sourcePage, caption: item.caption, width, height }];
+    }) : [],
     manufacturer: String(payload.manufacturer ?? ""),
     equipment: String(payload.equipment ?? payload.asset ?? ""),
     model_family: String(payload.model_family ?? source.model_family ?? ""),
@@ -152,6 +173,11 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
       source_file_name: String(source.source_file_name ?? payload.source_file_name ?? ""),
       file_url: String(source.file_url ?? payload.file_url ?? ""),
       pdf_url: String(source.pdf_url ?? payload.pdf_url ?? ""),
+      ...(source.source_kind ? { source_kind: String(source.source_kind) } : {}),
+      ...(source.storage_path ? { storage_path: String(source.storage_path) } : {}),
+      ...(source.sha256 ? { sha256: String(source.sha256) } : {}),
+      ...(source.registered_file_id ? { registered_file_id: String(source.registered_file_id) } : {}),
+      ...(source.registered_updated_at !== undefined ? { registered_updated_at: source.registered_updated_at === null ? null : String(source.registered_updated_at) } : {}),
     },
     source_passages: Array.isArray(payload.source_passages) ? payload.source_passages.filter((entry): entry is SourcePassage => {
       if (!entry || typeof entry !== "object") return false;

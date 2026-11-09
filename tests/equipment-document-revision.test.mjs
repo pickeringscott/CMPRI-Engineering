@@ -41,7 +41,7 @@ async function database(){const db=new PGlite();await db.exec(`
  insert into storage.objects(bucket_id,name,metadata) values('asset-documentation','${hotel}/${asset}/empty-original.pdf','{"size":0}');
  grant usage on schema public,auth to service_role;grant execute on function auth.role() to service_role;grant select,update on assets to service_role;
  select set_config('test.role','service_role',false);
- `);await db.exec(readFileSync(new URL('../supabase/migrations/20261013195212_cmpri_equipment_document_revisions.sql',import.meta.url),'utf8'));await db.exec('create trigger cmpri_protect_verified_asset before update on assets for each row execute function cmpri_protect_verified_asset();');return db;}
+ `);await db.exec(readFileSync(new URL('../supabase/migrations/20261013200800_cmpri_equipment_document_revisions.sql',import.meta.url),'utf8'));await db.exec('create trigger cmpri_protect_verified_asset before update on assets for each row execute function cmpri_protect_verified_asset();');return db;}
 async function open(db,who=actor,expected=null){const at=expected||(await db.query('select updated_at from assets')).rows[0].updated_at;return db.query('select cmpri_begin_equipment_revision($1,$2,$3,$4,$5) id',[asset,hotel,at,who,'Correct documented equipment identity']);}
 test('revision archives verified snapshot and files; ordinary edits stay locked until authorized opening; reverify locks again',async()=>{
  const db=await database();try{

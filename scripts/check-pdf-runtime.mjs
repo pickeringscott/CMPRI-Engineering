@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const pdfs = process.argv.slice(2).map(file => path.resolve(file));
-for (const route of ['maintenance-reference', 'assets/documentation', 'assets', 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed', 'integrations/drive-po/notify', 'integrations/drive-po/control', 'integrations/drive-po/maintenance']) {
+for (const route of ['maintenance-reference', 'work-orders/[id]/troubleshooting', 'assets/documentation', 'assets', 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed', 'integrations/drive-po/notify', 'integrations/drive-po/control', 'integrations/drive-po/maintenance']) {
   const tracePath = path.resolve(`.next/server/app/api/${route}/route.js.nft.json`);
   const trace = JSON.parse(await readFile(tracePath, 'utf8'));
   const runtimeFiles = trace.files.map(file => path.resolve(path.dirname(tracePath), file))
@@ -17,6 +17,12 @@ for (const route of ['maintenance-reference', 'assets/documentation', 'assets', 
   assert(runtimeFiles.some(file => /pdf\.worker\.mjs$/.test(file)), `${route}: worker missing`);
   assert(runtimeFiles.some(file => /canvas[\\/]index\.js$/.test(file)), `${route}: canvas loader missing`);
   assert(runtimeFiles.some(file => /\.node$/.test(file)), `${route}: canvas native binary missing`);
+  const guideMedia = route === 'maintenance-reference' || route === 'work-orders/[id]/troubleshooting';
+  if (guideMedia) {
+    assert(runtimeFiles.some(file => /standard_fonts[\\/].*\.pfb$/.test(file)), `${route}: local PDF fonts missing`);
+    assert(runtimeFiles.some(file => /cmaps[\\/].*\.bcmap$/.test(file)), `${route}: local PDF character maps missing`);
+    assert(runtimeFiles.some(file => /wasm[\\/].*\.wasm$/.test(file)), `${route}: local PDF image runtime missing`);
+  }
   const isolated = await mkdtemp(path.join(tmpdir(), 'cmpri-pdf-runtime-'));
   try {
   const stream = 'BT /F1 12 Tf 20 100 Td (CMPRI PDF runtime verification) Tj ET';
@@ -47,16 +53,31 @@ for (const route of ['maintenance-reference', 'assets/documentation', 'assets', 
   const probe = `
     import { readFile } from 'node:fs/promises';
     import { getDocument } from './node_modules/pdfjs-dist/legacy/build/pdf.mjs';
+    import { createCanvas } from './node_modules/@napi-rs/canvas/index.js';
     for (const file of process.argv.slice(2)) {
-      const task = getDocument({ data: new Uint8Array(await readFile(file)) });
-      const pdf = await task.promise;
-      let characters = 0;
-      for (let page = 1; page <= Math.min(pdf.numPages, 40); page++) {
-        characters += (await (await pdf.getPage(page)).getTextContent()).items
-          .map(item => 'str' in item ? item.str : '').join(' ').length;
-      }
-      if (!characters) throw new Error('No PDF text extracted');
-      console.log(JSON.stringify({ pages: pdf.numPages, characters }));
+      const task = getDocument({ data: new Uint8Array(await readFile(file)), ...(${JSON.stringify(guideMedia)} ? {
+        standardFontDataUrl: new URL('./node_modules/pdfjs-dist/standard_fonts/', import.meta.url).pathname,
+        cMapUrl: new URL('./node_modules/pdfjs-dist/cmaps/', import.meta.url).pathname,
+        cMapPacked: true,
+        wasmUrl: new URL('./node_modules/pdfjs-dist/wasm/', import.meta.url).pathname,
+        useWorkerFetch: false, useSystemFonts: false,
+      } : {}) });
+      try {
+        const pdf = await task.promise;
+        let characters = 0;
+        for (let page = 1; page <= Math.min(pdf.numPages, 40); page++) {
+          characters += (await (await pdf.getPage(page)).getTextContent()).items
+            .map(item => 'str' in item ? item.str : '').join(' ').length;
+        }
+        if (!characters) throw new Error('No PDF text extracted');
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 0.5 });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport, canvas }).promise;
+        const png = canvas.toBuffer('image/png');
+        if (!png.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw new Error('No PDF illustration PNG rendered');
+        console.log(JSON.stringify({ pages: pdf.numPages, characters, renderedPngBytes: png.length }));
+      } finally { await task.destroy(); }
     }
   `;
   await writeFile(path.join(isolated, 'probe.mjs'), probe);

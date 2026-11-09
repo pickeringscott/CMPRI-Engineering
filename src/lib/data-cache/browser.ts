@@ -137,7 +137,7 @@ class BrowserDataCache {
       else if (response.ok && ['POST','PUT','PATCH','DELETE'].includes(request.method)) await this.invalidate(mutationTopics(url.pathname));
       return response;
     }
-    const policy = dataCachePolicy(url.pathname), authorization = request.headers.get('authorization');
+    const policy = dataCachePolicy(url.pathname, url.searchParams), authorization = request.headers.get('authorization');
     if (!policy || !authorization || [...url.searchParams.keys()].some(key => /^(access_token|refresh_token|token|password|secret|signature|api_key)$/i.test(key))) {
       const response = await this.native(request);
       if (response.status === 401 || response.status === 403) await this.clear();

@@ -22,7 +22,7 @@ test('real PostgreSQL commits note, mention inbox and captured phone delivery to
  create table cmpri_dashboard_notifications(id uuid primary key default gen_random_uuid(),hotel_id uuid,recipient_user_id uuid,notification_key text,work_order_id uuid,target_path text,message text,recorded_at timestamptz,read_at timestamptz,cleared_at timestamptz,unique(hotel_id,recipient_user_id,notification_key),constraint note_target check (((work_order_id is not null) and (target_path is null)) or ((work_order_id is null) and target_path in ('/engineering/room-operations','/engineering/pool-log'))));
  create table cmpri_web_push_subscriptions(id uuid primary key,hotel_id uuid,recipient_user_id uuid,enabled boolean);
  create table cmpri_web_push_deliveries(id uuid primary key default gen_random_uuid(),hotel_id uuid,recipient_user_id uuid,subscription_id uuid,notification_key text,status text,unique(hotel_id,recipient_user_id,subscription_id,notification_key));`);
- await db.exec(sql('20261013143835_cmpri_prospective_event_push.sql'));
+ await db.exec(sql('20261013145012_cmpri_prospective_event_push.sql'));
  await db.exec(sql(migration));
  for(let n=10;n<=15;n++){
   await db.query('insert into profiles(id,full_name,active) values($1,$2,$3)',[id(n),n===10?'Scott Pickering':`Staff ${n}`,n!==13]);

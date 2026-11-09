@@ -15,15 +15,14 @@ type Props = {
   useTextLabel?: string;
 };
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
-
 /** An on-device reference tool. Extracted text is never applied automatically. */
 export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed text" }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [fileKind, setFileKind] = useState<"image" | "pdf" | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [showImagePreview, setShowImagePreview] = useState(false);
   const [pages, setPages] = useState<ReviewedOcrText["pages"]>([]);
+  const [documentPages, setDocumentPages] = useState<number | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [firstPage, setFirstPage] = useState("");
   const [lastPage, setLastPage] = useState("");
@@ -47,7 +46,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
         abortRef.current = null;
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
         previewRef.current = "";
-        setFile(null); setFileKind(null); setPreviewUrl(""); setPages([]); setReviewed(false);
+        setFile(null); setFileKind(null); setPreviewUrl(""); setShowImagePreview(false); setPages([]); setDocumentPages(null); setReviewed(false);
         setFirstPage(""); setLastPage(""); setBusy(false); setStatus(""); setError("");
       }
       previousUser = user;
@@ -72,6 +71,8 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     abortRef.current = null;
     setBusy(false);
     setPages([]);
+    setDocumentPages(null);
+    setShowImagePreview(false);
     setReviewed(false);
     setFirstPage("");
     setLastPage("");
@@ -84,8 +85,8 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     setPreviewUrl("");
     if (!selected) return;
     const extension = selected.name.split(".").pop()?.toLowerCase() || "";
-    if (!selected.size || selected.size > (extension === "pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES) || !["pdf", "png", "jpg", "jpeg", "webp"].includes(extension)) {
-      setError("Choose a PDF up to 50 MiB or a PNG, JPEG, or WebP image up to 10 MiB.");
+    if (!selected.size || !["pdf", "png", "jpg", "jpeg", "webp"].includes(extension)) {
+      setError("Choose a nonempty PDF, PNG, JPEG, or WebP image.");
       return;
     }
     try {
@@ -94,7 +95,13 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
       const kind = await localOcrFileKind(selected);
       if (selection !== selectionRef.current) return;
       if ((kind === "pdf") !== (extension === "pdf")) throw new Error("The file contents do not match its extension.");
-      if (kind === "image") await localOcrImageDimensions(selected);
+      let showImage = false;
+      if (kind === "image") {
+        const dimensions = await localOcrImageDimensions(selected);
+        // Leave large originals for the user's viewer. Recognition decodes at
+        // its working resolution, avoiding an eager full-size browser preview.
+        showImage = dimensions.width <= 6000 && dimensions.height <= 6000 && dimensions.width * dimensions.height <= 20_000_000;
+      }
       if (selection !== selectionRef.current) return;
       const mime = kind === "pdf" ? "application/pdf" : ({ png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" } as Record<string, string>)[extension];
       const url = URL.createObjectURL(new Blob([selected], { type: mime }));
@@ -102,15 +109,16 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
       setFile(selected);
       setFileKind(kind);
       setPreviewUrl(url);
+      setShowImagePreview(showImage);
     } catch (cause) {
       if (selection === selectionRef.current) setError(cause instanceof Error ? cause.message : "The document could not be opened safely.");
     }
   }
 
-  async function recognize() {
+  async function recognize(requestedRange?: { start: number; end: number }) {
     if (!file || abortRef.current) return;
-    let pageRange: { start: number; end: number } | undefined;
-    if (fileKind === "pdf" && (firstPage || lastPage)) {
+    let pageRange = requestedRange;
+    if (!pageRange && fileKind === "pdf" && (firstPage || lastPage)) {
       const start = Number(firstPage), end = Number(lastPage);
       if (!firstPage || !lastPage || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end - start >= 10) {
         setError("Enter a valid page range of up to 10 pages.");
@@ -118,6 +126,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
       }
       pageRange = { start, end };
     }
+    if (pageRange) { setFirstPage(String(pageRange.start)); setLastPage(String(pageRange.end)); }
     const controller = new AbortController();
     abortRef.current = controller;
     setBusy(true);
@@ -140,7 +149,12 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
       });
       if (abortRef.current !== controller || controller.signal.aborted) return;
       setPages(result.pages.map(page => ({ page: page.page, text: page.text })));
-      setStatus(result.pages.length ? "Text is ready to review." : "No pages could be read.");
+      setDocumentPages(result.totalPages);
+      if (fileKind === "pdf" && result.pages.length) {
+        const start = result.pages[0].page, end = result.pages[result.pages.length - 1].page;
+        setFirstPage(String(start)); setLastPage(String(end));
+        setStatus(`Pages ${start}–${end} of ${result.totalPages} are ready to review.`);
+      } else setStatus(result.pages.length ? "Text is ready to review." : "No pages could be read.");
     } catch (cause) {
       if (abortRef.current !== controller || controller.signal.aborted) return;
       setError(cause instanceof Error ? cause.message : "The document could not be read on this device.");
@@ -174,11 +188,14 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     }
   }
 
+  const nextPage = pages.length ? pages[pages.length - 1].page + 1 : 1;
+  const nextBatchEnd = documentPages ? Math.min(nextPage + 9, documentPages) : 0;
+
   return (
     <section aria-label="On-device text recognition" className="space-y-3 rounded-xl border border-slate-600 bg-slate-900/70 p-3 text-sm text-slate-100">
       <div>
         <h3 className="font-bold">Read text on this device</h3>
-        <p className="mt-1 text-xs text-slate-300">Choose an image up to 10 MiB or a PDF up to 50 MiB. Read up to 10 PDF pages per pass. Recognition runs on this device; the selected file is not sent to OpenAI. This tool does not save or import records.</p>
+        <p className="mt-1 text-xs text-slate-300">Choose a PNG, JPEG, WebP image, or PDF. Large images are resized locally for recognition. PDFs are read in batches of up to 10 pages. Recognition runs on this device; the selected file is not sent to OpenAI. This tool does not save or import records.</p>
         <p className="mt-1 text-xs text-amber-200">Recognition can miss or misread text, entire rows, and checkboxes. Compare each page in this pass with the original before using any text.</p>
       </div>
       <label className="block font-semibold">
@@ -187,10 +204,10 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
       </label>
       {!authenticated && <p role="status" className="text-xs text-slate-300">Sign in to use the document reader.</p>}
       {fileKind === "pdf" && <fieldset className="flex flex-wrap items-end gap-2 text-xs text-slate-200">
-        <legend className="font-semibold">PDF page range (optional for documents up to 10 pages)</legend>
+        <legend className="font-semibold">PDF page range (up to 10 pages per batch)</legend>
         <label>First page <input aria-label="First PDF page" type="number" min={1} step={1} value={firstPage} disabled={busy} onChange={event => { setFirstPage(event.target.value); setPages([]); setReviewed(false); setStatus(""); }} className="ml-1 w-20 rounded border border-slate-600 bg-slate-950 p-1 text-white" /></label>
         <label>Last page <input aria-label="Last PDF page" type="number" min={1} step={1} value={lastPage} disabled={busy} onChange={event => { setLastPage(event.target.value); setPages([]); setReviewed(false); setStatus(""); }} className="ml-1 w-20 rounded border border-slate-600 bg-slate-950 p-1 text-white" /></label>
-        <span>For longer PDFs, choose up to 10 pages at a time.</span>
+        <span>Leave blank to read the first batch, or select a range.</span>
       </fieldset>}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={!authenticated || !file || busy} onClick={() => void recognize()} className="min-h-10 rounded-lg border border-sky-600 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{busy ? "Reading…" : "Read text"}</button>
@@ -204,6 +221,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
           <h4 className="font-semibold">Original: {file.name}</h4>
           {fileKind === "pdf"
             ? <p className="text-xs text-slate-300">Open the downloaded original in a trusted PDF viewer to compare the pages in this pass. PDF content is not embedded here.</p>
+            : !showImagePreview ? <p className="text-xs text-slate-300">This large image will be resized locally for recognition. Open the downloaded original to compare the result.</p>
             // This is a validated local image blob. A remote image optimizer must not receive it.
             // eslint-disable-next-line @next/next/no-img-element
             : <img src={previewUrl} alt={`Original document: ${file.name}`} className="max-h-96 w-full rounded-lg border border-slate-700 object-contain" />}
@@ -226,6 +244,10 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
           <button type="button" disabled={!reviewed} onClick={() => void copyText()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Copy reviewed text</button>
           {onUseText && <button type="button" disabled={!reviewed || !file} onClick={() => file && onUseText({ fileName: file.name, pages: pages.map(page => ({ ...page })) })} className="min-h-10 rounded-lg border border-sky-500 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{useTextLabel}</button>}
         </div>
+        {fileKind === "pdf" && documentPages && nextPage <= documentPages && <div className="space-y-1">
+          <p className="text-xs text-slate-300">Copy or use this batch before continuing. Reading the next batch replaces the text above.</p>
+          <button type="button" disabled={!reviewed || busy} onClick={() => void recognize({ start: nextPage, end: nextBatchEnd })} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Read pages {nextPage}–{nextBatchEnd}</button>
+        </div>}
       </div>}
     </section>
   );

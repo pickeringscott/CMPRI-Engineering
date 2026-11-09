@@ -36,6 +36,20 @@ const cases = [
   ...mutationCases.map(([path, method]) => ({ path, method, expected: retiredPaths.has(path) ? [410] : anonymousDenied })),
 ];
 
+const troubleshootingPath = '/api/work-orders/00000000-0000-4000-8000-000000000042/troubleshooting';
+cases.push(
+  { path: troubleshootingPath, method: 'GET', expected: anonymousDenied },
+  { path: troubleshootingPath, method: 'PATCH', expected: anonymousDenied,
+    body: { contextKey: 'a'.repeat(64), expectedRevision: 0, itemId: 'step-1',
+      visitId: '00000000-0000-4000-8000-000000000043', mutationId: '00000000-0000-4000-8000-000000000044' } },
+  { path: `${troubleshootingPath}/exit`, method: 'POST', expected: anonymousDenied,
+    body: { visitId: '00000000-0000-4000-8000-000000000043' } },
+  { path: '/api/maintenance-reference?source=asset-upload&assetId=00000000-0000-4000-8000-000000000045',
+    method: 'GET', expected: anonymousDenied },
+  { path: '/api/maintenance-reference?source=asset-upload&assetId=00000000-0000-4000-8000-000000000045&imageId=media-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    method: 'GET', expected: anonymousDenied },
+);
+
 const equipmentCases = [
   ['/api/assets', 'GET'], ['/api/assets/documentation', 'GET'],
   ['/api/maintenance-reference', 'GET'], ['/api/assets', 'POST'], ['/api/assets', 'PATCH'],
@@ -96,7 +110,7 @@ async function runPhase(mode) {
         method:test.method, signal:AbortSignal.timeout(10000),
         headers:{...(test.method !== 'GET' ? {'Content-Type':'application/json'} : {}),
           ...(test.authorization ? {Authorization:test.authorization} : {})},
-        ...(test.method !== 'GET' ? {body:'{}'} : {}),
+        ...(test.method !== 'GET' ? {body:JSON.stringify(test.body || {})} : {}),
       });
       assert.ok(test.expected.includes(response.status), `${mode} ${test.method} ${test.path}: expected ${test.expected}, got ${response.status}`);
       if (test.error) assert.deepEqual(await response.json(), {error:test.error});

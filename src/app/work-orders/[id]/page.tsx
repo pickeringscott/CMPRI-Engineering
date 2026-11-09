@@ -15,6 +15,9 @@ import {workOrderListSnapshot} from "@/lib/work-order-list-sync";
 import PlainTextLinks from '@/components/PlainTextLinks';
 import {plainTextParts} from '@/lib/plain-text-links';
 import WorkOrderSupplies from "@/components/WorkOrderSupplies";
+import WorkOrderTroubleshootingChecklist from "@/components/WorkOrderTroubleshootingChecklist";
+import { deriveTroubleshootingChecklistContext } from "@/lib/work-orders/troubleshooting-checklist";
+import { registerActiveTroubleshootingVisit } from "@/lib/work-orders/troubleshooting-visits";
 
 import { createTicketWriteQueue } from "@/lib/work-orders/write-queue";
 import { pendingTicketField } from "@/lib/work-orders/pending-field";
@@ -33,11 +36,10 @@ import { getValidSession } from "@/lib/supabase/client";
 import { authorizationHeaders, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import SearchableSelect from "@/components/SearchableSelect";
-import CopyButton from "@/components/CopyButton";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
-import { canReadEquipment, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
+import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry } from "@/lib/ticket-note-presentation";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
@@ -70,14 +72,8 @@ type Asset = {
   generation: string | null;
   install_year: number | null;
   documentation_key: string | null;
-};
-type AssetDocument = {
-  name: string;
-  storage_path?: string;
-  url?: string | null;
-  source?: "asset" | "catalog";
-  verified?: boolean;
-  document_type?: string | null;
+  documentation_revision_id?: string | null;
+  documentation_verified_at?: string | null;
 };
 type WorkOrder = {
   guest_name?: string|null;
@@ -570,7 +566,49 @@ function cleanTicketReportedIssue(value: string, roomLabel: string) {
 export default function WorkOrderTicketPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const [restoredVisit, setRestoredVisit] = useState(0);
+  useEffect(() => {
+    const resume = (event: PageTransitionEvent) => {
+      if (event.persisted) setRestoredVisit(visit => visit + 1);
+    };
+    window.addEventListener("pageshow", resume);
+    return () => window.removeEventListener("pageshow", resume);
+  }, []);
+  return <WorkOrderTicketEditor key={`${id}:${restoredVisit}`} id={id} />;
+}
+
+function WorkOrderTicketEditor({ id }: { id: string }) {
   const router = useRouter();
+  const [troubleshootingVisitId] = useState(() => crypto.randomUUID());
+  const checklistExitFlushes = useRef(new Set<() => Promise<void>>());
+  const exitFallbackGeneration = useRef(0);
+  const exitInFlight = useRef(false);
+  const [exitFlushing, setExitFlushing] = useState(false);
+  const [exitError, setExitError] = useState("");
+  const pendingExitAction = useRef<(() => void) | null>(null);
+  const registerExitFlush = useCallback((flush: () => Promise<void>) => {
+    checklistExitFlushes.current.add(flush);
+    // Guide reloads can unmount a checklist before this editing visit ends.
+    // Keep its durable journal finalizer until the work-order page exits.
+    return () => {};
+  }, []);
+  useEffect(() => registerActiveTroubleshootingVisit(troubleshootingVisitId), [troubleshootingVisitId]);
+  useEffect(() => {
+    const generation = ++exitFallbackGeneration.current;
+    const finalizeLeavingVisit = () => {
+      // Browser history, reloads and tab closure cannot await a controlled exit.
+      // The server keeps each journal durable if the browser interrupts this attempt.
+      for (const flush of checklistExitFlushes.current) void flush().catch(() => undefined);
+    };
+    window.addEventListener("pagehide", finalizeLeavingVisit);
+    return () => {
+      window.removeEventListener("pagehide", finalizeLeavingVisit);
+      // Strict Mode immediately replays effects on the same editing visit.
+      // Only a genuine page unmount should end its journal.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      queueMicrotask(() => { if (exitFallbackGeneration.current === generation) finalizeLeavingVisit(); });
+    };
+  }, []);
 
   const [order, setOrderState] = useState<WorkOrder | null>(null);
   const orderRef = useRef<WorkOrder | null>(null);
@@ -584,12 +622,10 @@ export default function WorkOrderTicketPage() {
   }
 
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [assetDocumentResult, setAssetDocumentResult] = useState<{ assetId: string; identity: string; documents: AssetDocument[]; error: string } | null>(null);
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; manufacturer: string | null; modelFamily: string | null; modelNumber: string | null; knowledge: ManualKnowledge | null; status: string } | null>(null);
-  const [manualPagePreview, setManualPagePreview] = useState<number | null>(null);
+  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; documentationRevisionId?: string | null; documentationVerifiedAt?: string | null; manufacturer: string | null; modelFamily: string | null; modelNumber: string | null; knowledge: ManualKnowledge | null; status: string; reason?: string } | null>(null);
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
   const [workOrderImageError, setWorkOrderImageError] = useState("");
@@ -686,46 +722,21 @@ export default function WorkOrderTicketPage() {
   const selectedAsset = equipmentLocationMismatch ? undefined : storedAsset;
   const manualCurrent = !!selectedAsset && manualResult?.assetId === assetId &&
     manualResult?.documentationKey === selectedAsset?.documentation_key &&
+    manualResult?.documentationRevisionId === selectedAsset?.documentation_revision_id &&
+    manualResult?.documentationVerifiedAt === selectedAsset?.documentation_verified_at &&
     manualResult?.manufacturer === selectedAsset?.manufacturer &&
     manualResult?.modelFamily === selectedAsset?.model_family &&
     manualResult?.modelNumber === selectedAsset?.model_number;
-  const manualKnowledge = manualCurrent ? manualResult?.knowledge : null;
+  const manualKnowledge = manualCurrent && manualResult?.knowledge?.source?.source_kind === "asset-upload" ? manualResult.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
+  const manualReason = manualCurrent ? manualResult?.reason : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
-  const selectedAssetId = selectedAsset?.id;
-  const canReadAssetDocuments = canReadEquipment(cmpriSession?.user.role);
-  const documentIdentity = JSON.stringify([selectedAssetId, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number, selectedAsset?.documentation_key]);
-  const assetDocuments = assetDocumentResult && assetDocumentResult.identity === documentIdentity ? assetDocumentResult.documents : [];
-  const assetDocumentsError = assetDocumentResult && assetDocumentResult.identity === documentIdentity ? assetDocumentResult.error : "";
-
-  useEffect(() => {
-    let current = true;
-    if (!selectedAssetId || !canReadAssetDocuments) return () => { current = false; };
-    const stop = subscribeResources(["reference"], async () => {
-      try {
-        const response = await fetch(`/api/assets/documentation?asset_id=${encodeURIComponent(selectedAssetId)}`, {
-          headers: await authorizationHeaders(),
-          cache: "no-store",
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "Equipment PDFs could not be loaded.");
-        if (current) setAssetDocumentResult({
-          assetId: selectedAssetId,
-          identity: documentIdentity,
-          documents: Array.isArray(payload.documents) ? payload.documents as AssetDocument[] : [],
-          error: "",
-        });
-      } catch (error) {
-        if (current) setAssetDocumentResult({
-          assetId: selectedAssetId,
-          identity: documentIdentity,
-          documents: [],
-          error: error instanceof Error ? error.message : "Equipment PDFs could not be loaded.",
-        });
-      }
-    });
-    return () => { current = false; stop(); };
-  }, [canReadAssetDocuments, selectedAssetId, documentIdentity]);
+  const guideSource = manualKnowledge?.source;
+  const guideDocuments = guideSource?.source_kind === "asset-upload" && guideSource.storage_path ? [{
+    name: guideSource.source_file_name || guideSource.title || "Uploaded equipment document",
+    storage_path: guideSource.storage_path,
+    url: guideSource.file_url || guideSource.pdf_url,
+  }] : [];
 
   useEffect(() => {
     const pane = historyScrollRef.current;
@@ -1153,31 +1164,42 @@ export default function WorkOrderTicketPage() {
 
   async function loadManualForAsset(asset?: Asset, isCurrent: () => boolean = () => true) {
     if (!asset) return;
+    let sourceAsset = asset;
     let knowledge: ManualKnowledge | null = null;
     let documentationStatus = "lookup_unavailable";
+    let documentationReason = "The equipment’s uploaded document could not be checked. Only its approved document can provide instructions.";
     try {
       const session = await getValidSession();
       const token = session?.access_token;
       if (!token) return;
-      const response = await fetch(`/api/maintenance-reference?assetId=${encodeURIComponent(asset.id)}`, {
+      const response = await fetch(`/api/maintenance-reference?assetId=${encodeURIComponent(asset.id)}&source=asset-upload`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
       if (!response.ok) return;
       const payload = await response.json();
-      knowledge = normalizeManualKnowledge(payload?.manualKnowledge);
+      const currentAsset = Array.isArray(payload?.assets) ? payload.assets.find((item: Asset) => item?.id === asset.id) : null;
+      if (currentAsset) sourceAsset = { ...asset, ...currentAsset };
+      const candidate = normalizeManualKnowledge(payload?.manualKnowledge);
+      knowledge = candidate?.source?.source_kind === "asset-upload" && candidate.source.storage_path && /^[a-f0-9]{64}$/i.test(candidate.source.sha256 || "") && candidate.source.registered_file_id ? candidate : null;
       documentationStatus = String(payload?.documentation_status || (knowledge?.source?.verified ? "verified" : "not_found"));
+      documentationReason = candidate && !knowledge
+        ? "Only an approved document uploaded to this equipment can provide instructions."
+        : String(payload?.documentation_reason || "The approved uploaded document has no instructions matching this report.");
     } catch {
       knowledge = null;
     } finally {
       if (isCurrent()) setManualResult({
         assetId: asset.id,
-        documentationKey: asset.documentation_key,
-        manufacturer: asset.manufacturer,
-        modelFamily: asset.model_family,
-        modelNumber: asset.model_number,
+        documentationKey: sourceAsset.documentation_key,
+        documentationRevisionId: sourceAsset.documentation_revision_id,
+        documentationVerifiedAt: sourceAsset.documentation_verified_at,
+        manufacturer: sourceAsset.manufacturer,
+        modelFamily: sourceAsset.model_family,
+        modelNumber: sourceAsset.model_number,
         knowledge,
         status: documentationStatus,
+        reason: documentationReason,
       });
     }
   }
@@ -1245,14 +1267,12 @@ export default function WorkOrderTicketPage() {
     });
     return () => { current = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
+  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.documentation_revision_id, selectedAsset?.documentation_verified_at, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
 
   function handleAssetChange(newAssetId: string) {
     assetSelectionChanged.current = true;
     setManualResult(null);
-    setAssetDocumentResult(null);
     setAssetId(newAssetId);
-    setManualPagePreview(null);
 
     const asset = assets.find((item) => item.id === newAssetId);
     if (asset) {
@@ -1263,16 +1283,22 @@ export default function WorkOrderTicketPage() {
   }
 
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
-  const completedWorkNotes = `${notes} ${actionRootCause}`.trim();
-
-  const trustedManualKnowledge = manualKnowledge?.source?.verified === true;
+  const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
+    && !!manualKnowledge.source.storage_path && /^[a-f0-9]{64}$/i.test(manualKnowledge.source.sha256 || "") && !!manualKnowledge.source.registered_file_id;
   const matchingSymptomRules = trustedManualKnowledge ? guideRulesForIssue(manualKnowledge, combinedDiagnosticText) : [];
 
   const manualSteps = Array.from(
     new Set(matchingSymptomRules.flatMap((rule) => rule.steps))
-  ).filter((step) => !troubleshootingStepAlreadyDone(step, completedWorkNotes, []));
+  );
+  const checklistIssueSaved = issue.trim() === cleanTicketReportedIssue(order?.issue || "", order?.room || "").trim();
+  const checklistContextUnsaved = !checklistIssueSaved || assetId !== (order?.asset_id || "") || locationId !== (order?.location_id || "");
+  const checklistContext = deriveTroubleshootingChecklistContext({ issue: checklistIssueSaved ? order?.issue || "" : issue, reporter_notes: order?.reporter_notes || "", asset: selectedAsset || null }, manualKnowledge);
+  const checklistDisabledReason = exitFlushing ? "Saving this visit's checklist activity before leaving."
+    : !ticketReady || manualLoading || saving ? "Wait for the current work order and guidance to finish loading or saving."
+    : checklistContextUnsaved
+      ? "Save the reported issue, location, and equipment changes before updating this checklist." : undefined;
   const reportedCode = reportedDiagnosticCode(`${issue} ${order?.reporter_notes || ""}`);
-  const sourcePassages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], issue) : [];
+  const sourcePassages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText) : [];
   const manualErrorCodes = (() => {
     const byCode = new Map<string, ManualErrorCode>();
     if (trustedManualKnowledge) {
@@ -1304,7 +1330,7 @@ export default function WorkOrderTicketPage() {
       return { item, score };
     })
     .filter(({ item, score }) =>
-      (reportedCode && normalizeDiagnosticCode(item.code) === reportedCode) || score > 0
+      reportedCode ? normalizeDiagnosticCode(item.code) === reportedCode : score > 0
     )
     .sort((a, b) => {
       if (reportedCode) {
@@ -1369,11 +1395,36 @@ export default function WorkOrderTicketPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cmpriSession, order, initialFingerprint, currentFingerprint, hasUnsavedChanges, noteDraft, stagedNoteIds]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges) event.preventDefault(); };
+    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges || exitFlushing) event.preventDefault(); };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [hasUnsavedChanges]);
-  const closeEmbeddedTicket = useCallback(() => {
+  }, [hasUnsavedChanges, exitFlushing]);
+  const runTicketExit = useCallback(async (leave: () => void) => {
+    if (exitInFlight.current) return false;
+    exitInFlight.current = true;
+    setExitFlushing(true);
+    setExitError("");
+    const lifetime = readLifetime.current;
+    try {
+      for (const flush of checklistExitFlushes.current) await flush();
+      if (!lifetime.active || readLifetime.current !== lifetime) return false;
+      leave();
+      return true;
+    } catch (error) {
+      if (lifetime.active && readLifetime.current === lifetime) setExitError(error instanceof Error
+        ? `This view stayed open: ${error.message}`
+        : "The checklist activity could not be confirmed in the work-order note. Keep this view open and retry leaving.");
+      return false;
+    } finally {
+      exitInFlight.current = false;
+      if (lifetime.active && readLifetime.current === lifetime) setExitFlushing(false);
+    }
+  }, []);
+  const closeEmbeddedTicket = useCallback(async (beforeClose?: () => void) => runTicketExit(() => {
+    beforeClose?.();
+    const pending = pendingExitAction.current;
+    pendingExitAction.current = null;
+    if (pending) { pending(); return; }
     if (embedded && window.parent !== window) {
       window.parent.postMessage(
         { type: "cmpri-work-order-cancelled", modalKind: "workOrder", workOrderId: order?.id, modalToken },
@@ -1382,7 +1433,13 @@ export default function WorkOrderTicketPage() {
       return;
     }
     router.push("/engineering");
-  }, [embedded, modalToken, order?.id, router]);
+  }), [embedded, modalToken, order?.id, router, runTicketExit]);
+  function requestTicketNavigation(href: string) {
+    if (saving || issueSaveCount.current > 0 || saveInFlight.current || exitInFlight.current) return;
+    pendingExitAction.current = () => router.push(href);
+    if (hasUnsavedChanges) { setShowCancelConfirm(true); return; }
+    void closeEmbeddedTicket();
+  }
 
   async function addAssetFromTicket() {
     if (!order || !order.location_id || !newAssetType.trim()) {
@@ -1485,10 +1542,10 @@ export default function WorkOrderTicketPage() {
       setSaveState("idle");
       setMessage("This work order is now assigned to you.");
       if (embedded && window.parent !== window) {
-        window.parent.postMessage(
+        await runTicketExit(() => window.parent.postMessage(
           { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, modalToken },
           window.location.origin,
-        );
+        ));
       }
       return true;
     } catch (error) {
@@ -1548,8 +1605,8 @@ export default function WorkOrderTicketPage() {
           setIssue(latest => latest === text ? normalized : latest);
           setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), issue: normalized }));
           setMessage("Reported Issue saved.");
-          if (embedded && window.parent !== window) window.parent.postMessage(
-            { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: current.id, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin);
+          if (embedded && window.parent !== window) await runTicketExit(() => window.parent.postMessage(
+            { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: current.id, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin));
           return true;
         } catch (error) {
           setMessage(`Save error: ${error instanceof Error ? error.message : "Reported Issue update failed."}`);
@@ -1727,8 +1784,8 @@ export default function WorkOrderTicketPage() {
     setSaving(false);
     setMessage("Work order saved.");
     setSaveState("idle");
-    if (embedded && window.parent !== window) window.parent.postMessage(
-      { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, workOrder:workOrderListSnapshot(savedRow), modalToken }, window.location.origin);
+    if (embedded && window.parent !== window) await runTicketExit(() => window.parent.postMessage(
+      { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, workOrder:workOrderListSnapshot(savedRow), modalToken }, window.location.origin));
 
     return true;
   }
@@ -1749,10 +1806,11 @@ export default function WorkOrderTicketPage() {
   function discardLocalDraftAndClose() {
     if (saving || !cmpriSession || !order) return;
     try {
+      // A storage failure must keep this editing visit open before its journal
+      // is finalized. Retain in-memory edits and recovery until exit succeeds.
       localStorage.removeItem(`cmpri:ticket-draft:${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`);
-      recoveredDraft.current = false;
-      closeEmbeddedTicket();
-    } catch { setMessage("The local draft could not be cleared. Your text is still here."); }
+    } catch { setMessage("The local draft could not be cleared. Your text is still here."); return; }
+    void closeEmbeddedTicket(() => { recoveredDraft.current = false; });
   }
   const cancelTicket = useCallback(() => {
     if (saving || issueSaveCount.current > 0 || saveInFlight.current) return;
@@ -1965,7 +2023,7 @@ export default function WorkOrderTicketPage() {
       );
       return;
     }
-    router.push(`/work-orders/${encodeURIComponent(ticket.id)}`);
+    requestTicketNavigation(`/work-orders/${encodeURIComponent(ticket.id)}`);
   }
 
   function renderHistoryText(text: string) {
@@ -2034,8 +2092,9 @@ export default function WorkOrderTicketPage() {
   const checkout = checkoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-[16px] text-white">
-      <div className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
+    <main aria-busy={exitFlushing} className="min-h-screen bg-slate-950 text-[16px] text-white">
+      {exitFlushing && <p role="status" className="sr-only">Saving checklist activity before leaving this work order.</p>}
+      <div inert={exitFlushing} className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
         <div data-preview-locked-pane className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
           <div data-preview-mobile-number><button
               type="button"
@@ -2048,6 +2107,10 @@ export default function WorkOrderTicketPage() {
             {!embedded && (
               <Link
                 href="/engineering"
+                onClick={event => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault(); requestTicketNavigation("/engineering");
+                }}
                 className="text-xs font-semibold text-amber-400 hover:text-amber-300"
               >
                 ← Engineering Dashboard
@@ -2091,7 +2154,7 @@ export default function WorkOrderTicketPage() {
               <button
                 type="button"
                 onClick={cancelTicket}
-                disabled={saving || issueSaving}
+                disabled={saving || issueSaving || exitFlushing}
                 className="min-h-9 whitespace-nowrap rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
               >
                 Cancel
@@ -2099,7 +2162,7 @@ export default function WorkOrderTicketPage() {
               {(editableFields.length > 0 || canReviewCurrentTicket) && <button
                 type="button"
                 onClick={() => { void saveTicket(); }}
-                disabled={saving || saveState === "saved"}
+                disabled={saving || exitFlushing || saveState === "saved"}
                 className={`min-h-9 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors disabled:opacity-80 ${
                   saveState === "saved"
                     ? "border-emerald-500 bg-emerald-600 text-white"
@@ -2127,6 +2190,9 @@ export default function WorkOrderTicketPage() {
             {hasUnsavedChanges && <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">Download draft copy</button>}
           </div>
         )}
+
+        {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">Saving checklist activity to this work order before leaving…</p>}
+        {exitError && <p role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">{exitError}</p>}
 
         {localDraftFailed && hasUnsavedChanges && (
           <div role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">
@@ -2259,7 +2325,7 @@ export default function WorkOrderTicketPage() {
             </section>
 
 
-            <details className="rounded-2xl border border-slate-800 bg-slate-900 p-2">
+            <details className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="list-item cursor-pointer">
                 <h2 className="text-base font-bold leading-tight tracking-tight text-amber-400">
                   Suggested Troubleshooting
@@ -2267,99 +2333,81 @@ export default function WorkOrderTicketPage() {
                 {selectedAsset && (
                   <span className="truncate text-[11px] text-slate-500">
                     {manualLoading
-                      ? "Loading equipment documentation..."
-                      : manualSteps.length
-                        ? manualKnowledge?.source?.type === "Verbatim uploaded PDF excerpts" ? "Equipment-matched PDF excerpts" : "Verified manufacturer guidance"
-                        : "No exact verified manual match"}
+                      ? "Reading the equipment’s uploaded document..."
+                      : checklistContext.steps.length
+                        ? "Instructions from this equipment’s uploaded document"
+                        : "Describe the problem to find matching instructions"}
                   </span>
                 )}
               </summary>
 
               {!selectedAsset && (
-                <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-sm text-slate-300">
-                  Select equipment to check for an exact verified manufacturer and model match. No generic troubleshooting fallback is shown.
+                <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">
+                  Choose the equipment to read its uploaded manual.
                 </div>
               )}
 
               {selectedAsset && !manualLoading && !trustedManualKnowledge && (
-                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/15 p-3 text-sm text-amber-100">
-                  {manualStatus === "lookup_unavailable"
-                    ? "The exact manufacturer and model-family match could not be checked. No manual or generic troubleshooting fallback is shown."
+                <div className="mt-1 rounded-xl border border-amber-500/30 bg-amber-950/15 p-1 text-sm text-amber-100">
+                  {manualReason || (manualStatus === "lookup_unavailable"
+                    ? "The uploaded equipment document could not be checked. Try again or ask Engineering to review the attachment."
                     : manualStatus === "identity_incomplete"
-                      ? "A manufacturer and an exact model family or model number are required to select verified documentation. No manual or generic troubleshooting fallback is shown."
+                      ? "Engineering needs to save this equipment’s manufacturer and model before its uploaded manual can be checked."
                       : manualStatus === "no_guidance"
-                        ? "Verified documentation matches this equipment, but no troubleshooting guidance could be extracted from the PDF."
+                        ? "The uploaded document matches the equipment, but has no readable troubleshooting instructions."
                       : manualStatus === "ambiguous"
-                        ? "More than one verified manual matches this equipment. No guide was selected."
-                        : "No verified PDF exactly matches this manufacturer's model family or model number. No manual or generic troubleshooting fallback is shown."}
+                        ? "More than one approved document matches this equipment. Ask Engineering to choose the intended document."
+                        : "No approved uploaded document is available for this equipment.")}
                 </div>
               )}
 
-              <div className="mt-2 max-h-[26rem] overflow-y-auto pr-1">
+                {selectedAsset && trustedManualKnowledge && cmpriSession && (
+                  <WorkOrderTroubleshootingChecklist
+                    workOrderId={order.id}
+                    visitId={troubleshootingVisitId}
+                    registerExitFlush={registerExitFlush}
+                    session={cmpriSession}
+                    expectedContextIdentity={checklistContext.contextIdentity}
+                    ticketRevision={order.revision}
+                    disabledReason={checklistDisabledReason}
+                    previewSteps={checklistContextUnsaved ? checklistContext.steps : undefined}
+                    manualUrl={guideDocuments[0]?.url}
+                    reportedIssue={issue}
+                    equipmentName={selectedAsset.name}
+                    sourceFileName={guideDocuments[0]?.name}
+                    assetId={selectedAsset.id}
+                    sourceSha256={manualKnowledge?.source?.sha256 || ""}
+                  />
+                )}
+
+              <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
                 {manualKnowledge?.source?.title && (
-                  <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <p className="text-sm font-semibold">{manualKnowledge.source.title}</p>
-                    <p className={`mt-1 text-xs ${manualKnowledge?.source?.verified ? "text-emerald-400" : "text-slate-500"}`}>{manualKnowledge?.source?.verified ? (manualKnowledge.source.type === "Verbatim uploaded PDF excerpts" ? "Equipment identity matched to uploaded PDF" : "Verified equipment documentation") : "Equipment reference uploaded — verification pending"}</p>
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 p-1">
+                    <p className="text-sm font-semibold">Uploaded manual reference</p>
+                    <p className={`mt-1 text-xs ${trustedManualKnowledge ? "text-emerald-400" : "text-slate-500"}`}>{trustedManualKnowledge ? "Approved document uploaded to this equipment" : "Equipment reference uploaded — verification pending"}</p>
                     {(manualKnowledge.manufacturer || manualKnowledge.equipment) && (
-                      <p className="mt-1 text-xs text-slate-400">{[manualKnowledge.manufacturer, manualKnowledge.equipment].filter(Boolean).join(" · ")}</p>
+                      <p className="text-xs leading-tight text-slate-400">{[manualKnowledge.manufacturer, manualKnowledge.equipment].filter(Boolean).join(" · ")}</p>
                     )}
                     {selectedAsset?.documentation_key && (
                       <p className="mt-1 break-all text-[11px] text-slate-500">Documentation key: {selectedAsset.documentation_key}</p>
                     )}
-                    {manualKnowledge?.source?.source_file_name && (
-                      <p className="mt-1 truncate text-[11px] text-slate-500" title={manualKnowledge.source.source_file_name}>{manualKnowledge.source.source_file_name}</p>
-                    )}
-                    <p className="mt-2 text-[11px] leading-4 text-slate-400">{manualKnowledge.source.verified ? "Verified troubleshooting entries carry the exact manual page reference when the ingested PDF provided one." : "This upload is visible for reference, but its extracted troubleshooting content is not used until Engineering verifies the equipment documentation."}</p>
-                    {(manualKnowledge.source.file_url || manualKnowledge.source.pdf_url) && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <a
-                          href={manualKnowledge.source.file_url || manualKnowledge.source.pdf_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-md border border-sky-500/40 bg-sky-950/35 px-2.5 py-1.5 text-[11px] font-bold text-sky-100 hover:bg-sky-900/50"
-                        >
-                          Open Manual
-                        </a>
-                        <span className="text-[11px] text-sky-300">Manual page buttons below open the same PDF at the referenced page.</span>
-                      </div>
-                    )}
+                    <p className="text-[11px] leading-3 text-slate-400">Instructions are read directly from the approved document linked above.</p>
                   </div>
                 )}
 
-                {canReadAssetDocuments && assetDocumentsError && (
-                  <p role="status" className="mt-3 text-xs text-amber-200">{assetDocumentsError}</p>
-                )}
-                {canReadAssetDocuments && assetDocuments.length > 0 && (
-                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <p className="text-xs font-semibold text-slate-300">Linked equipment PDFs</p>
-                    <ul className="mt-1 space-y-1">
-                      {assetDocuments.map((document) => (
-                        <li key={document.storage_path || document.name} className="flex flex-wrap items-center gap-x-2 text-xs">
-                          {document.url
-                            ? <a href={document.url} target="_blank" rel="noreferrer" className="text-sky-300 underline underline-offset-2 hover:text-sky-200">{document.name}</a>
-                            : <span className="text-slate-300">{document.name}</span>}
-                          <span className={document.verified || document.source === "catalog" ? "text-emerald-300" : "text-slate-500"}>
-                            {document.source === "catalog" || document.verified ? "Verified documentation" : "Unverified reference"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {selectedAsset && trustedManualKnowledge && !manualKnowledge?.source_passages?.length && !manualSteps.length && !relevantErrorCodes.length && <p className="mt-3 text-sm text-slate-400">The verified manual has no extracted guidance matching this report. Open the linked PDF to review its troubleshooting section.</p>}
+                {selectedAsset && trustedManualKnowledge && !sourcePassages.length && !manualSteps.length && !relevantErrorCodes.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
 
                 {reportedCode && !matchingErrorCode && (
-                  <p className="mt-4 text-sm text-slate-400">
+                  <p className="mt-1 text-sm text-slate-400">
                     Reported code {reportedCode} has no exact matching entry in verified documentation for the selected asset.
                   </p>
                 )}
 
                 {relevantErrorCodes.length > 0 && (
-                  <div className="mt-4 space-y-3">
+                  <div className="mt-1 space-y-0">
                     <div>
                       <h3 className="text-sm font-semibold text-red-300">Fault / Diagnostic Code Reference</h3>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="text-xs leading-tight text-slate-500">
                         {reportedCode
                           ? "The reported code is listed first when the manual contains it."
                           : "Potentially relevant manual codes are references only; verify the actual displayed equipment code before applying a code-specific action."}
@@ -2368,88 +2416,42 @@ export default function WorkOrderTicketPage() {
                     {relevantErrorCodes.map((item) => {
                       const exact = !!reportedCode && normalizeDiagnosticCode(item.code) === reportedCode;
                       return (
-                        <div key={`${item.code}-${item.problem}`} className={`rounded-xl border p-4 ${exact ? "border-red-400/50 bg-red-950/25" : "border-slate-700 bg-slate-950"}`}>
-                          <div className="flex flex-wrap items-center gap-2">
+                        <div key={`${item.code}-${item.problem}`} className={`rounded-xl border p-1 ${exact ? "border-red-400/50 bg-red-950/25" : "border-slate-700 bg-slate-950"}`}>
+                          <div className="flex flex-wrap items-center gap-0.5">
                             <p className="font-semibold text-red-300">Code {item.code}</p>
                             {exact && <span className="rounded-full border border-red-400/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-200">Reported code</span>}
                           </div>
-                          <p className="mt-2 text-sm font-medium text-slate-100">{item.problem}</p>
-                          <p className="mt-2 text-sm text-slate-300"><span className="font-semibold text-slate-200">Solution / Action:</span> {item.action}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {!!item.source_pages?.length && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {item.source_pages.map((page) => (
-                                  <a key={page} href={`${item.source_url || manualKnowledge?.source?.file_url || manualKnowledge?.source?.pdf_url}#page=${page}`} target="_blank" rel="noreferrer" className="rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20">Manual p. {page}</a>
-                                ))}
-                              </div>
-                            )}
-                            <CopyButton text={`Code ${item.code}: ${item.problem}\nAction: ${item.action}`} label="Copy code" className="ml-auto" />
-                          </div>
+                          <p className="mt-0.5 text-sm font-medium text-slate-100">{item.problem}</p>
+                          <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Solution / Action:</span> {item.action}</p>
+
                         </div>
                       );
                     })}
                   </div>
                 )}
 
-                {!!manualKnowledge?.source_passages?.length && (
-                  <section className="mt-4 space-y-2">
+                {sourcePassages.length > 0 && (
+                  <section className="mt-1 space-y-0">
                     <h3 className="text-sm font-semibold text-sky-300">PDF troubleshooting and diagnostic pages</h3>
-                    <p className="text-xs text-slate-400">Verbatim PDF text. Open the referenced page to see tables and layout. These excerpts do not assert that an action has been performed.</p>
-                    {(sourcePassages.length ? sourcePassages : manualKnowledge.source_passages).map((passage, index) => (
-                      <details key={`${passage.source_file_name}-${passage.page}-${index}`} className="rounded-lg border border-slate-700 p-2">
-                        <summary className="cursor-pointer text-sm">{passage.source_file_name || manualKnowledge.source?.source_file_name} · {passage.kind === "diagnostic" ? "Diagnostic reference" : "Troubleshooting"} · page {passage.page}</summary>
-                        <a className="text-sky-300 underline" href={`${passage.source_url || manualKnowledge.source?.file_url}#page=${passage.page}`} target="_blank" rel="noreferrer">Open original PDF page</a>
-                        <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-slate-300">{passage.text}</pre>
+                    <p className="text-xs text-slate-400">Verbatim reference text from the document linked above. These excerpts do not assert that an action has been performed.</p>
+                    {sourcePassages.map((passage, index) => (
+                      <details key={`${passage.source_file_name}-${passage.page}-${index}`} className="rounded-lg border border-slate-700 p-0.5">
+                        <summary className="cursor-pointer text-sm">{passage.kind === "diagnostic" ? "Diagnostic reference" : "Troubleshooting reference"}</summary>
+                        <pre className="mt-0.5 whitespace-pre-wrap font-sans text-sm leading-tight text-slate-300">{passage.text}</pre>
                       </details>
                     ))}
                   </section>
                 )}
-                {!!manualKnowledge?.general_checks?.length && (
-                  <details className="mt-3 rounded-lg border border-slate-700 p-2">
-                    <summary className="cursor-pointer text-sm text-slate-400">Additional manufacturer reference checks</summary>
-                    <ul className="mt-2 space-y-2 text-sm text-slate-300">{manualKnowledge.general_checks.filter(step => !troubleshootingStepAlreadyDone(step, completedWorkNotes, [])).map((step, index) => <li key={index}>{step}</li>)}</ul>
-                  </details>
-                )}
-
-                {manualSteps.length > 0 && (
-                  <div className="mt-5">
-                    <h3 className="text-sm font-semibold text-sky-300">Verified manufacturer troubleshooting</h3>
-                    <ol className="mt-3 space-y-3 text-sm text-slate-300">
-                      {manualSteps.map((step, index) => {
-                        const sourceRule = matchingSymptomRules.find((rule) => rule.steps.includes(step));
-                        return (
-                          <li key={`${step}-${index}`} className="rounded-lg border border-sky-900/70 bg-slate-950/60 p-2.5">
-                            <div className="flex gap-2.5">
-                              <span className="font-semibold text-sky-300">{index + 1}.</span>
-                              <span className="flex-1">{step}</span>
-                              <CopyButton text={step} label="Copy" className="shrink-0" />
-                            </div>
-                            {!!sourceRule?.source_pages?.length && (
-                              <div className="mt-2 ml-6 flex flex-wrap gap-1.5">
-                                {sourceRule.source_pages.map((page) => (
-                                  <a key={page} href={`${sourceRule?.source_url || manualKnowledge?.source?.file_url || manualKnowledge?.source?.pdf_url}#page=${page}`} target="_blank" rel="noreferrer" className="rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20">Manual p. {page}</a>
-                                ))}
-                              </div>
-                            )}
-
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  </div>
-                )}
-
                 {displayedSteps.length > 0 && (
-                  <div className="mt-5">
+                  <div className="mt-1">
                     <h3 className="text-sm font-semibold text-amber-300">General issue-based checks</h3>
-                    <ol className="mt-3 space-y-3 text-sm text-slate-300">
+                    <ol className="mt-1 space-y-0 text-sm text-slate-300">
                       {displayedSteps.map((step, index) => {
                         return (
-                          <li key={`${step}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
-                            <div className="flex gap-2.5">
+                          <li key={`${step}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-0.5">
+                            <div className="flex gap-0.5">
                               <span className="font-semibold text-amber-400">{index + 1}.</span>
                               <span className="flex-1">{step}</span>
-                              <CopyButton text={step} label="Copy" className="shrink-0" />
                             </div>
                           </li>
                         );
@@ -2458,29 +2460,9 @@ export default function WorkOrderTicketPage() {
                   </div>
                 )}
 
-                {manualPagePreview && (manualKnowledge?.source?.file_url || manualKnowledge?.source?.pdf_url) && (
-                  <div className="mt-4 overflow-hidden rounded-xl border border-sky-500/30 bg-slate-950">
-                    <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
-                      <p className="text-xs font-semibold text-sky-200">Manufacturer documentation — page {manualPagePreview}</p>
-                      <button type="button" onClick={() => setManualPagePreview(null)} className="text-xs font-semibold text-slate-400 hover:text-white">Hide page</button>
-                    </div>
-                    <iframe
-                      title={`Manual page ${manualPagePreview}`}
-                      src={`${manualKnowledge.source.file_url || manualKnowledge.source.pdf_url}#page=${manualPagePreview}&view=FitH`}
-                      className="h-[34rem] w-full bg-white"
-                    />
-                  </div>
-                )}
-
-                {manualPagePreview && !(manualKnowledge?.source?.file_url || manualKnowledge?.source?.pdf_url) && (
-                  <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-100">
-                    The troubleshooting record references manual page {manualPagePreview}, but this manual has not yet been stored with a browser-accessible PDF URL. The page reference is preserved; inline preview will activate as soon as the document record includes its PDF URL.
-                  </div>
-                )}
-
-                {manualSteps.length === 0 && !manualKnowledge?.source_passages?.length && displayedSteps.length === 0 && relevantErrorCodes.length === 0 && !manualLoading && (
+                {trustedManualKnowledge && manualSteps.length === 0 && !manualKnowledge?.source_passages?.length && displayedSteps.length === 0 && relevantErrorCodes.length === 0 && !manualLoading && (
                   <p className="text-sm text-slate-400">
-                    No symptom-specific troubleshooting matched yet. Add more detail to the reported issue or notes.
+                    No instructions match this description yet. Describe what you see or hear in the reported issue.
                   </p>
                 )}
               </div>
@@ -2513,7 +2495,10 @@ export default function WorkOrderTicketPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">Linked External Activity</p>
                     <h2 className="mt-1 text-sm font-semibold">Parts, Shipments & Service Tickets</h2>
                   </div>
-                  <Link href="/engineering/purchasing" className="text-xs font-semibold text-amber-300 hover:underline">View all</Link>
+                  <Link href="/engineering/purchasing" onClick={event => {
+                    if (embedded && window.parent !== window || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault(); requestTicketNavigation("/engineering/purchasing");
+                  }} className="text-xs font-semibold text-amber-300 hover:underline">View all</Link>
                 </div>
 
                 {!!externalActivity.purchases?.length && (
@@ -2625,7 +2610,10 @@ export default function WorkOrderTicketPage() {
                 {roomOperationalContext.pm?.error
                   ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
                   : <p className="mt-1 text-xs leading-tight text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
-                <Link href="/engineering/preventive-maintenance" className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
+                <Link href="/engineering/preventive-maintenance" onClick={event => {
+                  if (embedded && window.parent !== window || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault(); requestTicketNavigation("/engineering/preventive-maintenance");
+                }} className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventive Maintenance</Link>
               </div>
             </>}
           </section>
@@ -2638,6 +2626,8 @@ export default function WorkOrderTicketPage() {
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
           event.stopPropagation();
+          if (exitFlushing) return;
+          pendingExitAction.current = null;
           setShowCancelConfirm(false);
         }}>
           <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
@@ -2645,13 +2635,16 @@ export default function WorkOrderTicketPage() {
             <p className="mt-2 text-sm text-slate-400">Your changes have not been saved to the work order. You can keep a draft on this device if browser storage is available. Leaving this view does not change the ticket status.</p>
             {localDraftFailed && <p role="alert" className="mt-2 text-sm text-amber-300">The draft could not be saved on this device. Keep editing, save the work order, or download a copy before leaving.</p>}
             {hasPendingNoteMedia && <p role="alert" className="mt-2 text-sm text-amber-300">Selected attachments are not saved in a device draft. Submit or remove them before closing and keeping your text.</p>}
+            {exitError && <p role="alert" className="mt-2 text-sm text-amber-300">{exitError}</p>}
+            {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">Saving checklist activity before leaving…</p>}
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" disabled={saving} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">Discard draft and close</button>
+              <button type="button" disabled={saving || exitFlushing} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">Discard draft and close</button>
               <button type="button" onClick={exportUnsavedDraft} className="min-h-10 rounded-lg border border-sky-600 px-3 text-sm text-sky-200">Download draft copy</button>
               <button
                 type="button"
                 autoFocus
-                onClick={() => setShowCancelConfirm(false)}
+                disabled={exitFlushing}
+                onClick={() => { pendingExitAction.current = null; setShowCancelConfirm(false); }}
                 className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800"
               >
                 Keep editing
@@ -2659,7 +2652,7 @@ export default function WorkOrderTicketPage() {
               <button
                 type="button"
                 onClick={closeAndKeepDraft}
-                disabled={saving || hasPendingNoteMedia}
+                disabled={saving || exitFlushing || hasPendingNoteMedia}
                 className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500"
               >
                 Close and keep draft

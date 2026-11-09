@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
-const migration=readFileSync(new URL('../supabase/migrations/20261019195949_cmpri_all_member_work_order_reads.sql',import.meta.url),'utf8');
+const migration=readFileSync(new URL('../supabase/migrations/20261019202514_cmpri_all_member_work_order_reads.sql',import.meta.url),'utf8');
 const hotel='00000000-0000-4000-8000-000000000001', otherHotel='00000000-0000-4000-8000-000000000002';
 const user='00000000-0000-4000-8000-000000000003', other='00000000-0000-4000-8000-000000000004';
 const statuses=['Open','In Progress','Closed','Completed','Will Not Do','Pending Verification','Draft','Unknown'];

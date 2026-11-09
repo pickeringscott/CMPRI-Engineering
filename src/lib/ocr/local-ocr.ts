@@ -5,23 +5,20 @@ export type LocalOcrWord = {
   bbox: { x0: number; y0: number; x1: number; y1: number };
 };
 export type LocalOcrPage = { page: number; text: string; confidence: number; words: LocalOcrWord[] };
-export type LocalOcrResult = { fileName: string; pages: LocalOcrPage[] };
+export type LocalOcrResult = { fileName: string; pages: LocalOcrPage[]; totalPages: number };
 export type LocalOcrProgress = { status: string; progress: number; page: number; totalPages: number };
 export type LocalOcrOptions = {
   signal?: AbortSignal;
   onProgress?: (event: LocalOcrProgress) => void;
-  /** Callers may lower the bound; a document is never allowed more than ten pages. */
+  /** Callers may lower the bound; each batch contains at most ten pages. */
   maxPages?: number;
   /** Process a bounded section of a longer PDF; page numbers are 1-based. */
   pageRange?: { start: number; end: number };
 };
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
 const MAX_DIMENSION = 6000;
 const MAX_PAGES = 10;
-const MAX_DOCUMENT_PAGES = 1000;
 const ASSET_ROOT = '/local-ocr/tesseract-7.0.0-core-7.0.0-eng-1.0.0-pdf-6.3.289-app-v1';
 
 function cancelled() { return new DOMException('Text recognition was cancelled.', 'AbortError'); }
@@ -37,10 +34,33 @@ export function localOcrPaths(origin: string) {
 
 type OcrKind = 'image' | 'pdf';
 
-/** Accept only bounded, supported local files. Validate signatures, not just extensions. */
+/** Phone JPEGs may store pixels sideways and describe their display rotation in EXIF. */
+function exifOrientation(bytes: Uint8Array, start: number, length: number): number | undefined {
+  const end = Math.min(bytes.length, start + length);
+  if (end - start < 14 || String.fromCharCode(...bytes.slice(start, start + 6)) !== 'Exif\0\0') return undefined;
+  const tiff = start + 6;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const little = bytes[tiff] === 0x49 && bytes[tiff + 1] === 0x49;
+  if (!little && !(bytes[tiff] === 0x4d && bytes[tiff + 1] === 0x4d)) return 1;
+  if (view.getUint16(tiff + 2, little) !== 42) return 1;
+  const directory = tiff + view.getUint32(tiff + 4, little);
+  if (directory < tiff || directory + 2 > end) return 1;
+  const count = view.getUint16(directory, little);
+  for (let index = 0; index < count; index++) {
+    const entry = directory + 2 + index * 12;
+    if (entry + 12 > end) break;
+    if (view.getUint16(entry, little) === 0x112 && view.getUint16(entry + 2, little) === 3 && view.getUint32(entry + 4, little) === 1) {
+      const orientation = view.getUint16(entry + 8, little);
+      return orientation >= 1 && orientation <= 8 ? orientation : 1;
+    }
+  }
+  return 1;
+}
+
+/** Inspect only the signature here; resource handling belongs to recognition. */
 export async function localOcrFileKind(file: File): Promise<OcrKind> {
-  if (!file || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > MAX_PDF_BYTES) {
-    throw new Error('Choose a nonempty image or PDF no larger than 50 MiB.');
+  if (!file || !Number.isSafeInteger(file.size) || file.size < 1) {
+    throw new Error('Choose a nonempty image or PDF.');
   }
   const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
   const isPdf = bytes.length >= 5 && [37,80,68,70,45].every((v, i) => bytes[i] === v);
@@ -48,19 +68,16 @@ export async function localOcrFileKind(file: File): Promise<OcrKind> {
   const isJpeg = bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   const isWebp = bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP';
   if (isPdf) return 'pdf';
-  if (isPng || isJpeg || isWebp) {
-    if (file.size > MAX_IMAGE_BYTES) throw new Error('Choose an image no larger than 10 MiB.');
-    return 'image';
-  }
+  if (isPng || isJpeg || isWebp) return 'image';
   throw new Error('Choose a PNG, JPEG, WebP image, or PDF.');
 }
 
-/** Read bounded image headers before decoding to reject oversized images. */
+/** Read bounded image headers before choosing a working resolution. */
 export async function localOcrImageDimensions(file: File): Promise<{ width: number; height: number }> {
   // JPEG metadata can precede dimensions; cap the read and fail closed if the
   // image header is unusually large or incomplete.
   const bytes = new Uint8Array(await file.slice(0, Math.min(file.size, 1024 * 1024)).arrayBuffer());
-  let width = 0, height = 0;
+  let width = 0, height = 0, orientation = 1;
   const be16 = (offset: number) => bytes[offset] * 256 + bytes[offset + 1];
   const le16 = (offset: number) => bytes[offset] + bytes[offset + 1] * 256;
   if (bytes.length >= 24 && [137,80,78,71,13,10,26,10].every((v, i) => bytes[i] === v)) {
@@ -77,8 +94,9 @@ export async function localOcrImageDimensions(file: File): Promise<{ width: numb
       if (pos + 1 >= bytes.length) break;
       const size = be16(pos);
       if (size < 2 || pos + size > bytes.length) break;
+      if (marker === 0xe1) orientation = exifOrientation(bytes, pos + 2, size - 2) ?? orientation;
       if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker) && size >= 7) {
-        height = be16(pos + 3); width = be16(pos + 5); break;
+        height = be16(pos + 3); width = be16(pos + 5);
       }
       pos += size;
     }
@@ -94,9 +112,10 @@ export async function localOcrImageDimensions(file: File): Promise<{ width: numb
       height = 1 + (bytes[22] >> 6) + bytes[23] * 4 + (bytes[24] & 0x0f) * 1024;
     }
   }
-  if (!width || !height || width > MAX_DIMENSION || height > MAX_DIMENSION || width * height > MAX_PIXELS) {
-    throw new Error('The image dimensions are missing, invalid, or too large to recognize safely.');
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1) {
+    throw new Error('The image dimensions are missing or invalid.');
   }
+  if (orientation >= 5) return { width: height, height: width };
   return { width, height };
 }
 
@@ -144,12 +163,47 @@ async function loadLocalModel(url: string, signal?: AbortSignal): Promise<Uint8A
 function pdfScale(width: number, height: number) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) throw new Error('The PDF page has invalid dimensions.');
   const scale = Math.min(2, MAX_DIMENSION / width, MAX_DIMENSION / height, Math.sqrt(MAX_PIXELS / (width * height)));
-  if (!Number.isFinite(scale) || scale < 0.1) throw new Error('The PDF page is too large to recognize safely.');
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error('The PDF page has invalid dimensions.');
   return scale;
 }
 
+/** Decode once at a bounded working resolution; never pass the original to OCR. */
+async function imageCanvas(file: File, signal?: AbortSignal): Promise<HTMLCanvasElement> {
+  const dimensions = await localOcrImageDimensions(file);
+  checkAbort(signal);
+  if (typeof createImageBitmap !== 'function') throw new Error('This browser cannot prepare the image for recognition. Try a current browser.');
+  const scale = Math.min(1, MAX_DIMENSION / dimensions.width, MAX_DIMENSION / dimensions.height, Math.sqrt(MAX_PIXELS / dimensions.width / dimensions.height));
+  const width = Math.max(1, Math.floor(dimensions.width * scale));
+  const height = Math.max(1, Math.floor(dimensions.height * scale));
+  const canvas = document.createElement('canvas');
+  let released = false;
+  const release = (bitmap: ImageBitmap) => { if (!released) { released = true; bitmap.close(); } };
+  try {
+    const decode = createImageBitmap(file, { resizeWidth: width, resizeHeight: height, resizeQuality: 'high' });
+    // A decoder can finish after the caller has cancelled and left this scope.
+    void decode.then(bitmap => { if (signal?.aborted) release(bitmap); }, () => {});
+    const bitmap = await abortable(decode, signal);
+    try {
+      checkAbort(signal);
+      if (!Number.isSafeInteger(bitmap.width) || !Number.isSafeInteger(bitmap.height) || bitmap.width < 1 || bitmap.height < 1) throw new Error('The decoded image has invalid dimensions.');
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context) throw new Error('This device could not prepare the image for recognition.');
+      // Transparent scans need a paper background; opaque canvases start black.
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(bitmap, 0, 0, width, height);
+    } finally { release(bitmap); }
+    return canvas;
+  } catch (error) {
+    canvas.width = 0; canvas.height = 0;
+    if (signal?.aborted) throw cancelled();
+    throw new Error(`This device could not prepare the image for recognition: ${error instanceof Error ? error.message : 'image decoding failed'}`);
+  }
+}
+
 /**
- * Recognize a single image or bounded PDF entirely in the browser. The result
+ * Recognize a single image or a bounded PDF batch entirely in the browser. The result
  * is an editable suggestion: OCR can misread or omit text and is not a save.
  * Worker/model/PDF runtime files load only from pinned same-origin assets.
  */
@@ -167,23 +221,6 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
   }
   if (kind === 'image' && range && (range.start !== 1 || range.end !== 1)) throw new Error('An image has only one page.');
   const paths = localOcrPaths(window.location.origin);
-
-  // A single decoded image can otherwise exhaust browser memory even when its
-  // compressed input is small. Do not keep the bitmap or upload it elsewhere.
-  if (kind === 'image') {
-    await localOcrImageDimensions(file);
-    checkAbort(signal);
-    if (typeof createImageBitmap !== 'function') throw new Error('This browser cannot safely inspect the image. Try a current browser or a CSV file.');
-    const bitmapPromise = createImageBitmap(file);
-    // The decoder can finish after cancellation; release that late bitmap too.
-    void bitmapPromise.then(bitmap => { if (signal?.aborted) bitmap.close(); }, () => {});
-    const bitmap = await abortable(bitmapPromise, signal);
-    try {
-      if (!bitmap.width || !bitmap.height || bitmap.width > MAX_DIMENSION || bitmap.height > MAX_DIMENSION || bitmap.width * bitmap.height > MAX_PIXELS) {
-        throw new Error('The image is too large to recognize safely. Resize it and try again.');
-      }
-    } finally { bitmap.close(); }
-  }
 
   let currentPage = 0;
   let totalPages = 1;
@@ -234,7 +271,7 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
   let pdfTask: { destroy: () => Promise<void> } | undefined;
   try {
     const pages: LocalOcrPage[] = [];
-    const recognize = async (input: File | HTMLCanvasElement, page: number) => {
+    const recognize = async (input: HTMLCanvasElement, page: number) => {
       checkAbort(signal);
       currentPage = page;
       const result = await abortable(worker.recognize(input, {}, { text: true, blocks: true }), signal);
@@ -244,36 +281,44 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
       pages.push({ page, text: result.data.text || '', confidence: result.data.confidence, words });
     };
     if (kind === 'image') {
-      await recognize(file, 1);
+      const canvas = await imageCanvas(file, signal);
+      try { await recognize(canvas, 1); }
+      finally { canvas.width = 0; canvas.height = 0; }
     } else {
       const pdfjs = await import('pdfjs-dist');
       checkAbort(signal);
       pdfjs.GlobalWorkerOptions.workerSrc = paths.pdfWorkerPath;
-      const data = new Uint8Array(await abortable(file.arrayBuffer(), signal));
+      let data: Uint8Array;
+      try { data = new Uint8Array(await abortable(file.arrayBuffer(), signal)); }
+      catch (error) {
+        if (signal?.aborted) throw cancelled();
+        throw new Error(`This device could not read the PDF bytes: ${error instanceof Error ? error.message : 'file reading failed'}`);
+      }
+      checkAbort(signal);
       const task = pdfjs.getDocument({ data, useSystemFonts: true, useWorkerFetch: false });
       pdfTask = task;
       const pdf = await abortable(task.promise, signal);
-      if (pdf.numPages < 1 || pdf.numPages > MAX_DOCUMENT_PAGES) throw new Error(`Choose a PDF with at most ${MAX_DOCUMENT_PAGES} pages.`);
-      if (!range && pdf.numPages > maxPages) throw new Error(`This PDF has ${pdf.numPages} pages. Select a range of at most ${maxPages} pages.`);
+      if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) throw new Error('The PDF has an invalid page count.');
       if (range && range.end > pdf.numPages) throw new Error(`This PDF has only ${pdf.numPages} pages.`);
       const start = range?.start ?? 1;
-      const end = range?.end ?? pdf.numPages;
+      const end = range?.end ?? Math.min(pdf.numPages, maxPages);
       // Progress reports the source page number, so show the document's page
       // count rather than the size of the selected range (e.g. page 20 of 100).
       totalPages = pdf.numPages;
       for (let number = start; number <= end; number++) {
         checkAbort(signal);
         const page = await abortable(pdf.getPage(number), signal);
-        const base = page.getViewport({ scale: 1 });
-        const viewport = page.getViewport({ scale: pdfScale(base.width, base.height) });
         const canvas = document.createElement('canvas');
-        canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-        const context = canvas.getContext('2d', { alpha: false });
-        if (!context) throw new Error('The browser could not render this PDF page.');
-        const render = page.render({ canvas, canvasContext: context, viewport });
-        const cancelRender = () => render.cancel();
-        signal?.addEventListener('abort', cancelRender, { once: true });
+        let render: ReturnType<typeof page.render> | undefined;
+        const cancelRender = () => render?.cancel();
         try {
+          const base = page.getViewport({ scale: 1 });
+          const viewport = page.getViewport({ scale: pdfScale(base.width, base.height) });
+          canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+          const context = canvas.getContext('2d', { alpha: false });
+          if (!context) throw new Error('The browser could not render this PDF page.');
+          render = page.render({ canvas, canvasContext: context, viewport });
+          signal?.addEventListener('abort', cancelRender, { once: true });
           await abortable(render.promise, signal);
           await recognize(canvas, number);
         } finally {
@@ -283,7 +328,7 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
         }
       }
     }
-    return { fileName: file.name, pages };
+    return { fileName: file.name, pages, totalPages };
   } finally {
     signal?.removeEventListener('abort', terminateOnAbort);
     if (pdfTask) await pdfTask.destroy().catch(() => {});

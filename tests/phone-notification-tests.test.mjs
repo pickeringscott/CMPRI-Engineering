@@ -88,7 +88,7 @@ before(async()=>{
     create table hotel_members (hotel_id uuid,user_id uuid,active boolean);
     create table cmpri_user_notification_schedules (hotel_id uuid,user_id uuid,timezone text,schedule jsonb);
     create table cmpri_web_push_subscriptions (id uuid primary key,hotel_id uuid,recipient_user_id uuid,enabled boolean,endpoint text,subscription jsonb);`);
-  await db.exec(readFileSync(new URL('../supabase/migrations/20261013134405_cmpri_current_device_push_tests.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261013142145_cmpri_current_device_push_tests.sql',import.meta.url),'utf8'));
   process.env.WEB_PUSH_VAPID_PUBLIC_KEY='fixture-public';process.env.WEB_PUSH_VAPID_PRIVATE_KEY='fixture-private';process.env.WEB_PUSH_VAPID_SUBJECT='mailto:test@example.invalid';
 });
 beforeEach(async()=>{

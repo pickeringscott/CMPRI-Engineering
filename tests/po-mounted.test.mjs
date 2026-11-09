@@ -36,11 +36,11 @@ for(const table of ['cmpri_inventory_items','cmpri_work_order_items','cmpri_inve
   await db.exec(baseline.slice(a,baseline.indexOf('\n);',a)+3));
   await db.exec(`alter table ${table} add primary key(id)`);
 }
-await db.exec(fs.readFileSync('supabase/migrations/20261016211655_cmpri_po_receiving.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261017181855_cmpri_po_receiving.sql','utf8'));
 const aclBefore=(await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl;
 await db.exec(fs.readFileSync('supabase/proposals/manual-order-receiving.sql','utf8'));
 assert.equal((await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl,aclBefore);
-await db.exec(fs.readFileSync('supabase/migrations/20261022062702_cmpri_cumulative_receipt_guard.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261022070416_cmpri_cumulative_receipt_guard.sql','utf8'));
 await db.query('insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand,active) values($1,$2,$3,7,true)',[item,hotel,'Isolated supply']);
 let rpcCalls=0,loseRpcResponse=false;
 const admin={

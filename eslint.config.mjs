@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "_update-backups/**",
+    // Versioned third-party OCR runtimes copied by build:local-ocr.
+    "public/local-ocr/**",
     "next-env.d.ts",
   ]),
 ]);

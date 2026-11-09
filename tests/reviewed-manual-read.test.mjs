@@ -32,6 +32,7 @@ function fixture(payload = reviewed, catalog = true, fileError = null) {
     require(name) {
       if (name === '@/lib/server/pre-consolidation/maintenance-reference-route') return { GET: async () => null };
       if (name === '@/lib/server/consolidation-stage') return { dispatchConsolidation: async () => null };
+      if (name === '@/lib/server/uploaded-asset-guide') return { readUploadedAssetMaintenanceReference: async () => { throw Error('Default catalog reads must not call the uploaded-asset reader'); } };
       if (name === '@/lib/server/asset-file-register') return registerExports;
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status || 200 }) } };
       if (name === '@/lib/constants') return { HOTEL_ID: 'hotel' };
