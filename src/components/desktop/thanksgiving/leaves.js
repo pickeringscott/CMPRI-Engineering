@@ -15,7 +15,7 @@
   {name:'Bur oak',outline:'M30 3C42 1 49 10 41 17C54 12 61 24 47 29C59 31 57 42 42 40L36 44C48 44 53 54 41 58L33 57L32 67L29 67L28 57C14 63 9 54 21 46L23 41C3 47-1 33 14 30C0 24 6 13 19 18C11 9 18 2 30 3Z',veins:'M30 9L30 66M30 20L22 11M30 20L38 11M30 31L12 22M30 31L49 22M30 39L13 37M30 39L47 36M30 51L18 53M30 51L43 52'},
   {name:'Pawpaw',outline:'M30 2C43 6 49 18 47 32C45 47 36 58 31 64L31 69L28 69L29 63C20 54 12 43 12 29C11 15 20 6 30 2Z',veins:'M30 7L30 67M30 18L38 13M30 28L43 20M30 38L43 29M30 48L40 40M30 56L35 50M30 22L21 15M30 32L17 24M30 42L18 34M30 52L23 44'}
  ];
- // Retain landed leaves separately from the 96 falling leaves. Each field keeps
+ // Retain landed leaves separately from the falling leaves. Each field keeps
  // its own bounded pile, preserving its existing place behind/in front of the art.
  const capacity=480, piles={leavesA:[],leavesB:[]};
  let config={count:0,size:42},pool=[],last=0,elapsed=0,paused=false,frameId=null;

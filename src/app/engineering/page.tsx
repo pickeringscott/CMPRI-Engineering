@@ -1,5 +1,4 @@
 "use client";
-import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
@@ -621,7 +620,6 @@ export default function EngineeringDashboardPage() {
             The hidden header lets the artwork observe its eventual height. */}
         <header className="cmpri-desktop-topbar" hidden aria-hidden="true" />
         <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
-          <SiteSeasonalBackground />
           <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 mx-auto mt-4 w-fit rounded-[22px] border p-4 text-center text-[16pt] font-semibold">
             Loading Dashboard...<br />Have a wonderful day!
           </p>
@@ -852,7 +850,6 @@ export default function EngineeringDashboardPage() {
       </header>
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
-        <SiteSeasonalBackground />
         {windows.length === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
         )}

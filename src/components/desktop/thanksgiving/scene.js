@@ -4,7 +4,19 @@
   const scene = document.getElementById('scene');
   const mobile = matchMedia('(max-width: 767px)');
   let header;
-  try { header = window.parent.document.querySelector('.cmpri-desktop-topbar'); } catch {}
+  let headerResize;
+  function updateHeader() {
+    let next;
+    try { next = window.parent.document.querySelector('.cmpri-desktop-topbar'); } catch {}
+    if (next === header) return;
+    headerResize?.disconnect();
+    header = next;
+    if (header && typeof ResizeObserver !== 'undefined') {
+      headerResize = new ResizeObserver(renderLayout);
+      headerResize.observe(header);
+    }
+    renderLayout();
+  }
   function renderLayout() {
     const mode = mobile.matches ? 'mobile' : 'desktop';
     const layout = layouts[mode];
@@ -42,8 +54,14 @@
   addEventListener('resize', renderLayout);
   // Only the desktop greeting follows the header's clearance. The turkey,
   // pumpkins, leaf layers and full-viewport origin retain their fixed layout.
-  const headerResize = header && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(renderLayout) : null;
-  headerResize?.observe(header);
-  addEventListener('pagehide', () => headerResize?.disconnect(), { once: true });
+  let headerObserver;
+  try {
+    if (window.parent !== window) {
+      headerObserver = new MutationObserver(updateHeader);
+      headerObserver.observe(window.parent.document.body, { childList: true, subtree: true });
+    }
+  } catch {}
+  updateHeader();
+  addEventListener('pagehide', () => { headerResize?.disconnect(); headerObserver?.disconnect(); }, { once: true });
   renderLayout();
 })();

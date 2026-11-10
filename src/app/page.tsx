@@ -11,7 +11,6 @@ import {
   OAUTH_PENDING_KEY,
 } from "@/lib/supabase/client";
 import { APP_TITLE } from "@/lib/constants";
-import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 
 async function authorizedLanding(token: string, signal?: AbortSignal): Promise<"/work-orders" | "/technician" | "/engineering" | "/front-desk"> {
@@ -152,7 +151,6 @@ export default function SignInPage() {
   const showLoading = redirecting || (initializing && processingOAuthCallback);
   return (
     <main data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-sign-in relative isolate grid min-h-[100svh] w-full items-start justify-items-center overflow-y-auto overscroll-contain px-4 pb-8 pt-4 sm:pt-6">
-      <SiteSeasonalBackground />
       {showLoading ? <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 rounded-[22px] border p-4 text-center text-[16pt] font-semibold">
         Loading Dashboard...<br />
         Have a wonderful day!

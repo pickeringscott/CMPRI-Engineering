@@ -6,6 +6,7 @@ import ProfileNotificationInbox from "@/components/ProfileNotificationInbox";
 import GlobalModalHost from "@/components/GlobalModalHost";
 import UserPresence from "@/components/UserPresence";
 import ModalTheme from "@/components/ModalTheme";
+import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
 import { SITE_THEME_COLOR } from "@/lib/ui/site-seasonal-theme";
 import "./globals.css";
 
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
+        <SiteSeasonalBackground />
         <ModalTheme />
         <UserPresence />
         {children}
