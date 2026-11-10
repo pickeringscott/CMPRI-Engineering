@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- Signed attachment previews use their original, potentially transient URLs. */
 "use client";
 import React,{useEffect,useRef,useState} from 'react';
 import {createPortal,flushSync} from 'react-dom';

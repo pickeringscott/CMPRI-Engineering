@@ -126,12 +126,13 @@ export default function RoomsPage() {
   }, []);
   useEffect(() => {
     let active = true;
+    const generation = loadGeneration;
     void loadCmpriSession().then(session => {
       if (!active) return;
       if (!hasCapability(session, "view_engineering_operations")) { window.location.replace(session.landing); return; }
       setPageAllowed(true); void load();
     }).catch(() => { if (active) window.location.replace("/"); });
-    return () => { active = false; loadGeneration.current++; };
+    return () => { active = false; generation.current++; };
   }, [load]);
   useEffect(() => {
     if (!pageAllowed) return;

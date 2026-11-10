@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- Report images are generated data URLs with intrinsic dimensions. */
 import styles from "./GssScorecard.module.css";
 
 export type SourceReport = {

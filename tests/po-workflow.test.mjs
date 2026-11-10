@@ -4,7 +4,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import ts from 'typescript';
 import {PGlite} from '@electric-sql/pglite';
-import {poOrderBadge,wholePoCount,receiptBlock,stockAdded,recordedPoValue,poHotelDate,receivedPoSpending} from '../src/lib/po-workflow.ts';
+import {poOrderBadge,wholePoCount,receiptBlock,stockAdded,recordedPoValue,poHotelDate} from '../src/lib/po-workflow.ts';
 assert.equal(poOrderBadge({origin:'manual',acceptance:'unresolved'}),'Recorded · Manually Entered');
 assert.equal(poOrderBadge({origin:'manual',acceptance:'accepted'}),'Accepted · Manually Entered');
 assert.equal(poOrderBadge({origin:'ibuy',acceptance:'submitted'}),'Submitted');

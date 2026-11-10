@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions -- This file is a function expression passed to Playwright evaluate. */
 (selector = 'html,body,body *') => {
   // Playwright passes null when evaluate() has no argument.
   selector ||= 'html,body,body *';

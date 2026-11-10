@@ -37,7 +37,8 @@ function fixture() {
       if (hold) { hold = false; await new Promise(resolve => release = resolve); }
       if (fail) throw Error('connection lost');
       assert.equal(body.expected_revision, server.revision);
-      const { expected_revision, ...update } = body;
+      const update = { ...body };
+      delete update.expected_revision;
       server = { ...server, ...update, revision: server.revision + 1 };
       changeServer(server);
       return { ok: true, json: async () => ({ workOrder: { ...server } }) };

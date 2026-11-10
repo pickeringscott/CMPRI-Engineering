@@ -7,7 +7,7 @@ import * as rules from '../src/lib/pm/task-review.ts';
 function fixture({role='technician', rows=[], logs=[], conflict=false, canEdit=true}={}) {
  const writes=[];
  const template={id:'workbook:daily',kind:'routine',cadence:'daily',checklist:[{id:'fire',label:'Check Fire Panel'},{id:'pool',label:'Log Pool Readings'}]};
- const admin={from(table){
+ const admin={from(){
   let values;
   const q={select:()=>q,match:()=>q,in:()=>q,order:()=>q,limit:async()=>({data:rows,error:null}),eq:()=>q,
    then:(resolve)=>resolve({data:logs,error:null}),

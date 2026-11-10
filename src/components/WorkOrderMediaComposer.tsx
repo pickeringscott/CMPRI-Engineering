@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- Local object URLs preview media before upload. */
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import WorkOrderMediaControl from './WorkOrderMediaControl';
