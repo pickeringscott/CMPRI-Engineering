@@ -47,9 +47,10 @@ test('middle of pool is no longer a sample location; each period records shallow
  const historical=poolLogInput({...input,sample_location_am:'middle'},{sample_location_am:'middle'});
  assert.equal(historical.sample_location_am,'middle');
 });
-test('closure at pH 8.0 requires a recorded reason',()=>{
+test('closure at pH 8.0 derives the automatic reason without a supplied reason',()=>{
  assert.ok(poolClosureReasons({...input,ph_am:8.0}).length);
- assert.throws(()=>poolLogInput({...input,ph_am:8.0}),/pool must be closed: AM pH 8\.0/i);
+ const automatic=poolLogInput({...input,ph_am:8.0});
+ assert.equal(automatic.closure_condition,true);assert.match(poolCurrentClosureReasons(automatic).join(),/AM pH 8\.0/);
  const row=poolLogInput({...input,ph_am:8.0,closure_reason:'pH is above the approved operating range.'});
  assert.equal(row.closure_condition,true);
  assert.equal(row.closure_reason,'pH is above the approved operating range.');
@@ -72,7 +73,7 @@ test('main drain not visible or water above 104F closes the pool; low flow is fl
  assert.match(poolClosureReasons({...input,main_drain_visible:false}).join(),/Main drain is not visible/);
  assert.match(poolClosureReasons({...input,temperature_f:105}).join(),/above 104/);
  assert.equal(poolClosureReasons({...input,temperature_f:104}).length,0);
- assert.throws(()=>poolLogInput({...input,main_drain_visible:false}),/pool must be closed: Main drain is not visible/);
+ assert.match(poolCurrentClosureReasons(poolLogInput({...input,main_drain_visible:false})).join(),/Main drain is not visible/);
  const closed=poolLogInput({...input,temperature_f:106,closure_reason:'Heater fault; pool closed.'});
  assert.equal(closed.closure_condition,true);
  assert.deepEqual(poolReadingWarnings({flow_rate_gpm:40}),['Flow rate 40 GPM is below the required 48 GPM']);
@@ -163,7 +164,7 @@ const root=fileURLToPath(new URL('../src/',import.meta.url));
 function fixture(config={}) {
  const calls=[],writes=[],notifications=[],pushes=[];
  const db={from(table){const filters=[];let changed;
-  const q={like(){return q;},limit(){return q;},select(){return q;},eq(key,value){filters.push([key,value]);return q;},in(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
+  const q={like(){return q;},limit(){return q;},select(){return q;},eq(key,value){filters.push([key,value]);return q;},gte(key,value){filters.push([key,value]);return q;},lt(key,value){filters.push([key,value]);return q;},in(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
    range(from,to){q.from=from;q.to=to;return q;},
    then(resolve,reject){
     if(table==='profiles')return Promise.resolve({data:config.profiles||[],error:config.profileListError?new Error('Unavailable'):null}).then(resolve,reject);
@@ -173,7 +174,8 @@ function fixture(config={}) {
      return Promise.resolve({data:memberships.filter(({user_id})=>eligible.includes(user_id)),error:config.membershipError?new Error('Unavailable'):null}).then(resolve,reject);
     }
     if(table==='cmpri_dashboard_notifications')return Promise.resolve({data:[{notification_key:'pool-closed:status:test:1',message:'Pool closed',target_path:'/pool'}],error:config.notificationError?new Error('Unavailable'):null}).then(resolve,reject);
-    if(table==='cmpri_pool_log_history')return Promise.resolve({data:config.retestsHistory||[],error:null}).then(resolve,reject);
+    if(table==='cmpri_pool_log_history'){calls.push({table,filters});return Promise.resolve({data:config.retestsHistory||[],error:config.readingHistoryError?new Error('Unavailable'):null}).then(resolve,reject);}
+    if(table==='cmpri_pool_control_history'){calls.push({table,filters});return Promise.resolve({data:config.controlHistory||[],error:config.controlHistoryError?new Error('Unavailable'):null}).then(resolve,reject);}
     if(table!=='pool_daily_logs')return Promise.resolve({data:[],error:null}).then(resolve,reject);
     calls.push({table,filters});
     if(config.historyError&&q.from>=1000)return Promise.resolve({data:null,error:new Error('Unavailable')}).then(resolve,reject);
@@ -355,13 +357,15 @@ test('pool API rejects future dates before reading or writing a daily log',async
  assert.equal(f.calls.filter(call=>call.table==='pool_daily_logs').length,0);
  assert.equal(f.writes.length,0);
 });
-test('pool API blocks saves missing required checks or a closure reason',async()=>{
- for(const body of [{main_drain_visible:null},{filter_backwashed:null},{ph_am:8.0}]){
+test('pool API requires daily checks and automatically records a chemical closure reason',async()=>{
+ for(const body of [{main_drain_visible:null},{filter_backwashed:null}]){
   const f=fixture({body});
   const result=await f.handlers.POST(f.request);
   assert.equal(result.status,400);
   assert.equal(f.writes.length,0);
  }
+ const f=fixture({body:{ph_am:8.0}});const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);assert.equal(f.writes[0].closure_condition,true);assert.match(result.body.closure_reasons.join(),/AM pH 8\.0/);
 });
 test('pool-log UI flags closures, requires daily checks, and has no sample-location dropdown',()=>{
  const page=readFileSync(new URL('../src/app/engineering/pool-log/page.tsx',import.meta.url),'utf8');
@@ -372,7 +376,7 @@ test('pool-log UI flags closures, requires daily checks, and has no sample-locat
  assert.match(page,/The pool must be closed/);
  assert.match(page,/Still needed before saving/);
  assert.match(page,/Daily checks/);
- assert.match(page,/Closure reason \/ actions \(required\)/);
+ assert.match(page,/automatically/i);
  assert.match(page,/type="date" max=\{poolLogTodayDate\(\)\}/);
  assert.doesNotMatch(page,/Combined chlorine|Cyanuric acid/i);
 });
@@ -478,7 +482,8 @@ test('later failed retest closes again without replacing original readings or re
  const saved=updatePool(closedAutomatic(),{retest:passingRetest});
  const failed=updatePool(saved,{retest:{id:'00000000-0000-0000-0000-000000000011',ph:8,sanitizer_band:'3-6'},closure_reason:'Later retest pH high.'});
  assert.equal(failed.closure_condition,true);assert.equal(failed.ph_am,7.4);assert.equal(failed.sanitizer_band_am,'0');
- assert.match(failed.closure_reason,/AM bromine zero; pool closed.\nLater retest pH high/);
+ assert.match(failed.closure_reason,/AM bromine zero; pool closed\./);
+ assert.match(failed.closure_reason,/Later retest pH high\./);
  assert.match(poolCurrentClosureReasons(failed).join(),/RETEST pH 8/);
 });
 test('manual and unclassified legacy holds remain closed after passing retests',()=>{
@@ -522,6 +527,31 @@ test('GET returns distinct recorded retests without writes or turning audit edit
  const result=await f.handlers.GET(f.request);assert.equal(result.status,200);
  assert.equal(result.body.retests.length,1);assert.equal(result.body.retests[0].recorded_at,'2026-10-12T20:00:00Z');
  assert.equal(result.body.status.closure_required,false);assert.equal(f.writes.length,0);
+});
+test('GET returns dated, facility-scoped reading history and manual actions with actor attribution',async()=>{
+ const f=fixture({existing:{id:'saved',revision:2,updated_at:'2026-09-15T16:00:00Z'},
+  retestsHistory:[{id:'reading',actor_id:'actor',recorded_at:'2026-09-15T15:00:00Z',snapshot:{revision:1,ph_am:7.4,remarks:'Pool checked'}}],
+  controlHistory:[{id:'closure',actor_id:'actor',recorded_at:'2026-09-15T16:00:00Z',action:'close',request:{reason:'Equipment repair'}},
+   {id:'outside-day',actor_id:'actor',recorded_at:'2026-09-16T05:00:00Z',action:'open',request:{}}],
+  profiles:[{id:'actor',full_name:'Scott Pickering'}]});
+ const result=await f.handlers.GET(f.request);
+ assert.equal(result.status,200);assert.equal(result.body.daily_entries.length,2);
+ assert.equal(result.body.daily_entries[0].snapshot.remarks,'Pool checked');
+ assert.equal(result.body.daily_entries[0].actor_name,'Scott Pickering');
+ assert.equal(result.body.daily_entries[1].kind,'close');assert.equal(result.body.daily_entries[1].reason,'Equipment repair');
+ const controls=f.calls.find(c=>c.table==='cmpri_pool_control_history');
+ assert.ok(controls.filters.some(([key,value])=>key==='hotel_id'&&value==='c81ad01a-7a9f-4880-ac1c-5e849f30bad6'));
+ assert.ok(controls.filters.some(([key,value])=>key==='facility_id'&&value===facilityId));
+ assert.equal(f.writes.length,0);
+});
+test('GET allows safe readings while reporting unavailable activity, without claiming it is empty',async()=>{
+ const f=fixture({controlHistoryError:true});const result=await f.handlers.GET(f.request);
+ assert.equal(result.status,200);assert.equal(result.body.daily_entries,null);assert.match(result.body.daily_entries_error,/activity could not be loaded/);
+});
+test('GET does not hide missing retest audit history',async()=>{
+ const f=fixture({existing:{id:'saved',retest_submission:{id:'retest'}},readingHistoryError:true});
+ const result=await f.handlers.GET(f.request);
+ assert.equal(result.status,503);assert.match(result.body.error,/retest history could not be loaded/);
 });
 test('existing pool operators can add an independent hold but cannot silently clear it',()=>{
  const saved=poolLogInput(input);

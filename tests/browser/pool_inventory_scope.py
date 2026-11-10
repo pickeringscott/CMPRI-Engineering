@@ -11,7 +11,7 @@ async def main():
    reads=[];writes=[];all_requests=[]
    async def pool(route):
     nonlocal row
-    if route.request.method=='GET':return await route.fulfill(json={'facility':facility,'facilities':[facility],'log':row,'can_edit':True,'can_edit_saved':True})
+    if route.request.method=='GET':return await route.fulfill(json={'facility':facility,'facilities':[facility],'log':row,'can_edit':True,'can_edit_saved':True,'daily_entries':[]})
     b=route.request.post_data_json;writes.append(b);supply['quantity_on_hand']-=1;row={**row,**b,'revision':2};await route.fulfill(json={'log':row,'closure_required':False})
    async def supplies(route):reads.append(1);await route.fulfill(json={'location':{'id':room,'name':'Pool Pump Room'},'items':[supply]})
    await ctx.route('**/api/pool-log?*',pool);await ctx.route('**/api/pool-log',pool);await ctx.route('**/api/pool-log/supplies',supplies)
@@ -20,8 +20,8 @@ async def main():
    await summary.click();await expect(page.get_by_text('Pool Pump Room',exact=True)).to_be_visible();await expect(page.get_by_label('Pool chemical supply',exact=True).locator('option')).to_have_count(2)
    await page.get_by_label('Pool chemical supply',exact=True).select_option(item);units=page.get_by_label('Pool chemical usage unit',exact=True);assert await units.locator('option').all_text_contents()==['LB','LB','OZ','G','KG']
    await units.select_option('OZ');await page.get_by_label('Pool chemical quantity used',exact=True).fill('16');await page.get_by_role('button',name='Add chemical use',exact=True).click()
-   remarks=page.locator('label').filter(has_text='Remarks / actions taken').locator('textarea');await expect(remarks).to_have_value('Routine check\nChemical used: 16 OZ Bromine.')
-   await page.get_by_role('button',name="Add to today's pool log",exact=True).click();await expect(page.get_by_text('Pool log saved to the database.',exact=False)).to_be_visible()
+   remarks=page.locator('label').filter(has_text='Notes / actions taken').locator('textarea');await expect(remarks).to_have_value('Routine check\nChemical used: 16 OZ Bromine.')
+   await page.get_by_role('button',name="Save Pool Log",exact=True).click();await expect(page.get_by_text('Pool log saved to the database.',exact=False)).to_be_visible()
    assert len(writes)==1 and writes[0]['chemical_uses'][0]['item']==item and writes[0]['chemical_uses'][0]['unit']=='OZ'
    await expect(page.get_by_label('Pool chemical supply',exact=True).locator('option').last).to_contain_text('22 LB available')
    assert not any('/api/ai/' in url or '/api/assistant' in url or '/api/chat' in url for url in all_requests),all_requests

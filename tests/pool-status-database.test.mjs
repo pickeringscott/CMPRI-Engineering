@@ -19,6 +19,25 @@ await db.exec(readFileSync('supabase/migrations/20261012212441_cmpri_pool_retest
 await db.exec('create trigger cmpri_pool_log_stamp before insert or update on pool_daily_logs for each row execute function cmpri_stamp_pool_log()');
 await db.exec(readFileSync('supabase/migrations/20261022070428_cmpri_pool_status_controls.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/20261106133521_pool_manager_reopening.sql','utf8'));
+// Bring the two functions to their current production definitions before the
+// guarded migration, without loading unrelated notification tables here.
+const selfNotifications=readFileSync('supabase/migrations/20261109184720_suppress_self_notifications.sql','utf8');
+const actionStart=selfNotifications.indexOf('CREATE OR REPLACE FUNCTION public.cmpri_pool_action(');
+const triggerStart=selfNotifications.indexOf('CREATE OR REPLACE FUNCTION public.cmpri_pool_status_changed()',actionStart);
+const triggerEnd=selfNotifications.indexOf('-- Clear only previously materialized',triggerStart);
+assert.ok(actionStart>=0 && triggerStart>actionStart && triggerEnd>triggerStart);
+await db.exec(selfNotifications.slice(actionStart,triggerEnd));
+const poolMigration=readFileSync('supabase/migrations/20261110024119_pool_manual_open_atomic.sql','utf8');
+const managerMigration=readFileSync('supabase/migrations/20261106133521_pool_manager_reopening.sql','utf8');
+const stampStart=managerMigration.indexOf('CREATE OR REPLACE FUNCTION public.cmpri_stamp_pool_log()');
+const stampEnd=managerMigration.indexOf('$$;',stampStart)+3;
+const originalStamp=managerMigration.slice(stampStart,stampEnd);
+assert.ok(stampStart>=0 && stampEnd>stampStart);
+await db.exec(originalStamp.replace('  test_band text;','  test_band text; -- independently changed production function'));
+await assert.rejects(db.exec(poolMigration),/Pool log stamp behavior changed/);
+await db.exec('rollback');
+await db.exec(originalStamp);
+await db.exec(poolMigration);
 const clock=async s=>db.exec(`create or replace function cmpri_pool_clock() returns timestamptz language sql stable as $$select '${s}'::timestamptz$$`);
 await clock('2026-10-22T15:00:00Z');
 await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure) values($1,$2,$3,'2026-10-22',7.4,4,true,false,80,50,$4,$4,false,false)`,[log,h,f,eng]);
@@ -31,6 +50,7 @@ const count=async()=>Number((await db.query('select count(*) n from cmpri_dashbo
 const notifications=await count();assert.equal(notifications,2);
 await db.query(`select cmpri_pool_reconcile('${h}','${f}',false)`);assert.equal(await count(),notifications);
 await assert.rejects(act(fd,12,'open'),/Engineering/);await assert.rejects(act(fd,13,'clear-manual'),/Engineering/);
+await assert.rejects(act(fd,18,null),/Invalid pool action/);
 await clock('2026-10-23T03:00:00Z');
 await assert.rejects(act(eng,14,'open'),/10 PM/);await assert.rejects(act(fd,15,'close','Night'),/10 PM/);
 await act(eng,16,'clear-manual');assert.equal((await snapshot()).closed,true);assert.equal((await snapshot()).reason,'Closed 10 PM-7 AM');
@@ -42,14 +62,12 @@ for (const [index,role] of ['manager','assistant_manager','front_desk_manager','
  await db.query('insert into hotel_members values($1,$2,true)',[actor,h]);
  await act(fd,200+index*10,'close','Front Desk closure');
  if(index<2){
-  await act(actor,201+index*10,'clear-manual');
-  assert.equal((await snapshot()).closed,true,'clearing the hold alone must not reopen');
   await act(actor,202+index*10,'open');assert.equal((await snapshot()).closed,false);
   await db.query('update pool_daily_logs set temperature_f=$1,updated_by=$2 where id=$3',[81+index,actor,log]);
   const created=id(400+index);
   await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure) values($1,$2,$3,'2026-10-21',7.4,4,true,false,80,50,$4,$4,false,false)`,[created,h,f,actor]);
   await assert.rejects(db.query('update pool_daily_logs set ph_am=null,updated_by=$1 where id=$2',[actor,log]),/both pH/);
-  assert.ok((await db.query('select actor_id from cmpri_pool_control_history where actor_id=$1',[actor])).rows.length>=2);
+  assert.ok((await db.query('select actor_id from cmpri_pool_control_history where actor_id=$1',[actor])).rows.length>=1);
  }else{
   await assert.rejects(act(actor,201+index*10,'clear-manual'),/Engineering/);
   await assert.rejects(act(actor,202+index*10,'open'),/Engineering/);
@@ -57,6 +75,36 @@ for (const [index,role] of ['manager','assistant_manager','front_desk_manager','
   await act(eng,203+index*10,'open');
  }
 }
+
+// One Open resolves both separate manual holds while retaining the original
+// classified log and both immutable action records for the day.
+await db.query("update pool_daily_logs set manual_closure=true,closure_reason='Equipment check',updated_by=$1 where id=$2",[eng,log]);
+await act(fd,710,'close','Guest concern');
+let current=await snapshot();assert.equal(current.manual_closed,true);
+const manualRevision=(await db.query('select revision from pool_daily_logs where id=$1',[log])).rows[0].revision;
+const openRevision=current.revision;
+await act(eng,711,'open','',openRevision);
+current=await snapshot();assert.equal(current.closed,false);assert.equal(current.manual_closed,false);
+await act(eng,711,'open','',openRevision); // Lost-response retry is idempotent.
+const unchangedManual=(await db.query('select revision,manual_closure,closure_reason from pool_daily_logs where id=$1',[log])).rows[0];
+assert.equal(unchangedManual.revision,manualRevision);assert.equal(unchangedManual.manual_closure,true);assert.equal(unchangedManual.closure_reason,'Equipment check');
+assert.deepEqual((await db.query('select action from cmpri_pool_control_history where id in ($1,$2) order by id',[id(710),id(711)])).rows.map(row=>row.action),['close','open']);
+await db.query("update pool_daily_logs set remarks='Routine notes added after opening',updated_by=$1 where id=$2",[eng,log]);
+assert.equal((await snapshot()).closed,false,'a notes-only revision must not restore the old manual hold');
+await db.query("update pool_daily_logs set closure_reason=closure_reason||E'\\nNew equipment hold',updated_by=$1 where id=$2",[id(100),log]);
+assert.equal((await snapshot()).closed,true,'a new manual hold invalidates the earlier resolution');
+await act(eng,715,'open');assert.equal((await snapshot()).closed,false);
+
+// A passing test does not authorize clearing an unclassified legacy closure.
+const unknown=id(712);
+await db.exec('alter table pool_daily_logs disable trigger cmpri_pool_log_stamp');
+await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,latest_test,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure,closure_reason)
+ select $1,hotel_id,pool_facility_id,'2026-10-23',latest_test,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,$2,$2,true,null,'Unclassified historical hold' from pool_daily_logs where id=$3`,[unknown,eng,log]);
+await db.exec('alter table pool_daily_logs enable trigger cmpri_pool_log_stamp');
+assert.equal((await snapshot()).closed,true);
+await assert.rejects(act(eng,713,'open'),/unresolved testing-log closure/);
+assert.equal((await snapshot()).closed,true);
+await db.query('delete from pool_daily_logs where id=$1',[unknown]);
 
 // Full pool-log correction parity includes classifying an unknown historical hold.
 // Seed legacy data without invoking today's stamping logic, then restore the real trigger.
@@ -72,13 +120,34 @@ for(const [index,actor] of [id(100),id(101)].entries()){
 }
 
 // Existing real testing trigger, not a separate simulated status write.
-await db.query(`update pool_daily_logs set retest_submission=$1,closure_reason='Bromine below safe range',updated_by=$2 where id=$3`,[{id:id(20),ph:7.4,sanitizer_band:'0'},eng,log]);
+await db.query(`update pool_daily_logs set retest_submission=$1,updated_by=$2 where id=$3`,[{id:id(20),ph:7.4,sanitizer_band:'0'},eng,log]);
+assert.match((await db.query('select closure_reason from pool_daily_logs where id=$1',[log])).rows[0].closure_reason,/bromine.*0/i,'out-of-range test records its own reason');
+await act(fd,714,'close','Manual hold while treating water');
 assert.equal((await snapshot()).closed,true);await assert.rejects(act(eng,21,'open'),/testing/);
+await assert.rejects(act(eng,719,'clear-manual'),/testing/);
+assert.equal((await snapshot()).manual_closed,true,'a failed Open leaves the manual hold intact');
+assert.equal(Number((await db.query('select count(*) as n from cmpri_pool_control_history where id=$1',[id(21)])).rows[0].n),0);
 for(const actor of [id(100),id(101)])await assert.rejects(act(actor,500+Number(actor.slice(-1)),'open'),/testing/);
 assert.ok((await db.query(`select message from cmpri_dashboard_notifications where recipient_user_id='${fd}'`)).rows.some(r=>/bromine/i.test(r.message)));
+// Blank operator text must not block an out-of-range sample; the database
+// generates its reason. Missing testing and unsafe readings cannot be opened.
+const unsafeFacility=id(720),unsafeLog=id(721),missingFacility=id(722);
+await db.query('insert into pool_facilities values($1,$2,true),($3,$2,true)',[unsafeFacility,h,missingFacility]);
+const unsafeInsert=`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure,closure_reason) values($1,$2,$3,'2026-10-23',8.5,1,false,false,105,50,$4,$4,false,$5,null)`;
+await assert.rejects(db.query(unsafeInsert,[unsafeLog,h,unsafeFacility,eng,true]),/reason.*manual/i);
+await db.query(unsafeInsert,[unsafeLog,h,unsafeFacility,eng,false]);
+const unsafeRow=(await db.query('select closure_condition,closure_reason from pool_daily_logs where id=$1',[unsafeLog])).rows[0];
+assert.equal(unsafeRow.closure_condition,true);assert.match(unsafeRow.closure_reason,/pH.*8\.5/i);
+assert.match(unsafeRow.closure_reason,/bromine.*1/i);assert.match(unsafeRow.closure_reason,/main drain is not visible/i);assert.match(unsafeRow.closure_reason,/water temperature.*105/i);
+await db.query("update pool_daily_logs set remarks='Added note while closed',updated_by=$1 where id=$2",[eng,unsafeLog]);
+assert.equal((await db.query('select closure_reason from pool_daily_logs where id=$1',[unsafeLog])).rows[0].closure_reason,unsafeRow.closure_reason,'repeated unsafe saves must not duplicate the automatic reason');
+for(const [facility,key] of [[unsafeFacility,723],[missingFacility,724]]){
+ const state=(await db.query('select cmpri_pool_reconcile($1,$2,false) as s',[h,facility])).rows[0].s;
+ await assert.rejects(db.query('select cmpri_pool_action($1,$2,$3,$4,$5,$6,$7)',[h,facility,eng,id(key),'open','',state.revision]),/testing/);
+}
 const before=await count();await db.query(`select cmpri_pool_reconcile('${h}','${f}',true)`);assert.equal(await count(),before);
 await db.exec('set role authenticated');await assert.rejects(db.query(`select cmpri_pool_action('${h}','${f}','${eng}','${id(30)}','open','',0)`),/permission denied/);await db.exec('reset role');
-console.log('PASS real PostgreSQL: persisted manual close, reason validation, Engineering/GM/AGM-only open/clear, GM/AGM log create/edit with validation and actor history, overnight denials, clear without reopen, testing-triggered closure/recipient record, repeated-reconcile dedup, direct-role denial');
+console.log('PASS PostgreSQL: single-action manual reopen, safe-test and operating-hours gates, audit and idempotency, legacy holds, role denial and preserved readings');
 // Pool chemicals share the real pool stamping, role, revision and audit path.
 const baseline=readFileSync('supabase/migrations/20260930180000_cmpri_prod_baseline.sql','utf8');
 for(const name of ['cmpri_inventory_items','cmpri_inventory_movements']){

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { subscribeResources } from "@/lib/events/browser";
 import { inventoryUnitOptions } from "@/lib/inventory";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { chemicalRemark, type PoolChemicalUse, type PoolSupply } from "@/lib/pool-chemicals";
 import PoolSpecs from "./PoolSpecs";
+import PoolDailyHistory, { type PoolDailyEntry } from "./PoolDailyHistory";
 import "./pool-log.css";
 import { getValidSession } from "@/lib/supabase/client";
 import {
@@ -109,7 +110,7 @@ function filled(value: unknown) {
 }
 
 /** Everything still required before this save can be submitted, as [field id, label]. */
-function missingFields(form: Record<string, unknown>, closureRequired: boolean) {
+function missingFields(form: Record<string, unknown>) {
   const missing: [string, string][] = [];
   let completeSample = false;
   for (const period of periods) {
@@ -134,7 +135,6 @@ function missingFields(form: Record<string, unknown>, closureRequired: boolean) 
   for (const [key, label] of dailyPoolChecks) {
     if (!filled(form[key])) missing.push([`pool-${key}`, `${label} (daily check)`]);
   }
-  if (closureRequired && !filled(form.closure_reason)) missing.push(["pool-closure_reason", "Reason pool is closed and actions taken"]);
   return missing;
 }
 
@@ -185,6 +185,9 @@ export default function PoolLogPage() {
   const [facility, setFacility] = useState<Facility | null>(null);
   const [saved, setSaved] = useState<Log | null>(null);
   const [retests, setRetests] = useState<Record<string, unknown>[]>([]);
+  const [dailyActivity, setDailyActivity] = useState<{ date: string; facilityId: string; entries: PoolDailyEntry[]; error: string } | null>(null);
+  const [activityRefresh, setActivityRefresh] = useState(0);
+  const requestedActivityRefresh = useRef(0);
   const [form, setForm] = useState<Record<string, unknown>>(emptyForm);
   const [baseline, setBaseline] = useState("");
   const [canEdit, setCanEdit] = useState(false);
@@ -225,7 +228,7 @@ export default function PoolLogPage() {
         cache: "no-store",
         signal: controller.signal,
       });
-      const result = await response.json() as { error?: string; facilities?: Facility[]; facility?: Facility; log?: Log | null; retests?: Record<string, unknown>[]; can_edit?: boolean; can_edit_saved?: boolean };
+      const result = await response.json() as { error?: string; facilities?: Facility[]; facility?: Facility; log?: Log | null; retests?: Record<string, unknown>[]; daily_entries?: PoolDailyEntry[] | null; daily_entries_error?: string; can_edit?: boolean; can_edit_saved?: boolean };
       if (!response.ok) throw new Error(result.error || "Unable to load pool log.");
       if (controller.signal.aborted) return;
       const values = formFromLog(result.log || null);
@@ -234,6 +237,7 @@ export default function PoolLogPage() {
       setFacility(result.facility || null);
       setSaved(result.log || null);
       setRetests(result.retests || []);
+      if (result.facility?.id) setDailyActivity({ date, facilityId: result.facility.id, entries: result.daily_entries || [], error: Array.isArray(result.daily_entries) ? "" : result.daily_entries_error || "Pool activity could not be loaded." });
       setForm(values);
       setBaseline(savedValues);
       setCanEdit(result.can_edit === true);
@@ -247,6 +251,31 @@ export default function PoolLogPage() {
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [date, facilityChoice, reload]);
+
+  useEffect(() => {
+    if (!facility?.id) return;
+    const controller = new AbortController();
+    let pending: Promise<void> | null = null;
+    const loadActivity = () => {
+      if (pending) return pending;
+      pending = (async () => {
+        const session = await getValidSession();
+        if (!session) throw new Error("Sign in again to view pool activity.");
+        const query = new URLSearchParams({ date, facility: facility.id });
+        const response = await fetch(`/api/pool-log?${query}`, { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store", signal: controller.signal });
+        const result = await response.json() as { error?: string; daily_entries?: PoolDailyEntry[] | null; daily_entries_error?: string };
+        if (!response.ok || !Array.isArray(result.daily_entries)) throw new Error(result.daily_entries_error || result.error || "Pool activity could not be loaded.");
+        if (!controller.signal.aborted) setDailyActivity({ date, facilityId: facility.id, entries: result.daily_entries, error: "" });
+      })().catch(error => { if (!controller.signal.aborted) setDailyActivity({ date, facilityId: facility.id, entries: [], error: error instanceof Error ? error.message : "Pool activity could not be loaded." }); })
+        .finally(() => { pending = null; });
+      return pending;
+    };
+    const refreshRequested = requestedActivityRefresh.current !== activityRefresh;
+    requestedActivityRefresh.current = activityRefresh;
+    const stop = subscribeResources(["pool"], loadActivity, false);
+    if (refreshRequested) void loadActivity();
+    return () => { controller.abort(); stop(); };
+  }, [date, facility?.id, activityRefresh]);
 
   useEffect(() => {
     if(!chemicalOpen||!canEdit)return;
@@ -300,7 +329,7 @@ export default function PoolLogPage() {
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!facility || saving || loading || !canEdit) return;
-    const stillNeeded = missingFields(form, closureRequired);
+    const stillNeeded = missingFields(form);
     if (stillNeeded.length) {
       setMessage(`Not saved yet. Still needed: ${stillNeeded.map(([, label]) => label).join("; ")}.`);
       document.getElementById(stillNeeded[0][0])?.focus();
@@ -327,6 +356,7 @@ export default function PoolLogPage() {
       if (chemicalUses.length) void invalidateCachedResources(["pool","reference","orders"]).catch(()=>{});
       const values = formFromLog(result.log);
       setSaved(result.log);
+      setActivityRefresh(value => value + 1);
       setForm(values);
       setBaseline(JSON.stringify(values));
       setEditingSavedLog(false);
@@ -384,20 +414,21 @@ export default function PoolLogPage() {
   const canEditForm = canEdit;
   const closureRequired = closureReasons.length > 0 || preview.closure_condition === true;
   const locked = (key: string) => !canEditForm || saving || (savedValue(saved, key) && !editingSavedLog);
-  const stillNeeded = missingFields(form, closureRequired);
+  const stillNeeded = missingFields(form);
   const flagClass = "mt-1 text-xs font-bold text-red-300";
   const warnClass = "mt-1 text-xs font-bold text-amber-300";
 
   return (
     <main data-pool-log data-cmpri-action-surface className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
-      <div className="mx-auto w-full space-y-4">
+      <div className="mx-auto w-full space-y-2">
         {!embedded && <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">CMPRI — Daily Pool Log</h1>
             <p className="text-sm text-slate-300">Indoor bromine pool · {CMPRI_POOL.testKit}</p>
           </div>
-          <div className="flex gap-2 print:hidden">
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
             <ModalDashboardLink className="rounded-lg border border-slate-600 px-3 py-2">Dashboard</ModalDashboardLink>
+            <PoolSpecs />
             {saved && canEditSavedLog ? <button type="button" disabled={loading || saving || editingSavedLog || dirty} onClick={() => setEditingSavedLog(true)} className="rounded-lg border border-amber-400/60 px-3 py-2 text-amber-100 disabled:opacity-50">{editingSavedLog ? "Editing saved log" : "Edit saved log"}</button> : null}
             <button type="button" disabled={!facility || loading || historyLoading} onClick={() => void toggleHistory()} className="rounded-lg border border-cyan-400/50 px-3 py-2 text-cyan-100 disabled:opacity-50">{historyLoading ? "Loading pool log…" : showHistory ? "Hide entire pool log" : "View entire pool log"}</button>
             <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
@@ -405,24 +436,24 @@ export default function PoolLogPage() {
         </header>}
         {embedded && <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
           <ModalDashboardLink className="rounded-lg border border-slate-600 px-3 py-2">← Dashboard</ModalDashboardLink>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <PoolSpecs />
             {saved && canEditSavedLog ? <button type="button" disabled={loading || saving || editingSavedLog || dirty} onClick={() => setEditingSavedLog(true)} className="rounded-lg border border-amber-400/60 px-3 py-2 text-amber-100 disabled:opacity-50">{editingSavedLog ? "Editing saved log" : "Edit saved log"}</button> : null}
             <button type="button" disabled={!facility || loading || historyLoading} onClick={() => void toggleHistory()} className="rounded-lg border border-cyan-400/50 px-3 py-2 text-cyan-100 disabled:opacity-50">{historyLoading ? "Loading pool log…" : showHistory ? "Hide entire pool log" : "View entire pool log"}</button>
           <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
           </div>
         </div>}
 
-        <div className="flex justify-end print:hidden"><PoolSpecs /></div>
-
         <section className="print:hidden">
-          <div className="flex flex-wrap gap-3">
-            <label>Date<input type="date" max={poolLogTodayDate()} value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className={fieldClass} /></label>
-            {facilities.length > 1 ? <label className="min-w-56">Pool<SearchableSelect value={facilityChoice || facility?.id || ""} disabled={saving || dirty || historyLoading} onChange={chooseFacility} placeholder="Pool" options={facilities.map((item) => ({ value: item.id, label: item.pool_name }))} /></label> : null}
-            <button type="button" disabled={saving || loading || uncertainChemicalSave} className="self-end rounded-lg border border-slate-600 p-2" onClick={() => setReload((value) => value + 1)}>{dirty ? "Discard edits and reload" : "Reload"}</button>
+          <div className="pool-date-actions">
+            <input aria-label="Date" type="date" max={poolLogTodayDate()} value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className="pool-date-input rounded-lg border border-slate-600 bg-slate-950 p-2 text-white disabled:opacity-70" />
+            {facilities.length > 1 ? <label className="min-w-40 flex-1">Pool<SearchableSelect value={facilityChoice || facility?.id || ""} disabled={saving || dirty || historyLoading} onChange={chooseFacility} placeholder="Pool" options={facilities.map((item) => ({ value: item.id, label: item.pool_name }))} /></label> : null}
+            {canEditForm ? <button type="submit" form="pool-log-form" data-cmpri-primary disabled={saving || loading || !facility || !dirty} className="pool-top-save rounded-lg px-3 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : uncertainChemicalSave ? "Retry Save Pool Log" : "Save Pool Log"}</button> : <span className="text-sm text-slate-300">View-only access</span>}
           </div>
           {message ? <p role="alert" aria-live="assertive" className="my-3 whitespace-pre-wrap rounded-lg border border-amber-400 p-3">{message}</p> : null}
           {loading ? <p className="py-4">Loading saved readings…</p> : facility ? (
-            <form onSubmit={save} noValidate className="mt-4 space-y-4">
+            <form id="pool-log-form" onSubmit={save} noValidate className="mt-2 space-y-2">
+              <PoolDailyHistory entries={dailyActivity?.date === date && dailyActivity.facilityId === facility.id ? dailyActivity.entries : []} error={dailyActivity?.date === date && dailyActivity.facilityId === facility.id ? dailyActivity.error : undefined} loading={dailyActivity?.date !== date || dailyActivity.facilityId !== facility.id} onRetry={() => setActivityRefresh(value => value + 1)} />
               {closureRequired ? <section role="alert" aria-live="assertive" className="rounded-xl border-4 border-red-500 bg-red-950 p-4 text-red-50">
                 <h2 className="text-2xl font-black uppercase tracking-wide">⚠ The pool must be closed</h2>
                 <p className="mt-1 font-semibold">Current readings or an unresolved closure keep the pool closed. A complete passing test updates status automatically when daily checks pass and no separate hold remains. Earlier failed readings stay in the history.</p>
@@ -432,7 +463,8 @@ export default function PoolLogPage() {
                 <h2 className="text-lg font-bold">Out-of-range reading</h2>
                 <ul className="mt-2 list-inside list-disc">{readingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
               </section> : null}
-              <fieldset disabled={!canEditForm || saving || uncertainChemicalSave} className="space-y-4 disabled:opacity-80">
+              <fieldset disabled={!canEditForm || saving || uncertainChemicalSave} className="space-y-2 disabled:opacity-80">
+                <label className="block text-sm">Notes / actions taken<textarea aria-label="Notes / actions taken" disabled={uncertainChemicalSave} value={String(form.remarks ?? "")} maxLength={20000} rows={2} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
                 <div className="pool-water-samples">
                   {periods.map((period) => {
                     const label = period.toUpperCase();
@@ -500,11 +532,8 @@ export default function PoolLogPage() {
                 </section>
                 <div className="pool-flags">
                   <label><input type="checkbox" disabled={saved?.requires_attention === true && !editingSavedLog} checked={form.requires_attention === true} onChange={(event) => change("requires_attention", event.target.checked)} /><span>Attention Needed</span></label>
-                  <label title="Independent of test results"><input type="checkbox" disabled={saved?.manual_closure === true && !editingSavedLog} checked={form.manual_closure === true} onChange={(event) => change("manual_closure", event.target.checked)} /><span>Keep Closed for Another Reason</span></label>
                 </div>
                 {saved?.closure_condition === true && saved.manual_closure == null ? <p className="text-amber-200">This older closure has no recorded source. Its reason must be classified before a passing test can clear it automatically.</p> : null}
-                {(closureRequired || saved?.closure_reason) ? <label className="block font-semibold text-red-200">Closure reason / actions (required)<textarea id="pool-closure_reason" required value={String(form.closure_reason ?? "")} maxLength={2000} rows={3} placeholder="Why the pool is closed and what was done (for example, adjusted chemicals, retest scheduled)." onChange={(event) => change("closure_reason", event.target.value)} className={fieldClass} /></label> : null}
-                <label className="block">Remarks / actions taken<textarea disabled={uncertainChemicalSave} value={String(form.remarks ?? "")} maxLength={20000} rows={4} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
                 <details className="pool-chemical-usage" onToggle={event=>setChemicalOpen(event.currentTarget.open)}>
                   <summary className="cursor-pointer text-sm font-semibold">Chemical usage</summary>
                   <div className="mt-1 space-y-1 text-sm">
@@ -533,7 +562,6 @@ export default function PoolLogPage() {
                 <h2 className="font-bold">Still needed before saving</h2>
                 <ul className="mt-1 list-inside list-disc">{stillNeeded.map(([id, text]) => <li key={id + text}><button type="button" className="underline" onClick={() => document.getElementById(id)?.focus()}>{text}</button></li>)}</ul>
               </section> : null}
-              <div className="pool-save-actions">{canEditForm ? <button type="submit" data-cmpri-primary disabled={saving || !dirty} className="rounded-lg px-4 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : uncertainChemicalSave ? "Retry Save Pool Log" : saved && !editingSavedLog ? "Add to today's pool log" : "Save Pool Log"}</button> : <p className="text-slate-300">View-only access</p>}</div>
               {saved && canEditForm ? <p className="text-sm text-slate-400">Saved readings are locked.{canEditSavedLog ? " Select Edit saved log to correct them." : " Only a System Administrator, General Manager or Assistant General Manager can change them."} Empty fields (such as the PM sample) can still be added.</p> : null}
               {saved ? <p className="text-sm text-slate-400">Recorded by {saved.completed_by_initials} · Revision {saved.revision}</p> : null}
             </form>
@@ -582,7 +610,7 @@ export default function PoolLogPage() {
           </div> : <p className="mt-3">No saved pool-log entries were found.</p>}
         </section> : null}
 
-        {saved ? <section className="rounded-lg border border-slate-600 p-3 print:border-black">
+        {saved ? <section className="hidden rounded-lg border border-slate-600 p-3 print:block print:border-black">
           <h2 className="font-semibold">Shallow and deep recording</h2>
           <p className="text-sm">Shared means one sample applied to both shallow and deep, with collection location unspecified. Historical stored readings and attribution are retained. Sample attribution: AM {sampleLocationLabel(saved.sample_location_am)} · PM {sampleLocationLabel(saved.sample_location_pm)}.</p>
           <table className="mt-3 w-full border-collapse text-sm"><thead><tr><th className="border p-2 text-left">Location / measurement</th><th className="border p-2 text-left">Recorded value</th></tr></thead><tbody>{poolLocationReadings.map(([key, label]) => {

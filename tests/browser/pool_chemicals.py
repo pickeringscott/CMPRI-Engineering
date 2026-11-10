@@ -19,7 +19,7 @@ async def main():
      row={**row,**body,'revision':row['revision']+1}
      if lose:lose=False;return await route.abort('failed')
      return await route.fulfill(json={'log':row,'closure_required':False})
-    await route.fulfill(json={'facility':facility,'facilities':[facility],'log':row,'can_edit':True,'can_edit_saved':True})
+    await route.fulfill(json={'facility':facility,'facilities':[facility],'log':row,'can_edit':True,'can_edit_saved':True,'daily_entries':[]})
    await ctx.route('**/api/pool-log?*',pool_route)
    await ctx.route('**/api/pool-log',pool_route)
    await ctx.route('**/api/pool-log/supplies',lambda r:r.fulfill(json={'items':[item]}))
@@ -28,7 +28,7 @@ async def main():
    section=page.locator('details.pool-chemical-usage');summary=section.locator('summary')
    await expect(summary).to_be_visible(timeout=30000)
    await expect(section).not_to_have_attribute('open','')
-   remarks=page.locator('label').filter(has_text='Remarks / actions taken').locator('textarea')
+   remarks=page.locator('label').filter(has_text='Notes / actions taken').locator('textarea')
    await expect(remarks).to_be_visible()
    assert (await remarks.bounding_box())['y']+(await remarks.bounding_box())['height']<=(await summary.bounding_box())['y']
    await summary.focus();await page.keyboard.press('Enter')
@@ -39,7 +39,7 @@ async def main():
    await page.get_by_role('button',name='Add chemical use',exact=True).click()
    await expect(remarks).to_have_value('Routine check\nChemical used: 16 OZ Bromine.')
    assert item['quantity_on_hand']==10 and not writes,'Staging must not consume inventory'
-   await page.get_by_role('button',name="Add to today's pool log",exact=True).click()
+   await page.get_by_role('button',name="Save Pool Log",exact=True).click()
    retry=page.get_by_role('button',name='Retry Save Pool Log',exact=True)
    await expect(retry).to_be_visible()
    await expect(remarks).to_be_disabled();await expect(page.get_by_label('Pool chemical supply',exact=True)).to_be_disabled()

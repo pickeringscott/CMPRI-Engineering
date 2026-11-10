@@ -6,6 +6,7 @@ import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolCurrentClosureReasons, validLogDate } from "@/lib/pool-log";
 import { fetchAllPages } from "@/lib/server/paginated-query";
+import { loadPoolDailyEntries, PoolActivityUnavailable } from "@/lib/server/pool-daily-entries";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 
 import { poolChemicalUses } from "@/lib/pool-chemicals";
@@ -69,16 +70,25 @@ export async function GET(request: NextRequest) {
     .eq("log_date", date)
     .maybeSingle();
   if (logError) return NextResponse.json({ error: "The daily log could not be loaded. No changes were made." }, { status: 503 });
+  let activity: Awaited<ReturnType<typeof loadPoolDailyEntries>>;
+  let activityError = "";
+  try {
+    activity = await loadPoolDailyEntries(admin, HOTEL_ID, facility.id, date, log);
+  } catch (error) {
+    const readingHistory = error instanceof PoolActivityUnavailable ? error.readingHistory : null;
+    if (log?.retest_submission && readingHistory === null) {
+      return NextResponse.json({ error: "The recorded retest history could not be loaded." }, { status: 503 });
+    }
+    // Activity can be temporarily unavailable without preventing staff from
+    // recording essential readings. Never present missing activity as empty.
+    activity = { entries: [], readingHistory: readingHistory || [] };
+    activityError = "The day's pool activity could not be loaded.";
+  }
   const retests: Record<string, unknown>[] = [];
   if (log?.retest_submission) {
-    const { data: snapshots, error: historyError } = await fetchAllPages((from, to) => admin.from("cmpri_pool_log_history")
-      .select("actor_id, recorded_at, snapshot")
-      .eq("hotel_id", HOTEL_ID).eq("pool_log_id", log.id)
-      .order("recorded_at", { ascending: true }).order("id", { ascending: true }).range(from, to));
-    if (historyError) return NextResponse.json({ error: "The recorded retest history could not be loaded." }, { status: 503 });
     const seen = new Set<string>();
     // Revisions provide ordering even when several audit snapshots share a timestamp.
-    const ordered = [...(snapshots || [])].sort((a, b) =>
+    const ordered = [...activity.readingHistory].sort((a, b) =>
       Number((a.snapshot as Record<string, unknown>)?.revision ?? 0) - Number((b.snapshot as Record<string, unknown>)?.revision ?? 0));
     for (const entry of ordered) {
       const snapshot = entry.snapshot as Record<string, unknown> | null;
@@ -93,6 +103,8 @@ export async function GET(request: NextRequest) {
     facilities,
     log,
     retests,
+    daily_entries: activityError ? null : activity.entries,
+    ...(activityError ? { daily_entries_error: activityError } : {}),
     date,
     status: poolLogStatus(log),
     can_edit: roleAllows(auth.profile.role, "operate_pool_log"),

@@ -427,10 +427,11 @@ export function poolLogInput(body: Record<string, unknown>, existing: Record<str
   const nextReason = closureReason.trim();
   row.closure_reason = (!nextReason ? previousReason : !previousReason || nextReason.startsWith(previousReason)
     ? nextReason : `${previousReason}\n${nextReason}`) || null;
-  if (row.closure_condition === true && !row.closure_reason) {
-    throw new Error(closureReasons.length
-      ? `The pool must be closed: ${closureReasons.join("; ")}. Enter the reason the pool is closed and the actions taken before saving.`
-      : "Enter a reason whenever the pool is closed.");
+  // The database records the actual unsafe-reading reason atomically with the
+  // log, so no additional narrative is required for an automatic closure.
+  const newManualHold = row.manual_closure === true && existing?.manual_closure !== true;
+  if (row.closure_condition === true && !row.closure_reason && (newManualHold || !closureReasons.length)) {
+    throw new Error("Enter a reason whenever the pool is closed manually.");
   }
   return row;
 }
