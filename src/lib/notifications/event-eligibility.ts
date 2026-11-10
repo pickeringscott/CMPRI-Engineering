@@ -4,8 +4,8 @@ import type { WebPushEligibleProfile } from "@/lib/notifications/schedule";
 // Phone delivery uses the same per-event recipient policy as the existing inbox.
 // A manager's pool alert never authorizes ordinary work-order alerts.
 export function receivesEventPush(profile: WebPushEligibleProfile, notification: { id: string; work_order_id?: string | null }) {
-  // Room-rank changes are addressed to every active member of the hotel.
-  if (notification.id.startsWith("room-rank-change:")) return true;
+  // Room-rank notifications are materialized only for their intended recipients.
+  if (notification.id.startsWith("room-rank-change:") || notification.id.startsWith("room-rank-urgent:")) return true;
   // These private, database-targeted events already identify the Chief Engineer,
   // assigned technician and original submitter. Keep every other event's policy.
   if (notification.id.startsWith("work-order-note:") || notification.id.startsWith("work-order-status:")) return Boolean(notification.work_order_id);
