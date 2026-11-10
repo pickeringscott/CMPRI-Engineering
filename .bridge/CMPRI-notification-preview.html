@@ -1,555 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CMPRI Notifications Preview</title>
-    <style>
-      :root {
-        --bg: #020817;
-        --panel: #0f172a;
-        --panel-2: #111827;
-        --panel-3: #0b1220;
-        --line: rgba(148, 163, 184, 0.2);
-        --soft-line: rgba(148, 163, 184, 0.12);
-        --text: #f8fafc;
-        --muted: #94a3b8;
-        --muted-2: #64748b;
-        --blue: #60a5fa;
-        --blue-soft: rgba(96, 165, 250, 0.12);
-        --blue-soft-2: rgba(96, 165, 250, 0.2);
-        --amber: #fbbf24;
-        --amber-soft: rgba(251, 191, 36, 0.14);
-        --green: #34d399;
-        --green-soft: rgba(52, 211, 153, 0.14);
-        --white: #f8fafc;
-        --danger: #ef4444;
-      }
-
-      * { box-sizing: border-box; }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background:
-          radial-gradient(circle at top, rgba(96,165,250,0.08), transparent 35%),
-          linear-gradient(180deg, #020817 0%, #020817 100%);
-        font-family: Inter, "Segoe UI", Arial, sans-serif;
-        color: var(--text);
-        padding: 32px;
-      }
-
-      .stage {
-        width: min(1400px, 100%);
-        display: grid;
-        gap: 40px;
-      }
-
-      .desktop-shell {
-        width: min(1140px, 100%);
-        height: 600px;
-        margin: 0 auto;
-        border-radius: 18px;
-        background: rgba(2, 8, 23, 0.75);
-        border: 1px solid rgba(148,163,184,0.18);
-        box-shadow: 0 30px 80px rgba(2, 8, 23, 0.8);
-        overflow: hidden;
-      }
-
-      .desktop-titlebar {
-        height: 52px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 0 16px 0 14px;
-        background: linear-gradient(180deg, rgba(15,23,42,0.95), rgba(15,23,42,0.8));
-        border-bottom: 1px solid rgba(148,163,184,0.15);
-      }
-
-      .window-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: rgb(248, 250, 252);
-        opacity: 0.9;
-      }
-
-      .title-text {
-        flex: 1;
-        min-width: 0;
-        font-size: 14px;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        color: #e2e8f0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .title-text .muted {
-        color: rgba(148,163,184,0.9);
-        font-weight: 500;
-      }
-
-      .toolbar-actions {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .clear-all {
-        appearance: none;
-        border: 1px solid rgba(96,165,250,0.5);
-        background: rgba(15, 23, 42, 0.85);
-        color: #e0f2fe;
-        border-radius: 8px;
-        padding: 6px 10px;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        cursor: pointer;
-      }
-
-      .close-btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-        border: 1px solid rgba(148,163,184,0.25);
-        background: rgba(15, 23, 42, 0.7);
-        color: #e2e8f0;
-        font-size: 20px;
-        line-height: 1;
-        display: grid;
-        place-items: center;
-        cursor: pointer;
-      }
-
-      .desktop-content {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 14px;
-        height: calc(100% - 52px);
-        padding: 14px;
-        background: rgba(2, 8, 23, 0.7);
-      }
-
-      .panel {
-        background: rgba(15, 23, 42, 0.7);
-        border: 1px solid rgba(96,165,250,0.22);
-        border-radius: 14px;
-        overflow: hidden;
-      }
-
-      .panel.purple {
-        border-color: rgba(168, 85, 247, 0.3);
-      }
-
-      .panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        min-height: 48px;
-        padding: 0 12px 0 14px;
-        border-bottom: 1px solid rgba(148,163,184,0.15);
-        background: rgba(15,23,42,0.45);
-      }
-
-      .panel-title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-weight: 700;
-        color: var(--white);
-        font-size: 13px;
-      }
-
-      .panel-title .label {
-        color: #e0f2fe;
-      }
-
-      .panel-title .count {
-        color: rgba(148,163,184,0.95);
-        font-weight: 700;
-      }
-
-      .panel-purple .panel-title {
-        color: #f3e8ff;
-      }
-
-      .panel-purple .panel-title .label {
-        color: #f3e8ff;
-      }
-
-      .approval-list,
-      .notification-list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        max-height: 100%;
-        overflow: auto;
-      }
-
-      .approval-item,
-      .notification-item {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        padding: 12px 12px 12px 14px;
-        border-bottom: 1px solid rgba(148,163,184,0.12);
-        background: rgba(15,23,42,0.15);
-      }
-
-      .approval-item:last-child,
-      .notification-item:last-child {
-        border-bottom: none;
-      }
-
-      .icon-wrap {
-        width: 26px;
-        height: 26px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
-        font-size: 15px;
-        margin-top: 2px;
-      }
-
-      .icon-blue { background: var(--blue-soft); color: var(--blue); }
-      .icon-amber { background: var(--amber-soft); color: var(--amber); }
-      .icon-green { background: var(--green-soft); color: var(--green); }
-      .icon-slate { background: rgba(148,163,184,0.12); color: #cbd5e1; }
-
-      .row-main {
-        min-width: 0;
-        flex: 1;
-      }
-
-      .row-title {
-        font-weight: 700;
-        font-size: 13px;
-        line-height: 1.35;
-        color: var(--white);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .row-sub {
-        margin-top: 3px;
-        font-size: 11px;
-        line-height: 1.4;
-        color: rgba(148,163,184,0.9);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .notification-item.unread .row-title {
-        color: #f8fafc;
-      }
-
-      .notification-item .row-title strong {
-        color: #f8fafc;
-      }
-
-      .notification-item .time {
-        margin-left: 8px;
-        font-size: 10px;
-        color: #94a3b8;
-        white-space: nowrap;
-        padding-top: 4px;
-      }
-
-      .notification-item .clear-mini {
-        appearance: none;
-        border: 1px solid rgba(148,163,184,0.2);
-        background: rgba(15,23,42,0.5);
-        color: rgba(226,232,240,0.8);
-        border-radius: 6px;
-        height: 22px;
-        width: 22px;
-        font-size: 16px;
-        line-height: 1;
-        display: grid;
-        place-items: center;
-        cursor: pointer;
-        margin-left: 2px;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 3px 6px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        margin-left: 6px;
-      }
-
-      .badge.amber {
-        background: rgba(251,191,36,0.1);
-        color: #fbbf24;
-        border: 1px solid rgba(251,191,36,0.25);
-      }
-
-      .badge.blue {
-        background: rgba(96,165,250,0.12);
-        color: #93c5fd;
-        border: 1px solid rgba(96,165,250,0.25);
-      }
-
-      .badge.green {
-        background: rgba(52,211,153,0.10);
-        color: #6ee7b7;
-        border: 1px solid rgba(52,211,153,0.22);
-      }
-
-      .preview-label {
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        font-size: 10px;
-        color: rgba(148,163,184,0.8);
-        margin: 0 0 12px;
-        text-align: center;
-      }
-
-      .mobile-stage {
-        width: min(420px, 100%);
-        margin: 0 auto;
-      }
-
-      .phone {
-        width: 100%;
-        border-radius: 24px;
-        background: rgba(2,8,23,0.8);
-        border: 1px solid rgba(148,163,184,0.18);
-        box-shadow: 0 18px 50px rgba(2,8,23,0.75);
-        overflow: hidden;
-      }
-
-      .phone-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 14px 14px 10px;
-        border-bottom: 1px solid rgba(148,163,184,0.1);
-        background: rgba(15,23,42,0.8);
-      }
-
-      .phone-title {
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.04em;
-        color: #e2e8f0;
-      }
-
-      .phone-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .phone-btn {
-        border: 1px solid rgba(96,165,250,0.4);
-        background: rgba(15,23,42,0.8);
-        color: #dbeafe;
-        font-size: 11px;
-        font-weight: 700;
-        padding: 5px 8px;
-        border-radius: 8px;
-      }
-
-      .phone-close {
-        width: 24px;
-        height: 24px;
-        border-radius: 7px;
-        border: 1px solid rgba(148,163,184,0.2);
-        background: rgba(15,23,42,0.7);
-        color: #e2e8f0;
-        font-size: 18px;
-        line-height: 1;
-      }
-
-      .mobile-list {
-        list-style: none;
-        margin: 0;
-        padding: 8px 10px 12px;
-      }
-
-      .mobile-item {
-        display: grid;
-        grid-template-columns: 22px minmax(0,1fr) auto;
-        gap: 8px;
-        padding: 12px 10px;
-        border-bottom: 1px solid rgba(148,163,184,0.12);
-      }
-
-      .mobile-item:last-child { border-bottom: none; }
-
-      .mobile-text {
-        min-width: 0;
-      }
-
-      .mobile-main {
-        font-size: 12px;
-        line-height: 1.35;
-        font-weight: 700;
-        color: #f8fafc;
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 4px;
-      }
-
-      .mobile-sub {
-        margin-top: 3px;
-        font-size: 11px;
-        color: rgba(148,163,184,0.9);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .mobile-time {
-        font-size: 10px;
-        color: rgba(148,163,184,0.9);
-        padding-top: 3px;
-      }
-
-      @media (max-width: 860px) {
-        body { padding: 20px 14px; }
-        .desktop-content { grid-template-columns: 1fr; }
-        .desktop-shell { height: auto; min-height: 760px; }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="stage">
-      <div>
-        <div class="preview-label">Desktop window</div>
-        <div class="desktop-shell" aria-label="CMPRI desktop notification preview">
-          <div class="desktop-titlebar">
-            <span class="window-dot" aria-hidden="true"></span>
-            <div class="title-text"><span>Notifications</span> <span class="muted">(3 unread)</span></div>
-            <div class="toolbar-actions">
-              <button class="clear-all" type="button">Clear all</button>
-              <button class="close-btn" type="button" aria-label="Close window">×</button>
-            </div>
-          </div>
-
-          <div class="desktop-content">
-            <div class="panel purple">
-              <div class="panel-header">
-                <div class="panel-title"><span class="label">Awaiting approval</span><span class="count">2</span></div>
-              </div>
-              <ul class="approval-list">
-                <li class="approval-item">
-                  <div class="icon-wrap icon-amber">✓</div>
-                  <div class="row-main">
-                    <div class="row-title">Room 108 · HVAC inspection <span class="badge amber">Approval</span></div>
-                    <div class="row-sub">Completed by Jordan · 11:45 AM</div>
-                  </div>
-                </li>
-
-                <li class="approval-item">
-                  <div class="icon-wrap icon-blue">✓</div>
-                  <div class="row-main">
-                    <div class="row-title">Room 214 · Ceiling leak <span class="badge blue">Review</span></div>
-                    <div class="row-sub">Submitted by Alex · 10:12 AM</div>
-                  </div>
-                </li>
-              </ul>
-            </div>
-
-            <div class="panel">
-              <div class="panel-header">
-                <div class="panel-title"><span class="label">Notifications</span><span class="count">3</span></div>
-              </div>
-              <ul class="notification-list">
-                <li class="notification-item unread">
-                  <div class="icon-wrap icon-blue">🔧</div>
-                  <div class="row-main">
-                    <div class="row-title"><strong>New work order</strong> · Room 214 · Leaking sink</div>
-                    <div class="row-sub">Assigned to maintenance team</div>
-                  </div>
-                  <div class="time">4m</div>
-                  <button class="clear-mini" type="button" aria-label="Clear notification">×</button>
-                </li>
-
-                <li class="notification-item unread">
-                  <div class="icon-wrap icon-amber">✓</div>
-                  <div class="row-main">
-                    <div class="row-title"><strong>Approval needed</strong> · Room 108 · HVAC inspection</div>
-                    <div class="row-sub">Pending review by chief engineer</div>
-                  </div>
-                  <div class="time">12m</div>
-                  <button class="clear-mini" type="button" aria-label="Clear notification">×</button>
-                </li>
-
-                <li class="notification-item unread">
-                  <div class="icon-wrap icon-slate">💬</div>
-                  <div class="row-main">
-                    <div class="row-title"><strong>Staff note</strong> · “Please check the north stairwell...”</div>
-                    <div class="row-sub">Posted by Sam</div>
-                  </div>
-                  <div class="time">18m</div>
-                  <button class="clear-mini" type="button" aria-label="Clear notification">×</button>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mobile-stage">
-        <div class="preview-label">Mobile feed</div>
-        <div class="phone" aria-label="CMPRI mobile notification preview">
-          <div class="phone-header">
-            <div class="phone-title">Notifications</div>
-            <div class="phone-actions">
-              <button class="phone-btn" type="button">Clear all</button>
-              <button class="phone-close" type="button" aria-label="Close notifications">×</button>
-            </div>
-          </div>
-
-          <ul class="mobile-list">
-            <li class="mobile-item">
-              <div class="icon-wrap icon-blue" style="width:18px;height:18px;font-size:11px;">🔧</div>
-              <div class="mobile-text">
-                <div class="mobile-main">New work order</div>
-                <div class="mobile-sub">Room 214 · Leaking sink</div>
-              </div>
-              <div class="mobile-time">4m</div>
-            </li>
-
-            <li class="mobile-item">
-              <div class="icon-wrap icon-amber" style="width:18px;height:18px;font-size:11px;">✓</div>
-              <div class="mobile-text">
-                <div class="mobile-main">Approval needed</div>
-                <div class="mobile-sub">Room 108 · HVAC inspection</div>
-              </div>
-              <div class="mobile-time">12m</div>
-            </li>
-
-            <li class="mobile-item">
-              <div class="icon-wrap icon-slate" style="width:18px;height:18px;font-size:11px;">💬</div>
-              <div class="mobile-text">
-                <div class="mobile-main">Staff note</div>
-                <div class="mobile-sub">Please check the north stairwell</div>
-              </div>
-              <div class="mobile-time">18m</div>
-            </li>
-          </ul>
-        </div>
-      </div>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CMPRI Engineering — Notification Tray Preview</title>
+<style>
+:root{color-scheme:dark;--page:#020817;--window:#0f172a;--row:#111c30;--row-hover:#17243a;--line:#263449;--text:#f8fafc;--muted:#94a3b8;--blue:#38bdf8;--amber:#fbbf24;--red:#f87171;--green:#4ade80;--purple:#c4b5fd}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:32px;background:radial-gradient(ellipse at 50% 0%,#10203a 0,var(--page) 55%);font-family:Inter,"Segoe UI",Arial,sans-serif;color:var(--text)}.stage{max-width:1260px;margin:auto}.caption{text-align:center;color:#94a3b8;font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 12px}.desk{width:min(980px,100%);height:570px;margin:auto;border:1px solid #334155;border-radius:9px;overflow:hidden;background:#020817;box-shadow:0 28px 80px #0009}.titlebar{height:42px;padding:0 12px;display:flex;align-items:center;gap:9px;background:linear-gradient(#1b2940,#111c30);border-bottom:1px solid #334155}.window-dot{height:8px;width:8px;border-radius:50%;background:#cbd5e1;box-shadow:0 0 0 2px #cbd5e122}.title{font-size:12px;font-weight:700;flex:1;min-width:0;color:#e2e8f0}.count{color:#94a3b8;font-weight:500}.spacer{flex:1}.clear{border:1px solid #38bdf866;background:#0c2438;color:#bae6fd;border-radius:4px;padding:4px 8px;font-size:11px;font-weight:700}.close{height:24px;width:26px;border:1px solid #64748b66;background:#172338;color:#e2e8f0;border-radius:4px;font-size:17px;line-height:1}.tray{height:calc(100% - 42px);overflow:auto;background:#080f1d;padding:8px 10px 12px}.row{display:grid;grid-template-columns:3px 28px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:58px;padding:8px 10px;margin:3px 0;border:1px solid transparent;border-bottom-color:#263449;border-radius:5px;background:#0c1525}.row:hover{background:var(--row-hover)}.row.fresh{background:linear-gradient(90deg,#10243a,#0c1525 35%);border-color:#1d3852}.accent{align-self:stretch;border-radius:9px;background:transparent}.fresh .accent{background:var(--blue)}.approval .accent{background:var(--amber)}.glyph{width:26px;height:26px;display:grid;place-items:center;border:1px solid #38bdf833;border-radius:6px;color:#7dd3fc;background:#0c2438;font-size:14px}.approval .glyph{color:#fcd34d;border-color:#fbbf2438;background:#2c2416}.note .glyph{color:#cbd5e1;border-color:#64748b55;background:#172338}.copy{min-width:0}.headline{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:1.35;font-weight:700;color:#f1f5f9}.verb{white-space:nowrap}.detail{font-weight:500;color:#dbe4f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sub{margin-top:3px;font-size:10px;line-height:1.35;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pills{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-shrink:0}.pill{display:inline-flex;align-items:center;white-space:nowrap;padding:3px 7px;border-radius:999px;border:1px solid;font-size:9px;line-height:1;font-weight:700}.occ-vacant{color:#86efac;border-color:#22c55e66;background:#14532d44}.occ-occupied{color:#fcd34d;border-color:#eab30866;background:#713f1244}.priority-high{color:#fca5a5;border-color:#ef444477;background:#7f1d1d55}.priority-medium{color:#fdba74;border-color:#f9731677;background:#7c2d1255}.priority-low{color:#bae6fd;border-color:#38bdf866;background:#0c4a6e55}.when{width:38px;text-align:right;color:#64748b;font-size:10px;white-space:nowrap}.empty-note{padding:10px 10px 6px;color:#64748b;font-size:10px;letter-spacing:.02em}
+.mobile-wrap{width:min(390px,100%);margin:38px auto 0}.phone{border:1px solid #334155;border-radius:18px;overflow:hidden;background:#080f1d;box-shadow:0 20px 55px #0008}.phone .titlebar{height:46px;padding:0 10px}.phone .title{font-size:12px}.phone .tray{height:auto;padding:7px}.phone .row{grid-template-columns:3px 25px minmax(0,1fr) auto;gap:7px;min-height:58px;padding:7px 7px}.phone .glyph{width:23px;height:23px;font-size:12px}.phone .headline{font-size:11px;gap:4px}.phone .sub{font-size:9px}.phone .pill{font-size:8px;padding:3px 5px}.phone .pills{gap:3px;flex-wrap:wrap;max-width:82px}.phone .when{width:28px;font-size:9px}.phone .detail{font-weight:500}.legend{max-width:980px;margin:12px auto 0;color:#8291a7;font-size:10px;line-height:1.6}.legend b{color:#cbd5e1}
+@media(max-width:700px){body{padding:18px 10px}.desk{height:460px}.desk .row{grid-template-columns:3px 25px minmax(0,1fr) auto;gap:6px;padding:7px 6px}.desk .glyph{width:22px;height:22px;font-size:12px}.desk .headline{font-size:10px;gap:4px}.desk .sub{font-size:9px}.desk .pill{font-size:8px;padding:3px 5px}.desk .pills{gap:3px;flex-wrap:wrap;max-width:92px}.desk .when{width:27px;font-size:9px}.desktop-caption{margin-top:0}.mobile-wrap{margin-top:30px}}
+</style>
+</head>
+<body>
+<main class="stage">
+  <p class="caption desktop-caption">CMPRI Engineering · Desktop notification window · one continuous feed</p>
+  <section class="desk" aria-label="Desktop notification tray visual preview">
+    <header class="titlebar"><span class="window-dot"></span><div class="title">Work Order Notifications <span class="count">· 3 unread</span></div><button class="clear" type="button">Clear all</button><button class="close" type="button" aria-label="Close">×</button></header>
+    <div class="tray">
+      <article class="row fresh">
+        <span class="accent"></span><span class="glyph">🔧</span>
+        <div class="copy"><div class="headline"><span class="verb">New work order</span><span class="detail">· WO# 1048 · Room 214 · Leaking sink</span></div><div class="sub">Assigned to maintenance team</div></div>
+        <div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-high">High</span><span class="when">4m</span></div>
+      </article>
+      <article class="row fresh approval">
+        <span class="accent"></span><span class="glyph">✓</span>
+        <div class="copy"><div class="headline"><span class="verb">Pending approval</span><span class="detail">· WO# 1039 · Room 108 · HVAC inspection</span></div><div class="sub">Completed by Jordan · Awaiting review</div></div>
+        <div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Medium</span><span class="when">12m</span></div>
+      </article>
+      <article class="row fresh">
+        <span class="accent"></span><span class="glyph">🔧</span>
+        <div class="copy"><div class="headline"><span class="verb">New work order</span><span class="detail">· WO# 1047 · Room 326 · Guest room door</span></div><div class="sub">Unassigned · Created by Front Desk</div></div>
+        <div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-low">Low</span><span class="when">18m</span></div>
+      </article>
+      <article class="row note">
+        <span class="accent"></span><span class="glyph">✉</span>
+        <div class="copy"><div class="headline"><span class="verb">Staff note</span><span class="detail">· “Please check the north stairwell…”</span></div><div class="sub">Sam · Engineering team</div></div>
+        <div class="pills"><span class="when">24m</span></div>
+      </article>
+      <article class="row">
+        <span class="accent"></span><span class="glyph">↻</span>
+        <div class="copy"><div class="headline"><span class="verb">Work order updated</span><span class="detail">· WO# 1032 · Room 415 · Drain cleared</span></div><div class="sub">Status changed · Completed by Alex</div></div>
+        <div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Medium</span><span class="when">41m</span></div>
+      </article>
+      <div class="empty-note">New work orders and pending approvals appear first. Opening the tray marks them seen; they remain here as regular notifications.</div>
     </div>
-  </body>
+  </section>
+  <p class="legend"><b>One list, no separate approvals panel.</b> New work orders and pending approvals lead the same continuous feed. Room occupancy and ticket-priority pills remain aligned on the right of each applicable notification. The blue edge marks unseen items; once the tray is opened, those items become read notifications rather than staying “new.”</p>
+
+  <div class="mobile-wrap">
+    <p class="caption">CMPRI Engineering · Mobile notification tray</p>
+    <section class="phone" aria-label="Mobile notification tray visual preview">
+      <header class="titlebar"><span class="window-dot"></span><div class="title">Notifications <span class="count">· 3 unread</span></div><button class="clear" type="button">Clear all</button><button class="close" type="button" aria-label="Close">×</button></header>
+      <div class="tray">
+        <article class="row fresh"><span class="accent"></span><span class="glyph">🔧</span><div class="copy"><div class="headline"><span class="verb">New work order</span></div><div class="sub">WO# 1048 · Room 214 · Leaking sink</div></div><div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-high">High</span><span class="when">4m</span></div></article>
+        <article class="row fresh approval"><span class="accent"></span><span class="glyph">✓</span><div class="copy"><div class="headline"><span class="verb">Pending approval</span></div><div class="sub">WO# 1039 · Room 108 · HVAC inspection</div></div><div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Med</span><span class="when">12m</span></div></article>
+        <article class="row fresh"><span class="accent"></span><span class="glyph">🔧</span><div class="copy"><div class="headline"><span class="verb">New work order</span></div><div class="sub">WO# 1047 · Room 326 · Guest room door</div></div><div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-low">Low</span><span class="when">18m</span></div></article>
+        <article class="row note"><span class="accent"></span><span class="glyph">✉</span><div class="copy"><div class="headline"><span class="verb">Staff note</span></div><div class="sub">Sam · “Check the north stairwell…”</div></div><div class="pills"><span class="when">24m</span></div></article>
+        <article class="row"><span class="accent"></span><span class="glyph">↻</span><div class="copy"><div class="headline"><span class="verb">Work order updated</span></div><div class="sub">WO# 1032 · Room 415 · Drain cleared</div></div><div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Med</span><span class="when">41m</span></div></article>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
 </html>
