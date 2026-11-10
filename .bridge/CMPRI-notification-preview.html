@@ -3,34 +3,164 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CMPRI Engineering — Compact Notification Tray Preview</title>
+<title>CMPRI Notification Tray Preview</title>
 <style>
-:root{color-scheme:dark;--page:#020817;--line:#263449;--text:#f8fafc;--muted:#94a3b8;--blue:#38bdf8;--amber:#fbbf24}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:24px;background:radial-gradient(ellipse at 50% 0%,#10203a 0,#020817 55%);font-family:Inter,"Segoe UI",Arial,sans-serif;color:var(--text)}.stage{max-width:1180px;margin:auto}.caption{text-align:center;color:#94a3b8;font-size:10px;letter-spacing:.13em;text-transform:uppercase;margin:0 0 9px}.desk{width:min(980px,100%);height:460px;margin:auto;border:1px solid #334155;border-radius:7px;overflow:hidden;background:#020817;box-shadow:0 24px 70px #0009}.titlebar{height:36px;padding:0 9px;display:flex;align-items:center;gap:7px;background:linear-gradient(#1b2940,#111c30);border-bottom:1px solid #334155}.window-dot{height:7px;width:7px;border-radius:50%;background:#cbd5e1}.title{font-size:11px;font-weight:700;flex:1;min-width:0;color:#e2e8f0}.count{color:#94a3b8;font-weight:500}.clear{border:1px solid #38bdf866;background:#0c2438;color:#bae6fd;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:700}.close{height:22px;width:23px;border:1px solid #64748b66;background:#172338;color:#e2e8f0;border-radius:4px;font-size:16px;line-height:1}.tray{height:calc(100% - 36px);overflow:auto;background:#080f1d;padding:4px 7px 8px}.row{display:grid;grid-template-columns:2px 22px minmax(0,1fr) auto;align-items:center;gap:7px;min-height:43px;padding:4px 7px;margin:2px 0;border:1px solid transparent;border-bottom-color:#263449;border-radius:4px;background:#0c1525}.row.fresh{background:linear-gradient(90deg,#10243a,#0c1525 35%);border-color:#1d3852}.accent{align-self:stretch;border-radius:9px;background:transparent}.fresh .accent{background:var(--blue)}.approval .accent{background:var(--amber)}.glyph{width:20px;height:20px;display:grid;place-items:center;border:1px solid #38bdf833;border-radius:5px;color:#7dd3fc;background:#0c2438;font-size:11px}.approval .glyph{color:#fcd34d;border-color:#fbbf2438;background:#2c2416}.note .glyph{color:#cbd5e1;border-color:#64748b55;background:#172338}.copy{min-width:0}.headline{display:flex;align-items:center;gap:5px;min-width:0;font-size:10.5px;line-height:1.2;font-weight:700;color:#f1f5f9}.verb{white-space:nowrap}.detail{font-weight:500;color:#dbe4f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sub{margin-top:2px;font-size:9px;line-height:1.2;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pills{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-shrink:0}.pill{display:inline-flex;align-items:center;white-space:nowrap;padding:2px 5px;border-radius:999px;border:1px solid;font-size:8px;line-height:1;font-weight:700}.occ-vacant{color:#86efac;border-color:#22c55e66;background:#14532d44}.occ-occupied{color:#fcd34d;border-color:#eab30866;background:#713f1244}.priority-high{color:#fca5a5;border-color:#ef444477;background:#7f1d1d55}.priority-medium{color:#fdba74;border-color:#f9731677;background:#7c2d1255}.priority-low{color:#bae6fd;border-color:#38bdf866;background:#0c4a6e55}.when{width:30px;text-align:right;color:#64748b;font-size:9px;white-space:nowrap}.hint{padding:5px 8px 2px;color:#64748b;font-size:9px;line-height:1.3}.mobile-wrap{width:min(360px,100%);margin:28px auto 0}.phone{border:1px solid #334155;border-radius:15px;overflow:hidden;background:#080f1d;box-shadow:0 18px 48px #0008}.phone .titlebar{height:38px;padding:0 8px}.phone .title{font-size:10px}.phone .tray{height:auto;padding:3px 5px 6px}.phone .row{grid-template-columns:2px 19px minmax(0,1fr) auto;gap:5px;min-height:42px;padding:4px 5px}.phone .glyph{width:18px;height:18px;font-size:10px}.phone .headline{font-size:9.5px;gap:3px}.phone .sub{font-size:8px}.phone .pill{font-size:7px;padding:2px 4px}.phone .pills{gap:2px;flex-wrap:wrap;max-width:72px}.phone .when{width:23px;font-size:8px}.legend{max-width:980px;margin:8px auto 0;color:#8291a7;font-size:9px;line-height:1.5}.legend b{color:#cbd5e1}@media(max-width:700px){body{padding:14px 8px}.desk{height:400px}.desk .row{grid-template-columns:2px 18px minmax(0,1fr) auto;gap:4px;min-height:39px;padding:3px 4px}.desk .glyph{width:17px;height:17px;font-size:9px}.desk .headline{font-size:9px;gap:3px}.desk .sub{font-size:8px}.desk .pill{font-size:7px;padding:2px 3px}.desk .pills{gap:2px;flex-wrap:wrap;max-width:78px}.desk .when{width:22px;font-size:8px}.mobile-wrap{margin-top:22px}}
+:root{
+  --page:#020817;
+  --bg:#09111d;
+  --panel:#0d1728;
+  --row:#0d1a2a;
+  --row-alt:#101d2f;
+  --line:#243346;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+  --blue:#38bdf8;
+  --blue-soft:#0f2338;
+  --amber:#fbbf24;
+  --amber-soft:#2b2209;
+  --green:#34d399;
+  --green-soft:#0d2d21;
+  --red:#f87171;
+  --red-soft:#2d1212;
+}
+*{box-sizing:border-box}html,body{margin:0;height:100%}body{display:grid;place-items:center;padding:28px;background:radial-gradient(ellipse at 50% 0%, #122033 0%, #020817 55%);font-family:Inter, "Segoe UI", Arial, sans-serif;color:var(--text)}
+.stage{width:min(1070px,100%)}
+.preview{width:min(1000px,100%);margin:0 auto;border:1px solid #334155;border-radius:10px;overflow:hidden;background:#020817;box-shadow:0 30px 80px rgba(0,0,0,.65)}
+.titlebar{height:38px;padding:0 10px;display:flex;align-items:center;gap:7px;background:linear-gradient(180deg,#1a293f,#121c2d);border-bottom:1px solid #334155}
+.dot{width:8px;height:8px;border-radius:50%;background:#e5e7eb;box-shadow:0 0 0 2px rgba(229,231,235,.15)}
+.title{flex:1;min-width:0;font-size:11px;font-weight:700;letter-spacing:.01em;color:#e2e8f0}.title .muted{color:#94a3b8;font-weight:500}
+.action{border:1px solid rgba(96,165,250,.45);background:#0d2235;color:#dbeafe;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700}
+.close{width:23px;height:22px;border:1px solid rgba(148,163,184,.35);background:#17243a;border-radius:4px;color:#e2e8f0;font-size:16px;line-height:1}
+.tray{padding:8px 8px 10px;background:#08111d}
+.row{display:grid;grid-template-columns:2px 20px minmax(0,1fr) auto;align-items:center;gap:7px;padding:5px 7px;margin:1px 0;border-radius:4px;background:rgba(13,26,42,.9);border:1px solid rgba(148,163,184,.08)}
+.row.new{background:linear-gradient(90deg,#0d2237,#0b1727 35%);border-color:rgba(56,189,248,.2)}
+.row.pending{background:linear-gradient(90deg,#2b2209,#0b1727 35%);border-color:rgba(251,191,36,.18)}
+.accent{height:100%;border-radius:3px}.new .accent{background:var(--blue)}.pending .accent{background:var(--amber)}.plain .accent{background:rgba(148,163,184,.35)}
+.glyph{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:10px;border:1px solid rgba(96,165,250,.3);color:#7dd3fc;background:rgba(15,35,52,.85)}
+.pending .glyph{color:#fcd34d;border-color:rgba(251,191,36,.3);background:rgba(43,34,9,.9)}
+.plain .glyph{color:#cbd5e1;border-color:rgba(148,163,184,.25);background:rgba(23,36,58,.8)}
+.copy{min-width:0}.headline{display:flex;align-items:center;gap:5px;min-width:0;font-size:10.5px;line-height:1.2;font-weight:700;color:#f8fafc}.headline .lead{white-space:nowrap}.headline .detail{color:#dbe4f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;min-width:0}.sub{margin-top:2px;min-width:0;font-size:9px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.right{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-shrink:0}.pill{display:inline-flex;align-items:center;padding:2px 5px;border-radius:999px;border:1px solid;font-size:7.5px;line-height:1;font-weight:800;letter-spacing:.02em}.pill.occupied{background:rgba(234,179,8,.14);color:#fcd34d;border-color:rgba(234,179,8,.35)}.pill.vacant{background:rgba(52,211,153,.1);color:#86efac;border-color:rgba(52,211,153,.35)}.pill.high{background:rgba(248,113,113,.12);color:#fca5a5;border-color:rgba(248,113,113,.35)}.pill.medium{background:rgba(251,146,60,.12);color:#fdba74;border-color:rgba(251,146,60,.35)}.pill.low{background:rgba(96,165,250,.12);color:#93c5fd;border-color:rgba(96,165,250,.35)}.when{width:26px;text-align:right;font-size:8.5px;color:#64748b;white-space:nowrap}
+.footer-note{padding:5px 9px 6px;color:#94a3b8;font-size:9px;line-height:1.3}
+.mobile-wrap{width:min(360px,100%);margin:32px auto 0}.phone{border:1px solid #334155;border-radius:16px;overflow:hidden;background:#08111d;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.phone .titlebar{height:34px;padding:0 8px}.phone .title{font-size:10px}.phone .action{font-size:9px;padding:3px 6px}.phone .close{width:21px;height:20px;font-size:14px}.phone .tray{padding:5px}.phone .row{grid-template-columns:2px 18px minmax(0,1fr) auto;gap:5px;padding:4px 6px}.phone .glyph{width:16px;height:16px;font-size:9px}.phone .headline{font-size:9px;gap:4px}.phone .sub{font-size:8px}.phone .pill{font-size:7px;padding:2px 4px}.phone .when{font-size:8px;width:22px}
+.caption{text-align:center;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;margin:0 0 8px}
+@media(max-width:700px){body{padding:18px 10px}.preview{border-radius:8px}.row{grid-template-columns:2px 16px minmax(0,1fr) auto;gap:5px;padding:4px 5px}.glyph{width:15px;height:15px;font-size:8px}.headline{font-size:8.5px}.sub{font-size:7.7px}.pill{font-size:6.8px}.when{width:22px;font-size:7.8px}.titlebar{height:32px}.title{font-size:9px}.action{padding:3px 6px;font-size:8.5px}.close{width:20px;height:20px;font-size:13px}}
 </style>
 </head>
 <body>
-<main class="stage">
-<p class="caption">CMPRI Engineering · Desktop notification window · compact</p>
-<section class="desk" aria-label="Compact desktop notification tray preview">
-<header class="titlebar"><span class="window-dot"></span><div class="title">Work Order Notifications <span class="count">· 3 unread</span></div><button class="clear" type="button">Clear all</button><button class="close" type="button" aria-label="Close">×</button></header>
-<div class="tray">
-<article class="row fresh"><span class="accent"></span><span class="glyph">🔧</span><div class="copy"><div class="headline"><span class="verb">New work order</span><span class="detail">· WO# 1048 · Room 214 · Leaking sink</span></div><div class="sub">Assigned to maintenance team</div></div><div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-high">High</span><span class="when">4m</span></div></article>
-<article class="row fresh approval"><span class="accent"></span><span class="glyph">✓</span><div class="copy"><div class="headline"><span class="verb">Pending approval</span><span class="detail">· WO# 1039 · Room 108 · HVAC inspection</span></div><div class="sub">Completed by Jordan · Awaiting review</div></div><div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Medium</span><span class="when">12m</span></div></article>
-<article class="row fresh"><span class="accent"></span><span class="glyph">🔧</span><div class="copy"><div class="headline"><span class="verb">New work order</span><span class="detail">· WO# 1047 · Room 326 · Guest room door</span></div><div class="sub">Unassigned · Created by Front Desk</div></div><div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-low">Low</span><span class="when">18m</span></div></article>
-<article class="row note"><span class="accent"></span><span class="glyph">✉</span><div class="copy"><div class="headline"><span class="verb">Staff note</span><span class="detail">· “Please check the north stairwell…”</span></div><div class="sub">Sam · Engineering team</div></div><div class="pills"><span class="when">24m</span></div></article>
-<article class="row"><span class="accent"></span><span class="glyph">↻</span><div class="copy"><div class="headline"><span class="verb">Work order updated</span><span class="detail">· WO# 1032 · Room 415 · Drain cleared</span></div><div class="sub">Status changed · Completed by Alex</div></div><div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Medium</span><span class="when">41m</span></div></article>
-<div class="hint">New work orders and pending approvals lead the feed. Opening the tray marks them seen; they remain as regular notifications.</div>
-</div></section>
-<p class="legend"><b>One continuous feed.</b> Compact row height and tighter spacing; occupancy and priority pills remain at the right. Blue edge = unseen; amber edge = pending approval.</p>
-<div class="mobile-wrap"><p class="caption">CMPRI Engineering · Mobile · compact</p><section class="phone" aria-label="Compact mobile notification tray preview">
-<header class="titlebar"><span class="window-dot"></span><div class="title">Notifications <span class="count">· 3 unread</span></div><button class="clear" type="button">Clear all</button><button class="close" type="button" aria-label="Close">×</button></header>
-<div class="tray">
-<article class="row fresh"><span class="accent"></span><span class="glyph">🔧</span><div class="copy"><div class="headline"><span class="verb">New work order</span></div><div class="sub">WO# 1048 · Room 214 · Leaking sink</div></div><div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-high">High</span><span class="when">4m</span></div></article>
-<article class="row fresh approval"><span class="accent"></span><span class="glyph">✓</span><div class="copy"><div class="headline"><span class="verb">Pending approval</span></div><div class="sub">WO# 1039 · Room 108 · HVAC inspection</div></div><div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Med</span><span class="when">12m</span></div></article>
-<article class="row fresh"><span class="accent"></span><span class="glyph">🔧</span><div class="copy"><div class="headline"><span class="verb">New work order</span></div><div class="sub">WO# 1047 · Room 326 · Guest room door</div></div><div class="pills"><span class="pill occ-occupied">Occupied</span><span class="pill priority-low">Low</span><span class="when">18m</span></div></article>
-<article class="row note"><span class="accent"></span><span class="glyph">✉</span><div class="copy"><div class="headline"><span class="verb">Staff note</span></div><div class="sub">Sam · “Check north stairwell…”</div></div><div class="pills"><span class="when">24m</span></div></article>
-<article class="row"><span class="accent"></span><span class="glyph">↻</span><div class="copy"><div class="headline"><span class="verb">Work order updated</span></div><div class="sub">WO# 1032 · Room 415 · Drain cleared</div></div><div class="pills"><span class="pill occ-vacant">Vacant</span><span class="pill priority-medium">Med</span><span class="when">41m</span></div></article>
-</div></section></div>
-</main>
-</body></html>
+  <main class="stage">
+    <div class="preview">
+      <div class="titlebar">
+        <span class="dot"></span>
+        <div class="title">Work Order Notifications <span class="muted">· 3 unread</span></div>
+        <button class="action" type="button">Clear all</button>
+        <button class="close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="tray">
+        <article class="row new">
+          <span class="accent"></span>
+          <span class="glyph">🔧</span>
+          <div class="copy">
+            <div class="headline"><span class="lead">New work order</span><span class="detail">· WO# 1048 · Room 214 · Leaking sink</span></div>
+            <div class="sub">Assigned to maintenance team</div>
+          </div>
+          <div class="right">
+            <span class="pill occupied">Occupied</span>
+            <span class="pill high">High</span>
+            <span class="when">4m</span>
+          </div>
+        </article>
+
+        <article class="row pending">
+          <span class="accent"></span>
+          <span class="glyph">✓</span>
+          <div class="copy">
+            <div class="headline"><span class="lead">Pending approval</span><span class="detail">· WO# 1039 · Room 108 · HVAC inspection</span></div>
+            <div class="sub">Completed by Jordan · Awaiting review</div>
+          </div>
+          <div class="right">
+            <span class="pill vacant">Vacant</span>
+            <span class="pill medium">Medium</span>
+            <span class="when">12m</span>
+          </div>
+        </article>
+
+        <article class="row new">
+          <span class="accent"></span>
+          <span class="glyph">🔧</span>
+          <div class="copy">
+            <div class="headline"><span class="lead">New work order</span><span class="detail">· WO# 1047 · Room 326 · Guest room door</span></div>
+            <div class="sub">Unassigned · Created by Front Desk</div>
+          </div>
+          <div class="right">
+            <span class="pill occupied">Occupied</span>
+            <span class="pill low">Low</span>
+            <span class="when">18m</span>
+          </div>
+        </article>
+
+        <article class="row plain">
+          <span class="accent"></span>
+          <span class="glyph">✉</span>
+          <div class="copy">
+            <div class="headline"><span class="lead">Staff note</span><span class="detail">· “Please check the north stairwell…”</span></div>
+            <div class="sub">Sam · Engineering team</div>
+          </div>
+          <div class="right"><span class="when">24m</span></div>
+        </article>
+
+        <article class="row plain">
+          <span class="accent"></span>
+          <span class="glyph">↻</span>
+          <div class="copy">
+            <div class="headline"><span class="lead">Work order updated</span><span class="detail">· WO# 1032 · Room 415 · Drain cleared</span></div>
+            <div class="sub">Status changed · Completed by Alex</div>
+          </div>
+          <div class="right">
+            <span class="pill vacant">Vacant</span>
+            <span class="pill medium">Medium</span>
+            <span class="when">41m</span>
+          </div>
+        </article>
+
+        <div class="footer-note">New work orders and pending approvals remain at the top of the same tray. Opening the tray marks them seen; they remain in the feed as standard notifications.</div>
+      </div>
+    </div>
+
+    <div class="mobile-wrap">
+      <p class="caption">Mobile</p>
+      <div class="phone">
+        <div class="titlebar">
+          <span class="dot"></span>
+          <div class="title">Notifications <span class="muted">· 3 unread</span></div>
+          <button class="action" type="button">Clear all</button>
+          <button class="close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="tray">
+          <article class="row new">
+            <span class="accent"></span><span class="glyph">🔧</span>
+            <div class="copy"><div class="headline"><span class="lead">New work order</span></div><div class="sub">WO# 1048 · Room 214 · Leaking sink</div></div>
+            <div class="right"><span class="pill occupied">Occupied</span><span class="pill high">High</span><span class="when">4m</span></div>
+          </article>
+          <article class="row pending">
+            <span class="accent"></span><span class="glyph">✓</span>
+            <div class="copy"><div class="headline"><span class="lead">Pending approval</span></div><div class="sub">WO# 1039 · Room 108 · HVAC inspection</div></div>
+            <div class="right"><span class="pill vacant">Vacant</span><span class="pill medium">Med</span><span class="when">12m</span></div>
+          </article>
+          <article class="row new">
+            <span class="accent"></span><span class="glyph">🔧</span>
+            <div class="copy"><div class="headline"><span class="lead">New work order</span></div><div class="sub">WO# 1047 · Room 326 · Guest room door</div></div>
+            <div class="right"><span class="pill occupied">Occupied</span><span class="pill low">Low</span><span class="when">18m</span></div>
+          </article>
+          <article class="row plain">
+            <span class="accent"></span><span class="glyph">✉</span>
+            <div class="copy"><div class="headline"><span class="lead">Staff note</span></div><div class="sub">Sam · “Check north stairwell…”</div></div>
+            <div class="right"><span class="when">24m</span></div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
