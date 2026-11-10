@@ -393,12 +393,11 @@ h1.cmpri-desktop-heading {
 
 .cmpri-desktop {
   color-scheme: dark;
-  background-color: #020617;
+  background-color: #271b14;
   background-image:
-    linear-gradient(rgb(56 189 248 / 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(56 189 248 / 0.045) 1px, transparent 1px),
-    linear-gradient(rgb(56 189 248 / 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(56 189 248 / 0.02) 1px, transparent 1px);
+    linear-gradient(rgb(193 138 71 / 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(193 138 71 / 0.08) 1px, transparent 1px),
+    radial-gradient(ellipse at 60% 35%, #714a2c 0%, #432c1e 50%, #241a14 100%);
   background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
 }
 

@@ -6,6 +6,18 @@
   --color-slate-100:var(--cmpri-palette-desktop-tone-10,#fff0d6);--color-sky-200:var(--cmpri-palette-desktop-tone-11,#dbc4a0);--color-amber-300:var(--cmpri-palette-desktop-tone-12,#f4c477);
   background:var(--cmpri-palette-desktop-tone-13,#271b14);color:var(--cmpri-palette-desktop-tone-10,#fff0d6);
 }
+.cmpri-persistent-artwork { position:fixed; inset:0; z-index:0; background:#271b14; }
+.cmpri-persistent-artwork[hidden] { display:none; }
+.cmpri-persistent-artwork iframe { pointer-events:none; }
+.cmpri-sign-in, .cmpri-desktop-root { position:relative; z-index:1; }
+[data-cmpri-seasonal-theme="thanksgiving"].cmpri-sign-in,
+[data-cmpri-seasonal-theme="thanksgiving"].cmpri-desktop-root,
+[data-cmpri-seasonal-theme="thanksgiving"] .cmpri-desktop { background:transparent; }
+.cmpri-animation-control { position:fixed; right:18px; bottom:14px; z-index:200; border:1px solid #b28b57; border-radius:50%; width:44px; height:44px; color:#ffe0a3; background:#302117df; font:18px system-ui; cursor:pointer; }
+.cmpri-animation-control[hidden] { display:none; }
+.cmpri-animation-control:focus-visible { outline:3px solid #e6ad45; outline-offset:3px; }
+@media(max-width:767px) { .cmpri-animation-control { right:12px; bottom:12px; } }
+@media(prefers-reduced-motion:reduce) { .cmpri-animation-control { display:none; } }
 [data-cmpri-seasonal-theme="thanksgiving"] .cmpri-desktop-topbar {
   background:linear-gradient(var(--cmpri-palette-desktop-tone-14,#302117f5),var(--cmpri-palette-desktop-tone-15,#211911f5));border-color:var(--cmpri-palette-desktop-tone-16,#9a7046);
 }

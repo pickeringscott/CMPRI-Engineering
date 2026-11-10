@@ -36,10 +36,10 @@ test('approved desktop and mobile coordinates, cropping and layer order are appl
         [expected.x + 'px', expected.y + 'px', expected.width + 'px', expected.height + 'px', expected.layer + 10]);
     }
     assert.equal(a.scene.dataset.layout, mode);
-    assert.equal(a.scene.dataset.leafCount, '96');
+    assert.equal(a.scene.dataset.leafCount, '82');
     assert.equal(a.scene.dataset.leafSize, mode === 'desktop' ? '41' : '32');
-    assert.equal(a.scene.querySelectorAll('#leavesA .leaf').length, 48);
-    assert.equal(a.scene.querySelectorAll('#leavesB .leaf').length, 48);
+    assert.equal(a.scene.querySelectorAll('#leavesA .leaf').length, 41);
+    assert.equal(a.scene.querySelectorAll('#leavesB .leaf').length, 41);
     assert.equal(new Set([...a.scene.querySelectorAll('.leaf')].map(e => e.dataset.species)).size, 9);
     a.dom.window.close();
   }
@@ -55,10 +55,10 @@ test('landed leaves persist and build a higher bounded pile in both original lay
     assert.equal(first.style.transform, transform);
     a.step(1400);
     assert.equal(a.scene.querySelectorAll('.leaf.settled').length, 480);
-    assert.equal(a.scene.querySelectorAll('.leaf:not(.settled)').length, 96);
+    assert.equal(a.scene.querySelectorAll('.leaf:not(.settled)').length, 82);
     for (const field of ['leavesA', 'leavesB']) {
       assert.equal(a.scene.querySelectorAll('#' + field + ' .settled').length, 240);
-      assert.equal(a.scene.querySelectorAll('#' + field + ' .leaf:not(.settled)').length, 48);
+      assert.equal(a.scene.querySelectorAll('#' + field + ' .leaf:not(.settled)').length, 41);
       assert.equal(+a.scene.querySelector('#' + field).style.zIndex, layout.leaves.layers[field].layer + 10);
     }
     const settled = [...a.scene.querySelectorAll('.leaf.settled')];
@@ -76,7 +76,7 @@ test('landed leaves persist and build a higher bounded pile in both original lay
 });
 test('pause freezes both falling leaves and the pile, and reduced motion stops falling', () => {
   const a = mount(); a.step(1000);
-  assert.equal(a.scene.querySelectorAll('.leaf:not(.settled)').length, 96);
+  assert.equal(a.scene.querySelectorAll('.leaf:not(.settled)').length, 82);
   const transforms = () => [...a.scene.querySelectorAll('.leaf')].map(e => e.style.transform);
   const before = transforms(); a.step(10); assert.notDeepEqual(transforms(), before);
   a.dom.window.document.getElementById('toggle').click();
