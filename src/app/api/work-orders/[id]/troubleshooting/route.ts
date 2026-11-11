@@ -91,7 +91,7 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
   if (current.error) return json({ error: 'The saved troubleshooting checklist is unavailable. Try again or contact Engineering.' }, 503);
   const states = current.data?.task_states ?? {};
   if (!states || typeof states !== 'object' || Array.isArray(states) || Object.keys(states).some(key => !derived.steps.some(step => step.id === key))) return json({ error: 'The saved troubleshooting checklist could not be verified.' }, 503);
-  return finish({ ...empty, ...derived, contextKey, revision: Number(current.data?.revision || 0), taskStates: states as Record<string, PmTaskState>, ...(derived.steps.length ? {} : { reason: 'No instructions in this asset’s approved uploaded document match this issue. Describe an observable symptom, such as not turning on, leaking or an unusual noise. A fault code is not required.' }) }, assetContext);
+  return finish({ ...empty, ...derived, contextKey, revision: Number(current.data?.revision || 0), taskStates: states as Record<string, PmTaskState>, ...(derived.steps.length ? {} : { reason: 'No matching instructions in the attached document.' }) }, assetContext);
 }
 
 export async function GET(request: NextRequest, params: Params) {

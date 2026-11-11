@@ -2332,7 +2332,7 @@ export default function WorkOrdersPage() {
                   : selectedCreateAsset && !troubleshootingLoading && !troubleshootingError && (
                     <p className="mt-3 text-xs text-slate-400">{matchingTroubleshootingSteps.length
                       ? "The matched checks are already recorded as completed or ruled out in Notes / Actions Taken."
-                      : troubleshootingReason || "No instructions in this equipment's approved document match yet. Describe what you observe, such as a leak, noise, or not turning on. A fault code is not required."}</p>
+                      : troubleshootingReason || "No matching instructions in the attached document."}</p>
                   )}
               </section>
             )}

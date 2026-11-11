@@ -160,7 +160,7 @@ test('plain-language issues select only explicit uploaded manual actions without
   assert.equal((await h.patch({ contextKey: leak.body.contextKey, expectedRevision: 1, itemId: 'step-1' })).status, 409);
   h.state.ticket.issue = 'It is broken'; h.state.ticket.revision++;
   const vague = await h.get();
-  assert.deepEqual(vague.body.steps, []); assert.match(vague.body.reason, /observable symptom.*fault code is not required/i);
+  assert.deepEqual(vague.body.steps, []); assert.equal(vague.body.reason, 'No matching instructions in the attached document.');
   assert.equal(h.state.providerCalls, 0);
 });
 
