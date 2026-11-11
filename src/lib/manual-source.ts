@@ -14,6 +14,28 @@ export function manualSourcePassages(text: string): SourcePassage[] {
   });
 }
 
+/** Index illustrated parts pages next to their own parts lists without inventing procedures. */
+export function manualPartsPassages(text: string): SourcePassage[] {
+  const pages = [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)]
+    .map(match => ({ page: Number(match[1]), text: match[2].trim() }));
+  const selected = new Map<number, SourcePassage>();
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    const header = page.text.match(/\b(?:ref(?:erence)?\s+)?part\s+(?:no\.?|number)\s+description\b/i);
+    if (!header || /table of contents/i.test(page.text)) continue;
+    selected.set(page.page, { ...page, kind: "troubleshooting" });
+    const previous = pages[index - 1];
+    if (!previous || previous.page !== page.page - 1) continue;
+    const title = page.text.slice(0, header.index).replace(/^.*?\b(?:do not copy or transmit)\b/i, "");
+    const words = title.toLowerCase().match(/[a-z]{4,}/g) || [];
+    const meaningful = words.filter(word => !/^(parts|drawing|models|figure|copyright|alliance|laundry|systems)$/.test(word));
+    if (meaningful.some(word => new RegExp(`\\b${word}\\b`, "i").test(previous.text))) {
+      selected.set(previous.page, { ...previous, kind: "troubleshooting" });
+    }
+  }
+  return [...selected.values()].sort((a, b) => a.page - b.page);
+}
+
 export function prepareUploadedGuide(text: string, identity: SourceIdentity, fileName: string, sha256: string) {
   const passages = manualSourcePassages(text);
   // The Assets modal supplies the equipment association. The attached PDF is

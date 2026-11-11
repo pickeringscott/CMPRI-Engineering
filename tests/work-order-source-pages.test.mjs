@@ -34,3 +34,11 @@ test('everyday wording finds source pages without claiming they are instructions
  assert.deepEqual(relevantSourcePassages(pages,'unit makes noise').map(page=>page.page),[2]);
  assert.deepEqual(relevantSourcePassages(pages,'door stuck').map(page=>page.page),[]);
 });
+
+test('parts lists and their matching illustrated pages remain source references',async()=>{
+ const {manualPartsPassages,relevantSourcePassages}=await import('../src/lib/manual-source.ts');
+ const text='PAGE 1\nDoor Lock drawing\n\nPAGE 2\nDoor Lock\nREF PART NO. DESCRIPTION\n1 1234 Door Lock Cover\n\nPAGE 3\nElectrical safety\n\nPAGE 4\nDrain\nREF PART NO. DESCRIPTION\n1 5678 Drain Valve';
+ const pages=manualPartsPassages(text);
+ assert.deepEqual(pages.map(page=>page.page),[1,2,4]);
+ assert.deepEqual(relevantSourcePassages(pages,'door lock broken').map(page=>page.page),[1,2]);
+});

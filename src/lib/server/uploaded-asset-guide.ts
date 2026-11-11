@@ -6,7 +6,7 @@ import { allows } from '@/lib/server/access';
 import { requireUser } from '@/lib/server/auth';
 import { listRegisteredAssetFiles, type RegisteredAssetFile } from '@/lib/server/asset-file-register';
 import { extractManualPdfText, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
-import { manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
+import { manualPartsPassages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
 import { uploadedManualActions } from '@/lib/uploaded-manual-actions';
 import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
@@ -181,6 +181,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   const sourceUrl = signed.data.signedUrl;
   const actionPages = new Set([...actions.symptom_rules, ...actions.error_codes].flatMap(entry => entry.source_pages || []));
   const passages = manualSourcePassages(selected.text);
+  for (const page of manualPartsPassages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
   for (const match of selected.text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)) {
     const page = Number(match[1]);
     if (actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
