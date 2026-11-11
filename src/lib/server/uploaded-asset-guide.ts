@@ -146,7 +146,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   if (image && image.sha256 !== selected.sha256) return unavailable('uploaded_document_changed', 'The uploaded PDF changed. Reload the guide before opening its image.');
   const actions = uploadedManualActions(selected.text);
   try {
-    const tableRules = await cachedDerivative(`tables:v1:${selected.sha256}`, () => extractPdfTroubleshootingTables(selected.bytes));
+    const tableRules = await cachedDerivative(`tables:v2:${selected.sha256}`, () => extractPdfTroubleshootingTables(selected.bytes));
     actions.symptom_rules.push(...tableRules);
   } catch {
     failures.push({ status: 'uploaded_table_unavailable', message: 'Some source tables could not be read. Open the source PDF to review them.' });
