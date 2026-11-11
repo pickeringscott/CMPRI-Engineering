@@ -51,3 +51,20 @@ test('unlabelled source pages from future manuals remain searchable without beco
  const {normalizeManualKnowledge}=await import('../src/lib/manual-knowledge.ts');
  assert.equal(normalizeManualKnowledge({source_passages:pages})?.source_passages?.length,2);
 });
+
+test('source discovery handles ordinary word endings across unrelated equipment',async()=>{
+ const {manualReferencePages,relevantSourcePassages}=await import('../src/lib/manual-source.ts');
+ const pages=manualReferencePages('PAGE 1\nHinge squeals during operation.\n\nPAGE 2\nSprinkler leaks at the valve.\n\nPAGE 3\nVacuum brushes need cleaning.');
+ assert.deepEqual(relevantSourcePassages(pages,'hinge squealing').map(page=>page.page),[1]);
+ assert.deepEqual(relevantSourcePassages(pages,'sprinkler leaking').map(page=>page.page),[2]);
+ assert.deepEqual(relevantSourcePassages(pages,'brush is dirty').map(page=>page.page),[3]);
+});
+
+test('source-page search updates if a source entry changes',async()=>{
+ const {relevantSourcePassages}=await import('../src/lib/manual-source.ts');
+ const page={page:1,kind:'reference',text:'Door latch diagram'};
+ assert.equal(relevantSourcePassages([page],'door latch').length,1);
+ page.text='Sprinkler valve diagram';
+ assert.equal(relevantSourcePassages([page],'door latch').length,0);
+ assert.equal(relevantSourcePassages([page],'sprinkler valve').length,1);
+});

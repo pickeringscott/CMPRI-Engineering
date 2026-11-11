@@ -74,12 +74,35 @@ function sourceSearchText(value: string): string {
     .replace(/\b(?:noisy|noises)\b/g, "noise");
 }
 
+/** Reduce ordinary plural and tense endings for source-page discovery. */
+function sourceSearchWords(value: string): string[] {
+  return (sourceSearchText(value).match(/[a-z0-9]+/g) || []).filter(word => word.length > 2 && !stop.has(word)).map(word => {
+    if (word.length > 5 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
+    if (word.length > 5 && word.endsWith('ing')) {
+      let stem = word.slice(0, -3);
+      if (/(.)\1$/.test(stem)) stem = stem.slice(0, -1);
+      return stem;
+    }
+    if (word.length > 5 && word.endsWith('ed')) return word.slice(0, -2);
+    if (word.length > 5 && /(?:sses|ches|shes|xes)$/.test(word)) return word.slice(0, -2);
+    if (word.length > 4 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+    return word;
+  });
+}
+
+const sourceWordCache = new WeakMap<SourcePassage, { text: string; words: Set<string> }>();
+
 /** Find possible source pages, retaining the original PDF for context. */
 export function relevantSourcePassages(passages: SourcePassage[], issue: string): SourcePassage[] {
-  const words = [...new Set(sourceSearchText(issue).match(/[a-z0-9]+/g) || [])].filter(word => word.length > 2 && !stop.has(word));
+  const words = [...new Set(sourceSearchWords(issue))];
+  if (!words.length) return [];
   const ranked = passages.map(passage => {
-    const text = sourceSearchText(passage.text);
-    return { passage, score: words.filter(word => new RegExp(`\\b${word}\\b`, "i").test(text)).length };
+    let cached = sourceWordCache.get(passage);
+    if (!cached || cached.text !== passage.text) {
+      cached = { text: passage.text, words: new Set(sourceSearchWords(passage.text)) };
+      sourceWordCache.set(passage, cached);
+    }
+    return { passage, score: words.filter(word => cached.words.has(word)).length };
   });
   return ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).map(item => item.passage);
 }
