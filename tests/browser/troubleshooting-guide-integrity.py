@@ -344,6 +344,14 @@ async def main():
    await note.fill('')
    initial_tech_visit = writes[-1]['visitId']
    assert not any(entry['visitId'] == initial_tech_visit for entry in exit_notes), 'Checklist taps must not append individual work-order notes'
+   await guide.locator('summary').first.click()
+   for _ in range(100):
+    if any(entry['visitId'] == initial_tech_visit for entry in exit_notes): break
+    await tech.wait_for_timeout(100)
+   assert visits[initial_tech_visit]['finalized'], 'Closing the troubleshooting accordion must save its checklist summary'
+   assert len([entry for entry in exit_notes if entry['visitId'] == initial_tech_visit]) == 1
+   await guide.locator('summary').first.click()
+   await checklist.get_by_role('checkbox').first.wait_for(timeout=30000)
    await expect(checklist.get_by_role('link', name='Washer service manual.pdf', exact=True)).to_have_attribute('href', PDF)
    assert await tech.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'The checklist must fit without horizontal overflow'
    await capture(tech, guide, 'final-guide-tech-' + ('phone' if width == 384 else 'desktop'))

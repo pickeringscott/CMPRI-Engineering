@@ -2527,15 +2527,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <WorkOrderSectionIcon section="troubleshooting" />
                   Suggested Troubleshooting
                 </h2>
-                {selectedAsset && (
-                  <span className="truncate text-[11px] text-slate-500">
-                    {manualLoading
-                      ? "Reading the equipment’s uploaded document..."
-                      : checklistContext.steps.length
-                        ? "Instructions from this equipment’s uploaded document"
-                        : "Describe the problem to find matching instructions"}
-                  </span>
-                )}
               </summary>
 
               {!selectedAsset && (
@@ -2593,11 +2584,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <div className="mt-1 space-y-0">
                     <div>
                       <h3 className="text-sm font-semibold text-red-300">Fault / Diagnostic Code Reference</h3>
-                      <p className="text-xs leading-tight text-slate-500">
-                        {reportedCode
-                          ? "The reported code is listed first when the manual contains it."
-                          : "Potentially relevant manual codes are references only; verify the actual displayed equipment code before applying a code-specific action."}
-                      </p>
                     </div>
                     {relevantErrorCodes.map((item) => {
                       const exact = !!reportedCode && normalizeDiagnosticCode(item.code) === reportedCode;
