@@ -1,4 +1,4 @@
-import { structureManualDocument, manualHtmlGuideText, type ManualHtmlPage } from './manual-document-html';
+import { structureManualDocument, manualHtmlGuideLines, type ManualHtmlPage } from './manual-document-html';
 import type { ManualErrorCode, ManualSymptomRule } from './manual-knowledge';
 
 // This parser extracts explicit source structures. It does not supply repair
@@ -33,16 +33,15 @@ export function uploadedManualActions(text: string): { symptom_rules: ManualSymp
 
 /** Run the existing source-association checks against the semantic HTML nodes. */
 export function uploadedManualHtmlActions(pages: ManualHtmlPage[]): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
-  return readStructuredActions(manualHtmlGuideText(pages));
+  return readStructuredActions(pages);
 }
 
-function readStructuredActions(text: string): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
+function readStructuredActions(pages: ManualHtmlPage[]): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
   const symptom_rules: ManualSymptomRule[] = [];
   const error_codes: ManualErrorCode[] = [];
-  const pages = [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)];
   for (const page of pages) {
-    const number = Number(page[1]);
-    if (!Number.isSafeInteger(number) || number < 1) continue;
+    const number = page.page;
+    if (!Number.isSafeInteger(number) || number < 1 || number > 600) continue;
     let context: Context | null = null;
     let table: Table | null = null;
     let pendingAction = false;
@@ -55,7 +54,7 @@ function readStructuredActions(text: string): { symptom_rules: ManualSymptomRule
       context = null;
       pendingAction = false;
     };
-    for (const raw of page[2].split(/\r?\n/)) {
+    for (const raw of manualHtmlGuideLines(page)) {
       const line = raw.trim();
       if (!line) continue;
       const row = cells(line);

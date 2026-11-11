@@ -165,3 +165,18 @@ test('the work-order viewer renders semantic source HTML and never trusts suppli
   assert.equal(parent.querySelector('a').getAttribute('href'),'https://cmpri.test/manual.pdf#page=6');
  } finally {await React.act(async()=>root.unmount());parent.remove();}
 });
+
+test('source selection controls text and image together without dumping all search results', async () => {
+ const h=imageViewer();
+ try {
+  await h.render({});
+  assert.match(h.parent.textContent,/Drain diagnostic chart/);
+  assert.doesNotMatch(h.parent.textContent,/Drain assembly diagram/);
+  assert.equal(h.parent.querySelectorAll('[data-source-page]').length,1);
+  await React.act(async()=>{const select=h.parent.querySelector('select');select.value='8';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  assert.match(h.parent.textContent,/Drain assembly diagram/);
+  assert.doesNotMatch(h.parent.textContent,/Drain diagnostic chart/);
+  assert.equal(h.parent.querySelector('a').getAttribute('href'),'https://cmpri.test/source.pdf?token=one#page=8');
+  assert.equal(new URL(h.pending.at(-1).url,'https://cmpri.test').searchParams.get('pageImage'),'8');
+ } finally {await h.cleanup();}
+});

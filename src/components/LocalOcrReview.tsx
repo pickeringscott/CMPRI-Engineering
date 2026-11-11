@@ -9,14 +9,17 @@ export type ReviewedOcrText = {
   pages: { page: number; text: string }[];
 };
 
+export type ReviewedGuideText = ReviewedOcrText & { sha256: string; totalPages: number };
+
 type Props = {
-  /** Pass reviewed text into an editor; this component never saves a record. */
+  /** Pass reviewed text into an editor without saving it. */
   onUseText?: (result: ReviewedOcrText) => void;
   useTextLabel?: string;
+  onUseGuide?: (result: ReviewedGuideText, signal: AbortSignal) => Promise<string>;
 };
 
 /** An on-device reference tool. Extracted text is never applied automatically. */
-export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed text" }: Props) {
+export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "Use reviewed text" }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [fileKind, setFileKind] = useState<"image" | "pdf" | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -27,6 +30,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
   const [firstPage, setFirstPage] = useState("");
   const [lastPage, setLastPage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savingGuide, setSavingGuide] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -47,7 +51,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
         previewRef.current = "";
         setFile(null); setFileKind(null); setPreviewUrl(""); setShowImagePreview(false); setPages([]); setDocumentPages(null); setReviewed(false);
-        setFirstPage(""); setLastPage(""); setBusy(false); setStatus(""); setError("");
+        setFirstPage(""); setLastPage(""); setBusy(false); setSavingGuide(false); setStatus(""); setError("");
       }
       previousUser = user;
       setAuthenticated(Boolean(user));
@@ -70,6 +74,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
+    setSavingGuide(false);
     setPages([]);
     setDocumentPages(null);
     setShowImagePreview(false);
@@ -167,11 +172,51 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     }
   }
 
+  async function saveReviewedGuide() {
+    if (!authenticated || !reviewed || !file || fileKind !== "pdf" || !documentPages || !pages.length || !onUseGuide || abortRef.current) return;
+    // Empty OCR pages must not overwrite usable text already in the guide.
+    const nonblankPages = pages.filter(page => page.text.trim());
+    if (!nonblankPages.length) {
+      setError("This batch has no nonblank reviewed text to save. Blank pages are not saved to the guide.");
+      return;
+    }
+    const skippedPages = pages.filter(page => !page.text.trim()).map(page => page.page);
+    const controller = new AbortController();
+    const selection = selectionRef.current;
+    abortRef.current = controller;
+    setBusy(true);
+    setSavingGuide(true);
+    setError("");
+    setStatus("Saving reviewed text for the attached PDF…");
+    const current = () => abortRef.current === controller && !controller.signal.aborted && selection === selectionRef.current;
+    try {
+      // Hash the original bytes, not the editable text or a rendered copy.
+      const bytes = await file.arrayBuffer();
+      if (!current()) return;
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      if (!current()) return;
+      const sha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      const message = await onUseGuide({ fileName: file.name, sha256, totalPages: documentPages, pages: nonblankPages.map(page => ({ ...page })) }, controller.signal);
+      if (current()) setStatus(skippedPages.length ? `${message} Blank pages ${skippedPages.join(", ")} were not saved.` : message);
+    } catch (cause) {
+      if (!current()) return;
+      setStatus("");
+      setError(cause instanceof Error ? cause.message : "Reviewed text could not be saved. Please retry.");
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setBusy(false);
+        setSavingGuide(false);
+      }
+    }
+  }
+
   function stop() {
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
-    setStatus("Text recognition stopped. No records were changed.");
+    setSavingGuide(false);
+    setStatus(savingGuide ? "Save cancelled locally. It may already have reached the server; reload the guide to check before retrying." : "Text recognition stopped. No records were changed.");
   }
 
   function editPage(page: number, text: string) {
@@ -195,7 +240,7 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     <section aria-label="On-device text recognition" className="space-y-3 rounded-xl border border-slate-600 bg-slate-900/70 p-3 text-sm text-slate-100">
       <div>
         <h3 className="font-bold">Read text on this device</h3>
-        <p className="mt-1 text-xs text-slate-300">Choose a PNG, JPEG, WebP image, or PDF. Large images are resized locally for recognition. PDFs are read in batches of up to 10 pages. Recognition runs on this device; the selected file is not sent to OpenAI. This tool does not save or import records.</p>
+        <p className="mt-1 text-xs text-slate-300">Choose a PNG, JPEG, WebP image, or PDF. Large images are resized locally for recognition. PDFs are read in batches of up to 10 pages. Recognition runs on this device; the selected file is not sent to OpenAI. {onUseGuide ? "Only the explicit guide action sends reviewed text to the server. It requires this exact PDF to be attached to the equipment first." : "This tool does not save or import records."}</p>
         <p className="mt-1 text-xs text-amber-200">Recognition can miss or misread text, entire rows, and checkboxes. Compare each page in this pass with the original before using any text.</p>
       </div>
       <label className="block font-semibold">
@@ -210,8 +255,8 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
         <span>Leave blank to read the first batch, or select a range.</span>
       </fieldset>}
       <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={!authenticated || !file || busy} onClick={() => void recognize()} className="min-h-10 rounded-lg border border-sky-600 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{busy ? "Reading…" : "Read text"}</button>
-        {busy && <button type="button" onClick={stop} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">Stop reading</button>}
+        <button type="button" disabled={!authenticated || !file || busy} onClick={() => void recognize()} className="min-h-10 rounded-lg border border-sky-600 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{savingGuide ? "Saving…" : busy ? "Reading…" : "Read text"}</button>
+        {busy && <button type="button" onClick={stop} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">{savingGuide ? "Cancel save" : "Stop reading"}</button>}
         {file && !busy && <button type="button" onClick={() => void selectFile(null)} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">Clear document</button>}
       </div>
       {status && <p role="status" className="text-xs text-slate-200">{status}</p>}
@@ -231,19 +276,21 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
           <h4 className="font-semibold">Extracted text</h4>
           {!pages.length && <p className="text-xs text-slate-400">Select Read text to begin.</p>}
           {pages.map(page => <label key={page.page} className="block text-xs font-semibold">Page {page.page}
-            <textarea aria-label={`Extracted text, page ${page.page}`} value={page.text} onChange={event => editPage(page.page, event.target.value)} rows={10} spellCheck={false} className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-950 p-2 font-mono text-xs text-white" />
+            <textarea aria-label={`Extracted text, page ${page.page}`} value={page.text} disabled={busy} onChange={event => editPage(page.page, event.target.value)} rows={10} spellCheck={false} className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-950 p-2 font-mono text-xs text-white" />
           </label>)}
         </div>
       </div>}
       {pages.length > 0 && <div className="space-y-2">
         <label className="flex items-start gap-2 text-xs text-amber-100">
-          <input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} />
+          <input type="checkbox" disabled={busy} checked={reviewed} onChange={event => setReviewed(event.target.checked)} />
           I compared each page in this pass and corrected the text I intend to use. I understand entire rows or fields may be missing{firstPage && lastPage ? `, and pages outside ${firstPage}–${lastPage} were not read` : ""}.
         </label>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={!reviewed} onClick={() => void copyText()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Copy reviewed text</button>
-          {onUseText && <button type="button" disabled={!reviewed || !file} onClick={() => file && onUseText({ fileName: file.name, pages: pages.map(page => ({ ...page })) })} className="min-h-10 rounded-lg border border-sky-500 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{useTextLabel}</button>}
+          <button type="button" disabled={!reviewed || busy} onClick={() => void copyText()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Copy reviewed text</button>
+          {onUseText && <button type="button" disabled={!reviewed || !file || busy} onClick={() => file && onUseText({ fileName: file.name, pages: pages.map(page => ({ ...page })) })} className="min-h-10 rounded-lg border border-sky-500 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{useTextLabel}</button>}
+          {onUseGuide && fileKind === "pdf" && <button type="button" disabled={!authenticated || !reviewed || !file || busy || !documentPages || !pages.some(page => page.text.trim())} onClick={() => void saveReviewedGuide()} className="min-h-10 rounded-lg border border-emerald-500 px-3 py-1 font-semibold text-emerald-100 disabled:opacity-50">Use reviewed text in guide</button>}
         </div>
+        {onUseGuide && fileKind === "pdf" && pages.some(page => !page.text.trim()) && <p className="text-xs text-amber-200">Blank pages are not saved to the guide.{!pages.some(page => page.text.trim()) ? " This batch has no nonblank text to save." : " Only reviewed pages containing text will be sent."}</p>}
         {fileKind === "pdf" && documentPages && nextPage <= documentPages && <div className="space-y-1">
           <p className="text-xs text-slate-300">Copy or use this batch before continuing. Reading the next batch replaces the text above.</p>
           <button type="button" disabled={!reviewed || busy} onClick={() => void recognize({ start: nextPage, end: nextBatchEnd })} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Read pages {nextPage}–{nextBatchEnd}</button>
@@ -252,3 +299,4 @@ export default function LocalOcrReview({ onUseText, useTextLabel = "Use reviewed
     </section>
   );
 }
+

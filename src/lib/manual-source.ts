@@ -1,15 +1,40 @@
 import type { ManualKnowledge } from "./manual-knowledge";
 
-export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string; html?: string; origin?: 'pdf' | 'ocr' };
+export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string; html?: string; origin?: 'pdf' | 'ocr' | 'reviewed' };
 export type SourceIdentity = { manufacturer: string | null; model_family: string | null; model_number: string | null };
+
+/** Explicit source headings are discovery hints, never inferred repair instructions. */
+function procedureHeadings(text: string): string[] {
+  const lines = text.split(/\n/).map(line => line.trim()).filter(Boolean);
+  const headingCase = (line: string) => line === line.toUpperCase()
+    || line.split(/\s+/).every(word => /^(?:the|of|and|for|to|a|an|with|in)$/i.test(word) || /^[A-Z0-9]/.test(word));
+  const headings: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (line.length > 140 || /[.!?]$/.test(line) || !headingCase(line)
+      || !/^(?:component\s+)?(?:test(?:ing|s)?|inspect(?:ion|ing)?|check(?:ing|s)?|diagnos(?:is|tics?))\b|\b(?:test(?:ing|s)?|inspection|diagnos(?:is|tics?))$/i.test(line)) continue;
+    let title = line;
+    // Wrapped headings remain one discovery label; page content is never cut up.
+    for (let next = index + 1; next < Math.min(index + 3, lines.length); next++) {
+      const continuation = lines[next];
+      if (continuation.length > 90 || /[.!?]$/.test(continuation) || !headingCase(continuation)
+        || /^(?:WARNING|CAUTION|DANGER|NOTE)\b/.test(continuation)) break;
+      title += ` ${continuation}`;
+    }
+    headings.push(title);
+  }
+  return headings;
+}
 
 /** Preserve source text, including table rows. No generated repair instructions. */
 export function manualSourcePassages(text: string): SourcePassage[] {
   const pages = [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)];
-  return pages.flatMap((match) => {
+  return pages.flatMap<SourcePassage>((match) => {
     const body = match[2].trim();
     if (/table of contents/i.test(body) || (body.match(/\.{5,}/g) || []).length > 3) return [];
-    if (!/troubleshoot|fault|error\s+code|diagnostic|problem\s+(?:cause|solution)|possible\s+cause/i.test(body)) return [];
+    if (!/troubleshoot|fault|error\s+code|diagnostic|problem\s+(?:cause|solution)|possible\s+cause/i.test(body)) {
+      return procedureHeadings(body).length ? [{ page: Number(match[1]), text: body, kind: "reference" as const }] : [];
+    }
     return [{ page: Number(match[1]), text: body, kind: /fault|error\s+code|diagnostic/i.test(body) ? "diagnostic" as const : "troubleshooting" as const }];
   });
 }
@@ -68,7 +93,7 @@ function sourceSearchText(value: string): string {
     .replace(/\b(?:leaking|leaks|leakage|leaked)\b/g, "leak")
     .replace(/\b(?:dripping|drips|dripped)\b/g, "drip")
     .replace(/\b(?:cooling|cools|cooled)\b/g, "cool")
-    .replace(/\b(?:heating|heats|heated)\b/g, "heat")
+    .replace(/\b(?:heating|heats|heated|heaters?)\b/g, "heat")
     .replace(/\b(?:draining|drains|drained)\b/g, "drain")
     .replace(/\b(?:filling|fills|filled)\b/g, "fill")
     .replace(/\b(?:noisy|noises)\b/g, "noise");
@@ -90,7 +115,7 @@ function sourceSearchWords(value: string): string[] {
   });
 }
 
-const sourceWordCache = new WeakMap<SourcePassage, { text: string; words: Set<string> }>();
+const sourceWordCache = new WeakMap<SourcePassage, { text: string; words: Set<string>; headings: Set<string>[] }>();
 
 /** Find possible source pages, retaining the original PDF for context. */
 export function relevantSourcePassages(passages: SourcePassage[], issue: string): SourcePassage[] {
@@ -99,10 +124,13 @@ export function relevantSourcePassages(passages: SourcePassage[], issue: string)
   const ranked = passages.map(passage => {
     let cached = sourceWordCache.get(passage);
     if (!cached || cached.text !== passage.text) {
-      cached = { text: passage.text, words: new Set(sourceSearchWords(passage.text)) };
+      cached = { text: passage.text, words: new Set(sourceSearchWords(passage.text)),
+        headings: procedureHeadings(passage.text).map(heading => new Set(sourceSearchWords(heading))) };
       sourceWordCache.set(passage, cached);
     }
-    return { passage, score: words.filter(word => cached.words.has(word)).length };
+    const bodyMatches = words.filter(word => cached.words.has(word)).length;
+    const headingMatches = Math.max(0, ...cached.headings.map(heading => words.filter(word => heading.has(word)).length));
+    return { passage, score: bodyMatches + headingMatches * 3 };
   });
   return ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).map(item => item.passage);
 }
