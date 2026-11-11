@@ -1,6 +1,6 @@
 import type { ManualKnowledge, TroubleshootingStepMedia } from '../manual-knowledge';
-export type { TroubleshootingStepMedia } from '../manual-knowledge';
 import { manualMatchesEquipment } from '../manual-document-match';
+export type { TroubleshootingStepMedia } from '../manual-knowledge';
 import { reportedDiagnosticCode } from '../manual-source';
 import type { PmTaskActor, PmTaskState } from '../pm/task-review';
 import { taskComplete } from '../pm/task-review';
@@ -57,7 +57,7 @@ export function deriveTroubleshootingChecklistContext(input: {
   const asset = input.asset;
   if (!asset || knowledge?.source?.verified !== true || knowledge.source.source_kind !== 'asset-upload'
     || !knowledge.source.storage_path || !knowledge.source.registered_file_id || !/^[a-f0-9]{64}$/.test(knowledge.source.sha256 || '')
-    || !manualMatchesEquipment(asset, knowledge)) return { contextIdentity: null, steps: [] };
+    || (!!asset.manufacturer && !!(asset.model_family || asset.model_number) && !manualMatchesEquipment(asset, knowledge))) return { contextIdentity: null, steps: [] };
   const evidence = `${input.issue} ${input.reporter_notes || ''}`.trim();
   const steps: TroubleshootingChecklistStep[] = [];
   const seen = new Set<string>();

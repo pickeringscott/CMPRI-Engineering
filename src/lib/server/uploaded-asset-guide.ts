@@ -5,10 +5,10 @@ import { isUuid } from '@/lib/uuid';
 import { allows } from '@/lib/server/access';
 import { requireUser } from '@/lib/server/auth';
 import { listRegisteredAssetFiles, type RegisteredAssetFile } from '@/lib/server/asset-file-register';
-import { extractManualPdfText, manualPdfMatchesEquipment, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
-import { manualMatchesEquipment } from '@/lib/manual-document-match';
-import { manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
+import { extractManualPdfText, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
+import { manualPartsPassages, manualReferencePages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
 import { uploadedManualActions } from '@/lib/uploaded-manual-actions';
+import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
 import { inspectUploadedGuideMedia, renderUploadedGuideMedia, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
 
@@ -69,7 +69,6 @@ type Asset = {
   documentation_verified_at: string | null;
   pdf_import_links?: unknown;
 };
-type ReviewedLink = { object_id?: string; storage_path?: string; manufacturer?: string; selected_model?: string; applicability?: string; sha256?: string; file_verified?: boolean };
 type GuideResult = { documentation_status: string; documentation_reason: string; manualKnowledge: ManualKnowledge | null; documentation_warnings: string[]; media_image?: Uint8Array };
 const unavailable = (documentation_status: string, documentation_reason: string, documentation_warnings: string[] = []): GuideResult => ({ documentation_status, documentation_reason, manualKnowledge: null, documentation_warnings });
 
@@ -85,20 +84,10 @@ function assetReviewIdentity(asset: Asset) {
     .map(key => [key, asset[key as keyof Asset] ?? null]))));
 }
 
-function reviewedFile(asset: Asset, file: RegisteredAssetFile) {
-  const links = Array.isArray(asset.pdf_import_links) ? asset.pdf_import_links as ReviewedLink[] : [];
-  const link = links.find(item => item.storage_path === file.storage_path && (!item.object_id || item.object_id === file.id));
-  const approved = Boolean(link?.file_verified && link.applicability === 'confirmed_model' && /^[a-f0-9]{64}$/.test(link.sha256 || '')
-    && manualMatchesEquipment(asset, { manufacturer: link.manufacturer, model_family: link.selected_model, model_number: link.selected_model }));
-  return { link, approved };
-}
-
 /** Read only the PDFs currently registered on this asset; never consult a catalog. */
 export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset, image?: { id: string; sha256: string }): Promise<GuideResult> {
   const assetSnapshot = assetReviewIdentity(asset);
   if (asset.hotel_id !== HOTEL_ID || asset.active === false) return unavailable('no_uploaded_document', 'The saved equipment is unavailable at this property.');
-  if (asset.documentation_revision_id) return unavailable('documentation_unverified', 'This equipment has a pending documentation revision. Engineering must finish its review before the attached document can provide troubleshooting steps.');
-  if (!asset.manufacturer || (!asset.model_family && !asset.model_number)) return unavailable('identity_incomplete', 'Save the exact equipment manufacturer and model family or model number before checking its attached document.');
   const registered = await listRegisteredAssetFiles(admin, asset.id);
   if (registered.error) throw new Error('The authorized asset attachment register could not be read.');
   const files = registered.data;
@@ -111,15 +100,9 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   if (!pdfs.length) return unavailable('no_uploaded_document', 'No uploaded PDF is attached to this asset. Attach and review its source document to provide a troubleshooting guide.');
   if (!preferred.length && documents.length !== pdfs.length) return unavailable('ambiguous_uploaded_documents', 'Some attached document formats cannot be checked. Select the intended preferred PDF source before showing a troubleshooting guide.');
   const candidates = preferred.length ? preferred : pdfs;
-  const globallyVerified = Boolean(asset.documentation_verified_at || files.some(file => file.name === verificationMarker));
   const matching: { file: RegisteredAssetFile; text: string; sha256: string; bytes: Uint8Array }[] = [];
   const failures: { status: string; message: string }[] = [];
   for (const file of candidates) {
-    const reviewed = reviewedFile(asset, file);
-    if (!globallyVerified && !reviewed.approved) {
-      failures.push({ status: 'documentation_unverified', message: `${file.name}: Engineering must verify this asset document or review its exact model association before its contents can be used as instructions.` });
-      continue;
-    }
     const path = file.storage_path;
     if (!file.id || path.startsWith('/') || path.includes('://') || path.split('/').some(part => part === '..')
       || !(path.startsWith(`${HOTEL_ID}/`) || /^asset docs\//i.test(path))) {
@@ -139,24 +122,14 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       continue;
     }
     const sha256 = manualPdfSha256(bytes);
-    if (reviewed.link?.sha256 && reviewed.link.sha256 !== sha256) {
-      failures.push({ status: 'documentation_unverified', message: `${file.name}: the PDF changed since its source was reviewed. Review the replacement document before using its instructions.` });
-      continue;
-    }
     let text: string;
     try { text = await cachedDerivative(`text:v1:${sha256}`, () => extractManualPdfText(bytes)); }
     catch {
       failures.push({ status: 'unreadable_uploaded_document', message: `${file.name}: readable text could not be extracted from the attached PDF. Open it for review or use on-device OCR with human verification.` });
       continue;
     }
-    if (!text.trim()) {
-      failures.push({ status: 'uploaded_document_needs_ocr', message: `${file.name}: this scanned or image-only PDF has no extractable text. Use on-device OCR and review the original; no troubleshooting instructions were invented.` });
-      continue;
-    }
-    if (!manualPdfMatchesEquipment(text, asset)) {
-      failures.push({ status: 'identity_mismatch', message: `${file.name}: its contents do not verify this asset's exact manufacturer and model family or model number. Review the asset attachment association.` });
-      continue;
-    }
+    // A readable PDF with no text can still be opened as a source. Never turn
+    // an image-only page into guessed checklist instructions.
     matching.push({ file, text, sha256, bytes });
   }
   if (matching.length > 1) return unavailable('ambiguous_uploaded_documents', 'More than one attached PDF matches this equipment. Select one preferred source document before showing a guide.');
@@ -169,7 +142,31 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   }
   const selected = matching[0];
   if (image && image.sha256 !== selected.sha256) return unavailable('uploaded_document_changed', 'The uploaded PDF changed. Reload the guide before opening its image.');
+  let ocrStatus = '';
+  let ocrPages: { page: number; text: string; confidence: number }[] = [];
+  if (!selected.text.trim() && !image) {
+    try {
+      const { enqueueManualOcr, readManualOcr } = await import('@/lib/server/manual-ocr-queue');
+      const recognized = await readManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, sha256: selected.sha256 });
+      ocrStatus = recognized.status;
+      ocrPages = recognized.pages;
+      if (ocrStatus === 'missing' || ocrStatus === 'cancelled') {
+        await enqueueManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, path: selected.file.storage_path, sha256: selected.sha256, bytes: selected.bytes });
+        ocrStatus = 'pending';
+      }
+    } catch { failures.push({ status: 'uploaded_ocr_unavailable', message: 'Text recognition is unavailable. Open the attached source PDF.' }); }
+  }
   const actions = uploadedManualActions(selected.text);
+  if (ocrStatus === 'complete') {
+    const { ocrManualActions } = await import('@/lib/server/manual-ocr-actions');
+    actions.symptom_rules.push(...ocrManualActions(ocrPages));
+  }
+  try {
+    const tableRules = await cachedDerivative(`tables:v7:${selected.sha256}`, () => extractPdfTroubleshootingTables(selected.bytes));
+    actions.symptom_rules.push(...tableRules);
+  } catch {
+    failures.push({ status: 'uploaded_table_unavailable', message: 'Some source tables could not be read. Open the source PDF to review them.' });
+  }
   let media: InspectedUploadedGuideMedia[] = [];
   try {
     media = await cachedDerivative(`media:v1:${selected.sha256}`, () => inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps: [
@@ -200,11 +197,14 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   const sourceUrl = signed.data.signedUrl;
   const actionPages = new Set([...actions.symptom_rules, ...actions.error_codes].flatMap(entry => entry.source_pages || []));
   const passages = manualSourcePassages(selected.text);
+  for (const page of manualPartsPassages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
   for (const match of selected.text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)) {
     const page = Number(match[1]);
     if (actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
   }
-  const source_passages: SourcePassage[] = passages.map(passage => ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
+  for (const page of manualReferencePages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
+  if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference' });
+  const source_passages: SourcePassage[] = passages.map(passage => passage.kind === 'reference' ? passage : ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
   const manualKnowledge: ManualKnowledge = {
     step_media: media.map(item => item.descriptor),
     manufacturer: asset.manufacturer || '', model_family: asset.model_family || '', model_number: asset.model_number || '',
@@ -219,10 +219,17 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     error_codes: actions.error_codes.map(code => ({ ...code, source_url: sourceUrl })),
     general_checks: [], manual_tests: [],
   };
-  const available = source_passages.length > 0 || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
-  return { documentation_status: available ? 'verified' : 'no_guidance', documentation_reason: available
-    ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
-    : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF, or use on-device OCR for scanned content and review it.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
+  const available = source_passages.some(passage => passage.kind !== 'reference') || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
+  const indexedOcr = ocrStatus === 'complete' && ocrPages.some(page => page.text.trim());
+  const needsOcr = !selected.text.trim() && !indexedOcr;
+  const processingOcr = needsOcr && ['pending', 'processing'].includes(ocrStatus);
+  const failedOcr = needsOcr && ocrStatus === 'failed';
+  return { documentation_status: processingOcr ? 'uploaded_document_ocr_processing' : failedOcr ? 'uploaded_document_ocr_failed' : needsOcr ? 'uploaded_document_needs_ocr' : available ? 'verified' : 'no_guidance', documentation_reason: processingOcr
+    ? `Text recognition is processing ${selected.file.name}. The source remains available.`
+    : failedOcr ? `Text recognition could not finish ${selected.file.name}. Open the source or retry processing the stored file.`
+    : needsOcr ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
+    : available ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
+    : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
 }
 
 /** Strict, source-restricted branch used by work orders, before catalog staging. */

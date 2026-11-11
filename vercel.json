@@ -15,6 +15,10 @@
     {
       "path": "/api/pool-status/reconcile",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/assets/documentation/ocr/dispatch",
+      "schedule": "* * * * *"
     }
   ]
 }

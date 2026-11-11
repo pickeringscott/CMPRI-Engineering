@@ -210,6 +210,7 @@ export async function POST(request: NextRequest) {
   let uploaded = false;
   let text = "";
   let sourceHash = "";
+  let sourceBytes: Uint8Array | undefined;
 
   if (documentKey) {
     const { data: catalogManual, error: catalogError } = await auth.admin.from("maintenance_documents")
@@ -247,6 +248,7 @@ export async function POST(request: NextRequest) {
     const { data: stored, error: downloadError } = await auth.admin.storage.from(BUCKET).download(existingPath);
     if (downloadError || !stored) return NextResponse.json({ error: "Stored PDF could not be read." }, { status: 400 });
     const bytes = new Uint8Array(await stored.arrayBuffer());
+    sourceBytes = bytes;
     if (!bytes.byteLength) return NextResponse.json({ error: "The saved PDF is empty. Upload the original PDF again after opening a revision if the record is verified. The existing file is preserved." }, { status: 422 });
     sourceHash = manualPdfSha256(bytes);
     text = await extractPdfText(bytes);
@@ -259,6 +261,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Documentation must be a PDF." }, { status: 400 });
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
+    sourceBytes = bytes;
     if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") return NextResponse.json({ error: "The selected file is not a PDF." }, { status: 400 });
     const originalSize = bytes.byteLength;
     sourceHash = manualPdfSha256(bytes);
@@ -284,6 +287,16 @@ export async function POST(request: NextRequest) {
   if (!documentKey) {
     const { error: linkError } = await registerAssetFile(auth.admin, assetId, storagePath);
     if (linkError) return NextResponse.json({ error: "Original preserved, but its association could not be saved.", storage_path: storagePath }, { status: 503 });
+  }
+  let ocrQueued = false;
+  if (!documentKey && !text.trim() && sourceBytes) {
+    try {
+      const { enqueueManualOcr } = await import("@/lib/server/manual-ocr-queue");
+      await enqueueManualOcr(auth.admin, { hotelId: HOTEL_ID, assetId, path: storagePath, sha256: sourceHash, bytes: sourceBytes }, true);
+      ocrQueued = true;
+    } catch {
+      return NextResponse.json({ error: "The PDF was saved, but text recognition could not be queued. Retry processing this stored file.", storage_path: storagePath }, { status: 503 });
+    }
   }
   const guide = prepareUploadedGuide(text, asset, originalName, sourceHash);
   // Content-addressed key makes retries idempotent, leaving earlier document revisions intact.
@@ -318,7 +331,7 @@ export async function POST(request: NextRequest) {
     },
     uploaded,
     suggestions,
-    processing_status: guide.state,
-    processing_message: guide.message,
+    processing_status: ocrQueued ? "pending_guidance" : guide.state,
+    processing_message: ocrQueued ? "Text recognition is processing the attached PDF." : guide.message,
   });
 }

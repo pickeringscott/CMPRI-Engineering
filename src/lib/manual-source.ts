@@ -1,7 +1,6 @@
-import { manualTextContainsExactIdentity } from "./manual-document-match";
 import type { ManualKnowledge } from "./manual-knowledge";
 
-export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting"; source_file_name?: string; source_url?: string };
+export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string };
 export type SourceIdentity = { manufacturer: string | null; model_family: string | null; model_number: string | null };
 
 /** Preserve source text, including table rows. No generated repair instructions. */
@@ -15,12 +14,43 @@ export function manualSourcePassages(text: string): SourcePassage[] {
   });
 }
 
+/** Index readable source pages without claiming that they contain repair steps. */
+export function manualReferencePages(text: string): SourcePassage[] {
+  return [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)].flatMap(match => {
+    const page = Number(match[1]), body = match[2].trim();
+    if (!Number.isSafeInteger(page) || page < 1 || !body || /table of contents/i.test(body) || (body.match(/\.{5,}/g) || []).length > 3) return [];
+    return [{ page, text: body, kind: "reference" as const }];
+  });
+}
+
+/** Index illustrated parts pages next to their own parts lists without inventing procedures. */
+export function manualPartsPassages(text: string): SourcePassage[] {
+  const pages = [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)]
+    .map(match => ({ page: Number(match[1]), text: match[2].trim() }));
+  const selected = new Map<number, SourcePassage>();
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    const header = page.text.match(/\b(?:ref(?:erence)?\s+)?part\s+(?:no\.?|number)\s+description\b/i);
+    if (!header || /table of contents/i.test(page.text)) continue;
+    selected.set(page.page, { ...page, kind: "troubleshooting" });
+    const previous = pages[index - 1];
+    if (!previous || previous.page !== page.page - 1) continue;
+    const title = page.text.slice(0, header.index).replace(/^.*?\b(?:do not copy or transmit)\b/i, "");
+    const words = title.toLowerCase().match(/[a-z]{4,}/g) || [];
+    const meaningful = words.filter(word => !/^(parts|drawing|models|figure|copyright|alliance|laundry|systems)$/.test(word));
+    if (meaningful.some(word => new RegExp(`\\b${word}\\b`, "i").test(previous.text))) {
+      selected.set(previous.page, { ...previous, kind: "troubleshooting" });
+    }
+  }
+  return [...selected.values()].sort((a, b) => a.page - b.page);
+}
+
 export function prepareUploadedGuide(text: string, identity: SourceIdentity, fileName: string, sha256: string) {
   const passages = manualSourcePassages(text);
-  const identityVerified = Boolean(identity.manufacturer && (identity.model_family || identity.model_number)
-    && manualTextContainsExactIdentity(text, identity.manufacturer)
-    && (manualTextContainsExactIdentity(text, identity.model_family) || manualTextContainsExactIdentity(text, identity.model_number)));
-  const state = !text.trim() ? "failed" : !identityVerified ? "pending_identity" : passages.length ? "ready" : "pending_guidance";
+  // The Assets modal supplies the equipment association. The attached PDF is
+  // the selected source; text extraction does not need a second identity review.
+  const identityVerified = Boolean(text.trim());
+  const state = !text.trim() ? "failed" : passages.length ? "ready" : "pending_guidance";
   const knowledge: ManualKnowledge = {
     ...identity, manufacturer: identity.manufacturer || "", model_family: identity.model_family || "", model_number: identity.model_number || "",
     source: { title: fileName, source_file_name: fileName, verified: identityVerified, type: "Verbatim uploaded PDF excerpts", sha256 },
@@ -28,15 +58,52 @@ export function prepareUploadedGuide(text: string, identity: SourceIdentity, fil
     error_codes: [], symptom_rules: [], general_checks: [], manual_tests: [],
   };
   return { state, knowledge, message: state === "failed" ? "PDF saved, but readable text could not be extracted. OCR or a readable PDF is required."
-    : state === "pending_identity" ? "PDF saved. Its manufacturer and exact model must match the equipment before guidance can be verified."
-    : state === "pending_guidance" ? "Equipment identity matched the PDF. No troubleshooting or diagnostic section was detected; open the complete manual for reference."
-    : "Equipment identity matched the PDF. Troubleshooting and diagnostic excerpts from the uploaded PDF are available with page references." };
+    : state === "pending_guidance" ? "No troubleshooting or diagnostic section was detected; open the complete manual for reference."
+    : "Troubleshooting and diagnostic excerpts from the uploaded PDF are available with page references." };
 }
 
 const stop = new Set("the and for with this that from have has was were been room unit equipment problem issue not does working work code error fault".split(" "));
+function sourceSearchText(value: string): string {
+  return value.toLowerCase()
+    .replace(/\b(?:leaking|leaks|leakage|leaked)\b/g, "leak")
+    .replace(/\b(?:dripping|drips|dripped)\b/g, "drip")
+    .replace(/\b(?:cooling|cools|cooled)\b/g, "cool")
+    .replace(/\b(?:heating|heats|heated)\b/g, "heat")
+    .replace(/\b(?:draining|drains|drained)\b/g, "drain")
+    .replace(/\b(?:filling|fills|filled)\b/g, "fill")
+    .replace(/\b(?:noisy|noises)\b/g, "noise");
+}
+
+/** Reduce ordinary plural and tense endings for source-page discovery. */
+function sourceSearchWords(value: string): string[] {
+  return (sourceSearchText(value).match(/[a-z0-9]+/g) || []).filter(word => word.length > 2 && !stop.has(word)).map(word => {
+    if (word.length > 5 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
+    if (word.length > 5 && word.endsWith('ing')) {
+      let stem = word.slice(0, -3);
+      if (/(.)\1$/.test(stem)) stem = stem.slice(0, -1);
+      return stem;
+    }
+    if (word.length > 5 && word.endsWith('ed')) return word.slice(0, -2);
+    if (word.length > 5 && /(?:sses|ches|shes|xes)$/.test(word)) return word.slice(0, -2);
+    if (word.length > 4 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+    return word;
+  });
+}
+
+const sourceWordCache = new WeakMap<SourcePassage, { text: string; words: Set<string> }>();
+
+/** Find possible source pages, retaining the original PDF for context. */
 export function relevantSourcePassages(passages: SourcePassage[], issue: string): SourcePassage[] {
-  const words = [...new Set(issue.toLowerCase().match(/[a-z0-9]+/g) || [])].filter(word => word.length > 2 && !stop.has(word));
-  const ranked = passages.map(passage => ({ passage, score: words.filter(word => new RegExp(`\\b${word}\\b`, "i").test(passage.text)).length }));
+  const words = [...new Set(sourceSearchWords(issue))];
+  if (!words.length) return [];
+  const ranked = passages.map(passage => {
+    let cached = sourceWordCache.get(passage);
+    if (!cached || cached.text !== passage.text) {
+      cached = { text: passage.text, words: new Set(sourceSearchWords(passage.text)) };
+      sourceWordCache.set(passage, cached);
+    }
+    return { passage, score: words.filter(word => cached.words.has(word)).length };
+  });
   return ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).map(item => item.passage);
 }
 

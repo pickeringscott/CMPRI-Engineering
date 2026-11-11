@@ -26,6 +26,8 @@ type Props = {
   assetId: string;
   sourceSha256: string;
   visitId: string;
+  isOpen?: boolean;
+  onRestartRevision?: (revision: number) => void;
   registerExitFlush?: (flush: () => Promise<void>) => () => void;
   previewSteps?: TroubleshootingChecklistStep[];
 };
@@ -44,8 +46,14 @@ function nextAction(data: TroubleshootingChecklistResponse, state?: PmTaskState)
   return data.canSeePendingReview && state?.status === "needs" ? "Verify completed step" : "Mark completed";
 }
 
+function chartParts(label: string): { context: string; detail: string } | null {
+  const parts = label.split(" — ");
+  if (parts.length < 3 || !/^(?:yes|no):/i.test(parts.at(-1) || "")) return null;
+  return { context: parts.slice(0, -2).join(" — "), detail: parts.slice(-2).join(" — ") };
+}
+
 /** PM completion/review visuals with explicit work-order ownership for clearing. */
-export default function WorkOrderTroubleshootingChecklist({ workOrderId, session, expectedContextIdentity, ticketRevision, disabledReason, manualUrl, reportedIssue, equipmentName, sourceFileName, assetId, sourceSha256, visitId, registerExitFlush, previewSteps }: Props) {
+export default function WorkOrderTroubleshootingChecklist({ workOrderId, session, expectedContextIdentity, ticketRevision, disabledReason, manualUrl, sourceFileName, assetId, sourceSha256, visitId, isOpen = true, onRestartRevision, registerExitFlush, previewSteps }: Props) {
   const scope = JSON.stringify([workOrderId, session.hotelId, session.user.id, expectedContextIdentity, ticketRevision]);
   const identity = useRef({ scope, generation: 0 });
   const mounted = useRef(true);
@@ -167,6 +175,25 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
     };
   }, [request]);
 
+  const [handoffChoice, setHandoffChoice] = useState("");
+  const showHandoff = Boolean(isOpen && handoffChoice !== visitId && data?.actor.role === "technician" && Object.values(data.taskStates).some(state => state.workerChecked && state.workerId && state.workerId !== session.user.id));
+  const startNew = async () => {
+    if (!data?.contextKey || busy) return;
+    setBusyState({ scope: busyScope, itemId: "restart" });
+    try {
+      const auth = await getValidSession();
+      if (!auth?.access_token || auth.user.id !== session.user.id) throw new Error("Sign in again to start a new checklist.");
+      const response = await fetch(`/api/work-orders/${encodeURIComponent(workOrderId)}/troubleshooting`, {
+        method: "POST", headers: { Authorization: `Bearer ${auth.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start_new", contextKey: data.contextKey, expectedRevision: data.revision }), cache: "no-store",
+      });
+      const payload = await response.json();
+      if (!response.ok || !Number.isSafeInteger(payload.workOrderRevision)) throw new Error(payload.error || "A new checklist could not be started.");
+      setResult(null); setHandoffChoice(visitId); onRestartRevision?.(payload.workOrderRevision);
+    } catch (failure) { setError({ scope, message: failure instanceof Error ? failure.message : "A new checklist could not be started." }); }
+    finally { setBusyState(null); }
+  };
+
   const message = error?.scope === scope ? error.message : "";
   const preview = previewSteps !== undefined;
   const display: TroubleshootingChecklistResponse | null = preview ? {
@@ -183,11 +210,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
   };
   return (
     <section aria-label="Work-order troubleshooting checklist" className="mt-1 space-y-0 [&>p]:leading-tight">
-      <h3 className="text-xs font-semibold leading-tight text-sky-300">Troubleshooting checklist</h3>
-      <p className="text-sm text-slate-200"><span className="font-semibold">For:</span> {reportedIssue} <span className="text-slate-400">· {equipmentName}</span></p>
-      <p className="text-xs text-slate-400">Reads this asset’s uploaded document directly. No AI-generated instructions. Completion and Chief Engineer review are saved with this work order.</p>
       {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>Source: {manualUrl ? <a href={manualUrl} target="_blank" rel="noreferrer" className="text-sky-300 underline">{sourceFileName}</a> : sourceFileName}</p>}
-      {data && <p className="text-xs text-slate-400">{data.canSeePendingReview ? "Chief Engineer: blank → red → green → blank. Red means needs verification; green means verified." : "Green means completed. Select your checked step again to clear it."}</p>}
       {preview && <p role="status" className="text-xs text-amber-200">Preview for the edited issue — save the work order to record checks.</p>}
       {disabledReason && <p role="status" className="text-xs text-amber-200">{disabledReason}</p>}
       {busy === "load" && <p role="status" className="text-xs text-slate-400">Loading saved checklist…</p>}
@@ -195,10 +218,12 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
       {data?.pendingVisits?.filter(earlier => earlier.visitId !== visitId).map(earlier => <p key={earlier.visitId} className="text-xs text-slate-400">An earlier troubleshooting summary is pending. <button type="button" disabled={!!busy} onClick={() => void recoverEarlier(earlier.visitId)} className="underline">Recover earlier summary</button></p>)}
       {display && !display.steps.length && <div className="space-y-0 text-sm leading-tight text-slate-400">
         <p>{display.reason || "The uploaded document has no instructions matching this description yet."}</p>
-        <p>Describe what you see or hear, such as “it won’t turn on,” “it leaks,” or “it makes a loud noise.” A fault code is not required.</p>
       </div>}
-      {data && !data.canEdit && data.steps.length > 0 && <p className="text-xs text-slate-400">New completion and verification marks are unavailable. You can still clear saved checks when permitted.</p>}
-      {display && <ol className="divide-y divide-slate-800">
+      {showHandoff && <div role="group" aria-label="Previous technician progress" className="rounded border border-amber-500/40 p-2 text-sm text-amber-100">
+        <p>Another technician has checked steps. Continue their progress or start a new checklist?</p>
+        <div className="flex gap-2"><button type="button" disabled={!!busy} onClick={() => setHandoffChoice(visitId)} className="underline">Continue</button><button type="button" disabled={!!busy} onClick={() => void startNew()} className="underline">Start new</button></div>
+      </div>}
+      {display && !showHandoff && <ol className="divide-y divide-slate-800">
         {display.steps.map((step, index) => {
           const state = display.taskStates[step.id];
           const visual = troubleshootingTaskVisual(state, display.canSeePendingReview);
@@ -210,15 +235,30 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           const showStatus = busy === step.id || state?.workerChecked || state?.status === "needs" || state?.status === "approved";
           const color = visual === "needs" ? "#ef4444" : visual === "approved" ? "#34d399" : "#64748b";
           const semantics = sourceSemantics(step.label);
+          const chart = chartParts(step.label);
+          const previous = index > 0 ? display.steps[index - 1] : undefined;
+          const previousChart = previous ? chartParts(previous.label) : null;
+          const showChart = !!chart && (chart.context !== previousChart?.context || step.sourcePages?.[0] !== previous?.sourcePages?.[0]);
           return <li key={step.id} className="py-0">
+            {showChart && <div className="text-xs font-semibold text-sky-300" data-chart-context>
+              {chart.context}
+              {manualUrl && step.sourcePages?.length ? <details className="font-normal">
+                <summary className="cursor-pointer">Source page {step.sourcePages[0]}</summary>
+                <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${manualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
+              </details> : null}
+            </div>}
             <div className="flex items-start gap-0.5">
               <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={`Step ${index + 1}: ${step.label}`} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? "Uncheck completed step" : nextAction(display, state)} disabled={disabled} onClick={() => void request(step.id, display, action)} className="grid h-6 w-6 shrink-0 place-items-center rounded-sm outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default">
                 <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-sm border text-[10px] font-bold leading-none" style={{ borderColor: color, color, backgroundColor: visual === "empty" ? "transparent" : `${color}18` }}>{visual !== "empty" ? "✓" : ""}</span>
               </button>
               <div className="min-w-0 flex-1">
-                <p className="text-sm leading-4 text-slate-200">{step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
+                <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
                 <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? "Saving…" : status}{state?.workerName ? ` · Completed by ${state.workerName}` : ""}{state?.reviewedBy ? ` · Reviewed by ${state.reviewedBy}` : ""}</p>
                 {!!step.media?.length && assetId && sourceSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={sourceSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
+                {!chart && !step.media?.length && manualUrl && step.sourcePages?.length ? <details className="text-xs text-sky-300">
+                  <summary className="cursor-pointer">Source page {step.sourcePages[0]}</summary>
+                  <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${manualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
+                </details> : null}
               </div>
             </div>
           </li>;

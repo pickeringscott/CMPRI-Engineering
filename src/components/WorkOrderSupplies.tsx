@@ -40,7 +40,7 @@ export default function WorkOrderSupplies({jobId,cacheScope="",issue="",notes=""
   }catch(error){if(generation===readGeneration.current)setFresh(false);throw error;}
   finally{if(generation===readGeneration.current)setRefreshing(false);}
  },[jobId]);
- useEffect(()=>{let active=true;void Promise.resolve().then(load).catch(error=>{if(active)setMessage(error.message);});return()=>{active=false;readGeneration.current++;};},[load]);
+ useEffect(()=>{let active=true;const generationRef=readGeneration;void Promise.resolve().then(load).catch(error=>{if(active)setMessage(error.message);});return()=>{active=false;generationRef.current++;};},[load]);
  useEffect(()=>subscribeResources(["orders","reference"],async()=>{if(!submitting.current)await load();},false),[load]);
  useEffect(()=>{
   const section=document.getElementById("cmpri-labor-parts");
@@ -123,7 +123,7 @@ export default function WorkOrderSupplies({jobId,cacheScope="",issue="",notes=""
     setDraft({id:part.id,name:part.name,item:part.inventory_item_id||"",status:part.requested_status,quantity:String(part.quantity),poLine:part.po_line_id||"",revision:part.revision});setDirty(false);
    }else setQuantityUsed("");
    pending.current=null;setUncertain(false);
-   setMessage(attempt.kind==="part"?"Part saved. Activity posted to ticket notes.":"Supply use recorded once. Inventory and ticket notes updated.");
+   setMessage(attempt.kind==="part"?"":"Supply use recorded once. Inventory and ticket notes updated.");
    await invalidateCachedResources(["orders","reference"]);
    await onRecorded?.();
   }catch(error){if(pending.current)setUncertain(true);setMessage(error instanceof Error?error.message:"Save not confirmed. Retry this same operation.");}

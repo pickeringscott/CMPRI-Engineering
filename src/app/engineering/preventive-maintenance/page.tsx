@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
-import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";

@@ -35,14 +35,14 @@ test('metadata controls are directly usable and all permitted Chief statuses are
  for(const label of ['ticket-category','ticket-priority','ticket-status','ticket-due-by'])assert.match(metadata,new RegExp(`htmlFor="${label}"`));
  assert.match(metadata,/<SearchableSelect value=\{assetId\}/);assert.match(metadata,/<SearchableSelect value=\{technicianName\}/);
  assert.match(metadata,/assetReferenceLoading \|\| Boolean\(assetReferenceError\)/);
- assert.match(metadata,/ranker_auto_urgent/);assert.match(metadata,/ranker-priority-hint/);
+ assert.match(metadata,/ranker_auto_urgent/);assert.match(metadata,/Raised by Room Ranker/);assert.doesNotMatch(metadata,/ranker-priority-hint/);
  for(const field of ['hours','cost']){
   assert.ok(detail.includes(`editingField === "${field}"`),field);
   assert.ok(detail.includes(`setEditingField("${field}")`),field);
  }
  assert.doesNotMatch(detail,/Closure Details/);
  assert.match(detail,/if \(chief && canEditField\("status"\)\) return \["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"\]/);
- assert.match(detail,/Edit reported issue/);assert.match(detail,/>Done<\/button>/);
+ assert.match(detail,/Edit reported issue/);assert.doesNotMatch(detail,/>Done<\/button>/);
  assert.doesNotMatch(detail,/noteHeading\(entry.authorRole/);
  assert.match(detail,/entry.actor.trim\(\).split/);
  assert.match(detail,/<WorkOrderTitleGuest guest=\{order/);

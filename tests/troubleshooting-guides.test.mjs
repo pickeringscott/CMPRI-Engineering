@@ -59,7 +59,7 @@ test("all required timing and numeric details are present in the HTML guide cont
 
 test("work-order technical guidance never falls back to generic checks", () => {
   assert.match(workOrderForm, /guideRulesForIssue\(trustedTroubleshootingKnowledge, troubleshootingEvidence\)/);
-  assert.match(workOrderForm, /A fault code is not required/);
+  assert.doesNotMatch(workOrderForm, /A fault code is not required/);
   assert.doesNotMatch(workOrderForm, /GENERAL_TROUBLESHOOTING_CHECKS|Generic troubleshooting/);
 });
 

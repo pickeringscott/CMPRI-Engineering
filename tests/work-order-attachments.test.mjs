@@ -591,7 +591,6 @@ test('pending collaboration is available to recognized active commenters without
 
 for (const { role } of roleCases) {
   test(`${role} attachment status and ownership permission matrix`, async () => {
-    const engineering = ["Engineer", "Chief Engineer", "Engineering Manager", "Regional Maintenance", "System Administrator"].includes(role);
     const submitter = ["Front Desk", "Housekeeping", "Lead Housekeeper"].includes(role);
     for (const status of ["Pending Verification", "Open", "In Progress", "Completed", "Closed", "Will Not Do"]) {
       for (const own of [true, false]) {
@@ -671,8 +670,6 @@ test('every recognized submission role/alias follows upload status policy, inclu
  for(const options of [...aliases,...inventory]){
   const family=roleModule.roleKey(options.role);
   const canSubmit=roleModule.profileAllows({role:options.role,secondary_roles:options.secondaryRoles||[]},'submit')&&roleModule.membershipAllows(options.membershipRole||roleModule.membershipRole(options.role),'submit');
-  const technical=['engineer','system_admin'].includes(family);
-  const submitOnly=['front_desk','housekeeping'].includes(family);
   const outcomes={};
   for(const status of ['Pending Verification','Open','In Progress','Completed','Closed','Will Not Do'])for(const owner of [true,false]){
    const route=fixture({...options,status,userId:'actor',createdBy:owner?'actor':'other'});

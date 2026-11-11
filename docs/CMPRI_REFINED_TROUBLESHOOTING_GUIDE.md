@@ -1,6 +1,8 @@
 # CMPRI Refined Troubleshooting Guide
 Version: Go-Live Working Revision — 2026-09-16
 
+> Historical revision: the later asset-selection requirement supersedes this document's separate manufacturer/model verification and shared-catalog lookup requirements. See [Asset-manual troubleshooting](CMPRI_ASSET_MANUAL_GUIDANCE.md) for the current source and workflow rules.
+
 ## Purpose
 CMPRI may show manufacturer troubleshooting only from a verified PDF whose manufacturer and exact model family or model number match the selected equipment. The verified PDF is the source of truth: extract or refresh structured guidance from it automatically. If there is no exact verified match, show no troubleshooting fallback or unrelated manual.
 
