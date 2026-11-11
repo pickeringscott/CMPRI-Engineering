@@ -10,6 +10,7 @@ function load(file) {
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require(name){return load(path.resolve(path.dirname(file),name+'.ts'));}});
  return exports;
 }
+const {assetGuideIdentity,reconcileAssetGuide}=load('src/lib/work-orders/asset-guide-cache.ts');
 const {inferWorkOrder}=load('src/lib/work-order-suggestions.ts');
 const {roomAssetsForInference}=load('src/lib/work-orders/assignable-assets.ts');
 const {guideRulesForIssue,equipmentSearchAliases}=load('src/lib/work-orders/guide-selection.ts');
@@ -85,8 +86,10 @@ const effects=component.body.statements.filter(n=>ts.isExpressionStatement(n)&&n
 const manualEffect=effects.find(n=>n.getText(ast).includes('loadManualForAsset(selectedAsset')).getText(ast);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function hydrationHarness(asset) {
- const writes=[],pending=[],urls=[];let cleanup;
- const globals={selectedAsset:asset,assetId:asset?.id,
+ const writes=[],pending=[],urls=[];let cleanup; let assets=[asset];
+ const selectionKey=`test-ticket:${assetGuideIdentity(asset)}`;
+ const globals={id:"test-ticket",assetGuideIdentity,reconcileAssetGuide,manualSelection:{current:selectionKey},manualCompletedIdentity:{current:""},manualSelectionKey:selectionKey,selectedAsset:asset,assetId:asset?.id,
+  setAssets:next=>{assets=typeof next==="function"?next(assets):next;},
   getValidSession:async()=>({access_token:'fixture'}),authorizationHeaders:async()=>({}),
   normalizeManualKnowledge:x=>x,setManualResult:x=>writes.push(x),
   fetch:url=>{urls.push(String(url));return new Promise(resolve=>pending.push(resolve));},encodeURIComponent,
@@ -94,14 +97,14 @@ function hydrationHarness(asset) {
   subscribeResources(_topics,load,initial=true){if(initial)void load();return ()=>{};},
   useEffect:fn=>{cleanup=fn();}};
  vm.runInNewContext(ts.transpileModule(manualLoader+'\n'+manualEffect,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);
- return {writes,pending,urls,close:()=>cleanup()};
+ return {writes,pending,urls,get assets(){return assets;},close:()=>cleanup()};
 }
 test('switching, reopening and late responses retain only the current uploaded guide and its PDF',async()=>{
  const first=hydrationHarness(built);await flush();first.close();
  const second=hydrationHarness(portable);await flush();
  second.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{...uploadedSource}},documentation_status:'verified'})});await flush();
  first.pending[0]({ok:true,json:async()=>({manualKnowledge:{source:{...uploadedSource,file_url:'https://example.invalid/old.pdf'}}})});await flush();
- assert.equal(first.writes.length,0);assert.equal(second.writes[0].assetId,'portable');second.close();
+ assert.equal(first.writes.length,0);assert.equal(second.writes[0].asset.id,'portable');second.close();
  assert.equal(second.writes[0].knowledge.source.storage_path,uploadedSource.storage_path);
  assert.equal(displayedGuide(portable,second.writes[0]).documents[0].url,uploadedSource.file_url);
  assert.equal(displayedGuide(built,second.writes[0]).documents.length,0);
@@ -129,15 +132,16 @@ test('model-number-only changes invalidate both instructions and their sole sour
  assert.equal(displayedGuide(changed,h.writes[0]).knowledge,null);assert.equal(displayedGuide(changed,h.writes[0]).documents.length,0);
  const refreshed=hydrationHarness(changed);await flush();assert.equal(refreshed.pending.length,1);refreshed.close();
 });
-test('server asset changes during guide loading cannot appear against an older selected asset',async()=>{
+test('server asset changes reconcile the cached selection while results remain hidden against an unreconciled stale asset',async()=>{
  const original={...built,model_number:'A1',documentation_revision_id:null,documentation_verified_at:'2026-11-08T19:00:00Z'};
  const current={...original,model_number:'A2',documentation_key:'replacement-guide',documentation_verified_at:'2026-11-08T21:00:00Z'};
  const source={...uploadedSource,storage_path:'hotel/asset/replacement.pdf',sha256:'c'.repeat(64),registered_file_id:'replacement-upload'};
  const h=hydrationHarness(original);await flush();
  h.pending[0]({ok:true,json:async()=>({assets:[{id:'unrelated',model_number:'OTHER'},current],manualKnowledge:{source},documentation_status:'verified'})});await flush();h.close();
- assert.equal(h.urls.length,1);assert.equal(h.writes[0].modelNumber,'A2');assert.equal(h.writes[0].documentationKey,current.documentation_key);
+ assert.equal(h.urls.length,1);assert.equal(h.writes[0].asset.model_number,'A2');assert.equal(h.writes[0].asset.documentation_key,current.documentation_key);
  const stale=displayedGuide(original,h.writes[0]);assert.equal(stale.knowledge,null);assert.equal(stale.documents.length,0);
- const refreshed=displayedGuide(current,h.writes[0]);assert.equal(refreshed.knowledge.source.storage_path,source.storage_path);assert.equal(refreshed.documents[0].storage_path,source.storage_path);
+ assert.equal(h.assets[0].model_number,current.model_number); assert.equal(h.assets[0].documentation_key,current.documentation_key);
+ const refreshed=displayedGuide(h.assets[0],h.writes[0]);assert.equal(refreshed.knowledge.source.storage_path,source.storage_path);assert.equal(refreshed.documents[0].storage_path,source.storage_path);
 });
 
 test('unclassified technical manual tests are not applied to every symptom',()=>{assert.equal(guideRulesForIssue({source:{verified:true},manual_tests:[{title:'Calibration',steps:['Unrelated technical test']}]},'AC noisy').length,0);});
@@ -158,18 +162,18 @@ test('empty-guidance footer is hidden when verified manual steps or diagnostic g
 const sourceHelpers=load('src/lib/manual-source.ts');
 const ticketDeclaration=name=>component.body.statements.find(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(ast)===name)).getText(ast);
 function displayedGuide(asset,manualResult){
- const scope={selectedAsset:asset,assetId:asset?.id,manualResult};
+ const scope={assetGuideIdentity,selectedAsset:asset,assetId:asset?.id,manualResult};
  vm.runInNewContext(ts.transpileModule(['manualCurrent','manualKnowledge','guideSource','guideDocuments'].map(ticketDeclaration).join('\n')+'\nglobalThis.result={knowledge:manualKnowledge,documents:guideDocuments};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,scope);
  return JSON.parse(JSON.stringify(scope.result));
 }
 test('guide links come from the same strict uploaded source without a generic documentation request',()=>{
  assert.doesNotMatch(page,/\/api\/assets\/documentation\?/);
- const result={assetId:built.id,documentationKey:built.documentation_key,manufacturer:built.manufacturer,modelFamily:built.model_family,knowledge:{source:{...uploadedSource}}};
+ const result={asset:built,knowledge:{source:{...uploadedSource}}};
  assert.deepEqual(displayedGuide(built,result).documents,[{name:uploadedSource.source_file_name,storage_path:uploadedSource.storage_path,url:uploadedSource.file_url}]);
  for(const source of [{...uploadedSource,source_kind:'catalog'},{...uploadedSource,storage_path:''}])assert.equal(displayedGuide(built,{...result,knowledge:{source}}).documents.length,0);
 });
 for(const change of [{manufacturer:'Other'},{model_family:'Other family'},{documentation_key:'new guide'},{documentation_revision_id:'pending'},{documentation_verified_at:'2026-11-09T00:00:00Z'}])test(`changed ${Object.keys(change)[0]} clears stale guidance and its PDF link`,()=>{
- const result={assetId:built.id,documentationKey:built.documentation_key,manufacturer:built.manufacturer,modelFamily:built.model_family,knowledge:{source:{...uploadedSource}}};
+ const result={asset:built,knowledge:{source:{...uploadedSource}}};
  const shown=displayedGuide({...built,...change},result);assert.equal(shown.knowledge,null);assert.equal(shown.documents.length,0);
 });
 function ticketCodeSelection(verified,issue,codes,provenance={}){const scope={manualKnowledge:{source:{...uploadedSource,verified,...provenance},error_codes:codes},issue,order:{reporter_notes:''},normalizeDiagnosticCode:sourceHelpers.normalizeDiagnosticCode,reportedDiagnosticCode:sourceHelpers.reportedDiagnosticCode};vm.runInNewContext(ts.transpileModule(ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='normalizeDiagnosticCode').getText(ast)+'\n'+['trustedManualKnowledge','reportedCode','manualErrorCodes','matchingErrorCode'].map(ticketDeclaration).join('\n')+'\nglobalThis.result={reportedCode,manualErrorCodes,matchingErrorCode};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,scope);return scope.result;}
