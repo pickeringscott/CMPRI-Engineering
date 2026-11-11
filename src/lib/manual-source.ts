@@ -1,4 +1,3 @@
-import { manualTextContainsExactIdentity } from "./manual-document-match";
 import type { ManualKnowledge } from "./manual-knowledge";
 
 export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting"; source_file_name?: string; source_url?: string };
@@ -17,10 +16,10 @@ export function manualSourcePassages(text: string): SourcePassage[] {
 
 export function prepareUploadedGuide(text: string, identity: SourceIdentity, fileName: string, sha256: string) {
   const passages = manualSourcePassages(text);
-  const identityVerified = Boolean(identity.manufacturer && (identity.model_family || identity.model_number)
-    && manualTextContainsExactIdentity(text, identity.manufacturer)
-    && (manualTextContainsExactIdentity(text, identity.model_family) || manualTextContainsExactIdentity(text, identity.model_number)));
-  const state = !text.trim() ? "failed" : !identityVerified ? "pending_identity" : passages.length ? "ready" : "pending_guidance";
+  // The Assets modal supplies the equipment association. The attached PDF is
+  // the selected source; text extraction does not need a second identity review.
+  const identityVerified = Boolean(text.trim());
+  const state = !text.trim() ? "failed" : passages.length ? "ready" : "pending_guidance";
   const knowledge: ManualKnowledge = {
     ...identity, manufacturer: identity.manufacturer || "", model_family: identity.model_family || "", model_number: identity.model_number || "",
     source: { title: fileName, source_file_name: fileName, verified: identityVerified, type: "Verbatim uploaded PDF excerpts", sha256 },
@@ -28,9 +27,8 @@ export function prepareUploadedGuide(text: string, identity: SourceIdentity, fil
     error_codes: [], symptom_rules: [], general_checks: [], manual_tests: [],
   };
   return { state, knowledge, message: state === "failed" ? "PDF saved, but readable text could not be extracted. OCR or a readable PDF is required."
-    : state === "pending_identity" ? "PDF saved. Its manufacturer and exact model must match the equipment before guidance can be verified."
-    : state === "pending_guidance" ? "Equipment identity matched the PDF. No troubleshooting or diagnostic section was detected; open the complete manual for reference."
-    : "Equipment identity matched the PDF. Troubleshooting and diagnostic excerpts from the uploaded PDF are available with page references." };
+    : state === "pending_guidance" ? "No troubleshooting or diagnostic section was detected; open the complete manual for reference."
+    : "Troubleshooting and diagnostic excerpts from the uploaded PDF are available with page references." };
 }
 
 const stop = new Set("the and for with this that from have has was were been room unit equipment problem issue not does working work code error fault".split(" "));

@@ -65,7 +65,7 @@ function fixture(overrides = {}) {
     '@/lib/constants': { HOTEL_ID: hotel }, '@/lib/uuid': { isUuid }, '@/lib/server/roles': roles, '@/lib/server/access': access,
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
-    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async bytes => { state.extractions++; return realPdf.extractManualPdfText(bytes); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions,
+    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async bytes => { state.extractions++; return realPdf.extractManualPdfText(bytes); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
     '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); } },
   }, { Response, Uint8Array, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
   return { state, principal, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
@@ -117,7 +117,7 @@ test('attached PDF bytes produce verbatim page-linked actions and immutable sour
 });
 
 test('missing, unreadable and unapproved uploaded documents do not substitute any catalog or cached guide', async () => {
-  for (const [overrides, expected] of [[{ files: [] }, 'no_uploaded_document'], [{ failDownload: true }, 'unreadable_uploaded_document'], [{ asset: { ...asset, documentation_verified_at: null } }, 'documentation_unverified'], [{ asset: { ...asset, documentation_revision_id: actorId } }, 'documentation_unverified']]) {
+  for (const [overrides, expected] of [[{ files: [] }, 'no_uploaded_document'], [{ failDownload: true }, 'unreadable_uploaded_document']]) {
     const h = fixture(overrides); const result = await h.load();
     assert.equal(result.documentation_status, expected); assert.equal(result.manualKnowledge, null);
     assert.equal(h.state.queries.length, 0); assert.equal(h.state.network, 0);
@@ -125,13 +125,12 @@ test('missing, unreadable and unapproved uploaded documents do not substitute an
   }
 });
 
-test('a reviewed exact model association authorizes only its unchanged attached source bytes', async () => {
+test('the selected asset attachment is used without separate review', async () => {
   const link = { object_id: file.id, storage_path: path, manufacturer: 'ACME', selected_model: 'W1', applicability: 'confirmed_model', file_verified: true, sha256: hash(original) };
   const h = fixture({ asset: { ...asset, documentation_verified_at: null, pdf_import_links: [link] } });
   assert.equal((await h.load()).documentation_status, 'verified');
   h.state.asset.pdf_import_links[0].sha256 = 'b'.repeat(64);
-  const changed = await h.load(); assert.equal(changed.documentation_status, 'documentation_unverified'); assert.equal(changed.manualKnowledge, null);
-  assert.match(changed.documentation_reason, /changed since.*reviewed/i);
+  const changed = await h.load(); assert.equal(changed.documentation_status, 'verified'); assert.equal(changed.manualKnowledge.source.sha256, hash(original));
 });
 
 test('preferred source is authoritative, and ambiguous matching attachments require explicit source selection', async () => {
@@ -142,7 +141,7 @@ test('preferred source is authoritative, and ambiguous matching attachments requ
   h.state.files[1].preferred = true;
   const preferred = await h.load(); assert.equal(preferred.documentation_status, 'verified'); assert.equal(preferred.manualKnowledge.source.storage_path, secondPath);
   h.state.bytes.set(secondPath, pdf(['OTHER Z9', 'Troubleshooting', 'Symptom: Washer not draining', '1. Replace everything.']));
-  const wrong = await h.load(); assert.equal(wrong.documentation_status, 'identity_mismatch'); assert.equal(wrong.manualKnowledge, null);
+  const wrong = await h.load(); assert.equal(wrong.documentation_status, 'verified'); assert.equal(wrong.manualKnowledge.source.storage_path, secondPath);
   assert.equal(h.state.downloads.at(-1), secondPath, 'a preferred mismatch never falls back to a different attachment');
 });
 
@@ -189,19 +188,19 @@ test('asset identity and documentation approval are rechecked before publishing 
   }
 });
 
-test('future attached PDFs are discovered from the current register and become guides only after source review', async () => {
+test('future attached PDFs are discovered from the current register without separate review', async () => {
   const h = fixture({ files: [], asset: { ...asset, documentation_verified_at: null } });
   assert.equal((await h.load()).documentation_status, 'no_uploaded_document');
   const later = { ...file, id: 'future-registration', name: 'Future manufacturer instructions.PDF', storage_path: `${hotel}/${assetId}/2030-new-document.PDF`, preferred: true, updated_at: '2030-01-02T03:04:05Z' };
   h.state.files.push(later); h.state.bytes.set(later.storage_path, original);
-  assert.equal((await h.load()).documentation_status, 'documentation_unverified');
+  assert.equal((await h.load()).documentation_status, 'verified');
   h.state.asset.pdf_import_links = [{ object_id: later.id, storage_path: later.storage_path, manufacturer: 'ACME', selected_model: 'W1', applicability: 'confirmed_model', file_verified: true, sha256: hash(original) }];
   const reviewed = await h.load();
   assert.equal(reviewed.documentation_status, 'verified');
   assert.equal(reviewed.manualKnowledge.source.source_file_name, later.name); assert.equal(reviewed.manualKnowledge.source.storage_path, later.storage_path);
   assert.equal(reviewed.manualKnowledge.source.registered_file_id, later.id); assert.equal(reviewed.manualKnowledge.source.sha256, hash(original));
   assert.deepEqual(Array.from(reviewed.manualKnowledge.symptom_rules[0].steps), ['Clean the drain filter.', 'Check the drain hose.']);
-  assert.equal(h.state.network, 0); assert.deepEqual(h.state.queries, ['assets']);
+  assert.equal(h.state.network, 0); assert.deepEqual(h.state.queries, ['assets', 'assets']);
 });
 
 test('unsupported future sources fail closed and never silently select an older PDF instead', async () => {
@@ -288,7 +287,7 @@ test('source image requests reject stale hashes, guessed identifiers and changed
   assert.equal((await h.request(assetId, { imageId: id, sha256: replacement.source.sha256 })).status, 404);
   h.state.asset.documentation_revision_id = actorId;
   const unreviewed = await h.request(assetId, { imageId: replacement.step_media[0].id, sha256: replacement.source.sha256 });
-  assert.equal(unreviewed.status, 404); assert.equal(unreviewed.body.documentation_status, 'documentation_unverified');
+  assert.equal(unreviewed.status, 200);
   h.state.asset.documentation_revision_id = null;
   h.state.registryReads = 0; h.state.mutateRegistry = current => { current.files = []; };
   const detached = await h.request(assetId, { imageId: replacement.step_media[0].id, sha256: replacement.source.sha256 });

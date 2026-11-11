@@ -19,6 +19,8 @@ import {plainTextParts} from '@/lib/plain-text-links';
 import WorkOrderSupplies from "@/components/WorkOrderSupplies";
 import WorkOrderTroubleshootingChecklist from "@/components/WorkOrderTroubleshootingChecklist";
 import { deriveTroubleshootingChecklistContext } from "@/lib/work-orders/troubleshooting-checklist";
+import { canReconcileChecklistSummary } from "@/lib/work-orders/troubleshooting-summary";
+import { closeWorkOrderInBackground } from "@/lib/work-orders/background-close";
 import { registerActiveTroubleshootingVisit } from "@/lib/work-orders/troubleshooting-visits";
 
 import { createTicketWriteQueue } from "@/lib/work-orders/write-queue";
@@ -54,7 +56,7 @@ import { type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
-import { relevantSourcePassages, reportedDiagnosticCode } from "@/lib/manual-source";
+import { reportedDiagnosticCode } from "@/lib/manual-source";
 import { guideRulesForIssue, equipmentSearchAliases } from "@/lib/work-orders/guide-selection";
 import { inferWorkOrder } from "@/lib/work-order-suggestions";
 import { assignableAssetsForLocation, roomAssetsForInference } from "@/lib/work-orders/assignable-assets";
@@ -587,7 +589,9 @@ export default function WorkOrderTicketPage() {
 
 function WorkOrderTicketEditor({ id }: { id: string }) {
   const router = useRouter();
-  const [troubleshootingVisitId] = useState(() => crypto.randomUUID());
+  const [troubleshootingVisitId, setTroubleshootingVisitId] = useState(() => crypto.randomUUID());
+  const troubleshootingOpened = useRef(false);
+  const [troubleshootingOpen, setTroubleshootingOpen] = useState(false);
   const partExitGuard = useRef<(() => Promise<void>) | null>(null);
   const registerPartExitGuard = useCallback((guard: () => Promise<void>) => {
     partExitGuard.current = guard;
@@ -606,6 +610,39 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     return () => {};
   }, []);
   useEffect(() => registerActiveTroubleshootingVisit(troubleshootingVisitId), [troubleshootingVisitId]);
+  async function finishTroubleshootingSection() {
+    if (exitInFlight.current) return;
+    exitInFlight.current = true;
+    setExitFlushing(true);
+    setExitError("");
+    try {
+      for (const flush of checklistExitFlushes.current) await flush();
+      checklistExitFlushes.current.clear();
+      setTroubleshootingVisitId(crypto.randomUUID());
+      if (!editState.current.dirty) {
+        await loadTicket(false, false, true);
+      } else {
+        // A checklist summary appends a note and advances the ticket revision.
+        // Keep the in-progress note draft usable when no other ticket fields changed.
+        const previous = orderRef.current;
+        const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}`, { headers: await authorizationHeaders(), cache: "no-store" });
+        const payload = await response.json();
+        const fresh = payload?.workOrder as WorkOrder | undefined;
+        if (!response.ok || !previous || !fresh || !canReconcileChecklistSummary(previous, fresh, notes)) {
+          throw new Error("The work order changed while the checklist note was saved. Your draft is preserved; review the current ticket before saving.");
+        }
+        setOrder({ ...previous, revision: fresh.revision, notes: fresh.notes });
+        setNotes(fresh.notes || "");
+        setInitialFingerprint(current => JSON.stringify({ ...JSON.parse(current || "{}"), notes: fresh.notes || "" }));
+      }
+    } catch (error) {
+      setExitError(error instanceof Error ? error.message : "Troubleshooting activity could not be saved. Reopen the section and retry.");
+    } finally {
+      exitInFlight.current = false;
+      setExitFlushing(false);
+    }
+  }
+
   useEffect(() => {
     const generation = ++exitFallbackGeneration.current;
     const finalizeLeavingVisit = () => {
@@ -1011,6 +1048,22 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     }
   }
 
+  const [rankerAlert, setRankerAlert] = useState<{ active: boolean; related: { id: string; display_id: string }[] }>({ active: false, related: [] });
+  useEffect(() => {
+    if (!cmpriSession || !id) return;
+    let active = true;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/work-orders/${encodeURIComponent(id)}/ranker-alert`, { headers: await authorizationHeaders(), cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active && Array.isArray(data.related)) setRankerAlert({ active: data.active === true, related: data.related });
+      } catch { /* Retain the last confirmed alert until connectivity returns. */ }
+    };
+    const stop = subscribeResources(["orders", "rooms"], load);
+    return () => { active = false; stop(); };
+  }, [id, cmpriSession]);
+
   const [referenceTickets, setReferenceTickets] = useState<MentionTicket[]>([]);
   const [referencePrefixes, setReferencePrefixes] = useState<Record<string, string>>({});
   const [referenceError, setReferenceError] = useState("");
@@ -1310,7 +1363,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     : checklistContextUnsaved
       ? "Save the reported issue, location, and equipment changes before updating this checklist." : undefined;
   const reportedCode = reportedDiagnosticCode(`${issue} ${order?.reporter_notes || ""}`);
-  const sourcePassages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText) : [];
   const manualErrorCodes = (() => {
     const byCode = new Map<string, ManualErrorCode>();
     if (trustedManualKnowledge) {
@@ -1712,7 +1764,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
           // Only this field was committed. Retain other drafts and text typed during the request.
           setIssue(latest => latest === text ? normalized : latest);
           setInitialFingerprint(previous => JSON.stringify({ ...JSON.parse(previous || "{}"), issue: normalized }));
-          setMessage("Reported Issue saved.");
           if (embedded && window.parent !== window) window.parent.postMessage(
             { type: "cmpri-work-order-loaded", modalKind: "workOrder", workOrderId: current.id, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin);
           return true;
@@ -1878,11 +1929,11 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     setNoteDraft("");
     if (notesOnly) {
       setInitialFingerprint(previous => { const base = JSON.parse(previous || "{}"); return JSON.stringify({ ...base, notes: savedNotes }); });
-      setSaving(false); setSaveState("idle"); setMessage("Note saved.");
+      setSaving(false); setSaveState("idle"); setMessage("");
       return true;
     }
     if (Array.isArray(updatePayload.appendNotes) && (roomChanged || normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || ""))) {
-      setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return true;
+      setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return false;
     }
 
     setInitialFingerprint(JSON.stringify({
@@ -1890,9 +1941,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       actionRootCause, parts, cost, hours, dueBy,
     }));
     setSaving(false);
-    setMessage("Work order saved.");
+    setMessage("");
     setSaveState("idle");
-    if (embedded && window.parent !== window) await runTicketExit(() => window.parent.postMessage(
+    if (embedded && window.parent !== window) return runTicketExit(() => window.parent.postMessage(
       { type: "cmpri-work-order-saved", modalKind: "workOrder", workOrderId: order.id, workOrder:workOrderListSnapshot(savedRow), modalToken }, window.location.origin));
 
     return true;
@@ -1933,11 +1984,25 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if (!embedded) return;
     const handleModalCancelRequest = (event: Event) => {
       event.preventDefault();
-      cancelTicket();
+      if (hasPendingNoteMedia || saving || saveInFlight.current || exitInFlight.current) {
+        setMessage(hasPendingNoteMedia ? "Submit or remove the pending attachments before closing." : "Please wait for the current save to finish.");
+        return;
+      }
+      const frame = window.frameElement;
+      const dialog = frame?.closest<HTMLElement>("[data-cmpri-desktop-window], [data-modal-entry]");
+      const shell = dialog?.hasAttribute("data-modal-entry") ? dialog.parentElement : dialog;
+      void closeWorkOrderInBackground({
+        shell,
+        waitForWrites: () => ticketWrites.current.enqueue(async () => true),
+        saveOrClose: () => hasUnsavedChanges ? saveTicket() : closeEmbeddedTicket(),
+        onError: () => setMessage("The work order could not be saved. Your work remains open."),
+      });
     };
     document.addEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
     return () => document.removeEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
-  }, [embedded, cancelTicket]);
+    // Rebind to capture the current editor state for a close request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, hasUnsavedChanges, hasPendingNoteMedia, saving, currentFingerprint, noteDraft, closeEmbeddedTicket]);
 
   if (loading) {
     return (
@@ -2303,6 +2368,10 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             </div>
         </div>
 
+        {rankerAlert.active && <div role="status" className="mx-1 mb-1 min-w-0 rounded-lg border border-red-500/70 bg-red-950/40 px-2 py-1 text-xs text-red-100">
+          <div className="text-center font-bold text-red-300">Room Ranker Alert</div>
+          <div className="overflow-x-auto whitespace-nowrap">Also see: {rankerAlert.related.length ? rankerAlert.related.map((ticket, index) => <span key={ticket.id}>{index > 0 && " · "}<button type="button" className="underline" onClick={() => openMentionedTicket(ticket as MentionTicket)}>{formatWorkOrder(ticket.display_id)}</button></span>) : "No other open work orders"}</div>
+        </div>}
         {message && (
           <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm">
             {message}
@@ -2330,17 +2399,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
                 <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="report" />Reported Issue{pendingField("issue")}</h2>
               </summary>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  {issueSaving && <span role="status" className="text-xs text-sky-200">Saving issue...</span>}
-                  {editingIssue && <button type="button" onClick={() => { void saveReportedIssue(); }} className="min-h-9 rounded-lg border border-amber-400 px-3 text-xs text-amber-100">Done</button>}
-                </div>
-                <div className="text-right text-[10px] leading-tight text-slate-500">
-                  <div>Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {order.creator_display_role}</span>}</div>
-                  <div>{formatDateTime(order.created_at)}</div>
-                </div>
-              </div>
-
               {editingIssue && canEditField("issue") ? (
                 <>
                   <textarea
@@ -2352,14 +2410,11 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     value={issue}
                     onChange={(event) => setIssue(event.target.value)}
                     rows={2}
-                    className="mt-1 max-h-20 w-full resize-y overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white outline-none focus:border-amber-400"
+                    className="max-h-20 w-full resize-y overflow-y-auto border-0 bg-transparent p-0 text-lg font-bold leading-tight text-white outline-none"
                   />
-                  <div className="mt-1 rounded-lg border border-sky-500/25 bg-sky-950/20 px-2 py-1 text-[10px] leading-tight text-sky-100/80">
-                    Editing an existing ticket never creates additional work orders. Additional problems entered here remain attached to this ticket as sub-issues unless someone deliberately creates a separate work order.
-                  </div>
                 </>
               ) : (
-                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label="Edit reported issue" className="mt-0.5 w-full whitespace-pre-wrap break-words py-0.5 text-left text-sm leading-5 text-slate-200">{issue || "No issue"}</button>
+                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label="Edit reported issue" className="w-full whitespace-pre-wrap break-words p-0 text-left text-lg font-bold leading-tight text-slate-200">{issue || "No issue"}</button>
               )}
 
               {order.can_correct_report && (
@@ -2406,11 +2461,11 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </section>
                 <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label="Assignment and timing">
                   <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">Assignment &amp; timing</h3>
+                  <p className="text-[10px] leading-tight text-slate-500">Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {order.creator_display_role}</span>} · {formatDateTime(order.created_at)}</p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("priority", priority, order.priority || "Medium")}>
-                      <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">Priority{pendingField("priority")}</label>
-                      <select id="ticket-priority" value={priority} onChange={event => saveMetadataSelection("priority", event.target.value)} disabled={saving || !canEditField("priority")} aria-describedby={order.ranker_base_priority && order.ranker_base_priority !== order.priority ? "ranker-priority-hint" : undefined} className="cmpri-ticket-select">{priorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
-                      {order.ranker_base_priority && order.ranker_base_priority !== order.priority && <p id="ranker-priority-hint" className="mt-1 text-xs text-amber-300">Room Ranker temporarily raised this priority from {order.ranker_base_priority}. Saving a value different from the saved priority changes the underlying priority, but it may stay raised until the room improves. Selecting the saved priority again does not change the underlying priority.</p>}
+                      <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">Priority{order.ranker_base_priority && order.ranker_base_priority !== order.priority && <span className="text-red-500" aria-label="Raised by Room Ranker"> !</span>}{pendingField("priority")}</label>
+                      <select id="ticket-priority" value={priority} onChange={event => saveMetadataSelection("priority", event.target.value)} disabled={saving || !canEditField("priority")} className="cmpri-ticket-select">{priorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
                     </div>
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("technician_name", technicianName, order.technician_name || "")}>
                       <div className="mb-1 text-xs font-semibold text-slate-400">Technician{pendingField("technicianName")}</div>
@@ -2422,9 +2477,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                       <select id="ticket-status" value={status} onChange={event => saveMetadataSelection("status", event.target.value)} disabled={saving || !canEditField("status")} className="cmpri-ticket-select">{statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
                     </div>
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("due_by", dueBy, order.due_by ? String(order.due_by).slice(0, 10) : "")}>
-                      <label htmlFor="ticket-due-by" className="mb-1 block text-xs font-semibold text-slate-400">Due By{!order.ranker_auto_urgent && pendingField("dueBy")}</label>
-                      <input id="ticket-due-by" type="date" value={dueBy} onChange={event => saveMetadataSelection("due_by", event.target.value)} disabled={saving || !canEditField("due_by") || Boolean(order.ranker_auto_urgent)} aria-describedby={order.ranker_auto_urgent ? "ranker-due-date-hint" : undefined} className="cmpri-ticket-select" />
-                      {order.ranker_auto_urgent && <p id="ranker-due-date-hint" className="mt-1 text-xs text-amber-300">Room Ranker made this ticket urgent and set its due date to the day urgency began. Its previous due date returns when automatic urgency ends; due date edits cannot be saved here until then.</p>}
+                      <label htmlFor="ticket-due-by" className="mb-1 block text-xs font-semibold text-slate-400">Due By{order.ranker_auto_urgent && <span className="text-red-500" aria-label="Set by Room Ranker"> !</span>}{!order.ranker_auto_urgent && pendingField("dueBy")}</label>
+                      <input id="ticket-due-by" type="date" value={dueBy} onChange={event => saveMetadataSelection("due_by", event.target.value)} disabled={saving || !canEditField("due_by") || Boolean(order.ranker_auto_urgent)} className="cmpri-ticket-select" />
                     </div>
                   </div>
                 </section>
@@ -2465,7 +2519,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             </details>
 
 
-            <details data-ticket-accordion="troubleshooting" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
+            <details data-ticket-accordion="troubleshooting" onToggle={event => { setTroubleshootingOpen(event.currentTarget.open); if (event.currentTarget.open) troubleshootingOpened.current = true; else if (troubleshootingOpened.current) { troubleshootingOpened.current = false; void finishTroubleshootingSection(); } }} className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
                 <h2 className="text-base font-bold leading-tight tracking-tight text-amber-400">
                   <WorkOrderSectionIcon section="troubleshooting" />
@@ -2506,6 +2560,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <WorkOrderTroubleshootingChecklist
                     workOrderId={order.id}
                     visitId={troubleshootingVisitId}
+                    isOpen={troubleshootingOpen}
+                    onRestartRevision={revision => { const current = orderRef.current; if (current) setOrder({ ...current, revision }); }}
                     registerExitFlush={registerExitFlush}
                     session={cmpriSession}
                     expectedContextIdentity={checklistContext.contextIdentity}
@@ -2522,21 +2578,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 )}
 
               <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
-                {manualKnowledge?.source?.title && (
-                  <div className="rounded-lg border border-slate-800 bg-slate-950 p-1">
-                    <p className="text-sm font-semibold">Uploaded manual reference</p>
-                    <p className={`mt-1 text-xs ${trustedManualKnowledge ? "text-emerald-400" : "text-slate-500"}`}>{trustedManualKnowledge ? "Approved document uploaded to this equipment" : "Equipment reference uploaded — verification pending"}</p>
-                    {(manualKnowledge.manufacturer || manualKnowledge.equipment) && (
-                      <p className="text-xs leading-tight text-slate-400">{[manualKnowledge.manufacturer, manualKnowledge.equipment].filter(Boolean).join(" · ")}</p>
-                    )}
-                    {selectedAsset?.documentation_key && (
-                      <p className="mt-1 break-all text-[11px] text-slate-500">Documentation key: {selectedAsset.documentation_key}</p>
-                    )}
-                    <p className="text-[11px] leading-3 text-slate-400">Instructions are read directly from the approved document linked above.</p>
-                  </div>
-                )}
-
-                {selectedAsset && trustedManualKnowledge && !sourcePassages.length && !manualSteps.length && !relevantErrorCodes.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
+                {selectedAsset && trustedManualKnowledge && !manualSteps.length && !relevantErrorCodes.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
 
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-1 text-sm text-slate-400">
@@ -2571,18 +2613,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   </div>
                 )}
 
-                {sourcePassages.length > 0 && (
-                  <section className="mt-1 space-y-0">
-                    <h3 className="text-sm font-semibold text-sky-300">PDF troubleshooting and diagnostic pages</h3>
-                    <p className="text-xs text-slate-400">Verbatim reference text from the document linked above. These excerpts do not assert that an action has been performed.</p>
-                    {sourcePassages.map((passage, index) => (
-                      <details key={`${passage.source_file_name}-${passage.page}-${index}`} className="rounded-lg border border-slate-700 p-0.5">
-                        <summary className="cursor-pointer text-sm">{passage.kind === "diagnostic" ? "Diagnostic reference" : "Troubleshooting reference"}</summary>
-                        <pre className="mt-0.5 whitespace-pre-wrap font-sans text-sm leading-tight text-slate-300">{passage.text}</pre>
-                      </details>
-                    ))}
-                  </section>
-                )}
                 {displayedSteps.length > 0 && (
                   <div className="mt-1">
                     <h3 className="text-sm font-semibold text-amber-300">General issue-based checks</h3>

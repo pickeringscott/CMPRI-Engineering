@@ -1,6 +1,5 @@
 import { allows, type Principal } from './access';
 import { profileHasRole, profileIsChiefEngineer, profileIsChiefEngineerOrSystemAdmin, profileIsEstablishedHoursChief } from './roles';
-import { canAccessWorkOrderByAssignment } from './work-order-assignment';
 import { workOrderReader } from './work-order-reader';
 import { canReadWorkOrder, canReadWorkOrderForMutation } from '../work-order-read-policy';
 import { tapTask, type PmTaskActor, type PmTaskState } from '../pm/task-review';
@@ -22,10 +21,9 @@ export function troubleshootingChecklistAccess(principal: Principal, workOrder: 
   };
   const canEdit = (chief || technician) && allows(principal, 'view_pm')
     && (profileHasRole(principal.profile, 'system_admin') || allows(principal, 'edit_tickets'))
-    && canReadWorkOrderForMutation(workOrderReader(principal), workOrder)
-    && canAccessWorkOrderByAssignment(chief ? 'Chief Engineer' : 'Technician', principal.profile.full_name, workOrder);
+    && canReadWorkOrderForMutation(workOrderReader(principal), workOrder);
   const canClearOwn = canReadWorkOrder(workOrderReader(principal), workOrder);
-  return { actor, canEdit, canClearOwn, canClearAll: canClearOwn && chief, canSeePendingReview };
+  return { actor, canEdit, canClearOwn, canClearAll: canClearOwn && (chief || (technician && canEdit)), canSeePendingReview };
 }
 
 /** Clearing a check removes its completion and review, without changing PM rules. */

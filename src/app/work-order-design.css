@@ -146,6 +146,7 @@
   box-sizing:border-box;width:100%;min-height:40px;border:1px solid rgb(71 85 105);border-radius:7px;
   background:rgb(15 23 42);color:#f8fafc;padding:6px 9px;font-size:14px;
 }
+[data-ticket-layout] .cmpri-ticket-select option { background:var(--cmpri-modal-base, #0f172a); color:var(--cmpri-modal-text, #f8fafc); }
 [data-ticket-layout] .cmpri-ticket-select:focus-visible { outline:2px solid rgb(56 189 248);outline-offset:2px; }
 [data-ticket-layout] .cmpri-ticket-select:disabled { opacity:.65; }
 [data-ticket-layout] .cmpri-ticket-metadata-field[data-changed="true"] .cmpri-ticket-select,

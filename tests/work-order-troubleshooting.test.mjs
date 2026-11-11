@@ -53,7 +53,8 @@ function fixture(initial = {}) {
       const filters = [];
       const rows = () => table === 'work_orders' ? [state.ticket] : table === 'assets' ? [state.asset] : table === 'cmpri_work_order_troubleshooting_checks' ? state.ledger : table === 'cmpri_work_order_troubleshooting_visits' ? state.visits : table === 'cmpri_work_order_troubleshooting_events' ? state.events : [];
       const matching = () => structuredClone(rows().filter(row => filters.every(filter => filter(row))));
-      const query = { select() { return query; }, eq(key, value) { filters.push(row => row[key] === value); return query; }, is(key, value) { filters.push(row => (row[key] ?? null) === value); return query; }, gt(key, value) { filters.push(row => row[key] > value); return query; }, order() { return query; }, limit() { return query; }, async maybeSingle() { return { data: matching()[0] || null, error: null }; }, then(resolve, reject) { return Promise.resolve(table === 'cmpri_work_order_troubleshooting_visits' && state.pendingReadFailure ? { data: null, error: Error('Unavailable') } : { data: matching(), error: null }).then(resolve, reject); } };
+      let updateFields;
+      const query = { update(fields) { updateFields = fields; return query; }, select() { return query; }, eq(key, value) { filters.push(row => row[key] === value); return query; }, is(key, value) { filters.push(row => (row[key] ?? null) === value); return query; }, gt(key, value) { filters.push(row => row[key] > value); return query; }, order() { return query; }, limit() { return query; }, async maybeSingle() { const row = matching()[0] || null; if (row && updateFields && table === "work_orders") { Object.assign(state.ticket, updateFields); state.ticket.revision++; return { data: structuredClone(state.ticket), error: null }; } return { data: row, error: null }; }, then(resolve, reject) { return Promise.resolve(table === 'cmpri_work_order_troubleshooting_visits' && state.pendingReadFailure ? { data: null, error: Error('Unavailable') } : { data: matching(), error: null }).then(resolve, reject); } };
       return query;
     },
     rpc(name, input) {
@@ -94,7 +95,7 @@ function fixture(initial = {}) {
   };
   const exports = {};
   class NextRequest extends Request {}
-  const dependencies = { Response, URL, Error, fetch: () => { state.providerCalls++; throw Error('Troubleshooting must never call an AI provider or outbound fetch.'); }, require(name) {
+  const dependencies = { Response, URL, Error, crypto: { randomUUID: uuid }, fetch: () => { state.providerCalls++; throw Error('Troubleshooting must never call an AI provider or outbound fetch.'); }, require(name) {
     if (name === 'node:crypto') return { createHash };
     if (name === 'next/server') return { NextRequest, NextResponse: { json: (body, init) => Response.json(body, init) } };
     if (name === '@/lib/constants') return { HOTEL_ID: hotel };
@@ -115,12 +116,12 @@ function fixture(initial = {}) {
   } };
   vm.runInNewContext(compiled, { exports, ...dependencies });
   const exitExports = {}; vm.runInNewContext(exitCompiled, { exports: exitExports, ...dependencies });
-  async function run(method, body, id = ticketId) {
+  async function run(method, body, id = ticketId, isExit = false) {
     const request = new Request(`https://cmpri.example/api/work-orders/${id}/troubleshooting`, { method, headers: { Authorization: 'Bearer local-test', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-    const response = await (method === 'POST' ? exitExports : exports)[method](request, { params: Promise.resolve({ id }) });
+    const response = await (isExit ? exitExports : exports)[method](request, { params: Promise.resolve({ id }) });
     return { status: response.status, body: await response.json(), headers: response.headers };
   }
-  return { state, uuid, get: id => run('GET', undefined, id), patch: body => run('PATCH', { visitId: visitForActor(), mutationId: uuid(), ...body }), exit: body => run('POST', { visitId: visitForActor(), ...body }) };
+  return { state, uuid, get: id => run('GET', undefined, id), patch: body => run('PATCH', { visitId: visitForActor(), mutationId: uuid(), ...body }), restart: body => run('POST', body), exit: body => run('POST', { visitId: visitForActor(), ...body }, ticketId, true) };
 }
 
 test('only issue-matched verified actions and explicit reported diagnostic codes become allowed steps', () => {
@@ -178,7 +179,7 @@ test('stable context excludes rotating links and changes with issue, equipment, 
 test('checklist role gate uses exact Chief identity and PM capabilities, with assignment and property restrictions', () => {
   for (const role of ['Chief Engineer', 'System Administrator', 'Maintenance Technician']) assert.equal(policy.troubleshootingChecklistAccess(principal(role), originalTicket).canEdit, true, role);
   for (const role of ['engineer', 'Regional Engineer', 'General Manager', 'Front Desk', 'Lead Housekeeper']) assert.equal(policy.troubleshootingChecklistAccess(principal(role), originalTicket).canEdit, false, role);
-  assert.equal(policy.troubleshootingChecklistAccess(principal(), { ...originalTicket, technician_name: 'Someone Else' }).canEdit, false);
+  assert.equal(policy.troubleshootingChecklistAccess(principal(), { ...originalTicket, technician_name: 'Someone Else' }).canEdit, true);
   assert.equal(policy.troubleshootingChecklistAccess(principal(), { ...originalTicket, hotel_id: otherHotel }).canEdit, false);
   const denied = principal(); denied.permissions = [];
   assert.equal(policy.troubleshootingChecklistAccess(denied, originalTicket).canEdit, false);
@@ -263,16 +264,29 @@ test('Chief Engineer and System Administrator can clear any pending or approved 
   }
 });
 
-test('unrelated users cannot clear a check, and explicit clear rejects unsupported actions', async () => {
+test('authorized technicians can clear a prior check while managers cannot and unsupported actions are rejected', async () => {
   const h = fixture(); const opened = await h.get(); const contextKey = opened.body.contextKey;
   await h.patch({contextKey, expectedRevision: 0, itemId: 'step-1'});
-  for (const role of ['Maintenance Technician', 'General Manager']) {
-    h.state.principal = principal(role, secondId, 'Unrelated User');
-    assert.equal((await h.patch({contextKey, expectedRevision: 1, itemId: 'step-1', action: 'clear'})).status, 403);
-  }
-  assert.equal((await h.patch({contextKey, expectedRevision: 1, itemId: 'step-1', action: 'approve'})).status, 400);
-  assert.equal(h.state.writes.length, 1);
-  assert.equal(h.state.ledger[0].task_states['step-1'].workerId, workerId);
+  h.state.principal = principal('General Manager', secondId, 'Manager');
+  assert.equal((await h.patch({contextKey, expectedRevision: 1, itemId: 'step-1', action: 'clear'})).status, 403);
+  h.state.principal = principal('Maintenance Technician', secondId, 'Another Technician');
+  assert.equal((await h.patch({contextKey, expectedRevision: 1, itemId: 'step-1', action: 'clear'})).status, 200);
+  assert.equal((await h.patch({contextKey, expectedRevision: 2, itemId: 'step-1', action: 'approve'})).status, 400);
+  assert.equal(h.state.writes.length, 2);
+  assert.deepEqual(h.state.ledger[0].task_states['step-1'], {status: 'empty'});
+});
+
+test('a different technician can start a separate checklist without erasing prior checks or notes', async () => {
+  const h = fixture(); const first = await h.get();
+  assert.equal((await h.patch({contextKey:first.body.contextKey, expectedRevision:0, itemId:'step-1'})).status, 200);
+  await h.exit(); const oldNotes = h.state.ticket.notes;
+  h.state.principal = principal('Maintenance Technician', secondId, 'Second Technician');
+  const previous = await h.get();
+  const result = await h.restart({action:'start_new',contextKey:previous.body.contextKey,expectedRevision:previous.body.revision});
+  assert.equal(result.status,200);
+  const fresh = await h.get();
+  assert.notEqual(fresh.body.contextKey,first.body.contextKey); assert.deepEqual(fresh.body.taskStates,{});
+  assert.equal(h.state.ledger[0].task_states['step-1'].workerId,workerId); assert.equal(h.state.ticket.notes,oldNotes);
 });
 
 test('other-property, inactive and unauthenticated accounts cannot load or mutate checklist state', async () => {

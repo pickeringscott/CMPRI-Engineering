@@ -20,7 +20,7 @@ const json = (value: unknown, status = 200) => NextResponse.json(value, { status
 const conflict = (message: string, code = 'context_changed') => json({ error: message, conflict: true, code }, 409);
 type Params = { params: Promise<{ id: string }> };
 type Auth = NonNullable<Awaited<ReturnType<typeof requireUser>>>;
-type WorkOrder = { id: string; hotel_id: string; issue: string; reporter_notes: string | null; asset_id: string | null; revision: number; status: string; created_by: string | null; technician_name: string | null };
+type WorkOrder = { id: string; hotel_id: string; troubleshooting_run_id?: string | null; issue: string; reporter_notes: string | null; asset_id: string | null; revision: number; status: string; created_by: string | null; technician_name: string | null };
 type Asset = TroubleshootingChecklistAsset & { pdf_import_links: unknown; active: boolean | null };
 type Authorized = { auth: Auth; order: WorkOrder };
 type Loaded = Authorized & { assetContext: Record<string, unknown> | null; checklist: TroubleshootingChecklist; mayReadGuide: boolean };
@@ -31,7 +31,7 @@ async function authorize(request: NextRequest, params: Params): Promise<Authoriz
   if (auth.principal.hotelId !== HOTEL_ID || !allows(auth.principal, 'view_work_orders')) return json({ error: 'Work-order access is required.' }, 403);
   const { id } = await params.params;
   if (!isUuid(id)) return json({ error: 'A valid work-order ID is required.' }, 400);
-  const ticket = await auth.admin.from('work_orders').select('id,hotel_id,issue,reporter_notes,asset_id,revision,status,created_by,technician_name')
+  const ticket = await auth.admin.from('work_orders').select('id,hotel_id,issue,reporter_notes,asset_id,revision,status,created_by,technician_name,troubleshooting_run_id')
     .eq('hotel_id', auth.principal.hotelId).eq('id', id).maybeSingle();
   if (ticket.error) return json({ error: 'The work order could not be read.' }, 503);
   if (!ticket.data) return json({ error: 'Work order not found.' }, 404);
@@ -86,7 +86,7 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
   const derived = result.documentation_status === 'verified' ? deriveTroubleshootingChecklistContext({ issue: order.issue || '', reporter_notes: order.reporter_notes, asset }, knowledge) : { contextIdentity: null, steps: [] };
   const assetContext = Object.fromEntries(['id', 'manufacturer', 'model_family', 'model_number', 'documentation_key', 'documentation_revision_id', 'documentation_verified_at', 'pdf_import_links'].map(key => [key, asset[key as keyof Asset] ?? null]));
   if (!derived.contextIdentity) return finish({ ...empty, reason: result.documentation_reason || 'No exact verified uploaded manual guidance is available for this saved equipment.' }, assetContext);
-  const contextKey = createHash('sha256').update(derived.contextIdentity).digest('hex');
+  const contextKey = createHash('sha256').update(order.troubleshooting_run_id ? JSON.stringify([derived.contextIdentity, order.troubleshooting_run_id]) : derived.contextIdentity).digest('hex');
   const current = await auth.admin.from(table).select('revision,task_states').eq('hotel_id', auth.principal.hotelId).eq('work_order_id', id).eq('context_key', contextKey).maybeSingle();
   if (current.error) return json({ error: 'The saved troubleshooting checklist is unavailable. Try again or contact Engineering.' }, 503);
   const states = current.data?.task_states ?? {};
@@ -97,6 +97,20 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
 export async function GET(request: NextRequest, params: Params) {
   const loaded = await load(request, params);
   return loaded instanceof Response ? loaded : json(visibleChecklist(loaded));
+}
+
+export async function POST(request: NextRequest, params: Params) {
+  const body = await request.json().catch(() => null);
+  if (!body || body.action !== 'start_new' || typeof body.contextKey !== 'string' || !Number.isSafeInteger(body.expectedRevision)) return json({ error: 'A current checklist is required.' }, 400);
+  const loaded = await load(request, params);
+  if (loaded instanceof Response) return loaded;
+  const { auth, order, checklist } = loaded;
+  if (!loaded.mayReadGuide || !checklist.canEdit || checklist.actor.role !== 'technician') return json({ error: 'Only an authorized technician can start a new checklist.' }, 403);
+  if (checklist.contextKey !== body.contextKey || checklist.revision !== body.expectedRevision) return conflict('The checklist changed. Reload before starting a new one.');
+  if (!Object.values(checklist.taskStates).some(state => state.workerChecked && state.workerId && state.workerId !== checklist.actor.id)) return json({ error: 'There is no other technician’s progress to restart.' }, 400);
+  const result = await auth.admin.from('work_orders').update({ troubleshooting_run_id: crypto.randomUUID() }).eq('hotel_id', auth.principal.hotelId).eq('id', order.id).eq('revision', order.revision).select('revision').maybeSingle();
+  if (result.error || !result.data) return conflict('The work order changed. Reload before starting a new checklist.');
+  return json({ ok: true, workOrderRevision: result.data.revision });
 }
 
 export async function PATCH(request: NextRequest, params: Params) {
