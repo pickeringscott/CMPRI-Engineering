@@ -296,7 +296,7 @@ test("attachment uploads validate type, file signature, and the inclusive 100 Mi
     { file: photo("mislabeled.png", "image/jpeg"), message: "Only supported JPEG" },
     { file: new File([new Uint8Array(16)], "spoofed.png", { type: "image/png" }), message: "not a valid supported image" },
     { file: photo("empty.png", "image/png", 0), message: "Photos and videos must be 100 MB or smaller." },
-    { file: photo("oversized.png", "image/png", 100 * 1024 * 1024 + 1), message: "Photos and videos must be 100 MB or smaller" },,.
+    { file: photo("oversized.png", "image/png", 100 * 1024 * 1024 + 1), message: "Photos and videos must be 100 MB or smaller" },.
   ];
   for (const { file, message } of invalidCases) {
     const route = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
