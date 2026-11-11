@@ -95,6 +95,8 @@ async def main():
 
     async def route(r):
      u = urlparse(r.request.url)
+     if u.scheme in ('chrome', 'chrome-extension'):
+      return await r.continue_()
      if u.hostname not in ['127.0.0.1', 'localhost']:
       external_hosts.append(u.hostname or 'unknown')
       return await r.abort()
@@ -146,7 +148,7 @@ async def main():
        if visit['actorId'] != actor_id: return await respond({'error': 'This visit belongs to another account.'}, 403)
        if visit['finalized']: return await respond({'error': 'This visit was already finalized.'}, 409)
        if body['mutationId'] in visit['mutationIds']:
-        return await respond({'contextKey': current['contextKey'], 'contextIdentity': current['contextIdentity'], 'revision': row['revision'], 'actor': actor, 'canEdit': can_edit, 'canClearAll': actor['role'] == 'chief', 'canClearOwn': True, 'canSeePendingReview': role == 'chief_engineer', 'steps': current['steps'], 'taskStates': row['taskStates'], 'pendingVisits': []})
+        return await respond({'contextKey': current['contextKey'], 'contextIdentity': current['contextIdentity'], 'revision': row['revision'], 'actor': actor, 'canEdit': can_edit, 'canClearAll': actor['role'] in ('chief', 'technician') and can_edit, 'canClearOwn': True, 'canSeePendingReview': role == 'chief_engineer', 'steps': current['steps'], 'taskStates': row['taskStates'], 'pendingVisits': []})
        if body['contextKey'] != current['contextKey']: return await respond({'error': 'The issue or equipment changed.', 'code': 'context_changed'}, 409)
        if body['expectedRevision'] != row['revision']: return await respond({'error': 'The checklist changed. Reload it.', 'code': 'revision_changed'}, 409)
        if body['itemId'] not in [step['id'] for step in current['steps']]: return await respond({'error': 'Invalid step.'}, 400)
@@ -182,7 +184,7 @@ async def main():
        unexpected.append(u.path)
        return await r.abort()
       pending = [{'visitId': visit_id, 'startedAt': '2026-11-09T04:00:00Z', 'lastEventAt': '2026-11-09T04:01:00Z', 'eventCount': len(visit['events'])} for visit_id, visit in visits.items() if visit['actorId'] == actor_id and not visit['finalized'] and visit['events']]
-      return await respond({'contextKey': current['contextKey'], 'contextIdentity': current['contextIdentity'], 'revision': row['revision'], 'actor': actor, 'canEdit': can_edit, 'canClearAll': actor['role'] == 'chief', 'canClearOwn': True, 'canSeePendingReview': role == 'chief_engineer', 'steps': current['steps'], 'taskStates': row['taskStates'], 'pendingVisits': pending})
+      return await respond({'contextKey': current['contextKey'], 'contextIdentity': current['contextIdentity'], 'revision': row['revision'], 'actor': actor, 'canEdit': can_edit, 'canClearAll': actor['role'] in ('chief', 'technician') and can_edit, 'canClearOwn': True, 'canSeePendingReview': role == 'chief_engineer', 'steps': current['steps'], 'taskStates': row['taskStates'], 'pendingVisits': pending})
      if u.path == '/api/work-orders/' + WID and r.request.method == 'PATCH':
       body = r.request.post_data_json
       assert set(body) == {'expected_revision', 'issue'}, body
@@ -205,17 +207,21 @@ async def main():
       {'name': current['knowledge']['source']['source_file_name'], 'storage_path': current['knowledge']['source']['storage_path'], 'url': PDF, 'verified': state['mode'] == 'verified', 'source': 'uploaded'},
       {'name': 'Decoy catalog manual.pdf', 'storage_path': 'catalog/decoy.pdf', 'url': PDF, 'verified': True, 'source': 'catalog'},
      ]})
+     if u.path == '/api/work-orders/' + WID + '/parts': return await respond({'items': [], 'parts': [], 'poLines': []})
      if u.path.endswith('/attachments'): return await respond({'images': []})
      return await r.fallback()
 
     await ctx.route('**/*', route)
     page = await ctx.new_page(); pages.append((ctx, page, errors))
-    page.on('pageerror', lambda e: errors.append(str(e)))
+    page.on('pageerror', lambda e: errors.append(str(e) + '\n' + str(e.stack)))
     await page.goto(BASE + '/work-orders/' + WID)
     guide = page.get_by_role('heading', name='Suggested Troubleshooting', exact=True).locator('xpath=../..')
     await guide.wait_for(timeout=60000)
     if await guide.get_attribute('open') is None: await guide.locator('summary').first.click()
     checklist = guide.get_by_role('region', name='Work-order troubleshooting checklist')
+    if actor_id == OTHER_TECH:
+     await expect(checklist.get_by_text('Another technician has checked steps. Continue their progress or start a new checklist?')).to_be_visible()
+     await checklist.get_by_role('button', name='Continue', exact=True).click()
     await checklist.get_by_role('checkbox').first.wait_for(timeout=30000)
     return ctx, page, guide, checklist, errors
 
@@ -354,7 +360,7 @@ async def main():
    own_note = await leave_and_confirm(tech, UID, own_clear_visit)
    assert [event['action'] for event in own_note['events']] == ['Cleared', 'Checked']
    other_ctx, other, other_guide, other_list, other_errors = await open_role('technician', OTHER_TECH, 'Riley Chen')
-   for index in [0, 1]: await expect(other_list.get_by_role('checkbox').nth(index)).to_be_disabled()
+   for index in [0, 1]: await expect(other_list.get_by_role('checkbox').nth(index)).to_be_enabled()
    await expect(other_list.get_by_role('checkbox').nth(2)).to_be_enabled()
    await other_ctx.close()
 
@@ -433,11 +439,13 @@ async def main():
    chief_guide, chief_list = await reopen(chief)
    await visual(chief_list.get_by_role('checkbox').nth(2), 'empty')
 
+   await chief.locator('[data-reported-issue] > summary').click()
+
    # Same ticket, newly saved issue or equipment: previous marks remain in their
    # old ledger context and must not appear on the current checklist.
    for index in [1, 2, 3, 4]:
     if index == 1 and width == 1440:
-     # Exercise the real issue editor. Its existing Done/on-blur action saves
+     # Exercise the real issue editor. Blurring the field saves
      # the issue; simply typing must only change the read-only guide preview.
      await chief_list.get_by_role('checkbox').first.click()
      await visual(chief_list.get_by_role('checkbox').first, 'needs', RED)
@@ -450,7 +458,7 @@ async def main():
      assert len(writes) == before_checklist_writes
      assert len(issue_writes) == 0
      await capture(chief, chief_guide, 'final-issue-edit-readonly')
-     await chief.get_by_role('button', name='Done', exact=True).click()
+     await chief.get_by_role('textbox', name='Reported Issue', exact=True).blur()
      await expect(chief.get_by_role('button', name='Edit reported issue', exact=True)).to_contain_text(variants[1]['order']['issue'])
      await expect(chief_list.get_by_role('checkbox').first).to_be_enabled(timeout=30000)
      assert len(issue_writes) == 1
@@ -481,7 +489,7 @@ async def main():
     for control in await chief_list.get_by_role('checkbox').all(): await expect(control).to_be_disabled()
     assert len(writes) == before_everyday
     await capture(chief, chief_guide, 'final-everyday-issue-readonly')
-    await chief.get_by_role('button', name='Done', exact=True).click()
+    await chief.get_by_role('textbox', name='Reported Issue', exact=True).blur()
     await expect(chief.get_by_role('button', name='Edit reported issue', exact=True)).to_have_text(variants[5]['order']['issue'])
     await expect(chief_list.get_by_role('checkbox').first).to_be_enabled(timeout=30000)
     for control in await chief_list.get_by_role('checkbox').all(): await visual(control, 'empty')
