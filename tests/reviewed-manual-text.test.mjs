@@ -7,7 +7,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import { loadTs } from './helpers/load-ts.mjs';
 import { isUuid } from '../src/lib/uuid.ts';
 const hotel = 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6', assetId = '00000000-0000-4000-8000-000000000011', actor = '00000000-0000-4000-8000-000000000012';
-const bytes = new Uint8Array(Buffer.from('%PDF-source')), hash = createHash('sha256').update(bytes).digest('hex');
+const bytes = new Uint8Array(Buffer.from('%PDF-source'));
 function fixture(options = {}) {
   const sourceBytes = options.bytes || bytes, sourceHash = createHash('sha256').update(sourceBytes).digest('hex');
   const file = { id: 'registered-file', storage_path: `${hotel}/${assetId}/original.pdf`, name: 'original.pdf', preferred: false, created_at: null, updated_at: '2026-01-01' };
@@ -125,3 +125,4 @@ test('reader rejects property/asset/file identity mismatches and readback text t
   for(const change of [{hotelId:'other'},{assetId:actor},{file:{...h.source.file,id:'other'}},{file:{...h.source.file,storage_path:'other'}},{totalPages:2}]) assert.equal((await h.mod.readReviewedManualPages(h.admin,{...h.source,...change})).length,0);
   const row=[...h.state.rows.values()][0];row.payload.reviewed_by='invalid';assert.equal((await h.mod.readReviewedManualPages(h.admin,h.source)).length,0);
 });
+

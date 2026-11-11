@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// Native picture keeps the authenticated page-image blob browser-local and preserves its dimensions.
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import { sourcePageHtml } from "@/lib/manual-document-html";
 import type { SourcePassage } from "@/lib/manual-source";
@@ -51,10 +52,11 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
         <div className="break-words text-slate-100 [&_h2]:font-semibold [&_h2]:text-sky-300 [&_h3]:mt-2 [&_h3]:font-semibold [&_p]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_.manual-source-table]:overflow-x-auto [&_table]:border-collapse [&_th]:border [&_th]:border-slate-700 [&_th]:p-1 [&_td]:border [&_td]:border-slate-700 [&_td]:p-1" dangerouslySetInnerHTML={{ __html: sourcePageHtml(passage.text, passage.page, passage.origin || "pdf") }} />
       </section>)}
       <div className="mt-1">
-        {image?.key === imageKey && <img className="h-auto w-full rounded border border-slate-700" src={image.url} alt={`Manual page ${current}, including diagrams and tables`} />}
+        {image?.key === imageKey && <picture style={{ display: 'contents' }}><img className="h-auto w-full rounded border border-slate-700" src={image.url} alt={`Manual page ${current}, including diagrams and tables`} /></picture>}
         <a className="text-sky-300 underline" href={`${sourceUrl.split('#')[0]}#page=${current}`} target="_blank" rel="noreferrer">Open page {current}</a>
       </div>
     </div>
   );
 }
+
 

@@ -1,3 +1,5 @@
+// This file is a function expression consumed directly by Playwright page.evaluate().
+// eslint-disable-next-line @typescript-eslint/no-unused-expressions -- Exporting or invoking it changes that evaluation contract.
 (selector = 'html,body,body *') => {
   // Playwright passes null when evaluate() has no argument.
   selector ||= 'html,body,body *';
@@ -135,3 +137,4 @@
   }
   return { findings, exceptions, stats, modes, stateRulesInspected: originals.length };
 }
+

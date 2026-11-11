@@ -1,4 +1,5 @@
 import styles from "./GssScorecard.module.css";
+// Native picture keeps report data URLs in the browser without an image-proxy request.
 
 export type SourceReport = {
   date: string;
@@ -33,6 +34,7 @@ export default function GssSourceReportView({ state, verifiedDate }: { state: So
   return <section className={styles.sourceReport} aria-labelledby="gss-source-title">
     <header><h2 id="gss-source-title">Latest GSS source report</h2><time dateTime={state.report.date}>{formatReportDate(state.report.date)}</time></header>
     <p>Original report images. The verified tables below are from an earlier report.</p>
-    {state.report.images.map(image => <figure key={image.period}><figcaption>{image.period}</figcaption><img src={image.dataUrl} alt={`${image.period} in the Marriott GSS report dated ${formatReportDate(state.report.date)}`} /></figure>)}
+    {state.report.images.map(image => <figure key={image.period}><figcaption>{image.period}</figcaption><picture style={{ display: 'contents' }}><img src={image.dataUrl} alt={`${image.period} in the Marriott GSS report dated ${formatReportDate(state.report.date)}`} /></picture></figure>)}
   </section>;
 }
+
