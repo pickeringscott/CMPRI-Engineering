@@ -7,7 +7,8 @@ import { requireUser } from '@/lib/server/auth';
 import { listRegisteredAssetFiles, type RegisteredAssetFile } from '@/lib/server/asset-file-register';
 import { extractManualPdfText, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
 import { manualPartsPassages, manualReferencePages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
-import { uploadedManualActions } from '@/lib/uploaded-manual-actions';
+import { uploadedManualHtmlActions } from '@/lib/uploaded-manual-actions';
+import { structureManualDocument, sourcePageHtml } from '@/lib/manual-document-html';
 import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
 import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePage, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
@@ -182,7 +183,8 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       }
     } catch { failures.push({ status: 'uploaded_ocr_unavailable', message: 'Text recognition is unavailable. Open the attached source PDF.' }); }
   }
-  const actions = uploadedManualActions(selected.text);
+  const nativeDocument = structureManualDocument(selected.text);
+  const actions = uploadedManualHtmlActions(nativeDocument);
   if (ocrStatus === 'complete') {
     const { ocrManualActions } = await import('@/lib/server/manual-ocr-actions');
     actions.symptom_rules.push(...ocrManualActions(ocrPages));
@@ -224,8 +226,12 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     if (match[2].trim() && actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
   }
   for (const page of manualReferencePages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
-  if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference' });
-  const source_passages: SourcePassage[] = passages.map(passage => passage.kind === 'reference' ? passage : ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
+  if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference', origin: 'ocr' });
+  const source_passages: SourcePassage[] = passages.map(passage => ({
+    ...passage, origin: passage.origin || 'pdf',
+    html: sourcePageHtml(passage.text, passage.page, passage.origin || 'pdf'),
+    source_file_name: selected.file.name, source_url: sourceUrl,
+  }));
   const indexedOcrPages = new Set(ocrPages.filter(page => page.text.trim()).map(page => page.page));
   const searchIncomplete = hasNativeText && [...emptyTextPages].some(page => !indexedOcrPages.has(page));
   const manualKnowledge: ManualKnowledge = {

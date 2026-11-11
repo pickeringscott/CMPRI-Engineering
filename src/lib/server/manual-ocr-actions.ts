@@ -1,3 +1,4 @@
+import { structureManualPage, manualHtmlGuideLines } from '../manual-document-html';
 import type { ManualSymptomRule } from '@/lib/manual-knowledge';
 import { isFlowchartTitle } from './pdf-flowchart-branches';
 
@@ -8,8 +9,9 @@ const imperative = /^(?:check|inspect|verify|clean|disconnect|connect|reconnect|
 export function ocrManualActions(pages: Page[]): ManualSymptomRule[] {
   const output: ManualSymptomRule[] = [];
   for (const page of pages) {
-    if (page.confidence < 85 || !Number.isSafeInteger(page.page) || page.page < 1) continue;
-    const lines = page.text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (!Number.isFinite(page.confidence) || page.confidence < 85 || page.confidence > 100 || !Number.isSafeInteger(page.page) || page.page < 1 || page.page > 600) continue;
+    const document = structureManualPage(page.text, page.page, 'ocr', page.confidence);
+    const lines = manualHtmlGuideLines(document).map(line => line.trim()).filter(Boolean);
     if (lines.some(line => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(line))) continue;
     for (let index=0; index<lines.length; index++) {
       const heading = lines[index];
@@ -45,3 +47,4 @@ export function ocrManualActions(pages: Page[]): ManualSymptomRule[] {
   }
   return output;
 }
+

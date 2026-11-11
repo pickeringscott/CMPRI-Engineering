@@ -1,6 +1,6 @@
 import type { ManualKnowledge } from "./manual-knowledge";
 
-export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string };
+export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string; html?: string; origin?: 'pdf' | 'ocr' };
 export type SourceIdentity = { manufacturer: string | null; model_family: string | null; model_number: string | null };
 
 /** Preserve source text, including table rows. No generated repair instructions. */
@@ -130,3 +130,4 @@ export function reportedDiagnosticCode(text: string): string | null {
   }
   return null;
 }
+

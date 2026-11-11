@@ -1,3 +1,4 @@
+import { sourcePageHtml } from './manual-document-html';
 import type { SourcePassage } from "./manual-source";
 export type TroubleshootingStepMedia = {
   id: string;
@@ -184,9 +185,9 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     source_passages: Array.isArray(payload.source_passages) ? payload.source_passages.filter((entry): entry is SourcePassage => {
       if (!entry || typeof entry !== "object") return false;
       const item = entry as SourcePassage;
-      return Number.isInteger(item.page) && item.page > 0 && typeof item.text === "string" &&
+      return Number.isInteger(item.page) && item.page > 0 && item.page <= 600 && typeof item.text === "string" &&
         (item.kind === "diagnostic" || item.kind === "troubleshooting" || item.kind === "reference");
-    }) : [],
+    }).map(item => typeof item.html === 'string' ? { ...item, html: sourcePageHtml(item.text, item.page, item.origin === 'ocr' ? 'ocr' : 'pdf') } : item) : [],
     error_codes,
     symptom_rules,
     general_checks,

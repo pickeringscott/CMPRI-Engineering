@@ -9,6 +9,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import { loadTs } from './helpers/load-ts.mjs';
 import * as matching from '../src/lib/manual-document-match.ts';
 import * as source from '../src/lib/manual-source.ts';
+import * as manualHtml from '../src/lib/manual-document-html.ts';
 import * as actions from '../src/lib/uploaded-manual-actions.ts';
 import * as ocrActions from '../src/lib/server/manual-ocr-actions.ts';
 import * as roles from '../src/lib/server/roles.ts';
@@ -86,7 +87,7 @@ function fixture(overrides = {}) {
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
     '@/lib/server/manual-ocr-queue': { enqueueManualOcr: async () => { state.ocrEnqueues++; if (state.ocrStatus === 'unavailable') throw Error('unavailable'); state.ocrStatus = 'pending'; }, readManualOcr: async () => ({ status: state.ocrStatus, pages: state.ocrPages }) }, '@/lib/server/manual-ocr-actions': ocrActions,
-    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async (bytes, options) => { state.extractions++; if (state.failExtraction) throw Error('Text extraction unavailable'); return realPdf.extractManualPdfText(bytes, options); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
+    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async (bytes, options) => { state.extractions++; if (state.failExtraction) throw Error('Text extraction unavailable'); return realPdf.extractManualPdfText(bytes, options); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/manual-document-html': manualHtml, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
     '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; if (state.failInspection) throw Error('Figure inspection unavailable'); const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); }, renderUploadedGuidePage: async (...args) => { state.renders++; return guideMedia.renderUploadedGuidePage(...args); } },
   }, { Response, Uint8Array, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
   return { state, principal, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
@@ -131,6 +132,7 @@ test('attached PDF bytes produce verbatim page-linked actions and immutable sour
   assert.equal(guide.source.source_file_name, file.name);
   assert.deepEqual(guide.symptom_rules[0].steps, ['Clean the drain filter.', 'Check the drain hose.']);
   assert.deepEqual(guide.symptom_rules[0].source_pages, [1]); assert.match(guide.source_passages[0].text, /Washer not draining/);
+  assert.match(guide.source_passages[0].html, /data-source-page="1"/); assert.match(guide.source_passages[0].html, /<ol>/); assert.equal(guide.source_passages[0].source_file_name, file.name);
   const normalized = normalizeManualKnowledge(guide);
   assert.equal(normalized.source.sha256, hash(original)); assert.equal(normalized.source.storage_path, path);
   assert.equal(deriveTroubleshootingChecklistContext({ issue: 'Washer not draining', asset }, normalized).steps.length, 2);
@@ -412,6 +414,9 @@ test('mixed manuals queue image-only pages without hiding readable source conten
   assert.deepEqual(ready.manualKnowledge.source_passages.map(page => page.page), [1, 2]);
   assert.match(ready.manualKnowledge.source_passages[0].text, /ACME W1 service manual/);
   assert.deepEqual(source.relevantSourcePassages(ready.manualKnowledge.source_passages, 'door lock stuck').map(page => page.page), [2]);
+  assert.equal(ready.manualKnowledge.source_passages[1].origin, 'ocr');
+  assert.match(ready.manualKnowledge.source_passages[1].html, /OCR text: compare with the original source page/);
+  assert.equal(ready.manualKnowledge.source_passages[1].source_url, ready.manualKnowledge.source.file_url);
   assert.equal(ready.manualKnowledge.symptom_rules.length, 2);
   assert.ok(ready.manualKnowledge.symptom_rules[1].steps.every(step => step.startsWith('OCR — ')));
   assert.deepEqual(ready.manualKnowledge.symptom_rules[1].source_pages, [2]);

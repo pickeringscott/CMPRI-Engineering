@@ -1,3 +1,4 @@
+import { structureManualDocument, manualHtmlGuideText, type ManualHtmlPage } from './manual-document-html';
 import type { ManualErrorCode, ManualSymptomRule } from './manual-knowledge';
 
 // This parser extracts explicit source structures. It does not supply repair
@@ -27,6 +28,15 @@ function cells(line: string): string[] | null {
  * Unstructured or ambiguous excerpts remain references, rather than checkboxes.
  */
 export function uploadedManualActions(text: string): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
+  return uploadedManualHtmlActions(structureManualDocument(text));
+}
+
+/** Run the existing source-association checks against the semantic HTML nodes. */
+export function uploadedManualHtmlActions(pages: ManualHtmlPage[]): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
+  return readStructuredActions(manualHtmlGuideText(pages));
+}
+
+function readStructuredActions(text: string): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
   const symptom_rules: ManualSymptomRule[] = [];
   const error_codes: ManualErrorCode[] = [];
   const pages = [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)];
@@ -101,3 +111,4 @@ export function uploadedManualActions(text: string): { symptom_rules: ManualSymp
   }
   return { symptom_rules, error_codes };
 }
+

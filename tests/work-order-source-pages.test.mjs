@@ -5,13 +5,14 @@ import {createRequire} from 'node:module';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {JSDOM} from 'jsdom';
+import * as manualHtml from '../src/lib/manual-document-html.ts';
 
 const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'https://cmpri.test'});
 globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.HTMLElement=dom.window.HTMLElement;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react');const {createRoot}=await import('react-dom/client');const require=createRequire(import.meta.url);
 const code=ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderSourcePages.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
+const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
 
 test('source page selector preserves the original PDF and resets when the issue or document changes',async()=>{
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
@@ -80,6 +81,7 @@ function imageViewer() {
   fetch(url,options){return new Promise(resolve=>pending.push({url,options,resolve}));},
   require(name){
    if(name==='react'||name==='react/jsx-runtime')return require(name);
+   if(name==='@/lib/manual-document-html')return manualHtml;
    if(name==='@/lib/supabase/client')return {
     getValidSession:async()=>state.session,
     createClient:()=>({auth:{onAuthStateChange(callback){subscriptions.add(callback);return {data:{subscription:{unsubscribe(){subscriptions.delete(callback);}}}};}}}),
@@ -147,4 +149,19 @@ test('failed images keep the exact source-page link and extracted reference text
   assert.equal(h.parent.querySelector('img'),null);assert.match(h.parent.textContent,/Drain diagnostic chart/);
   assert.equal(h.parent.querySelector('a').getAttribute('href'),'https://cmpri.test/source.pdf?token=one#page=4');
  } finally {await h.cleanup();}
+});
+
+
+test('the work-order viewer renders semantic source HTML and never trusts supplied markup', async () => {
+ const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
+ try {
+  await React.act(async()=>root.render(React.createElement(exports.default,{sourceUrl:'https://cmpri.test/manual.pdf',passages:[{page:6,kind:'reference',origin:'ocr',text:'Door lock stuck\n1. Inspect the latch.\n2. Check <script>alert(1)</script> wiring.',html:'<img src=x onerror=alert(2)>'}]})));
+  assert.equal(parent.querySelector('[data-source-page="6"]').getAttribute('data-source-origin'),'ocr');
+  assert.equal(parent.querySelector('h3').textContent,'Door lock stuck');
+  assert.equal(parent.querySelectorAll('ol li').length,2);
+  assert.equal(parent.querySelector('script,img,svg'),null);
+  assert.match(parent.textContent,/<script>alert\(1\)<\/script>/);
+  assert.match(parent.textContent,/OCR text: compare with the original source page/);
+  assert.equal(parent.querySelector('a').getAttribute('href'),'https://cmpri.test/manual.pdf#page=6');
+ } finally {await React.act(async()=>root.unmount());parent.remove();}
 });
