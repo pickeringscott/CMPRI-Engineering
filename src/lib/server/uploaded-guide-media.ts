@@ -15,7 +15,7 @@ export type InspectedUploadedGuideMedia = {
   sourceSha256: string;
 };
 
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
+const MAX_PDF_BYTES = 100 * 1024 * 1024;
 const MAX_PAGES = 600;
 const MAX_INSPECTED_PAGES = 24;
 const MAX_STEPS = 128;

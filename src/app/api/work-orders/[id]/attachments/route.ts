@@ -6,7 +6,7 @@ import { profileIsChiefEngineer, profileIsEstablishedHoursChief } from "@/lib/se
 import { isUuid } from "@/lib/uuid";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
 const MEDIA_SIGNATURE_BYTES = 64;
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const form = await request.formData().catch(() => null);
   const file = form?.get("photo");
   if (!(file instanceof File)) return NextResponse.json({ error: "Choose an image to upload." }, { status: 400 });
-  if (file.size < 1 || file.size > MAX_IMAGE_BYTES) return NextResponse.json({ error: "Photos and videos must be 10 MB or smaller." }, { status: 400 });
+  if (file.size < 1 || file.size > MAX_IMAGE_BYTES) return NextResponse.json({ error: "Photos and videos must be 100 MB or smaller." }, { status: 400 });
 
   const extension = (file.name.split(".").pop() || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const contentType = IMAGE_CONTENT_TYPES[extension];
@@ -212,7 +212,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return reply({ error: "Invalid photo upload request." }, 400);
     }
     if (!Number.isSafeInteger(body.size) || body.size < 1 || body.size > MAX_IMAGE_BYTES) {
-      return reply({ error: "Photos and videos must be 10 MB or smaller." }, 400);
+      return reply({ error: "Photos and videos must be 100 MB or smaller." }, 400);
     }
     const extension = (body.name.split(".").pop() || "").toLowerCase();
     const contentType = IMAGE_CONTENT_TYPES[extension];
@@ -239,7 +239,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (result.error || !result.data) throw new PhotoUploadError("Photo upload is not complete. Retry the photo upload.", 503);
       const file = result.data;
       if (file.size !== body.size || file.size < 1 || file.size > MAX_IMAGE_BYTES) {
-        throw new PhotoUploadError("Photos and videos must be 10 MB or smaller and match the selected file.", 400);
+        throw new PhotoUploadError("Photos and videos must be 100 MB or smaller and match the selected file.", 400);
       }
       const bytes = await file.arrayBuffer();
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");

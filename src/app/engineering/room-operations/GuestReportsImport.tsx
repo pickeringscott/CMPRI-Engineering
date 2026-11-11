@@ -1,10 +1,12 @@
 "use client";
+import { readImportResponse } from '@/lib/import-response';
+import { uploadImportFile, type ImportUploadDescriptor } from '@/lib/import-upload';
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { guestReportName, type GuestRoom } from "@/lib/room-guest-reports";
 import LocalOcrReview from "@/components/LocalOcrReview";
 import styles from './GuestReportsImport.module.css';
-type ReportFile = { name: string; text: string };
+type ReportFile = ImportUploadDescriptor;
 type Preview = { date: string; rows: GuestRoom[]; previousId: string | null };
 export type GuestReportsImportHandle = { fetchDrive: () => void; chooseFiles: () => void };
 export default forwardRef<GuestReportsImportHandle, {
@@ -30,8 +32,8 @@ export default forwardRef<GuestReportsImportHandle, {
  }
  async function request(reports: ReportFile[], validateOnly: boolean, previousId?: string | null) {
   const response = await fetch("/api/room-operations/guest-reports", { method: "POST",
-   headers: { ...await authorizationHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ files: reports, validateOnly, previousId }) });
-  const result = await response.json();
+   headers: { ...await authorizationHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ uploads: reports, validateOnly, previousId }) });
+  const result = await readImportResponse(response);
   if (!response.ok) throw Error(result.error || "The reports were not accepted.");
   return result as Preview & { import_id: string };
  }
@@ -44,7 +46,7 @@ export default forwardRef<GuestReportsImportHandle, {
    if(next.some(file=>!/\.csv$/i.test(file.name)))throw Error('Choose CSV report files. Use the local OCR tool below to review text from images or PDFs.');
    const kinds=next.map(file=>guestReportName(file.name).kind);
    if(new Set(kinds).size!==kinds.length)throw Error('Choose only one file for each report type.');
-   for(const file of next)if(file.size>3*1024*1024)throw Error(`${file.name}: use a file no larger than 3 MB.`);
+   for(const file of next)if(file.size>100*1024*1024)throw Error(`${file.name}: use a file no larger than 100 MB.`);
    next.sort((a,b)=>["guests","departures","arrivals"].indexOf(guestReportName(a.name).kind)-["guests","departures","arrivals"].indexOf(guestReportName(b.name).kind));
    setSelectedFiles(next);setPreview(null);setFiles([]);
   }catch(e){setError(e instanceof Error?e.message:'The files could not be added.')}
@@ -54,7 +56,7 @@ export default forwardRef<GuestReportsImportHandle, {
   setPreview(null); setFiles([]); setSelectedFiles([]);
   await run(async () => {
    const response = await fetch("/api/room-operations/guest-reports/drive", { headers: await authorizationHeaders(), method: "POST", cache: "no-store" });
-   const result = await response.json();
+   const result = await readImportResponse(response);
    if (!response.ok) throw Error(result.error || "The Drive reports could not be fetched.");
    if (result.imported === false) { setNotice(result.message); return; }
    onCommitted(result.date, result.rows, result.import_id);
@@ -70,7 +72,7 @@ export default forwardRef<GuestReportsImportHandle, {
    const reports: ReportFile[] = [];
    for (const file of selectedFiles) {
     if (!/\.csv$/i.test(file.name)) throw Error('Choose CSV report files. Use the local OCR tool below to review text from images or PDFs.');
-    reports.push({ name: file.name, text: await file.text() });
+    reports.push(await uploadImportFile(file, 'guest-report'));
    }
    setFiles(reports); setPreview(await request(reports, true));
   });

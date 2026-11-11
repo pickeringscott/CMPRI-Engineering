@@ -1,4 +1,6 @@
 "use client";
+import { readImportResponse } from '@/lib/import-response';
+import {uploadImportFile} from '@/lib/import-upload';
 import {useEffect,useState} from 'react';
 import {authorizationHeaders} from '@/lib/auth/client-session';
 import type {HistoryRecord} from '@/lib/purchasing-history';
@@ -17,13 +19,13 @@ export default function PurchasingHistory({canImport=false}:{canImport?:boolean}
  const [review,setReview]=useState<{digest:string;counts:Record<string,number>;sourceCount:number;records:HistoryRecord[]}|null>(null);
  useEffect(()=>{
   if(review)return;let cancelled=false;
-  void (async()=>{try{const r=await fetch(`/api/engineering/purchasing-history?kind=${encodeURIComponent(kind)}&page=${page}&record=${encodeURIComponent(new URL(window.location.href).searchParams.get("historyRecord")||"")}`,{headers:await authorizationHeaders(),cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error);if(!cancelled){setRecords(d.records);setTotal(d.total);}}catch(e){if(!cancelled)setMessage(e instanceof Error?e.message:'Could not load history');}})();
+  void (async()=>{try{const r=await fetch(`/api/engineering/purchasing-history?kind=${encodeURIComponent(kind)}&page=${page}&record=${encodeURIComponent(new URL(window.location.href).searchParams.get("historyRecord")||"")}`,{headers:await authorizationHeaders(),cache:'no-store'});const d=await readImportResponse(r);if(!r.ok)throw Error(d.error);if(!cancelled){setRecords(d.records);setTotal(d.total);}}catch(e){if(!cancelled)setMessage(e instanceof Error?e.message:'Could not load history');}})();
   return()=>{cancelled=true;};
  },[kind,page,review]);
  async function submit(action:'review'|'import',e?:React.FormEvent<HTMLFormElement>){
   e?.preventDefault();if(!canImport)return;setBusy(true);setMessage('');
-  try{let input=bundle;if(action==='review'&&e){setReview(null);const file=new FormData(e.currentTarget).get('bundle');if(!(file instanceof File)||file.size>12*1024*1024)throw Error('Choose an evidence JSON file under 12 MiB');input=JSON.parse(await file.text());setBundle(input);}
-   const r=await fetch('/api/engineering/purchasing-history',{method:'POST',headers:{...await authorizationHeaders(),'Content-Type':'application/json'},body:JSON.stringify({action,bundle:input,digest:review?.digest,reviewed:action==='import'})});const d=await r.json();if(!r.ok)throw Error(d.error);
+  try{let input=bundle;if(action==='review'&&e){setReview(null);const file=new FormData(e.currentTarget).get('bundle');if(!(file instanceof File)||file.size>100*1024*1024)throw Error('Choose an evidence JSON file up to 100 MB');input=await uploadImportFile(file,'purchasing-history');setBundle(input);}
+   const r=await fetch('/api/engineering/purchasing-history',{method:'POST',headers:{...await authorizationHeaders(),'Content-Type':'application/json'},body:JSON.stringify({action,upload:input,digest:review?.digest,reviewed:action==='import'})});const d=await readImportResponse(r);if(!r.ok)throw Error(d.error);
    if(action==='review'){setReview(d);setPage(0);}else{setReview(null);setBundle(null);setMessage(`${d.recordCount} historical records saved. Current stock unchanged.`);}
   }catch(e){setMessage(e instanceof Error?e.message:'History request failed');}finally{setBusy(false);}
  }

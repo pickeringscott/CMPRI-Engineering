@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {parseOfflinePoPages,type PdfCell} from './po-offline-pdf';
 export async function inspectPoPdf(bytes:Uint8Array){
- if(bytes.length>10*1024*1024||Buffer.from(bytes.subarray(0,5)).toString()!=='%PDF-')throw Error('Choose a PDF up to 10 MB.');
+ if(bytes.length>100*1024*1024||Buffer.from(bytes.subarray(0,5)).toString()!=='%PDF-')throw Error('Choose a PDF up to 100 MB.');
  const original=await extractPoPdf(bytes);
  if(original.offlineOrder)return original;
  // Some iBuy printers place complete columns outside the Letter MediaBox.

@@ -26,3 +26,11 @@ test('actual multipart submission → authorized original PDF response; unauthor
  stored.p_answers.department='maintenance';assert.equal((await pdf.GET(req)).status,404);
  assert.equal((await handler('src/app/api/employment/resume/route.ts',admin,{...auth,mcp:true}).GET(req)).status,403);
 });
+test('stored resumes use short private authorized download and preserve department restrictions',async()=>{
+ let signed=0;const id='00000000-0000-4000-8000-000000000001';
+ const admin={from(table){const query={select(){return query;},eq(){return query;},async maybeSingle(){return {data:table==='employment_applications'?{department:'front'}:{file_name:'resume.pdf',storage_path:id+'/'+'a'.repeat(64)+'.pdf'},error:null};}};return query;},storage:{from(bucket){assert.equal(bucket,'employment-resumes');return {async createSignedUrl(path,seconds,options){signed++;assert.ok(path.startsWith(id+'/'));assert.equal(seconds,60);assert.equal(options.download,'resume.pdf');return {data:{signedUrl:'https://storage.invalid/private-capability'}};}};}}};
+ const req={nextUrl:new URL('https://example.invalid/api/employment/resume?id='+id)};
+ const auth={ok:true,admin,principal:{identity:{id:'front-manager',email:'manager@example.invalid'},profile:{role:'front_desk_manager',active:true}}};
+ const response=await handler('src/app/api/employment/resume/route.ts',admin,auth).GET(req);assert.equal(response.status,303);assert.equal(response.headers.get('location'),'https://storage.invalid/private-capability');assert.equal(response.headers.get('cache-control'),'private, no-store');
+ assert.equal((await handler('src/app/api/employment/resume/route.ts',admin,{ok:false}).GET(req)).status,403);assert.equal(signed,1);
+});

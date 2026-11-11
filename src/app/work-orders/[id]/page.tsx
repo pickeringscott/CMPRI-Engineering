@@ -1532,7 +1532,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       const form = new FormData();
       form.append("asset_id", created.id);
       form.append("document_type", newAssetDocumentType);
-      form.append("file", newAssetDocument);
+      try {
+      const { uploadImportFile } = await import("@/lib/import-upload");
+      form.append("upload_descriptor", JSON.stringify(await uploadImportFile(newAssetDocument, "asset-documentation")));
       const documentationResponse = await fetch("/api/assets/documentation", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -1542,6 +1544,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       documentationMessage = documentationResponse.ok
         ? ` Documentation uploaded (${newAssetDocumentType}).`
         : ` Asset created, but documentation upload failed: ${documentationPayload.error || "unknown error"}`;
+      } catch (error) { documentationMessage = ` Asset created, but documentation upload failed: ${error instanceof Error ? error.message : "unknown error"}`; }
     }
 
     setAssets((items) => [...items.filter((item) => item.id !== created.id), created].sort((a,b) => a.name.localeCompare(b.name)));

@@ -236,7 +236,7 @@ export async function PATCH(request: NextRequest) {
     for (const name of state.names || []) {
       if (!name.toLowerCase().endsWith(".pdf")) continue;
       const { data: file, error } = await auth.admin.storage.from(BUCKET).download(`${HOTEL_ID}/${id}/${name}`);
-      if (error || !file || !file.size || file.size > 50 * 1024 * 1024) continue;
+      if (error || !file || !file.size || file.size > 100 * 1024 * 1024) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (new TextDecoder().decode(bytes.subarray(0,5)) !== "%PDF-") continue;
       try { if ((await extractManualPdfText(bytes)).trim()) { readable = true; break; } } catch { /* Try another saved PDF. */ }

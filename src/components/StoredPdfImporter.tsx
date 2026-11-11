@@ -70,7 +70,7 @@ export default function StoredPdfImporter({ assetId, assetName, token, onSaved }
     <button type="button" disabled={busy} onClick={()=>void run("load")} className="rounded border px-3 py-2">Load stored PDFs and saved links</button>
     <label className="grid gap-1 text-sm">Existing PDF<select className={inputClass} value={objectId} disabled={busy} onChange={e=>{setObjectId(e.target.value);setReview(null);setConfirmed(false);}}><option value="">Choose a PDF</option>{files.map(f=><option key={f.object_id} value={f.object_id}>{f.title} — {links.some(link => link.object_id === f.object_id) ? "Linked" : "Stored, not linked"} — {storedPdfStatusLabel(f)}</option>)}</select></label>
     <button type="button" disabled={busy||!objectId} onClick={()=>void run("review")} className="rounded border px-3 py-2">Open / re-read selected PDF</button>
-    <label className="grid gap-1 text-sm">Add another PDF (up to 50 MiB)<input ref={fileInput} className={inputClass} disabled={busy} type="file" accept="application/pdf,.pdf" onChange={e=>setUpload(e.target.files?.[0]||null)}/></label>
+    <label className="grid gap-1 text-sm">Add another PDF (up to 100 MB)<input ref={fileInput} className={inputClass} disabled={busy} type="file" accept="application/pdf,.pdf" onChange={e=>setUpload(e.target.files?.[0]||null)}/></label>
     <button type="button" disabled={busy||!upload} onClick={()=>void run("upload")} className="rounded border px-3 py-2">Upload original for review</button>
     {uploading&&<button type="button" onClick={()=>uploadController.current?.abort()} className="ml-2 rounded border px-3 py-2">Cancel upload</button>}
     {review&&<fieldset disabled={busy} className="min-w-0 space-y-3">

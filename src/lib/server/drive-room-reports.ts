@@ -2,7 +2,7 @@ import { DRIVE_PO_ACCOUNT, DRIVE_PO_FOLDER, DriveAccessError, driveRequest, exis
 import { DriveRoomReportError, newerDriveRoomReports, driveRoomReportName, type DriveRoomReportFile } from '../room-report-drive';
 import { type GuestReport, type GuestReportKind } from '../room-guest-reports';
 
-const limit = 3_000_000;
+const limit = 100 * 1024 * 1024;
 const metadataFields = 'id,name,mimeType,parents,trashed,size,version,md5Checksum';
 function verified(file: DriveRoomReportFile) {
   return /^[A-Za-z0-9_-]+$/.test(file.id) && !!file.version && !file.trashed && file.parents?.includes(DRIVE_PO_FOLDER);
@@ -32,7 +32,7 @@ async function listReports(token: string) {
 async function readReport(token: string, file: DriveRoomReportFile) {
   if (!verified(file) || !driveRoomReportName(file)) throw new DriveRoomReportError('Verified room report CSV required.');
   const size = Number(file.size);
-  if (!Number.isSafeInteger(size) || size <= 0 || size > limit) throw new DriveRoomReportError(`${file.name}: use a CSV no larger than 3 MB.`);
+  if (!Number.isSafeInteger(size) || size <= 0 || size > limit) throw new DriveRoomReportError(`${file.name}: use a CSV no larger than 100 MB.`);
   const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`, {
     headers: { Authorization: `Bearer ${token}` }, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(25000),
   });
@@ -45,7 +45,7 @@ async function readReport(token: string, file: DriveRoomReportFile) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.length;
-      if (bytes > limit) throw new DriveRoomReportError('The room report CSV exceeds 3 MB.');
+      if (bytes > limit) throw new DriveRoomReportError('The room report CSV exceeds 100 MB.');
       parts.push(value);
     }
   } finally { await reader.cancel(); }
