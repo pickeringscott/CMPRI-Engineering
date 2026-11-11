@@ -15,14 +15,22 @@ function multiply(a: Matrix, b: Matrix): Matrix {
 export function isFlowchartTitle(value: string): boolean {
   const text = value.trim();
   return text.length >= 5 && text.length <= 90 && !/[.!?;:]$/.test(text)
-    && /^(?:no\s+\S.+|.+\s+(?:not|does not|will not|cannot|won't|can't)\s+\S.+)$/i.test(text);
+    && /^(?:(?:no|low|high|insufficient|excessive|intermittent|poor|slow|abnormal)\s+\S.+|.+\s+(?:not|does not|will not|cannot|won't|can't)\s+\S.+|.+\s+(?:leaks|leaking|fails|stuck|noisy|blocked|jammed|broken))$/i.test(text);
 }
 
 /** Recover only directly connected, explicitly labelled horizontal chart branches. */
 export async function flowchartBranches(page: Page, items: Item[], pageNumber: number, ops: Operators): Promise<ManualSymptomRule[]> {
   const chartHeader = items.find(item => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(item.str));
   if (!chartHeader) return [];
-  const titles = items.filter(item => isFlowchartTitle(item.str) && item.str.trim() === item.str.trim().toUpperCase());
+  const nearbySizes = items.filter(item => item.transform[5] < chartHeader.transform[5] && chartHeader.transform[5] - item.transform[5] < 300)
+    .map(item => Math.hypot(item.transform[0], item.transform[1])).filter(size => size > 0).sort((a,b) => a-b);
+  const bodySize = nearbySizes[Math.floor(nearbySizes.length / 2)] || 0;
+  const titles = items.filter(item => {
+    const text = item.str.trim();
+    const titleSize = Math.hypot(item.transform[0], item.transform[1]);
+    return isFlowchartTitle(text) && item.transform[5] < chartHeader.transform[5] && chartHeader.transform[5] - item.transform[5] < 180
+      && (text === text.toUpperCase() || (bodySize > 0 && titleSize >= bodySize * 1.25));
+  });
   if (titles.length !== 1) return [];
   const title = titles[0].str.trim();
   // Short subtitle lines immediately under the chart heading identify the
@@ -95,5 +103,7 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
   const match = [title];
   if (/\bno cooling\b/i.test(title)) match.push('not cooling');
   if (/\bno heat(?:ing)?\b/i.test(title)) match.push('not heating');
+  const degree = title.match(/^(low|high|poor|slow)\s+(.+)$/i);
+  if (degree) match.push(`${degree[2]} ${degree[1]}`, `${degree[2]} is ${degree[1]}`);
   return [{ match, steps: [...steps.values()].sort((a,b) => b.top-a.top || a.left-b.left).map(step => step.label), source_pages: [pageNumber] }];
 }

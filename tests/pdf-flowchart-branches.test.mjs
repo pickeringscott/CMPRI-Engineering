@@ -42,3 +42,9 @@ test('vertical branches keep their yes/no answer and never skip an intervening b
  paths.push(rect(20,578,120,590));items.push(item(30,584,'Another check'));
  assert.deepEqual(await flowchartBranches(page,items,3,ops),[]);
 });
+
+test('mixed-case chart headings and ordinary reordered descriptions work for new equipment types',async()=>{
+ const {page,items}=fixture();const title=items.find(entry=>entry.str==='NO COOLING OPERATION');title.str='Low Water Pressure';title.transform[0]=title.transform[3]=2;
+ const rules=await flowchartBranches(page,items,9,ops);const found=guideRulesForIssue({source:{verified:true},symptom_rules:rules},'water pressure is low');
+ assert.equal(found.length,1);assert.match(found[0].steps[0],/^Low Water Pressure — Voltage present\?/);
+});
