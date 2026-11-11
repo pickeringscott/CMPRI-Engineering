@@ -1,3 +1,5 @@
+import { manualAssetIdentity, validateManualApplicability } from "@/lib/manual-applicability";
+import { withStoredPdfStatus } from "@/lib/server/stored-pdf-status";
 import { extractEquipmentSuggestions, withAssetManufacturer } from "@/lib/equipment-pdf-suggestions";
 import * as baseline from "@/lib/server/pre-consolidation/documentation-route";
 import { dispatchConsolidation } from "@/lib/server/consolidation-stage";
@@ -53,10 +55,19 @@ export async function GET(request: NextRequest) {
   if (request.nextUrl.searchParams.get("mode") === "stored") {
     if (!canEditEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Equipment editing permission is required." }, { status: 403 });
     const { data: files, error } = await auth.admin.rpc("cmpri_import_stored_pdfs");
-    const { data: row, error: assetError } = await auth.admin.from("assets").select("id,updated_at,pdf_import_links").eq("id", request.nextUrl.searchParams.get("asset_id") || "").eq("hotel_id", HOTEL_ID).maybeSingle();
+    const { data: row, error: assetError } = await auth.admin.from("assets").select("id,manufacturer,model_number,model_family,serial_number,updated_at,pdf_import_links").eq("id", request.nextUrl.searchParams.get("asset_id") || "").eq("hotel_id", HOTEL_ID).maybeSingle();
     if (error || assetError) return NextResponse.json({ error: "The stored-PDF importer database update is unavailable." }, { status: 503 });
     if (!row) return NextResponse.json({ error: "Asset not found." }, { status: 404 });
-    return NextResponse.json({ files: files || [], links: (row.pdf_import_links || []).filter((l: { storage_path?: string }) => !l.storage_path?.endsWith(VERIFY_MARKER)), updated_at: row.updated_at });
+    try {
+      const reviewedFiles = await withStoredPdfStatus(auth.admin, files || []);
+      const links = (row.pdf_import_links || []).filter((l: { storage_path?: string }) => !l.storage_path?.endsWith(VERIFY_MARKER));
+      return NextResponse.json({ files: reviewedFiles, links: links.map((link: { storage_path: string }) => {
+        const status = reviewedFiles.find(file => file.storage_path === link.storage_path);
+        return { ...link, catalog_status: status?.catalog_status, catalog_warnings: status?.catalog_warnings || [] };
+      }), asset_identity: manualAssetIdentity(row), updated_at: row.updated_at });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Document status is unavailable." }, { status: 503 });
+    }
   }
   const assetId = request.nextUrl.searchParams.get("asset_id")?.trim() || "";
   if (!assetId) return NextResponse.json({ error: "asset_id is required." }, { status: 400 });
@@ -132,7 +143,7 @@ export async function POST(request: NextRequest) {
   if (importAction) {
     if (!["review", "save", "unlink", "upload", "upload_prepare", "upload_complete"].includes(importAction)) return NextResponse.json({ error: "Unknown importer action." }, { status: 400 });
     const assetId = String(form.get("asset_id") || "");
-    const { data: asset, error: assetError } = await auth.admin.from("assets").select("id,manufacturer,updated_at,pdf_import_links,documentation_verified_at,documentation_revision_id").eq("id", assetId).eq("hotel_id", HOTEL_ID).maybeSingle();
+    const { data: asset, error: assetError } = await auth.admin.from("assets").select("id,manufacturer,model_number,model_family,serial_number,updated_at,pdf_import_links,documentation_verified_at,documentation_revision_id").eq("id", assetId).eq("hotel_id", HOTEL_ID).maybeSingle();
     if (assetError) return NextResponse.json({ error: "The stored-PDF importer database update is unavailable." }, { status: 503 });
     if (!asset) return NextResponse.json({ error: "Asset not found." }, { status: 404 });
     try {
@@ -170,10 +181,12 @@ export async function POST(request: NextRequest) {
       const expectedHash = importAction === "save" || importAction === "upload_complete" ? String(form.get("sha256") || "") : null;
       if (importAction === "save" && !/^[a-f0-9]{64}$/.test(expectedHash || "")) throw new Error("Open and review the stored PDF before saving its association.");
       const inspected = await inspectStoredPdf(auth.admin, objectId, expectedHash);
-      if (importAction !== "save") return NextResponse.json({ file: inspected.file, sha256: inspected.sha256, url: inspected.url, saved_fields: prior || null, suggestions: withAssetManufacturer(extractEquipmentSuggestions(inspected.text), asset.manufacturer), readable_text: Boolean(inspected.text.trim()), updated_at: asset.updated_at });
+      if (importAction !== "save") return NextResponse.json({ file: inspected.file, sha256: inspected.sha256, url: inspected.url, saved_fields: prior || null, suggestions: withAssetManufacturer(extractEquipmentSuggestions(inspected.text), asset.manufacturer), readable_text: Boolean(inspected.text.trim()), asset_identity: manualAssetIdentity(asset), updated_at: asset.updated_at });
       if (form.get("review_confirmed") !== "true") throw new Error("Confirm that you reviewed this document and selected its intended asset and model.");
       const fields = reviewPdfFields(JSON.parse(String(form.get("fields") || "null")));
-      const link = { ...inspected.file, ...fields, sha256: inspected.sha256, compatibility_basis: fields.applicability === "confirmed_model" ? "user_confirmed" : "general_reference", file_verified: true };
+      if (inspected.file.catalog_status === "content_mismatch" && !fields.quarantine_acknowledged) return NextResponse.json({ error: "This PDF has a catalog mismatch warning. Review the stated reason and explicitly acknowledge your choice before linking it.", catalog_warnings: inspected.file.catalog_warnings }, { status: 409 });
+      if (fields.applicability === "confirmed_model") fields.applicability_review = validateManualApplicability(asset, fields.applicability_review);
+      const link = { ...inspected.file, ...fields, quarantine_warning_snapshot: fields.quarantine_acknowledged ? inspected.file.catalog_warnings || [] : [], sha256: inspected.sha256, compatibility_basis: fields.applicability === "confirmed_model" ? "user_confirmed" : "general_reference", file_verified: true };
       const { data, error } = await auth.admin.rpc("cmpri_save_import_pdf_link", { p_asset_id: assetId, p_expected_updated_at: String(form.get("expected_updated_at") || ""), p_actor_id: auth.principal.identity.id, p_link: link, p_remove: false });
       if (error) return NextResponse.json({ error: error.message }, { status: 409 });
       // Read back independently: never report a saved association based only on a write acknowledgement.

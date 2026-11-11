@@ -681,7 +681,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; documentationRevisionId?: string | null; documentationVerifiedAt?: string | null; manufacturer: string | null; modelFamily: string | null; modelNumber: string | null; knowledge: ManualKnowledge | null; status: string; reason?: string } | null>(null);
+  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; documentationRevisionId?: string | null; documentationVerifiedAt?: string | null; manufacturer: string | null; modelFamily: string | null; modelNumber: string | null; serialNumber: string | null; knowledge: ManualKnowledge | null; status: string; reason?: string } | null>(null);
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
   const [workOrderImageError, setWorkOrderImageError] = useState("");
@@ -782,17 +782,17 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     manualResult?.documentationVerifiedAt === selectedAsset?.documentation_verified_at &&
     manualResult?.manufacturer === selectedAsset?.manufacturer &&
     manualResult?.modelFamily === selectedAsset?.model_family &&
-    manualResult?.modelNumber === selectedAsset?.model_number;
+    manualResult?.modelNumber === selectedAsset?.model_number && manualResult?.serialNumber === selectedAsset?.serial_number;
   const manualKnowledge = manualCurrent && manualResult?.knowledge?.source?.source_kind === "asset-upload" ? manualResult.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualReason = manualCurrent ? manualResult?.reason : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
   const guideSource = manualKnowledge?.source;
-  const guideDocuments = guideSource?.source_kind === "asset-upload" && guideSource.storage_path ? [{
-    name: guideSource.source_file_name || guideSource.title || "Uploaded equipment document",
-    storage_path: guideSource.storage_path,
-    url: guideSource.file_url || guideSource.pdf_url,
-  }] : [];
+  const guideDocuments = (manualKnowledge?.sources?.length ? manualKnowledge.sources : guideSource ? [guideSource] : [])
+    .filter(source => source.source_kind === "asset-upload" && source.storage_path).map(source => ({
+      name: source.source_file_name || source.title || "Uploaded equipment document",
+      storage_path: source.storage_path, url: source.file_url || source.pdf_url,
+    }));
 
   useEffect(() => {
     const pane = historyScrollRef.current;
@@ -1276,6 +1276,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         manufacturer: sourceAsset.manufacturer,
         modelFamily: sourceAsset.model_family,
         modelNumber: sourceAsset.model_number,
+        serialNumber: sourceAsset.serial_number,
         knowledge,
         status: documentationStatus,
         reason: documentationReason,
@@ -1346,7 +1347,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     });
     return () => { current = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.documentation_revision_id, selectedAsset?.documentation_verified_at, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
+  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.documentation_revision_id, selectedAsset?.documentation_verified_at, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number, selectedAsset?.serial_number]);
 
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
@@ -1370,7 +1371,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if (trustedManualKnowledge) {
       for (const item of manualKnowledge?.error_codes ?? []) {
         const code = normalizeDiagnosticCode(item.code);
-        if (code) byCode.set(code, item);
+        if (code) byCode.set(`${item.source_document_id || ""}:${code}`, item);
       }
     }
     return Array.from(byCode.values());
@@ -2562,6 +2563,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <p className="text-xs text-amber-300">Text recognition could not finish. Open the source or retry processing the document.</p>
                 )}
 
+                {selectedAsset && trustedManualKnowledge && guideDocuments.length > 1 && <ul className="text-xs text-slate-300" aria-label="Linked manual sources">
+                  {guideDocuments.map(document => <li key={document.storage_path}><a className="text-sky-300 underline" href={document.url} target="_blank" rel="noreferrer">{document.name}</a></li>)}
+                </ul>}
                 {selectedAsset && trustedManualKnowledge && cmpriSession && (
                   <WorkOrderTroubleshootingChecklist
                     workOrderId={order.id}
@@ -2577,7 +2581,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     manualUrl={guideDocuments[0]?.url}
                     reportedIssue={issue}
                     equipmentName={selectedAsset.name}
-                    sourceFileName={guideDocuments[0]?.name}
+                    sourceFileName={guideDocuments.length === 1 ? guideDocuments[0]?.name : undefined}
                     assetId={selectedAsset.id}
                     sourceSha256={manualKnowledge?.source?.sha256 || ""}
                   />
@@ -2860,4 +2864,3 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     </main>
   );
 }
-

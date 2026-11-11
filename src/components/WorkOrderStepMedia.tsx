@@ -25,6 +25,10 @@ type Props = {
 };
 
 /** Only source-bound media supplied by the authorized guide can be requested. */
+function mediaKey(item: TroubleshootingStepMedia) {
+  return JSON.stringify([item.source_document_id || '', item.source_sha256 || '', item.id]);
+}
+
 export default function WorkOrderStepMedia(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [paletteVersion, setPaletteVersion] = useState(0);
@@ -39,7 +43,7 @@ export default function WorkOrderStepMedia(props: Props) {
     window.addEventListener("cmpri-palette-change", changed);
     return () => { observer.disconnect(); window.removeEventListener("cmpri-palette-change", changed); };
   }, [hasMedia]);
-  const scope = JSON.stringify([props.assetId, props.sourceSha256, props.userId, props.contextIdentity, props.media.map(item => item.id), paletteVersion]);
+  const scope = JSON.stringify([props.assetId, props.sourceSha256, props.userId, props.contextIdentity, props.media.map(mediaKey), paletteVersion]);
   return props.media.length ? <div ref={host} data-source-media-surface="true" style={{ backgroundColor: "var(--cmpri-modal-surface,#191b24)", color: "var(--cmpri-modal-text,#f0f1f6)" }}><StepMediaView key={scope} {...props} host={host} /></div> : null;
 }
 
@@ -81,14 +85,15 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
   }, [release, userId]);
 
   const sourceUrl = useCallback((item: TroubleshootingStepMedia) => {
-    const query = new URLSearchParams({ source: "asset-upload", assetId, imageId: item.id, sha256: sourceSha256 });
+    const query = new URLSearchParams({ source: "asset-upload", assetId, imageId: item.id, sha256: item.source_sha256 || sourceSha256 });
+    if (item.source_document_id) query.set('fileId', item.source_document_id);
     return `/api/maintenance-reference?${query}`;
   }, [assetId, sourceSha256]);
 
   const load = useCallback((item: TroubleshootingStepMedia): Promise<string> => {
-    const existing = urls.current.get(item.id);
+    const existing = urls.current.get(mediaKey(item));
     if (existing) return Promise.resolve(existing);
-    const running = pending.current.get(item.id);
+    const running = pending.current.get(mediaKey(item));
     if (running) return running;
     const controller = new AbortController();
     controllers.current.add(controller);
@@ -109,23 +114,23 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
       const display = await themeSourceDiagramBlob(blob, host.current, item.stepLabel + "\n" + item.caption);
       if (!current()) throw new Error("This image is no longer current.");
       const url = URL.createObjectURL(display.blob);
-      urls.current.set(item.id, url);
-      setAdapted(previous => ({ ...previous, [item.id]: display.adapted }));
-      setImages(previous => ({ ...previous, [item.id]: url }));
-      setErrors(previous => { const next = { ...previous }; delete next[item.id]; return next; });
+      urls.current.set(mediaKey(item), url);
+      setAdapted(previous => ({ ...previous, [mediaKey(item)]: display.adapted }));
+      setImages(previous => ({ ...previous, [mediaKey(item)]: url }));
+      setErrors(previous => { const next = { ...previous }; delete next[mediaKey(item)]; return next; });
       return url;
-    })().finally(() => { if (pending.current.get(item.id) === work) pending.current.delete(item.id); controllers.current.delete(controller); });
-    pending.current.set(item.id, work);
+    })().finally(() => { if (pending.current.get(mediaKey(item)) === work) pending.current.delete(mediaKey(item)); controllers.current.delete(controller); });
+    pending.current.set(mediaKey(item), work);
     return work;
   }, [host, sourceUrl, userId]);
 
   useEffect(() => {
     if (!desktop || !authorized || !section.current) return;
-    const byId = new Map(media.map(item => [item.id, item]));
+    const byId = new Map(media.map(item => [mediaKey(item), item]));
     const request = (item: TroubleshootingStepMedia) => {
       if (!alive.current || !allowed.current) return;
       void load(item).catch(failure => {
-        if (alive.current && allowed.current) setErrors(previous => ({ ...previous, [item.id]: failure instanceof Error ? failure.message : "This source image could not be loaded." }));
+        if (alive.current && allowed.current) setErrors(previous => ({ ...previous, [mediaKey(item)]: failure instanceof Error ? failure.message : "This source image could not be loaded." }));
       });
     };
     if (typeof IntersectionObserver === "undefined") {
@@ -146,27 +151,27 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
 
   async function open(item: TroubleshootingStepMedia) {
     const generation = ++openGeneration.current;
-    setOpening(item.id);
+    setOpening(mediaKey(item));
     try {
       const url = await load(item);
       if (alive.current && allowed.current && generation === openGeneration.current) setSelected({ imageUrl: url, title: item.caption || "Image/diagram from the uploaded manual", semantics: sourceSemantics(item.stepLabel, item.caption) });
     } catch (failure) {
-      if (alive.current && allowed.current) setErrors(previous => ({ ...previous, [item.id]: failure instanceof Error ? failure.message : "This source image could not be opened." }));
+      if (alive.current && allowed.current) setErrors(previous => ({ ...previous, [mediaKey(item)]: failure instanceof Error ? failure.message : "This source image could not be opened." }));
     } finally { if (alive.current && generation === openGeneration.current) setOpening(null); }
   }
 
   if (!authorized) return null;
   return <section ref={section} aria-label="Step images and diagrams" className="space-y-0">
-    {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={item.id} data-media-id={item.id} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
+    {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={mediaKey(item)} data-media-id={mediaKey(item)} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
       {semantics && <span className="text-[10px] leading-tight" style={{ color: semantics.color }}>{semantics.label}</span>}
       {desktop
-        ? images[item.id] ? <a href={sourceUrl(item)} aria-label={`Open image/diagram: ${item.caption || "uploaded manual illustration"}`} onClick={event => { event.preventDefault(); event.stopPropagation(); void open(item); }} className="block w-fit max-w-full">
+        ? images[mediaKey(item)] ? <a href={sourceUrl(item)} aria-label={`Open image/diagram: ${item.caption || "uploaded manual illustration"}`} onClick={event => { event.preventDefault(); event.stopPropagation(); void open(item); }} className="block w-fit max-w-full">
             {/* Source pixels are held locally; flat neutral artwork alone follows the host palette. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img data-diagram-adapted={adapted[item.id] ? "true" : "false"} src={images[item.id]} alt={item.caption || "Image/diagram from the uploaded manual"} width={item.width} height={item.height} className="max-h-64 w-auto max-w-full object-contain" />
-          </a> : <p className="text-[10px] leading-tight text-slate-400" style={{ width: item.width, maxWidth: "100%", maxHeight: 256, aspectRatio: `${item.width} / ${item.height}` }}>{errors[item.id] ? "Image unavailable" : "Loading image…"}</p>
-        : <a href={sourceUrl(item)} aria-disabled={opening === item.id} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== item.id) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,#f0f1f6)" }}>{opening === item.id ? "Opening image…" : "Open image/diagram"}</a>}
-      {errors[item.id] && <p role="status" className="text-[10px] leading-tight text-amber-200">{errors[item.id]}</p>}
+            <img data-diagram-adapted={adapted[mediaKey(item)] ? "true" : "false"} src={images[mediaKey(item)]} alt={item.caption || "Image/diagram from the uploaded manual"} width={item.width} height={item.height} className="max-h-64 w-auto max-w-full object-contain" />
+          </a> : <p className="text-[10px] leading-tight text-slate-400" style={{ width: item.width, maxWidth: "100%", maxHeight: 256, aspectRatio: `${item.width} / ${item.height}` }}>{errors[mediaKey(item)] ? "Image unavailable" : "Loading image…"}</p>
+        : <a href={sourceUrl(item)} aria-disabled={opening === mediaKey(item)} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== mediaKey(item)) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,#f0f1f6)" }}>{opening === mediaKey(item) ? "Opening image…" : "Open image/diagram"}</a>}
+      {errors[mediaKey(item)] && <p role="status" className="text-[10px] leading-tight text-amber-200">{errors[mediaKey(item)]}</p>}
     </div>; })}
     {selected && <WorkOrderDiagramViewer imageUrl={selected.imageUrl} title={selected.title} semantics={selected.semantics} onClose={() => { openGeneration.current++; setSelected(null); setOpening(null); }} />}
   </section>;

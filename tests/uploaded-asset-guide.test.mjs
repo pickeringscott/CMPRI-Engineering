@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { createCanvas } from '@napi-rs/canvas';
 import { loadTs } from './helpers/load-ts.mjs';
+import * as applicability from '../src/lib/manual-applicability.ts';
 import * as matching from '../src/lib/manual-document-match.ts';
 import * as source from '../src/lib/manual-source.ts';
 import * as manualHtml from '../src/lib/manual-document-html.ts';
@@ -64,10 +65,15 @@ function pdf(lines, additionalPage) {
 const realPdf = loadTs('src/lib/manual-pdf-knowledge.ts', { 'node:crypto': { createHash }, '@/lib/manual-document-match': matching, 'pdfjs-dist/legacy/build/pdf.mjs': require('pdfjs-dist/legacy/build/pdf.mjs') });
 const original = pdf(['ACME W1 Laundry service manual', 'Troubleshooting', 'Symptom: Washer not draining', '1. Clean the drain filter.', '2. Check the drain hose.']);
 const asset = { id: assetId, hotel_id: hotel, active: true, manufacturer: 'ACME', model_family: 'Laundry', model_number: 'W1', documentation_key: 'attached-washer', documentation_revision_id: null, documentation_verified_at: '2026-11-08T12:00:00Z', pdf_import_links: [] };
-const file = { id: 'file-original', name: 'Washer service manual.pdf', storage_path: path, preferred: false, created_at: '2026-11-07T12:00:00Z', updated_at: '2026-11-07T12:00:00Z' };
+const file = { id: '00000000-0000-4000-8000-000000000021', name: 'Washer service manual.pdf', storage_path: path, preferred: false, created_at: '2026-11-07T12:00:00Z', updated_at: '2026-11-07T12:00:00Z' };
 
+function chosen(file, bytes = original, identity = asset) {
+  return { object_id: file.id, storage_path: file.storage_path, sha256: hash(bytes), applicability: 'confirmed_model',
+    applicability_review: { ...applicability.manualAssetIdentity(identity), confirmed: true } };
+}
 function fixture(overrides = {}) {
   const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, extractions: 0, inspections: 0, renders: 0, failDownload: false, authenticated: true, ocrStatus: 'unavailable', ocrPages: [], ocrEnqueues: 0, reviewedPages: [], role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
+  if (!overrides.asset) state.asset.pdf_import_links = state.files.map(file => chosen(file, state.bytes.get(file.storage_path) || original, state.asset));
   const client = {
     from(table) {
       if (table === 'troubleshooting_cache' && state.useReviewedStore) {
@@ -100,6 +106,8 @@ function fixture(overrides = {}) {
   }, { TextDecoder, Uint8Array }) : null;
   const reader = loadTs('src/lib/server/uploaded-asset-guide.ts', {
     'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } },
+    '@/lib/manual-applicability': applicability,
+    '@/lib/server/stored-pdf-status': { withStoredPdfStatus: async (_admin, files) => { if (state.statusFailure) throw Error('Quarantine status unavailable'); return files.map(file => ({ ...file, catalog_status: state.quarantined?.includes(file.id) ? 'content_mismatch' : 'complete' })); } },
     '@/lib/constants': { HOTEL_ID: hotel }, '@/lib/uuid': { isUuid }, '@/lib/server/roles': roles, '@/lib/server/access': access,
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
@@ -126,7 +134,7 @@ test('concurrent and repeat reads reuse byte-derived work but reauthorize and re
   assert.equal(h.state.downloads.length, 3); assert.equal(h.state.registryReads, 6);
   h.state.bytes.set(path, new Uint8Array(Buffer.concat([Buffer.from(original), Buffer.from('% replacement\n')])));
   await h.request();
-  assert.equal(h.state.extractions, 2); assert.equal(h.state.inspections, 2);
+  assert.equal(h.state.extractions, 1); assert.equal(h.state.inspections, 1);
   h.state.authenticated = false;
   assert.equal((await h.request()).status, 401); assert.equal(h.state.downloads.length, 4);
   h.state.authenticated = true; h.state.files = [];
@@ -154,7 +162,7 @@ test('attached PDF bytes produce verbatim page-linked actions and immutable sour
   const normalized = normalizeManualKnowledge(guide);
   assert.equal(normalized.source.sha256, hash(original)); assert.equal(normalized.source.storage_path, path);
   assert.equal(deriveTroubleshootingChecklistContext({ issue: 'Washer not draining', asset }, normalized).steps.length, 2);
-  assert.deepEqual(h.state.queries, ['assets', 'assets']); assert.equal(h.state.registryReads, 2); assert.equal(h.state.network, 0);
+  assert.deepEqual(h.state.queries, ['assets']); assert.equal(h.state.registryReads, 2); assert.equal(h.state.network, 0);
 });
 
 test('missing, unreadable and unapproved uploaded documents do not substitute any catalog or cached guide', async () => {
@@ -166,24 +174,51 @@ test('missing, unreadable and unapproved uploaded documents do not substitute an
   }
 });
 
-test('the selected asset attachment is used without separate review', async () => {
-  const link = { object_id: file.id, storage_path: path, manufacturer: 'ACME', selected_model: 'W1', applicability: 'confirmed_model', file_verified: true, sha256: hash(original) };
-  const h = fixture({ asset: { ...asset, documentation_verified_at: null, pdf_import_links: [link] } });
+test('explicit user choice is required and changed original bytes cannot reuse the choice', async () => {
+  const h = fixture({ asset: { ...asset, pdf_import_links: [chosen(file)] } });
   assert.equal((await h.load()).documentation_status, 'verified');
   h.state.asset.pdf_import_links[0].sha256 = 'b'.repeat(64);
-  const changed = await h.load(); assert.equal(changed.documentation_status, 'verified'); assert.equal(changed.manualKnowledge.source.sha256, hash(original));
+  assert.equal((await h.load()).documentation_status, 'uploaded_document_changed');
 });
 
-test('preferred source is authoritative, and ambiguous matching attachments require explicit source selection', async () => {
+test('all chosen manuals retain separate same-page and identical-step provenance even with duplicate bytes', async () => {
   const secondPath = `${hotel}/${assetId}/second.pdf`;
-  const second = { ...file, id: 'second', name: 'Second manual.pdf', storage_path: secondPath };
+  const second = { ...file, id: '00000000-0000-4000-8000-000000000022', name: 'Second manual.pdf', storage_path: secondPath, preferred: true };
   const h = fixture({ files: [file, second], bytes: new Map([[path, original], [secondPath, original]]) });
-  assert.equal((await h.load()).documentation_status, 'ambiguous_uploaded_documents');
-  h.state.files[1].preferred = true;
-  const preferred = await h.load(); assert.equal(preferred.documentation_status, 'verified'); assert.equal(preferred.manualKnowledge.source.storage_path, secondPath);
-  h.state.bytes.set(secondPath, pdf(['OTHER Z9', 'Troubleshooting', 'Symptom: Washer not draining', '1. Replace everything.']));
-  const wrong = await h.load(); assert.equal(wrong.documentation_status, 'verified'); assert.equal(wrong.manualKnowledge.source.storage_path, secondPath);
-  assert.equal(h.state.downloads.at(-1), secondPath, 'a preferred mismatch never falls back to a different attachment');
+  const result = await h.load();
+  assert.equal(result.documentation_status, 'verified');
+  const knowledge = normalizeManualKnowledge(result.manualKnowledge);
+  assert.equal(knowledge.sources.length, 2);
+  assert.deepEqual(new Set(knowledge.source_passages.filter(p => p.page === 1).map(p => p.source_document_id)), new Set([file.id, second.id]));
+  const context = deriveTroubleshootingChecklistContext({ issue: 'Washer not draining', asset: h.state.asset }, knowledge);
+  const identical = context.steps.filter(step => step.label === 'Clean the drain filter.');
+  assert.equal(identical.length, 2);
+  assert.deepEqual(new Set(identical.map(step => step.source_document_id)), new Set([file.id, second.id]));
+  assert.ok(identical.every(step => step.source_sha256 === hash(original)));
+  assert.equal(JSON.parse(context.contextIdentity).sources.length, 2);
+  const image = await h.request(assetId, { pageImage: '1', sha256: hash(original), fileId: second.id });
+  assert.equal(image.status, 200);
+  assert.equal(h.state.downloads.at(-1), secondPath);
+  h.state.bytes.set(secondPath, pdf(['Changed PDF']));
+  const changed = await h.load();
+  assert.equal(changed.manualKnowledge.sources.length, 1);
+  assert.equal(changed.manualKnowledge.source.search_incomplete, true);
+  assert.match(changed.documentation_warnings.join(' '), /Second manual.*bytes changed/);
+});
+
+test('unselected references and unacknowledged quarantine are excluded; explicit acknowledgment preserves user choice', async () => {
+  const h = fixture({ asset: { ...asset, pdf_import_links: [{ ...chosen(file), applicability: 'general_reference' }] } });
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  assert.equal(h.state.downloads.length, 0);
+  h.state.asset.pdf_import_links = [chosen(file)]; h.state.quarantined = [file.id];
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  assert.equal(h.state.downloads.length, 0);
+  h.state.asset.pdf_import_links[0].quarantine_acknowledged = true;
+  const acknowledged = await h.load();
+  assert.equal(acknowledged.documentation_status, 'verified');
+  assert.match(acknowledged.documentation_warnings.join(' '), /deliberately selected/);
+  h.state.quarantined = []; h.state.statusFailure = true;
+  await assert.rejects(h.load, /Quarantine status unavailable/);
 });
 
 test('image-only scans and invalid PDF signatures yield explicit source errors without invented steps', async () => {
@@ -197,6 +232,8 @@ test('source byte changes invalidate checklist context even when extracted actio
   const h = fixture(); const first = await h.load();
   const a = deriveTroubleshootingChecklistContext({ issue: 'Washer not draining', asset }, normalizeManualKnowledge(first.manualKnowledge));
   h.state.bytes.set(path, new Uint8Array(Buffer.concat([Buffer.from(original), Buffer.from('% revised source bytes\n')])));
+  assert.equal((await h.load()).documentation_status, 'uploaded_document_changed');
+  h.state.asset.pdf_import_links = [chosen(file, h.state.bytes.get(path))];
   const second = await h.load();
   const b = deriveTroubleshootingChecklistContext({ issue: 'Washer not draining', asset }, normalizeManualKnowledge(second.manualKnowledge));
   assert.deepEqual(a.steps.map(step => step.label), b.steps.map(step => step.label));
@@ -229,33 +266,30 @@ test('asset identity and documentation approval are rechecked before publishing 
   }
 });
 
-test('future attached PDFs are discovered from the current register without separate review', async () => {
+test('new registered PDFs require explicit user choice before guide use', async () => {
   const h = fixture({ files: [], asset: { ...asset, documentation_verified_at: null } });
   assert.equal((await h.load()).documentation_status, 'no_uploaded_document');
   const later = { ...file, id: 'future-registration', name: 'Future manufacturer instructions.PDF', storage_path: `${hotel}/${assetId}/2030-new-document.PDF`, preferred: true, updated_at: '2030-01-02T03:04:05Z' };
   h.state.files.push(later); h.state.bytes.set(later.storage_path, original);
-  assert.equal((await h.load()).documentation_status, 'verified');
-  h.state.asset.pdf_import_links = [{ object_id: later.id, storage_path: later.storage_path, manufacturer: 'ACME', selected_model: 'W1', applicability: 'confirmed_model', file_verified: true, sha256: hash(original) }];
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  h.state.asset.pdf_import_links = [chosen(later)];
   const reviewed = await h.load();
   assert.equal(reviewed.documentation_status, 'verified');
   assert.equal(reviewed.manualKnowledge.source.source_file_name, later.name); assert.equal(reviewed.manualKnowledge.source.storage_path, later.storage_path);
   assert.equal(reviewed.manualKnowledge.source.registered_file_id, later.id); assert.equal(reviewed.manualKnowledge.source.sha256, hash(original));
   assert.deepEqual(Array.from(reviewed.manualKnowledge.symptom_rules[0].steps), ['Clean the drain filter.', 'Check the drain hose.']);
-  assert.equal(h.state.network, 0); assert.deepEqual(h.state.queries, ['assets', 'assets']);
+  assert.equal(h.state.network, 0); assert.deepEqual(h.state.queries, ['assets']);
 });
 
-test('unsupported future sources fail closed and never silently select an older PDF instead', async () => {
-  const future = { ...file, id: 'future-docx', name: 'Preferred future procedure.docx', storage_path: `${hotel}/${assetId}/future.docx`, preferred: true };
+test('unsupported attachments warn without displacing explicitly chosen PDFs', async () => {
+  const future = { ...file, id: 'future-docx', name: 'Future procedure.docx', storage_path: `${hotel}/${assetId}/future.docx`, preferred: true };
   const h = fixture({ files: [file, future] });
-  const unsupported = await h.load();
-  assert.equal(unsupported.documentation_status, 'unsupported_uploaded_document'); assert.equal(unsupported.manualKnowledge, null);
-  assert.match(unsupported.documentation_reason, /attached PDF sources.*not supported.*no older PDF/i);
-  assert.equal(h.state.downloads.length, 0);
-  h.state.files[1].preferred = false;
-  const ambiguous = await h.load(); assert.equal(ambiguous.documentation_status, 'ambiguous_uploaded_documents'); assert.equal(ambiguous.manualKnowledge, null);
+  const result = await h.load();
+  assert.equal(result.documentation_status, 'verified');
+  assert.equal(result.manualKnowledge.sources.length, 1);
+  assert.match(result.documentation_warnings.join(' '), /Future procedure/);
   h.state.files = [future];
-  const onlyUnsupported = await h.load(); assert.equal(onlyUnsupported.documentation_status, 'unsupported_uploaded_document'); assert.equal(onlyUnsupported.manualKnowledge, null);
-  assert.equal(h.state.network, 0);
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
 });
 
 test('strict source endpoint checks active account, equipment roles including secondary assignments, asset and hotel scope', async () => {
@@ -282,6 +316,7 @@ test('asset-upload routing runs before consolidation dispatch and cannot invoke 
 const diagramPdf = new Uint8Array(readFileSync(new URL('./fixtures/uploaded-guide-diagrams.pdf', import.meta.url)));
 const replacementDiagramPdf = new Uint8Array(readFileSync(new URL('./fixtures/uploaded-guide-diagrams-replacement.pdf', import.meta.url)));
 const diagramAsset = { ...asset, manufacturer: 'Fixture Laundry', model_family: 'Demonstrator', model_number: 'TEST-1' };
+diagramAsset.pdf_import_links = [chosen(file, diagramPdf, diagramAsset)];
 
 test('a derivative that cannot be sized is evicted without failing the authorized guide', async () => {
   const h = fixture({ asset: structuredClone(diagramAsset), bytes: new Map([[path, diagramPdf]]), circularMedia: true });
@@ -323,6 +358,7 @@ test('source image requests reject stale hashes, guessed identifiers and changed
   assert.equal((await h.request(assetId, { imageId: id })).status, 400);
   h.state.bytes.set(path, replacementDiagramPdf);
   assert.equal((await h.request(assetId, { imageId: id, sha256: sourceGuide.source.sha256 })).status, 409);
+  h.state.asset.pdf_import_links = [chosen(file, replacementDiagramPdf, diagramAsset)];
   const replaced = await h.request(); const replacement = replaced.body.manualKnowledge;
   assert.notEqual(replacement.source.sha256, sourceGuide.source.sha256);
   assert.equal((await h.request(assetId, { imageId: id, sha256: replacement.source.sha256 })).status, 404);
@@ -531,7 +567,8 @@ test('converter payload -> authorized save route -> persisted reader -> HTML and
   h.state.bytes.set(path, replaced);
   assert.equal((await h.saveReviewed(payload)).status, 409);
   const changed = await h.request();
-  assert.ok(!changed.body.manualKnowledge.symptom_rules.some(rule => rule.steps.some(step => step.includes('Inspect the pump'))));
+  assert.equal(changed.body.documentation_status, 'uploaded_document_changed');
+  assert.equal(changed.body.manualKnowledge, null);
   h.state.files = [];
   assert.equal((await h.request()).body.documentation_status, 'no_uploaded_document');
 });

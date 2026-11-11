@@ -66,7 +66,7 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
   const finish = (checklist: TroubleshootingChecklist, assetContext: Record<string, unknown> | null = null): Loaded => ({ auth, order, assetContext, checklist, mayReadGuide });
   if (!mayReadGuide && !allowOwnedClear) return finish({ ...empty, reason: 'PM reference access is required to read this equipment guide. Previously recorded actions remain recoverable for your account.' });
   if (!order.asset_id) return finish({ ...empty, reason: 'Select and save equipment with verified issue-specific documentation before using a checklist.' });
-  const assetResult = await auth.admin.from('assets').select('id,manufacturer,model_family,model_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links,active')
+  const assetResult = await auth.admin.from('assets').select('id,manufacturer,model_family,model_number,serial_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links,active')
     .eq('hotel_id', auth.principal.hotelId).eq('id', order.asset_id).maybeSingle();
   if (assetResult.error) return json({ error: 'Equipment documentation could not be verified.' }, 503);
   const asset = assetResult.data as Asset | null;
@@ -77,7 +77,7 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
   let result: Awaited<ReturnType<typeof loadUploadedAssetGuide>>;
   try { result = await loadUploadedAssetGuide(auth.admin, {
     id: asset.id, hotel_id: auth.principal.hotelId, active: asset.active,
-    manufacturer: asset.manufacturer || null, model_family: asset.model_family || null, model_number: asset.model_number || null,
+    manufacturer: asset.manufacturer || null, model_family: asset.model_family || null, model_number: asset.model_number || null, serial_number: asset.serial_number || null,
     documentation_key: asset.documentation_key || null, documentation_revision_id: asset.documentation_revision_id || null,
     documentation_verified_at: asset.documentation_verified_at || null, pdf_import_links: asset.pdf_import_links,
   }); }
@@ -141,7 +141,9 @@ export async function PATCH(request: NextRequest, params: Params) {
   try { next = changeTroubleshootingTask(checklist, checklist.taskStates[body.itemId], body.action); }
   catch (error) { return json({ error: error instanceof Error ? error.message : 'This completion cannot be changed by your account.' }, 403); }
   const step = checklist.steps.find(item => item.id === body.itemId)!;
-  const source = JSON.parse(checklist.contextIdentity!).source as Record<string, unknown>;
+  const sources = JSON.parse(checklist.contextIdentity!).sources as Record<string, unknown>[];
+  const source = sources.find(source => source.registered_file_id === step.source_document_id && source.sha256 === step.source_sha256);
+  if (!source) return conflict('The source for this instruction changed. Reload the checklist.');
   const saved = await auth.admin.rpc('cmpri_save_work_order_troubleshooting', {
     p_hotel: auth.principal.hotelId,
     p_work_order: order.id,

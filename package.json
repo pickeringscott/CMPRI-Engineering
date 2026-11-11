@@ -33,7 +33,8 @@
     "predev": "npm run build:palette && npm run build:thanksgiving && npm run build:local-ocr",
     "prebuild": "npm run build:palette && npm run build:thanksgiving && npm run build:local-ocr",
     "build:palette": "node scripts/build-site-palette.mjs",
-    "build:local-ocr": "node scripts/build-local-ocr-assets.mjs"
+    "build:local-ocr": "node scripts/build-local-ocr-assets.mjs",
+    "test:manual-associations": "node --experimental-strip-types --test tests/manual-applicability.test.mjs tests/stored-pdf-status.test.mjs tests/stored-pdf-status-ui.test.mjs tests/stored-pdf-import.test.mjs tests/pdf-direct-upload.test.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

@@ -132,7 +132,7 @@ test('only issue-matched verified actions and explicit reported diagnostic codes
   assert.deepEqual(result.steps[0].sourcePages, [12]);
   assert.equal(derive(input, { ...manual, source: { ...manual.source, verified: false } }).contextIdentity, null);
   assert.equal(derive(input, { ...manual, source: { ...manual.source, source_kind: undefined } }).contextIdentity, null, 'catalog knowledge is never a checklist source');
-  assert.equal(derive({ ...input, asset: { ...asset, model_family: 'Other', model_number: 'Other' } }, manual).contextIdentity, null);
+  assert.ok(derive({ ...input, asset: { ...asset, model_family: 'Other', model_number: 'Other' } }, manual).contextIdentity, 'a user-selected manual is not rejected by model-name inference');
   assert.equal(derive({ ...input, issue: 'Room 142 temperature 42 degrees' }, manual).steps.length, 0);
   assert.equal(derive({ ...input, issue: 'Reported fault code E42' }, manual).steps[0].label, 'Check the sensor connection.');
   assert.equal(derive({ ...input, reporter_notes: 'Reported fault code E42' }, manual).steps.length, 3);
