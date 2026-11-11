@@ -48,3 +48,9 @@ test('mixed-case chart headings and ordinary reordered descriptions work for new
  const rules=await flowchartBranches(page,items,9,ops);const found=guideRulesForIssue({source:{verified:true},symptom_rules:rules},'water pressure is low');
  assert.equal(found.length,1);assert.match(found[0].steps[0],/^Low Water Pressure — Voltage present\?/);
 });
+
+test('a plain-language complaint can find a generic low-pressure chart',async()=>{
+ const {page,items}=fixture();const title=items.find(entry=>entry.str==='NO COOLING OPERATION');title.str='LOW WATER PRESSURE';
+ const rules=await flowchartBranches(page,items,10,ops);
+ assert.equal(guideRulesForIssue({source:{verified:true},symptom_rules:rules},'water pressure is too low').length,1);
+});

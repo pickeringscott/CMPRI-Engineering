@@ -57,7 +57,7 @@ export function numberedSectionRules(items: TextItem[], pageNumber: number, page
     if (steps.length < 2) continue;
     const match = [heading.text];
     const degree = heading.text.match(/^(low|high|poor|slow)\s+(.+)$/i);
-    if (degree) match.push(`${degree[2]} ${degree[1]}`, `${degree[2]} is ${degree[1]}`);
+    if (degree) match.push(`${degree[2]} ${degree[1]}`, `${degree[2]} is ${degree[1]}`, `${degree[2]} too ${degree[1]}`, `${degree[2]} is too ${degree[1]}`);
     const state = heading.text.match(/^(.+?)\s+(stuck|blocked|jammed|broken|leaking)$/i);
     if (state) match.push(`${state[1]} is ${state[2]}`);
     output.push({ match, steps, source_pages: [pageNumber] });
