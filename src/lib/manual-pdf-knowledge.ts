@@ -8,7 +8,7 @@ export type ManualEquipmentIdentity = {
   model_number: string | null;
 };
 
-export async function extractManualPdfText(bytes: Uint8Array) {
+export async function extractManualPdfText(bytes: Uint8Array, options: { includeEmptyPages?: boolean } = {}) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // pdf.js transfers ownership of its input buffer. Keep the caller's bytes
   // intact for storage, hashing, and subsequent reads.
@@ -25,7 +25,7 @@ export async function extractManualPdfText(bytes: Uint8Array) {
         .join("").replace(/[ \t]+/g, " ").trim();
       totalLength += text.length;
       if (totalLength > 2_000_000) throw new Error("Manual exceeds the supported text size; split the document before processing.");
-      if (text) parts.push(`PAGE ${pageNumber}\n${text}`);
+      if (text || options.includeEmptyPages) parts.push(`PAGE ${pageNumber}\n${text}`);
       page.cleanup();
     }
     return parts.join("\n\n");
@@ -55,3 +55,4 @@ export function manualPdfContainsEquipmentModel(
 export function manualPdfSha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
 }
+

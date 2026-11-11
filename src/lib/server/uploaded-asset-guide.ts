@@ -7,10 +7,11 @@ import { requireUser } from '@/lib/server/auth';
 import { listRegisteredAssetFiles, type RegisteredAssetFile } from '@/lib/server/asset-file-register';
 import { extractManualPdfText, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
 import { manualPartsPassages, manualReferencePages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
-import { uploadedManualActions } from '@/lib/uploaded-manual-actions';
+import { uploadedManualHtmlActions } from '@/lib/uploaded-manual-actions';
+import { structureManualDocument, sourcePageHtml } from '@/lib/manual-document-html';
 import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
-import { inspectUploadedGuideMedia, renderUploadedGuideMedia, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
+import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePage, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
 
 const bucket = 'asset-documentation';
 const verificationMarker = '_cmpri-verification.json';
@@ -85,12 +86,22 @@ function assetReviewIdentity(asset: Asset) {
 }
 
 /** Read only the PDFs currently registered on this asset; never consult a catalog. */
-export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset, image?: { id: string; sha256: string }): Promise<GuideResult> {
+export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset, image?: { id: string; sha256: string; page?: number }): Promise<GuideResult> {
   const assetSnapshot = assetReviewIdentity(asset);
   if (asset.hotel_id !== HOTEL_ID || asset.active === false) return unavailable('no_uploaded_document', 'The saved equipment is unavailable at this property.');
   const registered = await listRegisteredAssetFiles(admin, asset.id);
   if (registered.error) throw new Error('The authorized asset attachment register could not be read.');
   const files = registered.data;
+  const recheckSource = async (): Promise<GuideResult | null> => {
+    // Rendering is not authorization: recheck the association and asset after
+    // all byte-derived work, including the independent full-page render path.
+    const current = await listRegisteredAssetFiles(admin, asset.id);
+    if (current.error || registeredIdentity(current.data) !== registeredIdentity(files)) return unavailable('uploaded_document_changed', 'The attached source document changed while it was being read. Reload the guide before using its instructions.');
+    const currentAsset = await admin.from('assets').select('id,hotel_id,active,manufacturer,model_family,model_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links')
+      .eq('hotel_id', HOTEL_ID).eq('id', asset.id).maybeSingle();
+    if (currentAsset.error || !currentAsset.data || assetReviewIdentity(currentAsset.data as Asset) !== assetSnapshot) return unavailable('uploaded_document_changed', 'The equipment identity, activation or documentation review changed while the attachment was being read. Reload the guide before using its instructions.');
+    return null;
+  };
   const documents = files.filter(file => file.name !== verificationMarker && file.storage_path);
   const preferred = documents.filter(file => file.preferred);
   if (preferred.length > 1) return unavailable('ambiguous_uploaded_documents', 'More than one attachment is marked as the guide. Select one preferred PDF source document.');
@@ -123,7 +134,10 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     }
     const sha256 = manualPdfSha256(bytes);
     let text: string;
-    try { text = await cachedDerivative(`text:v1:${sha256}`, () => extractManualPdfText(bytes)); }
+    // A whole source page does not depend on extracting checklist text or
+    // associating cropped figures with steps. Those can fail on scanned PDFs
+    // even when the original page can be rendered faithfully.
+    try { text = image?.page !== undefined ? '' : await cachedDerivative(`text:v2:${sha256}`, () => extractManualPdfText(bytes, { includeEmptyPages: true })); }
     catch {
       failures.push({ status: 'unreadable_uploaded_document', message: `${file.name}: readable text could not be extracted from the attached PDF. Open it for review or use on-device OCR with human verification.` });
       continue;
@@ -142,21 +156,35 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   }
   const selected = matching[0];
   if (image && image.sha256 !== selected.sha256) return unavailable('uploaded_document_changed', 'The uploaded PDF changed. Reload the guide before opening its image.');
+  if (image?.page !== undefined) {
+    let rendered: Uint8Array;
+    try { rendered = await cachedDerivative(`page:v1:${selected.sha256}:${image.page}`, () => renderUploadedGuidePage(selected.bytes, selected.sha256, image.page!)); }
+    catch { return unavailable('uploaded_image_unavailable', 'The source page could not be rendered safely. Open the approved source PDF instead.'); }
+    const changed = await recheckSource();
+    if (changed) return changed;
+    return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered };
+  }
+  // Keep empty-page markers when extracting this source. A readable cover or
+  // index must not prevent image-only procedure pages from reaching OCR.
+  const extractedPages = [...selected.text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)];
+  const hasNativeText = extractedPages.some(page => page[2].trim());
+  const emptyTextPages = new Set(extractedPages.filter(page => !page[2].trim()).map(page => Number(page[1])));
   let ocrStatus = '';
   let ocrPages: { page: number; text: string; confidence: number }[] = [];
-  if (!selected.text.trim() && !image) {
+  if (emptyTextPages.size && !image) {
     try {
       const { enqueueManualOcr, readManualOcr } = await import('@/lib/server/manual-ocr-queue');
       const recognized = await readManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, sha256: selected.sha256 });
       ocrStatus = recognized.status;
-      ocrPages = recognized.pages;
+      ocrPages = recognized.pages.filter(page => emptyTextPages.has(page.page));
       if (ocrStatus === 'missing' || ocrStatus === 'cancelled') {
         await enqueueManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, path: selected.file.storage_path, sha256: selected.sha256, bytes: selected.bytes });
         ocrStatus = 'pending';
       }
     } catch { failures.push({ status: 'uploaded_ocr_unavailable', message: 'Text recognition is unavailable. Open the attached source PDF.' }); }
   }
-  const actions = uploadedManualActions(selected.text);
+  const nativeDocument = structureManualDocument(selected.text);
+  const actions = uploadedManualHtmlActions(nativeDocument);
   if (ocrStatus === 'complete') {
     const { ocrManualActions } = await import('@/lib/server/manual-ocr-actions');
     actions.symptom_rules.push(...ocrManualActions(ocrPages));
@@ -181,16 +209,11 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   if (image) {
     const selectedMedia = media.find(item => item.descriptor.id === image.id);
     if (!selectedMedia) return unavailable('uploaded_image_unavailable', 'This image is not associated with a current instruction in the approved source PDF. Reload the guide.');
-    try { rendered = await cachedDerivative(`image:v1:${selected.sha256}:${image.id}`, () => renderUploadedGuideMedia(selected.bytes, selectedMedia)); }
+    try { rendered = await cachedDerivative(`image:v1:${selected.sha256}:${image.id}`, () => renderUploadedGuideMedia(selected.bytes, selectedMedia!)); }
     catch { return unavailable('uploaded_image_unavailable', 'The source illustration could not be rendered safely. Open the approved source PDF instead.'); }
   }
-  // Recheck the complete register after reading source bytes, including any
-  // preferred-source change or unlink that occurred during extraction.
-  const current = await listRegisteredAssetFiles(admin, asset.id);
-  if (current.error || registeredIdentity(current.data) !== registeredIdentity(files)) return unavailable('uploaded_document_changed', 'The attached source document changed while it was being read. Reload the guide before using its instructions.');
-  const currentAsset = await admin.from('assets').select('id,hotel_id,active,manufacturer,model_family,model_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links')
-    .eq('hotel_id', HOTEL_ID).eq('id', asset.id).maybeSingle();
-  if (currentAsset.error || !currentAsset.data || assetReviewIdentity(currentAsset.data as Asset) !== assetSnapshot) return unavailable('uploaded_document_changed', 'The equipment identity, activation or documentation review changed while the attachment was being read. Reload the guide before using its instructions.');
+  const changed = await recheckSource();
+  if (changed) return changed;
   if (rendered) return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered };
   const signed = await admin.storage.from(bucket).createSignedUrl(selected.file.storage_path, 3600);
   if (signed.error || !signed.data?.signedUrl) throw new Error('The attached source PDF could not be opened for comparison.');
@@ -200,15 +223,22 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   for (const page of manualPartsPassages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
   for (const match of selected.text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)) {
     const page = Number(match[1]);
-    if (actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
+    if (match[2].trim() && actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
   }
   for (const page of manualReferencePages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
-  if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference' });
-  const source_passages: SourcePassage[] = passages.map(passage => passage.kind === 'reference' ? passage : ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
+  if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference', origin: 'ocr' });
+  const source_passages: SourcePassage[] = passages.map(passage => ({
+    ...passage, origin: passage.origin || 'pdf',
+    html: sourcePageHtml(passage.text, passage.page, passage.origin || 'pdf'),
+    source_file_name: selected.file.name, source_url: sourceUrl,
+  }));
+  const indexedOcrPages = new Set(ocrPages.filter(page => page.text.trim()).map(page => page.page));
+  const searchIncomplete = hasNativeText && [...emptyTextPages].some(page => !indexedOcrPages.has(page));
   const manualKnowledge: ManualKnowledge = {
     step_media: media.map(item => item.descriptor),
     manufacturer: asset.manufacturer || '', model_family: asset.model_family || '', model_number: asset.model_number || '',
     source: {
+      search_incomplete: searchIncomplete,
       type: 'Verbatim uploaded PDF excerpts', title: selected.file.name, source_file_name: selected.file.name, verified: true,
       manufacturer: asset.manufacturer || '', model_family: asset.model_family || '', file_url: sourceUrl,
       source_kind: 'asset-upload', storage_path: selected.file.storage_path, sha256: selected.sha256,
@@ -221,13 +251,14 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   };
   const available = source_passages.some(passage => passage.kind !== 'reference') || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
   const indexedOcr = ocrStatus === 'complete' && ocrPages.some(page => page.text.trim());
-  const needsOcr = !selected.text.trim() && !indexedOcr;
+  const needsOcr = !hasNativeText && !indexedOcr;
   const processingOcr = needsOcr && ['pending', 'processing'].includes(ocrStatus);
   const failedOcr = needsOcr && ocrStatus === 'failed';
   return { documentation_status: processingOcr ? 'uploaded_document_ocr_processing' : failedOcr ? 'uploaded_document_ocr_failed' : needsOcr ? 'uploaded_document_needs_ocr' : available ? 'verified' : 'no_guidance', documentation_reason: processingOcr
     ? `Text recognition is processing ${selected.file.name}. The source remains available.`
     : failedOcr ? `Text recognition could not finish ${selected.file.name}. Open the source or retry processing the stored file.`
     : needsOcr ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
+    : searchIncomplete ? `Some pages of ${selected.file.name} have no readable text. ${['pending', 'processing'].includes(ocrStatus) ? 'Text recognition is processing those pages.' : ocrStatus === 'failed' ? 'Text recognition could not finish those pages.' : ocrStatus === 'complete' ? 'Text recognition did not recover searchable text from every page.' : 'Text recognition is unavailable for those pages.'} Search results may be incomplete; open the source PDF to review them.`
     : available ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
     : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
 }
@@ -240,15 +271,18 @@ export async function readUploadedAssetMaintenanceReference(request: NextRequest
   const assetId = request.nextUrl.searchParams.get('assetId')?.trim() || '';
   if (!isUuid(assetId)) return NextResponse.json({ error: 'A valid saved asset is required.' }, { status: 400, headers });
   const imageId = request.nextUrl.searchParams.get('imageId');
+  const pageValue = request.nextUrl.searchParams.get('pageImage');
+  const pageNumber = pageValue === null ? null : Number(pageValue);
   const sourceSha256 = request.nextUrl.searchParams.get('sha256') || '';
+  if (pageValue !== null && (imageId !== null || !/^\d{1,3}$/.test(pageValue) || !pageNumber || pageNumber > 600 || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A valid source page and PDF fingerprint are required.' }, { status: 400, headers });
   if (imageId !== null && (!/^media-[a-f0-9]{64}$/.test(imageId) || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A current source image identifier and PDF fingerprint are required.' }, { status: 400, headers });
   const assetResult = await auth.admin.from('assets').select('id,hotel_id,active,manufacturer,model_family,model_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links')
     .eq('hotel_id', HOTEL_ID).eq('id', assetId).maybeSingle();
   if (assetResult.error) return NextResponse.json({ error: 'The saved asset could not be read.' }, { status: 503, headers });
   if (!assetResult.data || assetResult.data.active === false) return NextResponse.json({ error: 'This asset is not available at this property.' }, { status: 404, headers });
   try {
-    const result = await loadUploadedAssetGuide(auth.admin, assetResult.data as Asset, imageId ? { id: imageId, sha256: sourceSha256 } : undefined);
-    if (imageId) {
+    const result = await loadUploadedAssetGuide(auth.admin, assetResult.data as Asset, imageId ? { id: imageId, sha256: sourceSha256 } : pageNumber ? { id: '', sha256: sourceSha256, page: pageNumber } : undefined);
+    if (imageId || pageNumber) {
       if (result.media_image) return new Response(result.media_image.slice().buffer as ArrayBuffer, { headers: { ...headers, 'Content-Type': 'image/png', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff' } });
       return NextResponse.json({ error: result.documentation_reason, documentation_status: result.documentation_status }, { status: result.documentation_status === 'uploaded_document_changed' ? 409 : 404, headers });
     }
@@ -257,3 +291,4 @@ export async function readUploadedAssetMaintenanceReference(request: NextRequest
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The attached source document could not be read.' }, { status: 503, headers });
   }
 }
+

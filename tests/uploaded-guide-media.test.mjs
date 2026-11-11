@@ -8,7 +8,7 @@ import { loadImage } from '@napi-rs/canvas';
 import { loadTs } from './helpers/load-ts.mjs';
 import * as matching from '../src/lib/manual-document-match.ts';
 import { uploadedManualActions } from '../src/lib/uploaded-manual-actions.ts';
-import { inspectUploadedGuideMedia, renderUploadedGuideMedia } from '../src/lib/server/uploaded-guide-media.ts';
+import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePage } from '../src/lib/server/uploaded-guide-media.ts';
 
 const require = createRequire(import.meta.url);
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.mjs');
@@ -163,4 +163,14 @@ test('large vector diagrams are rendered within pixel bounds and PDF URLs are ne
   const rendered = await loadImage(Buffer.from(await renderUploadedGuideMedia(pdf, inspected[0])));
   assert(rendered.width * rendered.height <= 2_000_000);
   assert.equal(externalRequests, 0);
+});
+
+
+test('full source pages render their diagrams and tables within mobile-safe bounds', async () => {
+  const png = await renderUploadedGuidePage(bytes, sha256, 3);
+  const image = await loadImage(Buffer.from(png));
+  assert.ok(image.width > 0 && image.width <= 1400);
+  assert.ok(image.width * image.height <= 3010000);
+  await assert.rejects(renderUploadedGuidePage(replacement, sha256, 3), /SHA-256/);
+  await assert.rejects(renderUploadedGuidePage(bytes, sha256, 999), /page/);
 });

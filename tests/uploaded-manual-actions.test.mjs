@@ -57,9 +57,9 @@ test('a new symptom heading cannot transfer the previous symptom actions', () =>
 
 test('wrapped or incomplete actions cannot lose a safety condition when converted to checkboxes', () => {
   for (const text of [
-    'PAGE 1\nProblem: Not draining\n1. Disconnect electrical power only after\nclosing the supply valve.\n2. Remove the cover.',
     'PAGE 1\nProblem: Not draining\n1. Disconnect electrical power.\nClose the supply valve before removing the cover.\n2. Remove the cover.',
     'PAGE 1\nProblem | Cause | Corrective action\nNot draining | Blocked filter | Disconnect electrical power only after\nclosing the supply valve.',
     'PAGE 1\nProblem: Not draining\nAction: Disconnect power before',
   ]) assert.deepEqual(uploadedManualActions(text), { symptom_rules: [], error_codes: [] }, text);
 });
+

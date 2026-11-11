@@ -1,3 +1,4 @@
+import { sourcePageHtml } from './manual-document-html';
 import type { SourcePassage } from "./manual-source";
 export type TroubleshootingStepMedia = {
   id: string;
@@ -40,6 +41,7 @@ export type ManualKnowledge = {
   model_number?: string;
   source?: {
     sha256?: string;
+    search_incomplete?: boolean;
     type?: string;
     title?: string;
     verified?: boolean;
@@ -165,6 +167,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     model_family: String(payload.model_family ?? source.model_family ?? ""),
     model_number: String(payload.model_number ?? source.model_number ?? ""),
     source: {
+      ...(source.search_incomplete !== undefined ? { search_incomplete: source.search_incomplete === true } : {}),
       type: String(source.type ?? payload.document_type ?? ""),
       title: String(source.title ?? payload.title ?? payload.document_title ?? ""),
       verified: (source.verified ?? payload.verified) === true,
@@ -182,12 +185,13 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     source_passages: Array.isArray(payload.source_passages) ? payload.source_passages.filter((entry): entry is SourcePassage => {
       if (!entry || typeof entry !== "object") return false;
       const item = entry as SourcePassage;
-      return Number.isInteger(item.page) && item.page > 0 && typeof item.text === "string" &&
+      return Number.isInteger(item.page) && item.page > 0 && item.page <= 600 && typeof item.text === "string" &&
         (item.kind === "diagnostic" || item.kind === "troubleshooting" || item.kind === "reference");
-    }) : [],
+    }).map(item => typeof item.html === 'string' ? { ...item, html: sourcePageHtml(item.text, item.page, item.origin === 'ocr' ? 'ocr' : 'pdf') } : item) : [],
     error_codes,
     symptom_rules,
     general_checks,
     manual_tests,
   };
 }
+
