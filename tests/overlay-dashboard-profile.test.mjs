@@ -167,7 +167,6 @@ test('all dashboard roles use approved groups with permission-filtered actions',
   const technician = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const workOrders = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
 
-  const menus = readFileSync(new URL('../src/components/desktop/ApprovedDashboardMenus.tsx', import.meta.url), 'utf8');
   assert.match(engineering, /groups=\{visibleLauncherGroups\}/);
   assert.match(engineering, /label: "\+ Work Order"/);
   assert.doesNotMatch(technician, /<details/);

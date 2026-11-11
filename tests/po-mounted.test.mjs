@@ -4,7 +4,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import ts from 'typescript';
 import {PGlite} from '@electric-sql/pglite';
-import {poOrderBadge,wholePoCount,receiptBlock,stockAdded,recordedPoValue,poHotelDate,receivedPoSpending} from '../src/lib/po-workflow.ts';
+import {poOrderBadge,wholePoCount,receiptBlock,stockAdded,recordedPoValue} from '../src/lib/po-workflow.ts';
 assert.equal(poOrderBadge({origin:'manual',acceptance:'unresolved'}),'Recorded · Manually Entered');
 assert.equal(poOrderBadge({origin:'manual',acceptance:'accepted'}),'Accepted · Manually Entered');
 assert.equal(poOrderBadge({origin:'ibuy',acceptance:'submitted'}),'Submitted');
@@ -42,7 +42,7 @@ await db.exec(fs.readFileSync('supabase/proposals/manual-order-receiving.sql','u
 assert.equal((await db.query("select proacl::text from pg_proc where proname='cmpri_receive_po'")).rows[0].proacl,aclBefore);
 await db.exec(fs.readFileSync('supabase/migrations/20261022070416_cmpri_cumulative_receipt_guard.sql','utf8'));
 await db.query('insert into cmpri_inventory_items(id,hotel_id,item_name,quantity_on_hand,active) values($1,$2,$3,7,true)',[item,hotel,'Isolated supply']);
-let rpcCalls=0,loseRpcResponse=false;
+let loseRpcResponse=false;
 const admin={
   from(table){
     const filters=[];let update=null;
@@ -55,7 +55,7 @@ const admin={
       }catch(e){return {data:null,error:{message:e.message,code:e.code}};}
     }};return q;
   },
-  async rpc(name,p){rpcCalls++;try{const args={cmpri_receive_po_total:['p_hotel','p_actor','p_id','p_line','p_total','p_expected','p_date'],cmpri_create_manual_po:['p_hotel','p_actor','p_id','p_supplier','p_reference','p_description','p_quantity','p_uom'],cmpri_link_po_line:['p_hotel','p_line','p_item','p_factor'],cmpri_receive_po:['p_hotel','p_actor','p_id','p_line','p_quantity','p_date','p_note']}[name];assert.ok(args);const r=await db.query(`select ${name}(${args.map((_,i)=>`$${i+1}`).join(',')}) result`,args.map(k=>p[k]));if(loseRpcResponse){loseRpcResponse=false;return {data:null,error:{message:"Simulated database response loss"}};}return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message,code:e.code}};}}
+  async rpc(name,p){try{const args={cmpri_receive_po_total:['p_hotel','p_actor','p_id','p_line','p_total','p_expected','p_date'],cmpri_create_manual_po:['p_hotel','p_actor','p_id','p_supplier','p_reference','p_description','p_quantity','p_uom'],cmpri_link_po_line:['p_hotel','p_line','p_item','p_factor'],cmpri_receive_po:['p_hotel','p_actor','p_id','p_line','p_quantity','p_date','p_note']}[name];assert.ok(args);const r=await db.query(`select ${name}(${args.map((_,i)=>`$${i+1}`).join(',')}) result`,args.map(k=>p[k]));if(loseRpcResponse){loseRpcResponse=false;return {data:null,error:{message:"Simulated database response loss"}};}return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message,code:e.code}};}}
 };
 globalThis.__poWorkflowAuth={admin,principal:{identity:{id:actor}}};
 const data=s=>'data:text/javascript;base64,'+Buffer.from(s).toString('base64');

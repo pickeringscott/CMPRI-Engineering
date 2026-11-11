@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NEW_WORK, PAYROLL_ANCHOR, emptyPeriod, dayTotals, periodDates, summarizePeriod, leaveBalance, leaveConfigurationAt, validateLeaveConfiguration, type HoursDay, type DatedLeaveConfiguration, type LeaveKind } from '@/lib/hours-tracker';
 import type { HoursDocument, SavedHoursPeriod } from '@/lib/server/hours-tracker-store';
 import styles from './hours.module.css';
@@ -37,7 +37,7 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
   useEffect(()=>{latest.current={value,onChange};},[value,onChange]);
   const texts=[String(Math.floor(value/60)%12||12).padStart(2,'0'),String(value%60).padStart(2,'0'),value<720?'AM':'PM'];
   function disabled(){return !!root.current?.closest('fieldset:disabled');}
-  function change(next:number){if(disabled())return;latest.current.value=next;latest.current.onChange(next);}
+  const change=useCallback((next:number)=>{if(root.current?.closest('fieldset:disabled'))return;latest.current.value=next;latest.current.onChange(next);},[]);
   function select(index=part.current){segments.current[index]?.focus();}
   function step(direction:number,accelerated=false){const amount=part.current===0?60:part.current===2?720:accelerated?5:1;change((latest.current.value+direction*amount+1440)%1440);}
   useEffect(()=>{
@@ -95,7 +95,7 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
     window.addEventListener('blur',interrupted);
     document.addEventListener('visibilitychange',interrupted);
     return()=>{cancel();element.removeEventListener('pointerdown',pointer);element.removeEventListener('keydown',keyboard);element.removeEventListener('touchstart',start);element.removeEventListener('touchmove',move);element.removeEventListener('touchend',end);element.removeEventListener('touchcancel',interrupted);element.removeEventListener('contextmenu',context);window.removeEventListener('blur',interrupted);document.removeEventListener('visibilitychange',interrupted);};
-  },[]);
+  },[change]);
   useEffect(()=>{
     // Listen at the document so wheel changes follow keyboard focus, not the pointer.
     const wheel=(event:WheelEvent)=>{
