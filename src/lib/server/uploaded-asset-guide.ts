@@ -6,7 +6,7 @@ import { allows } from '@/lib/server/access';
 import { requireUser } from '@/lib/server/auth';
 import { listRegisteredAssetFiles, type RegisteredAssetFile } from '@/lib/server/asset-file-register';
 import { extractManualPdfText, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
-import { manualPartsPassages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
+import { manualPartsPassages, manualReferencePages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
 import { uploadedManualActions } from '@/lib/uploaded-manual-actions';
 import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
@@ -186,7 +186,8 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     const page = Number(match[1]);
     if (actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
   }
-  const source_passages: SourcePassage[] = passages.map(passage => ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
+  for (const page of manualReferencePages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
+  const source_passages: SourcePassage[] = passages.map(passage => passage.kind === 'reference' ? passage : ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
   const manualKnowledge: ManualKnowledge = {
     step_media: media.map(item => item.descriptor),
     manufacturer: asset.manufacturer || '', model_family: asset.model_family || '', model_number: asset.model_number || '',
@@ -201,7 +202,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     error_codes: actions.error_codes.map(code => ({ ...code, source_url: sourceUrl })),
     general_checks: [], manual_tests: [],
   };
-  const available = source_passages.length > 0 || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
+  const available = source_passages.some(passage => passage.kind !== 'reference') || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
   return { documentation_status: available ? 'verified' : 'no_guidance', documentation_reason: available
     ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
     : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF, or use on-device OCR for scanned content and review it.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };

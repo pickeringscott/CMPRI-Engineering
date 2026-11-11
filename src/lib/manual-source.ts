@@ -1,6 +1,6 @@
 import type { ManualKnowledge } from "./manual-knowledge";
 
-export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting"; source_file_name?: string; source_url?: string };
+export type SourcePassage = { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string };
 export type SourceIdentity = { manufacturer: string | null; model_family: string | null; model_number: string | null };
 
 /** Preserve source text, including table rows. No generated repair instructions. */
@@ -11,6 +11,15 @@ export function manualSourcePassages(text: string): SourcePassage[] {
     if (/table of contents/i.test(body) || (body.match(/\.{5,}/g) || []).length > 3) return [];
     if (!/troubleshoot|fault|error\s+code|diagnostic|problem\s+(?:cause|solution)|possible\s+cause/i.test(body)) return [];
     return [{ page: Number(match[1]), text: body, kind: /fault|error\s+code|diagnostic/i.test(body) ? "diagnostic" as const : "troubleshooting" as const }];
+  });
+}
+
+/** Index readable source pages without claiming that they contain repair steps. */
+export function manualReferencePages(text: string): SourcePassage[] {
+  return [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)].flatMap(match => {
+    const page = Number(match[1]), body = match[2].trim();
+    if (!Number.isSafeInteger(page) || page < 1 || !body || /table of contents/i.test(body) || (body.match(/\.{5,}/g) || []).length > 3) return [];
+    return [{ page, text: body, kind: "reference" as const }];
   });
 }
 

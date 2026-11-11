@@ -42,3 +42,12 @@ test('parts lists and their matching illustrated pages remain source references'
  assert.deepEqual(pages.map(page=>page.page),[1,2,4]);
  assert.deepEqual(relevantSourcePassages(pages,'door lock broken').map(page=>page.page),[1,2]);
 });
+
+test('unlabelled source pages from future manuals remain searchable without becoming repair instructions',async()=>{
+ const {manualReferencePages,relevantSourcePassages}=await import('../src/lib/manual-source.ts');
+ const pages=manualReferencePages('PAGE 1\nTable of Contents\nWater pressure..........2\n\nPAGE 2\nWater pressure valve assembly and installation.\n\nPAGE 3\nDoor lock wiring diagram.');
+ assert.deepEqual(pages.map(page=>page.page),[2,3]);assert.ok(pages.every(page=>page.kind==='reference'));
+ assert.deepEqual(relevantSourcePassages(pages,'door lock broken').map(page=>page.page),[3]);
+ const {normalizeManualKnowledge}=await import('../src/lib/manual-knowledge.ts');
+ assert.equal(normalizeManualKnowledge({source_passages:pages})?.source_passages?.length,2);
+});

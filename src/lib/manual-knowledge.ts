@@ -183,7 +183,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
       if (!entry || typeof entry !== "object") return false;
       const item = entry as SourcePassage;
       return Number.isInteger(item.page) && item.page > 0 && typeof item.text === "string" &&
-        (item.kind === "diagnostic" || item.kind === "troubleshooting");
+        (item.kind === "diagnostic" || item.kind === "troubleshooting" || item.kind === "reference");
     }) : [],
     error_codes,
     symptom_rules,

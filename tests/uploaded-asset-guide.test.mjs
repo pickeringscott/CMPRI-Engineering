@@ -302,3 +302,13 @@ test('image serving retains active account, property and PM reference read autho
     assert.equal((await h.request(assetId, image)).status, status); assert.equal(h.state.downloads.length, 0);
   }
 });
+
+test('an unlabelled future manual exposes searchable source pages without inventing checklist steps',async()=>{
+ const bytes=pdf(['Door latch wiring diagram', 'Door lock wiring and mechanical assembly.']);
+ const h=fixture({bytes:new Map([[path,bytes]])});const result=await h.load();
+ assert.equal(result.documentation_status,'no_guidance');assert.equal(result.manualKnowledge.symptom_rules.length,0);
+ const normalized=normalizeManualKnowledge(result.manualKnowledge);
+ assert.equal(normalized.source_passages[0].kind,'reference');
+ assert.deepEqual(source.relevantSourcePassages(normalized.source_passages,'door lock broken').map(page=>page.page),[1]);
+ assert.equal(deriveTroubleshootingChecklistContext({issue:'door lock broken',asset},normalized).steps.length,0);
+});
