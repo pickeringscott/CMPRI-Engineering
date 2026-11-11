@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { createCanvas } from '@napi-rs/canvas';
 import { loadTs } from './helpers/load-ts.mjs';
 import * as matching from '../src/lib/manual-document-match.ts';
 import * as source from '../src/lib/manual-source.ts';
@@ -30,10 +31,28 @@ const actorId = '00000000-0000-4000-8000-000000000012';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 // A real, tiny PDF with positioned text; pdf.js performs the extraction in tests.
-function pdf(lines) {
+function pdf(lines, additionalPage) {
   const escape = text => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
   const stream = 'BT /F1 12 Tf 14 TL 72 740 Td\n' + lines.map(line => `(${escape(line)}) Tj T*`).join('\n') + '\nET';
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`];
+  if (additionalPage) {
+    let secondStream = 'BT /F1 12 Tf 14 TL 72 740 Td\n' + (additionalPage === 'scan' ? [] : additionalPage).map(line => `(${escape(line)}) Tj T*`).join('\n') + '\nET';
+    let scanImage = '';
+    if (additionalPage === 'scan') {
+      const canvas = createCanvas(600, 160), context = canvas.getContext('2d');
+      context.fillStyle = '#fff';context.fillRect(0, 0, 600, 160);context.fillStyle = '#000';context.font = '24px sans-serif';
+      ['Door lock stuck', '1. Inspect the latch.', '2. Check the wiring.'].forEach((text, index) => context.fillText(text, 20, 40 + 45 * index));
+      const pixels = context.getImageData(0, 0, 600, 160).data;
+      const rgb = Buffer.alloc(600 * 160 * 3);
+      for (let source = 0, target = 0; source < pixels.length; source += 4) { rgb[target++] = pixels[source];rgb[target++] = pixels[source + 1];rgb[target++] = pixels[source + 2]; }
+      const hex = rgb.toString('hex') + '>';
+      scanImage = `<< /Type /XObject /Subtype /Image /Width 600 /Height 160 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length ${hex.length} >>\nstream\n${hex}\nendstream`;
+      secondStream = 'q 540 0 0 144 36 600 cm /Scan Do Q';
+    }
+    objects[1] = '<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>';
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> ${scanImage ? '/XObject << /Scan 8 0 R >>' : ''} >> /Contents 7 0 R >>`, `<< /Length ${Buffer.byteLength(secondStream)} >>\nstream\n${secondStream}\nendstream`);
+    if (scanImage) objects.push(scanImage);
+  }
   let result = '%PDF-1.4\n'; const offsets = [0];
   for (let i = 0; i < objects.length; i++) { offsets.push(Buffer.byteLength(result)); result += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`; }
   const xref = Buffer.byteLength(result);
@@ -67,8 +86,8 @@ function fixture(overrides = {}) {
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
     '@/lib/server/manual-ocr-queue': { enqueueManualOcr: async () => { state.ocrEnqueues++; if (state.ocrStatus === 'unavailable') throw Error('unavailable'); state.ocrStatus = 'pending'; }, readManualOcr: async () => ({ status: state.ocrStatus, pages: state.ocrPages }) }, '@/lib/server/manual-ocr-actions': ocrActions,
-    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async bytes => { state.extractions++; return realPdf.extractManualPdfText(bytes); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
-    '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); } },
+    '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async (bytes, options) => { state.extractions++; if (state.failExtraction) throw Error('Text extraction unavailable'); return realPdf.extractManualPdfText(bytes, options); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
+    '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; if (state.failInspection) throw Error('Figure inspection unavailable'); const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); }, renderUploadedGuidePage: async (...args) => { state.renders++; return guideMedia.renderUploadedGuidePage(...args); } },
   }, { Response, Uint8Array, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
   return { state, principal, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
     const query = new URLSearchParams({ source: 'asset-upload', assetId: id, ...image });
@@ -324,4 +343,107 @@ test('OCR waits for a complete source-specific scan and then exposes source-link
 
 test('an existing scanned asset is queued once and remains openable while OCR runs',async()=>{
  const h=fixture({bytes:new Map([[path,pdf([])]]),ocrStatus:'missing'});const first=await h.load();assert.equal(first.documentation_status,'uploaded_document_ocr_processing');assert.ok(first.manualKnowledge.source.file_url);assert.equal(h.state.ocrEnqueues,1);const second=await h.load();assert.equal(second.documentation_status,'uploaded_document_ocr_processing');assert.equal(h.state.ocrEnqueues,1);
+});
+
+
+
+test('whole source pages render independently of text and cropped-figure extraction', async () => {
+  const h = fixture({ bytes: new Map([[path, diagramPdf]]), failExtraction: true, failInspection: true });
+  const image = { pageImage: '3', sha256: hash(diagramPdf) };
+  const first = await h.request(assetId, image);
+  assert.equal(first.status, 200);
+  assert.deepEqual([...first.body.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(first.headers.get('content-type'), 'image/png');
+  assert.match(first.headers.get('cache-control'), /private.*no-store/);
+  assert.equal(first.headers.get('vary'), 'Authorization');
+  assert.equal(first.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(h.state.extractions, 0);
+  assert.equal(h.state.inspections, 0);
+  assert.equal(h.state.ocrEnqueues, 0);
+  const again = await h.request(assetId, image);
+  assert.deepEqual(again.body, first.body);
+  assert.equal(h.state.renders, 1);
+  assert.equal(h.state.downloads.length, 2);
+  assert.equal(h.state.registryReads, 4);
+  assert.deepEqual(h.state.queries, ['assets', 'assets', 'assets', 'assets']);
+});
+
+test('whole source pages validate input and retain source, account and property checks', async () => {
+  const image = { pageImage: '3', sha256: hash(diagramPdf) };
+  for (const invalid of [{ pageImage: '0' }, { pageImage: '601' }, { pageImage: '1.5' }, { pageImage: '-1' }, { pageImage: 'abc' }, { sha256: '' }, { imageId: `media-${'a'.repeat(64)}` }]) {
+    const h = fixture({ bytes: new Map([[path, diagramPdf]]) });
+    assert.equal((await h.request(assetId, { ...image, ...invalid })).status, 400);
+    assert.equal(h.state.downloads.length, 0);
+  }
+  for (const [overrides, status] of [[{ authenticated: false }, 401], [{ role: 'Front Desk' }, 403], [{ asset: { ...asset, hotel_id: actorId } }, 404], [{ asset: { ...asset, active: false } }, 404]]) {
+    const h = fixture({ bytes: new Map([[path, diagramPdf]]), ...overrides });
+    assert.equal((await h.request(assetId, image)).status, status);
+    assert.equal(h.state.downloads.length, 0);
+  }
+  const h = fixture({ bytes: new Map([[path, diagramPdf]]) });
+  assert.equal((await h.request(assetId, { ...image, sha256: 'b'.repeat(64) })).status, 409);
+  assert.equal((await h.request(assetId, { ...image, pageImage: '600' })).status, 404);
+  h.state.mutateRegistry = state => { state.files = []; };
+  h.state.registryReads = 0;
+  assert.equal((await h.request(assetId, image)).status, 409);
+  const changedAsset = fixture({ bytes: new Map([[path, diagramPdf]]), mutateRegistry: state => { state.asset.active = false; } });
+  assert.equal((await changedAsset.request(assetId, image)).status, 409);
+});
+
+
+test('mixed manuals queue image-only pages without hiding readable source content', async () => {
+  const bytes = pdf(['ACME W1 service manual', 'Troubleshooting', 'Symptom: Washer not draining', '1. Clean the drain filter.'], 'scan');
+  const h = fixture({ bytes: new Map([[path, bytes]]), ocrStatus: 'missing' });
+  const pending = await h.load();
+  assert.equal(h.state.ocrEnqueues, 1);
+  assert.equal(pending.documentation_status, 'verified', 'readable native instructions remain available');
+  assert.equal(pending.manualKnowledge.source.search_incomplete, true);
+  assert.match(pending.documentation_reason, /Text recognition is processing.*Search results may be incomplete/);
+  assert.deepEqual(pending.manualKnowledge.symptom_rules[0].steps, ['Clean the drain filter.']);
+  assert.deepEqual(pending.manualKnowledge.source_passages.map(page => page.page), [1]);
+  await h.load();assert.equal(h.state.ocrEnqueues, 1);
+  h.state.ocrStatus = 'complete';
+  h.state.ocrPages = [
+    { page: 1, confidence: 95, text: 'Native page must not be replaced by this OCR text.' },
+    { page: 2, confidence: 95, text: 'Door lock stuck\n1. Inspect the latch.\n2. Check the wiring.' },
+  ];
+  const ready = await h.load();
+  assert.equal(ready.manualKnowledge.source.search_incomplete, false);
+  assert.deepEqual(ready.manualKnowledge.source_passages.map(page => page.page), [1, 2]);
+  assert.match(ready.manualKnowledge.source_passages[0].text, /ACME W1 service manual/);
+  assert.deepEqual(source.relevantSourcePassages(ready.manualKnowledge.source_passages, 'door lock stuck').map(page => page.page), [2]);
+  assert.equal(ready.manualKnowledge.symptom_rules.length, 2);
+  assert.ok(ready.manualKnowledge.symptom_rules[1].steps.every(step => step.startsWith('OCR — ')));
+  assert.deepEqual(ready.manualKnowledge.symptom_rules[1].source_pages, [2]);
+  assert.equal(normalizeManualKnowledge(pending.manualKnowledge).source.search_incomplete, true);
+});
+
+test('failed mixed-manual OCR reports incomplete search rather than absence of instructions', async () => {
+  const h = fixture({ bytes: new Map([[path, pdf(['Readable cover'], [])]]), ocrStatus: 'failed' });
+  const result = await h.load();
+  assert.equal(result.documentation_status, 'no_guidance');
+  assert.equal(result.manualKnowledge.source.search_incomplete, true);
+  assert.match(result.documentation_reason, /could not finish.*Search results may be incomplete/);
+  assert.deepEqual(result.manualKnowledge.symptom_rules, []);
+  assert.equal(h.state.ocrEnqueues, 0);
+});
+
+
+test('completed OCR with missing, blank or unrelated pages retains the incomplete-search warning', async () => {
+  for (const pages of [[], [{ page: 2, confidence: 95, text: '   ' }], [{ page: 3, confidence: 95, text: 'Door lock stuck' }]]) {
+    const h = fixture({ bytes: new Map([[path, pdf(['Readable cover'], [])]]), ocrStatus: 'complete', ocrPages: pages });
+    const result = await h.load();
+    assert.equal(result.manualKnowledge.source.search_incomplete, true);
+    assert.match(result.documentation_reason, /did not recover searchable text from every page/);
+    assert.deepEqual(result.manualKnowledge.source_passages.map(page => page.page), [1]);
+    assert.deepEqual(result.manualKnowledge.symptom_rules, []);
+  }
+});
+
+test('leading empty pages are indexed by OCR without shifting native page numbers', async () => {
+  const h = fixture({ bytes: new Map([[path, pdf([], ['Door latch native reference'])]]), ocrStatus: 'complete', ocrPages: [{ page: 1, confidence: 95, text: 'Door lock scanned reference' }] });
+  const result = await h.load();
+  assert.equal(result.manualKnowledge.source.search_incomplete, false);
+  assert.equal(result.manualKnowledge.source_passages.find(page => page.page === 1).text, 'Door lock scanned reference');
+  assert.match(result.manualKnowledge.source_passages.find(page => page.page === 2).text, /Door latch native reference/);
 });

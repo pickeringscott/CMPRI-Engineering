@@ -2549,6 +2549,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </div>
               )}
 
+                {selectedAsset && trustedManualKnowledge && manualKnowledge?.source?.search_incomplete && (
+                  <p role="status" className="text-xs text-amber-300">{manualReason}</p>
+                )}
                 {selectedAsset && trustedManualKnowledge && manualStatus === "uploaded_document_needs_ocr" && (
                   <p className="text-xs text-amber-300">This document has no searchable text. Open the source to read it.</p>
                 )}
@@ -2582,7 +2585,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
               <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
                 {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && cmpriSession && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} assetId={selectedAsset.id} sourceSha256={manualKnowledge?.source?.sha256 || ""} userId={cmpriSession.user.id} />}
-                {selectedAsset && trustedManualKnowledge && !(["uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
+                {selectedAsset && trustedManualKnowledge && !(["uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.</p>}
 
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-1 text-sm text-slate-400">
@@ -2857,3 +2860,4 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     </main>
   );
 }
+

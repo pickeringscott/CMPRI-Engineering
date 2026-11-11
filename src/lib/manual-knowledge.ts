@@ -40,6 +40,7 @@ export type ManualKnowledge = {
   model_number?: string;
   source?: {
     sha256?: string;
+    search_incomplete?: boolean;
     type?: string;
     title?: string;
     verified?: boolean;
@@ -165,6 +166,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     model_family: String(payload.model_family ?? source.model_family ?? ""),
     model_number: String(payload.model_number ?? source.model_number ?? ""),
     source: {
+      ...(source.search_incomplete !== undefined ? { search_incomplete: source.search_incomplete === true } : {}),
       type: String(source.type ?? payload.document_type ?? ""),
       title: String(source.title ?? payload.title ?? payload.document_title ?? ""),
       verified: (source.verified ?? payload.verified) === true,
@@ -191,3 +193,4 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     manual_tests,
   };
 }
+
