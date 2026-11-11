@@ -286,3 +286,22 @@ export async function renderUploadedGuideMedia(bytes: Uint8Array, selection: Ins
     } finally { page.cleanup(); }
   } finally { await task.destroy(); }
 }
+
+/** Render an entire source page so tables and diagrams remain visible on mobile. */
+export async function renderUploadedGuidePage(bytes: Uint8Array, sha256: string, pageNumber: number): Promise<Uint8Array> {
+  validateSource(bytes, sha256);
+  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 600) throw new Error('The source page is invalid.');
+  const { pdf, task } = await openPdf(bytes);
+  try {
+    if (pageNumber > pdf.numPages) throw new Error('The source page is unavailable.');
+    const page = await pdf.getPage(pageNumber);
+    try {
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(1.5, 1400 / base.width, Math.sqrt(3000000 / (base.width * base.height)));
+      const viewport = page.getViewport({ scale });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      await page.render({ canvas: canvas as never, canvasContext: canvas.getContext('2d') as never, viewport, background: 'rgb(255,255,255)' }).promise;
+      return new Uint8Array(canvas.toBuffer('image/png'));
+    } finally { page.cleanup(); }
+  } finally { await task.destroy(); }
+}

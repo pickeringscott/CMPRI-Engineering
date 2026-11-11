@@ -10,7 +10,7 @@ import { manualPartsPassages, manualReferencePages, manualSourcePassages, type S
 import { uploadedManualActions } from '@/lib/uploaded-manual-actions';
 import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
-import { inspectUploadedGuideMedia, renderUploadedGuideMedia, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
+import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePage, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
 
 const bucket = 'asset-documentation';
 const verificationMarker = '_cmpri-verification.json';
@@ -85,7 +85,7 @@ function assetReviewIdentity(asset: Asset) {
 }
 
 /** Read only the PDFs currently registered on this asset; never consult a catalog. */
-export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset, image?: { id: string; sha256: string }): Promise<GuideResult> {
+export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset, image?: { id: string; sha256: string; page?: number }): Promise<GuideResult> {
   const assetSnapshot = assetReviewIdentity(asset);
   if (asset.hotel_id !== HOTEL_ID || asset.active === false) return unavailable('no_uploaded_document', 'The saved equipment is unavailable at this property.');
   const registered = await listRegisteredAssetFiles(admin, asset.id);
@@ -180,8 +180,10 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   let rendered: Uint8Array | undefined;
   if (image) {
     const selectedMedia = media.find(item => item.descriptor.id === image.id);
-    if (!selectedMedia) return unavailable('uploaded_image_unavailable', 'This image is not associated with a current instruction in the approved source PDF. Reload the guide.');
-    try { rendered = await cachedDerivative(`image:v1:${selected.sha256}:${image.id}`, () => renderUploadedGuideMedia(selected.bytes, selectedMedia)); }
+    if (!image.page && !selectedMedia) return unavailable('uploaded_image_unavailable', 'This image is not associated with a current instruction in the approved source PDF. Reload the guide.');
+    try { rendered = image.page
+      ? await cachedDerivative(`page:v1:${selected.sha256}:${image.page}`, () => renderUploadedGuidePage(selected.bytes, selected.sha256, image.page!))
+      : await cachedDerivative(`image:v1:${selected.sha256}:${image.id}`, () => renderUploadedGuideMedia(selected.bytes, selectedMedia!)); }
     catch { return unavailable('uploaded_image_unavailable', 'The source illustration could not be rendered safely. Open the approved source PDF instead.'); }
   }
   // Recheck the complete register after reading source bytes, including any
@@ -240,15 +242,18 @@ export async function readUploadedAssetMaintenanceReference(request: NextRequest
   const assetId = request.nextUrl.searchParams.get('assetId')?.trim() || '';
   if (!isUuid(assetId)) return NextResponse.json({ error: 'A valid saved asset is required.' }, { status: 400, headers });
   const imageId = request.nextUrl.searchParams.get('imageId');
+  const pageValue = request.nextUrl.searchParams.get('pageImage');
+  const pageNumber = pageValue === null ? null : Number(pageValue);
   const sourceSha256 = request.nextUrl.searchParams.get('sha256') || '';
+  if (pageValue !== null && (imageId !== null || !/^\d{1,3}$/.test(pageValue) || !pageNumber || pageNumber > 600 || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A valid source page and PDF fingerprint are required.' }, { status: 400, headers });
   if (imageId !== null && (!/^media-[a-f0-9]{64}$/.test(imageId) || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A current source image identifier and PDF fingerprint are required.' }, { status: 400, headers });
   const assetResult = await auth.admin.from('assets').select('id,hotel_id,active,manufacturer,model_family,model_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links')
     .eq('hotel_id', HOTEL_ID).eq('id', assetId).maybeSingle();
   if (assetResult.error) return NextResponse.json({ error: 'The saved asset could not be read.' }, { status: 503, headers });
   if (!assetResult.data || assetResult.data.active === false) return NextResponse.json({ error: 'This asset is not available at this property.' }, { status: 404, headers });
   try {
-    const result = await loadUploadedAssetGuide(auth.admin, assetResult.data as Asset, imageId ? { id: imageId, sha256: sourceSha256 } : undefined);
-    if (imageId) {
+    const result = await loadUploadedAssetGuide(auth.admin, assetResult.data as Asset, imageId ? { id: imageId, sha256: sourceSha256 } : pageNumber ? { id: '', sha256: sourceSha256, page: pageNumber } : undefined);
+    if (imageId || pageNumber) {
       if (result.media_image) return new Response(result.media_image.slice().buffer as ArrayBuffer, { headers: { ...headers, 'Content-Type': 'image/png', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff' } });
       return NextResponse.json({ error: result.documentation_reason, documentation_status: result.documentation_status }, { status: result.documentation_status === 'uploaded_document_changed' ? 409 : 404, headers });
     }
