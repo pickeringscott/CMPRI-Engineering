@@ -357,10 +357,10 @@ function creationGuideHarness(asset=guideAsset,{allowed=true,userId='actor-a'}={
   return {writes,requests,pending,get result(){return result;},refresh:()=>refresh(),close:()=>cleanup?.(),user:value=>{currentUser=value;},respond(index,payload,status=200){pending[index]({ok:status===200,json:async()=>payload});}};
 }
 function creationGuideView(asset,result,{userId='actor-a',issue='It will not get warm',notes=''}={}){
-  const names=['troubleshootingAssetKey','troubleshootingUserId','currentTroubleshootingResult','troubleshootingKnowledge','trustedTroubleshootingKnowledge','trustedManualUrl','troubleshootingEvidence','matchingTroubleshootingRules','matchingTroubleshootingSteps','troubleshootingSteps','troubleshootingMediaContext'];
+  const names=['troubleshootingAssetKey','troubleshootingUserId','currentTroubleshootingResult','troubleshootingKnowledge','trustedTroubleshootingKnowledge','trustedSources','troubleshootingEvidence','matchingTroubleshootingRules','matchingTroubleshootingSteps','troubleshootingSteps','troubleshootingMediaContext'];
   const declarations=names.map(name=>creationGuideComponent.body.statements.find(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(declaration=>declaration.name.getText(creationGuideAst)===name)).getText(creationGuideAst));
   const context={...creationGuideHelpers,selectedCreateAsset:asset,troubleshootingResult:result,cmpriSession:{user:{id:userId}},issue,notes};
-  vm.runInNewContext(ts.transpileModule(declarations.join('\n')+`\nglobalThis.view={knowledge:trustedTroubleshootingKnowledge,url:trustedManualUrl,steps:troubleshootingSteps,media:troubleshootingSteps.map(step=>({step,items:${creationGuideMediaExpression}})),mediaContext:troubleshootingMediaContext};`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+  vm.runInNewContext(ts.transpileModule(declarations.join('\n')+`\nglobalThis.view={knowledge:trustedTroubleshootingKnowledge,url:trustedSources[0]?.file_url || trustedSources[0]?.pdf_url,steps:troubleshootingSteps,media:troubleshootingSteps.map(step=>({step,items:${creationGuideMediaExpression}})),mediaContext:troubleshootingMediaContext};`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
   return JSON.parse(JSON.stringify(context.view));
 }
 test('creation guide uses one authenticated strict-source read and the shared everyday issue matcher',async()=>{
@@ -408,8 +408,8 @@ for(const change of [{model_number:'W2'},{manufacturer:'Other'},{documentation_k
 for(const source of [{verified:false},{source_kind:'catalog'},{storage_path:''},{registered_file_id:''},{sha256:'not-a-sha256'}])test(`creation guide refuses unapproved source metadata: ${Object.keys(source)[0]}`,async()=>{
   const h=creationGuideHarness();try{await settleCreationGuide();const candidate=structuredClone(guideKnowledge);Object.assign(candidate.source,source);h.respond(0,guidePayload(guideAsset,candidate));await settleCreationGuide();assert.equal(h.result.knowledge,null);assert.match(h.result.error,/approved uploaded document/);}finally{h.close();}
 });
-test('creation guide rejects mismatched manual identity and account changes without exposing stale content',async()=>{
-  const wrong=creationGuideHarness();try{await settleCreationGuide();wrong.respond(0,guidePayload(guideAsset,{...guideKnowledge,manufacturer:'Other'}));await settleCreationGuide();assert.equal(wrong.result.knowledge,null);}finally{wrong.close();}
+test('creation guide honors server-selected manuals without name inference but rejects account changes',async()=>{
+  const wrong=creationGuideHarness();try{await settleCreationGuide();wrong.respond(0,guidePayload(guideAsset,{...guideKnowledge,manufacturer:'Other'}));await settleCreationGuide();assert.equal(wrong.result.knowledge.manufacturer,'Other','explicit physical-asset selection governs, not inferred manufacturer matching');}finally{wrong.close();}
   const switched=creationGuideHarness();try{await settleCreationGuide();switched.user('actor-b');switched.respond(0,guidePayload());await settleCreationGuide();assert.equal(switched.result.knowledge,null);assert.match(switched.result.error,/account changed/);}finally{switched.close();}
   const valid=creationGuideHarness();try{await settleCreationGuide();valid.respond(0,guidePayload());await settleCreationGuide();assert.equal(creationGuideView(guideAsset,valid.result,{userId:'actor-b'}).knowledge,null,'the previous account result is hidden before its effect cleanup');}finally{valid.close();}
 });

@@ -326,7 +326,7 @@ test('shared modal navigation actions render buttons while source and media link
   }
   const creationPage = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
   assert.match(creationPage, /<ModalNavigationButton href="\/profile"/);
-  assert.match(creationPage, /<a href=\{trustedManualUrl\} target="_blank" rel="noreferrer"/);
+  assert.match(creationPage, /<a href=\{source\.file_url \|\| source\.pdf_url\} target="_blank" rel="noreferrer"/);
 });
 
 test('room operations import form and commit workflow live in the Daily Room Operations modal', () => {

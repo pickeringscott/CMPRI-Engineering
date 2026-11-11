@@ -310,7 +310,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   if (!knowledge.length) return results[0];
   const sources = knowledge.flatMap(item => item.source ? [item.source] : []);
   const warnings = [...candidates.flatMap(file => file.catalog_status === 'content_mismatch'
-    ? [`${file.name}: this manual was deliberately selected with its document warning acknowledged.`, ...(file.catalog_warnings || [])] : file.catalog_warnings || []), ...applicability.warnings.map(item => `${item.link.title || item.link.storage_path}: ${item.reason}`), ...unresolved, ...failures.map(failure => failure.message), ...results.flatMap(result => [...result.documentation_warnings, ...(result.documentation_status !== 'verified' ? [result.documentation_reason] : [])])];
+    ? [`${file.name}: this manual was deliberately selected with its document warning acknowledged.`, ...(file.catalog_warnings || [])] : file.catalog_warnings || []), ...applicability.warnings.map(item => `${item.link.title || item.link.storage_path}: ${item.reason}`), ...unresolved, ...failures.map(failure => failure.message), ...results.flatMap(result => [...result.documentation_warnings, ...(!['verified', 'no_guidance'].includes(result.documentation_status) ? [result.documentation_reason] : [])])];
   return {
     documentation_status: results.some(result => result.documentation_status === 'verified') ? 'verified' : results[0].documentation_status,
     documentation_reason: [knowledge.length === 1 ? results[0].documentation_reason : `Guidance uses ${knowledge.length} user-selected uploaded manuals. Compare each instruction with its own cited source.`, ...new Set(warnings)].join(" "),

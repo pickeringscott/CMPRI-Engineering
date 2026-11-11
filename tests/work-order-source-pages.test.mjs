@@ -19,10 +19,10 @@ test('source page selector preserves the original PDF and resets when the issue 
  const passages=[{page:4,text:'Troubleshooting water leak',kind:'troubleshooting'},{page:8,text:'Diagnostic cooling noise',kind:'diagnostic'}];
  const render=async props=>React.act(async()=>root.render(React.createElement(exports.default,{passages:[passages[0]],sourceUrl:'https://cmpri.test/manual.pdf?token=one',...props}))); 
  try {
-  await render({});const select=parent.querySelector('select');assert.ok(select);assert.deepEqual([...select.options].map(option=>option.value),['4']);assert.match(parent.textContent,/Troubleshooting water leak/);
-  await React.act(async()=>{select.value='4';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  await render({});const select=parent.querySelector('select');assert.ok(select);assert.deepEqual([...select.options].map(option=>JSON.parse(option.value).at(-1)),[4]);assert.match(parent.textContent,/Troubleshooting water leak/);
+  await React.act(async()=>{select.value=[...select.options].find(option=>JSON.parse(option.value).at(-1)===4).value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
   assert.equal(parent.querySelector('a').getAttribute('href'),'https://cmpri.test/manual.pdf?token=one#page=4');
-  await render({passages:[passages[1]]});assert.match(parent.textContent,/Diagnostic cooling noise/);assert.deepEqual([...parent.querySelector('select').options].map(option=>option.value),['8']);
+  await render({passages:[passages[1]]});assert.match(parent.textContent,/Diagnostic cooling noise/);assert.deepEqual([...parent.querySelector('select').options].map(option=>JSON.parse(option.value).at(-1)),[8]);
   await render({passages:[]});assert.equal(parent.querySelector('select'),null);
  } finally {await React.act(async()=>root.unmount());parent.remove();}
 });
@@ -106,7 +106,7 @@ test('source pages load authenticated images, change pages and release their obj
   assert.equal(query.get('source'),'asset-upload');assert.equal(query.get('assetId'),'asset-one');assert.equal(query.get('sha256'),'a'.repeat(64));assert.equal(query.get('pageImage'),'4');
   assert.equal(first.options.headers.Authorization,'Bearer synthetic-token');assert.equal(first.options.cache,'no-store');
   await h.complete(first);assert.equal(h.parent.querySelector('img').getAttribute('src'),'blob:manual-1');
-  await React.act(async()=>{const select=h.parent.querySelector('select');select.value='8';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  await React.act(async()=>{const select=h.parent.querySelector('select');select.value=[...select.options].find(option=>JSON.parse(option.value).at(-1)===8).value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
   assert.equal(first.options.signal.aborted,true);assert.deepEqual(h.revoked,['blob:manual-1']);assert.equal(h.parent.querySelector('img'),null);
   assert.equal(new URL(h.pending[1].url,'https://cmpri.test').searchParams.get('pageImage'),'8');
   await h.complete();assert.equal(h.parent.querySelector('img').getAttribute('alt'),'Manual page 8, including diagrams and tables');
@@ -173,10 +173,39 @@ test('source selection controls text and image together without dumping all sear
   assert.match(h.parent.textContent,/Drain diagnostic chart/);
   assert.doesNotMatch(h.parent.textContent,/Drain assembly diagram/);
   assert.equal(h.parent.querySelectorAll('[data-source-page]').length,1);
-  await React.act(async()=>{const select=h.parent.querySelector('select');select.value='8';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  await React.act(async()=>{const select=h.parent.querySelector('select');select.value=[...select.options].find(option=>JSON.parse(option.value).at(-1)===8).value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
   assert.match(h.parent.textContent,/Drain assembly diagram/);
   assert.doesNotMatch(h.parent.textContent,/Drain diagnostic chart/);
   assert.equal(h.parent.querySelector('a').getAttribute('href'),'https://cmpri.test/source.pdf?token=one#page=8');
   assert.equal(new URL(h.pending.at(-1).url,'https://cmpri.test').searchParams.get('pageImage'),'8');
+ } finally {await h.cleanup();}
+});
+
+
+test('same numbered pages in different manuals keep distinct text, links and authenticated file identity', async () => {
+ const h=imageViewer();
+ const sharedHash='d'.repeat(64);
+ const passages=[
+  {page:4,text:'First selected manual page',kind:'reference',source_document_id:'file-one',source_sha256:sharedHash,source_url:'https://cmpri.test/first.pdf',source_file_name:'First.pdf'},
+  {page:4,text:'Second selected manual page',kind:'reference',source_document_id:'file-two',source_sha256:sharedHash,source_url:'https://cmpri.test/second.pdf',source_file_name:'Second.pdf'},
+ ];
+ try {
+  await h.render({passages});
+  const select=h.parent.querySelector('select');
+  assert.equal(select.options.length,2);
+  assert.notEqual(select.options[0].value,select.options[1].value);
+  assert.match(h.parent.textContent,/First selected manual page/);
+  const first=h.pending[0];
+  assert.equal(new URL(first.url,'https://cmpri.test').searchParams.get('fileId'),'file-one');
+  await h.complete(first);
+  await React.act(async()=>{select.value=select.options[1].value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  assert.equal(first.options.signal.aborted,true);
+  assert.match(h.parent.textContent,/Second selected manual page/);
+  assert.doesNotMatch(h.parent.textContent,/First selected manual page/);
+  assert.equal(h.parent.querySelector('a').getAttribute('href'),'https://cmpri.test/second.pdf#page=4');
+  const query=new URL(h.pending.at(-1).url,'https://cmpri.test').searchParams;
+  assert.equal(query.get('sha256'),sharedHash);assert.equal(query.get('fileId'),'file-two');assert.equal(query.get('pageImage'),'4');
+  assert.equal(h.parent.querySelector('img'),null);
+  assert.deepEqual(h.revoked,['blob:manual-1']);
  } finally {await h.cleanup();}
 });

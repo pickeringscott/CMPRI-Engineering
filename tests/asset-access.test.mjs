@@ -1,5 +1,6 @@
 // Executes actual route handlers against a fake Supabase boundary; no live data.
 import test from 'node:test';
+import { manualAssetIdentity, validateManualApplicability } from '../src/lib/manual-applicability.ts';
 import {extractEquipmentSuggestions} from '../src/lib/equipment-pdf-suggestions.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -87,6 +88,8 @@ function fixture(route, config={}) {
       if(name==='@/lib/server/consolidation-stage')return {dispatchConsolidation:async()=>null};
       if(name.startsWith('@/lib/server/pre-consolidation/'))return {};
       if(name==='@/lib/server/asset-file-register')return {listRegisteredAssetFiles:async(_client,id)=>({data:(config.storageFiles||[]).map(f=>({...f,storage_path:`c81ad01a-7a9f-4880-ac1c-5e849f30bad6/${id}/${f.name}`,preferred:false})),error:config.storageError?{message:'Association lookup unavailable'}:null})};
+      if(name==='@/lib/manual-applicability')return {manualAssetIdentity,validateManualApplicability};
+      if(name==='@/lib/server/stored-pdf-status')return {withStoredPdfStatus:async(_admin,files)=>files.map(file=>({...file,catalog_status:'not_cataloged',catalog_warnings:[]}))};
       if(name==='@/lib/equipment-pdf-suggestions')return {};
       if(name==='@/lib/server/pdf-direct-upload')return {};
       if(name==='@/lib/server/stored-pdf-import')return {};

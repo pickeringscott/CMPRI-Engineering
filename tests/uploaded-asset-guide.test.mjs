@@ -116,7 +116,7 @@ function fixture(overrides = {}) {
     '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async (bytes, options) => { state.extractions++; if (state.failExtraction) throw Error('Text extraction unavailable'); return realPdf.extractManualPdfText(bytes, options); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/manual-document-html': manualHtml, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
     '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; if (state.mutateReviewedDuringInspection) state.mutateReviewedDuringInspection(state); if (state.failInspection) throw Error('Figure inspection unavailable'); const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); }, renderUploadedGuidePage: async (...args) => { state.renders++; return guideMedia.renderUploadedGuidePage(...args); } },
   }, { Response, Uint8Array, TextEncoder, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
-  return { state, principal, saveReviewed: async input => { const response = await reviewedRoute.POST(new Request('https://cmpri.example/api/assets/documentation/reviewed-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })); return { status: response.status, body: await response.json() }; }, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
+  return { state, principal, saveReviewed: async input => { const response = await reviewedRoute.POST(new Request('https://cmpri.example/api/assets/documentation/reviewed-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })); return { status: response.status, body: await response.json() }; }, load: async () => structuredClone(await reader.loadUploadedAssetGuide(client, state.asset)), request: async (id = assetId, image = {}) => {
     const query = new URLSearchParams({ source: 'asset-upload', assetId: id, ...image });
     const response = await reader.readUploadedAssetMaintenanceReference({ nextUrl: new URL(`https://cmpri.example/api/maintenance-reference?${query}`) });
     return { status: response.status, headers: response.headers, body: response.headers.get('content-type')?.startsWith('image/png') ? new Uint8Array(await response.arrayBuffer()) : await response.json() };
@@ -162,7 +162,7 @@ test('attached PDF bytes produce verbatim page-linked actions and immutable sour
   const normalized = normalizeManualKnowledge(guide);
   assert.equal(normalized.source.sha256, hash(original)); assert.equal(normalized.source.storage_path, path);
   assert.equal(deriveTroubleshootingChecklistContext({ issue: 'Washer not draining', asset }, normalized).steps.length, 2);
-  assert.deepEqual(h.state.queries, ['assets']); assert.equal(h.state.registryReads, 2); assert.equal(h.state.network, 0);
+  assert.deepEqual(h.state.queries, ['assets', 'assets']); assert.equal(h.state.registryReads, 2); assert.equal(h.state.network, 0);
 });
 
 test('missing, unreadable and unapproved uploaded documents do not substitute any catalog or cached guide', async () => {
