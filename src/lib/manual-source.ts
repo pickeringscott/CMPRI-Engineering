@@ -32,9 +32,24 @@ export function prepareUploadedGuide(text: string, identity: SourceIdentity, fil
 }
 
 const stop = new Set("the and for with this that from have has was were been room unit equipment problem issue not does working work code error fault".split(" "));
+function sourceSearchText(value: string): string {
+  return value.toLowerCase()
+    .replace(/\b(?:leaking|leaks|leakage|leaked)\b/g, "leak")
+    .replace(/\b(?:dripping|drips|dripped)\b/g, "drip")
+    .replace(/\b(?:cooling|cools|cooled)\b/g, "cool")
+    .replace(/\b(?:heating|heats|heated)\b/g, "heat")
+    .replace(/\b(?:draining|drains|drained)\b/g, "drain")
+    .replace(/\b(?:filling|fills|filled)\b/g, "fill")
+    .replace(/\b(?:noisy|noises)\b/g, "noise");
+}
+
+/** Find possible source pages, retaining the original PDF for context. */
 export function relevantSourcePassages(passages: SourcePassage[], issue: string): SourcePassage[] {
-  const words = [...new Set(issue.toLowerCase().match(/[a-z0-9]+/g) || [])].filter(word => word.length > 2 && !stop.has(word));
-  const ranked = passages.map(passage => ({ passage, score: words.filter(word => new RegExp(`\\b${word}\\b`, "i").test(passage.text)).length }));
+  const words = [...new Set(sourceSearchText(issue).match(/[a-z0-9]+/g) || [])].filter(word => word.length > 2 && !stop.has(word));
+  const ranked = passages.map(passage => {
+    const text = sourceSearchText(passage.text);
+    return { passage, score: words.filter(word => new RegExp(`\\b${word}\\b`, "i").test(text)).length };
+  });
   return ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).map(item => item.passage);
 }
 

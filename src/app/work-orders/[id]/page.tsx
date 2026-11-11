@@ -18,6 +18,7 @@ import PlainTextLinks from '@/components/PlainTextLinks';
 import {plainTextParts} from '@/lib/plain-text-links';
 import WorkOrderSupplies from "@/components/WorkOrderSupplies";
 import WorkOrderTroubleshootingChecklist from "@/components/WorkOrderTroubleshootingChecklist";
+import WorkOrderSourcePages from "@/components/WorkOrderSourcePages";
 import { deriveTroubleshootingChecklistContext } from "@/lib/work-orders/troubleshooting-checklist";
 import { canReconcileChecklistSummary } from "@/lib/work-orders/troubleshooting-summary";
 import { closeWorkOrderInBackground } from "@/lib/work-orders/background-close";
@@ -56,7 +57,7 @@ import { type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
-import { reportedDiagnosticCode } from "@/lib/manual-source";
+import { relevantSourcePassages, reportedDiagnosticCode } from "@/lib/manual-source";
 import { guideRulesForIssue, equipmentSearchAliases } from "@/lib/work-orders/guide-selection";
 import { inferWorkOrder } from "@/lib/work-order-suggestions";
 import { assignableAssetsForLocation, roomAssetsForInference } from "@/lib/work-orders/assignable-assets";
@@ -1350,6 +1351,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
     && !!manualKnowledge.source.storage_path && /^[a-f0-9]{64}$/i.test(manualKnowledge.source.sha256 || "") && !!manualKnowledge.source.registered_file_id;
+  const matchedSourcePages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText) : [];
   const matchingSymptomRules = trustedManualKnowledge ? guideRulesForIssue(manualKnowledge, combinedDiagnosticText) : [];
 
   const manualSteps = Array.from(
@@ -2578,7 +2580,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 )}
 
               <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
-                {selectedAsset && trustedManualKnowledge && !manualSteps.length && !relevantErrorCodes.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
+                {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} />}
+                {selectedAsset && trustedManualKnowledge && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
 
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-1 text-sm text-slate-400">
