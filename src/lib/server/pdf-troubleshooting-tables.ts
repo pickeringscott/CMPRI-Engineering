@@ -1,5 +1,6 @@
 import type { ManualSymptomRule } from '@/lib/manual-knowledge';
 import { borderedTableRules } from './pdf-bordered-tables';
+import { diagnosticSectionRules } from './pdf-diagnostic-sections';
 
 type PdfTextItem = { str: string; transform: number[] };
 
@@ -15,6 +16,7 @@ export async function extractPdfTroubleshootingTables(bytes: Uint8Array): Promis
       const page = await pdf.getPage(number);
       const content = await page.getTextContent();
       const items = content.items.filter((item): item is typeof item & PdfTextItem => 'str' in item && !!item.str.trim());
+      rules.push(...diagnosticSectionRules(items, number, page.view[2] - page.view[0]));
       const problems = items.filter(item => /^(problem|symptom|trouble|error type)$/i.test(item.str.trim()));
       if (problems.length && items.some(item => /^(solution|corrective action|remedy|check method)$/i.test(item.str.trim()))) {
         const bordered = await borderedTableRules(page, items, number, pdfjs.OPS);
