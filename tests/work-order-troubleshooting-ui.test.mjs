@@ -441,3 +441,15 @@ test('the actual ticket integration uses the saved issue identity despite displa
   assert.equal(edited.checklistContext.issue,'Washer not filling');
   assert.match(edited.checklistDisabledReason,/Save the reported issue/);
 });
+
+test('chart branches share their source context while retaining complete accessible labels',async()=>{
+ const labels=['MODELS A AND B — NO HOT WATER — Supply on? — Yes: Check the valve.','MODELS A AND B — NO HOT WATER — Supply on? — No: Open the supply.'];
+ const h=harness({steps:()=>labels.map((label,index)=>({id:`chart-${index}`,label,sourcePages:[4],kind:'symptom'}))});
+ try{
+  await h.render();assert.equal(h.parent.querySelectorAll('[data-chart-context]').length,1);
+  assert.match(h.parent.querySelector('[data-chart-context]').textContent,/MODELS A AND B — NO HOT WATER/);
+  assert.equal(h.parent.querySelectorAll('summary').length,1);
+  assert.equal(h.parent.querySelectorAll('li')[0].querySelector('p').textContent,'Supply on? — Yes: Check the valve.');
+  assert.equal(h.boxes()[0].getAttribute('aria-label'),`Step 1: ${labels[0]}`);
+ }finally{await h.dispose();}
+});
