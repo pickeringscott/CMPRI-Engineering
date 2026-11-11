@@ -1935,7 +1935,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       return true;
     }
     if (Array.isArray(updatePayload.appendNotes) && (roomChanged || normalizedIssue !== cleanTicketReportedIssue(order.issue || "", order.room || ""))) {
-      setSaving(false); setSaveState("idle"); setMessage("Notes saved. Save again to apply your report correction."); return false;
+      setSaving(false); setSaveState("idle"); setMessage("Save again to apply your report correction."); return false;
     }
 
     setInitialFingerprint(JSON.stringify({

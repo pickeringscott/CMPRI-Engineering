@@ -123,7 +123,7 @@ export default function WorkOrderSupplies({jobId,cacheScope="",issue="",notes=""
     setDraft({id:part.id,name:part.name,item:part.inventory_item_id||"",status:part.requested_status,quantity:String(part.quantity),poLine:part.po_line_id||"",revision:part.revision});setDirty(false);
    }else setQuantityUsed("");
    pending.current=null;setUncertain(false);
-   setMessage(attempt.kind==="part"?"Part saved. Activity posted to ticket notes.":"Supply use recorded once. Inventory and ticket notes updated.");
+   setMessage(attempt.kind==="part"?"":"Supply use recorded once. Inventory and ticket notes updated.");
    await invalidateCachedResources(["orders","reference"]);
    await onRecorded?.();
   }catch(error){if(pending.current)setUncertain(true);setMessage(error instanceof Error?error.message:"Save not confirmed. Retry this same operation.");}
