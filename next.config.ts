@@ -37,6 +37,9 @@ const nextConfig: NextConfig = {
 		];
 	},
 	async redirects() {
+		// Preview builds must remain on their own host so PR code can be verified.
+		// NODE_ENV is also production for previews; use Vercel's deployment target.
+		if (process.env.VERCEL_ENV !== "production") return [];
 		return [
 			{
 				source: "/:path*",
@@ -50,3 +53,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+

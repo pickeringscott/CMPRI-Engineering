@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
+// Native picture renders local blob previews without uploading them to an image optimizer.
 import WorkOrderMediaControl from './WorkOrderMediaControl';
 import {getValidSession} from '@/lib/supabase/client';
 import {uploadWorkOrderAttachment} from '@/lib/work-order-attachment-upload';
@@ -17,5 +18,6 @@ export default function WorkOrderMediaComposer({workOrderId,disabled,hasNote,onS
   if(active.current&&hasNote)await onSubmitNote();
  }catch(e){if(active.current){setError(e instanceof Error?e.message:'Attachments could not be saved. Your remaining selections are retained.');await onUploaded()}}
  finally{inFlight.current=false;if(active.current){setBusy(false);onBusyChange(false)}}}
- return <><div className="preview-note-actions"><div className="preview-note-thumbnails">{[...files].reverse().map(item=><span className="preview-note-thumbnail" key={item.id}>{item.file.type.startsWith('video/')?<video src={item.url} muted preload="metadata"/>:<img src={item.url} alt={item.file.name}/>}<button type="button" disabled={busy||disabled} onClick={()=>remove(item.id)} aria-label={'Remove '+item.file.name}>×</button></span>)}</div><WorkOrderMediaControl disabled={busy||disabled} onSelect={chosen=>replace([...pending.current,...chosen.map(file=>({file,id:crypto.randomUUID(),url:URL.createObjectURL(file)}))])}/><button type="button" onClick={()=>void submit()} disabled={busy||disabled||(!hasNote&&!files.length)} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">{busy?'Saving…':'Submit Note'}</button></div>{error&&<p role="alert" className="text-xs text-red-200">{error}</p>}</>;
+ return <><div className="preview-note-actions"><div className="preview-note-thumbnails">{[...files].reverse().map(item=><span className="preview-note-thumbnail" key={item.id}>{item.file.type.startsWith('video/')?<video src={item.url} muted preload="metadata"/>:<picture style={{ display: 'contents' }}><img src={item.url} alt={item.file.name}/></picture>}<button type="button" disabled={busy||disabled} onClick={()=>remove(item.id)} aria-label={'Remove '+item.file.name}>×</button></span>)}</div><WorkOrderMediaControl disabled={busy||disabled} onSelect={chosen=>replace([...pending.current,...chosen.map(file=>({file,id:crypto.randomUUID(),url:URL.createObjectURL(file)}))])}/><button type="button" onClick={()=>void submit()} disabled={busy||disabled||(!hasNote&&!files.length)} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">{busy?'Saving…':'Submit Note'}</button></div>{error&&<p role="alert" className="text-xs text-red-200">{error}</p>}</>;
 }
+

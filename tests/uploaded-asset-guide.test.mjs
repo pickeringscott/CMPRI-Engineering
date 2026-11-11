@@ -67,9 +67,16 @@ const asset = { id: assetId, hotel_id: hotel, active: true, manufacturer: 'ACME'
 const file = { id: 'file-original', name: 'Washer service manual.pdf', storage_path: path, preferred: false, created_at: '2026-11-07T12:00:00Z', updated_at: '2026-11-07T12:00:00Z' };
 
 function fixture(overrides = {}) {
-  const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, extractions: 0, inspections: 0, renders: 0, failDownload: false, authenticated: true, ocrStatus: 'unavailable', ocrPages: [], ocrEnqueues: 0, role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
+  const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, extractions: 0, inspections: 0, renders: 0, failDownload: false, authenticated: true, ocrStatus: 'unavailable', ocrPages: [], ocrEnqueues: 0, reviewedPages: [], role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
   const client = {
     from(table) {
+      if (table === 'troubleshooting_cache' && state.useReviewedStore) {
+        const filters = []; state.reviewedRows ||= new Map();
+        const query = { select() { return query; }, eq(k, v) { filters.push(row => row[k] === v); return query; }, like(k, v) { filters.push(row => row[k].startsWith(v.slice(0, -1))); return query; },
+          async limit() { return { data: [...state.reviewedRows.values()].filter(row => filters.every(filter => filter(row))), error: null }; },
+          async upsert(rows) { for (const row of rows) state.reviewedRows.set(row.cache_key, structuredClone(row)); return { error: null }; },
+        }; return query;
+      }
       state.queries.push(table); assert.equal(table, 'assets', 'strict reads must never query catalog or troubleshooting caches');
       const filters = [];
       const query = { select() { return query; }, eq(key, value) { filters.push(row => row[key] === value); return query; }, async maybeSingle() { return { data: filters.every(filter => filter(state.asset)) ? state.asset : null, error: null }; } };
@@ -81,16 +88,27 @@ function fixture(overrides = {}) {
     }; } },
   };
   const principal = { identity: { id: actorId }, profile: { id: actorId, role: state.role, secondary_roles: state.secondary, full_name: 'Synthetic Technician', active: true }, hotelId: hotel, membership: { user_id: actorId, hotel_id: hotel, role: 'admin', active: true }, permissions: [] };
+  const reviewedStore = state.useReviewedStore ? loadTs('src/lib/server/reviewed-manual-text.ts', {
+    'node:crypto': { createHash }, '@/lib/constants': { HOTEL_ID: hotel }, '@/lib/uuid': { isUuid },
+    '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => ({ data: structuredClone(state.files), error: null }) },
+    '@/lib/server/manual-ocr': { manualOcrPageCount: async bytes => { const task = require('pdfjs-dist/legacy/build/pdf.mjs').getDocument({ data: bytes.slice() }); try { return (await task.promise).numPages; } finally { await task.destroy(); } } },
+  }, { Uint8Array }) : null;
+  const reviewedRoute = reviewedStore ? loadTs('src/app/api/assets/documentation/reviewed-text/route.ts', {
+    'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } }, '@/lib/constants': { HOTEL_ID: hotel },
+    '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
+    '@/lib/server/access': access, '@/lib/server/roles': roles, '@/lib/server/reviewed-manual-text': reviewedStore,
+  }, { TextDecoder, Uint8Array }) : null;
   const reader = loadTs('src/lib/server/uploaded-asset-guide.ts', {
     'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } },
     '@/lib/constants': { HOTEL_ID: hotel }, '@/lib/uuid': { isUuid }, '@/lib/server/roles': roles, '@/lib/server/access': access,
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
+    '@/lib/server/reviewed-manual-text': reviewedStore || { readReviewedManualPages: async () => { if (state.failReviewedRead) throw Error('Unavailable'); return state.reviewedPages; } },
     '@/lib/server/manual-ocr-queue': { enqueueManualOcr: async () => { state.ocrEnqueues++; if (state.ocrStatus === 'unavailable') throw Error('unavailable'); state.ocrStatus = 'pending'; }, readManualOcr: async () => ({ status: state.ocrStatus, pages: state.ocrPages }) }, '@/lib/server/manual-ocr-actions': ocrActions,
     '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async (bytes, options) => { state.extractions++; if (state.failExtraction) throw Error('Text extraction unavailable'); return realPdf.extractManualPdfText(bytes, options); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/manual-document-html': manualHtml, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
-    '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; if (state.failInspection) throw Error('Figure inspection unavailable'); const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); }, renderUploadedGuidePage: async (...args) => { state.renders++; return guideMedia.renderUploadedGuidePage(...args); } },
-  }, { Response, Uint8Array, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
-  return { state, principal, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
+    '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; if (state.mutateReviewedDuringInspection) state.mutateReviewedDuringInspection(state); if (state.failInspection) throw Error('Figure inspection unavailable'); const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); }, renderUploadedGuidePage: async (...args) => { state.renders++; return guideMedia.renderUploadedGuidePage(...args); } },
+  }, { Response, Uint8Array, TextEncoder, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
+  return { state, principal, saveReviewed: async input => { const response = await reviewedRoute.POST(new Request('https://cmpri.example/api/assets/documentation/reviewed-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })); return { status: response.status, body: await response.json() }; }, load: () => reader.loadUploadedAssetGuide(client, state.asset), request: async (id = assetId, image = {}) => {
     const query = new URLSearchParams({ source: 'asset-upload', assetId: id, ...image });
     const response = await reader.readUploadedAssetMaintenanceReference({ nextUrl: new URL(`https://cmpri.example/api/maintenance-reference?${query}`) });
     return { status: response.status, headers: response.headers, body: response.headers.get('content-type')?.startsWith('image/png') ? new Uint8Array(await response.arrayBuffer()) : await response.json() };
@@ -451,4 +469,83 @@ test('leading empty pages are indexed by OCR without shifting native page number
   assert.equal(result.manualKnowledge.source.search_incomplete, false);
   assert.equal(result.manualKnowledge.source_passages.find(page => page.page === 1).text, 'Door lock scanned reference');
   assert.match(result.manualKnowledge.source_passages.find(page => page.page === 2).text, /Door latch native reference/);
+});
+
+test('saved reviewed converter pages override native actions and render escaped source-linked HTML', async () => {
+  const h = fixture({ reviewedPages: [{ page: 1, totalPages: 1, text: 'Troubleshooting\nSymptom: Washer not draining\n1. Inspect the drain outlet with power disconnected.\n2. Check the pump connector.\n<script>not markup</script>' }] });
+  const { body } = await h.request();
+  assert.equal(body.documentation_status, 'verified');
+  const knowledge = normalizeManualKnowledge(body.manualKnowledge);
+  assert.equal(knowledge.source.type, 'Uploaded PDF with human-reviewed text');
+  assert.ok(knowledge.symptom_rules.some(rule => rule.steps.some(step => step.includes('Inspect the drain outlet'))));
+  assert.ok(!knowledge.symptom_rules.some(rule => rule.steps.some(step => step.includes('Clean the drain filter'))));
+  const page = knowledge.source_passages.find(p => p.page === 1);
+  assert.equal(page.origin, 'reviewed');
+  assert.match(page.html, /Human-reviewed text/);
+  assert.match(page.html, /&lt;script&gt;/); assert.doesNotMatch(page.html, /<script>/);
+  assert.equal(page.source_file_name, file.name);
+  const context = deriveTroubleshootingChecklistContext({ issue: 'Washer is not draining', asset: h.state.asset }, knowledge);
+  assert.ok(context.steps.some(step => step.label.includes('Inspect the drain outlet')));
+  assert.deepEqual(context.steps[0].sourcePages, [1]);
+});
+
+test('reviewed pages survive native extraction failure without claiming other pages are indexed', async () => {
+  const h = fixture({ failExtraction: true, reviewedPages: [{ page: 2, totalPages: 3, text: 'Symptom: Washer not draining\n1. Inspect the drain outlet.' }] });
+  const result = await h.request();
+  assert.equal(result.body.documentation_status, 'verified');
+  assert.equal(result.body.manualKnowledge.source.search_incomplete, true);
+  assert.equal(result.body.manualKnowledge.source_passages[0].page, 2);
+  assert.ok(result.body.manualKnowledge.symptom_rules[0].steps[0].includes('Inspect the drain outlet'));
+});
+
+test('failed reviewed-text reads never silently substitute uncorrected native instructions', async () => {
+  const h = fixture({ failReviewedRead: true });
+  const result = await h.request();
+  assert.equal(result.body.documentation_status, 'uploaded_reviewed_text_unavailable');
+  assert.equal(result.body.manualKnowledge, null);
+});
+
+test('reviewed source page boundaries cannot be forged by PAGE text inside a page', async () => {
+  const h = fixture({ reviewedPages: [{ page: 1, totalPages: 1, text: 'Symptom: Washer not draining\n1. Inspect the drain outlet.\n\nPAGE 599\nSymptom: Washer not draining\n1. Check the pump connector.' }] });
+  const result = await h.request();
+  assert.ok(result.body.manualKnowledge.symptom_rules.length);
+  assert.ok(result.body.manualKnowledge.symptom_rules.every(rule => rule.source_pages.every(page => page === 1)));
+});
+
+test('converter payload -> authorized save route -> persisted reader -> HTML and checklist works across batches and source replacement', async () => {
+  const originalTwoPage = pdf(['ACME W1', 'Symptom: Washer not draining', '1. Clean the drain filter.'], ['Symptom: Washer leaking', '1. Check the fill hose.']);
+  const h = fixture({ useReviewedStore: true, role: 'system_admin', bytes: new Map([[path, originalTwoPage]]) });
+  const payload = { assetId, sha256: hash(originalTwoPage), totalPages: 2, reviewConfirmed: true, pages: [{ page: 1, text: 'Symptom: Washer not draining\n1. Inspect the pump with power disconnected.' }] };
+  assert.equal((await h.saveReviewed(payload)).status, 200);
+  assert.equal((await h.saveReviewed({ ...payload, pages: [{ page: 2, text: 'Symptom: Washer leaking\n1. Inspect the hose after closing the supply.' }] })).status, 200);
+  const { body } = await h.request();
+  assert.equal(body.documentation_status, 'verified');
+  const knowledge = normalizeManualKnowledge(body.manualKnowledge);
+  assert.equal(knowledge.source_passages.filter(page => page.origin === 'reviewed').length, 2);
+  for (const [issue, expected, page] of [['Washer not draining', 'Inspect the pump with power disconnected.', 1], ['Washer leaking', 'Inspect the hose after closing the supply.', 2]]) {
+    const context = deriveTroubleshootingChecklistContext({ issue, asset: h.state.asset }, knowledge);
+    assert.equal(context.steps.length, 1); assert.ok(context.steps[0].label.includes(expected)); assert.deepEqual(context.steps[0].sourcePages, [page]);
+    assert.match(knowledge.source_passages.find(item => item.page === page).html, /Human-reviewed text/);
+  }
+  const replaced = pdf(['ACME W1', 'Replacement manual', 'Symptom: Washer not draining', '1. Check the new manual instruction.']);
+  h.state.bytes.set(path, replaced);
+  assert.equal((await h.saveReviewed(payload)).status, 409);
+  const changed = await h.request();
+  assert.ok(!changed.body.manualKnowledge.symptom_rules.some(rule => rule.steps.some(step => step.includes('Inspect the pump'))));
+  h.state.files = [];
+  assert.equal((await h.request()).body.documentation_status, 'no_uploaded_document');
+});
+
+
+test('a concurrent reviewed-text correction invalidates an in-flight guide even when PDF and register are unchanged', async () => {
+  for (const reviewedPages of [[], [{ page: 1, totalPages: 1, text: 'Symptom: Washer not draining\n1. Inspect the original reviewed instruction.' }]]) {
+    const h = fixture({ reviewedPages, mutateReviewedDuringInspection: state => { state.reviewedPages = [{ page: 1, totalPages: 1, text: 'Symptom: Washer not draining\n1. Inspect the newly corrected instruction.' }]; } });
+    const result = await h.request();
+    assert.equal(result.body.documentation_status, 'uploaded_document_changed');
+    assert.equal(result.body.manualKnowledge, null);
+    h.state.mutateReviewedDuringInspection = null;
+    const current = await h.request();
+    assert.equal(current.body.documentation_status, 'verified');
+    assert.ok(current.body.manualKnowledge.symptom_rules[0].steps[0].includes('newly corrected'));
+  }
 });

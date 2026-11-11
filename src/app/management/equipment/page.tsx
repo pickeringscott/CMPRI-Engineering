@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
-import LocalOcrReview, { type ReviewedOcrText } from "@/components/LocalOcrReview";
+import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
+import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { getValidSession } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
@@ -385,6 +386,33 @@ export default function ManageEquipmentPage() {
     setMessage("Reviewed documentation information loaded into the equipment record. Make any final corrections, then Save Equipment.");
   }
 
+  async function useReviewedGuide(result: ReviewedGuideText, signal: AbortSignal): Promise<string> {
+    if (!selectedId || !canManage || !editing) throw new Error("Select equipment you can manage before saving guide text.");
+    const access = await token();
+    signal.throwIfAborted();
+    if (!access) throw new Error("Sign in again to save reviewed text.");
+    const response = await fetch("/api/assets/documentation/reviewed-text", {
+      method: "POST",
+      signal,
+      headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId: selectedId, sha256: result.sha256, totalPages: result.totalPages, pages: result.pages, reviewConfirmed: true }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    signal.throwIfAborted();
+    if (!response.ok || payload.saved !== true || !Array.isArray(payload.pages) ||
+        payload.pages.length !== result.pages.length || !result.pages.every(page => payload.pages.includes(page.page))) {
+      throw new Error(typeof payload.error === "string" ? payload.error : "The server did not confirm that reviewed pages were saved. Attach the same PDF to this equipment, then retry.");
+    }
+    try {
+      await invalidateCachedResources(["reference", "orders"]);
+    } catch {
+      signal.throwIfAborted();
+      return "Reviewed pages were saved, but open guides could not refresh. Reload the work-order guide to use the saved text.";
+    }
+    signal.throwIfAborted();
+    return typeof payload.message === "string" && payload.message ? payload.message : "Reviewed pages saved. Reopen the work-order guide to use the updated text.";
+  }
+
   function useReviewedOcr(result: ReviewedOcrText) {
     if (!selectedId || !canManage || verified || !editing) return;
     const suggestions = suggestionsFromReviewedOcr(result.pages);
@@ -569,7 +597,7 @@ export default function ManageEquipmentPage() {
             <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
               <summary className="cursor-pointer font-semibold">Read an equipment label or document on this device</summary>
               <p className="mt-2 text-sm text-slate-400">Review recognized text against the original. Reading a file here does not upload it or attach it to this equipment; use the PDF controls above to save documentation separately.</p>
-              <LocalOcrReview key={selected.id} onUseText={useReviewedOcr} useTextLabel="Suggest equipment values" />
+              <LocalOcrReview key={selected.id} onUseText={useReviewedOcr} onUseGuide={useReviewedGuide} useTextLabel="Suggest equipment values" />
             </details>
 
             {dialogMessage && <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${/processed/i.test(dialogMessage) ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-200" : /failed|could not|not configured|not loaded/i.test(dialogMessage) ? "border-red-500/40 bg-red-950/25 text-red-200" : "border-slate-700 bg-slate-950 text-slate-300"}`}>{dialogMessage}</div>}
@@ -612,3 +640,4 @@ export default function ManageEquipmentPage() {
     </main>
   );
 }
+

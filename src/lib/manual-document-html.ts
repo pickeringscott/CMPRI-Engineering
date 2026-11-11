@@ -7,7 +7,7 @@ export type ManualHtmlBlock =
   | { kind: 'paragraph'; text: string; lines: string[] }
   | { kind: 'list'; ordered: boolean; items: { marker: string; number?: number; text: string; lines: string[] }[] }
   | { kind: 'table'; headers: string[]; rows: string[][]; lines: string[] };
-export type ManualHtmlPage = { page: number; text: string; origin: 'pdf' | 'ocr'; confidence?: number; blocks: ManualHtmlBlock[] };
+export type ManualHtmlPage = { page: number; text: string; origin: 'pdf' | 'ocr' | 'reviewed'; confidence?: number; blocks: ManualHtmlBlock[] };
 
 const listItem = /^(?:(\d+)[.)]|([•●▪*-]))\s+(.+)$/;
 const tableHeader = /\b(?:problem|symptom|trouble|code|cause|action|remedy|solution|description)\b/i;
@@ -25,7 +25,7 @@ function heading(line: string, following: string[]): boolean {
   return !/[.!?;:]$/.test(line) && following.slice(0, 3).some(value => /^1[.)]\s+/.test(value));
 }
 
-export function structureManualPage(text: string, page: number, origin: 'pdf' | 'ocr' = 'pdf', confidence?: number): ManualHtmlPage {
+export function structureManualPage(text: string, page: number, origin: 'pdf' | 'ocr' | 'reviewed' = 'pdf', confidence?: number): ManualHtmlPage {
   if (!Number.isSafeInteger(page) || page < 1 || page > 600) throw new Error('Invalid manual source page.');
   const lines = text.replace(/\r\n?/g, '\n').split('\n').map(line => line.trim());
   const blocks: ManualHtmlBlock[] = [];
@@ -61,7 +61,7 @@ export function structureManualPage(text: string, page: number, origin: 'pdf' | 
     blocks.push({ kind: heading(line, lines.slice(index + 1, index + 4)) ? 'heading' : 'paragraph', text: line, lines: [line] });
     index++;
   }
-  return { page, text, origin: origin === 'ocr' ? 'ocr' : 'pdf', ...(Number.isFinite(confidence) ? { confidence } : {}), blocks };
+  return { page, text, origin: origin === 'reviewed' ? 'reviewed' : origin === 'ocr' ? 'ocr' : 'pdf', ...(Number.isFinite(confidence) ? { confidence } : {}), blocks };
 }
 
 export function structureManualDocument(text: string): ManualHtmlPage[] {
@@ -93,10 +93,10 @@ export function renderManualPageHtml(page: ManualHtmlPage): string {
     const tag = block.ordered ? 'ol' : 'ul';
     return `<${tag}>${block.items.map(item => `<li${block.ordered && Number.isSafeInteger(item.number) ? ` value="${item.number}"` : ''}>${prose(item.text)}</li>`).join('')}</${tag}>`;
   }).join('');
-  return `<section data-source-page="${page.page}" data-source-origin="${page.origin === 'ocr' ? 'ocr' : 'pdf'}"><h2>Page ${page.page}</h2>${page.origin === 'ocr' ? '<p>OCR text: compare with the original source page.</p>' : ''}${body}</section>`;
+  return `<section data-source-page="${page.page}" data-source-origin="${page.origin === 'reviewed' ? 'reviewed' : page.origin === 'ocr' ? 'ocr' : 'pdf'}"><h2>Page ${page.page}</h2>${page.origin === 'reviewed' ? '<p>Human-reviewed text: compare with the original source page.</p>' : page.origin === 'ocr' ? '<p>OCR text: compare with the original source page.</p>' : ''}${body}</section>`;
 }
 
 /** Ignore supplied HTML and regenerate it from the source text and page ID. */
-export function sourcePageHtml(text: string, page: number, origin: 'pdf' | 'ocr' = 'pdf'): string {
+export function sourcePageHtml(text: string, page: number, origin: 'pdf' | 'ocr' | 'reviewed' = 'pdf'): string {
   return renderManualPageHtml(structureManualPage(text, page, origin));
 }

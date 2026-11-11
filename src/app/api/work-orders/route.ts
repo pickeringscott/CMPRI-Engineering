@@ -225,15 +225,22 @@ export async function GET(request: NextRequest) {
     .order("id", { ascending: true }).range(customSort ? 0 : page * pageSize, customSort ? 999 : (page + 1) * pageSize - 1);
   // The aggregate is hotel-wide and safe only for the existing unfiltered
   // reader policy. Keep the scoped query path for any narrower policy.
-  const [result, countResult] = await Promise.all([
+  const scopedCounts = () => Promise.all(filters.map(key => queryFor(key, true))).then(counts => ({
+    data: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])),
+    error: counts.find(count => count.error)?.error || null,
+  }));
+  const [result, initialCounts] = await Promise.all([
     query,
     readerFilter
-      ? Promise.all(filters.map(key => queryFor(key, true))).then(counts => ({
-          data: Object.fromEntries(filters.map((key, index) => [key, counts[index].count || 0])),
-          error: counts.find(count => count.error)?.error || null,
-        }))
+      ? scopedCounts()
       : auth.admin.rpc("cmpri_work_order_dashboard_counts", { p_hotel: HOTEL_ID, p_today: today }),
   ]);
+  // Authentication may fall back to the signed-in user's client. That client
+  // can read authorized rows but cannot execute the service-only aggregate.
+  // Reuse the same client's filtered queries so RLS and hotel scope still apply.
+  const countResult = !result.error && !readerFilter && initialCounts.error?.code === "42501"
+    ? await scopedCounts()
+    : initialCounts;
   if (result.error || countResult.error || !countResult.data) return NextResponse.json({ error: "Work orders could not be loaded." }, { status: 503 });
   const allRows = [...(result.data || [])];
   if(customSort)for(let offset=allRows.length;offset<(result.count||0);offset+=1000){

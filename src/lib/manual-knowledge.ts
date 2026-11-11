@@ -187,7 +187,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
       const item = entry as SourcePassage;
       return Number.isInteger(item.page) && item.page > 0 && item.page <= 600 && typeof item.text === "string" &&
         (item.kind === "diagnostic" || item.kind === "troubleshooting" || item.kind === "reference");
-    }).map(item => typeof item.html === 'string' ? { ...item, html: sourcePageHtml(item.text, item.page, item.origin === 'ocr' ? 'ocr' : 'pdf') } : item) : [],
+    }).map(item => typeof item.html === 'string' ? { ...item, html: sourcePageHtml(item.text, item.page, item.origin === 'reviewed' ? 'reviewed' : item.origin === 'ocr' ? 'ocr' : 'pdf') } : item) : [],
     error_codes,
     symptom_rules,
     general_checks,

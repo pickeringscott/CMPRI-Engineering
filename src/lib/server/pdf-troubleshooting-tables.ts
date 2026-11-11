@@ -1,4 +1,5 @@
 import type { ManualSymptomRule } from '@/lib/manual-knowledge';
+import { causeActionTableRules } from './pdf-cause-action-tables';
 import { borderedTableRules } from './pdf-bordered-tables';
 import { diagnosticSectionRules } from './pdf-diagnostic-sections';
 import { flowchartPrerequisites } from './pdf-flowchart-notes';
@@ -19,6 +20,7 @@ export async function extractPdfTroubleshootingTables(bytes: Uint8Array): Promis
       const page = await pdf.getPage(number);
       const content = await page.getTextContent();
       const items = content.items.filter((item): item is typeof item & PdfTextItem => 'str' in item && !!item.str.trim());
+      rules.push(...await causeActionTableRules(page, items, number, pdfjs.OPS));
       rules.push(...diagnosticSectionRules(items, number, page.view[2] - page.view[0]));
       rules.push(...numberedSectionRules(items, number, page.view[2] - page.view[0]));
       rules.push(...flowchartPrerequisites(items, number));
@@ -73,3 +75,4 @@ export async function extractPdfTroubleshootingTables(bytes: Uint8Array): Promis
   } finally { await task.destroy(); }
   return rules;
 }
+
