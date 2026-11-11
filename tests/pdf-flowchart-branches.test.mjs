@@ -33,3 +33,12 @@ test('documents without a diagnostic chart or with several possible titles are n
  const first=fixture();assert.deepEqual(await flowchartBranches(first.page,first.items.filter(entry=>entry.str!=='TROUBLESHOOTING CHART'),4,ops),[]);
  const second=fixture();second.items.push(item(40,680,'NO HOT WATER'));assert.deepEqual(await flowchartBranches(second.page,second.items,4,ops),[]);
 });
+
+test('vertical branches keep their yes/no answer and never skip an intervening box',async()=>{
+ const paths=[rect(20,600,120,640),rect(20,530,120,570),new Float32Array([0,70,650,1,70,520])];
+ const items=[item(20,740,'TROUBLESHOOTING CHART'),item(40,700,'NO HOT WATER'),item(30,620,'Supply on?'),item(74,582,'Yes'),item(30,550,'Check valve.')];
+ const page={getOperatorList:async()=>({fnArray:[ops.constructPath],argsArray:[[0,paths]]})};
+ const rules=await flowchartBranches(page,items,3,ops);assert.deepEqual(rules[0].steps,['NO HOT WATER — Supply on? — Yes: Check valve.']);
+ paths.push(rect(20,578,120,590));items.push(item(30,584,'Another check'));
+ assert.deepEqual(await flowchartBranches(page,items,3,ops),[]);
+});

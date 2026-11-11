@@ -65,6 +65,10 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
     .sort((a,b) => b.transform[5]-a.transform[5] || a.transform[4]-b.transform[4]).map(item => item.str.trim()).join(' ').replace(/\s+([.,;:!?])/g, '$1').replace(/\s+/g, ' ').trim();
   const populated = boxes.filter(box => box.text && box.text.length < 500);
   const steps = new Map<string, { label: string; top: number; left: number }>();
+  const record = (from: Box, to: Box, answer: string) => {
+    const label = [caption, title, from.text, `${answer}: ${to.text}`].filter(Boolean).join(' — ');
+    if (!steps.has(label)) steps.set(label, { label, top: from.top, left: from.left });
+  };
   for (const from of populated) for (const to of populated) {
     if (from === to || /\?$/.test(to.text) || to.left <= from.right || to.left-from.right > 50) continue;
     const bottom = Math.max(from.bottom, to.bottom), top = Math.min(from.top, to.top);
@@ -72,9 +76,19 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
     const labels = items.filter(item => /^(yes|no)$/i.test(item.str.trim()) && item.transform[4] >= from.right-4 && item.transform[4] <= to.left+4 && item.transform[5] >= bottom-12 && item.transform[5] <= top+8);
     if (labels.length !== 1) continue;
     const connected = segments.some(([a,b]) => Math.abs(a[1]-b[1]) < 1 && a[1] >= bottom-2 && a[1] <= top+2 && ((Math.abs(a[0]-from.right)<3 && Math.abs(b[0]-to.left)<3) || (Math.abs(b[0]-from.right)<3 && Math.abs(a[0]-to.left)<3)));
-    if (connected) {
-      const label = [caption, title, from.text, `${labels[0].str.trim()}: ${to.text}`].filter(Boolean).join(' — ');
-      if (!steps.has(label)) steps.set(label, { label, top: from.top, left: from.left });
+    if (connected) record(from, to, labels[0].str.trim());
+  }
+  for (const from of populated) for (const to of populated) {
+    if (from === to || to.top >= from.bottom || from.bottom-to.top > 50 || titles[0].transform[5] <= from.top) continue;
+    const left = Math.max(from.left, to.left), right = Math.min(from.right, to.right);
+    if (right-left < 5) continue;
+    for (const [a,b] of segments) {
+      const x = a[0];
+      if (Math.abs(a[0]-b[0]) >= 1 || x < left-2 || x > right+2 || Math.max(a[1],b[1]) < from.bottom-3 || Math.min(a[1],b[1]) > to.top+3) continue;
+      const labels = items.filter(item => /^(yes|no)$/i.test(item.str.trim()) && Math.abs(item.transform[4]-x) < 18 && item.transform[5] >= to.top-1 && item.transform[5] < from.bottom-1);
+      if (labels.length !== 1) continue;
+      const intervening = populated.some(box => box !== from && box !== to && box.bottom >= to.top-2 && box.top <= from.bottom+2 && box.left < x && box.right > x);
+      if (!intervening) record(from, to, labels[0].str.trim());
     }
   }
   if (!steps.size) return [];
