@@ -142,7 +142,25 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   }
   const selected = matching[0];
   if (image && image.sha256 !== selected.sha256) return unavailable('uploaded_document_changed', 'The uploaded PDF changed. Reload the guide before opening its image.');
+  let ocrStatus = '';
+  let ocrPages: { page: number; text: string; confidence: number }[] = [];
+  if (!selected.text.trim() && !image) {
+    try {
+      const { enqueueManualOcr, readManualOcr } = await import('@/lib/server/manual-ocr-queue');
+      const recognized = await readManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, sha256: selected.sha256 });
+      ocrStatus = recognized.status;
+      ocrPages = recognized.pages;
+      if (ocrStatus === 'missing' || ocrStatus === 'cancelled') {
+        await enqueueManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, path: selected.file.storage_path, sha256: selected.sha256, bytes: selected.bytes });
+        ocrStatus = 'pending';
+      }
+    } catch { failures.push({ status: 'uploaded_ocr_unavailable', message: 'Text recognition is unavailable. Open the attached source PDF.' }); }
+  }
   const actions = uploadedManualActions(selected.text);
+  if (ocrStatus === 'complete') {
+    const { ocrManualActions } = await import('@/lib/server/manual-ocr-actions');
+    actions.symptom_rules.push(...ocrManualActions(ocrPages));
+  }
   try {
     const tableRules = await cachedDerivative(`tables:v7:${selected.sha256}`, () => extractPdfTroubleshootingTables(selected.bytes));
     actions.symptom_rules.push(...tableRules);
@@ -185,6 +203,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     if (actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
   }
   for (const page of manualReferencePages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
+  if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference' });
   const source_passages: SourcePassage[] = passages.map(passage => passage.kind === 'reference' ? passage : ({ ...passage, source_file_name: selected.file.name, source_url: sourceUrl }));
   const manualKnowledge: ManualKnowledge = {
     step_media: media.map(item => item.descriptor),
@@ -201,11 +220,16 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     general_checks: [], manual_tests: [],
   };
   const available = source_passages.some(passage => passage.kind !== 'reference') || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
-  const needsOcr = !selected.text.trim();
-  return { documentation_status: needsOcr ? 'uploaded_document_needs_ocr' : available ? 'verified' : 'no_guidance', documentation_reason: needsOcr
-    ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
+  const indexedOcr = ocrStatus === 'complete' && ocrPages.some(page => page.text.trim());
+  const needsOcr = !selected.text.trim() && !indexedOcr;
+  const processingOcr = needsOcr && ['pending', 'processing'].includes(ocrStatus);
+  const failedOcr = needsOcr && ocrStatus === 'failed';
+  return { documentation_status: processingOcr ? 'uploaded_document_ocr_processing' : failedOcr ? 'uploaded_document_ocr_failed' : needsOcr ? 'uploaded_document_needs_ocr' : available ? 'verified' : 'no_guidance', documentation_reason: processingOcr
+    ? `Text recognition is processing ${selected.file.name}. The source remains available.`
+    : failedOcr ? `Text recognition could not finish ${selected.file.name}. Open the source or retry processing the stored file.`
+    : needsOcr ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
     : available ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
-    : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF, or use on-device OCR for scanned content and review it.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
+    : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
 }
 
 /** Strict, source-restricted branch used by work orders, before catalog staging. */

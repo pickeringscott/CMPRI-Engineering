@@ -9,6 +9,7 @@ import { loadTs } from './helpers/load-ts.mjs';
 import * as matching from '../src/lib/manual-document-match.ts';
 import * as source from '../src/lib/manual-source.ts';
 import * as actions from '../src/lib/uploaded-manual-actions.ts';
+import * as ocrActions from '../src/lib/server/manual-ocr-actions.ts';
 import * as roles from '../src/lib/server/roles.ts';
 import * as access from '../src/lib/server/access.ts';
 import { isUuid } from '../src/lib/uuid.ts';
@@ -46,7 +47,7 @@ const asset = { id: assetId, hotel_id: hotel, active: true, manufacturer: 'ACME'
 const file = { id: 'file-original', name: 'Washer service manual.pdf', storage_path: path, preferred: false, created_at: '2026-11-07T12:00:00Z', updated_at: '2026-11-07T12:00:00Z' };
 
 function fixture(overrides = {}) {
-  const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, extractions: 0, inspections: 0, renders: 0, failDownload: false, authenticated: true, role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
+  const state = { asset: structuredClone(asset), files: [structuredClone(file)], bytes: new Map([[path, original]]), registryReads: 0, downloads: [], queries: [], network: 0, extractions: 0, inspections: 0, renders: 0, failDownload: false, authenticated: true, ocrStatus: 'unavailable', ocrPages: [], ocrEnqueues: 0, role: 'Maintenance Technician', secondary: [], mutateRegistry: null, ...overrides };
   const client = {
     from(table) {
       state.queries.push(table); assert.equal(table, 'assets', 'strict reads must never query catalog or troubleshooting caches');
@@ -65,6 +66,7 @@ function fixture(overrides = {}) {
     '@/lib/constants': { HOTEL_ID: hotel }, '@/lib/uuid': { isUuid }, '@/lib/server/roles': roles, '@/lib/server/access': access,
     '@/lib/server/auth': { requireUser: async () => state.authenticated ? { admin: client, principal } : null },
     '@/lib/server/asset-file-register': { listRegisteredAssetFiles: async () => { state.registryReads++; if (state.mutateRegistry && state.registryReads === 2) state.mutateRegistry(state); return { data: structuredClone(state.files), error: null }; } },
+    '@/lib/server/manual-ocr-queue': { enqueueManualOcr: async () => { state.ocrEnqueues++; if (state.ocrStatus === 'unavailable') throw Error('unavailable'); state.ocrStatus = 'pending'; }, readManualOcr: async () => ({ status: state.ocrStatus, pages: state.ocrPages }) }, '@/lib/server/manual-ocr-actions': ocrActions,
     '@/lib/manual-pdf-knowledge': { ...realPdf, extractManualPdfText: async bytes => { state.extractions++; return realPdf.extractManualPdfText(bytes); } }, '@/lib/manual-document-match': matching, '@/lib/manual-source': source, '@/lib/uploaded-manual-actions': actions, '@/lib/server/pdf-troubleshooting-tables': { extractPdfTroubleshootingTables: async () => [] },
     '@/lib/server/uploaded-guide-media': { ...guideMedia, inspectUploadedGuideMedia: async (...args) => { state.inspections++; const result = await guideMedia.inspectUploadedGuideMedia(...args); if (state.circularMedia && result[0]) result[0].cycle = result[0]; return result; }, renderUploadedGuideMedia: async (...args) => { state.renders++; return guideMedia.renderUploadedGuideMedia(...args); } },
   }, { Response, Uint8Array, Error, fetch: () => { state.network++; throw Error('No external recognition or provider requests are permitted.'); } });
@@ -311,4 +313,15 @@ test('an unlabelled future manual exposes searchable source pages without invent
  assert.equal(normalized.source_passages[0].kind,'reference');
  assert.deepEqual(source.relevantSourcePassages(normalized.source_passages,'door lock broken').map(page=>page.page),[1]);
  assert.equal(deriveTroubleshootingChecklistContext({issue:'door lock broken',asset},normalized).steps.length,0);
+});
+
+
+test('OCR waits for a complete source-specific scan and then exposes source-linked checks',async()=>{
+ const h=fixture({bytes:new Map([[path,pdf([])]]),ocrStatus:'processing'});const pending=await h.load();assert.equal(pending.documentation_status,'uploaded_document_ocr_processing');assert.deepEqual(pending.manualKnowledge.symptom_rules,[]);
+ h.state.ocrStatus='complete';h.state.ocrPages=[{page:1,confidence:95,text:'Door lock stuck\n1. Inspect the latch.\n2. Check the wiring.'}];const ready=await h.load();assert.equal(ready.documentation_status,'verified');assert.equal(ready.manualKnowledge.symptom_rules.length,1);assert.ok(ready.manualKnowledge.symptom_rules[0].steps.every(step=>step.startsWith('OCR — ')));assert.deepEqual(ready.manualKnowledge.symptom_rules[0].source_pages,[1]);
+});
+
+
+test('an existing scanned asset is queued once and remains openable while OCR runs',async()=>{
+ const h=fixture({bytes:new Map([[path,pdf([])]]),ocrStatus:'missing'});const first=await h.load();assert.equal(first.documentation_status,'uploaded_document_ocr_processing');assert.ok(first.manualKnowledge.source.file_url);assert.equal(h.state.ocrEnqueues,1);const second=await h.load();assert.equal(second.documentation_status,'uploaded_document_ocr_processing');assert.equal(h.state.ocrEnqueues,1);
 });
