@@ -1,6 +1,7 @@
 import { sourcePageHtml } from './manual-document-html';
 import type { SourcePassage } from "./manual-source";
-export type TroubleshootingStepMedia = {
+export type ManualProvenance = { source_document_id?: string; source_sha256?: string };
+export type TroubleshootingStepMedia = ManualProvenance & {
   id: string;
   stepLabel: string;
   sourcePage: number;
@@ -8,7 +9,7 @@ export type TroubleshootingStepMedia = {
   width: number;
   height: number;
 };
-export type ManualErrorCode = {
+export type ManualErrorCode = ManualProvenance & {
   code: string;
   problem: string;
   action: string;
@@ -16,7 +17,7 @@ export type ManualErrorCode = {
   source_url?: string;
 };
 
-export type ManualSymptomRule = {
+export type ManualSymptomRule = ManualProvenance & {
   match: string[];
   steps: string[];
   source_pages?: number[];
@@ -33,6 +34,7 @@ export type ManualTestEntry = {
 };
 
 export type ManualKnowledge = {
+  sources?: NonNullable<ManualKnowledge["source"]>[];
   step_media?: TroubleshootingStepMedia[];
   source_passages?: SourcePassage[];
   manufacturer?: string;
@@ -60,6 +62,13 @@ export type ManualKnowledge = {
   general_checks?: string[];
   manual_tests?: ManualTestEntry[];
 };
+
+function provenance(item: Record<string, unknown>): ManualProvenance {
+  return {
+    ...(typeof item.source_document_id === 'string' ? { source_document_id: item.source_document_id } : {}),
+    ...(typeof item.source_sha256 === 'string' && /^[a-f0-9]{64}$/.test(item.source_sha256) ? { source_sha256: item.source_sha256 } : {}),
+  };
+}
 
 function objectRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -121,6 +130,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
             problem: String(item.problem ?? item.description ?? item.meaning ?? "").trim(),
             action: String(item.action ?? item.solution ?? item.corrective_action ?? "").trim(),
             source_pages: pageNumbers(item.source_pages ?? item.pages),
+            ...provenance(item),
             ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
@@ -137,6 +147,7 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
             match: Array.isArray(matchRaw) ? matchRaw.map(String) : [String(matchRaw || "")].filter(Boolean),
             steps: Array.isArray(stepsRaw) ? stepsRaw.map(String) : [String(stepsRaw || "")].filter(Boolean),
             source_pages: pageNumbers(item.source_pages ?? item.pages),
+            ...provenance(item),
             ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
@@ -154,13 +165,17 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     .filter((entry): entry is ManualTestEntry => !!entry);
 
   return {
+    sources: Array.isArray(payload.sources) ? payload.sources.flatMap(source => {
+      const normalized = normalizeManualKnowledge({ source });
+      return normalized?.source ? [normalized.source] : [];
+    }) : undefined,
     step_media: Array.isArray(payload.step_media) ? payload.step_media.flatMap((entry) => {
       const item = objectRecord(entry);
       const sourcePage = Number(item.sourcePage), width = Number(item.width), height = Number(item.height);
       if (typeof item.id !== 'string' || !/^media-[a-f0-9]{64}$/.test(item.id) || typeof item.stepLabel !== 'string' || !item.stepLabel.trim()
         || typeof item.caption !== 'string' || !Number.isSafeInteger(sourcePage) || sourcePage < 1
         || !Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1 || width * height > 4_000_000) return [];
-      return [{ id: item.id, stepLabel: item.stepLabel, sourcePage, caption: item.caption, width, height }];
+      return [{ ...provenance(item), id: item.id, stepLabel: item.stepLabel, sourcePage, caption: item.caption, width, height }];
     }) : [],
     manufacturer: String(payload.manufacturer ?? ""),
     equipment: String(payload.equipment ?? payload.asset ?? ""),
@@ -194,4 +209,3 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
     manual_tests,
   };
 }
-

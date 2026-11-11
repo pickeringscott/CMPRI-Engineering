@@ -21,7 +21,7 @@ test('real PDF extraction preserves upload bytes and SHA, including a second rea
 const unexpectedLegacy=()=>{throw Error('Canonical route test must not invoke the legacy route');};
 routeDeps={
  '@/lib/server/pre-consolidation/assets-route':{GET:unexpectedLegacy,PATCH:unexpectedLegacy},
- '@/lib/server/pre-consolidation/documentation-route':{GET:unexpectedLegacy,POST:unexpectedLegacy},
+ '@/lib/manual-applicability':load('../src/lib/manual-applicability.ts'),'@/lib/server/stored-pdf-status':{withStoredPdfStatus:async(_admin,files)=>files},'@/lib/server/pre-consolidation/documentation-route':{GET:unexpectedLegacy,POST:unexpectedLegacy},
  '@/lib/server/consolidation-stage':{dispatchConsolidation:async()=>null},
  '@/lib/server/asset-file-register':load('../src/lib/server/asset-file-register.ts'),
  '@/lib/equipment-pdf-suggestions':load('../src/lib/equipment-pdf-suggestions.ts'),'@/lib/server/pdf-direct-upload':{},'@/lib/server/stored-pdf-import':{inspectStoredPdf:()=>{throw Error('Upload/retry fixture must not enter stored-import branch');}},

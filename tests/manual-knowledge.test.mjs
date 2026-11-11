@@ -34,9 +34,9 @@ test('reviewed Symmons catalog descriptor verifies the printed Temptrol family w
 // Execute the shared manual normalizer used by the ticket page.
 const source=readFileSync(new URL('../src/lib/manual-knowledge.ts',import.meta.url),'utf8');
 const ast=ts.createSourceFile('manual-knowledge.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
-const names=new Set(['objectRecord','pageNumbers','stringList','normalizeManualKnowledge']);
+const names=new Set(['provenance','objectRecord','pageNumbers','stringList','normalizeManualKnowledge']);
 const functions=ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)).map(node=>node.getText(ast)).join('\n');
-assert.equal(ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)).length,4);
+assert.equal(ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.has(node.name?.text)).length,5);
 const exports={};
 vm.runInNewContext(ts.transpileModule(functions+'\nexports.normalize=normalizeManualKnowledge;',{
   compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS},

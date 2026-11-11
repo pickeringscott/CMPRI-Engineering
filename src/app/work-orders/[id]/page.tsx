@@ -44,6 +44,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
+import { assetGuideIdentity, reconcileAssetGuide, type AssetGuideIdentity } from "@/lib/work-orders/asset-guide-cache";
 import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry } from "@/lib/ticket-note-presentation";
@@ -681,7 +682,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ assetId: string; documentationKey: string | null; documentationRevisionId?: string | null; documentationVerifiedAt?: string | null; manufacturer: string | null; modelFamily: string | null; modelNumber: string | null; knowledge: ManualKnowledge | null; status: string; reason?: string } | null>(null);
+  const [manualResult, setManualResult] = useState<{ asset: AssetGuideIdentity; knowledge: ManualKnowledge | null; status: string; reason?: string } | null>(null);
+  const manualCompletedIdentity = useRef("");
+  const manualSelection = useRef("");
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
   const [workOrderImageError, setWorkOrderImageError] = useState("");
@@ -776,23 +779,19 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const storedAsset = assets.find((asset) => asset.id === assetId);
   const equipmentLocationMismatch = !!storedAsset?.location_id && storedAsset.location_id !== (locationId || order?.location_id) && !frontDeskCommonArea(reportLocations.find(location => location.id === (locationId || order?.location_id)), reportLocations.find(location => location.id === storedAsset.location_id));
   const selectedAsset = equipmentLocationMismatch ? undefined : storedAsset;
-  const manualCurrent = !!selectedAsset && manualResult?.assetId === assetId &&
-    manualResult?.documentationKey === selectedAsset?.documentation_key &&
-    manualResult?.documentationRevisionId === selectedAsset?.documentation_revision_id &&
-    manualResult?.documentationVerifiedAt === selectedAsset?.documentation_verified_at &&
-    manualResult?.manufacturer === selectedAsset?.manufacturer &&
-    manualResult?.modelFamily === selectedAsset?.model_family &&
-    manualResult?.modelNumber === selectedAsset?.model_number;
+  const manualSelectionKey = `${id}:${assetGuideIdentity(selectedAsset)}`;
+  useLayoutEffect(() => { manualSelection.current = manualSelectionKey; }, [manualSelectionKey]);
+  const manualCurrent = !!selectedAsset && !!manualResult && assetGuideIdentity(manualResult.asset) === assetGuideIdentity(selectedAsset);
   const manualKnowledge = manualCurrent && manualResult?.knowledge?.source?.source_kind === "asset-upload" ? manualResult.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualReason = manualCurrent ? manualResult?.reason : null;
   const manualLoading = !!selectedAsset && !manualCurrent;
   const guideSource = manualKnowledge?.source;
-  const guideDocuments = guideSource?.source_kind === "asset-upload" && guideSource.storage_path ? [{
-    name: guideSource.source_file_name || guideSource.title || "Uploaded equipment document",
-    storage_path: guideSource.storage_path,
-    url: guideSource.file_url || guideSource.pdf_url,
-  }] : [];
+  const guideDocuments = (manualKnowledge?.sources?.length ? manualKnowledge.sources : guideSource ? [guideSource] : [])
+    .filter(source => source.source_kind === "asset-upload" && source.storage_path).map(source => ({
+      name: source.source_file_name || source.title || "Uploaded equipment document",
+      storage_path: source.storage_path, url: source.file_url || source.pdf_url,
+    }));
 
   useEffect(() => {
     const pane = historyScrollRef.current;
@@ -1243,6 +1242,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
   async function loadManualForAsset(asset?: Asset, isCurrent: () => boolean = () => true) {
     if (!asset) return;
+    const requestIdentity = `${id}:${assetGuideIdentity(asset)}`;
     let sourceAsset = asset;
     let knowledge: ManualKnowledge | null = null;
     let documentationStatus = "lookup_unavailable";
@@ -1268,18 +1268,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     } catch {
       knowledge = null;
     } finally {
-      if (isCurrent()) setManualResult({
-        assetId: asset.id,
-        documentationKey: sourceAsset.documentation_key,
-        documentationRevisionId: sourceAsset.documentation_revision_id,
-        documentationVerifiedAt: sourceAsset.documentation_verified_at,
-        manufacturer: sourceAsset.manufacturer,
-        modelFamily: sourceAsset.model_family,
-        modelNumber: sourceAsset.model_number,
-        knowledge,
-        status: documentationStatus,
-        reason: documentationReason,
-      });
+      if (isCurrent() && manualSelection.current === requestIdentity) {
+        // The guide endpoint can return a newer saved identity than the list.
+        // Reconcile both snapshots so a successful guide does not stay hidden.
+        manualCompletedIdentity.current = `${id}:${assetGuideIdentity(sourceAsset)}`;
+        setAssets(items => reconcileAssetGuide(items, asset, sourceAsset));
+        setManualResult({ asset: sourceAsset, knowledge, status: documentationStatus, reason: documentationReason });
+      }
     }
   }
 
@@ -1341,12 +1336,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     // set before assets finished loading, so existing tickets never loaded
     // their model-specific troubleshooting until the asset was changed.
     let current = true;
+    // Reconciliation already loaded this identity; do not fetch it in a loop.
     const stop = subscribeResources(["reference"], async () => {
       await loadManualForAsset(selectedAsset, () => current);
-    });
+    }, manualCompletedIdentity.current !== manualSelectionKey);
     return () => { current = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.documentation_revision_id, selectedAsset?.documentation_verified_at, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number]);
+  }, [id, assetId, selectedAsset?.id, selectedAsset?.documentation_key, selectedAsset?.documentation_revision_id, selectedAsset?.documentation_verified_at, selectedAsset?.manufacturer, selectedAsset?.model_family, selectedAsset?.model_number, selectedAsset?.serial_number]);
 
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
@@ -1370,7 +1366,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if (trustedManualKnowledge) {
       for (const item of manualKnowledge?.error_codes ?? []) {
         const code = normalizeDiagnosticCode(item.code);
-        if (code) byCode.set(code, item);
+        if (code) byCode.set(`${item.source_document_id || ""}:${code}`, item);
       }
     }
     return Array.from(byCode.values());
@@ -2562,6 +2558,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <p className="text-xs text-amber-300">Text recognition could not finish. Open the source or retry processing the document.</p>
                 )}
 
+                {selectedAsset && trustedManualKnowledge && guideDocuments.length > 1 && <ul className="text-xs text-slate-300" aria-label="Linked manual sources">
+                  {guideDocuments.map(document => <li key={document.storage_path}><a className="text-sky-300 underline" href={document.url} target="_blank" rel="noreferrer">{document.name}</a></li>)}
+                </ul>}
                 {selectedAsset && trustedManualKnowledge && cmpriSession && (
                   <WorkOrderTroubleshootingChecklist
                     workOrderId={order.id}
@@ -2577,7 +2576,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     manualUrl={guideDocuments[0]?.url}
                     reportedIssue={issue}
                     equipmentName={selectedAsset.name}
-                    sourceFileName={guideDocuments[0]?.name}
+                    sourceFileName={guideDocuments.length === 1 ? guideDocuments[0]?.name : undefined}
                     assetId={selectedAsset.id}
                     sourceSha256={manualKnowledge?.source?.sha256 || ""}
                   />
@@ -2860,4 +2859,3 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     </main>
   );
 }
-

@@ -132,7 +132,7 @@ test('only issue-matched verified actions and explicit reported diagnostic codes
   assert.deepEqual(result.steps[0].sourcePages, [12]);
   assert.equal(derive(input, { ...manual, source: { ...manual.source, verified: false } }).contextIdentity, null);
   assert.equal(derive(input, { ...manual, source: { ...manual.source, source_kind: undefined } }).contextIdentity, null, 'catalog knowledge is never a checklist source');
-  assert.equal(derive({ ...input, asset: { ...asset, model_family: 'Other', model_number: 'Other' } }, manual).contextIdentity, null);
+  assert.ok(derive({ ...input, asset: { ...asset, model_family: 'Other', model_number: 'Other' } }, manual).contextIdentity, 'a user-selected manual is not rejected by model-name inference');
   assert.equal(derive({ ...input, issue: 'Room 142 temperature 42 degrees' }, manual).steps.length, 0);
   assert.equal(derive({ ...input, issue: 'Reported fault code E42' }, manual).steps[0].label, 'Check the sensor connection.');
   assert.equal(derive({ ...input, reporter_notes: 'Reported fault code E42' }, manual).steps.length, 3);
@@ -455,4 +455,22 @@ test('source illustrations attach only to their exact step and page and particip
   const heating = checklistDomain.deriveTroubleshootingChecklistContext({ ...input, issue: "It won't get hot" }, withMedia);
   assert.equal(heating.steps.length, 1); assert.equal(heating.steps[0].media[0].id, `media-${'e'.repeat(64)}`);
   assert.ok(!heating.steps[0].media.some(item => item.id === media.id), 'a different issue cannot retain the cooling diagram');
+});
+
+
+test('identical steps in two manuals journal the selected step document rather than the primary source', async () => {
+  const h = fixture();
+  const first = { ...h.state.manual.source };
+  const second = { ...first, registered_file_id: 'second-upload', storage_path: `${hotel}/${assetId}/second.pdf`, sha256: 'b'.repeat(64), source_file_name: 'Second.pdf' };
+  h.state.manual.sources = [first, second];
+  h.state.manual.symptom_rules = [first, second].map(source => ({ match: ['not cooling'], steps: ['Inspect the filter.'], source_pages: [12], source_document_id: source.registered_file_id, source_sha256: source.sha256 }));
+  const response = await h.get();
+  assert.equal(response.body.steps.length, 2);
+  const selected = response.body.steps.find(step => step.source_document_id === second.registered_file_id);
+  const saved = await h.patch({ contextKey: response.body.contextKey, expectedRevision: 0, itemId: selected.id });
+  assert.equal(saved.status, 200);
+  assert.equal(h.state.events[0].source.registered_file_id, second.registered_file_id);
+  assert.equal(h.state.events[0].source.sha256, second.sha256);
+  assert.equal(h.state.events[0].source.storage_path, second.storage_path);
+  assert.deepEqual(h.state.events[0].source.source_pages, [12]);
 });

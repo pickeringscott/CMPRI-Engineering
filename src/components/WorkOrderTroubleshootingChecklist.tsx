@@ -225,6 +225,8 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
       </div>}
       {display && !showHandoff && <ol className="divide-y divide-slate-800">
         {display.steps.map((step, index) => {
+          const stepManualUrl = step.sourceUrl || manualUrl;
+          const stepSha256 = step.source_sha256 || sourceSha256;
           const state = display.taskStates[step.id];
           const visual = troubleshootingTaskVisual(state, display.canSeePendingReview);
           const action = checkboxAction(display, state);
@@ -238,13 +240,13 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           const chart = chartParts(step.label);
           const previous = index > 0 ? display.steps[index - 1] : undefined;
           const previousChart = previous ? chartParts(previous.label) : null;
-          const showChart = !!chart && (chart.context !== previousChart?.context || step.sourcePages?.[0] !== previous?.sourcePages?.[0]);
+          const showChart = !!chart && (chart.context !== previousChart?.context || step.sourcePages?.[0] !== previous?.sourcePages?.[0] || step.source_document_id !== previous?.source_document_id);
           return <li key={step.id} className="py-0">
             {showChart && <div className="text-xs font-semibold text-sky-300" data-chart-context>
               {chart.context}
-              {manualUrl && step.sourcePages?.length ? <details className="font-normal">
-                <summary className="cursor-pointer">Source page {step.sourcePages[0]}</summary>
-                <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${manualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
+              {stepManualUrl && step.sourcePages?.length ? <details className="font-normal">
+                <summary className="cursor-pointer">{step.sourceFileName || "Source"} · Page {step.sourcePages[0]}</summary>
+                <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
               </details> : null}
             </div>}
             <div className="flex items-start gap-0.5">
@@ -254,10 +256,10 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
                 <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? "Saving…" : status}{state?.workerName ? ` · Completed by ${state.workerName}` : ""}{state?.reviewedBy ? ` · Reviewed by ${state.reviewedBy}` : ""}</p>
-                {!!step.media?.length && assetId && sourceSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={sourceSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
-                {!chart && !step.media?.length && manualUrl && step.sourcePages?.length ? <details className="text-xs text-sky-300">
-                  <summary className="cursor-pointer">Source page {step.sourcePages[0]}</summary>
-                  <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${manualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
+                {!!step.media?.length && assetId && stepSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={stepSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
+                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <details className="text-xs text-sky-300">
+                  <summary className="cursor-pointer">{step.sourceFileName || "Source"} · Page {step.sourcePages[0]}</summary>
+                  <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
                 </details> : null}
               </div>
             </div>

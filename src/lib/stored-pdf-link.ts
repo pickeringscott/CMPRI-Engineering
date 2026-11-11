@@ -1,6 +1,7 @@
+import type { ManualApplicabilityReview } from "./manual-applicability";
 /** Validation for the existing importer; it does not infer equipment matches. */
-export type StoredPdf = { object_id: string; storage_path: string; object_version: string | null; etag: string | null; size: number; title: string };
-export type PdfReview = { title: string; manufacturer: string; models: string[]; selected_model: string; applicability: "reference" | "confirmed_model"; notes: string; reason: string; extracted_fields?: Record<string,string>; preferred?: boolean };
+export type StoredPdf = { object_id: string; storage_path: string; object_version: string | null; etag: string | null; size: number; title: string; catalog_status?: "complete" | "pending" | "content_mismatch" | "not_cataloged"; catalog_warnings?: string[] };
+export type PdfReview = { title: string; manufacturer: string; models: string[]; selected_model: string; applicability: "reference" | "confirmed_model"; notes: string; reason: string; extracted_fields?: Record<string,string>; preferred?: boolean; applicability_review?: ManualApplicabilityReview | null; quarantine_acknowledged?: boolean };
 export function preservePdfReview(currentId: string | null, nextId: string, current: PdfReview, saved: PdfReview | null, suggestions: PdfReview): PdfReview {
   return currentId === nextId ? current : saved ? { ...saved, reason: "" } : suggestions;
 }
@@ -20,11 +21,12 @@ export function reviewPdfFields(value: unknown): PdfReview {
   if (!Array.isArray(v.models) || v.models.length>100 || v.models.some(m=>typeof m!=="string"||m.length>200)) throw new Error("Enter the model list explicitly.");
   const models=Array.from(new Set((v.models as string[]).map(m=>m.trim()).filter(Boolean)));
   if (v.applicability!=="reference" && v.applicability!=="confirmed_model") throw new Error("Choose reference or user-confirmed model applicability.");
-  if (v.applicability==="confirmed_model" && (!manufacturer || !selected_model || !models.includes(selected_model))) throw new Error("Choose the confirmed equipment model from the document's model list and enter its manufacturer.");
+  if (selected_model && !models.includes(selected_model)) throw new Error("Choose a model from the document model list or leave it blank.");
   const extra=v.extracted_fields ?? {};
   if (!extra || typeof extra!=="object" || Array.isArray(extra) || Object.entries(extra).some(([key,val])=>!["asset_type","model_family","serial_number","generation","install_year"].includes(key)||typeof val!=="string"||val.length>300)) throw new Error("Invalid edited equipment fields.");
   if (v.preferred!==undefined && typeof v.preferred!=="boolean") throw new Error("Invalid guide selection.");
-  return {title,manufacturer,models,selected_model,notes,reason,applicability:v.applicability,extracted_fields:extra as Record<string,string>,preferred:v.preferred===true};
+  if (v.quarantine_acknowledged !== undefined && typeof v.quarantine_acknowledged !== "boolean") throw new Error("Invalid catalog warning acknowledgement.");
+  return {title,manufacturer,models,selected_model,notes,reason,quarantine_acknowledged:v.quarantine_acknowledged===true,applicability:v.applicability,extracted_fields:extra as Record<string,string>,preferred:v.preferred===true, applicability_review: v.applicability === "confirmed_model" ? (v.applicability_review ?? null) as ManualApplicabilityReview | null : null};
 }
 export function validateStoredPdf(bytes: Uint8Array, file: StoredPdf, expectedHash: string | null, actualHash: string) {
   if (!bytes.length) throw new Error("The stored PDF is empty. Its original has been preserved.");
@@ -32,4 +34,13 @@ export function validateStoredPdf(bytes: Uint8Array, file: StoredPdf, expectedHa
   if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") throw new Error("The selected stored file is not a PDF, even if its filename ends in .pdf.");
   if (file.size !== bytes.length) throw new Error("The stored file changed or its saved size does not match. Reload it before saving links.");
   if (expectedHash && expectedHash !== actualHash) throw new Error("The PDF changed since you reviewed it. Reload and review the current original.");
+}
+
+/** This label describes processing only, never promises troubleshooting readiness. */
+export function storedPdfStatusLabel(file: StoredPdf) {
+  if (file.size === 0) return "Empty original";
+  if (file.catalog_status === "content_mismatch") return "Quarantined: model/content mismatch";
+  if (file.catalog_status === "complete") return "Catalog processing complete";
+  if (file.catalog_status === "pending") return "Catalog processing incomplete";
+  return "Not cataloged: review required";
 }
