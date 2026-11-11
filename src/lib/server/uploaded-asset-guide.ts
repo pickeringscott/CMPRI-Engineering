@@ -128,10 +128,8 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       failures.push({ status: 'unreadable_uploaded_document', message: `${file.name}: readable text could not be extracted from the attached PDF. Open it for review or use on-device OCR with human verification.` });
       continue;
     }
-    if (!text.trim()) {
-      failures.push({ status: 'uploaded_document_needs_ocr', message: `${file.name}: this scanned or image-only PDF has no extractable text. Use on-device OCR and review the original; no troubleshooting instructions were invented.` });
-      continue;
-    }
+    // A readable PDF with no text can still be opened as a source. Never turn
+    // an image-only page into guessed checklist instructions.
     matching.push({ file, text, sha256, bytes });
   }
   if (matching.length > 1) return unavailable('ambiguous_uploaded_documents', 'More than one attached PDF matches this equipment. Select one preferred source document before showing a guide.');
@@ -203,8 +201,10 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     general_checks: [], manual_tests: [],
   };
   const available = source_passages.some(passage => passage.kind !== 'reference') || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
-  return { documentation_status: available ? 'verified' : 'no_guidance', documentation_reason: available
-    ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
+  const needsOcr = !selected.text.trim();
+  return { documentation_status: needsOcr ? 'uploaded_document_needs_ocr' : available ? 'verified' : 'no_guidance', documentation_reason: needsOcr
+    ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
+    : available ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
     : `${selected.file.name} matches the equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF, or use on-device OCR for scanned content and review it.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
 }
 

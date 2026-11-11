@@ -429,7 +429,7 @@ test('the actual ticket integration uses the saved issue identity despite displa
   const cleaner=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='cleanTicketReportedIssue').getText(ast);
   const compiled=ts.transpileModule(cleaner+'\n'+declarations.join('\n')+'\nglobalThis.result={checklistIssueSaved,checklistContext,checklistDisabledReason};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   const check=issue=>{
-    const scope={issue,order:{issue:'Room 316: washer not draining',room:'316',reporter_notes:'',asset_id:'washer',location_id:'loc'},assetId:'washer',locationId:'loc',selectedAsset:{id:'washer'},manualKnowledge:{},ticketReady:true,manualLoading:false,saving:false,exitFlushing:false,deriveTroubleshootingChecklistContext:input=>input};
+    const scope={issue,order:{issue:'Room 316: washer not draining',room:'316',reporter_notes:'',asset_id:'washer',location_id:'loc'},assetId:'washer',locationId:'loc',selectedAsset:{id:'washer'},manualKnowledge:{},manualStatus:'verified',ticketReady:true,manualLoading:false,saving:false,exitFlushing:false,deriveTroubleshootingChecklistContext:input=>input};
     vm.runInNewContext(compiled,scope);return scope.result;
   };
   const unchanged=check('Washer not draining');

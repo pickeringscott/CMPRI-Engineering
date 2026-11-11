@@ -1359,7 +1359,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   );
   const checklistIssueSaved = issue.trim() === cleanTicketReportedIssue(order?.issue || "", order?.room || "").trim();
   const checklistContextUnsaved = !checklistIssueSaved || assetId !== (order?.asset_id || "") || locationId !== (order?.location_id || "");
-  const checklistContext = deriveTroubleshootingChecklistContext({ issue: checklistIssueSaved ? order?.issue || "" : issue, reporter_notes: order?.reporter_notes || "", asset: selectedAsset || null }, manualKnowledge);
+  const checklistContext = manualStatus === "verified" ? deriveTroubleshootingChecklistContext({ issue: checklistIssueSaved ? order?.issue || "" : issue, reporter_notes: order?.reporter_notes || "", asset: selectedAsset || null }, manualKnowledge) : { contextIdentity: null, steps: [] };
   const checklistDisabledReason = exitFlushing ? "Saving this visit's checklist activity before leaving."
     : !ticketReady || manualLoading || saving ? "Wait for the current work order and guidance to finish loading or saving."
     : checklistContextUnsaved
@@ -2549,6 +2549,10 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </div>
               )}
 
+                {selectedAsset && trustedManualKnowledge && manualStatus === "uploaded_document_needs_ocr" && (
+                  <p className="text-xs text-amber-300">This document has no searchable text. Open the source to read it.</p>
+                )}
+
                 {selectedAsset && trustedManualKnowledge && cmpriSession && (
                   <WorkOrderTroubleshootingChecklist
                     workOrderId={order.id}
@@ -2572,7 +2576,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
               <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
                 {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} />}
-                {selectedAsset && trustedManualKnowledge && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
+                {selectedAsset && trustedManualKnowledge && manualStatus !== "uploaded_document_needs_ocr" && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">The uploaded manual has no instructions matching this report. You can open the document linked above to read it.</p>}
 
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-1 text-sm text-slate-400">

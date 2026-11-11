@@ -147,7 +147,7 @@ test('preferred source is authoritative, and ambiguous matching attachments requ
 
 test('image-only scans and invalid PDF signatures yield explicit source errors without invented steps', async () => {
   const h = fixture({ bytes: new Map([[path, pdf([])]]) });
-  const scan = await h.load(); assert.equal(scan.documentation_status, 'uploaded_document_needs_ocr'); assert.equal(scan.manualKnowledge, null); assert.match(scan.documentation_reason, /on-device OCR/);
+  const scan = await h.load(); assert.equal(scan.documentation_status, 'uploaded_document_needs_ocr'); assert.ok(scan.manualKnowledge.source.file_url); assert.deepEqual(scan.manualKnowledge.symptom_rules, []); assert.match(scan.documentation_reason, /no readable text/);
   h.state.bytes.set(path, new Uint8Array(Buffer.from('<html>not a PDF</html>')));
   const invalid = await h.load(); assert.equal(invalid.documentation_status, 'unreadable_uploaded_document'); assert.equal(invalid.manualKnowledge, null);
 });

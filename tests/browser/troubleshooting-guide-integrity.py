@@ -201,7 +201,9 @@ async def main():
       assert parse_qs(u.query).get('source') == ['asset-upload'], 'Work-order guide requested a catalog-capable source'
       if state['mode'] == 'unavailable': return await respond({'error': 'Fictional documentation unavailable'}, 503)
       if state['mode'] == 'revision': return await respond({'manualKnowledge': None, 'documentation_status': 'not_found', 'documentation_reason': 'No verified uploaded PDF is attached to this equipment.'})
-      if state['mode'] == 'scanned': return await respond({'manualKnowledge': None, 'documentation_status': 'no_guidance', 'documentation_reason': 'The attached PDF has no extractable text. Upload a searchable manufacturer PDF before using troubleshooting instructions.'})
+      if state['mode'] == 'scanned':
+       scanned = copy.deepcopy(current['knowledge']); scanned.update(symptom_rules=[], error_codes=[], source_passages=[], step_media=[])
+       return await respond({'manualKnowledge': scanned, 'documentation_status': 'uploaded_document_needs_ocr', 'documentation_reason': 'The source has no readable text.'})
       return await respond({'documentation_status': 'verified', 'manualKnowledge': current['knowledge'], 'asset_id': current['asset']['id']})
      if u.path == '/api/assets/documentation': return await respond({'documents': [
       {'name': current['knowledge']['source']['source_file_name'], 'storage_path': current['knowledge']['source']['storage_path'], 'url': PDF, 'verified': state['mode'] == 'verified', 'source': 'uploaded'},
@@ -504,11 +506,17 @@ async def main():
     assert len(issue_writes) == 2
 
    # Documentation becomes unavailable: hide the old checklist and explain why.
-   for mode, warning in [('revision', 'No verified uploaded PDF is attached'), ('scanned', 'The attached PDF has no extractable text'), ('unavailable', 'uploaded document could not be checked')]:
+   for mode, warning in [('revision', 'No verified uploaded PDF is attached'), ('scanned', 'This document has no searchable text'), ('unavailable', 'uploaded document could not be checked')]:
     state['mode'] = mode
     await chief.evaluate("async () => { await window.__cmpriDeviceData.invalidate(['reference']); }")
     await expect(chief_guide.get_by_text(warning, exact=False)).to_be_visible(timeout=30000)
-    await expect(chief_guide.get_by_role('region', name='Work-order troubleshooting checklist')).to_have_count(0)
+    if mode == 'scanned':
+     source = chief_guide.get_by_role('region', name='Work-order troubleshooting checklist')
+     await expect(source.get_by_role('link', name='Washer service manual revision.pdf')).to_be_visible()
+     await expect(source.get_by_role('checkbox')).to_have_count(0)
+     await expect(source.get_by_role('alert')).to_have_count(0)
+    else:
+     await expect(chief_guide.get_by_role('region', name='Work-order troubleshooting checklist')).to_have_count(0)
    for ctx, page, errors in pages:
     assert not errors, errors
    assert not unexpected, unexpected
