@@ -1,7 +1,7 @@
-import {createCanvas} from '@napi-rs/canvas';
+import {readFileSync} from 'node:fs';
 
 export function scannedPdf(){
- const canvas=createCanvas(1400,400),ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,1400,400);ctx.fillStyle='black';ctx.font='bold 55px sans-serif';ctx.fillText('NO HOT WATER',40,90);ctx.font='40px sans-serif';ctx.fillText('1. Check the water supply valve.',40,170);ctx.fillText('2. Inspect the water filter.',40,245);const jpeg=canvas.toBuffer('image/jpeg');
+ const jpeg=readFileSync(new URL('./scanned-page.jpg',import.meta.url));
  const content='q 700 0 0 200 0 0 cm /Im0 Do Q';
  const parts=[Buffer.from('%PDF-1.4\n')],offsets=[0];let size=parts[0].length;
  const add=(id,body)=>{offsets[id]=size;const head=Buffer.from(`${id} 0 obj\n`),tail=Buffer.from('\nendobj\n');parts.push(head,body,tail);size+=head.length+body.length+tail.length;};
