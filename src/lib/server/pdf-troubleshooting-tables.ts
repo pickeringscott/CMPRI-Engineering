@@ -3,6 +3,7 @@ import { borderedTableRules } from './pdf-bordered-tables';
 import { diagnosticSectionRules } from './pdf-diagnostic-sections';
 import { flowchartPrerequisites } from './pdf-flowchart-notes';
 import { flowchartBranches, isFlowchartTitle } from './pdf-flowchart-branches';
+import { numberedSectionRules } from './pdf-numbered-sections';
 
 type PdfTextItem = { str: string; transform: number[] };
 
@@ -19,6 +20,7 @@ export async function extractPdfTroubleshootingTables(bytes: Uint8Array): Promis
       const content = await page.getTextContent();
       const items = content.items.filter((item): item is typeof item & PdfTextItem => 'str' in item && !!item.str.trim());
       rules.push(...diagnosticSectionRules(items, number, page.view[2] - page.view[0]));
+      rules.push(...numberedSectionRules(items, number, page.view[2] - page.view[0]));
       rules.push(...flowchartPrerequisites(items, number));
       if (items.some(item => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(item.str)) && items.some(item => isFlowchartTitle(item.str))) rules.push(...await flowchartBranches(page, items, number, pdfjs.OPS));
       const problems = items.filter(item => /^(problem|symptom|trouble|error type)$/i.test(item.str.trim()));
