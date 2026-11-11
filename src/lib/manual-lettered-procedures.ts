@@ -2,7 +2,7 @@ import type { ManualHtmlPage } from './manual-document-html';
 import type { ManualSymptomRule } from './manual-knowledge';
 
 const numberedHeading = /^(\d+)[.)]\s+(.+)$/;
-const letteredAction = /^([a-z])[.)]\s+(.+)$/;
+const letteredAction = /^([a-z])[.)]\s+(.+)$/i;
 const troubleshooting = /^(?:[\p{L}\p{N} &/-]+\s+)?troubleshooting\s*:?$/iu;
 const qualification = /^(?:note|warning|caution|danger|important)\b\s*:?/i;
 const instruction = /^(?:check|inspect|verify|clean|disconnect|connect|reconnect|unplug|turn|remove|replace|test|measure|record|confirm|ensure|clear|tighten|loosen|restart|reset|open|close|adjust|set|use|drain|fill|isolate|stop|allow|wait|contact|observe|listen|press|hold|release|restore|repair|flush|lubricate|make sure|do not|repeat|refer|follow|perform)\b/i;
@@ -34,7 +34,7 @@ function hasInstruction(text: string): boolean {
 function completeProcedure(lines: string[]): boolean {
   const starts = lines.flatMap((line, index) => letteredAction.test(line) ? [index] : []);
   if (starts.length < 2 || starts.length > 26) return false;
-  if (!starts.every((index, order) => lines[index].match(letteredAction)![1] === String.fromCharCode(97 + order))) return false;
+  if (!starts.every((index, order) => lines[index].match(letteredAction)![1].toLowerCase() === String.fromCharCode(97 + order))) return false;
   // A preamble is retained, including its troubleshooting subheading, but
   // unrelated titles, tables and competing lists make association ambiguous.
   const preamble = lines.slice(0, starts[0]);

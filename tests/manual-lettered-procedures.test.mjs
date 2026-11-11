@@ -38,6 +38,14 @@ test('generic titles and varying procedures work across manuals, with title cond
   assert.deepEqual(extract(sample.replace('DOOR CANNOT OPEN/NO CYCLE FUNCTION', 'LOW/NO PRESSURE'))[0].match, ['LOW/NO PRESSURE']);
 });
 
+test('uppercase alphabetic markers preserve source order and text', () => {
+  const text = sample.replace(/^([a-c])\./gm, marker => marker.toUpperCase());
+  const [rule] = extract(text);
+  assert.ok(rule);
+  assert.equal(rule.steps[0], text.split('\n').slice(2, -2).join('\n'));
+  assert.deepEqual(extract(text.replace('B. Inspect', 'D. Inspect')), []);
+});
+
 test('incomplete, out-of-order, absent-scope and cross-page groups are rejected', () => {
   for (const text of [
     sample.replace('Troubleshooting\n', 'Overview\n'),
