@@ -1,5 +1,6 @@
 import { structureManualDocument, manualHtmlGuideLines, type ManualHtmlPage } from './manual-document-html';
 import type { ManualErrorCode, ManualSymptomRule } from './manual-knowledge';
+import { readLetteredTroubleshootingProcedures } from './manual-lettered-procedures';
 
 // This parser extracts explicit source structures. It does not supply repair
 // knowledge, infer symptoms from equipment identity, or interpret table layout.
@@ -33,7 +34,10 @@ export function uploadedManualActions(text: string): { symptom_rules: ManualSymp
 
 /** Run the existing source-association checks against the semantic HTML nodes. */
 export function uploadedManualHtmlActions(pages: ManualHtmlPage[]): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
-  return readStructuredActions(pages);
+  const explicit = readStructuredActions(pages);
+  explicit.symptom_rules.push(...readNumberedScenarios(pages));
+  explicit.symptom_rules.push(...readLetteredTroubleshootingProcedures(pages));
+  return explicit;
 }
 
 function readStructuredActions(pages: ManualHtmlPage[]): { symptom_rules: ManualSymptomRule[]; error_codes: ManualErrorCode[] } {
@@ -111,3 +115,110 @@ function readStructuredActions(pages: ManualHtmlPage[]): { symptom_rules: Manual
   return { symptom_rules, error_codes };
 }
 
+
+
+// A numbered list is not itself evidence of symptoms. Require an explicit
+// scenario/symptom-to-solution section, then separate numbered titles and bullets.
+const scenarioSection = /^(?:common\s+)?(?:scenarios?|symptoms?|problems?|issues?)\s*(?:&|and)\s*(?:solutions?|remedies|actions?)\s*(?:\((?:cont\.?|continued(?: on (?:back|next page))?)\))?\s*:?$/i;
+const numberedTitle = /^(\d+)[.)]\s+(.+)$/;
+const sourceBullet = /^[•●▪*-]\s+(.+)$/;
+const extraImperative = /^(?:perform|give|plug|provide)\b/i;
+const isInstruction = (text: string) => imperative.test(text) || extraImperative.test(text);
+const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
+const undecorated = (text: string) => text.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+
+function scenarioAction(value: string): string | null {
+  const text = normalize(value);
+  // Keep the entire bullet, not just the imperative sentence or label body.
+  if (!/[.!?]["'”’)]*$/.test(text)) return null;
+  const body = text.replace(/^[^.!?\n:]{1,100}:\s*/, '');
+  const sentences = body.split(/(?<=[.!?])\s+/);
+  const explicitAction = sentences.some(sentence => isInstruction(sentence)
+    || /^(?:if|when|only if|after|before|unless)\b[^.!?]*,\s*/i.test(sentence)
+      && isInstruction(sentence.replace(/^(?:if|when|only if|after|before|unless)\b[^.!?]*,\s*/i, '')));
+  return explicitAction ? text : null;
+}
+
+function scenarioMatches(title: string): string[] {
+  const alternatives = title.split(/\s+or\s+/i).map(value => value.replace(/^["“]|["”]$/g, '').trim());
+  // Only independently complete, verbatim alternatives. Never expand shared
+  // words ("Low or No Volume") or remove a diagnostic/safety qualifier.
+  if (alternatives.length > 1 && alternatives.every(value => value.split(/\s+/).length >= 2)
+    && !/\b(?:if|when|while|during|after|before|only|unless|with|without|and)\b/i.test(title)) {
+    return [...new Set([title, ...alternatives])];
+  }
+  return [title];
+}
+
+function readNumberedScenarios(pages: ManualHtmlPage[]): ManualSymptomRule[] {
+  const rules: ManualSymptomRule[] = [];
+  for (const page of pages) {
+    if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 600) continue;
+    // Read allowlisted semantic nodes, never supplied/rendered HTML. Retain
+    // lines split into paragraph blocks after a completed bullet sentence.
+    const lines = page.blocks.flatMap(block => block.kind === 'list'
+      ? block.items.flatMap(item => item.lines) : block.lines).map(line => line.trim());
+    let inSection = false;
+    let lastNumber: number | null = null;
+    let symptom: string | null = null;
+    let steps: string[] = [];
+    let bullet: string[] = [];
+    const finishBullet = () => {
+      if (symptom && bullet.length) {
+        const step = scenarioAction(bullet.join('\n'));
+        if (step) steps.push(step);
+      }
+      bullet = [];
+    };
+    const finishScenario = () => {
+      finishBullet();
+      if (symptom && steps.length) rules.push({ match: scenarioMatches(symptom), steps: [...new Set(steps)], source_pages: [page.page] });
+      symptom = null;
+      steps = [];
+    };
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      if (scenarioSection.test(undecorated(line))) {
+        finishScenario(); inSection = true; lastNumber = null; continue;
+      }
+      if (!inSection || !line) continue;
+      const title = line.match(numberedTitle);
+      if (title) {
+        finishScenario();
+        const number = Number(title[1]);
+        const name = title[2].trim();
+        const nextIsBullet = sourceBullet.test(lines[index + 1] || '');
+        // Sequential titles and directly attached bullets provide association;
+        // procedural numbered steps and prose do not qualify as symptoms.
+        if (!Number.isSafeInteger(number) || number < 1 || (lastNumber !== null && number !== lastNumber + 1)
+          || !nextIsBullet || name.length > 160 || /[.!?;:]$/.test(name) || isInstruction(name)
+          || /^(?:overview|introduction|general information|safety|warnings?|notes?|references|maintenance|installation|support|quick reset(?: steps)?|procedure)\s*$/i.test(name)) {
+          inSection = false; continue;
+        }
+        lastNumber = number;
+        symptom = name;
+        continue;
+      }
+      const item = line.match(sourceBullet);
+      if (item && symptom) { finishBullet(); bullet = [item[1]]; continue; }
+      if (!symptom) { inSection = false; continue; }
+      // A standalone title closes the section, even if presentation did not
+      // classify it as a heading (for example an emoji-prefixed support title).
+      // Never append its subsequent bullets to the preceding symptom.
+      const plain = undecorated(line);
+      const looksLikeTitle = !/[.!?;:]$/.test(plain)
+        && (/[.!?]$/.test(bullet.at(-1) || '')
+          || plain.split(/\s+/).every(word => /^[A-Z0-9]/.test(word) || /^(?:&|and|or|of|the|for|to|on|in)$/.test(word)))
+        && (!isInstruction(plain) || /[.!?]$/.test(bullet.at(-1) || ''))
+        && !/^(?:if|when|unless|only|after|before|warning|caution|note)\b/i.test(plain);
+      if (looksLikeTitle || /^(?:phone support|support|references|specifications|installation|maintenance)\s*:?$/i.test(plain)) {
+        // An unfinished bullet at this boundary is rejected by finishBullet.
+        finishScenario(); inSection = false; continue;
+      }
+      if (bullet.length) bullet.push(line);
+      else { finishScenario(); inSection = false; }
+    }
+    finishScenario();
+  }
+  return rules;
+}
