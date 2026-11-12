@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import * as nodeModule from 'node:module';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 
@@ -24,10 +24,10 @@ export async function manualOcrPageCount(bytes: Uint8Array): Promise<number> {
 export async function recognizeManualPages(bytes: Uint8Array, pages: number[]): Promise<{ totalPages: number; pages: RecognizedManualPage[] }> {
   if (!bytes.length || bytes.length > MAX_BYTES || Buffer.from(bytes.subarray(0,5)).toString() !== '%PDF-') throw new Error('The source must be a PDF within the supported size.');
   if (!pages.length || pages.length > MAX_BATCH || new Set(pages).size !== pages.length || pages.some(page => !Number.isSafeInteger(page) || page < 1 || page > MAX_PAGES)) throw new Error('Select up to ten distinct source pages.');
-  const require = createRequire(path.join(process.cwd(), 'package.json'));
-  const pdfRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
-  const tessRoot = path.dirname(require.resolve('tesseract.js-core/package.json'));
-  const langRoot = path.join(path.dirname(require.resolve('@tesseract.js-data/eng/package.json')), '4.0.0_best_int');
+  const nodeRequire = nodeModule.createRequire(path.join(process.cwd(), 'package.json'));
+  const pdfRoot = path.dirname(nodeRequire.resolve('pdfjs-dist/package.json'));
+  const tessRoot = path.dirname(nodeRequire.resolve('tesseract.js-core/package.json'));
+  const langRoot = path.join(path.dirname(nodeRequire.resolve('@tesseract.js-data/eng/package.json')), '4.0.0_best_int');
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const task = pdfjs.getDocument({ data: bytes.slice(), standardFontDataUrl: path.join(pdfRoot, 'standard_fonts') + path.sep, cMapUrl: path.join(pdfRoot, 'cmaps') + path.sep, cMapPacked: true, wasmUrl: path.join(pdfRoot, 'wasm') + path.sep, useWorkerFetch: false, useSystemFonts: false, maxImageSize: 64_000_000, canvasMaxAreaInBytes: 32_000_000, verbosity: 0 });
   let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | undefined;

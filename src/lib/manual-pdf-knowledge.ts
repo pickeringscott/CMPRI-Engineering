@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { manualTextContainsExactIdentity } from "@/lib/manual-document-match";
 import { manualTextQuality, type ManualPageQuality } from './manual-page-quality';
-import { createRequire } from 'node:module';
+import * as nodeModule from 'node:module';
 import path from 'node:path';
 
 export function manualPdfOptions(bytes: Uint8Array) {
-  const require=createRequire(path.join(process.cwd(),'package.json'));
-  const root=path.dirname(require.resolve('pdfjs-dist/package.json'));
+  // Keep this lookup in Node; webpack rewrites named createRequire imports.
+  const nodeRequire=nodeModule.createRequire(path.join(process.cwd(),'package.json'));
+  const root=path.dirname(nodeRequire.resolve('pdfjs-dist/package.json'));
   return {data:bytes.slice(),standardFontDataUrl:path.join(root,'standard_fonts')+path.sep,cMapUrl:path.join(root,'cmaps')+path.sep,cMapPacked:true,wasmUrl:path.join(root,'wasm')+path.sep,useWorkerFetch:false,verbosity:0};
 }
 

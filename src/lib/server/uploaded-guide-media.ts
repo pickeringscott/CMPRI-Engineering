@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
+import * as nodeModule from 'node:module';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -40,8 +40,8 @@ async function openPdf(bytes: Uint8Array) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   // Resolve local PDF assets from the deployed application root. A bundled
   // import.meta.url can contain the build machine's original source path.
-  const require = createRequire(path.join(process.cwd(), 'package.json'));
-  const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
+  const nodeRequire = nodeModule.createRequire(path.join(process.cwd(), 'package.json'));
+  const root = path.dirname(nodeRequire.resolve('pdfjs-dist/package.json'));
   const options = {
     data: bytes.slice(),
     standardFontDataUrl: path.join(root, 'standard_fonts') + path.sep,

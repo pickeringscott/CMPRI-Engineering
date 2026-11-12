@@ -1,6 +1,6 @@
 # Manual reader preview — 2026-11-12
 
-This implementation follows the read-only audit in PR #36. It starts from main `12c7a9e481dd83511a9b1becc0c02bdb92031d10`, using a separate preview branch. It is not approved for production merge or promotion. No AI provider, catalog generation, production migration, or live data modification is part of this work.
+This implementation follows the read-only audit in PR #36. It starts from main `12c7a9e481dd83511a9b1becc0c02bdb92031d10`, using a separate preview branch. It is not approved for production merge or promotion. The user later explicitly authorized five shared manual-approval updates, documented below. No AI provider, catalog generation, production migration, or live work-order modification is part of this work.
 
 ## Reader changes
 
@@ -93,3 +93,13 @@ The real-record browser checks exercise the Chief cycle, browser reload persiste
 The preview session incorrectly removed every granted capability that did not begin with `view_`. This hid management controls and the work-order launcher even for the actual System Administrator account. The session now returns the account's full capabilities from the existing authorization policy in both normal and preview modes. Role grants are unchanged; the preview's API and database write guards remain in place.
 
 The existing role/session regression now checks capability parity in both modes. A separate check using the actual Supabase account snapshot confirmed identical capabilities, and browser checks at 390 and 1440 px confirmed visible, enabled Equipment, Parts, Rooms, Users, and create-work-order controls. These checks made no mutation requests or external calls. TypeScript, the focused session/header tests, and the packaged Next/PDF/OCR build passed.
+
+## Manual confirmations and deployed PDF extraction
+
+At the user's explicit request, five existing manual associations were changed from reference to confirmed: the Lennox RTU's three PDFs, the Navien NPE service manual on its existing asset, and the Symmons Temptrol manual on its existing asset. The existing association-save RPC preserved original files and recorded before/after approval history. Independent database readback verified the five confirmations and five audit entries. Preview and production share these approval records; this authorized data change is separate from the preview-only code deployment. Other asset associations and equipment field locks were not changed.
+
+Friedrich's two existing associations were already confirmed. Its reported extraction failure came from a different defect: webpack replaced the named `createRequire` lookup with `undefined`, so the compiled reader threw before reading the PDF. Node module namespace imports now preserve runtime resolution for native inspection, source-page rendering and local OCR dependencies. The original PDFs are unchanged. Postbuild now executes the compiled application reader in addition to the existing isolated PDF-library check, which had missed this defect.
+
+Actual-record checks using the compiled application returned verified guides for the three updated assets and both Friedrich assets, with zero replay writes or external calls. The compiled reader extracted the original Friedrich PDF (66 pages, 133,891 characters) and GE PDF (68 pages, 82,328 characters); Friedrich source page 41 also rendered as a native vector chart. These are recorded-data checks of compiled code, not a claim of live signed-in endpoint verification. The existing equipment-revision test now loads the complete PDF utility through the shared TypeScript helper so its native extraction checks run with the utility's current dependencies.
+
+The Saflok original remains empty, and metadata-only entries still have no attached PDF. The seven individual Navien heater records retain their existing confirmed parts-list association; no service manual was attached to additional assets automatically.

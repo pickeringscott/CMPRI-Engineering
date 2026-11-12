@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
-    "postbuild": "node scripts/include-turbopack-server-chunks.mjs && node scripts/check-pdf-runtime.mjs && node scripts/check-ocr-runtime.mjs",
+    "postbuild": "node scripts/include-turbopack-server-chunks.mjs && node scripts/check-pdf-runtime.mjs && node scripts/check-manual-reader-runtime.mjs && node scripts/check-ocr-runtime.mjs",
     "start": "next start",
     "lint": "eslint",
     "test:email-parser": "node --experimental-strip-types tests/email-parser.test.mjs",
