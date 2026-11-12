@@ -54,11 +54,11 @@ html[data-cmpri-modal-theme=true] .asset-picker .asset-search {
   background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 7%, var(--cmpri-modal-base, #181818)) !important;
 }
 html[data-cmpri-embedded="true"] main.asset-workspace {
-  --cmpri-modal-type-scale: 1;
+  --cmpri-modal-type-scale: .82;
 }
 .asset-detail .asset-photo { width: 160px; height: 112px; }
 html[data-cmpri-embedded="true"] main.asset-workspace .asset-title {
-  font-size: calc(var(--cmpri-text-section, 1.125rem) * 1.35) !important;
+  font-size: 1.125rem !important;
 }
 @media (max-width: 480px) {
   .asset-detail .asset-photo { width: 112px; height: 80px; }
@@ -122,3 +122,31 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
 .asset-order-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
 .asset-order-status { color: var(--cmpri-modal-muted, #aaa); }
 .asset-open-order { display: inline-flex; align-items: center; gap: .4rem; color: rgb(var(--cmpri-action-rgb, 207,144,254)) !important; }
+
+/* Keep the asset browser compact in both desktop windows and modal frames. */
+html[data-cmpri-embedded="true"] main.asset-workspace { font-size: .75rem; }
+.asset-workspace .asset-layout { gap: .75rem; }
+.asset-workspace .asset-icon { width: .95rem; height: .95rem; }
+.asset-workspace .asset-result-count { font-size: .7rem; }
+.asset-workspace .asset-search-wrap > .asset-search { min-height: 2rem !important; padding-left: 2rem; }
+.asset-workspace .asset-search-wrap > .asset-icon { left: .55rem; }
+.asset-picker .asset-filters { display: flex; justify-content: flex-start; gap: .15rem .35rem; }
+.asset-picker .asset-filters label { width: auto; gap: .15rem; }
+html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
+.asset-picker .asset-filters select { flex: none; width: auto; max-width: 7rem; min-height: 1.75rem !important; padding: 0 1rem 0 .1rem; font-size: .75rem !important; }
+html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(1) select { width: 6rem; }
+html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(2) select { width: 4.4rem; }
+html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(3) select { width: 5.1rem; }
+.asset-picker .asset-group, .asset-picker .asset-location, .asset-picker .asset-result { min-height: 1.8rem; }
+.asset-picker .asset-group, .asset-picker .asset-location { font-size: .75rem; }
+.asset-picker .asset-group-count, .asset-picker .asset-location-count { font-size: .65rem; }
+.asset-picker .asset-result { padding-top: .25rem; padding-bottom: .25rem; gap: .45rem; }
+.asset-detail .asset-photo { width: clamp(100px, 13vw, 160px); height: 108px; }
+.asset-overview { gap: .75rem; }
+.asset-tabs { gap: .35rem; margin: .6rem 0; }
+.asset-tabs button { padding: .3rem .25rem; }
+.asset-notes-heading { margin-top: .75rem; }
+.asset-notes-heading h4 { font-size: 1rem; }
+@media (max-width: 767px) {
+  .asset-detail .asset-photo { width: 100px; height: 72px; }
+}
