@@ -288,15 +288,15 @@ test("attachment ownership and cross-role API access match the role capability b
   assert.ok(pendingForTechnician.storageCalls.length > 0);
 });
 
-test("attachment uploads validate type, file signature, and the inclusive 10 MiB size limit", async () => {
+test("attachment uploads validate type, file signature, and the inclusive 100 MiB size limit", async () => {
   const invalidCases = [
     { file: null, message: "Choose an image" },
     { file: photo("notes.txt", "text/plain"), message: "Only supported JPEG" },
     { file: photo("vector.svg", "image/svg+xml"), message: "Only supported JPEG" },
     { file: photo("mislabeled.png", "image/jpeg"), message: "Only supported JPEG" },
     { file: new File([new Uint8Array(16)], "spoofed.png", { type: "image/png" }), message: "not a valid supported image" },
-    { file: photo("empty.png", "image/png", 0), message: "10 MB or smaller" },
-    { file: photo("oversized.png", "image/png", 10 * 1024 * 1024 + 1), message: "10 MB or smaller" },
+    { file: photo("empty.png", "image/png", 0), message: "Photos and videos must be 100 MB or smaller." },
+    { file: photo("oversized.png", "image/png", 100 * 1024 * 1024 + 1), message: "Photos and videos must be 100 MB or smaller." },
   ];
   for (const { file, message } of invalidCases) {
     const route = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
@@ -307,7 +307,7 @@ test("attachment uploads validate type, file signature, and the inclusive 10 MiB
   }
 
   const atLimit = fixture({ role: "Chief Engineer", userId: "owner", createdBy: "owner" });
-  assert.equal((await atLimit.post(photo("limit.png", "image/png", 10 * 1024 * 1024))).status, 200);
+  assert.equal((await atLimit.post(photo("limit.png", "image/png", 100 * 1024 * 1024))).status, 200);
   assert.equal(atLimit.storageCalls[0].operation, "upload");
   assert.ok(atLimit.storageCalls[0].path.startsWith(`${hotelId}/work-orders/${workOrderId}/`));
 
@@ -464,10 +464,10 @@ test("permanent file-validation failures let users replace the image without dis
   const file = new File(["invalid"], "too-large.png", { type: "image/png" });
 
   try {
-    globalThis.fetch = async () => new Response(JSON.stringify({ error: "Images must be 10 MB or smaller." }), { status: 400 });
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "Images must be 100 MB or smaller." }), { status: 400 });
     assert.deepEqual(
       await uploadWorkOrderAttachment("work-order-123", file, "local-session-token", "00000000-0000-4000-8000-000000000099"),
-      { ok: false, message: "Images must be 10 MB or smaller.", canReplace: true },
+      { ok: false, message: "Images must be 100 MB or smaller.", canReplace: true },
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -565,7 +565,7 @@ for (const role of ["Lead Housekeeper", "Front Desk"]) {
 
   test(`${role} pending uploads retain file validation and storage failure reporting`, async () => {
     const options = { role, userId: "owner", createdBy: "owner", status: "Pending Verification" };
-    for (const file of [null, photo("notes.txt", "text/plain"), new File(["not an image"], "photo.png", { type: "image/png" }), photo("oversized.png", "image/png", 10 * 1024 * 1024 + 1)]) {
+    for (const file of [null, photo("notes.txt", "text/plain"), new File(["not an image"], "photo.png", { type: "image/png" }), photo("oversized.png", "image/png", 100 * 1024 * 1024 + 1)]) {
       const route = fixture(options);
       assert.equal((await route.post(file)).status, 400);
       assert.equal(route.storageCalls.length, 0);
@@ -718,8 +718,8 @@ function wireDirectClient(t, route, options = {}) {
   return calls;
 }
 
-test("direct original-byte transfer crosses 4.5 MB, includes Scott's 6.71 MB, and accepts inclusive 10 MiB", async t => {
-  for (const size of [4_499_999, 4_500_001, 6_710_000, Math.round(6.71 * 1024 * 1024), 10 * 1024 * 1024 - 1, 10 * 1024 * 1024]) {
+test("direct original-byte transfer crosses 4.5 MB, includes Scott's 6.71 MB, and accepts inclusive 100 MiB", async t => {
+  for (const size of [4_499_999, 4_500_001, 6_710_000, Math.round(6.71 * 1024 * 1024), 100 * 1024 * 1024 - 1, 100 * 1024 * 1024]) {
     const route = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner", membershipRole: "technician" });
     const calls = wireDirectClient(t, route);
     const file = photo("original.jpg", "image/jpeg", size);
@@ -733,10 +733,10 @@ test("direct original-byte transfer crosses 4.5 MB, includes Scott's 6.71 MB, an
   }
 });
 
-test("client and server independently reject over 10 MiB; forged size/type/signature/hash never becomes a ticket photo", async t => {
+test("client and server independently reject over 100 MiB; forged size/type/signature/hash never becomes a ticket photo", async t => {
   const route = fixture({ role: "Front Desk Manager", userId: "owner", createdBy: "owner" });
   const calls = wireDirectClient(t, route);
-  const over = photo("over.jpg", "image/jpeg", 10 * 1024 * 1024 + 1);
+  const over = photo("over.jpg", "image/jpeg", 100 * 1024 * 1024 + 1);
   assert.equal((await uploadWorkOrderAttachment(workOrderId, over, "synthetic", directUploadId)).canReplace, true);
   assert.equal(calls.length, 0);
   assert.equal((await route.put(await description(over))).status, 400);
@@ -746,7 +746,7 @@ test("client and server independently reject over 10 MiB; forged size/type/signa
     const body = await description(file);
     const prepared = await r.put(body);
     let actual = file;
-    if (mismatch === "size") actual = photo("photo.png", "image/png", 10 * 1024 * 1024 + 1);
+    if (mismatch === "size") actual = photo("photo.png", "image/png", 100 * 1024 * 1024 + 1);
     if (mismatch === "mime") actual = new File([await file.arrayBuffer()], "photo.png", { type: "application/pdf" });
     if (mismatch === "signature") {
       actual = new File([new Uint8Array(16)], "photo.png", { type: "image/png" });
@@ -925,4 +925,17 @@ test("WebM uploads reject spoofed, incomplete, unknown-size, and out-of-bounds E
     ["unsafe eight-byte size", Buffer.from("1a45dfa3017fffffffffffff4282847765626d", "hex")],
   ];
   for (const [label, bytes] of cases) await checkWebmUpload(bytes, false, label);
+});
+
+test('100 MiB MP4 original uploads directly and finalizes without crossing the function body limit', async t => {
+  const route = fixture({ role: 'Chief Engineer', userId: 'owner', createdBy: 'owner' });
+  const calls = wireDirectClient(t, route);
+  const bytes = new Uint8Array(100 * 1024 * 1024);
+  bytes.set([0,0,0,24,...Buffer.from('ftypisom')]);
+  const file = new File([bytes], 'large-video.mp4', { type: 'video/mp4' });
+  assert.deepEqual(await uploadWorkOrderAttachment(workOrderId, file, 'synthetic', directUploadId), { ok: true });
+  const saved = route.objects.get(`${hotelId}/work-orders/${workOrderId}/owner_${directUploadId}.mp4`);
+  assert.equal(saved.size, bytes.length);
+  assert.equal(saved.type, 'video/mp4');
+  assert.equal(calls.filter(c => String(c.url).startsWith('https://storage.invalid/')).length, 1);
 });

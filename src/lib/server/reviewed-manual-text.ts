@@ -48,9 +48,9 @@ async function sourceBytes(admin: SupabaseClient, file: RegisteredAssetFile) {
   if (!file.id || path.startsWith('/') || path.includes('://') || path.split('/').some(part => part === '..') || !(path.startsWith(`${HOTEL_ID}/`) || /^asset docs\//i.test(path))) return fail('The original PDF has an unauthorized attachment path. Restore its registered attachment.');
   const stored = await admin.storage.from('asset-documentation').download(path);
   if (stored.error || !stored.data) return fail('The attached original PDF could not be downloaded. Restore the original attachment and retry.', 503);
-  if (stored.data.size > 50 * 1024 * 1024) return fail('The original PDF exceeds the supported 50 MB size.', 400);
+  if (stored.data.size > 100 * 1024 * 1024) return fail('The original PDF exceeds the supported 100 MB size.', 400);
   const bytes = new Uint8Array(await stored.data.arrayBuffer());
-  if (bytes.length > 50 * 1024 * 1024 || bytes.length < 5 || ![37, 80, 68, 70, 45].every((v, i) => bytes[i] === v)) return fail('The original attachment is not a supported PDF.', 400);
+  if (bytes.length > 100 * 1024 * 1024 || bytes.length < 5 || ![37, 80, 68, 70, 45].every((v, i) => bytes[i] === v)) return fail('The original attachment is not a supported PDF.', 400);
   return bytes;
 }
 export function validateReviewedManualSubmission(input: unknown): Submission {

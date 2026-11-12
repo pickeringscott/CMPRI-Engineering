@@ -1,3 +1,4 @@
+import { importResponseBody, discardImportResponse } from '@/lib/server/import-response';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCapability } from '@/lib/server/auth';
 import { HOTEL_ID, HOTEL_TIME_ZONE } from '@/lib/constants';
@@ -12,7 +13,7 @@ import { isIntegrationsSafeMode } from '@/lib/server/integrations-safe-mode';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 const headers = { 'Cache-Control': 'private, no-store' };
-export async function GET(request: NextRequest) {
+async function acquireReports(request: NextRequest) {
   const auth = await requireCapability(request, 'edit_tickets');
   if (!auth || auth.principal.hotelId !== HOTEL_ID) return NextResponse.json({ error: 'Engineering ticket-edit permission is required.' }, { status: 403, headers });
   if (isIntegrationsSafeMode()) return NextResponse.json({ error: 'Drive fetching is unavailable while integrations are in safe mode. You can still upload the reports.' }, { status: 503, headers });
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
     console.info(JSON.stringify({ event: 'drive_room_reports_import', status: response.status, duration_ms: duration, ...timings }));
     return response;
   };
-  const acquired = await GET(request);
+  const acquired = await acquireReports(request);
   mark("drive_fetch");
   if (!acquired.ok) return finish(acquired);
   const { files } = await acquired.json();
@@ -56,7 +57,16 @@ export async function POST(request: NextRequest) {
   mark("validation");
   if (!validated.ok) return finish(validated);
   const preview = await validated.json();
+  if(preview.importResult){const auth=await requireCapability(request,'edit_tickets');if(!auth)return finish(NextResponse.json({error:'Permission required.'},{status:403,headers}));await discardImportResponse(auth.admin,auth.principal.hotelId,auth.principal.identity.id,preview);}
   const committed = await importGuestReports(makeRequest(false, preview.previousId));
   mark("save");
   return finish(committed);
+}
+
+export async function GET(request: NextRequest) {
+  const auth=await requireCapability(request,'edit_tickets');
+  if(!auth)return NextResponse.json({error:'Permission required.'},{status:403,headers});
+  const response=await acquireReports(request);
+  if(!response.ok)return response;
+  return NextResponse.json(await importResponseBody(auth.admin,auth.principal.hotelId,auth.principal.identity.id,await response.json()),{headers});
 }

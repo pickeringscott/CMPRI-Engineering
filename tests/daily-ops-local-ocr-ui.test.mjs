@@ -21,6 +21,8 @@ test('report file import accepts CSV only; images remain in the separate local O
  };
  const env={exports,fetch:fakeFetch,FormData,Set,Error,Array,JSON,Promise,Number,String,RegExp,console,
   require(name){
+   if(name==='@/lib/import-response')return {readImportResponse:async response=>response.json()};
+   if(name==='@/lib/import-upload')return {uploadImportFile:async(file,kind)=>({kind,id:'upload-fixture',name:file.name,size:file.size,sha256:'a'.repeat(64)})};
    if(name==='react')return React;
    if(name==='react/jsx-runtime')return jsx;
    if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({Authorization:'Bearer fixture'})};
@@ -59,7 +61,8 @@ test('report file import accepts CSV only; images remain in the separate local O
   const button=Array.from(document.querySelectorAll('button')).find(element=>element.textContent==='Submit');
   await act(async()=>button.click());
   assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/room-operations/guest-reports');assert.equal(requests[0].body.validateOnly,true);
-  assert.equal(requests[0].body.files[0].name,csv.name);
+  assert.equal(requests[0].body.uploads[0].name,csv.name);
+  assert.equal(requests[0].body.files,undefined,'raw CSV bytes do not cross the application request');
   const confirm=Array.from(document.querySelectorAll('button')).find(element=>element.textContent==='Confirm Import');assert.ok(confirm);
   await act(async()=>confirm.click());
   assert.equal(requests.length,2);assert.equal(requests[1].body.validateOnly,false);assert.equal(requests[1].body.previousId,'previous');assert.equal(commits.length,1);

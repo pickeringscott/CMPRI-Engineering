@@ -30,7 +30,7 @@ export function reviewPdfFields(value: unknown): PdfReview {
 }
 export function validateStoredPdf(bytes: Uint8Array, file: StoredPdf, expectedHash: string | null, actualHash: string) {
   if (!bytes.length) throw new Error("The stored PDF is empty. Its original has been preserved.");
-  if (bytes.length > 50 * 1024 * 1024) throw new Error("The stored PDF exceeds the 50 MB import limit.");
+  if (bytes.length > 100 * 1024 * 1024) throw new Error("The stored PDF exceeds the 100 MB import limit.");
   if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") throw new Error("The selected stored file is not a PDF, even if its filename ends in .pdf.");
   if (file.size !== bytes.length) throw new Error("The stored file changed or its saved size does not match. Reload it before saving links.");
   if (expectedHash && expectedHash !== actualHash) throw new Error("The PDF changed since you reviewed it. Reload and review the current original.");

@@ -344,7 +344,12 @@ export default function ManageEquipmentPage() {
     const access = await token();
     const form = new FormData();
     form.append("asset_id", selectedId);
-    if (file) form.append("file", file);
+    if (file) {
+      try {
+        const { uploadImportFile } = await import("@/lib/import-upload");
+        form.append("upload_descriptor", JSON.stringify(await uploadImportFile(file, "asset-documentation")));
+      } catch (error) { setProcessingKey(""); setDialogMessage(error instanceof Error ? error.message : "PDF upload failed."); return; }
+    }
     if (storagePath) form.append("storage_path", storagePath);
     if (documentKey) form.append("document_key", documentKey);
     const response = await fetch("/api/assets/documentation", { method: "POST", headers: { Authorization: `Bearer ${access}` }, body: form });

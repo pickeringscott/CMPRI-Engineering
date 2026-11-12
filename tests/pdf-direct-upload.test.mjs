@@ -19,7 +19,7 @@ function fixture(options={}) {
  const list=()=>[...stored].map(([storage_path,bytes])=>({object_id:storage_path,storage_path,size:bytes.length,title:storage_path.split('/').at(-1),object_version:'v1',etag:hash(bytes)}));
  const admin={rpc:async name=>{calls.push(name);assert.equal(name,'cmpri_import_stored_pdfs');return {data:list()};},
  from:()=>{const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:options.missing?null:{id:'asset',updated_at:'now',pdf_import_links:[],documentation_verified_at:options.locked?'now':null}})};return q;},
- storage:{getBucket:async()=>({data:{public:options.public||false,file_size_limit:options.unlimited?null:52428800}}),from:()=>({
+ storage:{getBucket:async()=>({data:{public:options.public||false,file_size_limit:options.unlimited?null:(options.bucketSize ?? 104857600)}}),from:()=>({
  createSignedUploadUrl:async(path,opts)=>{calls.push('sign');assert.equal(opts.upsert,false);return {data:{signedUrl:'https://storage.invalid/'+path}};},
  download:async path=>({data:stored.has(path)?new Blob([stored.get(path)]):null}),
  createSignedUrl:async path=>({data:{signedUrl:'https://storage.invalid/read/'+path}})
@@ -63,7 +63,7 @@ test('cancel after storage transfer preserves original and retry does not upload
  const f=fixture(),c=new AbortController();const browser=load('../src/lib/pdf-direct-upload.ts',{}, {fetch:async(url,init)=>{f.stored.set(url.replace('https://storage.invalid/',''),new Uint8Array(await init.body.arrayBuffer()));c.abort();return Response.json({});}});
  await assert.rejects(browser.uploadPdfDirect(new File([small],'original.pdf'),'asset',f.request,c.signal,()=>{}),/abort/i);assert.equal(f.forms.length,1);await f.run();assert.equal(f.puts(),0);assert.equal(f.stored.size,1);
 });
-for(const [label,bytes] of [['empty',new Uint8Array()],['invalid',new TextEncoder().encode('not a PDF')],['oversize',new Uint8Array(52428801)]])test(`${label} file rejected before network`,async()=>{const f=fixture();await assert.rejects(f.run(bytes),/PDF/);assert.equal(f.forms.length,0);});
+for(const [label,bytes] of [['empty',new Uint8Array()],['invalid',new TextEncoder().encode('not a PDF')],['oversize',new Uint8Array(104857601)]])test(`${label} file rejected before network`,async()=>{const f=fixture();await assert.rejects(f.run(bytes),/PDF/);assert.equal(f.forms.length,0);});
 for(const opt of ['denied','roleDenied','missing','locked','public','unlimited'])test(`${opt} cannot issue an upload token`,async()=>{const f=fixture({[opt]:true});await assert.rejects(f.run());assert(!f.calls.includes('sign'));assert.equal(f.puts(),0);});
 test('completion rejects changed bytes even if object size is unchanged',async()=>{
  const f=fixture();await f.run();const [path,bytes]=[...f.stored][0];const changed=bytes.slice();changed[10]^=1;f.stored.set(path,changed);await assert.rejects(f.run(),/changed since/);
@@ -77,12 +77,20 @@ test('plain-text/HTML/empty responses report useful errors without JSON SyntaxEr
  await assert.rejects(client.pdfImportResponse(new Response('')) ,/unexpected response/);
  await assert.rejects(client.pdfImportResponse(Response.json({error:'Sign in again.'},{status:403})),/Sign in again/);
 });
-test('exact 50 MiB permitted for authorization, larger and invalid claims rejected',async()=>{
- const f=fixture();const form=new FormData();form.set('sha256','a'.repeat(64));form.set('file_size','52428800');form.set('file_name','no-extension');const r=await server.prepareDirectPdf(f.admin,'hotel','asset',form,false);assert(r.signed_url.endsWith('.pdf'));
- for(const size of ['52428801','0','1.5','NaN']){form.set('file_size',size);await assert.rejects(server.prepareDirectPdf(f.admin,'hotel','asset',form,false));}
+test('exact 100 MB permitted for authorization, larger and invalid claims rejected',async()=>{
+ const f=fixture();const form=new FormData();form.set('sha256','a'.repeat(64));form.set('file_size','104857600');form.set('file_name','no-extension');const r=await server.prepareDirectPdf(f.admin,'hotel','asset',form,false);assert(r.signed_url.endsWith('.pdf'));
+ for(const size of ['104857601','0','1.5','NaN']){form.set('file_size',size);await assert.rejects(server.prepareDirectPdf(f.admin,'hotel','asset',form,false));}
  form.set('file_size','100');form.set('sha256','../other');await assert.rejects(server.prepareDirectPdf(f.admin,'hotel','asset',form,false));
 });
 test('actual Lennox 10,301,661-byte PDF: transfer, independent SHA and real text extraction', {skip:!process.env.LENNOX_PDF_TEST_PATH},async()=>{
  const bytes=fs.readFileSync(process.env.LENNOX_PDF_TEST_PATH);assert.equal(bytes.length,10301661);const f=fixture();const r=await f.run(bytes,'100070.pdf');assert.equal(r.sha256,hash(bytes));assert.equal([...f.stored.values()][0].length,10301661);
  const pdf=load('../src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{}});const text=await pdf.extractManualPdfText(new Uint8Array(bytes));assert.match(text,/KGC240S4M/);assert(text.length>10000);assert.equal(hash(bytes),r.sha256);console.log(JSON.stringify({lennoxBytes:bytes.length,sha256:r.sha256,textCharacters:text.length,appForms:f.forms.length,storagePuts:f.puts()}));
+});
+
+
+for (const bucketSize of [52428800, 104857601]) test(`bucket limit ${bucketSize} cannot issue a PDF upload token`, async()=> { const f=fixture({bucketSize}); await assert.rejects(f.run(), /100 MB/); assert(!f.calls.includes('sign')); });
+test('100 MiB PDF descriptor is admitted and one byte larger rejected before signing', async()=> {
+ const f=fixture(); const form=new FormData(); form.set('sha256','a'.repeat(64)); form.set('file_name','large.pdf'); form.set('file_size',String(100*1024*1024));
+ assert((await server.prepareDirectPdf(f.admin,'hotel','asset',form,false)).signed_url);
+ form.set('file_size',String(100*1024*1024+1)); await assert.rejects(server.prepareDirectPdf(f.admin,'hotel','asset',form,false),/100 MB/);
 });

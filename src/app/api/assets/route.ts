@@ -238,7 +238,7 @@ export async function PATCH(request: NextRequest) {
       const name = registered.name;
       if (!name.toLowerCase().endsWith(".pdf")) continue;
       const { data: file, error } = await auth.admin.storage.from(BUCKET).download(registered.storage_path);
-      if (error || !file || !file.size || file.size > 50 * 1024 * 1024) continue;
+      if (error || !file || !file.size || file.size > 100 * 1024 * 1024) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (new TextDecoder().decode(bytes.subarray(0,5)) !== "%PDF-") continue;
       try { if ((await extractManualPdfText(bytes)).trim()) { readable = true; break; } } catch { /* Try another saved PDF. */ }

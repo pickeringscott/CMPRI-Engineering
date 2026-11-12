@@ -1,12 +1,12 @@
 /** PDF bytes go straight to private storage; only small forms reach the app. */
-export const MAX_PDF_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_PDF_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 export async function pdfImportResponse(response: Response) {
   const text = await response.text();
   let result;
   try { result = JSON.parse(text); } catch { /* Hosting errors can be plain text or HTML. */ }
   if (!response.ok) {
-    if (response.status === 413) throw new Error("The upload was rejected as too large. PDFs must be at most 50 MiB. Reload the page and retry the direct upload.");
+    if (response.status === 413) throw new Error("The upload was rejected as too large. PDFs must be at most 100 MB. Reload the page and retry the direct upload.");
     throw new Error(typeof result?.error === "string" ? result.error : `PDF request failed (HTTP ${response.status}). Please retry; existing originals are preserved.`);
   }
   if (!result || typeof result !== "object") throw new Error("The PDF service returned an unexpected response. Please retry; existing originals are preserved.");
@@ -14,7 +14,7 @@ export async function pdfImportResponse(response: Response) {
 }
 
 export async function uploadPdfDirect(file: File, assetId: string, request: (form: FormData) => Promise<unknown>, signal: AbortSignal, progress: (message: string) => void) {
-  if (!file.size || file.size > MAX_PDF_UPLOAD_BYTES) throw new Error("Choose a nonempty PDF of at most 50 MiB.");
+  if (!file.size || file.size > MAX_PDF_UPLOAD_BYTES) throw new Error("Choose a nonempty PDF of at most 100 MB.");
   if (await file.slice(0, 5).text() !== "%PDF-") throw new Error("The selected file is not a PDF.");
   progress("Checking the original PDF…");
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());

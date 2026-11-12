@@ -17,6 +17,8 @@ function harness({allowed=true,history=[]}={}){
  const auth={admin,principal:{hotelId:'test-hotel',identity:{id:'test-user'},profile:{full_name:'Test'}}};
  const routeModule={exports:{}};
  const require=name=>{
+  if(name==='@/lib/server/import-response')return {importResponseBody:async(_admin,_hotel,_actor,body)=>body};
+  if(name==='@/lib/server/import-upload')return {readImportUpload:async()=>{throw Error('Unexpected staged upload')}};
   if(name==='next/server')return {NextResponse:{json:(body,options={})=>({body,status:options.status||200})}};
   if(name==='node:crypto')return {createHash};
   if(name==='@/lib/server/auth')return {requireCapability:async()=>allowed?auth:null};
@@ -25,7 +27,7 @@ function harness({allowed=true,history=[]}={}){
   if(name==='@/lib/room-guest-reports')return reports;
   throw Error(name);
  };
- vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:routeModule,exports:routeModule.exports,require});
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:routeModule,exports:routeModule.exports,require,TextEncoder,TextDecoder});
  return {writes,run:body=>routeModule.exports.POST({json:async()=>body})};
 }
 test('unauthorized import denied without writes',async()=>{const h=harness({allowed:false});assert.equal((await h.run({files:[guest]})).status,403);assert.equal(h.writes.length,0)});

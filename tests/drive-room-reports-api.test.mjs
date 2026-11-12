@@ -10,9 +10,10 @@ function fixture({allowed=true,hotel='cmpri',safe=false,historyError=false,rows=
  class DriveAccessError extends Error{};class DriveRoomReportError extends Error{};
  const admin={from(table){calls.push({table});return {select(){return this},eq(key,value){calls.push({key,value});return this},order(){return this},limit(){return Promise.resolve({data:[{source_rows:rows}],error:historyError?{}:null})}}}};
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Date,Array,Error,URL,require(name){
+  if(name==='@/lib/server/import-response')return {importResponseBody:async(_admin,_hotel,_actor,body)=>body};
   if(name==='next/server')return {NextRequest:Request,NextResponse:{json}};
   if(name==='../route')return {POST:async request=>{const body=await request.json();calls.push({importBody:body});if(body.validateOnly&&validationError)return json({error:'Invalid CSV columns'},{status:422});if(!body.validateOnly&&commitError)return json({error:'Report changed'},{status:409});return json(body.validateOnly?{previousId:'accepted'}:{ok:true,import_id:'saved',date:'2026-11-08',rows:[]})}};
-  if(name==='@/lib/server/auth')return {requireCapability:async(_req,cap)=>{assert.equal(cap,'edit_tickets');return allowed?{admin,principal:{hotelId:hotel}}:null}};
+  if(name==='@/lib/server/auth')return {requireCapability:async(_req,cap)=>{assert.equal(cap,'edit_tickets');return allowed?{admin,principal:{hotelId:hotel,identity:{id:"actor"}}}:null}};
   if(name==='@/lib/constants')return {HOTEL_ID:'cmpri',HOTEL_TIME_ZONE:'America/Chicago'};
   if(name==='@/lib/room-operations-reports')return {hotelDateAt:()=> '2026-11-08'};
   if(name==='@/lib/server/integrations-safe-mode')return {isIntegrationsSafeMode:()=>safe};

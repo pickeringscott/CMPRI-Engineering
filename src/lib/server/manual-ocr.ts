@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 
 export type RecognizedManualPage = { page: number; text: string; confidence: number };
-const MAX_BYTES = 50 * 1024 * 1024;
+const MAX_BYTES = 100 * 1024 * 1024;
 const MAX_PAGES = 600;
 const MAX_BATCH = 10;
 const MAX_PIXELS = 4_000_000;

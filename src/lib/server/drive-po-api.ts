@@ -77,12 +77,12 @@ export async function listDrivePoFiles(token:string){
 }
 export async function readDrivePoPdf(token:string,file:DrivePoFile){
  if(!file.parents?.includes(DRIVE_PO_FOLDER)||file.mimeType!=='application/pdf'||file.trashed||!/^[A-Za-z0-9_-]+$/.test(file.id)||!file.version)throw Error('Verified PDF identity required');
- const size=Number(file.size);if(!Number.isSafeInteger(size)||size<=0||size>10*1024*1024)throw Error('PDF size exceeds limit');
+ const size=Number(file.size);if(!Number.isSafeInteger(size)||size<=0||size>100*1024*1024)throw Error('PDF size exceeds limit');
  const response=await fetch(`${API}files/${file.id}?alt=media&supportsAllDrives=true`,{headers:{Authorization:`Bearer ${token}`},redirect:'error',cache:'no-store',signal:AbortSignal.timeout(25000)});
  if(!response.ok)throw new DriveAccessError('PDF read',response.status);
  const reader=response.body?.getReader();if(!reader)throw Error('Missing PDF body');
  const parts:Uint8Array[]=[];let length=0;
- try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>10*1024*1024)throw Error('PDF body exceeds limit');parts.push(value);}}finally{await reader.cancel();}
+ try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>100*1024*1024)throw Error('PDF body exceeds limit');parts.push(value);}}finally{await reader.cancel();}
  if(length!==size)throw Error('PDF size changed during acquisition');
  const current=await driveRequest<DrivePoFile>(token,`files/${file.id}?fields=id,version,parents,trashed,mimeType&supportsAllDrives=true`);
  if(current.version!==file.version||current.trashed||!current.parents?.includes(DRIVE_PO_FOLDER)||current.mimeType!=='application/pdf')throw Error('PDF changed or left the folder during acquisition');

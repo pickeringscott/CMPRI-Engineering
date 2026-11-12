@@ -11,7 +11,7 @@ import { loadVerifiedCatalogManuals } from "@/lib/server/pre-consolidation/verif
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
+const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
 type Suggestions = {
   asset_type?: string;
@@ -205,7 +205,6 @@ export async function POST(request: NextRequest) {
   const assetId = String(form.get("asset_id") || "").trim();
   const existingPath = String(form.get("storage_path") || "").trim();
   const documentKey = String(form.get("document_key") || "").trim();
-  const file = form.get("file");
   if (!assetId) return NextResponse.json({ error: "Equipment is required." }, { status: 400 });
   if (existingPath && documentKey) return NextResponse.json({ error: "Choose one stored document source." }, { status: 400 });
 
@@ -272,8 +271,20 @@ export async function POST(request: NextRequest) {
     storagePath = existingPath;
     originalName = existingPath.split("/").pop()?.replace(/^\d+-/, "") || "documentation.pdf";
   } else {
+    // Original bytes travel directly to private Storage; existing authorization and
+    // asset revision checks above still govern consumption of the staged PDF.
+    let file = form.get("file");
+    const descriptor = form.get("upload_descriptor");
+    if (typeof descriptor === "string") {
+      try {
+        if (descriptor.length > 2048) throw Error("Invalid PDF upload descriptor.");
+        const { readImportUpload } = await import("@/lib/server/import-upload");
+        const uploaded = await readImportUpload(auth.admin, HOTEL_ID, auth.principal.identity.id, JSON.parse(descriptor), "asset-documentation");
+        file = new File([new Uint8Array(uploaded.bytes)], uploaded.descriptor.name, { type: "application/pdf" });
+      } catch { return NextResponse.json({ error: "The private PDF upload could not be verified. Retry the selected original." }, { status: 400 }); }
+    }
     if (!(file instanceof File)) return NextResponse.json({ error: "Choose a PDF to upload." }, { status: 400 });
-    if (file.size < 1 || file.size > MAX_PDF_BYTES) return NextResponse.json({ error: "PDF size must be between 1 byte and 50 MB." }, { status: 400 });
+    if (file.size < 1 || file.size > MAX_PDF_BYTES) return NextResponse.json({ error: "PDF size must be between 1 byte and 100 MB." }, { status: 400 });
     if (file.type && file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       return NextResponse.json({ error: "Documentation must be a PDF." }, { status: 400 });
     }
