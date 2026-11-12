@@ -51,7 +51,7 @@ async function pendingVisits(auth: Auth, workOrderId: string) {
 
 function visibleChecklist(loaded: Loaded) {
   const checklist=loaded.mayReadGuide ? loaded.checklist : { ...loaded.checklist, contextIdentity: null, steps: [] };
-  return manualPreviewReadOnly()?{...checklist,canEdit:false,canClearAll:false,canClearOwn:false,reason:'Read-only preview: checklist changes and notes are not saved.'}:checklist;
+  return manualPreviewReadOnly()?{...checklist,previewReadOnly:true,previewAccess:{canEdit:checklist.canEdit,canClearAll:checklist.canClearAll,canClearOwn:checklist.canClearOwn},canEdit:false,canClearAll:false,canClearOwn:false}:checklist;
 }
 
 async function load(request: NextRequest, params: Params, base?: Authorized, allowOwnedClear = false): Promise<Loaded | Response> {

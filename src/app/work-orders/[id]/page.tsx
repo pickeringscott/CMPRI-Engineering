@@ -2534,7 +2534,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </h2>
               </summary>
 
-              {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">Read-only preview. Source documents can be opened; ticket changes and check marks are not saved.</p>}
+              {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">Preview. Check marks stay in this browser; live work-order records are unchanged.</p>}
               {!selectedAsset && (
                 <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">
                   Choose the equipment to read its uploaded manual.
@@ -2577,6 +2577,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     workOrderId={order.id}
                     visitId={troubleshootingVisitId}
                     isOpen={troubleshootingOpen}
+                    previewReadOnly={manualResult?.readOnly}
                     onRestartRevision={revision => { const current = orderRef.current; if (current) setOrder({ ...current, revision }); }}
                     registerExitFlush={registerExitFlush}
                     session={cmpriSession}
@@ -2593,8 +2594,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   />
                 )}
 
-              <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
-                {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && cmpriSession && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} assetId={selectedAsset.id} sourceSha256={manualKnowledge?.source?.sha256 || ""} userId={cmpriSession.user.id} />}
+              <div className="mt-0.5 pr-1">
                 {selectedAsset && trustedManualKnowledge && !(["uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.</p>}
 
                 {reportedCode && !matchingErrorCode && (
@@ -2626,6 +2626,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     })}
                   </div>
                 )}
+
+                {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && cmpriSession && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} assetId={selectedAsset.id} sourceSha256={manualKnowledge?.source?.sha256 || ""} userId={cmpriSession.user.id} sourceOrder={manualKnowledge?.sources?.map(source=>source.registered_file_id||'')} contextKey={combinedDiagnosticText} isOpen={troubleshootingOpen} startAtTop={!checklistContext.steps.length} />}
 
                 {displayedSteps.length > 0 && (
                   <div className="mt-1">

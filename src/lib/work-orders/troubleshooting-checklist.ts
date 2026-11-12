@@ -2,7 +2,7 @@ import type { ManualProvenance, ManualKnowledge, TroubleshootingStepMedia } from
 export type { TroubleshootingStepMedia } from '../manual-knowledge';
 import { reportedDiagnosticCode } from '../manual-source';
 import type { PmTaskActor, PmTaskState } from '../pm/task-review';
-import { taskComplete } from '../pm/task-review';
+import { taskComplete,tapTask } from '../pm/task-review';
 import { guideRulesForIssue } from './guide-selection';
 import {troubleshootingStepAlreadyDone} from '../troubleshooting-completed-steps';
 import {diagnosticCodeRuledOut,technicianTroubleshootingContext} from './technician-context';
@@ -40,6 +40,8 @@ export type TroubleshootingChecklist = {
   taskStates: Record<string, PmTaskState>;
   pendingVisits: { visitId: string; startedAt: string; lastEventAt: string | null; eventCount: number }[];
   reason?: string;
+  previewReadOnly?:boolean;
+  previewAccess?:{canEdit:boolean;canClearAll:boolean;canClearOwn:boolean};
 };
 
 /** Pending review is red only for an actual Chief; other readers see completion. */
@@ -119,4 +121,28 @@ export function deriveTroubleshootingChecklistContext(input: {
     steps: steps.map(step => ({ id: step.id, source_document_id: step.source_document_id, source_sha256: step.source_sha256, label: step.label, sourcePages: step.sourcePages, kind: step.kind, ...(step.code ? { code: step.code } : {}), ...(step.media?.length ? { media: step.media } : {}) })),
   });
   return { contextIdentity, steps };
+}
+
+/** Clearing a check removes its completion and review, without changing PM rules. */
+export function changeTroubleshootingTask(
+  access: { actor: PmTaskActor; canEdit: boolean; canClearOwn: boolean; canClearAll: boolean; canSeePendingReview: boolean },
+  state: PmTaskState | undefined,
+  action: 'toggle' | 'clear' = 'toggle',
+): PmTaskState {
+  const owner = Boolean(access.canClearOwn && state?.workerId === access.actor.id);
+  const clear = action === 'clear'
+    || (access.canClearAll && state?.status === 'approved')
+    || (owner && access.actor.role !== 'chief' && (state?.workerChecked === true || state?.status === 'approved'));
+  if (clear) {
+    if (!access.canClearAll && !owner) throw new Error('Only the person who checked this step or a Chief Engineer can clear it.');
+    return { status: 'empty' };
+  }
+  if (!access.canEdit) throw new Error('Troubleshooting checks are restricted to authorized Chief Engineers and technicians with access to this work order.');
+  if (access.canSeePendingReview && !state?.workerChecked) return { status: 'needs', workerId: access.actor.id, workerName: access.actor.name, workerChecked: true };
+  const next = tapTask(state, access.actor);
+  // A Chief's direct completion still has a stable worker owner. Reviewing a
+  // technician's existing completion retains that technician's ownership.
+  return access.actor.role === 'chief' && !state?.workerChecked && next.status === 'approved'
+    ? { ...next, workerId: access.actor.id, workerName: access.actor.name, workerChecked: true }
+    : next;
 }

@@ -17,17 +17,17 @@ const code=ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderS
 const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);
       if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/work-orders/diagram-theme')return diagramTheme;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
 
-test('source page selector preserves the original PDF and resets when the issue or document changes',async()=>{
+test('source pages are continuous in original order and reset with their documents',async()=>{
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
  const passages=[{page:4,text:'Troubleshooting water leak',kind:'troubleshooting'},{page:8,text:'Diagnostic cooling noise',kind:'diagnostic'}];
- const render=async props=>React.act(async()=>root.render(React.createElement(exports.default,{passages:[passages[0]],sourceUrl:'https://cmpri.test/manual.pdf?token=one',...props}))); 
+ const render=async props=>React.act(async()=>root.render(React.createElement(exports.default,{passages:[...passages].reverse(),sourceUrl:'https://cmpri.test/manual.pdf?token=one',...props})));
  try {
-  await render({});const select=parent.querySelector('select');assert.ok(select);assert.deepEqual([...select.options].map(option=>JSON.parse(option.value).at(-1)),[4]);assert.match(parent.textContent,/Troubleshooting water leak/);
-  await React.act(async()=>{select.value=[...select.options].find(option=>JSON.parse(option.value).at(-1)===4).value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
-  assert.equal(parent.querySelector('a').getAttribute('href'),'https://cmpri.test/manual.pdf?token=one#page=4');
-  await render({passages:[passages[1]]});assert.match(parent.textContent,/Diagnostic cooling noise/);assert.deepEqual([...parent.querySelector('select').options].map(option=>JSON.parse(option.value).at(-1)),[8]);
-  await render({passages:[]});assert.equal(parent.querySelector('select'),null);
- } finally {await React.act(async()=>root.unmount());parent.remove();}
+  await render({});assert.equal(parent.querySelector('select'),null);
+  assert.deepEqual([...parent.querySelectorAll('[data-continuous-source-page]')].map(page=>Number(page.dataset.continuousSourcePage)),[4,8]);
+  assert.deepEqual([...parent.querySelectorAll('a')].map(link=>link.getAttribute('href')),['https://cmpri.test/manual.pdf?token=one#page=4','https://cmpri.test/manual.pdf?token=one#page=8']);
+  await render({passages:[passages[1]]});assert.match(parent.textContent,/Diagnostic cooling noise/);assert.doesNotMatch(parent.textContent,/Troubleshooting water leak/);
+  await render({passages:[]});assert.equal(parent.querySelector('[data-continuous-source-page]'),null);
+ }finally{await React.act(async()=>root.unmount());parent.remove();}
 });
 
 test('everyday wording finds source pages without claiming they are instructions', async()=>{
@@ -102,20 +102,19 @@ function imageViewer() {
  return {parent,pending,revoked,subscriptions,state,render,complete,auth,cleanup};
 }
 
-test('source pages load authenticated images, change pages and release their object URLs',async()=>{
+test('consecutive source pages load without selection and release their object URLs',async()=>{
  const h=imageViewer();
- try {
-  await h.render({});assert.equal(h.pending.length,1);
-  const first=h.pending[0];const query=new URL(first.url,'https://cmpri.test').searchParams;
-  assert.equal(query.get('source'),'asset-upload');assert.equal(query.get('assetId'),'asset-one');assert.equal(query.get('sha256'),'a'.repeat(64));assert.equal(query.get('pageImage'),'4');
+ try{
+  await h.render({});assert.equal(h.pending.length,2);assert.equal(h.parent.querySelector('select'),null);
+  const [first,second]=h.pending;
+  assert.equal(new URL(first.url,'https://cmpri.test').searchParams.get('pageImage'),'4');
+  assert.equal(new URL(second.url,'https://cmpri.test').searchParams.get('pageImage'),'8');
   assert.equal(first.options.headers.Authorization,'Bearer synthetic-token');assert.equal(first.options.cache,'no-store');
-  await h.complete(first);assert.equal(h.parent.querySelector('img').getAttribute('src'),'blob:manual-1');
-  await React.act(async()=>{const select=h.parent.querySelector('select');select.value=[...select.options].find(option=>JSON.parse(option.value).at(-1)===8).value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
-  assert.equal(first.options.signal.aborted,true);assert.deepEqual(h.revoked,['blob:manual-1']);assert.equal(h.parent.querySelector('img'),null);
-  assert.equal(new URL(h.pending[1].url,'https://cmpri.test').searchParams.get('pageImage'),'8');
-  await h.complete();assert.equal(h.parent.querySelector('img').getAttribute('alt'),'Manual page 8, including diagrams and tables');
-  await h.render({passages:[]});assert.equal(h.parent.querySelector('img'),null);assert.deepEqual(h.revoked,['blob:manual-1','blob:manual-2']);assert.equal(h.subscriptions.size,0);
- } finally {await h.cleanup();}
+  await h.complete(first);await h.complete(second);assert.equal(h.parent.querySelectorAll('img').length,2);
+  assert.equal(h.parent.querySelectorAll('img')[1].getAttribute('alt'),'Manual page 8, including diagrams and tables');
+  await h.render({passages:[]});assert.ok(first.options.signal.aborted);assert.ok(second.options.signal.aborted);
+  assert.equal(h.parent.querySelector('img'),null);assert.deepEqual(h.revoked,['blob:manual-1','blob:manual-2']);assert.equal(h.subscriptions.size,0);
+ }finally{await h.cleanup();}
 });
 
 test('late page responses cannot publish after the source, account or selection changes',async()=>{
@@ -170,21 +169,14 @@ test('the work-order viewer renders semantic source HTML and never trusts suppli
  } finally {await React.act(async()=>root.unmount());parent.remove();}
 });
 
-test('source selection controls text and image together without dumping all search results', async () => {
+test('continuous pages keep their own text and source links without a dropdown',async()=>{
  const h=imageViewer();
- try {
-  await h.render({});
-  assert.match(h.parent.textContent,/Drain diagnostic chart/);
-  assert.doesNotMatch(h.parent.textContent,/Drain assembly diagram/);
-  assert.equal(h.parent.querySelectorAll('[data-source-page]').length,1);
-  await React.act(async()=>{const select=h.parent.querySelector('select');select.value=[...select.options].find(option=>JSON.parse(option.value).at(-1)===8).value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
-  assert.match(h.parent.textContent,/Drain assembly diagram/);
-  assert.doesNotMatch(h.parent.textContent,/Drain diagnostic chart/);
-  assert.equal(h.parent.querySelector('a').getAttribute('href'),'https://cmpri.test/source.pdf?token=one#page=8');
-  assert.equal(new URL(h.pending.at(-1).url,'https://cmpri.test').searchParams.get('pageImage'),'8');
- } finally {await h.cleanup();}
+ try{
+  await h.render({});assert.match(h.parent.textContent,/Drain diagnostic chart/);assert.match(h.parent.textContent,/Drain assembly diagram/);
+  assert.equal(h.parent.querySelectorAll('[data-source-page]').length,2);assert.equal(h.parent.querySelector('select'),null);
+  assert.deepEqual([...h.parent.querySelectorAll('a')].map(link=>link.getAttribute('href')),['https://cmpri.test/source.pdf?token=one#page=4','https://cmpri.test/source.pdf?token=one#page=8']);
+ }finally{await h.cleanup();}
 });
-
 
 test('same numbered pages in different manuals keep distinct text, links and authenticated file identity', async () => {
  const h=imageViewer();
@@ -195,21 +187,14 @@ test('same numbered pages in different manuals keep distinct text, links and aut
  ];
  try {
   await h.render({passages});
-  const select=h.parent.querySelector('select');
-  assert.equal(select.options.length,2);
-  assert.notEqual(select.options[0].value,select.options[1].value);
-  assert.match(h.parent.textContent,/First selected manual page/);
-  const first=h.pending[0];
+  assert.equal(h.parent.querySelector('select'),null);
+  assert.match(h.parent.textContent,/First selected manual page/);assert.match(h.parent.textContent,/Second selected manual page/);
+  assert.equal(h.parent.querySelectorAll('[data-continuous-source-page]').length,2);
+  const [first,second]=h.pending;
   assert.equal(new URL(first.url,'https://cmpri.test').searchParams.get('fileId'),'file-one');
-  await h.complete(first);
-  await React.act(async()=>{select.value=select.options[1].value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
-  assert.equal(first.options.signal.aborted,true);
-  assert.match(h.parent.textContent,/Second selected manual page/);
-  assert.doesNotMatch(h.parent.textContent,/First selected manual page/);
-  assert.equal(h.parent.querySelector('a').getAttribute('href'),'https://cmpri.test/second.pdf#page=4');
-  const query=new URL(h.pending.at(-1).url,'https://cmpri.test').searchParams;
+  const query=new URL(second.url,'https://cmpri.test').searchParams;
   assert.equal(query.get('sha256'),sharedHash);assert.equal(query.get('fileId'),'file-two');assert.equal(query.get('pageImage'),'4');
-  assert.equal(h.parent.querySelector('img'),null);
-  assert.deepEqual(h.revoked,['blob:manual-1']);
+  await h.complete(first);await h.complete(second);assert.equal(h.parent.querySelectorAll('img').length,2);
+  assert.deepEqual([...h.parent.querySelectorAll('a')].map(link=>link.getAttribute('href')),['https://cmpri.test/first.pdf#page=4','https://cmpri.test/second.pdf#page=4']);
  } finally {await h.cleanup();}
 });

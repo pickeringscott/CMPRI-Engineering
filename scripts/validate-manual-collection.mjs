@@ -31,9 +31,12 @@ const {technicianTroubleshootingContext}=await import('../src/lib/work-orders/te
 const {renderUploadedGuidePageDisplay}=await import('../src/lib/server/uploaded-guide-media.ts');
 const {themeSourceDiagram}=await import('../src/lib/work-orders/diagram-theme.ts');
 const sharp=(await import('sharp')).default;
+const {troubleshootingChecklistAccess}=await import('../src/lib/server/work-order-troubleshooting.ts');
 const read=name=>JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));
 const snapshot=read('actual-full-snapshot.json'),downloads=read('live-manual-downloads.json'),docs=read('live-manual-snapshot.json');
 const tickets=read('audit2-tickets.json');
+const account=read('manual-preview-account.json');
+const principal={identity:{id:account.profile.id,email:account.profile.email},profile:account.profile,membership:account.membership,permissions:account.permissions,hotelId:account.membership.hotel_id};
 const hotel=snapshot.assets[0].hotel_id,files=new Map(snapshot.files.map(entry=>[entry.asset_id,entry.files||[]]));
 const originals=new Map(downloads.filter(d=>d.file).map(d=>{const bytes=new Uint8Array(fs.readFileSync(d.file));assert.equal(createHash('sha256').update(bytes).digest('hex'),d.sha256);return [d.storage_path,bytes];}));
 const links=new Map(docs.documents.flatMap(group=>group.documents||[]).map(d=>[d.storage_path,d.url]));
@@ -53,7 +56,7 @@ const results=[];
 for(const asset of snapshot.assets){
   const result=await loadUploadedAssetGuide(admin,asset);
   const knowledge=normalizeManualKnowledge(result.manualKnowledge);
-  const orders=tickets.filter(t=>t.asset_id===asset.id).map(order=>({...order,...deriveTroubleshootingChecklistContext({...order,asset},knowledge)}));
+  const orders=tickets.filter(t=>t.asset_id===asset.id).map(order=>({...order,...deriveTroubleshootingChecklistContext({...order,asset},knowledge),previewPermissions:troubleshootingChecklistAccess(principal,account.orders.find(saved=>saved.id===order.id)||{...order,hotel_id:hotel})}));
   for(const order of orders)assert.equal(new Set(order.steps.map(step=>JSON.stringify([step.label,step.kind,step.code,step.source_document_id,step.source_sha256]))).size,order.steps.length,'Repeat excerpts within one source must share one check');
   results.push({asset,result,orders});
   console.log(JSON.stringify({asset:asset.name,status:result.documentation_status,codes:knowledge?.error_codes.length||0,checks:orders.map(o=>o.steps.length),needs_review:knowledge?.source?.coverage?.needs_ocr.length||0}));
@@ -65,7 +68,10 @@ assert.match(ge.result.manualKnowledge.error_codes.find(c=>c.code==='4').unit_re
 const fried=results.find(r=>r.asset.model_number==='VEA12K34-RTL-B');
 assert.match(fried.result.manualKnowledge.error_codes.find(c=>c.code==='3').unit_response,/75°F/);
 assert.ok(fried.result.manualKnowledge.source.coverage.needs_ocr.includes(40));
-assert.ok(fried.result.manualKnowledge.symptom_rules.filter(r=>r.source_pages.includes(41)).every(r=>r.reference_only));
+const coolingChart=fried.result.manualKnowledge.symptom_rules.filter(r=>r.source_pages.includes(41));
+assert.ok(coolingChart.some(rule=>rule.steps.some(step=>/Before continuing.*Error Codes/i.test(step))));
+assert.ok(coolingChart.some(rule=>rule.steps.some(step=>/ — (?:Yes|No):/.test(step))));
+assert.ok(coolingChart.every(rule=>!rule.reference_only),'Explicit connected chart steps retain their checkboxes.');
 const chartSource=fried.result.manualKnowledge.source;
 const chart=await renderUploadedGuidePageDisplay(originals.get(chartSource.storage_path),chartSource.sha256,41);
 assert.equal(chart.vectorOnly,true,'Native coloring must be based on the actual PDF operator analysis.');
@@ -74,6 +80,8 @@ const themed=themeSourceDiagram({width:pixels.info.width,height:pixels.info.heig
 assert.equal(themed.adapted,true);
 assert.deepEqual([...themed.data.subarray(0,3)],[25,27,36],'Original chart paper must follow the native display surface.');
 const friedOrder=fried.orders.find(order=>/cooling issue/i.test(order.issue));
+assert.ok(friedOrder.steps.length>0,'The existing cooling-issue report retains its source-backed conditional checkboxes.');
+assert.match(friedOrder.steps[0].label,/Before continuing.*Error Codes/i);
 const friedContext=technicianTroubleshootingContext(friedOrder.notes,friedOrder.action_root_cause);
 assert.match(friedContext,/Reset breaker.*Installed new t-stat/s);
 assert.ok(!friedContext.includes('Approved source:'));

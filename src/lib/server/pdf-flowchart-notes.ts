@@ -27,7 +27,7 @@ export function flowchartPrerequisites(items: TextItem[], pageNumber: number): M
       const match = [condition];
       if (/\bno cooling\b/i.test(condition)) match.push('not cooling');
       if (/\bno heat(?:ing)?\b/i.test(condition)) match.push('not heating');
-      results.push({ match, steps: [`${condition} — ${prerequisite}`], source_pages: [pageNumber], reference_only: true });
+      results.push({ match, steps: [`${condition} — ${prerequisite}`], source_pages: [pageNumber] });
     }
   }
   return results;

@@ -37,6 +37,9 @@ function concepts(text: string, everyday = false) {
   for (const { symptom, pattern } of symptomPatterns) if ([...text.matchAll(pattern)].length) result.add(symptom);
   if (everyday && result.has('rattle')) result.add('noise');
   if (everyday && /\bbroken\b/.test(text)) result.add('operation');
+  if(everyday)for(const [topic,symptom] of [['cooling','cool'],['heating','heat'],['draining','drain'],['filling','fill']] as const){
+    if(new RegExp('\\b'+topic+' (?:issue|problem|fault|trouble)\\b').test(text))result.add(symptom);
+  }
   if (everyday && [...result].some(symptom => symptom !== 'operation')) result.delete('operation');
   return result;
 }
