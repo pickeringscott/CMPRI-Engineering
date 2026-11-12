@@ -4,7 +4,8 @@ import {scannedPdf} from './helpers/scanned-pdf.mjs';
 import {recognizeManualPages} from '../src/lib/server/manual-ocr.ts';
 import {ocrManualActions} from '../src/lib/server/manual-ocr-actions.ts';
 import {guideRulesForIssue} from '../src/lib/work-orders/guide-selection.ts';
-import {createCanvas} from '@napi-rs/canvas';
+import {createCanvas,loadImage} from '@napi-rs/canvas';
+import {readFileSync} from 'node:fs';
 
 
 test('installed OCR reads an image-only PDF page and preserves its page number',async()=>{
@@ -14,6 +15,7 @@ test('OCR rejects invalid sources, duplicate pages and out-of-range pages',async
  await assert.rejects(recognizeManualPages(new Uint8Array([1,2]),[1]));const pdf=scannedPdf();await assert.rejects(recognizeManualPages(pdf,[1,1]));await assert.rejects(recognizeManualPages(pdf,[2]));
 });
 test('OCR reads a high-resolution scanned page instead of silently discarding it',async()=>{
- const canvas=createCanvas(5000,4000),ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,5000,4000);ctx.fillStyle='black';ctx.font='bold 250px Arial';ctx.fillText('CHECK WATER SUPPLY',300,1900);
- const result=await recognizeManualPages(scannedPdf({jpeg:canvas.toBuffer('image/jpeg'),width:5000,height:4000,pageHeight:560}),[1]);canvas.width=0;canvas.height=0;assert.match(result.pages[0].text,/check water supply/i);
+ const image=await loadImage(readFileSync(new URL('./helpers/scanned-page.jpg',import.meta.url)));
+ const canvas=createCanvas(7700,2200),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,7700,2200);
+ const result=await recognizeManualPages(scannedPdf({jpeg:canvas.toBuffer('image/jpeg'),width:7700,height:2200}),[1]);canvas.width=0;canvas.height=0;assert.match(result.pages[0].text,/check the water supply valve/i);
 });

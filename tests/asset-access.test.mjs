@@ -80,7 +80,8 @@ function fixture(route, config={}) {
     })},
   };
   const exports={};
-  const compiled=ts.transpileModule(readFileSync(new URL(`../src/app/api/assets/${route}`,import.meta.url),'utf8'),{
+  const source=config.legacy ? `../src/lib/server/pre-consolidation/${route === 'route.ts' ? 'assets-route.ts' : route}` : `../src/app/api/assets/${route}`;
+  const compiled=ts.transpileModule(readFileSync(new URL(source,import.meta.url),'utf8'),{
     compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
   }).outputText;
   vm.runInNewContext(compiled,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'}},
@@ -217,6 +218,14 @@ for (const [label, optionalFields, expected] of [
     assert.equal(result.body.asset.id,'created-asset');
   });
 }
+for(const legacy of [false,true]) test(`asset creation stores its name separately from its location (${legacy?'legacy':'current'})`,async()=>{
+  const fallback=fixture('route.ts',{legacy,permission:true,body:{asset_type:'Desk lamp',location_id:'test-location'}});
+  assert.equal((await fallback.handlers.POST(fallback.request)).status,200);
+  assert.equal(fallback.insertedAsset.name,'Desk lamp');assert.equal(fallback.insertedAsset.location_id,'test-location');
+  const named=fixture('route.ts',{legacy,permission:true,body:{asset_type:'Water Heating',name:'Navien Water Heater #1',location_id:'test-location'}});
+  assert.equal((await named.handlers.POST(named.request)).status,200);
+  assert.equal(named.insertedAsset.name,'Navien Water Heater #1');assert.equal(named.insertedAsset.asset_type,'Water Heating');
+});
 test('front desk cannot read equipment management',async()=>{
   const f=fixture('route.ts',{profile:{active:true,role:'Front Desk',full_name:'Front Desk'}});
   assert.equal((await f.handlers.GET(f.request)).status,403);

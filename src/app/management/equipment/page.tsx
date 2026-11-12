@@ -168,7 +168,7 @@ export default function ManageEquipmentPage() {
       const response = await fetch("/api/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
-        body: JSON.stringify({ location_id: newAsset.location_id, asset_type: newAsset.asset_type.trim(),
+        body: JSON.stringify({ location_id: newAsset.location_id, asset_type: newAsset.asset_type.trim(), name: newAsset.name?.trim() || undefined,
           asset_tag: newAsset.asset_tag, manufacturer: newAsset.manufacturer, model_family: newAsset.model_family,
           model_number: newAsset.model_number, serial_number: newAsset.serial_number,
           generation: newAsset.generation, install_year: newAsset.install_year }),
@@ -736,8 +736,8 @@ export default function ManageEquipmentPage() {
                 {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
               </select>
             </label>
-            {([["asset_type", "Equipment type"], ["asset_tag", "Equipment label (optional)"], ["serial_number", "Serial number (optional)"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}
-              <input required={key === "asset_type"} maxLength={key === "serial_number" ? 300 : 200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
+            {([["asset_type", "Equipment type"], ["name", "Equipment name (optional)"], ["asset_tag", "Equipment label (optional)"], ["serial_number", "Serial number (optional)"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}
+              <input required={key === "asset_type"} maxLength={key === "name" ? 500 : key === "serial_number" ? 300 : 200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
             </label>)}
             <details className="sm:col-span-2"><summary className="cursor-pointer text-sm font-semibold">More equipment details (optional)</summary>
               <div className="mt-2 grid gap-3 sm:grid-cols-2">

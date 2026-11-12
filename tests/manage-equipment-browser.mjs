@@ -29,7 +29,7 @@ await page.route('**/*', async route => {
     if (failSave) { status = 400; body = { error: 'Isolated save rejected' }; }
     else {
       const input = posts.at(-1);
-      const asset = { ...input, id: 'created-fixture', name: `${input.asset_type} – ${locations.find(l => l.id === input.location_id).name}`, active: true, status: 'Active', documentation_verified: false };
+      const asset = { ...input, id: 'created-fixture', name: input.name || input.asset_type, active: true, status: 'Active', documentation_verified: false };
       assets.push(asset);
       body = { asset };
     }
