@@ -35,7 +35,8 @@
     "build:palette": "node scripts/build-site-palette.mjs",
     "build:local-ocr": "node scripts/build-local-ocr-assets.mjs",
     "test:manual-associations": "node --experimental-strip-types --test tests/manual-applicability.test.mjs tests/stored-pdf-status.test.mjs tests/stored-pdf-status-ui.test.mjs tests/stored-pdf-import.test.mjs tests/pdf-direct-upload.test.mjs",
-    "test:manual-collection": "node --experimental-transform-types scripts/validate-manual-collection.mjs"
+    "test:manual-collection": "node --experimental-transform-types scripts/validate-manual-collection.mjs",
+    "test:manual-source-controls": "node scripts/validate-manual-source-controls.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

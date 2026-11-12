@@ -6,6 +6,8 @@ The shared reader works from the reported issue and uses source-backed content a
 
 The reader also considers saved technician notes and Actions Taken / Root Cause when filtering completed checks or explicitly ruled-out codes. Automatic checklist summaries are excluded from that context. Repeated identical checks within one manual share their page citations; identical wording from different manuals retains separate provenance. Fault meanings and automatic unit responses are reference information, not completed technician actions. Explicit named procedures are expanded only when one complete numbered source procedure can be located.
 
+Source-page ranking keeps the reported issue ahead of technician history. Issue-matching troubleshooting/diagnostic pages precede general references; technician findings break ties and can add references. Known import provenance and encoded change/system events do not become technician findings. The original note records remain intact.
+
 In a work order, the technician may check and uncheck steps and add notes during troubleshooting. A technician's completion is pending red for the Chief and becomes green when reviewed; the technician sees that review. Closing the troubleshooting accordion saves a combined checklist summary to work-order notes. When a different technician opens that accordion, offer continuing the prior checklist or starting a new one while retaining history.
 
 ## Current limits
@@ -18,6 +20,10 @@ Native indexing uses internal 25-page batches, a 10,000-page ceiling, and a 20-m
 
 Source controls request a fresh short-lived private URL when opened. The server rechecks the account, property, asset, registered-file association, quarantine acknowledgment, and original fingerprint. Source links in a long-lived guide no longer depend on the URL created when the guide first loaded.
 
+Source controls are scoped to the selected document and account. A document switch hides the prior iframe immediately, pending opens are cancelled when the control changes or unmounts, and sign-out clears the embedded source. Completed standalone PDF windows stay open when the guide closes. Closing/reopening renews access and clears an earlier retryable error.
+
 Acceptance uses authorized Supabase snapshots and unchanged original PDFs. Run `CMPRI_MANUAL_SNAPSHOT_DIR=/private/snapshot npm run test:manual-collection`; the command refuses to substitute fictional records when the private inputs are unavailable. Never commit private records, signed URLs, or manual originals. Existing synthetic unit/browser fixtures remain regression checks and are not evidence that a live manual works.
+
+`CMPRI_MANUAL_SNAPSHOT_DIR=/private/snapshot npm run test:manual-source-controls` exercises document/account changes, renewal, retries, popup blocking and pending-window cancellation using the actual manual/account snapshots and recorded source URLs. It does not send requests or establish live authentication.
 
 Vercel previews of this implementation are read-only (`VERCEL_ENV=preview`, or `CMPRI_MANUAL_PREVIEW_READ_ONLY=1` locally). API mutations, live database writes, OCR enqueueing, derivative-cache writes, and work-order view writes are disabled. Authenticated reads and fresh source signing remain available. Preview testing cannot establish production save/review/note persistence. See [implementation and PR #20 comparison](CMPRI_MANUAL_READER_PREVIEW_2026-11-12.md).

@@ -26,6 +26,8 @@ const {resolveManualProcedureReferences}=await import('../src/lib/manual-procedu
 const {structureManualDocument}=await import('../src/lib/manual-document-html.ts');
 const {uploadedManualHtmlActions}=await import('../src/lib/uploaded-manual-actions.ts');
 const {manualPreviewFetch}=await import('../src/lib/server/manual-preview.ts');
+const {relevantSourcePassages}=await import('../src/lib/manual-source.ts');
+const {technicianTroubleshootingContext}=await import('../src/lib/work-orders/technician-context.ts');
 const read=name=>JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));
 const snapshot=read('actual-full-snapshot.json'),downloads=read('live-manual-downloads.json'),docs=read('live-manual-snapshot.json');
 const tickets=read('audit2-tickets.json');
@@ -61,6 +63,16 @@ const fried=results.find(r=>r.asset.model_number==='VEA12K34-RTL-B');
 assert.match(fried.result.manualKnowledge.error_codes.find(c=>c.code==='3').unit_response,/75°F/);
 assert.ok(fried.result.manualKnowledge.source.coverage.needs_ocr.includes(40));
 assert.ok(fried.result.manualKnowledge.symptom_rules.filter(r=>r.source_pages.includes(41)).every(r=>r.reference_only));
+const friedOrder=fried.orders.find(order=>/cooling issue/i.test(order.issue));
+const friedContext=technicianTroubleshootingContext(friedOrder.notes,friedOrder.action_root_cause);
+assert.match(friedContext,/Reset breaker.*Installed new t-stat/s);
+assert.ok(!friedContext.includes('Approved source:'));
+assert.equal(relevantSourcePassages(fried.result.manualKnowledge.source_passages,friedOrder.issue,friedContext)[0].page,41);
+for(const order of ge.orders){
+  const context=technicianTroubleshootingContext(order.notes,order.action_root_cause);
+  assert.ok(!context.includes('|change|'));
+  if(/Not Cooling/i.test(order.issue))assert.equal(relevantSourcePassages(ge.result.manualKnowledge.source_passages,order.issue,context)[0].kind,'diagnostic');
+}
 const enseo=results.find(r=>r.asset.name==='Enseo TV System');
 const power=enseo.result.manualKnowledge.symptom_rules.flatMap(r=>r.steps).find(s=>/Perform a Power Cycle/.test(s));
 assert.match(power,/Wait 30 seconds/);assert.match(power,/Wait 7 minutes/);

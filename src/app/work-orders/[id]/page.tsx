@@ -1353,7 +1353,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
     && !!manualKnowledge.source.storage_path && /^[a-f0-9]{64}$/i.test(manualKnowledge.source.sha256 || "") && !!manualKnowledge.source.registered_file_id;
   const technicianDiagnosticContext=technicianTroubleshootingContext(notes,actionRootCause);
-  const matchedSourcePages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], `${combinedDiagnosticText} ${technicianDiagnosticContext}`) : [];
+  const matchedSourcePages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText, technicianDiagnosticContext) : [];
   const matchingSymptomRules = trustedManualKnowledge ? guideRulesForIssue(manualKnowledge, combinedDiagnosticText) : [];
 
   const manualSteps = Array.from(
@@ -2570,7 +2570,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
                 {selectedAsset && trustedManualKnowledge && manualKnowledge && <ManualCoverage knowledge={manualKnowledge} />}
                 {selectedAsset && trustedManualKnowledge && guideDocuments.length > 1 && <ul className="text-xs text-slate-300" aria-label="Linked manual sources">
-                  {guideDocuments.map(document => <li key={document.storage_path}><ManualSourceLink className="text-sky-300 underline" href={document.url || ""}>{document.name}</ManualSourceLink></li>)}
+                  {guideDocuments.map(document => <li key={document.storage_path}><ManualSourceLink userId={cmpriSession?.user.id} className="text-sky-300 underline" href={document.url || ""}>{document.name}</ManualSourceLink></li>)}
                 </ul>}
                 {selectedAsset && trustedManualKnowledge && cmpriSession && (
                   <WorkOrderTroubleshootingChecklist
@@ -2619,7 +2619,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                           <p className="mt-0.5 text-sm font-medium text-slate-100">{item.problem}</p>
                           {item.unit_response && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Unit response:</span> {item.unit_response}</p>}
                           {item.action && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Source action / response:</span> {item.action}</p>}
-                          {item.source_url && item.source_pages?.[0] && <ManualSourceLink href={`${item.source_url}#page=${item.source_pages[0]}`} className="text-xs text-sky-300 underline">Source · PDF page {item.source_pages[0]}</ManualSourceLink>}
+                          {item.source_url && item.source_pages?.[0] && <ManualSourceLink userId={cmpriSession?.user.id} href={`${item.source_url}#page=${item.source_pages[0]}`} className="text-xs text-sky-300 underline">Source · PDF page {item.source_pages[0]}</ManualSourceLink>}
 
                         </div>
                       );

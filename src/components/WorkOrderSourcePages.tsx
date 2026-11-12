@@ -62,7 +62,7 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
       </section>)}
       <div className="mt-1">
         {image?.key === imageKey && <picture style={{ display: 'contents' }}><img className="h-auto w-full rounded border border-slate-700" src={image.url} alt={`Manual page ${current}, including diagrams and tables`} /></picture>}
-        <ManualSourceLink className="text-sky-300 underline" href={`${currentSourceUrl.split('#')[0]}#page=${current}`}>Open PDF page {current}</ManualSourceLink>
+        <ManualSourceLink userId={userId} className="text-sky-300 underline" href={`${currentSourceUrl.split('#')[0]}#page=${current}`}>Open PDF page {current}</ManualSourceLink>
       </div>
     </div>
   );
