@@ -441,6 +441,17 @@ h1.cmpri-desktop-heading {
   touch-action: none;
 }
 
+.cmpri-desktop-titlebar.cmpri-assets-titlebar {
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  padding: 0 .75rem;
+  gap: .75rem;
+  font-size: 1.2rem;
+}
+.cmpri-assets-title-icon { width: 1.5rem; height: 1.5rem; flex: none; }
+.cmpri-assets-titlebar button.cmpri-desktop-close { font-size: 1.4rem !important; }
+
 .cmpri-desktop-window[data-active="true"] .cmpri-desktop-titlebar {
   background: var(--cmpri-modal-surface, #202020);
   color: #fff;

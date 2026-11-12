@@ -8,12 +8,28 @@ import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { getValidSession } from "@/lib/supabase/client";
 import { parseTicketHistory } from "@/lib/ticket-note-presentation";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
-import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-install-year";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { equipmentOptionLabel } from "@/lib/equipment-selection";
 import { suggestionsFromReviewedOcr } from "@/lib/equipment-ocr-suggestions";
+
+function AssetIcon({ name }: { name: "search" | "location" | "layers" | "status" | "equipment" | "details" | "repair" | "document" | "edit" | "move" | "external" }) {
+  const paths: Record<typeof name, React.ReactNode> = {
+    search: <><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></>,
+    location: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,
+    layers: <><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></>,
+    status: <path d="M2 12h4l2-7 4 14 3-10 2 3h5"/>,
+    equipment: <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 10c-4-8 4-7 3-2m-1 5c8-1 4 6 0 3m-4-3c-4 7-7 0-2-2"/></>,
+    details: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></>,
+    repair: <path d="M14 6a5 5 0 0 0-6 6L3 17a2 2 0 0 0 3 3l5-5a5 5 0 0 0 6-6l-3 3-3-3 3-3Z"/>,
+    document: <><path d="M6 3h8l4 4v14H6V3Zm8 0v5h4M9 12h6M9 16h6"/></>,
+    edit: <><path d="m4 16-1 5 5-1L20 8l-4-4L4 16Zm10-10 4 4"/></>,
+    move: <path d="M3 8h17m-4-4 4 4-4 4M21 16H4m4-4-4 4 4 4"/>,
+    external: <><path d="M13 4h7v7m0-7-9 9"/><path d="M18 13v6H5V6h6"/></>,
+  };
+  return <svg aria-hidden="true" className="asset-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
 
 type Asset = {
   id: string;
@@ -579,6 +595,7 @@ export default function ManageEquipmentPage() {
     }
     return [...groups.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true})).map(([area, locations]) => [area, [...locations.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true}))] as const);
   }, [assets, browseLocations, assetSearch, locationFilter, typeFilter, statusFilter]);
+  const resultCount = groupedAssets.reduce((total, [, locations]) => total + locations.reduce((count, [, items]) => count + items.length, 0), 0);
 
   return (
     <main className="asset-workspace min-h-screen bg-slate-950 text-white">
@@ -589,35 +606,35 @@ export default function ManageEquipmentPage() {
             <h1 className="mt-1 text-3xl font-bold">Assets</h1>
             <p className="mt-1 text-sm text-slate-400">Equipment records, manufacturer documentation, and verified information.</p>
           </div>
-          <ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">← Dashboard</ModalDashboardLink>
         </header>}
-        {embedded && <div className="mb-2"><ModalDashboardLink className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Dashboard</ModalDashboardLink></div>}
+        
 
         {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</div>}
 
-        <div className="grid gap-4 pt-2 md:grid-cols-[minmax(260px,34%)_minmax(0,1fr)]">
+        <div className="asset-layout grid gap-4 pt-2 md:grid-cols-[minmax(260px,34%)_minmax(0,1fr)]">
           <section className="asset-picker min-w-0 bg-slate-900">
             <div className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-bold">All Equipment</h2>
+                <h2 className="text-xl font-bold">All Equipment <span aria-hidden="true" className="asset-heading-chevron">⌄</span></h2>
+                <span className="asset-result-count">{loading ? "Loading…" : assetLoadError ? "Unavailable" : `${resultCount} ${resultCount === 1 ? "result" : "results"}`}</span>
                 {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">Add Asset</button>}
               </div>
-              <p className="text-xs text-slate-500">{loading ? "Loading…" : assetLoadError ? "Equipment unavailable" : `${assets.length} records`}</p>
+              
             </div>
             <div className="px-3 pb-3">
               <label className="sr-only" htmlFor="asset-search">Search equipment</label>
-              <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="asset-search min-h-10 w-full rounded px-3 text-sm text-white" />
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <label>Location <select value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-                <label>Type <select value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-                <label>Status <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+              <span className="asset-search-wrap"><AssetIcon name="search" /><input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="asset-search min-h-10 w-full rounded px-3 text-sm text-white" /></span>
+              <div className="asset-filters mt-2 text-sm">
+                <label><AssetIcon name="location" /><span className="sr-only">Location</span><select aria-label="Location" value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">Location</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                <label><AssetIcon name="layers" /><span className="sr-only">Type</span><select aria-label="Type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">Type</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+                <label><AssetIcon name="status" /><span className="sr-only">Status</span><select aria-label="Status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
               </div>
               <div className="mt-3 max-h-[60vh] overflow-y-auto text-sm">
                 {loading ? <p>Loading equipment…</p> : assetLoadError ? <button type="button" onClick={() => void loadAssets()} className="underline">Retry loading equipment</button> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
-                  <summary className="asset-group cursor-pointer rounded px-3 py-2 font-bold">{area} <span className="float-right text-xs font-normal text-slate-400">{locations.length} locations · {locations.reduce((total, [, items]) => total + items.length, 0)} assets</span></summary>
+                  <summary className="asset-group cursor-pointer rounded px-3 py-2 font-bold"><AssetIcon name="layers" /><span className="asset-group-name">{area}</span><span className="asset-group-count text-xs font-normal text-slate-400">{locations.length} {locations.length === 1 ? 'location' : 'locations'} · {locations.reduce((total, [, items]) => total + items.length, 0)} {locations.reduce((total, [, items]) => total + items.length, 0) === 1 ? 'asset' : 'assets'}</span></summary>
                   {locations.map(([location, items]) => <details key={location} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="ml-3">
-                    <summary className="asset-location cursor-pointer rounded px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
-                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`asset-result block w-full px-3 py-2 text-left ${selectedId === item.id ? "asset-result-selected font-bold" : ""}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
+                    <summary className="asset-location cursor-pointer rounded px-2 py-2 text-slate-300"><AssetIcon name="location" /><span className="asset-location-name">{location}</span><span className="asset-location-count">{items.length} {items.length === 1 ? "asset" : "assets"}</span></summary>
+                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`asset-result block w-full px-3 py-2 text-left ${selectedId === item.id ? "asset-result-selected font-bold" : ""}`}><AssetIcon name="equipment" /><span>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</span><span className="asset-result-arrow" aria-hidden="true">›</span></button>)}
                   </details>)}
                 </details>)}
               </div>
@@ -626,23 +643,23 @@ export default function ManageEquipmentPage() {
 
           <section className="asset-detail min-w-0 bg-slate-900 p-3">
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
-              <div className="flex flex-wrap items-start gap-4">
+              <div className="asset-overview flex flex-wrap items-start gap-4">
                 <label className={`relative block shrink-0 ${canManage ? "cursor-pointer" : ""}`}>
                   {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
-                  {canManage && <><span className="mt-1 block text-xs text-slate-400">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
+                  {canManage && <><span className="sr-only">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
                 </label>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <h2 className="asset-title font-bold">{selected.name || selected.asset_type}</h2>
                     <div className="flex flex-wrap gap-3 text-sm font-semibold">
-                      {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="px-2 py-1 text-cyan-200">Edit Details</button>}
+                      {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="asset-header-action px-2 py-1 text-cyan-200"><AssetIcon name="edit" />Edit Details</button>}
                       {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="px-2 py-1 text-cyan-200 disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
-                      {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="px-2 py-1 text-cyan-200 disabled:opacity-50">Move Asset</button>}
+                      {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="asset-header-action px-2 py-1 text-cyan-200 disabled:opacity-50"><AssetIcon name="move" />Move Asset</button>}
                     </div>
                   </div>
-                  <p className="mt-2 text-sm text-slate-300">Current location: {browseLocations.find(location => location.id === selected.location_id)?.name || (selected.location_id ? "Location unavailable" : "Unassigned")}</p>
-                  <p className="mt-1 text-sm text-slate-300">Serial: {selected.serial_number || "Not yet recorded"}</p>
-                  <p className="mt-1 text-sm text-slate-300">{selected.status || (selected.active ? "Active" : "Inactive")}{verified ? " · Verified documentation" : ""}</p>
+                  <p className="asset-meta mt-2 text-sm text-slate-300"><AssetIcon name="location" />Current location: {browseLocations.find(location => location.id === selected.location_id)?.name || (selected.location_id ? "Location unavailable" : "Unassigned")}</p>
+                  <p className="asset-meta mt-1 text-sm text-slate-300"><AssetIcon name="layers" />Serial: {selected.serial_number || "Not yet recorded"}</p>
+                  <p className="asset-meta asset-service-status mt-1 text-sm text-slate-300"><span aria-hidden="true">✓</span>{selected.status || (selected.active ? "Active" : "Inactive")}{verified ? " · Verified documentation" : ""}</p>
                   {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
                   {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders.</p>}
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
@@ -659,7 +676,7 @@ export default function ManageEquipmentPage() {
                 {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{moveError}</p>}
                 <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? "Moving…" : "Confirm Move"}</button>
               </section>}
-              <nav aria-label="Asset sections" className="mt-3 flex flex-wrap gap-x-6 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}>{label}</button>)}</nav>
+              <nav aria-label="Asset sections" className="asset-tabs mt-3 flex flex-wrap gap-x-6 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}><AssetIcon name={key === "details" ? "details" : key === "orders" ? "repair" : "document"} />{label}</button>)}</nav>
               <div hidden={assetPanel !== "details"}>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
@@ -672,10 +689,11 @@ export default function ManageEquipmentPage() {
               <section hidden={assetPanel !== "orders"} className="mt-3" aria-label="Work orders and repairs">
                 <h3 className="sr-only">Work Orders &amp; Repairs</h3>
                 {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : ordersLoading ? <p role="status" className="text-sm text-slate-400">Loading work orders…</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 text-sm">
-                  <div className="asset-order rounded p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
+                  <div className="asset-order rounded p-3"><div className="asset-order-heading"><AssetIcon name="document" /><strong>WO #{order.display_id} · {order.issue}</strong><span className="asset-order-status">{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="asset-open-order"><AssetIcon name="external" />Open Work Order</ModalNavigationButton></div>
                   <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p></div>
-                  {order.notes && <><h4 className="mt-4 font-bold">Work order notes</h4><ul className="mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
+                  {order.notes && <><div className="asset-notes-heading"><h4>Work order notes</h4><span>Notes are saved on the work order and shown here for this asset.</span></div><ul className="asset-note-list mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
                 </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
+                {documents.length > 0 && !selected.serial_number && <div className="asset-manual-hint"><AssetIcon name="document" /><span>Manual: applicability needs serial number</span><button type="button" onClick={() => setAssetPanel("documents")}>View Documentation <AssetIcon name="external" /></button></div>}
               </section>
 
               <div hidden={assetPanel !== "details"}>

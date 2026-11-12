@@ -701,8 +701,8 @@ export default function GlobalModalHost() {
               className="cmpri-modal-shell cmpri-dashboard-overlay-panel cmpri-modal-frame relative flex min-h-0 min-w-0 flex-col overflow-hidden overscroll-contain border border-slate-700 bg-slate-950 shadow-2xl"
               style={panelStyle}
             >
-              <div className={`cmpri-desktop-titlebar${isWorkOrderDetail ? " cmpri-work-order-titlebar" : ""}`} style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
-                <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />
+              <div className={`cmpri-desktop-titlebar${isWorkOrderDetail ? " cmpri-work-order-titlebar" : ""}${isAssets ? " cmpri-assets-titlebar" : ""}`} style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
+                {isAssets ? <svg aria-hidden="true" className="cmpri-assets-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" /></svg> : <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />}
                 <span className="cmpri-title-content">
                   <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
                   {entry.guest && <WorkOrderTitleGuest guest={entry.guest} />}
@@ -711,7 +711,7 @@ export default function GlobalModalHost() {
                 {isRoomRanking && <RoomRankerKey />}
                 <button type="button" className="cmpri-desktop-close" aria-label={`Close ${displayTitle}`} onClick={()=>requestModalClose(entry.id)}>×</button>
               </div>
-              {isTop && <nav aria-label="Open screens" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-700 bg-slate-950 p-1">
+              {isTop && (!isAssets || stack.length > 1) && <nav aria-label="Open screens" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-700 bg-slate-950 p-1">
                 {canViewWorkOrders && <button type="button" onClick={openWorkOrderList} className="min-h-10 shrink-0 rounded-md border border-amber-500/60 px-3 text-xs font-semibold text-amber-200">Work orders</button>}
                 {stack.map(item => <button key={item.id} type="button" aria-pressed={item.id === activeId} onClick={() => setActiveId(item.id)} className={`min-h-10 max-w-44 shrink-0 truncate rounded-md px-3 text-xs ${item.id === activeId ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}>{item.title}</button>)}
               </nav>}
