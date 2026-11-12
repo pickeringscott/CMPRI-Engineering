@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     if (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders") && !allows(auth.principal, "add_work_order_notes")) return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
     const assetId = request.nextUrl.searchParams.get("asset_id") || "";
     if (!isUuid(assetId)) return NextResponse.json({ error: "A valid asset is required." }, { status: 400 });
-    let query = auth.admin.from("work_orders").select("id,display_id,issue,status,room,notes,created_at").eq("hotel_id", HOTEL_ID).eq("asset_id", assetId).order("created_at", { ascending: false }).limit(100);
+    let query = auth.admin.from("work_orders").select("id,display_id,issue,status,room,notes,created_at,revision").eq("hotel_id", HOTEL_ID).eq("asset_id", assetId).order("created_at", { ascending: false }).limit(100);
     const filter = workOrderReadFilter(workOrderReader(auth.principal));
     if (filter) query = query.or(filter);
     const { data, error } = await query;
