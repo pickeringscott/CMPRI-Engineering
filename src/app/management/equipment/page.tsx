@@ -86,8 +86,15 @@ export default function ManageEquipmentPage() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoMessage, setPhotoMessage] = useState("");
   const [photoVersion, setPhotoVersion] = useState(0);
-  const [assetOrders, setAssetOrders] = useState<Array<{id:string; display_id:string; issue:string; status:string; room:string; notes:string | null}>>([]);
+  const [assetOrders, setAssetOrders] = useState<Array<{id:string; display_id:string; issue:string; status:string; room:string; notes:string | null; revision:number}>>([]);
   const [ordersError, setOrdersError] = useState("");
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [destinationId, setDestinationId] = useState("");
+  const [moveOrderId, setMoveOrderId] = useState("");
+  const [moveError, setMoveError] = useState("");
+  const [orderVersion, setOrderVersion] = useState(0);
   const [assetSearch, setAssetSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -268,7 +275,7 @@ export default function ManageEquipmentPage() {
   }, []);
 
   function selectAsset(item: Asset) {
-    if (item.id !== selectedId) { setAssetOrders([]); setOrdersError(""); setPhoto(""); setPhotoMessage(""); }
+    if (item.id !== selectedId) { setOrdersLoading(Boolean(item.id)); setAssetOrders([]); setOrdersError(""); setPhoto(""); setPhotoMessage(""); setMoving(false); setMoveError(""); }
     setSelectedId(item.id);
     setDraft({ ...item });
     setEditing(false);
@@ -303,9 +310,10 @@ export default function ManageEquipmentPage() {
         if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Unable to load work orders.");
         if (current) setAssetOrders(payload.work_orders);
       } catch (error) { if (current) setOrdersError(error instanceof Error ? error.message : "Unable to load work orders."); }
+      finally { if (current) setOrdersLoading(false); }
     })();
     return () => { current = false; };
-  }, [selectedId, token]);
+  }, [selectedId, token, orderVersion]);
 
   useEffect(() => {
     let current = true;
@@ -336,6 +344,24 @@ export default function ManageEquipmentPage() {
       setPhotoVersion(value => value + 1); setPhotoMessage("Photo saved.");
     } catch (error) { setPhotoMessage(error instanceof Error ? error.message : "Photo could not be saved."); }
     finally { setPhotoBusy(false); }
+  }
+
+  async function moveAsset() {
+    if (!selected || !selected.updated_at || !destinationId || moveBusy) return;
+    const order = assetOrders.find(item => item.id === moveOrderId);
+    if (!moveOrderId || (moveOrderId !== "none" && !order)) { setMoveError("Select a linked work order or choose no work order."); return; }
+    setMoveBusy(true); setMoveError("");
+    try {
+      const access = await token();
+      const response = await fetch("/api/assets/move", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` }, body: JSON.stringify({ assetId: selected.id, destinationId, expectedAssetUpdatedAt: selected.updated_at, workOrderId: order?.id || null, expectedWorkOrderRevision: order?.revision || null }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Move failed.");
+      setMoving(false); setDestinationId(""); setMoveOrderId("");
+      if (await loadAssets(selected.id)) setMessage("Asset moved.");
+      if (window.parent !== window) window.parent.postMessage({ type: "cmpri-assets-changed", assetId: selected.id, modalToken: new URLSearchParams(window.location.search).get("modalToken") || "" }, window.location.origin);
+      setOrdersLoading(true); setOrderVersion(value => value + 1);
+    } catch (error) { setMoveError(error instanceof Error ? error.message : "Move failed."); }
+    finally { setMoveBusy(false); }
   }
 
   function setField<K extends keyof Asset>(key: K, value: Asset[K]) {
@@ -586,7 +612,7 @@ export default function ManageEquipmentPage() {
                   <summary className="cursor-pointer rounded bg-slate-800 px-2 py-2 font-bold">{area}</summary>
                   {locations.map(([location, items]) => <details key={location} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="ml-3">
                     <summary className="cursor-pointer px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
-                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
+                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
                   </details>)}
                 </details>)}
               </div>
@@ -617,6 +643,7 @@ export default function ManageEquipmentPage() {
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="rounded-lg px-3 py-2 text-sm font-bold text-cyan-200 disabled:opacity-50">Move Asset</button>}
                   {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}
                   {canManage && !verified && !editing && <button type="button" onClick={() => setEditing(true)} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Edit Equipment</button>}
                   {canManage && !verified && editing && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-md border border-cyan-500/50 bg-cyan-950/30 px-3 py-1.5 text-xs font-bold text-cyan-100">Choose PDF</button>}
@@ -624,6 +651,15 @@ export default function ManageEquipmentPage() {
                 </div>
               </div>
 
+              {moving && <section className="mt-4 rounded bg-slate-950 p-3" aria-label="Move asset">
+                <label className="block text-sm">Destination<select value={destinationId} onChange={event => setDestinationId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">Select a location</option>{browseLocations.filter(location => location.id !== selected.location_id).map(location => <option key={location.id} value={location.id}>{location.area ? `${location.area} · ` : ""}{location.name}</option>)}</select></label>
+                <label className="mt-3 block text-sm">Work order to move with this asset<select value={moveOrderId} onChange={event => setMoveOrderId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">Select an option</option><option value="none">Move without a work order</option>{assetOrders.map(order => <option key={order.id} value={order.id}>#{order.display_id} · {order.issue}</option>)}</select></label>
+                <p className="mt-2 text-xs text-slate-400">The selected work order will move with the asset and receive a note. Other work orders are unchanged.</p>
+                {ordersLoading && <p role="status" className="mt-2 text-xs">Loading linked work orders…</p>}
+                {ordersError && <p role="alert" className="mt-2 text-xs text-amber-200">Work orders could not be loaded; reload before moving.</p>}
+                {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{moveError}</p>}
+                <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? "Moving…" : "Confirm Move"}</button>
+              </section>}
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
                   <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
