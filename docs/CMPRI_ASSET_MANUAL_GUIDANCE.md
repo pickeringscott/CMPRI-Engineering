@@ -22,6 +22,8 @@ Source controls request a fresh short-lived private URL when opened. The server 
 
 Source controls are scoped to the selected document and account. A document switch hides the prior iframe immediately, pending opens are cancelled when the control changes or unmounts, and sign-out clears the embedded source. Completed standalone PDF windows stay open when the guide closes. Closing/reopening renews access and clears an earlier retryable error.
 
+Pages explicitly labelled as troubleshooting/diagnostic/fault/flow charts show the original page image first. Their extracted text is collapsed separately because it cannot retain the chart's branch connections. The complete original remains available through the PDF link, including when the image preview is unavailable.
+
 Acceptance uses authorized Supabase snapshots and unchanged original PDFs. Run `CMPRI_MANUAL_SNAPSHOT_DIR=/private/snapshot npm run test:manual-collection`; the command refuses to substitute fictional records when the private inputs are unavailable. Never commit private records, signed URLs, or manual originals. Existing synthetic unit/browser fixtures remain regression checks and are not evidence that a live manual works.
 
 `CMPRI_MANUAL_SNAPSHOT_DIR=/private/snapshot npm run test:manual-source-controls` exercises document/account changes, renewal, retries, popup blocking and pending-window cancellation using the actual manual/account snapshots and recorded source URLs. It does not send requests or establish live authentication.

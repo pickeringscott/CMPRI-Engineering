@@ -46,6 +46,11 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
     return () => { controller.abort(); subscription.unsubscribe(); if (url) URL.revokeObjectURL(url); };
   }, [assetId, currentSha256, currentFileId, userId, current, imageKey]);
   if (!pages.length) return null;
+  const chart=/\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(selected?.[1].text || '');
+  const originalPage=image?.key === imageKey && <picture style={{ display: 'contents' }}><img className="h-auto w-full rounded border border-slate-700" src={image.url} alt={`Manual page ${current}, including diagrams and tables`} /></picture>;
+  const transcription=passages.filter(passage => pageKey(passage) === currentKey).map((passage, index) => <section key={`${passage.page}-${index}`} className="mt-1">
+    <div className="break-words text-slate-100 [&_h2]:font-semibold [&_h2]:text-sky-300 [&_h3]:mt-2 [&_h3]:font-semibold [&_p]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_.manual-source-table]:overflow-x-auto [&_table]:border-collapse [&_th]:border [&_th]:border-slate-700 [&_th]:p-1 [&_td]:border [&_td]:border-slate-700 [&_td]:p-1" dangerouslySetInnerHTML={{ __html: sourcePageHtml(passage.text, passage.page, passage.origin || "pdf") }} />
+  </section>);
   return (
     <div className="mt-1 text-sm text-slate-300">
       <label className="mt-1 flex items-center gap-2">
@@ -55,13 +60,17 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
         </select>
       </label>
       <p className="mt-1 text-xs text-slate-400">Source references are not a diagnosis. Compare the complete page and its warnings before using a procedure.</p>
-      {passages.filter(passage => pageKey(passage) === currentKey).map((passage, index) => <section key={`${passage.page}-${index}`} className="mt-1">
-        {/* The selected page controls both text and image. Do not dump every
-            incidental search match ahead of the source-page controls. */}
-        <div className="break-words text-slate-100 [&_h2]:font-semibold [&_h2]:text-sky-300 [&_h3]:mt-2 [&_h3]:font-semibold [&_p]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_.manual-source-table]:overflow-x-auto [&_table]:border-collapse [&_th]:border [&_th]:border-slate-700 [&_th]:p-1 [&_td]:border [&_td]:border-slate-700 [&_td]:p-1" dangerouslySetInnerHTML={{ __html: sourcePageHtml(passage.text, passage.page, passage.origin || "pdf") }} />
-      </section>)}
+      {chart&&<div className="mt-1" data-original-chart>
+        <p className="font-semibold text-sky-300">Original chart · PDF page {current}</p>
+        {originalPage||<p className="text-xs text-slate-400">Open the original PDF to read the chart and its connections.</p>}
+      </div>}
+      {chart?<details className="mt-1" key={currentKey} data-source-transcription>
+        <summary className="cursor-pointer text-xs text-sky-300">Extracted text from PDF page {current}</summary>
+        <p className="text-xs text-slate-400">This text does not retain chart connections. Use the original diagram when following a branch.</p>
+        {transcription}
+      </details>:transcription}
       <div className="mt-1">
-        {image?.key === imageKey && <picture style={{ display: 'contents' }}><img className="h-auto w-full rounded border border-slate-700" src={image.url} alt={`Manual page ${current}, including diagrams and tables`} /></picture>}
+        {!chart&&originalPage}
         <ManualSourceLink userId={userId} className="text-sky-300 underline" href={`${currentSourceUrl.split('#')[0]}#page=${current}`}>Open PDF page {current}</ManualSourceLink>
       </div>
     </div>

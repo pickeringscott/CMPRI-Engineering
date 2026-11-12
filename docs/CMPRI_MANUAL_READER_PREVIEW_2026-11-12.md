@@ -43,14 +43,15 @@ The separate existing preview-redirect suite passes its six assertions, then fai
 
 ## Follow-up code and preview review
 
-The next review found two additional problems and fixed them on the same preview branch:
+The next review found three additional problems and fixed them on the same preview branch:
 
 1. Import metadata and encoded asset-change entries could influence source search as if they were technician findings. In the inspected HVAC work orders this put auxiliary-control or compressor-reference pages ahead of issue matches. The reader now separates issue and history ranking, prioritizes issue-matching diagnostic/troubleshooting pages, and excludes known import metadata and change/system events. Real technician findings remain available; source notes are never edited. The existing Friedrich cooling work order now opens on the original cooling chart at PDF page 41.
 2. An open source iframe could continue displaying the previous manual while a changed source URL loaded. Source controls now scope results to the document/account, cancel abandoned requests, hide old frames immediately, recheck the account before opening a signed result, and clear embedded sources on sign-out. They also close abandoned blank windows, avoid a source request when a popup is blocked, renew on reopen, and recover from a failed open.
+3. A chart's extracted text appeared before its original image, losing the visible connections between branches. Explicit chart pages now show the original diagram first and keep extracted text in a separate, collapsed section. The PDF link remains available if the preview cannot render. This is a reader presentation change; the original PDF is unchanged.
 
 The three browser work orders were reread from Supabase; their inspected fields matched the acceptance snapshot. The 26-asset/21-work-order/12-PDF replay passed again. The new source-control command passed ten checks using two actually registered manuals and the actual account snapshot, with no external requests or writes. The existing targeted suite again passed 268 checks with one skip and no failures; TypeScript, focused lint, and the packaged Next/PDF/OCR build passed.
 
-Browser checks at 390 and 1440 px passed for the actual GE, Friedrich, and shower work orders. These now include source iframe opens, renewal after close/reopen, recovery after a failed open, standalone PDF opening, and the Friedrich chart selection. The browser served recorded originals through its local read-only transport, with no page errors, external network calls, or mutations. The standalone source-control check also covers account changes and delayed response races. These tests still do not establish live authentication or database persistence.
+Browser checks at 390 and 1440 px passed for the actual GE, Friedrich, and shower work orders. These now include source iframe opens, renewal after close/reopen, recovery after a failed open, standalone PDF opening, and the Friedrich chart selection. The chart check waits for the actual original page image to render and verifies that its flattened transcription is collapsed. The browser served recorded originals through its local read-only transport, with no page errors, external network calls, or mutations. The standalone source-control check also covers account changes and delayed response races. These tests still do not establish live authentication or database persistence.
 
 These fixes do not change PR #20's review transitions, combined visit notes, diagram viewer/theme behavior, or the Front Desk Quick Guides.
 
