@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
 import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { getValidSession } from "@/lib/supabase/client";
+import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
-import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-install-year";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { equipmentOptionLabel } from "@/lib/equipment-selection";
@@ -81,6 +81,10 @@ export default function ManageEquipmentPage() {
   const [adding, setAdding] = useState(false);
   const [newAsset, setNewAsset] = useState<Asset>({ ...blankAsset });
   const [locations, setLocations] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
+  const [assetOrders, setAssetOrders] = useState<Array<{id:string; display_id:string; issue:string; status:string; room:string; notes:string | null}>>([]);
+  const [ordersError, setOrdersError] = useState("");
+  const [assetSearch, setAssetSearch] = useState("");
+  const [browseLocations, setBrowseLocations] = useState<Array<{id:string; name:string; area?:string | null}>>([]);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [createMessage, setCreateMessage] = useState("");
   const [creating, setCreating] = useState(false);
@@ -245,11 +249,19 @@ export default function ManageEquipmentPage() {
       const allowed = await enforceSessionPreference();
       if (!allowed) { window.location.replace("/"); return; }
       await loadAssets();
+      try {
+        const access = await token();
+        const response = await fetch("/api/rooms?mode=create", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+        const payload = await response.json();
+        if (response.ok && Array.isArray(payload.locations)) setBrowseLocations(payload.locations);
+      } catch { /* Assets remain searchable if location lookup is unavailable. */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function selectAsset(item: Asset) {
+    setAssetOrders([]);
+    setOrdersError("");
     setSelectedId(item.id);
     setDraft({ ...item });
     setEditing(false);
@@ -271,6 +283,21 @@ export default function ManageEquipmentPage() {
     });
     return () => { current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  useEffect(() => {
+    let current = true;
+    if (!selectedId) return () => { current = false; };
+    void (async () => {
+      try {
+        const access = await token();
+        const response = await fetch(`/api/work-orders?mode=asset&asset_id=${encodeURIComponent(selectedId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Unable to load work orders.");
+        if (current) setAssetOrders(payload.work_orders);
+      } catch (error) { if (current) setOrdersError(error instanceof Error ? error.message : "Unable to load work orders."); }
+    })();
+    return () => { current = false; };
   }, [selectedId]);
 
   function setField<K extends keyof Asset>(key: K, value: Asset[K]) {
@@ -464,12 +491,22 @@ export default function ManageEquipmentPage() {
           && String(current).trim().toLowerCase() !== String(suggestion).trim().toLowerCase();
       }).map(([, label]) => label)
     : [];
-  const assetOptions: SearchableSelectOption[] = assets.map((asset) => ({
-    value: asset.id,
-    label: equipmentOptionLabel({ ...asset, name: asset.name || asset.asset_type || "Unnamed equipment" }),
-    group: asset.asset_type || "Equipment",
-    keywords: [asset.asset_type, asset.manufacturer, asset.model_number, asset.serial_number, asset.asset_tag, asset.binder_tag].filter(Boolean) as string[],
-  }));
+  const groupedAssets = useMemo(() => {
+    const words = assetSearch.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const groups = new Map<string, Map<string, Asset[]>>();
+    for (const asset of assets) {
+      const location = browseLocations.find((item) => item.id === asset.location_id);
+      const haystack = [asset.name, asset.asset_type, asset.manufacturer, asset.model_family, asset.model_number, asset.serial_number, asset.asset_tag, asset.binder_tag, location?.name, location?.area].filter(Boolean).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, " ");
+      if (!words.every(word => haystack.includes(word))) continue;
+      const area = location?.area || "Other / unassigned";
+      const name = location?.name || (asset.location_id ? "Location unavailable" : "Unassigned");
+      if (!groups.has(area)) groups.set(area, new Map());
+      const locations = groups.get(area)!;
+      if (!locations.has(name)) locations.set(name, []);
+      locations.get(name)!.push(asset);
+    }
+    return [...groups.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true})).map(([area, locations]) => [area, [...locations.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true}))] as const);
+  }, [assets, browseLocations, assetSearch]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -496,20 +533,17 @@ export default function ManageEquipmentPage() {
               <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
             </div>
             <div className="p-4">
-              <SearchableSelect
-                value={selectedId}
-                options={assetOptions}
-                onChange={(value) => {
-                  const item = assets.find((asset) => asset.id === value);
-                  if (item) selectAsset(item);
-                }}
-                placeholder={loading ? "Loading equipment…" : "Search all equipment…"}
-                topSuggestions={3}
-                expandOnOpen
-                noMatchesText="No equipment matches this search."
-                disabled={loading || !assets.length}
-              />
-              <p className="mt-2 text-xs text-slate-500">Search by equipment name, type, manufacturer, model, serial number, or asset tag.</p>
+              <label className="sr-only" htmlFor="asset-search">Search equipment</label>
+              <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="min-h-10 w-full rounded bg-slate-950 px-3 text-sm text-white" />
+              <div className="mt-3 max-h-[55vh] overflow-y-auto text-sm">
+                {loading ? <p>Loading equipment…</p> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch ? true : undefined} className="mb-1">
+                  <summary className="cursor-pointer rounded bg-slate-800 px-2 py-2 font-bold">{area}</summary>
+                  {locations.map(([location, items]) => <details key={location} open={assetSearch ? true : undefined} className="ml-3">
+                    <summary className="cursor-pointer px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
+                    {items.map(item => <button type="button" key={item.id} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
+                  </details>)}
+                </details>)}
+              </div>
             </div>
           </section>
 
@@ -543,6 +577,15 @@ export default function ManageEquipmentPage() {
                 ))}
                 <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
+
+              <section className="mt-6" aria-label="Work orders and repairs">
+                <h3 className="font-bold">Work Orders &amp; Repairs</h3>
+                {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 rounded bg-slate-950 p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
+                  <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p>
+                  {order.notes && <p className="mt-2 whitespace-pre-wrap">{order.notes}</p>}
+                </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
+              </section>
 
               {canManage && verified && <div className="mt-4 rounded-lg border border-amber-600/40 p-3">
                 <p className="text-sm text-amber-100">To correct verified equipment, open a documented revision. Prior verification and saved files are retained; the revised record needs verification again.</p>
@@ -597,7 +640,7 @@ export default function ManageEquipmentPage() {
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>
             </div>
 
-            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadAssets(selected.id); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
+            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadDocuments(selected.id).then(result => displayDocuments(result.documents, result.verified, selected.id)).catch(() => setDialogMessage("Documentation saved, but the list could not be refreshed.")); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
 
             <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
               <summary className="cursor-pointer font-semibold">Read an equipment label or document on this device</summary>
