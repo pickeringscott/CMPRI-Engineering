@@ -15,6 +15,8 @@ test('local PO OCR is presented as review-only and cannot import through its cal
  vm.runInNewContext(code, {exports, require(name) {
   if (name === 'react' || name === 'react/jsx-runtime') return requireModule(name);
   if (name === '@/lib/auth/client-session') return {authorizationHeaders: async () => ({})};
+  if (name === '@/lib/import-response') return {readImportResponse: () => {throw Error('Rendering must not download review results');}};
+  if (name === '@/lib/import-upload') return {uploadImportFile: () => {throw Error('Rendering must not upload evidence');}};
   if (name === '@/components/LocalOcrReview') return {default: props => {propsSeen = props; return React.createElement('div', {'data-test': 'ocr'});}};
   if (name.endsWith('.module.css')) return {default: {}};
   throw Error(`Unexpected import: ${name}`);

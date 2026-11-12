@@ -9,7 +9,7 @@ import {cleanupExpiredEmploymentUploads} from '../src/lib/server/employment-resu
 import {validateEmployment} from '../src/lib/employment-validation.mjs';
 const answers={department:'maintenance',name:'Local test',email:'fixture@example.invalid',phone:'',history:'Training',example:'Assisted',workingDays:['Mon'],skills:{hvac:'Assisted',plumbing:'Not done',electrical:'Not done',appliances:'Not done'},interview:{Tue:['AM']}};
 const id='00000000-0000-4000-8000-000000000001',cap='a'.repeat(64),sha='b'.repeat(64);
-const migration=readFileSync('supabase/migrations/20261111191352_employment_direct_resume_upload.sql','utf8');
+const migration=readFileSync('supabase/migrations/20261112011903_employment_direct_resume_upload.sql','utf8');
 async function database(){const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);');await db.exec(readFileSync('scripts/employment-schema.sql','utf8'));await db.exec(readFileSync('tests/fixtures/employment-private-resume.sql','utf8'));await db.exec(migration);await db.exec('set role service_role');return db;}
 const prepare=(db,i=id,email=answers.email,size=104857600,c=cap)=>db.query('select prepare_employment_resume_upload($1,$2,$3,$4,$5,$6,$7) result',[i,JSON.stringify({...answers,email}),'resume.pdf',size,sha,c,'c'.repeat(64)]);
 test('100 MiB admission, immutable capability, idempotent atomic finalization and legacy PDFs',async()=>{const db=await database();try{
