@@ -95,6 +95,7 @@ export default function ManageEquipmentPage() {
   const [moveOrderId, setMoveOrderId] = useState("");
   const [moveError, setMoveError] = useState("");
   const [orderVersion, setOrderVersion] = useState(0);
+  const [assetPanel, setAssetPanel] = useState<"details" | "orders" | "documents">("details");
   const [assetSearch, setAssetSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -591,15 +592,15 @@ export default function ManageEquipmentPage() {
         {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</div>}
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <section className="rounded-2xl border border-slate-800 bg-slate-900">
-            <div className="border-b border-slate-800 px-4 py-3">
+          <section className="bg-slate-900">
+            <div className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-bold">All Equipment</h2>
                 {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">Add Asset</button>}
               </div>
               <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
             </div>
-            <div className="p-4">
+            <div className="px-3 pb-3">
               <label className="sr-only" htmlFor="asset-search">Search equipment</label>
               <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="min-h-10 w-full rounded bg-slate-950 px-3 text-sm text-white" />
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -619,7 +620,7 @@ export default function ManageEquipmentPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <section className="bg-slate-900 p-3">
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
               <div className="mb-4 flex items-center gap-3">
                 <label className={`flex items-center gap-3 ${canManage ? "cursor-pointer" : ""}`}>
@@ -645,8 +646,7 @@ export default function ManageEquipmentPage() {
                 <div className="flex flex-wrap gap-2">
                   {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="rounded-lg px-3 py-2 text-sm font-bold text-cyan-200 disabled:opacity-50">Move Asset</button>}
                   {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}
-                  {canManage && !verified && !editing && <button type="button" onClick={() => setEditing(true)} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Edit Equipment</button>}
-                  {canManage && !verified && editing && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-md border border-cyan-500/50 bg-cyan-950/30 px-3 py-1.5 text-xs font-bold text-cyan-100">Choose PDF</button>}
+                  {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Edit Equipment</button>}
                   {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
                 </div>
               </div>
@@ -660,14 +660,17 @@ export default function ManageEquipmentPage() {
                 {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{moveError}</p>}
                 <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? "Moving…" : "Confirm Move"}</button>
               </section>}
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <nav aria-label="Asset sections" className="mt-3 flex flex-wrap gap-4 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}>{label}</button>)}</nav>
+              <div hidden={assetPanel !== "details"}>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
                   <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
                 ))}
                 <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
 
-              <section className="mt-6" aria-label="Work orders and repairs">
+              </div>
+              <section hidden={assetPanel !== "orders"} className="mt-3" aria-label="Work orders and repairs">
                 <h3 className="font-bold">Work Orders &amp; Repairs</h3>
                 {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 rounded bg-slate-950 p-3 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
@@ -676,6 +679,7 @@ export default function ManageEquipmentPage() {
                 </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
               </section>
 
+              <div hidden={assetPanel !== "details"}>
               {canManage && verified && <div className="mt-4 rounded-lg border border-amber-600/40 p-3">
                 <p className="text-sm text-amber-100">To correct verified equipment, open a documented revision. Prior verification and saved files are retained; the revised record needs verification again.</p>
                 <label className="mt-2 block text-sm">Revision reason<input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} maxLength={2000} className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2" /></label>
@@ -683,10 +687,17 @@ export default function ManageEquipmentPage() {
               </div>}
               {unsavedEquipment && <p className="mt-3 text-sm text-amber-200">Save equipment changes before confirming documentation.</p>}
               {selected?.documentation_revision_id && <p className="mt-3 text-sm text-amber-200">Documentation revision in progress. Previous verification remains in the audit history.</p>}
-              {canManage && editing && !verified && <div className="mt-8 border-t border-slate-700 pt-6">
+              </div>
+              <div hidden={assetPanel !== "documents"} className="mt-3">
+                <h3 className="font-bold">Documentation</h3>
+                {canManage && !verified && <button type="button" onClick={() => { setEditing(true); setShowDocumentationDialog(true); }} className="my-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold">Add Documentation</button>}
+                {verified && <p className="text-sm text-slate-400">Open a revision in Details to change verified documentation.</p>}
+                {documents.length ? <ul className="space-y-1">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">No documentation attached.</p>}
+              {canManage && editing && !verified && <div className="mt-4 pt-3">
                 <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
                 <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying || unsavedEquipment || saving} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
               </div>}
+              </div>
             </>}
           </section>
         </div>
