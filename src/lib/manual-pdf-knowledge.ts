@@ -19,7 +19,28 @@ export type ManualEquipmentIdentity = {
   serial_number?: string | null;
 };
 
-export async function extractManualPdfText(bytes: Uint8Array, options: { includeEmptyPages?: boolean } = {}) {
+export async function extractManualPdfText(bytes: Uint8Array, options: { includeEmptyPages?: boolean; previewPages?: number } = {}) {
+  // Upload suggestions need a short preview, not a complete guide inspection.
+  // The saved original and the guide's full-document reader are unchanged.
+  if (options.previewPages !== undefined) {
+    if (!Number.isInteger(options.previewPages) || options.previewPages < 1 || options.previewPages > 10) throw new Error('Invalid PDF preview size.');
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const task = pdfjs.getDocument(manualPdfOptions(bytes));
+    try {
+      const pdf = await task.promise;
+      if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) throw new Error('The PDF has an invalid page count.');
+      const parts:string[]=[];
+      for(let number=1;number<=Math.min(pdf.numPages,options.previewPages);number++){
+        const page=await pdf.getPage(number);
+        try {
+          const content=await page.getTextContent();
+          const text=content.items.map(item=>'str' in item?item.str+(item.hasEOL?'\n':' '):'').join('').trim();
+          if(text)parts.push(`PAGE ${number}\n${text}`);
+        } finally {page.cleanup();}
+      }
+      return parts.join('\n\n');
+    } finally {await task.destroy();}
+  }
   return (await inspectManualPdf(bytes,options)).text;
 }
 

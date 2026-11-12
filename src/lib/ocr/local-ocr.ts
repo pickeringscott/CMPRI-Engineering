@@ -1,4 +1,5 @@
 /** Browser-only OCR. Recognition does not upload documents or extracted text. */
+import {manualTextQuality} from '../manual-page-quality';
 export type LocalOcrWord = {
   text: string;
   confidence: number;
@@ -10,6 +11,10 @@ export type LocalOcrProgress = { status: string; progress: number; page: number;
 export type LocalOcrOptions = {
   signal?: AbortSignal;
   onProgress?: (event: LocalOcrProgress) => void;
+  /** Manuals run to the end, releasing each page before continuing. */
+  readAllPages?: boolean;
+  /** Completed pages are handed off immediately so cancellation can retain them. */
+  onPage?: (page: LocalOcrPage) => void;
   /** Callers may lower the bound; each batch contains at most ten pages. */
   maxPages?: number;
   /** Process a bounded section of a longer PDF; page numbers are 1-based. */
@@ -19,6 +24,7 @@ export type LocalOcrOptions = {
 const MAX_PIXELS = 20_000_000;
 const MAX_DIMENSION = 6000;
 const MAX_PAGES = 10;
+const MAX_MANUAL_PAGES = 10000;
 const ASSET_ROOT = '/local-ocr/tesseract-7.0.0-core-7.0.0-eng-1.0.0-pdf-6.3.289-app-v1';
 
 function cancelled() { return new DOMException('Text recognition was cancelled.', 'AbortError'); }
@@ -29,7 +35,7 @@ export function localOcrPaths(origin: string) {
   const parsed = new URL(origin);
   if (!/^https?:$/.test(parsed.protocol) || parsed.origin !== origin) throw new Error('A valid application origin is required.');
   const path = (name: string) => new URL(`${ASSET_ROOT}/${name}`, origin).href;
-  return { workerPath: path('worker-bootstrap.js'), corePath: path(''), langPath: path(''), modelPath: path('eng.traineddata.gz'), pdfWorkerPath: path('pdf.worker.min.mjs') };
+  return { workerPath: path('worker-bootstrap.js'), corePath: path(''), langPath: path(''), modelPath: path('eng.traineddata.gz'), pdfWorkerPath: path('pdf.worker.min.mjs'), standardFontDataUrl:path('pdf-fonts/'), cMapUrl:path('pdf-cmaps/'), wasmUrl:path('pdf-wasm/') };
 }
 
 type OcrKind = 'image' | 'pdf';
@@ -213,8 +219,10 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
   checkAbort(signal);
   const kind = await localOcrFileKind(file);
   checkAbort(signal);
-  const maxPages = options.maxPages ?? MAX_PAGES;
-  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES) throw new Error('The page limit must be between 1 and 10.');
+  const fullManual = options.readAllPages === true && kind === 'pdf';
+  const pageLimit = fullManual ? MAX_MANUAL_PAGES : MAX_PAGES;
+  const maxPages = options.maxPages ?? pageLimit;
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > pageLimit) throw new Error(`The page limit must be between 1 and ${pageLimit}.`);
   const range = options.pageRange;
   if (range && (!Number.isInteger(range.start) || !Number.isInteger(range.end) || range.start < 1 || range.end < range.start || range.end - range.start + 1 > maxPages)) {
     throw new Error(`Select a valid range of at most ${maxPages} pages.`);
@@ -224,62 +232,77 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
 
   let currentPage = 0;
   let totalPages = 1;
-  onProgress?.({ status: 'loading local OCR model', progress: 0, page: 0, totalPages });
-  await loadLocalModel(paths.modelPath, signal);
-  checkAbort(signal);
-  const { createWorker, OEM } = await import('tesseract.js');
-  checkAbort(signal);
-  const nonce = typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : '';
-  const channel = nonce && typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`cmpri-local-ocr-${nonce}`) : null;
-  const cancelInitialization = () => { channel?.postMessage('cancel'); };
-  signal?.addEventListener('abort', cancelInitialization, { once: true });
-  let initializationFailed: (error: Error) => void = () => {};
-  const initializationError = new Promise<never>((_, reject) => { initializationFailed = reject; });
-  // The worker reads the same-origin model from HTTP/IndexedDB cache. Passing
-  // an inline Lang object is unsafe with Tesseract.js 7's initialization path.
-  const workerPromise = createWorker('eng', OEM.LSTM_ONLY, {
-    workerPath: `${paths.workerPath}${nonce ? `#${nonce}` : ''}`,
-    corePath: paths.corePath,
-    langPath: paths.langPath,
-    workerBlobURL: false,
-    gzip: true,
-    // Language data contains no document content. Reuse it locally to avoid
-    // downloading the model on every recognition request. Include the asset
-    // version so an older unrelated Tesseract model cannot be reused.
-    cachePath: ASSET_ROOT,
-    cacheMethod: 'write',
-    errorHandler: () => initializationFailed(new Error('The local OCR engine could not start. Try again or use CSV.')),
-    logger: event => { if (!signal?.aborted) onProgress?.({ status: event.status, progress: event.progress, page: currentPage, totalPages }); },
-  });
-  // If cancellation happens before initialization finishes, dispose the late worker.
-  let abandoned = false;
-  void workerPromise.then(worker => { if (signal?.aborted || abandoned) void worker.terminate(); }, () => {});
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => { cancelInitialization(); reject(new Error('The local OCR engine timed out while starting. Try again or use CSV.')); }, 45_000);
-  });
-  let worker: Awaited<typeof workerPromise>;
-  try { worker = await abortable(Promise.race([workerPromise, initializationError, deadline]), signal); }
-  catch (error) { abandoned = true; cancelInitialization(); throw error; }
-  finally {
-    if (timer) clearTimeout(timer);
-    signal?.removeEventListener('abort', cancelInitialization);
-    channel?.close();
+  let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | undefined;
+  async function getWorker() {
+    if (worker) return worker;
+    onProgress?.({ status: 'loading local OCR model', progress: 0, page: 0, totalPages });
+    await loadLocalModel(paths.modelPath, signal);
+    checkAbort(signal);
+    const { createWorker, OEM } = await import('tesseract.js');
+    checkAbort(signal);
+    const nonce = typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : '';
+    const channel = nonce && typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`cmpri-local-ocr-${nonce}`) : null;
+    const cancelInitialization = () => { channel?.postMessage('cancel'); };
+    signal?.addEventListener('abort', cancelInitialization, { once: true });
+    let initializationFailed: (error: Error) => void = () => {};
+    const initializationError = new Promise<never>((_, reject) => { initializationFailed = reject; });
+    // The worker reads the same-origin model from HTTP/IndexedDB cache. Passing
+    // an inline Lang object is unsafe with Tesseract.js 7's initialization path.
+    const workerPromise = createWorker('eng', OEM.LSTM_ONLY, {
+      workerPath: `${paths.workerPath}${nonce ? `#${nonce}` : ''}`,
+      corePath: paths.corePath,
+      langPath: paths.langPath,
+      workerBlobURL: false,
+      gzip: true,
+      // Language data contains no document content. Reuse it locally to avoid
+      // downloading the model on every recognition request. Include the asset
+      // version so an older unrelated Tesseract model cannot be reused.
+      cachePath: ASSET_ROOT,
+      cacheMethod: 'write',
+      errorHandler: () => initializationFailed(new Error('The local OCR engine could not start. Try again or use CSV.')),
+      logger: event => { if (!signal?.aborted) onProgress?.({ status: event.status, progress: event.progress, page: currentPage, totalPages }); },
+    });
+    // If cancellation happens before initialization finishes, dispose the late worker.
+    let abandoned = false;
+    void workerPromise.then(worker => { if (signal?.aborted || abandoned) void worker.terminate(); }, () => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { cancelInitialization(); reject(new Error('The local OCR engine timed out while starting. Try again or use CSV.')); }, 45_000);
+    });
+    try { worker = await abortable(Promise.race([workerPromise, initializationError, deadline]), signal); }
+    catch (error) { abandoned = true; cancelInitialization(); throw error; }
+    finally {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', cancelInitialization);
+      channel?.close();
+    }
+    return worker;
   }
-  const terminateOnAbort = () => { void worker.terminate(); };
+  const terminateOnAbort = () => { void worker?.terminate(); };
   signal?.addEventListener('abort', terminateOnAbort, { once: true });
   let pdfTask: { destroy: () => Promise<void> } | undefined;
   try {
     const pages: LocalOcrPage[] = [];
+    let textLength = 0;
+    const completePage = (page: LocalOcrPage) => {
+      checkAbort(signal);
+      textLength += page.text.length;
+      if (fullManual && textLength > 20_000_000) throw new Error('This manual exceeds the text-reading budget. The original PDF is unchanged.');
+      pages.push(page);
+      options.onPage?.(page);
+      if(fullManual)onProgress?.({status:'page complete',progress:1,page:page.page,totalPages});
+    };
     const recognize = async (input: HTMLCanvasElement, page: number) => {
       checkAbort(signal);
       currentPage = page;
-      const result = await abortable(worker.recognize(input, {}, { text: true, blocks: true }), signal);
+      const activeWorker = await getWorker();
+      const result = await abortable(activeWorker.recognize(input, {}, { text: true, blocks: true }), signal);
       checkAbort(signal);
       const words = (result.data.blocks || []).flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines.flatMap(line => line.words)))
         .map(word => ({ text: word.text, confidence: word.confidence, bbox: { ...word.bbox } }));
-      pages.push({ page, text: result.data.text || '', confidence: result.data.confidence, words });
+      completePage({ page, text: result.data.text || '', confidence: result.data.confidence, words });
     };
+    if (!fullManual) await getWorker();
     if (kind === 'image') {
       const canvas = await imageCanvas(file, signal);
       try { await recognize(canvas, 1); }
@@ -295,10 +318,11 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
         throw new Error(`This device could not read the PDF bytes: ${error instanceof Error ? error.message : 'file reading failed'}`);
       }
       checkAbort(signal);
-      const task = pdfjs.getDocument({ data, useSystemFonts: true, useWorkerFetch: false });
+      const task = pdfjs.getDocument({ data, useSystemFonts: true, useWorkerFetch: false, ...(fullManual?{standardFontDataUrl:paths.standardFontDataUrl,cMapUrl:paths.cMapUrl,cMapPacked:true,wasmUrl:paths.wasmUrl}:{}) });
       pdfTask = task;
       const pdf = await abortable(task.promise, signal);
       if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) throw new Error('The PDF has an invalid page count.');
+      if (fullManual && pdf.numPages > MAX_MANUAL_PAGES) throw new Error(`This manual exceeds the ${MAX_MANUAL_PAGES}-page reader budget. The original PDF is unchanged.`);
       if (range && range.end > pdf.numPages) throw new Error(`This PDF has only ${pdf.numPages} pages.`);
       const start = range?.start ?? 1;
       const end = range?.end ?? Math.min(pdf.numPages, maxPages);
@@ -308,10 +332,27 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
       for (let number = start; number <= end; number++) {
         checkAbort(signal);
         const page = await abortable(pdf.getPage(number), signal);
-        const canvas = document.createElement('canvas');
+        let canvas: HTMLCanvasElement | undefined;
         let render: ReturnType<typeof page.render> | undefined;
         const cancelRender = () => render?.cancel();
         try {
+          currentPage = number;
+          if (fullManual) {
+            onProgress?.({status:'reading embedded text',progress:0,page:number,totalPages});
+            const content = await abortable(page.getTextContent(), signal);
+            const text = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('').replace(/[ \t]+/g,' ').trim();
+            let hasImage = false;
+            if (text.length < 150) {
+              const operators = await abortable(page.getOperatorList(), signal);
+              hasImage = operators.fnArray.some(op => [pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
+            }
+            if (!manualTextQuality(text,hasImage).needs_ocr) {
+              completePage({page:number,text,confidence:100,words:[]});
+              continue;
+            }
+          }
+          await getWorker();
+          canvas = document.createElement('canvas');
           const base = page.getViewport({ scale: 1 });
           const viewport = page.getViewport({ scale: pdfScale(base.width, base.height) });
           canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
@@ -323,8 +364,9 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
           await recognize(canvas, number);
         } finally {
           signal?.removeEventListener('abort', cancelRender);
-          canvas.width = 0; canvas.height = 0;
+          if (canvas) { canvas.width = 0; canvas.height = 0; }
           page.cleanup();
+          if (fullManual && number % 10 === 0) await new Promise(resolve => setTimeout(resolve,0));
         }
       }
     }
@@ -332,6 +374,6 @@ export async function recognizeLocalDocument(file: File, options: LocalOcrOption
   } finally {
     signal?.removeEventListener('abort', terminateOnAbort);
     if (pdfTask) await pdfTask.destroy().catch(() => {});
-    await worker.terminate().catch(() => {});
+    if (worker) await worker.terminate().catch(() => {});
   }
 }

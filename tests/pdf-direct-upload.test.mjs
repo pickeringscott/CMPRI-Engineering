@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { loadTs } from './helpers/load-ts.mjs';
 const require=createRequire(import.meta.url);
 function load(path,deps={},globals={}) {
  const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>n in deps?deps[n]:require(n),Error,TextDecoder,TextEncoder,Uint8Array,File,FormData,Response,crypto,console,...globals});return exports;
@@ -84,7 +85,7 @@ test('exact 100 MB permitted for authorization, larger and invalid claims reject
 });
 test('actual Lennox 10,301,661-byte PDF: transfer, independent SHA and real text extraction', {skip:!process.env.LENNOX_PDF_TEST_PATH},async()=>{
  const bytes=fs.readFileSync(process.env.LENNOX_PDF_TEST_PATH);assert.equal(bytes.length,10301661);const f=fixture();const r=await f.run(bytes,'100070.pdf');assert.equal(r.sha256,hash(bytes));assert.equal([...f.stored.values()][0].length,10301661);
- const pdf=load('../src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{}});const text=await pdf.extractManualPdfText(new Uint8Array(bytes));assert.match(text,/KGC240S4M/);assert(text.length>10000);assert.equal(hash(bytes),r.sha256);console.log(JSON.stringify({lennoxBytes:bytes.length,sha256:r.sha256,textCharacters:text.length,appForms:f.forms.length,storagePuts:f.puts()}));
+ const pdf=loadTs('src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{},'pdfjs-dist/legacy/build/pdf.mjs':require('pdfjs-dist/legacy/build/pdf.mjs')},{setTimeout,Uint8Array});const text=await pdf.extractManualPdfText(new Uint8Array(bytes));assert.match(text,/KGC240S4M/);assert(text.length>10000);assert.equal(hash(bytes),r.sha256);console.log(JSON.stringify({lennoxBytes:bytes.length,sha256:r.sha256,textCharacters:text.length,appForms:f.forms.length,storagePuts:f.puts()}));
 });
 
 

@@ -202,3 +202,29 @@ test('sign-out during file validation cannot create a late preview', async()=>{
   assert.ok(h.parent.querySelector('input[type=file]').disabled);
  } finally {await h.dispose();}
 });
+
+test('full manual keeps completed text on pause and resumes through the remaining pages',async()=>{
+ const seen=[];let finish;
+ const h=harness(async(file,options)=>{
+  seen.push(options);
+  if(seen.length===1){
+   for(let page=1;page<=12;page++){options.onProgress({page,totalPages:244,progress:1});options.onPage({page,text:`Page ${page}`});}
+   return new Promise(resolve=>{finish=resolve;});
+  }
+  const pages=Array.from({length:232},(_,i)=>({page:i+13,text:`Page ${i+13}`}));
+  for(const page of pages){options.onProgress({page:page.page,totalPages:244,progress:1});options.onPage(page);}
+  return {fileName:file.name,totalPages:244,pages};
+ },{fullDocument:true});
+ try{
+  await h.render();await h.choose('manual.pdf','application/pdf');
+  await h.click(h.button('Read whole document'));assert.equal(seen[0].readAllPages,true);assert.equal(seen[0].maxPages,undefined);
+  assert.equal(h.parent.querySelectorAll('textarea').length,12);
+  await h.click(h.button('Stop reading'));assert.equal(seen[0].signal.aborted,true);
+  assert.equal(h.parent.querySelectorAll('textarea').length,12);assert.ok(h.button('Resume reading'));
+  await h.click(h.button('Resume reading'));assert.equal(seen[1].pageRange.start,13);assert.equal(seen[1].pageRange.end,244);
+  assert.equal(h.parent.querySelectorAll('textarea').length,244);assert.match(h.parent.textContent,/Read all 244 pages/);
+  assert.equal(h.parent.querySelector('input[aria-label="First PDF page"]'),null);
+  await React.act(async()=>finish({fileName:'stale',totalPages:244,pages:[{page:1,text:'STALE'}]}));
+  assert.equal(h.parent.querySelector('textarea').value,'Page 1');
+ }finally{await h.dispose();}
+});

@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {manualTextQuality} from '../src/lib/manual-page-quality.ts';
 
 const source = readFileSync(new URL('../src/lib/ocr/local-ocr.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const image = () => new File([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,100,0,0,0,50])], 'report.png', { type: 'image/png' });
 const pdf = () => new File(['%PDF-1.7\n'], 'report.pdf', { type: 'application/pdf' });
 
-function harness({ recognize, bitmap, pageCount = 2, modelOk = true, initialize, render } = {}) {
+function harness({ recognize, bitmap, pageCount = 2, modelOk = true, initialize, render, nativeText, imagePages=[] } = {}) {
   const events = { options: null, terminated: 0, bitmapsClosed: 0, pageCleanups: 0, pdfDestroyed: 0, inputs: [], inputSizes: [], canvases: [], pdfArgs: null, fetches: [], decodes: [], draws: [], paints: [], sourcePages: [], renderCancels: 0 };
   const worker = {
     async recognize(input) {
@@ -22,6 +23,7 @@ function harness({ recognize, bitmap, pageCount = 2, modelOk = true, initialize,
     async terminate() { events.terminated++; },
   };
   const pdfjs = {
+    OPS:{paintImageXObject:85,paintInlineImageXObject:86,paintImageMaskXObject:87},
     GlobalWorkerOptions: {},
     getDocument(args) {
       events.pdfArgs = args;
@@ -30,6 +32,8 @@ function harness({ recognize, bitmap, pageCount = 2, modelOk = true, initialize,
         promise: Promise.resolve({
           numPages: pageCount,
           async getPage(number) { events.sourcePages.push(number); return {
+            getTextContent:async()=>({items:[{str:nativeText?nativeText(number):'',hasEOL:true}]}),
+            getOperatorList:async()=>({fnArray:imagePages.includes(number)?[85]:[]}),
             getViewport({ scale }) { return { width: 400 * scale, height: 600 * scale }; },
             render() { return { promise: render ? render() : Promise.resolve(), cancel() { events.renderCancels++; } }; },
             cleanup() { events.pageCleanups++; },
@@ -57,6 +61,7 @@ function harness({ recognize, bitmap, pageCount = 2, modelOk = true, initialize,
       return bitmap ? bitmap(file, options) : { width: options.resizeWidth, height: options.resizeHeight, close() { events.bitmapsClosed++; } };
     },
     require(name) {
+      if (name === '../manual-page-quality') return {manualTextQuality};
       if (name === 'tesseract.js') return { OEM: { LSTM_ONLY: 1 }, createWorker: async (_lang, _oem, options) => { events.options = options; return initialize ? initialize(worker, options) : worker; } };
       if (name === 'pdfjs-dist') return pdfjs;
       throw new Error(`Unexpected dependency: ${name}`);
@@ -261,4 +266,33 @@ test('a bitmap that finishes decoding after cancellation is closed', async () =>
   resolveBitmap({ width: 100, height: 50, close() { closed++; } });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(closed, 1);
+});
+
+test('full-manual iteration streams every page and does not start OCR for embedded text',async()=>{
+ const h=harness({pageCount:244,nativeText:number=>`Embedded PDF text on page ${number}.`});
+ const pages=[];
+ const result=await h.exports.recognizeLocalDocument(pdf(),{readAllPages:true,onPage:page=>pages.push(page.page)});
+ assert.equal(result.totalPages,244);assert.equal(result.pages.length,244);
+ assert.deepEqual(pages,Array.from({length:244},(_,i)=>i+1));
+ assert.equal(h.events.fetches.length,0);assert.equal(h.events.options,null);assert.equal(h.events.canvases.length,0);
+ assert.equal(h.events.pageCleanups,244);assert.equal(h.events.pdfDestroyed,1);
+});
+
+test('a paused full manual can continue after page ten without rereading completed pages',async()=>{
+ const h=harness({pageCount:244,nativeText:number=>`Embedded PDF text on page ${number}.`});
+ const controller=new AbortController(),completed=[];
+ await assert.rejects(h.exports.recognizeLocalDocument(pdf(),{readAllPages:true,signal:controller.signal,onPage:page=>{completed.push(page.page);if(page.page===11)controller.abort();}}),error=>error.name==='AbortError');
+ assert.equal(completed.length,11);assert.equal(h.events.pdfDestroyed,1);
+ const next=await h.exports.recognizeLocalDocument(pdf(),{readAllPages:true,pageRange:{start:12,end:244}});
+ assert.equal(next.pages[0].page,12);assert.equal(next.pages.at(-1).page,244);
+ assert.deepEqual(h.events.sourcePages,Array.from({length:244},(_,i)=>i+1));
+});
+
+test('full-manual recognition uses OCR only for the scanned page and keeps source page numbers',async()=>{
+ const h=harness({pageCount:12,nativeText:number=>number===7?'':`Embedded PDF text on page ${number}.`,imagePages:[7]});
+ const result=await h.exports.recognizeLocalDocument(pdf(),{readAllPages:true});
+ assert.equal(result.pages.length,12);assert.equal(result.pages[6].page,7);
+ assert.equal(h.events.inputs.length,1);assert.equal(h.events.canvases.length,1);
+ assert.equal(h.events.canvases[0].width,0);assert.equal(h.events.terminated,1);
+ assert.equal(h.events.pageCleanups,12);assert.equal(h.events.pdfDestroyed,1);
 });

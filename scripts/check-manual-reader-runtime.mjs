@@ -25,7 +25,9 @@ try {
   }
   assert(inspectionModule, 'Compiled manual inspection module is missing');
   const inspect = Object.values(runtime(inspectionModule)).find(value => typeof value === 'function' && value.toString().includes('getPageLabels'));
+  const preview = Object.values(runtime(inspectionModule)).find(value => typeof value === 'function' && value.toString().includes('Invalid PDF preview size.'));
   assert(inspect, 'Compiled manual inspection function is missing');
+  assert(preview, 'Compiled upload preview function is missing');
   const originals = process.argv.length > 2 ? process.argv.slice(2) : ['public/guides/dormakaba.pdf'];
   for (const file of originals) {
     const bytes = new Uint8Array(readFileSync(file));
@@ -33,6 +35,8 @@ try {
     const result = await inspect(bytes, { includeEmptyPages: true });
     assert(result.total_pages > 0 && result.text.trim().length > 0, 'Compiled reader did not extract the original PDF');
     assert.deepEqual(bytes, original, 'Compiled reader changed the original PDF');
+    const sample=await preview(bytes,{previewPages:3});
+    assert(sample.trim().length>0&&!sample.includes('PAGE 4\n'),'Upload preview must remain bounded');
     console.log(JSON.stringify({ compiledReader: true, pages: result.total_pages, characters: result.text.length }));
   }
 } finally {

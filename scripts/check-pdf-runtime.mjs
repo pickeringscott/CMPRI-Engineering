@@ -17,7 +17,7 @@ for (const route of ['maintenance-reference', 'work-orders/[id]/troubleshooting'
   assert(runtimeFiles.some(file => /pdf\.worker\.mjs$/.test(file)), `${route}: worker missing`);
   assert(runtimeFiles.some(file => /canvas[\\/]index\.js$/.test(file)), `${route}: canvas loader missing`);
   assert(runtimeFiles.some(file => /\.node$/.test(file)), `${route}: canvas native binary missing`);
-  const guideMedia = route === 'maintenance-reference' || route === 'work-orders/[id]/troubleshooting';
+  const guideMedia = ['maintenance-reference','work-orders/[id]/troubleshooting','assets/documentation','assets'].includes(route);
   if (guideMedia) {
     assert(runtimeFiles.some(file => /standard_fonts[\\/].*\.pfb$/.test(file)), `${route}: local PDF fonts missing`);
     assert(runtimeFiles.some(file => /cmaps[\\/].*\.bcmap$/.test(file)), `${route}: local PDF character maps missing`);

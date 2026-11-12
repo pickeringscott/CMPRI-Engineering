@@ -8,6 +8,7 @@ export default function StagedPdfImporter(props:Parameters<typeof StoredPdfImpor
  if(error)return <p role="alert">{error}</p>;
  if(ready===null)return <p role="status">Loading documentation controls…</p>;
  if(ready)return <StoredPdfImporter {...props}/>;
- return <section><label>Choose manufacturer/equipment PDF<input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><button type="button" disabled={!file||props.legacyBusy} onClick={()=>file&&props.legacyUpload(file)}>Upload &amp; Read</button><p>Current documentation importer. Reopen this dialog after the scheduled consolidation to use multiple-PDF controls.</p></section>;
+ const chosen=props.sourceFile===undefined?file:props.sourceFile;
+ return <section><label>Choose manufacturer/equipment PDF<input type="file" accept="application/pdf,.pdf" onChange={e=>(props.onSourceFileChange||setFile)(e.target.files?.[0]||null)}/></label><button type="button" disabled={!chosen||props.legacyBusy} onClick={()=>chosen&&props.legacyUpload(chosen)}>Upload &amp; Read</button><p>Current documentation importer. Reopen this dialog after the scheduled consolidation to use multiple-PDF controls.</p></section>;
 }
 

@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const CANONICAL_APP_URL = "https://cmpri-engineering.com";
 const OCR_RUNTIME = ["node_modules/tesseract.js/**/*", "node_modules/tesseract.js-core/**/*", "node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*"];
+const PDF_RUNTIME = ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/pdfjs-dist/package.json", "node_modules/pdfjs-dist/standard_fonts/**/*", "node_modules/pdfjs-dist/cmaps/**/*", "node_modules/pdfjs-dist/wasm/**/*", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"];
 
 const nextConfig: NextConfig = {
 	// PDF.js uses createRequire(import.meta.url) for its native canvas runtime
@@ -14,11 +15,11 @@ const nextConfig: NextConfig = {
         "/api/engineering/po-import-reviewed": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
 		"/api/engineering/po-pdf-review": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
 		"/*": [".next/server/chunks/**/*"],
-		"/api/assets/documentation/ocr/dispatch": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/pdfjs-dist/package.json", "node_modules/pdfjs-dist/standard_fonts/**/*", "node_modules/pdfjs-dist/cmaps/**/*", "node_modules/pdfjs-dist/wasm/**/*", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*", ...OCR_RUNTIME],
-		"/api/maintenance-reference": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/pdfjs-dist/package.json", "node_modules/pdfjs-dist/standard_fonts/**/*", "node_modules/pdfjs-dist/cmaps/**/*", "node_modules/pdfjs-dist/wasm/**/*", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*", ...OCR_RUNTIME],
-		"/api/work-orders/*/troubleshooting": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/pdfjs-dist/package.json", "node_modules/pdfjs-dist/standard_fonts/**/*", "node_modules/pdfjs-dist/cmaps/**/*", "node_modules/pdfjs-dist/wasm/**/*", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*", ...OCR_RUNTIME],
-		"/api/assets": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"],
-		"/api/assets/documentation": ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*", ...OCR_RUNTIME],
+		"/api/assets/documentation/ocr/dispatch": [...PDF_RUNTIME, ...OCR_RUNTIME],
+		"/api/maintenance-reference": [...PDF_RUNTIME, ...OCR_RUNTIME],
+		"/api/work-orders/*/troubleshooting": [...PDF_RUNTIME, ...OCR_RUNTIME],
+		"/api/assets": PDF_RUNTIME,
+		"/api/assets/documentation": [...PDF_RUNTIME, ...OCR_RUNTIME],
 	},
 	outputFileTracingExcludes: {
 		"/*": [".env.example", ".env.local"],
