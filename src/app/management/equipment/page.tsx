@@ -81,6 +81,10 @@ export default function ManageEquipmentPage() {
   const [adding, setAdding] = useState(false);
   const [newAsset, setNewAsset] = useState<Asset>({ ...blankAsset });
   const [locations, setLocations] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
+  const [photo, setPhoto] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState("");
+  const [photoVersion, setPhotoVersion] = useState(0);
   const [assetOrders, setAssetOrders] = useState<Array<{id:string; display_id:string; issue:string; status:string; room:string; notes:string | null}>>([]);
   const [ordersError, setOrdersError] = useState("");
   const [assetSearch, setAssetSearch] = useState("");
@@ -260,8 +264,7 @@ export default function ManageEquipmentPage() {
   }, []);
 
   function selectAsset(item: Asset) {
-    setAssetOrders([]);
-    setOrdersError("");
+    if (item.id !== selectedId) { setAssetOrders([]); setOrdersError(""); setPhoto(""); setPhotoMessage(""); }
     setSelectedId(item.id);
     setDraft({ ...item });
     setEditing(false);
@@ -299,6 +302,37 @@ export default function ManageEquipmentPage() {
     })();
     return () => { current = false; };
   }, [selectedId]);
+
+  useEffect(() => {
+    let current = true;
+    let url = "";
+    if (!selectedId) return () => { current = false; };
+    void (async () => {
+      try {
+        const access = await token();
+        const response = await fetch(`/api/assets/photo?asset_id=${encodeURIComponent(selectedId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+        if (response.status === 404) return;
+        if (!response.ok) throw new Error("Photo could not be loaded.");
+        const blob = await response.blob();
+        if (current) { url = URL.createObjectURL(blob); setPhoto(url); }
+      } catch { if (current) setPhotoMessage("Photo could not be loaded."); }
+    })();
+    return () => { current = false; if (url) URL.revokeObjectURL(url); };
+  }, [selectedId, photoVersion]);
+
+  async function uploadPhoto(file: File) {
+    if (!selectedId || !canManage || photoBusy) return;
+    setPhotoBusy(true); setPhotoMessage("");
+    try {
+      const access = await token();
+      const body = new FormData(); body.set("asset_id", selectedId); body.set("file", file);
+      const response = await fetch("/api/assets/photo", { method: "PUT", headers: { Authorization: `Bearer ${access}` }, body });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Photo could not be saved.");
+      setPhotoVersion(value => value + 1); setPhotoMessage("Photo saved.");
+    } catch (error) { setPhotoMessage(error instanceof Error ? error.message : "Photo could not be saved."); }
+    finally { setPhotoBusy(false); }
+  }
 
   function setField<K extends keyof Asset>(key: K, value: Asset[K]) {
     if (!verified && canManage) setDraft((current) => ({ ...current, [key]: value }));
@@ -540,7 +574,7 @@ export default function ManageEquipmentPage() {
                   <summary className="cursor-pointer rounded bg-slate-800 px-2 py-2 font-bold">{area}</summary>
                   {locations.map(([location, items]) => <details key={location} open={assetSearch ? true : undefined} className="ml-3">
                     <summary className="cursor-pointer px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
-                    {items.map(item => <button type="button" key={item.id} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
+                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
                   </details>)}
                 </details>)}
               </div>
@@ -549,6 +583,13 @@ export default function ManageEquipmentPage() {
 
           <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
+              <div className="mb-4 flex items-center gap-3">
+                <label className={`flex items-center gap-3 ${canManage ? "cursor-pointer" : ""}`}>
+                  {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="h-24 w-32 rounded object-cover" /> : <span className="flex h-24 w-32 items-center justify-center rounded bg-slate-950 text-xs text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
+                  {canManage && <><span className="text-sm font-bold text-cyan-300 underline">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Add photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
+                </label>
+                {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
+              </div>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
