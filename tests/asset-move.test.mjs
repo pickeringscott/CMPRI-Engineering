@@ -17,7 +17,7 @@ insert into locations values('${from}','${hotel}','Room 212',true),('${to}','${h
 insert into assets values('${asset}','${hotel}','${from}','2026-01-01',now(),'${actor}',null,'Unit');
 insert into work_orders values('${order}','${hotel}','${asset}','${from}','Room 212','Existing note',3,null,null);
 select set_config('test.role','service_role',false);
-`);await db.exec(readFileSync(new URL('../supabase/migrations/20261112040000_asset_move_work_order.sql',import.meta.url),'utf8'));await db.exec('create trigger protect before update on public.assets for each row execute function public.cmpri_protect_verified_asset();');return db;}
+`);await db.exec(readFileSync(new URL('../supabase/migrations/20261112050431_asset_move_work_order.sql',import.meta.url),'utf8'));await db.exec('create trigger protect before update on public.assets for each row execute function public.cmpri_protect_verified_asset();');return db;}
 const args=[hotel,asset,to,'2026-01-01T00:00:00Z',order,3,actor,'Move note'];
 const query='select public.cmpri_move_asset_with_order($1,$2,$3,$4,$5,$6,$7,$8)';
 test('moves verified equipment and linked ticket atomically, preserving notes and verified fields',async()=>{const db=await fixture();try{await db.query(query,args);const a=(await db.query('select * from assets')).rows[0],w=(await db.query('select * from work_orders')).rows[0];assert.equal(a.location_id,to);assert.ok(a.documentation_verified_at);assert.equal(a.name,'Unit');assert.equal(w.location_id,to);assert.equal(w.room,'Engineering');assert.equal(w.notes,'Existing note\nMove note');await assert.rejects(db.exec("update assets set name='Changed'"),/locked/);}finally{await db.close();}});
