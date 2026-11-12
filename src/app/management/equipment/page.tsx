@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
 import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { getValidSession } from "@/lib/supabase/client";
+import { parseTicketHistory } from "@/lib/ticket-note-presentation";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
@@ -88,6 +89,9 @@ export default function ManageEquipmentPage() {
   const [assetOrders, setAssetOrders] = useState<Array<{id:string; display_id:string; issue:string; status:string; room:string; notes:string | null}>>([]);
   const [ordersError, setOrdersError] = useState("");
   const [assetSearch, setAssetSearch] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [browseLocations, setBrowseLocations] = useState<Array<{id:string; name:string; area?:string | null}>>([]);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [createMessage, setCreateMessage] = useState("");
@@ -183,10 +187,10 @@ export default function ManageEquipmentPage() {
     finally { setOpeningRevision(false); }
   }
 
-  async function token() {
+  const token = useCallback(async () => {
     const session = await getValidSession();
     return session?.access_token || "";
-  }
+  }, []);
 
   async function loadAssets(preferId?: string): Promise<boolean> {
     setLoading(true);
@@ -301,7 +305,7 @@ export default function ManageEquipmentPage() {
       } catch (error) { if (current) setOrdersError(error instanceof Error ? error.message : "Unable to load work orders."); }
     })();
     return () => { current = false; };
-  }, [selectedId]);
+  }, [selectedId, token]);
 
   useEffect(() => {
     let current = true;
@@ -318,7 +322,7 @@ export default function ManageEquipmentPage() {
       } catch { if (current) setPhotoMessage("Photo could not be loaded."); }
     })();
     return () => { current = false; if (url) URL.revokeObjectURL(url); };
-  }, [selectedId, photoVersion]);
+  }, [selectedId, photoVersion, token]);
 
   async function uploadPhoto(file: File) {
     if (!selectedId || !canManage || photoBusy) return;
@@ -530,6 +534,9 @@ export default function ManageEquipmentPage() {
     const groups = new Map<string, Map<string, Asset[]>>();
     for (const asset of assets) {
       const location = browseLocations.find((item) => item.id === asset.location_id);
+      if (locationFilter && asset.location_id !== locationFilter) continue;
+      if (typeFilter && asset.asset_type !== typeFilter) continue;
+      if (statusFilter && (asset.active === false ? "inactive" : "active") !== statusFilter) continue;
       const haystack = [asset.name, asset.asset_type, asset.manufacturer, asset.model_family, asset.model_number, asset.serial_number, asset.asset_tag, asset.binder_tag, location?.name, location?.area].filter(Boolean).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, " ");
       if (!words.every(word => haystack.includes(word))) continue;
       const area = location?.area || "Other / unassigned";
@@ -540,7 +547,7 @@ export default function ManageEquipmentPage() {
       locations.get(name)!.push(asset);
     }
     return [...groups.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true})).map(([area, locations]) => [area, [...locations.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true}))] as const);
-  }, [assets, browseLocations, assetSearch]);
+  }, [assets, browseLocations, assetSearch, locationFilter, typeFilter, statusFilter]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -569,10 +576,15 @@ export default function ManageEquipmentPage() {
             <div className="p-4">
               <label className="sr-only" htmlFor="asset-search">Search equipment</label>
               <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="min-h-10 w-full rounded bg-slate-950 px-3 text-sm text-white" />
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <label>Location <select value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                <label>Type <select value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+                <label>Status <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+              </div>
               <div className="mt-3 max-h-[55vh] overflow-y-auto text-sm">
-                {loading ? <p>Loading equipment…</p> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch ? true : undefined} className="mb-1">
+                {loading ? <p>Loading equipment…</p> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
                   <summary className="cursor-pointer rounded bg-slate-800 px-2 py-2 font-bold">{area}</summary>
-                  {locations.map(([location, items]) => <details key={location} open={assetSearch ? true : undefined} className="ml-3">
+                  {locations.map(([location, items]) => <details key={location} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="ml-3">
                     <summary className="cursor-pointer px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
                     {items.map(item => <button type="button" key={item.id} disabled={photoBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
                   </details>)}
@@ -624,7 +636,7 @@ export default function ManageEquipmentPage() {
                 {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 rounded bg-slate-950 p-3 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
                   <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p>
-                  {order.notes && <p className="mt-2 whitespace-pre-wrap">{order.notes}</p>}
+                  {order.notes && <ul className="mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul>}
                 </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
               </section>
 
