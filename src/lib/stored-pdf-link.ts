@@ -1,7 +1,7 @@
-import type { ManualApplicabilityReview } from "./manual-applicability";
+import { numericSerialRange, type NumericSerialRange, type ManualApplicabilityReview } from "./manual-applicability";
 /** Validation for the existing importer; it does not infer equipment matches. */
 export type StoredPdf = { object_id: string; storage_path: string; object_version: string | null; etag: string | null; size: number; title: string; catalog_status?: "complete" | "pending" | "content_mismatch" | "not_cataloged"; catalog_warnings?: string[] };
-export type PdfReview = { title: string; manufacturer: string; models: string[]; selected_model: string; applicability: "reference" | "confirmed_model"; notes: string; reason: string; extracted_fields?: Record<string,string>; preferred?: boolean; applicability_review?: ManualApplicabilityReview | null; quarantine_acknowledged?: boolean };
+export type PdfReview = { title: string; manufacturer: string; models: string[]; selected_model: string; applicability: "reference" | "confirmed_model"; notes: string; reason: string; extracted_fields?: Record<string,string>; preferred?: boolean; applicability_review?: ManualApplicabilityReview | null; quarantine_acknowledged?: boolean; serial_range?: NumericSerialRange | null };
 export function preservePdfReview(currentId: string | null, nextId: string, current: PdfReview, saved: PdfReview | null, suggestions: PdfReview): PdfReview {
   return currentId === nextId ? current : saved ? { ...saved, reason: "" } : suggestions;
 }
@@ -26,7 +26,8 @@ export function reviewPdfFields(value: unknown): PdfReview {
   if (!extra || typeof extra!=="object" || Array.isArray(extra) || Object.entries(extra).some(([key,val])=>!["asset_type","model_family","serial_number","generation","install_year"].includes(key)||typeof val!=="string"||val.length>300)) throw new Error("Invalid edited equipment fields.");
   if (v.preferred!==undefined && typeof v.preferred!=="boolean") throw new Error("Invalid guide selection.");
   if (v.quarantine_acknowledged !== undefined && typeof v.quarantine_acknowledged !== "boolean") throw new Error("Invalid catalog warning acknowledgement.");
-  return {title,manufacturer,models,selected_model,notes,reason,quarantine_acknowledged:v.quarantine_acknowledged===true,applicability:v.applicability,extracted_fields:extra as Record<string,string>,preferred:v.preferred===true, applicability_review: v.applicability === "confirmed_model" ? (v.applicability_review ?? null) as ManualApplicabilityReview | null : null};
+  const serial_range = numericSerialRange(v.serial_range);
+  return {title,manufacturer,models,selected_model,notes,reason,serial_range,quarantine_acknowledged:v.quarantine_acknowledged===true,applicability:v.applicability,extracted_fields:extra as Record<string,string>,preferred:v.preferred===true, applicability_review: v.applicability === "confirmed_model" ? (v.applicability_review ?? null) as ManualApplicabilityReview | null : null};
 }
 export function validateStoredPdf(bytes: Uint8Array, file: StoredPdf, expectedHash: string | null, actualHash: string) {
   if (!bytes.length) throw new Error("The stored PDF is empty. Its original has been preserved.");
