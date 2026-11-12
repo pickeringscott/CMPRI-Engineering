@@ -56,6 +56,6 @@ export async function GET(request: NextRequest) {
     hotelId: attempt.principal.hotelId,
     landing,
     preview_read_only:manualPreviewReadOnly(),
-    capabilities: capabilities.filter((capability) => allows(attempt.principal, capability) && (!manualPreviewReadOnly() || capability.startsWith('view_'))),
+    capabilities: capabilities.filter((capability) => allows(attempt.principal, capability)),
   }, { headers: NO_STORE_HEADERS });
 }

@@ -87,3 +87,9 @@ The read-only preview had disabled the prior checkbox interactions. These are re
 The blanket chart-reference flag also suppressed conditional checkboxes. Explicit connected chart checks and common prerequisites are restored with their original conditions and source citations. Ordinary descriptions such as the existing “cooling issue” report can select the corresponding source chart without generating instructions or choosing branch outcomes. The actual Friedrich record now exposes 43 conditional checks, starting with its source prerequisite to check error codes. GE retains its nine source checks.
 
 The real-record browser checks exercise the Chief cycle, browser reload persistence, clearing, first-step position, continuous pages, native colors, and automatic next-page loading, with no mutation requests or external calls. Existing unit regressions cover the other role/ownership/review and saved-note paths. Live signed-in, cross-browser review and database persistence remain unverified here.
+
+## Restored System Administrator controls
+
+The preview session incorrectly removed every granted capability that did not begin with `view_`. This hid management controls and the work-order launcher even for the actual System Administrator account. The session now returns the account's full capabilities from the existing authorization policy in both normal and preview modes. Role grants are unchanged; the preview's API and database write guards remain in place.
+
+The existing role/session regression now checks capability parity in both modes. A separate check using the actual Supabase account snapshot confirmed identical capabilities, and browser checks at 390 and 1440 px confirmed visible, enabled Equipment, Parts, Rooms, Users, and create-work-order controls. These checks made no mutation requests or external calls. TypeScript, the focused session/header tests, and the packaged Next/PDF/OCR build passed.

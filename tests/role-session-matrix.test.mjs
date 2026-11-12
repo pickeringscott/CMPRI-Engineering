@@ -94,8 +94,9 @@ function makePrincipal(role) {
   };
 }
 
-test("every actual application role's /api/session capabilities match its role and membership policy", async () => {
+test("every application role's /api/session capabilities match its policy in normal and preview modes", async () => {
   let principal = makePrincipal(roleCases[0].role);
+  let previewReadOnly = false;
   const exports = {};
   vm.runInNewContext(sessionCode, {
     exports,
@@ -104,12 +105,13 @@ test("every actual application role's /api/session capabilities match its role a
       if (name === "@/lib/server/auth") return { requireUserAttempt: async () => ({ ok: true, principal }) };
       if (name === "@/lib/server/access") return accessModule;
       if (name === "@/lib/server/roles") return roleModule;
-      if (name === "@/lib/server/manual-preview") return { manualPreviewReadOnly: () => false };
+      if (name === "@/lib/server/manual-preview") return { manualPreviewReadOnly: () => previewReadOnly };
       throw new Error(`Unexpected session route dependency: ${name}`);
     },
   });
 
-  for (const { role, landing, membership } of roleCases) {
+  for (const preview of [false,true]) for (const { role, landing, membership } of roleCases) {
+    previewReadOnly = preview;
     assert.equal(roleModule.roleAllows(role, "add_work_order_notes"), true, `${role} note capability`);
     principal = makePrincipal(role);
     const response = await exports.GET({});
@@ -118,6 +120,7 @@ test("every actual application role's /api/session capabilities match its role a
     const grantedCapabilities = capabilities.filter((capability) => accessModule.allows(principal, capability));
     assert.equal(response.status, 200, `${role} session status`);
     assert.equal(body.user.role, role);
+    assert.equal(body.preview_read_only, preview);
     assert.equal(body.landing, landing, `${role} landing`);
     assert.equal(principal.membership.role, membership, `${role} membership role`);
     assert.deepEqual(body.capabilities, expectedCapabilities, `${role} /api/session capabilities`);
