@@ -54,7 +54,7 @@ html[data-cmpri-modal-theme=true] .asset-picker .asset-search {
   background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 7%, var(--cmpri-modal-base, #181818)) !important;
 }
 html[data-cmpri-embedded="true"] main.asset-workspace {
-  --cmpri-modal-type-scale: .82;
+  --cmpri-modal-type-scale: .72;
 }
 .asset-detail .asset-photo { width: 160px; height: 112px; }
 html[data-cmpri-embedded="true"] main.asset-workspace .asset-title {
@@ -125,7 +125,7 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
 
 /* Keep the asset browser compact in both desktop windows and modal frames. */
 html[data-cmpri-embedded="true"] main.asset-workspace { font-size: .75rem; }
-.asset-workspace .asset-layout { gap: .75rem; }
+.asset-workspace .asset-layout { gap: .5rem; }
 .asset-workspace .asset-icon { width: .95rem; height: .95rem; }
 .asset-workspace .asset-result-count { font-size: .7rem; }
 .asset-workspace .asset-search-wrap > .asset-search { min-height: 2rem !important; padding-left: 2rem; }
@@ -137,16 +137,53 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
 html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(1) select { width: 6rem; }
 html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(2) select { width: 4.4rem; }
 html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(3) select { width: 5.1rem; }
-.asset-picker .asset-group, .asset-picker .asset-location, .asset-picker .asset-result { min-height: 1.8rem; }
-.asset-picker .asset-group, .asset-picker .asset-location { font-size: .75rem; }
-.asset-picker .asset-group-count, .asset-picker .asset-location-count { font-size: .65rem; }
-.asset-picker .asset-result { padding-top: .25rem; padding-bottom: .25rem; gap: .45rem; }
+.asset-picker .asset-group, .asset-picker .asset-location, .asset-picker .asset-result { min-height: 1.45rem; padding-top: .15rem; padding-bottom: .15rem; }
+.asset-picker .asset-group, .asset-picker .asset-location { font-size: .68rem; }
+.asset-picker .asset-group-count, .asset-picker .asset-location-count { font-size: .6rem; }
+.asset-picker .asset-result { gap: .35rem; padding-left: 1.8rem; }
 .asset-detail .asset-photo { width: clamp(100px, 13vw, 160px); height: 108px; }
-.asset-overview { gap: .75rem; }
-.asset-tabs { gap: .35rem; margin: .6rem 0; }
-.asset-tabs button { padding: .3rem .25rem; }
-.asset-notes-heading { margin-top: .75rem; }
+.asset-overview { gap: .5rem; }
+.asset-tabs { gap: .25rem; margin: .35rem 0; }
+.asset-tabs button { padding: .2rem .2rem; }
+.asset-notes-heading { margin-top: .5rem; }
 .asset-notes-heading h4 { font-size: 1rem; }
 @media (max-width: 767px) {
   .asset-detail .asset-photo { width: 100px; height: 72px; }
+}
+
+/* A resized desktop window still has room for both panes. Keep each pane
+   independently scrollable instead of putting details below the asset list. */
+@media (min-width: 560px) {
+  html[data-cmpri-embedded="true"] main.asset-workspace {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  html[data-cmpri-embedded="true"] main.asset-workspace > div {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+  html[data-cmpri-embedded="true"] main.asset-workspace .asset-layout {
+    grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .asset-picker { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .asset-picker > div:nth-child(2) { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .asset-picker > div:nth-child(2) > div:last-child { flex: 1 1 auto; min-height: 0; max-height: none; }
+  .asset-detail { min-height: 0; overflow-y: auto; }
+}
+@media (min-width: 560px) and (max-width: 900px) {
+  .asset-picker .asset-filters label > .asset-icon { display: none; }
+  html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select { font-size: .65rem !important; padding-right: .7rem; }
+  html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(1) select { width: 4.8rem; }
+  html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(2) select { width: 3.5rem; }
+  html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters label:nth-child(3) select { width: 4.1rem; }
+  html[data-cmpri-embedded="true"] main.asset-workspace .asset-title { font-size: .95rem !important; }
+  .asset-picker > div:first-child > div { flex-wrap: wrap; }
+  .asset-overview { flex-wrap: wrap; }
+  .asset-tabs { justify-content: flex-start; }
 }
