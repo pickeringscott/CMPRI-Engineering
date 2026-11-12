@@ -109,16 +109,17 @@ test('global route modals scale down from their dashboard and retain usable mobi
   const sizingCode = ts.transpileModule(`${source.slice(sizingStart, sizingEnd)}\nexports.panelStyle = panelStyle;`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  for (const href of ['/engineering/purchasing', '/profile', '/work-orders', '/work-orders?embedded=1', '/work-orders/wo-1?embedded=1', 'https://cmpri.example/work-orders/wo-1?embedded=1']) {
+  for (const href of ['/management/equipment', '/management/equipment?embedded=1', '/engineering/purchasing', '/profile', '/work-orders', '/work-orders?embedded=1', '/work-orders/wo-1?embedded=1', 'https://cmpri.example/work-orders/wo-1?embedded=1']) {
     const detail = href.includes('/work-orders/');
     const purchasing = href.includes('/engineering/purchasing');
+    const assets = href.includes('/management/equipment');
     for (const index of [0, 1, 2, 5]) {
       const result = {};
       vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
       const scale = 0.9 ** (Math.min(index, 2) + 1);
       const inset = (detail ? 24 : 16) * scale;
       assert.deepEqual({ ...result.panelStyle }, {
-        '--cmpri-modal-width': `min(${(detail || purchasing ? 94 : 66) * scale}vw, ${(detail || purchasing ? 88 : 72) * scale}rem)`,
+        '--cmpri-modal-width': `min(${(detail || purchasing || assets ? 94 : 66) * scale}vw, ${(detail || purchasing || assets ? 88 : 72) * scale}rem)`,
         '--cmpri-modal-height': `calc(${(detail ? 82 : 100) * scale}dvh - ${inset}px)`,
         '--cmpri-modal-mobile-width': `calc(${100 * scale}vw - ${inset}px)`,
         '--cmpri-modal-mobile-height': `calc(${100 * scale}dvh - ${inset}px)`,

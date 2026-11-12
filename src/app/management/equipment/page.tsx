@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./asset-browser.css";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
 import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
@@ -69,6 +70,7 @@ export default function ManageEquipmentPage() {
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [assetLoadError, setAssetLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [showDocumentationDialog, setShowDocumentationDialog] = useState(false);
@@ -95,7 +97,7 @@ export default function ManageEquipmentPage() {
   const [moveOrderId, setMoveOrderId] = useState("");
   const [moveError, setMoveError] = useState("");
   const [orderVersion, setOrderVersion] = useState(0);
-  const [assetPanel, setAssetPanel] = useState<"details" | "orders" | "documents">("details");
+  const [assetPanel, setAssetPanel] = useState<"details" | "orders" | "documents">("orders");
   const [assetSearch, setAssetSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -203,6 +205,7 @@ export default function ManageEquipmentPage() {
   async function loadAssets(preferId?: string): Promise<boolean> {
     setLoading(true);
     setMessage("");
+    setAssetLoadError(false);
     try {
       const access = await token();
       if (!access) throw new Error("Sign in again to load equipment.");
@@ -225,6 +228,7 @@ export default function ManageEquipmentPage() {
       }
       return true;
     } catch (error) {
+      setAssetLoadError(true);
       setMessage(error instanceof Error ? error.message : "Could not load equipment.");
       return false;
     } finally {
@@ -577,7 +581,7 @@ export default function ManageEquipmentPage() {
   }, [assets, browseLocations, assetSearch, locationFilter, typeFilter, statusFilter]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="asset-workspace min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full px-3 py-4 sm:px-4">
         {!embedded && <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-5">
           <div>
@@ -591,63 +595,58 @@ export default function ManageEquipmentPage() {
 
         {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</div>}
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <section className="bg-slate-900">
+        <div className="grid gap-4 pt-2 md:grid-cols-[minmax(260px,34%)_minmax(0,1fr)]">
+          <section className="asset-picker min-w-0 bg-slate-900">
             <div className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-bold">All Equipment</h2>
+                <h2 className="text-xl font-bold">All Equipment</h2>
                 {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">Add Asset</button>}
               </div>
-              <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
+              <p className="text-xs text-slate-500">{loading ? "Loading…" : assetLoadError ? "Equipment unavailable" : `${assets.length} records`}</p>
             </div>
             <div className="px-3 pb-3">
               <label className="sr-only" htmlFor="asset-search">Search equipment</label>
-              <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="min-h-10 w-full rounded bg-slate-950 px-3 text-sm text-white" />
-              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="asset-search min-h-10 w-full rounded px-3 text-sm text-white" />
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <label>Location <select value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
                 <label>Type <select value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
                 <label>Status <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
               </div>
-              <div className="mt-3 max-h-[55vh] overflow-y-auto text-sm">
-                {loading ? <p>Loading equipment…</p> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
-                  <summary className="cursor-pointer rounded bg-slate-800 px-2 py-2 font-bold">{area}</summary>
+              <div className="mt-3 max-h-[60vh] overflow-y-auto text-sm">
+                {loading ? <p>Loading equipment…</p> : assetLoadError ? <button type="button" onClick={() => void loadAssets()} className="underline">Retry loading equipment</button> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
+                  <summary className="asset-group cursor-pointer rounded px-3 py-2 font-bold">{area} <span className="float-right text-xs font-normal text-slate-400">{locations.length} locations · {locations.reduce((total, [, items]) => total + items.length, 0)} assets</span></summary>
                   {locations.map(([location, items]) => <details key={location} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="ml-3">
-                    <summary className="cursor-pointer px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
-                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`block w-full px-3 py-2 text-left ${selectedId === item.id ? "bg-slate-800 font-bold" : "hover:bg-slate-800"}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
+                    <summary className="asset-location cursor-pointer rounded px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
+                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`asset-result block w-full px-3 py-2 text-left ${selectedId === item.id ? "asset-result-selected font-bold" : ""}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
                   </details>)}
                 </details>)}
               </div>
             </div>
           </section>
 
-          <section className="bg-slate-900 p-3">
+          <section className="asset-detail min-w-0 bg-slate-900 p-3">
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
-              <div className="mb-4 flex items-center gap-3">
-                <label className={`flex items-center gap-3 ${canManage ? "cursor-pointer" : ""}`}>
-                  {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="h-24 w-32 rounded object-cover" /> : <span className="flex h-24 w-32 items-center justify-center rounded bg-slate-950 text-xs text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
-                  {canManage && <><span className="text-sm font-bold text-cyan-300 underline">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Add photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
+              <div className="flex flex-wrap items-start gap-4">
+                <label className={`relative block shrink-0 ${canManage ? "cursor-pointer" : ""}`}>
+                  {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
+                  {canManage && <><span className="mt-1 block text-xs text-slate-400">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
                 </label>
-                {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
-              </div>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <h2 className="text-2xl font-bold">{selected.name}</h2>
-                    {documents.map((doc) => doc.url && (
-                      <a key={statusKey(doc)} href={doc.url} target="_blank" rel="noreferrer" className="max-w-64 truncate text-sm font-semibold text-sky-300 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-200" title={doc.name}>
-                        {doc.name}
-                      </a>
-                    ))}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <h2 className="asset-title font-bold">{selected.name || selected.asset_type}</h2>
+                    <div className="flex flex-wrap gap-3 text-sm font-semibold">
+                      {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="px-2 py-1 text-cyan-200">Edit Details</button>}
+                      {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="px-2 py-1 text-cyan-200 disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
+                      {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="px-2 py-1 text-cyan-200 disabled:opacity-50">Move Asset</button>}
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-slate-400">{verified ? "Verified fields are locked against casual edits." : "Review and save the equipment record before final documentation verification."}</p>
-                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders. Engineering must verify its installed location before assigning it.</p>}
+                  <p className="mt-2 text-sm text-slate-300">Current location: {browseLocations.find(location => location.id === selected.location_id)?.name || (selected.location_id ? "Location unavailable" : "Unassigned")}</p>
+                  <p className="mt-1 text-sm text-slate-300">Serial: {selected.serial_number || "Not yet recorded"}</p>
+                  <p className="mt-1 text-sm text-slate-300">{selected.status || (selected.active ? "Active" : "Inactive")}{verified ? " · Verified documentation" : ""}</p>
+                  {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
+                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders.</p>}
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="rounded-lg px-3 py-2 text-sm font-bold text-cyan-200 disabled:opacity-50">Move Asset</button>}
-                  {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}
-                  {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Edit Equipment</button>}
-                  {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
+                  <div className="sr-only">{documents.map((doc) => doc.url && (<a key={statusKey(doc)} href={doc.url}>{doc.name}</a>))}</div>
                 </div>
               </div>
 
@@ -660,7 +659,7 @@ export default function ManageEquipmentPage() {
                 {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{moveError}</p>}
                 <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? "Moving…" : "Confirm Move"}</button>
               </section>}
-              <nav aria-label="Asset sections" className="mt-3 flex flex-wrap gap-4 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}>{label}</button>)}</nav>
+              <nav aria-label="Asset sections" className="mt-3 flex flex-wrap gap-x-6 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}>{label}</button>)}</nav>
               <div hidden={assetPanel !== "details"}>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
@@ -671,11 +670,11 @@ export default function ManageEquipmentPage() {
 
               </div>
               <section hidden={assetPanel !== "orders"} className="mt-3" aria-label="Work orders and repairs">
-                <h3 className="font-bold">Work Orders &amp; Repairs</h3>
-                {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 rounded bg-slate-950 p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
-                  <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p>
-                  {order.notes && <ul className="mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul>}
+                <h3 className="sr-only">Work Orders &amp; Repairs</h3>
+                {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : ordersLoading ? <p role="status" className="text-sm text-slate-400">Loading work orders…</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 text-sm">
+                  <div className="asset-order rounded p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
+                  <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p></div>
+                  {order.notes && <><h4 className="mt-4 font-bold">Work order notes</h4><ul className="mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
                 </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
               </section>
 
