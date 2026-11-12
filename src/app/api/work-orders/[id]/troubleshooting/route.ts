@@ -84,7 +84,7 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
   catch { return finish({ ...empty, reason: 'The attached source document could not be verified. Saved visit changes remain pending for a combined note.' }); }
   const knowledge = normalizeManualKnowledge(result.manualKnowledge);
   const derived = result.documentation_status === 'verified' ? deriveTroubleshootingChecklistContext({ issue: order.issue || '', reporter_notes: order.reporter_notes, asset }, knowledge) : { contextIdentity: null, steps: [] };
-  const assetContext = Object.fromEntries(['id', 'manufacturer', 'model_family', 'model_number', 'documentation_key', 'documentation_revision_id', 'documentation_verified_at', 'pdf_import_links'].map(key => [key, asset[key as keyof Asset] ?? null]));
+  const assetContext = Object.fromEntries(['id', 'manufacturer', 'model_family', 'model_number', 'serial_number', 'documentation_key', 'documentation_revision_id', 'documentation_verified_at', 'pdf_import_links'].map(key => [key, asset[key as keyof Asset] ?? null]));
   if (!derived.contextIdentity) return finish({ ...empty, reason: result.documentation_reason || 'No exact verified uploaded manual guidance is available for this saved equipment.' }, assetContext);
   const contextKey = createHash('sha256').update(order.troubleshooting_run_id ? JSON.stringify([derived.contextIdentity, order.troubleshooting_run_id]) : derived.contextIdentity).digest('hex');
   const current = await auth.admin.from(table).select('revision,task_states').eq('hotel_id', auth.principal.hotelId).eq('work_order_id', id).eq('context_key', contextKey).maybeSingle();

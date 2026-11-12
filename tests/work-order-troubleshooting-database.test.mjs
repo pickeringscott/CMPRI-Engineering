@@ -70,6 +70,8 @@ async function fixture() {
   const history = readFileSync(new URL('../supabase/migrations/20260930200000_cmpri_work_order_history.sql', import.meta.url), 'utf8');
   await db.exec(history.slice(history.indexOf('create or replace function public.cmpri_capture_work_order_history_actor()'), history.indexOf('create or replace function public.cmpri_log_work_order_history()')));
   await db.exec(migration);
+  await db.exec('alter table assets add column serial_number text');
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261112065852_troubleshooting_serial_guard.sql', import.meta.url), 'utf8'));
   async function as(role, fn) {
     await db.exec(`set role ${role}`);
     try { return await fn(); } finally { await db.exec('reset role'); }
@@ -92,6 +94,21 @@ async function fixture() {
   }
   return {db, as, save, finalize};
 }
+
+test('checklist saves reject a changed asset serial while older clients remain compatible', async () => {
+  const {db, save} = await fixture();
+  try {
+    await db.exec(`update assets set serial_number='200' where id='${assetId}'`);
+    await assert.rejects(save({asset: {...asset, serial_number:'150'}}), error => error.code === '40001');
+    const [saved] = await save({asset: {...asset, serial_number:'200'}});
+    assert.equal(Number(saved.revision), 1);
+  } finally { await db.close(); }
+  const older = await fixture();
+  try {
+    await older.db.exec(`update assets set serial_number='200' where id='${assetId}'`);
+    assert.equal((await older.save()).length, 1);
+  } finally { await older.db.close(); }
+});
 
 test('ledger RPC uses independent revisions and atomically rejects stale updates without changing tickets or PM', async () => {
   const {db, save} = await fixture();
