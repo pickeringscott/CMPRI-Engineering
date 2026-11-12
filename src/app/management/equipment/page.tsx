@@ -13,6 +13,7 @@ import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-inst
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { equipmentOptionLabel } from "@/lib/equipment-selection";
 import { suggestionsFromReviewedOcr } from "@/lib/equipment-ocr-suggestions";
+import { afterDocumentSave } from "@/lib/asset-document-version";
 
 function AssetIcon({ name }: { name: "search" | "location" | "layers" | "status" | "equipment" | "details" | "repair" | "document" | "edit" | "move" | "external" }) {
   const paths: Record<typeof name, React.ReactNode> = {
@@ -167,7 +168,7 @@ export default function ManageEquipmentPage() {
       const response = await fetch("/api/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
-        body: JSON.stringify({ location_id: newAsset.location_id, asset_type: newAsset.asset_type.trim(),
+        body: JSON.stringify({ location_id: newAsset.location_id, asset_type: newAsset.asset_type.trim(), name: newAsset.name?.trim() || undefined,
           asset_tag: newAsset.asset_tag, manufacturer: newAsset.manufacturer, model_family: newAsset.model_family,
           model_number: newAsset.model_number, serial_number: newAsset.serial_number,
           generation: newAsset.generation, install_year: newAsset.install_year }),
@@ -199,16 +200,16 @@ export default function ManageEquipmentPage() {
   const unsavedEquipment = !!selected && editableKeys.some((key) => (selected[key] ?? "") !== (draft[key] ?? ""));
   const [revisionReason, setRevisionReason] = useState("");
   const [openingRevision, setOpeningRevision] = useState(false);
-  async function beginRevision() {
+  async function beginRevision(reasonOverride?: string, openDocumentation = false) {
     if (!selected?.updated_at || !verified || !canManage || openingRevision) return;
     setOpeningRevision(true);
     try {
       const access = await token();
       const response = await fetch("/api/assets", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
-        body: JSON.stringify({ id: selected.id, begin_documentation_revision: true, expected_updated_at: selected.updated_at, revision_reason: revisionReason }) });
+        body: JSON.stringify({ id: selected.id, begin_documentation_revision: true, expected_updated_at: selected.updated_at, revision_reason: reasonOverride || revisionReason }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Revision could not be opened.");
-      if (await loadAssets(selected.id)) { setEditing(true); setRevisionReason(""); setMessage("Revision opened. Prior verification and files are preserved. Save your corrections, then verify the reviewed record again."); }
+      if (await loadAssets(selected.id)) { setEditing(true); setRevisionReason(""); if (openDocumentation) setShowDocumentationDialog(true); setMessage("Revision opened. Prior verification and files are preserved. Save your corrections, then verify the reviewed record again."); }
     } catch (error) { setMessage(error instanceof Error ? error.message : "Revision could not be opened."); }
     finally { setOpeningRevision(false); }
   }
@@ -708,7 +709,7 @@ export default function ManageEquipmentPage() {
               <div hidden={assetPanel !== "documents"} className="mt-3">
                 <h3 className="font-bold">Documentation</h3>
                 {canManage && !verified && <button type="button" onClick={() => { setEditing(true); setShowDocumentationDialog(true); }} className="my-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold">Add Documentation</button>}
-                {verified && <p className="text-sm text-slate-400">Open a revision in Details to change verified documentation.</p>}
+                {verified && canManage && <div className="my-2"><p className="text-sm text-slate-400">Updating documentation opens a revision. The current files and verification history stay available; review and verify the record again when finished.</p><button type="button" disabled={openingRevision} onClick={() => void beginRevision("Update asset documentation", true)} className="mt-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{openingRevision ? "Opening…" : "Update Documentation"}</button></div>}
                 {documents.length ? <ul className="space-y-1">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">No documentation attached.</p>}
               {canManage && editing && !verified && <div className="mt-4 pt-3">
                 <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
@@ -726,7 +727,7 @@ export default function ManageEquipmentPage() {
             <h2 id="add-asset-title" className="text-xl font-bold">Add Asset</h2>
             <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">Close</button>
           </div>
-          <p className="mt-2 text-sm text-slate-400">Choose the installed location and equipment type. Leave unknown specifications blank.</p>
+          <p className="mt-2 text-sm text-slate-400">Choose a location, including storage, and enter the equipment type. Other details can be added later.</p>
           {createMessage && <p role="alert" className="mt-3 text-sm text-amber-200">{createMessage}</p>}
           <fieldset disabled={creating || loadingLocations} className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm">Room / Location
@@ -735,12 +736,15 @@ export default function ManageEquipmentPage() {
                 {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
               </select>
             </label>
-            {([["asset_type", "Equipment type"], ["asset_tag", "Asset tag"], ["manufacturer", "Manufacturer"], ["model_family", "Exact model family"], ["model_number", "Model number"], ["serial_number", "Serial number"], ["generation", "Generation"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}
-              <input required={key === "asset_type"} maxLength={key === "serial_number" ? 300 : 200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
+            {([["asset_type", "Equipment type"], ["name", "Equipment name (optional)"], ["asset_tag", "Equipment label (optional)"], ["serial_number", "Serial number (optional)"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}
+              <input required={key === "asset_type"} maxLength={key === "name" ? 500 : key === "serial_number" ? 300 : 200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
             </label>)}
-            <label className="grid gap-1 text-sm">Install year
-              <input type="number" min="1900" max={maximumAssetInstallYear()} value={newAsset.install_year ?? ""} onChange={(event) => setNewAsset((current) => ({ ...current, install_year: event.target.value ? Number(event.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
-            </label>
+            <details className="sm:col-span-2"><summary className="cursor-pointer text-sm font-semibold">More equipment details (optional)</summary>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {([["manufacturer", "Manufacturer"], ["model_family", "Model family"], ["model_number", "Model number"], ["generation", "Generation"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}<input maxLength={200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" /></label>)}
+                <label className="grid gap-1 text-sm">Install year<input type="number" min="1900" max={maximumAssetInstallYear()} value={newAsset.install_year ?? ""} onChange={(event) => setNewAsset((current) => ({ ...current, install_year: event.target.value ? Number(event.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" /></label>
+              </div>
+            </details>
           </fieldset>
           <div className="mt-5 flex justify-end gap-2">
             <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-4 py-2 disabled:opacity-50">Cancel</button>
@@ -757,7 +761,12 @@ export default function ManageEquipmentPage() {
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>
             </div>
 
-            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadDocuments(selected.id).then(result => displayDocuments(result.documents, result.verified, selected.id)).catch(() => setDialogMessage("Documentation saved, but the list could not be refreshed.")); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
+            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={(previousUpdatedAt, savedUpdatedAt) => {
+              const assetId = selected.id;
+              setAssets(current => current.map(asset => afterDocumentSave(asset, assetId, previousUpdatedAt, savedUpdatedAt)));
+              setDraft(current => afterDocumentSave(current, assetId, previousUpdatedAt, savedUpdatedAt));
+              void loadDocuments(assetId).then(result => displayDocuments(result.documents, result.verified, assetId)).catch(() => setDialogMessage("Documentation saved, but the list could not be refreshed."));
+            }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
 
             <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
               <summary className="cursor-pointer font-semibold">Read an equipment label or document on this device</summary>

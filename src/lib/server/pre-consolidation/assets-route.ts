@@ -11,7 +11,6 @@ import { EQUIPMENT_SELECTION_COLUMNS } from "@/lib/equipment-selection";
 
 const BUCKET = "asset-documentation";
 const VERIFY_MARKER = "_cmpri-verification.json";
-const EN_DASH = " – ";
 const ASSET_PAGE_SIZE = 1000;
 
 async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {
@@ -144,8 +143,7 @@ export async function POST(request: NextRequest) {
       hotel_id: HOTEL_ID,
       location_id: location.id,
       asset_type: assetType,
-      // Naming is enforced for NEW assets only. Existing legacy names are not retro-converted.
-      name: `${assetType}${EN_DASH}${location.name}`,
+      name: optionalText(body.name, "equipment name", 500) || assetType,
       asset_tag: optionalText(body.asset_tag, "asset tag", 200),
       manufacturer: optionalText(body.manufacturer, "manufacturer", 200) ?? "",
       model_family: optionalText(body.model_family, "model family", 200),

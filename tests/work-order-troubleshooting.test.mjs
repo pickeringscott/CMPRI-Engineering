@@ -75,7 +75,7 @@ function fixture(initial = {}) {
       return { async maybeSingle() {
         if (state.race) { const race = state.race; state.race = null; race(state); }
         if (state.ticket.revision !== input.p_work_order_revision || state.ticket.hotel_id !== input.p_hotel) return { error: { code: '40001', message: 'The work order changed.' } };
-        const context = Object.fromEntries(['id','manufacturer','model_family','model_number','documentation_key','documentation_revision_id','documentation_verified_at','pdf_import_links'].map(key => [key, state.asset[key] ?? null]));
+        const context = Object.fromEntries(['id','manufacturer','model_family','model_number','serial_number','documentation_key','documentation_revision_id','documentation_verified_at','pdf_import_links'].map(key => [key, state.asset[key] ?? null]));
         if (JSON.stringify(context) !== JSON.stringify(input.p_asset_context)) return { error: { code: '40001', message: 'Equipment guidance changed.' } };
         if (state.events.some(event => event.mutation_id === input.p_mutation_id)) return { error: { code: '40001', message: 'Mutation already used.' } };
         const existing = state.ledger.find(row => row.context_key === input.p_context_key && row.hotel_id === input.p_hotel && row.work_order_id === input.p_work_order);
@@ -322,7 +322,7 @@ test('concurrent taps use compare-and-swap and reload merges independent checkli
 });
 
 test('ticket or equipment changes during save are rejected atomically by the ledger RPC', async () => {
-  for (const race of [state => { state.ticket.revision++; state.ticket.issue = 'A new issue'; }, state => { state.asset.documentation_key = 'changed-document'; }]) {
+  for (const race of [state => { state.ticket.revision++; state.ticket.issue = 'A new issue'; }, state => { state.asset.documentation_key = 'changed-document'; }, state => { state.asset.serial_number = 'different-serial'; }]) {
     const h = fixture(); const opened = await h.get(); h.state.race = race;
     const response = await h.patch({ contextKey: opened.body.contextKey, expectedRevision: 0, itemId: 'step-1' });
     assert.equal(response.status, 409); assert.equal(response.body.code, 'context_changed');

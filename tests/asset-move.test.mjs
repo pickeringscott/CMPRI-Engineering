@@ -14,7 +14,7 @@ create table public.cmpri_equipment_document_revisions(id uuid,asset_id uuid,hot
 create table public.work_orders(id uuid,hotel_id uuid,asset_id uuid,location_id uuid,room text,notes text,revision bigint,history_actor_user_id uuid,history_source text);
 insert into profiles values('${actor}',true,'engineer');insert into hotel_members values('${actor}','${hotel}',true);
 insert into locations values('${from}','${hotel}','Room 212',true),('${to}','${hotel}','Engineering',true);
-insert into assets values('${asset}','${hotel}','${from}','2026-01-01',now(),'${actor}',null,'Unit');
+insert into assets values('${asset}','${hotel}','${from}','2026-01-01T00:00:00Z',now(),'${actor}',null,'Unit');
 insert into work_orders values('${order}','${hotel}','${asset}','${from}','Room 212','Existing note',3,null,null);
 select set_config('test.role','service_role',false);
 `);await db.exec(readFileSync(new URL('../supabase/migrations/20261112050431_asset_move_work_order.sql',import.meta.url),'utf8'));await db.exec('create trigger protect before update on public.assets for each row execute function public.cmpri_protect_verified_asset();');return db;}

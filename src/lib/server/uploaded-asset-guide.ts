@@ -117,9 +117,12 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   const candidates = statusFiles.filter(file => /\.pdf$/i.test(file.name || '') && applicability.eligible.some(link => link.object_id === file.id && link.storage_path === file.storage_path
       && (file.catalog_status !== 'content_mismatch' || link.quarantine_acknowledged === true))).sort((a, b) => a.id.localeCompare(b.id) || a.storage_path.localeCompare(b.storage_path));
   const unresolved = statusFiles.filter(file => !candidates.some(candidate => candidate.id === file.id && candidate.storage_path === file.storage_path))
-    .map(file => `${file.name}: this file is not confirmed as a selected manual for this equipment, or its original-file identity needs review.`);
+    .map(file => {
+      const reason = applicability.unresolved.find(item => item.link.object_id === file.id && item.link.storage_path === file.storage_path)?.reason;
+      return `${file.name}: ${reason || 'This file needs review before it can be used for troubleshooting.'}`;
+    });
   if (!candidates.length) return unavailable(documents.length ? 'manual_applicability_unresolved' : 'no_uploaded_document', documents.length
-    ? 'No usable attached manual has been selected for this physical equipment. Choose its manuals in Assets.'
+    ? (unresolved[0] || 'No usable attached manual has been selected for this physical equipment. Choose its manuals in Assets.')
     : 'No uploaded PDF is attached to this asset.', unresolved);
   const matching: { file: RegisteredAssetFile; text: string; sha256: string; bytes: Uint8Array; reviewed: Awaited<ReturnType<typeof readReviewedManualPages>> }[] = [];
   const failures: { status: string; message: string }[] = [];

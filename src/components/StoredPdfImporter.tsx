@@ -4,16 +4,16 @@ import { eligibleManualLinks, serialRangeStatus, type ManualApplicabilityReview 
 import { pdfImportResponse, uploadPdfDirect } from "@/lib/pdf-direct-upload";
 import type { PdfReview, StoredPdf } from "@/lib/stored-pdf-link";
 import { pdfReviewSuggestions, type EquipmentSuggestions } from "@/lib/equipment-pdf-suggestions";
-import { preservePdfReview, storedPdfStatusLabel } from "@/lib/stored-pdf-link";
+import { preservePdfReview } from "@/lib/stored-pdf-link";
 
 type SavedLink = StoredPdf & PdfReview & { sha256: string; document_id?: string };
 type Review = { file: StoredPdf; sha256: string; url: string; saved_fields: SavedLink | null; suggestions: EquipmentSuggestions | null; readable_text: boolean; updated_at: string; asset_identity: Omit<ManualApplicabilityReview, "confirmed"> };
 const blank: PdfReview = { title:"", manufacturer:"", models:[], selected_model:"", applicability:"reference", notes:"", reason:"", extracted_fields:{} };
 
-export default function StoredPdfImporter({ assetId, assetName, token, onSaved }: { assetId:string; assetName:string; token:()=>Promise<string | null>; onSaved:()=>void }) {
+export default function StoredPdfImporter({ assetId, assetName, token, onSaved }: { assetId:string; assetName:string; token:()=>Promise<string | null>; onSaved:(previousUpdatedAt:string, savedUpdatedAt:string)=>void }) {
   const [files,setFiles]=useState<StoredPdf[]>([]), [links,setLinks]=useState<SavedLink[]>([]);
   const [objectId,setObjectId]=useState(""), [review,setReview]=useState<Review|null>(null), [fields,setFields]=useState<PdfReview>(blank);
-  const [updatedAt,setUpdatedAt]=useState(""), [confirmed,setConfirmed]=useState(false), [busy,setBusy]=useState(true), [message,setMessage]=useState("");
+  const [updatedAt,setUpdatedAt]=useState(""), [busy,setBusy]=useState(true), [message,setMessage]=useState("");
   const [assetIdentity,setAssetIdentity]=useState<Review["asset_identity"]|null>(null);
   const [upload,setUpload]=useState<File|null>(null);
   const [uploading,setUploading]=useState(false);
@@ -48,13 +48,13 @@ export default function StoredPdfImporter({ assetId, assetName, token, onSaved }
   async function run(action:"load"|"review"|"upload"|"save"|"unlink", id=objectId) {
     if(running.current)return;running.current=true;setBusy(true);setMessage("");
     try {
-      if(action==="load"){await load();setReview(null);setConfirmed(false);setMessage("Choose a stored PDF or upload another original.");return;}
+      if(action==="load"){await load();setReview(null);setMessage("Choose a stored PDF or upload another original.");return;}
       const form=new FormData();form.set("asset_id",assetId);form.set("import_action",action);form.set("object_id",id);
-      form.set("expected_updated_at",updatedAt);form.set("reason",fields.reason);
+      form.set("expected_updated_at",updatedAt);form.set("reason",fields.reason.trim() || "Removed manual association");
       if(action==="upload"&&!upload)throw new Error("Choose a PDF.");
       if(action==="save") {
         if(!review||review.file.object_id!==id)throw new Error("Review the selected PDF first.");
-        form.set("sha256",review.sha256);form.set("fields",JSON.stringify(fields));form.set("review_confirmed",String(confirmed));
+        form.set("sha256",review.sha256);form.set("fields",JSON.stringify({...fields,reason:fields.reason.trim() || (review.saved_fields ? "Updated manual association" : "Attached manual to equipment")}));form.set("review_confirmed","true");
       }
       let result;
       if(action==="upload"&&upload) {
@@ -63,70 +63,61 @@ export default function StoredPdfImporter({ assetId, assetName, token, onSaved }
       } else result=await request(form);
       if(action==="review"||action==="upload") {
         const next=result as Review;
-        setObjectId(next.file.object_id);setReview(next);setAssetIdentity(next.asset_identity);setUpdatedAt(next.updated_at);setConfirmed(false);
+        setObjectId(next.file.object_id);setReview(next);setAssetIdentity(next.asset_identity);setUpdatedAt(next.updated_at);
         // Re-reading the same document never replaces in-progress edits. Saved overrides
         // take priority when opening a different document; extracted candidates stay suggestions.
         const suggested=pdfReviewSuggestions(next.file.title,next.suggestions);
         const reviewedFields = preservePdfReview(review?.file.object_id||null,next.file.object_id,fields,next.saved_fields ? {...blank,...next.saved_fields} : null,suggested);
         setFields({ ...reviewedFields, applicability_review: reviewedFields.applicability === "confirmed_model" ? { ...next.asset_identity, confirmed: true } : null, quarantine_acknowledged: false });
-        setMessage(next.readable_text?"Review the original and edit its fields. Model selection is yours.":"The PDF opens, but has no readable text. Enter and confirm applicability manually from the original.");
+        setMessage(next.readable_text?"Review the PDF and choose whether it should be used for troubleshooting.":"This PDF has no readable text. You can still attach and open the original.");
         if(action==="upload"){setUpload(null);if(fileInput.current)fileInput.current.value="";await load();}
       } else {
-        await load();onSaved();setConfirmed(false);
+        if (typeof result.updated_at === "string" && result.updated_at) onSaved(updatedAt, result.updated_at);
+        await load();
         if(action==="unlink"){setReview(null);setObjectId("");setFields(blank);}
-        setMessage(action==="unlink"?"Association removed. Original PDF and history preserved.":"Saved association and original file identity verified. Model applicability is recorded as your choice.");
+        setMessage(action==="unlink"?"Manual removed from this asset. The original PDF is preserved.":fields.applicability==="confirmed_model"?"Manual attached for this asset’s troubleshooting.":"Manual attached as a reference.");
       }
     } catch(error){setMessage(uploadController.current?.signal.aborted?"Upload cancelled. No association was saved. Retry the same file to reuse any original already received.":error instanceof Error?error.message:"PDF import failed.");}finally{uploadController.current=null;running.current=false;setUploading(false);setBusy(false);}
   }
   const applicable = assetIdentity ? eligibleManualLinks({ ...assetIdentity, id: assetId }, links) : { eligible: [], unresolved: [] };
   const applicableIds = new Set(applicable.eligible.map(link => link.object_id));
-  return <section className="mt-3 space-y-3 bg-slate-950 p-3">
-    <h3 className="font-bold">PDFs for {assetName}</h3>
-    <p className="text-sm text-slate-300">Choose a PDF, review its applicability, then attach it. Work orders use manuals confirmed for this equipment.</p>
-    <p role="status" className="text-sm text-amber-100">{applicable.eligible.filter(link => (link.catalog_status !== "content_mismatch" || link.quarantine_acknowledged)).length} linked manual(s) have confirmed choices for this physical equipment. Other links remain references until reviewed; catalog completion alone does not make a guide ready.</p>
-    {assetIdentity && <p className="text-sm">Equipment: {assetName} · {assetIdentity.manufacturer || "Manufacturer missing"} · {assetIdentity.model_number || assetIdentity.model_family || "Model missing"} · Serial: {assetIdentity.serial_number || "Not recorded"}</p>}
-    <button type="button" disabled={busy} onClick={()=>void run("load")} className="rounded px-2 py-1 text-sm underline">Load stored PDFs and saved links</button>
-    <label className="grid gap-1 text-sm">Existing PDF<select className={inputClass} value={objectId} disabled={busy} onChange={e=>{setObjectId(e.target.value);setReview(null);setConfirmed(false);}}><option value="">Choose a PDF</option>{files.map(f=><option key={f.object_id} value={f.object_id}>{f.title} — {links.some(link => link.object_id === f.object_id) ? "Linked" : "Stored, not linked"} — {storedPdfStatusLabel(f)}</option>)}</select></label>
-    <button type="button" disabled={busy||!objectId} onClick={()=>void run("review")} className="rounded border px-3 py-2">Open / re-read selected PDF</button>
-    <label className="grid gap-1 text-sm">Add another PDF (up to 100 MB)<input ref={fileInput} className={inputClass} disabled={busy} type="file" accept="application/pdf,.pdf" onChange={e=>setUpload(e.target.files?.[0]||null)}/></label>
-    <button type="button" disabled={busy||!upload} onClick={()=>void run("upload")} className="rounded border px-3 py-2">Upload original for review</button>
-    {uploading&&<button type="button" onClick={()=>uploadController.current?.abort()} className="ml-2 rounded border px-3 py-2">Cancel upload</button>}
-    {review&&<fieldset disabled={busy} className="min-w-0 space-y-3">
-      <p className="text-sm">{storedPdfStatusLabel(review.file)}. {links.some(link => link.object_id === review.file.object_id) ? "Linked to this equipment." : "Not linked to this equipment."}</p>
-      {review.file.catalog_warnings?.map((warning, index) => <p key={index} role="alert" className="text-sm text-amber-100">{warning}</p>)}
-      {review.file.catalog_status === "content_mismatch" && <p role="alert" className="text-sm text-amber-100">The catalog flagged this document. Read the reason above. You may deliberately choose it for this equipment by acknowledging the warning below; the catalog record itself will not be changed.</p>}
-      {review.file.catalog_status === "content_mismatch" && <label className="flex gap-2 text-sm"><input type="checkbox" checked={fields.quarantine_acknowledged===true} onChange={e=>{setFields({...fields,quarantine_acknowledged:e.target.checked});setConfirmed(false);}}/>I read the catalog mismatch warning and deliberately choose this original for this asset.</label>}
-      <a className="text-cyan-300 underline" href={review.url} target="_blank" rel="noreferrer">Open the selected original PDF</a>
-      {review.suggestions?.manufacturer_source==="asset"&&<p className="text-xs text-amber-100">Manufacturer defaults to the existing equipment record, not extracted PDF text. Confirm it against the original. Model choices do not establish exact variant compatibility.</p>}
-      {review.suggestions&&<p className="text-xs text-slate-400">Suggested values are unverified. Check them against the original PDF.</p>}
-      <label className="grid gap-1 text-sm">Document title<input className={inputClass} value={fields.title} onChange={e=>{setFields({...fields,title:e.target.value});setConfirmed(false);}}/></label>
-      <label className="grid gap-1 text-sm">Manufacturer<input className={inputClass} value={fields.manufacturer} onChange={e=>{setFields({...fields,manufacturer:e.target.value});setConfirmed(false);}}/></label>
-      <details><summary className="cursor-pointer text-sm font-semibold">Additional document details</summary>
-      {([['asset_type','Equipment type'],['model_family','Model family'],['serial_number','Serial number'],['generation','Generation'],['install_year','Install year']] as const).map(([key,label])=><label key={key} className="grid gap-1 text-sm">{label}<input className={inputClass} value={fields.extracted_fields?.[key]||""} onChange={e=>{setFields({...fields,extracted_fields:{...fields.extracted_fields,[key]:e.target.value}});setConfirmed(false);}}/></label>)}
+  return <section className="mt-2 space-y-2 bg-slate-950 p-2">
+    <h3 className="font-bold">Manuals for {assetName}</h3>
+    <p className="text-sm text-slate-300">Choose an existing PDF or upload one. Then choose whether work orders should use it for troubleshooting.</p>
+    <label className="grid gap-1 text-sm">Choose an existing PDF
+      <select className={inputClass} value={objectId} disabled={busy} onChange={e=>{const id=e.target.value;setObjectId(id);setReview(null);if(id)void run("review",id);}}>
+        <option value="">Select a PDF</option>{files.map(f=><option key={f.object_id} value={f.object_id}>{f.title}{links.some(link=>link.object_id===f.object_id)?" · Attached":""}</option>)}
+      </select>
+    </label>
+    <label className="grid gap-1 text-sm">Upload a PDF (up to 100 MB)<input ref={fileInput} className={inputClass} disabled={busy} type="file" accept="application/pdf,.pdf" onChange={e=>setUpload(e.target.files?.[0]||null)}/></label>
+    {upload&&<button type="button" disabled={busy} onClick={()=>void run("upload")} className="rounded bg-cyan-700 px-3 py-2">Upload and review</button>}
+    {uploading&&<button type="button" onClick={()=>uploadController.current?.abort()} className="ml-2 rounded px-2 py-1">Cancel upload</button>}
+    {review&&<fieldset disabled={busy} className="min-w-0 space-y-2">
+      <a className="text-cyan-300 underline" href={review.url} target="_blank" rel="noreferrer">Open {review.file.title}</a>
+      {review.file.catalog_warnings?.map((warning,index)=><p key={index} role="alert" className="text-sm text-amber-100">{warning}</p>)}
+      {review.file.catalog_status==="content_mismatch"&&<label className="flex gap-2 text-sm"><input type="checkbox" checked={fields.quarantine_acknowledged===true} onChange={e=>setFields({...fields,quarantine_acknowledged:e.target.checked})}/>I reviewed the warning and choose this PDF for this asset.</label>}
+      <label className="grid gap-1 text-sm">Document title<input className={inputClass} value={fields.title} onChange={e=>setFields({...fields,title:e.target.value})}/></label>
+      <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={fields.applicability==="confirmed_model"} onChange={e=>setFields({...fields,applicability:e.target.checked?"confirmed_model":"reference",applicability_review:e.target.checked&&assetIdentity?{...assetIdentity,confirmed:true}:null})}/>Use this manual for this asset’s work-order troubleshooting</label>
+      <details><summary className="cursor-pointer text-sm font-semibold">Optional model and serial details</summary>
+        <label className="grid gap-1 text-sm">Manufacturer<input className={inputClass} value={fields.manufacturer} onChange={e=>setFields({...fields,manufacturer:e.target.value})}/></label>
+        <label className="grid gap-1 text-sm">Models covered (one per line)<textarea className={inputClass} value={fields.models.join("\n")} onChange={e=>setFields({...fields,models:e.target.value.split("\n")})}/></label>
+        <label className="grid gap-1 text-sm">Model for this asset<select className={inputClass} value={fields.selected_model} onChange={e=>setFields({...fields,selected_model:e.target.value})}><option value="">Not specified</option>{fields.models.filter(Boolean).map((m,i)=><option key={`${m}-${i}`} value={m}>{m}</option>)}</select></label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" checked={Boolean(fields.serial_range)} onChange={e=>setFields({...fields,serial_range:e.target.checked?{kind:"numeric",from:"",to:""}:null})}/>This manual has a numeric serial-number range</label>
+        {fields.serial_range&&<div className="grid gap-2 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm">First serial number<input className={inputClass} inputMode="numeric" value={fields.serial_range.from} onChange={e=>setFields({...fields,serial_range:{kind:"numeric",from:e.target.value,to:fields.serial_range?.to||""}})}/></label>
+          <label className="grid gap-1 text-sm">Last serial number<input className={inputClass} inputMode="numeric" value={fields.serial_range.to} onChange={e=>setFields({...fields,serial_range:{kind:"numeric",from:fields.serial_range?.from||"",to:e.target.value}})}/></label>
+          <p className="text-xs text-amber-100 sm:col-span-2">Asset serial: {assetIdentity?.serial_number||"Not recorded"}. Range check: {serialRangeStatus(assetIdentity?.serial_number,fields.serial_range)}. A missing, nonnumeric, or out-of-range serial prevents this restricted manual from being used for troubleshooting.</p>
+        </div>}
+        <label className="grid gap-1 text-sm">Edition or serial notes<textarea className={inputClass} value={fields.notes} onChange={e=>setFields({...fields,notes:e.target.value})}/></label>
+        {([['asset_type','Equipment type'],['model_family','Model family'],['serial_number','Serial number'],['generation','Generation'],['install_year','Install year']] as const).map(([key,label])=><label key={key} className="grid gap-1 text-sm">{label}<input className={inputClass} value={fields.extracted_fields?.[key]||""} onChange={e=>setFields({...fields,extracted_fields:{...fields.extracted_fields,[key]:e.target.value}})}/></label>)}
       </details>
-      <label className="grid gap-1 text-sm">Models covered by this guide (one per line)<textarea className={inputClass} value={fields.models.join("\n")} onChange={e=>{setFields({...fields,models:e.target.value.split("\n")});setConfirmed(false);}}/></label>
-      <label className="grid gap-1 text-sm">Model selected for this asset<select className={inputClass} value={fields.selected_model} onChange={e=>{setFields({...fields,selected_model:e.target.value});setConfirmed(false);}}><option value="">No exact model selected</option>{fields.models.filter(Boolean).map((m,i)=><option key={`${m}-${i}`} value={m}>{m}</option>)}</select></label>
-      <label className="grid gap-1 text-sm">Applicability<select className={inputClass} value={fields.applicability} onChange={e=>{setFields({...fields,applicability:e.target.value as PdfReview["applicability"],applicability_review:e.target.value==="confirmed_model"&&assetIdentity?{...assetIdentity,confirmed:true}:null});setConfirmed(false);}}><option value="reference">General reference — exact compatibility unconfirmed</option><option value="confirmed_model">Use this manual for troubleshooting this physical asset</option></select></label>
-      <label className="flex gap-2 text-sm"><input type="checkbox" checked={Boolean(fields.serial_range)} onChange={e=>{setFields({...fields,serial_range:e.target.checked?{kind:"numeric",from:"",to:""}:null});setConfirmed(false);}}/>This manual has a manufacturer-confirmed numeric serial range</label>
-      {fields.serial_range && <div className="grid gap-2 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm">First serial number<input className={inputClass} inputMode="numeric" value={fields.serial_range.from} onChange={e=>{setFields({...fields,serial_range:{kind:"numeric",from:e.target.value,to:fields.serial_range?.to || ""}});setConfirmed(false);}}/></label>
-        <label className="grid gap-1 text-sm">Last serial number<input className={inputClass} inputMode="numeric" value={fields.serial_range.to} onChange={e=>{setFields({...fields,serial_range:{kind:"numeric",from:fields.serial_range?.from || "",to:e.target.value}});setConfirmed(false);}}/></label>
-        <p className="text-xs text-amber-100 sm:col-span-2">Only use this for a published digits-only serial range. For letters or other formats, record the restriction in notes and manually confirm the correct edition. Current asset: {assetIdentity?.serial_number || "serial not recorded"}. Range check: {serialRangeStatus(assetIdentity?.serial_number,fields.serial_range)}.</p>
-      </div>}
-      <p className="text-sm text-amber-100">The app does not infer a serial range; confirm it against the manufacturer documentation. A missing, unsupported, or out-of-range serial prevents this range-restricted manual from being used for troubleshooting.</p>
-      <label className="grid gap-1 text-sm">Notes / edition or serial restrictions (optional)<textarea className={inputClass} value={fields.notes} onChange={e=>{setFields({...fields,notes:e.target.value});setConfirmed(false);}}/></label>
-
-      <label className="grid gap-1 text-sm">Reason for this link or correction<input className={inputClass} value={fields.reason} onChange={e=>setFields({...fields,reason:e.target.value})}/></label>
-      <label className="flex gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I chose this original for this physical asset and confirm whether it should be used for troubleshooting.</label>
-      <button type="button" disabled={!confirmed||fields.reason.trim().length<5||(review.file.catalog_status==="content_mismatch"&&!fields.quarantine_acknowledged)||(fields.applicability==="confirmed_model"&&!fields.applicability_review?.confirmed)} onClick={()=>void run("save")} className="rounded bg-cyan-700 px-3 py-2">Save and verify association</button>
-      {links.some(l=>l.object_id===objectId)&&<button type="button" disabled={fields.reason.trim().length<5} onClick={()=>void run("unlink")} className="ml-2 rounded border px-3 py-2">Remove this asset’s link</button>}
+      <button type="button" disabled={!fields.title.trim()||(review.file.catalog_status==="content_mismatch"&&!fields.quarantine_acknowledged)||(fields.applicability==="confirmed_model"&&!fields.applicability_review?.confirmed)} onClick={()=>void run("save")} className="rounded bg-cyan-700 px-3 py-2">{review.saved_fields?"Save manual changes":"Attach manual"}</button>
     </fieldset>}
-    <p className="text-xs text-slate-400">Saved links: {links.length}. A completed catalog entry is not proof that its PDF is linked or ready for troubleshooting. Reviewing another manual keeps the other PDFs; removal affects the association only.</p>
-    {links.length>0&&<label className="grid gap-1 text-sm">Reason for removing a saved link (original stays stored)<input className={inputClass} disabled={busy} value={fields.reason} onChange={e=>setFields({...fields,reason:e.target.value})}/></label>}
-    {links.map(l=><div key={l.object_id || l.document_id} className="flex flex-wrap items-center gap-3"><button type="button" disabled={busy || !l.object_id} className="text-left text-sm text-cyan-200 underline" onClick={()=>void run("review",l.object_id)}>{applicableIds.has(l.object_id) && (l.catalog_status !== "content_mismatch" || l.quarantine_acknowledged) ? "Applicability reviewed: " : "Reference / unresolved: "}{l.title} — {l.selected_model||"general reference"} — {storedPdfStatusLabel(l)}</button>
-      <button type="button" disabled={busy || !l.object_id} onClick={() => void run("review", l.object_id)} className="rounded border px-2 py-1 text-xs">Review manual choice</button>
-      {l.catalog_warnings?.map((warning, index) => <p key={index} role="alert" className="w-full text-sm text-amber-100">{warning}</p>)}
-      <button type="button" disabled={busy||!l.object_id||fields.reason.trim().length<5} onClick={()=>void run("unlink",l.object_id)} className="rounded border px-2 py-1 text-xs">Remove link</button></div>)}
+    {links.length>0&&<div className="space-y-1"><h4 className="font-semibold">Attached manuals</h4>{links.map(l=><div key={l.object_id||l.document_id} className="flex flex-wrap items-center gap-2 text-sm">
+      <button type="button" disabled={busy||!l.object_id} className="text-left text-cyan-200 underline" onClick={()=>void run("review",l.object_id)}>{l.title}</button>
+      <span>{applicableIds.has(l.object_id)&&(l.catalog_status!=="content_mismatch"||l.quarantine_acknowledged)?"Used for troubleshooting":"Reference only"}</span>
+      <button type="button" disabled={busy||!l.object_id} onClick={()=>{if(window.confirm(`Remove ${l.title} from this asset? The original PDF will be kept.`))void run("unlink",l.object_id);}} className="text-sm underline">Remove</button>
+    </div>)}</div>}
     {message&&<p role="status" className="text-sm text-amber-100">{message}</p>}
   </section>;
 }

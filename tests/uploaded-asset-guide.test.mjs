@@ -593,9 +593,13 @@ test('a reviewed numeric serial range gates the actual troubleshooting source', 
   h.state.asset.serial_number = '150';
   assert.equal((await h.load()).documentation_status, 'verified');
   h.state.asset.serial_number = '200';
-  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  const outside = await h.load();
+  assert.equal(outside.documentation_status, 'manual_applicability_unresolved');
+  assert.match(outside.documentation_reason, /outside this manual's reviewed range/i);
   h.state.asset.serial_number = '';
-  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  const missing = await h.load();
+  assert.equal(missing.documentation_status, 'manual_applicability_unresolved');
+  assert.match(missing.documentation_reason, /requires a numeric asset serial number/i);
   h.state.asset.serial_number = 'A150';
   assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
 });
