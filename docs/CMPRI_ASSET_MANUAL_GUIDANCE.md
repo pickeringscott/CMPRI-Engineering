@@ -24,6 +24,8 @@ Source controls are scoped to the selected document and account. A document swit
 
 Pages explicitly labelled as troubleshooting/diagnostic/fault/flow charts show the original page image first. Their extracted text is collapsed separately because it cannot retain the chart's branch connections. The complete original remains available through the PDF link, including when the image preview is unavailable.
 
+The displayed page uses native neutral surface/ink colors when safe. Full vector pages are identified from the PDF operators so antialiased text does not incorrectly disable native coloring. Colored source content and photographs retain their protection; the original PDF is never recolored or rewritten. Text spacing is compact throughout the troubleshooting guide only.
+
 Acceptance uses authorized Supabase snapshots and unchanged original PDFs. Run `CMPRI_MANUAL_SNAPSHOT_DIR=/private/snapshot npm run test:manual-collection`; the command refuses to substitute fictional records when the private inputs are unavailable. Never commit private records, signed URLs, or manual originals. Existing synthetic unit/browser fixtures remain regression checks and are not evidence that a live manual works.
 
 `CMPRI_MANUAL_SNAPSHOT_DIR=/private/snapshot npm run test:manual-source-controls` exercises document/account changes, renewal, retries, popup blocking and pending-window cancellation using the actual manual/account snapshots and recorded source URLs. It does not send requests or establish live authentication.

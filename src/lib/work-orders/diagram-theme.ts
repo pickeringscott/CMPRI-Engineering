@@ -2,12 +2,12 @@ export type DiagramPixels = { width: number; height: number; data: Uint8ClampedA
 export type DiagramPalette = { surface: readonly [number, number, number]; ink: readonly [number, number, number] };
 
 /** Display adaptation only. The authenticated source PNG and its identity remain unchanged. */
-export function themeSourceDiagram(image: DiagramPixels, palette: DiagramPalette, sourceText = "") {
+export function themeSourceDiagram(image: DiagramPixels, palette: DiagramPalette, sourceText = "", vectorPage = false) {
   const unchanged = (reason: string) => ({ data: image.data, adapted: false, reason });
   const { width, height, data } = image;
   const count = width * height;
   if (!Number.isInteger(width) || !Number.isInteger(height) || !Number.isSafeInteger(count) || width < 16 || height < 16 || count > 4_000_000 || data.length !== count * 4) return unchanged("bounds");
-  if (/\b(?:photo(?:graph|graphic)?s?|camera|screenshot|thermal image|scan(?:ned)?)\b/i.test(sourceText)) return unchanged("photographic-source");
+  if (!vectorPage && /\b(?:photo(?:graph|graphic)?s?|camera|screenshot|thermal image|scan(?:ned)?)\b/i.test(sourceText)) return unchanged("photographic-source");
   let paper = 0, ink = 0, middle = 0, border = 0, borderPaper = 0, pairs = 0, texture = 0, dark = 0, isolated = 0, darkTransitions = 0;
   const colors = new Map<number, number>();
   const nonPaperColors = new Map<number, number>();
@@ -43,11 +43,11 @@ export function themeSourceDiagram(image: DiagramPixels, palette: DiagramPalette
   }
   // Flat, sparse, white-paper artwork only. Continuous-tone and ambiguous images stay original.
   if (paper / count < .45 || paper / count > .975 || borderPaper / border < .90) return unchanged("paper-layout");
-  if (middle / Math.max(1, ink) > .16 || texture / Math.max(1, pairs) > .12) return unchanged("continuous-tone");
+  if (!vectorPage && (middle / Math.max(1, ink) > .16 || texture / Math.max(1, pairs) > .12)) return unchanged("continuous-tone");
   // Halftone/dithered photographs have hard binary edges, rather than continuous-tone gradients.
-  if (isolated / Math.max(1, dark) > .04 || darkTransitions / Math.max(1, dark) > .20) return unchanged("halftone-texture");
+  if (!vectorPage && (isolated / Math.max(1, dark) > .04 || darkTransitions / Math.max(1, dark) > .20)) return unchanged("halftone-texture");
   const flatInk = [...nonPaperColors.values()].sort((a, b) => b - a).slice(0, 24).reduce((sum, value) => sum + value, 0) / Math.max(1, ink);
-  if (flatInk < .80) return unchanged("continuous-tone");
+  if (!vectorPage && flatInk < .80) return unchanged("continuous-tone");
   const paletteCoverage = [...colors.values()].sort((a, b) => b - a).slice(0, 24).reduce((sum, value) => sum + value, 0) / count;
   if (paletteCoverage < .99) return unchanged("complex-palette");
   const output = new Uint8ClampedArray(data);
@@ -57,14 +57,14 @@ export function themeSourceDiagram(image: DiagramPixels, palette: DiagramPalette
     // Pale neutral node fills can have a small scanner/rendering tint. Saturated source colors stay exact.
     if (maximum !== minimum && !(maximum - minimum <= 18 && minimum >= 160) && !(maximum - minimum <= 24 && maximum <= 128)) continue;
     const value = Math.round((data[at] + data[at + 1] + data[at + 2]) / 3);
-    const inkWeight = value >= 160 ? 0 : value <= 128 ? 1 : (160 - value) / 32;
+    const inkWeight = vectorPage ? 1-value/255 : value >= 160 ? 0 : value <= 128 ? 1 : (160 - value) / 32;
     for (let channel = 0; channel < 3; channel++) output[at + channel] = Math.round(palette.surface[channel] * (1 - inkWeight) + palette.ink[channel] * inkWeight);
   }
   return { data: output, adapted: true, reason: "flat-diagram" };
 }
 
 /** Resolve the host's actual computed palette and make a memory-only display PNG. */
-export async function themeSourceDiagramBlob(blob: Blob, host: HTMLElement | null, sourceText: string): Promise<{ blob: Blob; adapted: boolean }> {
+export async function themeSourceDiagramBlob(blob: Blob, host: HTMLElement | null, sourceText: string, vectorPage = false): Promise<{ blob: Blob; adapted: boolean }> {
   if (!host || typeof createImageBitmap !== "function") return { blob, adapted: false };
   let bitmap: ImageBitmap | undefined;
   try {
@@ -82,7 +82,7 @@ export async function themeSourceDiagramBlob(blob: Blob, host: HTMLElement | nul
     const palette = { surface: color(style.backgroundColor), ink: color(style.color) };
     context.clearRect(0, 0, canvas.width, canvas.height); context.drawImage(bitmap, 0, 0);
     const image = context.getImageData(0, 0, canvas.width, canvas.height);
-    const themed = themeSourceDiagram(image, palette, sourceText);
+    const themed = themeSourceDiagram(image, palette, sourceText,vectorPage);
     if (!themed.adapted) return { blob, adapted: false };
     image.data.set(themed.data); context.putImageData(image, 0, 0);
     const display = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));

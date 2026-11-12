@@ -17,7 +17,7 @@ import { inspectCachedManualPdf } from './manual-derivative-cache';
 import { eligibleManualLinks, type ApplicableManualLink } from '@/lib/manual-applicability';
 import { withStoredPdfStatus } from '@/lib/server/stored-pdf-status';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
-import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePage, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
+import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePageDisplay, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
 
 const bucket = 'asset-documentation';
 const verificationMarker = '_cmpri-verification.json';
@@ -52,9 +52,10 @@ function cachedDerivative<T>(key: string, calculate: () => Promise<T> | T): Prom
     if (derivatives.get(key) !== entry) return;
     try {
       // UTF-16 JSON size is a conservative estimate for the cached objects.
-      const serialized = value instanceof Uint8Array ? null : JSON.stringify(value);
+      const imageBytes=value instanceof Uint8Array?value:value&&typeof value==='object'&&'bytes'in value&&value.bytes instanceof Uint8Array?value.bytes:null;
+      const serialized = imageBytes ? null : JSON.stringify(value);
       if (serialized === undefined) throw new Error('Derivative size is unavailable');
-      entry.bytes = value instanceof Uint8Array ? value.byteLength : serialized!.length * 2;
+      entry.bytes = imageBytes ? imageBytes.byteLength+64 : serialized!.length * 2;
       entry.expires = Date.now() + derivativeTtl;
       trim();
     } catch {
@@ -77,7 +78,7 @@ type Asset = {
   documentation_verified_at: string | null;
   pdf_import_links?: unknown;
 };
-type GuideResult = { documentation_status: string; documentation_reason: string; manualKnowledge: ManualKnowledge | null; documentation_warnings: string[]; media_image?: Uint8Array };
+type GuideResult = { documentation_status: string; documentation_reason: string; manualKnowledge: ManualKnowledge | null; documentation_warnings: string[]; media_image?: Uint8Array; media_vector_only?:boolean };
 const unavailable = (documentation_status: string, documentation_reason: string, documentation_warnings: string[] = []): GuideResult => ({ documentation_status, documentation_reason, manualKnowledge: null, documentation_warnings });
 
 function registeredIdentity(files: RegisteredAssetFile[]) {
@@ -198,10 +199,10 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   const readDocument = async (selected: typeof matching[number]): Promise<GuideResult> => {
     if (image && image.sha256 !== selected.sha256) return unavailable('uploaded_document_changed', 'The uploaded PDF changed. Reload the guide before opening its image.');
     if (image?.page !== undefined) {
-      let rendered: Uint8Array;
-      try { rendered = await cachedDerivative(`page:v1:${selected.sha256}:${image.page}`, () => renderUploadedGuidePage(selected.bytes, selected.sha256, image.page!)); }
+      let rendered: Awaited<ReturnType<typeof renderUploadedGuidePageDisplay>>;
+      try { rendered = await cachedDerivative(`page:v2:${selected.sha256}:${image.page}`, () => renderUploadedGuidePageDisplay(selected.bytes, selected.sha256, image.page!)); }
       catch { return unavailable('uploaded_image_unavailable', 'The source page could not be rendered safely. Open the approved source PDF instead.'); }
-      return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered };
+      return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered.bytes,media_vector_only:rendered.vectorOnly };
     }
     // Keep empty-page markers when extracting this source. A readable cover or
     // index must not prevent image-only procedure pages from reaching OCR.
@@ -368,7 +369,7 @@ export async function readUploadedAssetMaintenanceReference(request: NextRequest
   try {
     const result = await loadUploadedAssetGuide(auth.admin, assetResult.data as Asset, imageId ? { id: imageId, sha256: sourceSha256, fileId } : pageNumber ? { id: '', sha256: sourceSha256, page: pageNumber, fileId } : undefined);
     if (imageId || pageNumber) {
-      if (result.media_image) return new Response(result.media_image.slice().buffer as ArrayBuffer, { headers: { ...headers, 'Content-Type': 'image/png', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff' } });
+      if (result.media_image) return new Response(result.media_image.slice().buffer as ArrayBuffer, { headers: { ...headers, 'Content-Type': 'image/png', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff',...(result.media_vector_only!==undefined?{'X-CMPRI-Source-Artwork':result.media_vector_only?'vector':'raster'}:{}) } });
       return NextResponse.json({ error: result.documentation_reason, documentation_status: result.documentation_status }, { status: result.documentation_status === 'uploaded_document_changed' ? 409 : 404, headers });
     }
     return NextResponse.json({ ...result, preview_read_only:manualPreviewReadOnly(), assets: [assetResult.data], technicians: [], asset_id: assetId, documentation_key: assetResult.data.documentation_key || null, can_edit_equipment: allows(auth.principal, 'manage_assets') }, { headers });

@@ -7,6 +7,7 @@ import ts from 'typescript';
 import {loadTs} from './helpers/load-ts.mjs';
 import {JSDOM} from 'jsdom';
 import * as manualHtml from '../src/lib/manual-document-html.ts';
+import * as diagramTheme from '../src/lib/work-orders/diagram-theme.ts';
 
 const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'https://cmpri.test'});
 globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.HTMLElement=dom.window.HTMLElement;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
@@ -14,7 +15,7 @@ Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configu
 const React=await import('react');const {createRoot}=await import('react-dom/client');const require=createRequire(import.meta.url);
 const code=ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderSourcePages.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);
-      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
+      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/work-orders/diagram-theme')return diagramTheme;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
 
 test('source page selector preserves the original PDF and resets when the issue or document changes',async()=>{
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
@@ -84,7 +85,7 @@ function imageViewer() {
   require(name){
    if(name==='react'||name==='react/jsx-runtime')return require(name);
       if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});
-   if(name==='@/lib/manual-document-html')return manualHtml;
+   if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/work-orders/diagram-theme')return diagramTheme;
    if(name==='@/lib/supabase/client')return {
     getValidSession:async()=>state.session,
     createClient:()=>({auth:{onAuthStateChange(callback){subscriptions.add(callback);return {data:{subscription:{unsubscribe(){subscriptions.delete(callback);}}}};}}}),

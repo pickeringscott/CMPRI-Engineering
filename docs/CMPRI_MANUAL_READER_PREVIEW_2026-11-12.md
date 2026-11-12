@@ -25,7 +25,7 @@ Reference: [PR #20](https://github.com/pickeringscott/CMPRI-Engineering/pull/20)
 | Ordinary issue language | Preserved; qualified source conditions no longer gain an overly broad alias. |
 | Chief/technician review states | Domain transitions preserved; saves are deliberately disabled in this preview. |
 | Combined visit note and recovery | Existing visit lifecycle retained. Automatic summaries do not count as new technician findings. |
-| Figure controls, pinch/pan, color/photo preservation | Existing diagram viewer and theme code unchanged. |
+| Figure controls, pinch/pan, color/photo preservation | Existing viewer retained. The shared native-color renderer also handles full vector pages; source colors and photographs retain their protection. |
 | Flowchart steps | Intentional difference: partial branches are references to the original page rather than standalone actionable checks. |
 | Reader UI | Same work-order guide location and checklist structure, with added coverage, fault/subcode cards, printed labels, renewed source controls, and read-only notice. It is not pixel-identical to #20. |
 
@@ -53,7 +53,15 @@ The three browser work orders were reread from Supabase; their inspected fields 
 
 Browser checks at 390 and 1440 px passed for the actual GE, Friedrich, and shower work orders. These now include source iframe opens, renewal after close/reopen, recovery after a failed open, standalone PDF opening, and the Friedrich chart selection. The chart check waits for the actual original page image to render and verifies that its flattened transcription is collapsed. The browser served recorded originals through its local read-only transport, with no page errors, external network calls, or mutations. The standalone source-control check also covers account changes and delayed response races. These tests still do not establish live authentication or database persistence.
 
-These fixes do not change PR #20's review transitions, combined visit notes, diagram viewer/theme behavior, or the Front Desk Quick Guides.
+These fixes do not change PR #20's review transitions, combined visit notes, diagram viewer controls, or the Front Desk Quick Guides.
+
+## Native colors and guide spacing
+
+Full source-page images now use the guide's computed native surface and text colors. The PDF renderer identifies vector-only pages by checking for image, shading, and pattern operators. That proof allows the full-page renderer to retain antialiased text while replacing neutral paper/ink with the active palette. Existing conservative checks still apply when that proof is unavailable; saturated source colors and photographic content are protected. Theme changes regenerate the memory-only display image. Original PDFs and authenticated source bytes are unchanged.
+
+Spacing is tightened throughout the troubleshooting guide, including notices, coverage, source text, code cards, tables, and checklist rows. The CSS is scoped to the troubleshooting accordion; application-wide typography, other screens, and Front Desk Quick Guides have no spacing changes. Control dimensions are retained.
+
+Acceptance uses the actual Friedrich chart on PDF page 41 and verifies that its display corner matches the computed native surface rather than white. The existing color/photo regression checks, mobile/desktop real-work-order checks, and actual-manual collection replay cover this change.
 
 ## Remaining work before production approval
 
