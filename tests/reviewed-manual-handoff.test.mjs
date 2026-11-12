@@ -53,7 +53,7 @@ test('aborting while obtaining auth prevents the request', async () => {
  });
 
 test('one reviewed-document action saves consecutive internal batches without dropping source pages',async()=>{
- const {save,calls}=harness({saved:true,pages:[1]});
+ const calls=[];
  const pages=Array.from({length:23},(_,i)=>({page:i+1,text:input.pages[0].text}));
  let count=0;
  const context=vm.createContext({Error,selectedId:'asset-1',canManage:true,editing:true,token:async()=>'token',fetch:async(url,options)=>{

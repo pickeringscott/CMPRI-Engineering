@@ -11,7 +11,8 @@ export function loadTs(path, dependencies = {}, globals = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText, { exports, process, Buffer, console, ...globals, require(name) {
     if (name in dependencies) return dependencies[name];
-    if (name.startsWith('node:')) { const module = nativeRequire(name); return { ...module, default: module }; }
+    if (name.startsWith('node:')) { const nodeModule = nativeRequire(name); return { ...nodeModule, default: nodeModule }; }
+    if (name === '@/lib/server/manual-preview') return loadTs('src/lib/server/manual-preview.ts', dependencies, globals);
     if (name === '@/lib/server/work-order-parts-status') return partsStatusDependency;
     if (name.startsWith('.')) return loadTs(new URL(name + '.ts', url), dependencies, globals);
     throw new Error(`Unmocked import: ${name}`);
