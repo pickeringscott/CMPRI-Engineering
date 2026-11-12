@@ -132,6 +132,59 @@ An earlier run of the repository's existing guide-related checks returned 389 pa
 
 The existing browser integrity check stopped at an expectation of zero page-specific source links; the current source-page viewer renders one. These fixture checks need maintenance and do not serve as acceptance evidence for the actual manuals audited above. They were left unchanged.
 
+## Second pass findings
+
+A second pass on November 12 rechecked the same main commit, read the existing work orders with their technician notes and Actions Taken / Root Cause fields, and reran extraction on the unchanged Friedrich and imported Enseo PDFs. Source fingerprints were checked before parsing, and outbound fetch was disabled during local checks. These findings extend the first pass.
+
+The owner-authored Front Desk Quick Guides serve front desk associates and have a separate audience from maintenance troubleshooting. Their separation is intentional. The Enseo finding below concerns the reader's extraction of the PDF attached to an asset.
+
+### High priority chart prerequisites are missing from the generated checks
+
+The actual Friedrich cooling charts on PDF pages 41 and 42 include instructions to check the fuses or breakers and 208/230 supply, and to set the thermostat to Cool below room temperature. Fresh extraction produced 22 labels from each chart, including diagnostic branches, but none contained either the fuse prerequisite or the thermostat-setting instruction.
+
+The chart branch reader records directly connected Yes/No edges. Its companion prerequisite reader recognizes a narrow “Before continuing” pattern ending in a page reference. Other starting instructions and connections labelled “O.K.” do not become prerequisite checks. Retaining a branch's immediate question does not preserve the earlier steps that lead to it.
+
+Code: [pdf-flowchart-branches.ts lines 74 through 87](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/lib/server/pdf-flowchart-branches.ts#L74), [pdf-flowchart-notes.ts lines 8 through 30](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/lib/server/pdf-flowchart-notes.ts#L8).
+
+Suggested improvement: preserve chart entry instructions and dependencies with the branches that rely on them. Where connections cannot be resolved reliably, present the original chart as the procedure rather than a checklist that omits its starting conditions. Apply this in the common reader for future manuals.
+
+### Medium priority technician findings do not participate in guide selection
+
+The active maintenance guide builds its diagnostic text from issue and reporter_notes. The shared checklist derivation accepts those fields and the asset, but does not read notes or action_root_cause. The existing completion-filter helper is used by retained generic helpers that the active guide does not invoke.
+
+A fresh read found 19 source-eligible existing work orders with technician notes; one also had Actions Taken / Root Cause text. Passing the complete actual records to checklist derivation produced the same steps and context identities as passing only issue and reporter notes. An active record already documents a breaker reset and a replacement thermostat, but those observations are outside the guide's input.
+
+This establishes that the context is ignored. It does not establish that every generated step repeats completed work.
+
+Code: [work-order page lines 1347 through 1358](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/app/work-orders/%5Bid%5D/page.tsx#L1347), [troubleshooting-checklist.ts lines 53 through 63](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/lib/work-orders/troubleshooting-checklist.ts#L53).
+
+Suggested improvement: include explicit technician observations and Actions Taken / Root Cause in relevance and completion handling. Preserve uncertainty in imported history, distinguish completed work from planned work, and retain manual-required rechecks. The system should not invent a completion or diagnosis from an ambiguous note.
+
+### Medium priority references to another procedure remain incomplete
+
+The original imported Enseo PDF contains its four Quick Reset Steps, including a 30-second wait after unplugging and a full seven-minute reboot wait. Its Grey Screen scenario explicitly says to perform a Power Cycle.
+
+Fresh extraction produced four symptom rules with nine checklist labels. One label says “Perform a Power Cycle,” but none includes either wait. The named reset procedure is outside the symptom/scenario structures that become checks, and the reader does not resolve that dependency.
+
+The complete source page remains available, so the PDF itself has not lost content. The generated checklist can still omit essential details of an instruction it presents.
+
+Code: [uploaded-manual-actions.ts lines 152 onward](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/lib/uploaded-manual-actions.ts#L152), [uploaded-asset-guide.ts lines 219 through 231](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/lib/server/uploaded-asset-guide.ts#L219).
+
+Suggested improvement: retain explicit dependencies on named procedures. When the source target is unambiguous, show that procedure verbatim with its timing and page reference. Otherwise, clearly direct the reader to the complete source procedure. The original authored instructions already contain the needed details.
+
+### Additional source-navigation considerations
+
+- **Printed pages and PDF positions differ.** The Friedrich charts refer to printed page 16 for control diagnostics; that table is at physical PDF page 21. The PDF has no page-label metadata. CMPRI's source links use physical positions, while verbatim instructions retain printed numbers. Show both when known and preserve the distinction as new manuals arrive. No generated link to the wrong page was demonstrated.
+- **Open source links can outlive their authorization URL.** The reader signs PDF links for 3,600 seconds. Source links and checklist iframes use that saved URL, while guide reloads depend on reference and visibility events rather than an expiry timer. A continuously open view without a refresh event can retain an expired link. Refresh authorization on opening a source document. This is a code-inspection risk; the audit did not wait an hour or report a reproduced production expiry failure.
+
+Code: [uploaded-asset-guide.ts line 255](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/lib/server/uploaded-asset-guide.ts#L255), [WorkOrderSourcePages.tsx line 64](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/components/WorkOrderSourcePages.tsx#L64), [work-order page lines 1334 through 1345](https://github.com/pickeringscott/CMPRI-Engineering/blob/12c7a9e481dd83511a9b1becc0c02bdb92031d10/src/app/work-orders/%5Bid%5D/page.tsx#L1334).
+
+### Second pass verification boundaries
+
+The live schema has the OCR-job trigger that emits reference signals, so the refresh mechanism exists. The read-only check found no OCR jobs and no saved troubleshooting ledger contexts; this audit therefore does not claim a production completion/review or OCR-job lifecycle test.
+
+The new findings rely on actual stored documents, actual work-order fields, and inspected production code. No fictional asset, work-order, or completion records were introduced. Recommendations concern CMPRI's reader and workflow; original manuals and owner-authored front desk guides remain unchanged.
+
 ## Review boundaries
 
 Actual Supabase records and original manuals support the findings above. Local PDF.js parsing and Tesseract recognition made no AI API calls. No production guide request was used to enqueue OCR, and no Supabase write was performed.
