@@ -11,8 +11,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react'),{createRoot}=await import('react-dom/client'),require=createRequire(import.meta.url);
 function compile(path,deps={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require:name=>name in deps?deps[name]:require(name),console,...globals});return exports;}
-const validation=compile('../src/lib/stored-pdf-link.ts');
 const applicability=compile('../src/lib/manual-applicability.ts');
+const validation=compile('../src/lib/stored-pdf-link.ts',{'./manual-applicability':applicability});
 const asset_identity={asset_id:'one-asset',manufacturer:'UniMac',model_number:'UWN',model_family:'',serial_number:'1305000216'};
 const files=[{object_id:'parts',storage_path:'Asset Docs/parts.pdf',size:12,title:'Parts',catalog_status:'complete'},{object_id:'programming',storage_path:'Asset Docs/programming.pdf',size:12,title:'Programming',catalog_status:'complete'},{object_id:'bad',storage_path:'Asset Docs/bad.pdf',size:12,title:'Quarantined',catalog_status:'content_mismatch',catalog_warnings:['Source covers the wrong serial range.']}];
 async function harness(){
@@ -50,5 +50,18 @@ test('stored catalog warnings require explicit acknowledgement before a delibera
  const acknowledgement=[...h.parent.querySelectorAll('input[type=checkbox]')].find(input=>input.parentElement.textContent.includes('catalog mismatch warning'));
  assert.ok(acknowledgement);assert.equal(acknowledgement.checked,false);
  assert.equal(h.button('Save and verify association').disabled,true);
+ }finally{await h.dispose();}
+});
+test('reviewer can enter a numeric serial range and see the current asset match',async()=>{
+ const h=await harness();try{
+  await h.click(h.button('Review manual choice'));
+  const check=[...h.parent.querySelectorAll('input[type=checkbox]')].find(input=>input.parentElement.textContent.includes('manufacturer-confirmed numeric serial range'));
+  assert.ok(check);await h.click(check);
+  const labels=[...h.parent.querySelectorAll('label')];
+  const from=labels.find(label=>label.textContent.includes('First serial number')).querySelector('input');
+  const to=labels.find(label=>label.textContent.includes('Last serial number')).querySelector('input');
+  const nativeSetter=Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set;
+  await React.act(async()=>{nativeSetter.call(from,'1300000000');from.dispatchEvent(new dom.window.Event('input',{bubbles:true}));nativeSetter.call(to,'1400000000');to.dispatchEvent(new dom.window.Event('input',{bubbles:true}));});
+  assert.match(h.parent.textContent,/Range check: match/);
  }finally{await h.dispose();}
 });
