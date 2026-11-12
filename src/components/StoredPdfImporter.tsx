@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { eligibleManualLinks, type ManualApplicabilityReview } from "@/lib/manual-applicability";
 import { pdfImportResponse, uploadPdfDirect } from "@/lib/pdf-direct-upload";
 import type { PdfReview, StoredPdf } from "@/lib/stored-pdf-link";
@@ -13,12 +13,30 @@ const blank: PdfReview = { title:"", manufacturer:"", models:[], selected_model:
 export default function StoredPdfImporter({ assetId, assetName, token, onSaved }: { assetId:string; assetName:string; token:()=>Promise<string | null>; onSaved:()=>void }) {
   const [files,setFiles]=useState<StoredPdf[]>([]), [links,setLinks]=useState<SavedLink[]>([]);
   const [objectId,setObjectId]=useState(""), [review,setReview]=useState<Review|null>(null), [fields,setFields]=useState<PdfReview>(blank);
-  const [updatedAt,setUpdatedAt]=useState(""), [confirmed,setConfirmed]=useState(false), [busy,setBusy]=useState(false), [message,setMessage]=useState("");
+  const [updatedAt,setUpdatedAt]=useState(""), [confirmed,setConfirmed]=useState(false), [busy,setBusy]=useState(true), [message,setMessage]=useState("");
   const [assetIdentity,setAssetIdentity]=useState<Review["asset_identity"]|null>(null);
   const [upload,setUpload]=useState<File|null>(null);
   const [uploading,setUploading]=useState(false);
   const running = useRef(false), uploadController = useRef<AbortController | null>(null), fileInput = useRef<HTMLInputElement | null>(null);
   const inputClass="min-h-10 w-full rounded border border-slate-600 bg-slate-900 p-2 text-sm";
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const access = await token();
+        if (!access) throw new Error("Sign in again.");
+        const response = await fetch(`/api/assets/documentation?mode=stored&asset_id=${encodeURIComponent(assetId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store", signal: controller.signal });
+        const result = await pdfImportResponse(response);
+        if (controller.signal.aborted) return;
+        setFiles(result.files); setLinks(result.links); setUpdatedAt(result.updated_at); setAssetIdentity(result.asset_identity);
+      } catch (error) {
+        if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : "PDFs could not be loaded.");
+      } finally {
+        if (!controller.signal.aborted) setBusy(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [assetId, token]);
   async function request(form?:FormData, signal?:AbortSignal) {
     const access=await token(); if(!access) throw new Error("Sign in again.");
     const response=await fetch(form ? "/api/assets/documentation" : `/api/assets/documentation?mode=stored&asset_id=${encodeURIComponent(assetId)}`, {method:form?"POST":"GET",headers:{Authorization:`Bearer ${access}`},signal,...(form?{body:form}:{cache:"no-store" as const})});
