@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import ts from 'typescript';
 import vm from 'node:vm';
 import {PGlite} from '@electric-sql/pglite';
+import {scannedPdf} from './helpers/scanned-pdf.mjs';
 const require=createRequire(import.meta.url);
 let routeDeps={};
 function load(path,deps={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(name)=>name in deps?deps[name]:name in routeDeps?routeDeps[name]:require(name),console,TextDecoder,TextEncoder,Uint8Array,File,FormData});return exports;}
@@ -70,9 +71,9 @@ test('revision rejects browser RPC access, stale snapshots, ineligible/inactive 
  assert.equal((await db.query('select count(*)::int n from cmpri_equipment_document_revisions')).rows[0].n,1);
  }finally{await db.close();}
 });
-function routeFixture({files=[],body={},role='system_admin',verified=false,revision=false}={}){
- const row={id:asset,hotel_id:hotel,documentation_revision_id:revision?'fixture-revision':null,updated_at:'2026-10-13T00:00:00Z',documentation_verified_at:verified?'2026-10-12T00:00:00Z':null};const rpc=[];
- const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:row,error:null})};return q;},storage:{from(){return {list:async()=>({data:files.map((f,i)=>({name:`${i}.pdf`})),error:null}),download:async(path)=>({data:files[Number(path.split('/').pop().split('.')[0])],error:null})}}},rpc:async(name,args)=>{if(name==='cmpri_list_asset_files'){assert.equal(args.p_asset_id,asset);return {data:files.map((f,i)=>({name:`${i}.pdf`,storage_path:`${hotel}/${asset}/${i}.pdf`})),error:null};}rpc.push({name,args});return {data:'fixture-revision',error:null}}};
+function routeFixture({files=[],body={},role='system_admin',verified=false,revision=false,links=[]}={}){
+ const row={id:asset,hotel_id:hotel,documentation_revision_id:revision?'fixture-revision':null,updated_at:'2026-10-13T00:00:00Z',documentation_verified_at:verified?'2026-10-12T00:00:00Z':null,pdf_import_links:links};const rpc=[];
+ const admin={from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:row,error:null})};return q;},storage:{from(){return {list:async()=>({data:files.map((f,i)=>({name:`${i}.pdf`})),error:null}),download:async(path)=>({data:files[Number(path.split('/').pop().split('.')[0])],error:null})}}},rpc:async(name,args)=>{if(name==='cmpri_list_asset_files'){assert.equal(args.p_asset_id,asset);return {data:files.map((f,i)=>({id:`doc-${i}`,name:`${i}.pdf`,storage_path:`${hotel}/${asset}/${i}.pdf`})),error:null};}rpc.push({name,args});return {data:'fixture-revision',error:null}}};
  const auth={admin,principal:{profile:{role},identity:{id:actor}}};
  const mod=load('../src/app/api/assets/route.ts',{'next/server':{NextResponse:Response},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/asset-install-year':{},'@/lib/server/access':{},'@/lib/server/auth':{requireCapability:async()=>auth},'@/lib/server/roles':{canEditEquipment:r=>r==='system_admin'},'@/lib/equipment-selection':{},'@/lib/manual-pdf-knowledge':pdfModule});
  return {rpc,run:()=>mod.PATCH({json:async()=>({id:asset,verify_with_documentation:true,expected_updated_at:row.updated_at,...body})})};
@@ -83,6 +84,15 @@ test('verification rejects empty PDFs, non-PDFs, unsaved combined changes and st
 test('verification accepts a saved readable replacement while retaining an old empty artifact',async()=>{
  const f=routeFixture({files:[new Blob([]),new Blob([readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url))])]});
  assert.equal((await f.run()).status,200);assert.equal(f.rpc[0].name,'cmpri_verify_asset_documentation');
+});
+
+test('a scanned manual requires a verified, current match and unchanged original bytes',async()=>{
+ const bytes=scannedPdf();const file=new Blob([bytes]);const link={object_id:'doc-0',storage_path:`${hotel}/${asset}/0.pdf`,sha256:createHash('sha256').update(bytes).digest('hex'),file_verified:true,applicability:'confirmed_model',applicability_review:{asset_id:asset,manufacturer:'',model_number:'',model_family:'',serial_number:'',confirmed:true}};
+ const accepted=routeFixture({files:[file],links:[link]});assert.equal((await accepted.run()).status,200);assert.equal(accepted.rpc.length,1);
+ for(const links of [[],[{...link,file_verified:false}],[{...link,sha256:'a'.repeat(64)}],[{...link,applicability:'reference'}],[{...link,applicability_review:{...link.applicability_review,model_number:'different'}}]]){const denied=routeFixture({files:[file],links});assert.equal((await denied.run()).status,400);assert.equal(denied.rpc.length,0);}
+ const bad=new Uint8Array(Buffer.from('%PDF-not-a-document'));const corrupt=routeFixture({files:[new Blob([bad])],links:[{...link,sha256:createHash('sha256').update(bad).digest('hex')}]});assert.equal((await corrupt.run()).status,400);assert.equal(corrupt.rpc.length,0);
+ const blank=Buffer.from(bytes);const marker=Buffer.from('/Im0 Do');const offset=blank.indexOf(marker);assert.ok(offset>0);blank.fill(32,offset,offset+marker.length);
+ const emptyPage=routeFixture({files:[new Blob([blank])],links:[{...link,sha256:createHash('sha256').update(blank).digest('hex')}]});assert.equal((await emptyPage.run()).status,400);assert.equal(emptyPage.rpc.length,0);
 });
 
 test('normal upload stores the original PDF bytes after real extraction; Retry uses the saved object',async()=>{

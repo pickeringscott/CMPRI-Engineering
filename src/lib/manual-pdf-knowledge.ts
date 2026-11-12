@@ -35,6 +35,30 @@ export async function extractManualPdfText(bytes: Uint8Array, options: { include
   }
 }
 
+/** Validate a scanned original without treating OCR or page images as verified instructions. */
+export async function hasScannedManualContent(bytes: Uint8Array) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const paintOps = new Set([
+    pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject,
+    pdfjs.OPS.paintInlineImageXObjectGroup, pdfjs.OPS.paintImageXObjectRepeat,
+    pdfjs.OPS.paintImageMaskXObject, pdfjs.OPS.paintImageMaskXObjectGroup,
+    pdfjs.OPS.paintImageMaskXObjectRepeat, pdfjs.OPS.stroke, pdfjs.OPS.fill,
+    pdfjs.OPS.eoFill, pdfjs.OPS.fillStroke, pdfjs.OPS.eoFillStroke,
+    pdfjs.OPS.closeStroke, pdfjs.OPS.closeFillStroke, pdfjs.OPS.closeEOFillStroke,
+  ]);
+  try {
+    const pdf = await task.promise;
+    if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1 || pdf.numPages > 600) return false;
+    for (let number = 1; number <= pdf.numPages; number++) {
+      const page = await pdf.getPage(number);
+      try { if ((await page.getOperatorList()).fnArray.some(operator => paintOps.has(operator))) return true; }
+      finally { page.cleanup(); }
+    }
+    return false;
+  } finally { await task.destroy(); }
+}
+
 function identityPhraseMatches(text: string, identity: string | null | undefined) {
   return manualTextContainsExactIdentity(text, identity);
 }

@@ -8,7 +8,8 @@ import { parseAssetInstallYear } from "@/lib/asset-install-year";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
-import { extractManualPdfText } from "@/lib/manual-pdf-knowledge";
+import { extractManualPdfText, hasScannedManualContent, manualPdfSha256 } from "@/lib/manual-pdf-knowledge";
+import { eligibleManualLinks } from "@/lib/manual-applicability";
 import { EQUIPMENT_SELECTION_COLUMNS } from "@/lib/equipment-selection";
 
 const BUCKET = "asset-documentation";
@@ -241,7 +242,17 @@ export async function PATCH(request: NextRequest) {
       if (error || !file || !file.size || file.size > 100 * 1024 * 1024) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (new TextDecoder().decode(bytes.subarray(0,5)) !== "%PDF-") continue;
-      try { if ((await extractManualPdfText(bytes)).trim()) { readable = true; break; } } catch { /* Try another saved PDF. */ }
+      try {
+        if ((await extractManualPdfText(bytes)).trim()) { readable = true; break; }
+        // Image-only sources must have an explicitly reviewed match for this
+        // asset and the exact same original bytes. OCR remains a separate step.
+        const links = Array.isArray(existing.pdf_import_links) ? existing.pdf_import_links : [];
+        const applicability = eligibleManualLinks(existing, links);
+        const match = applicability.eligible.find(link => link.object_id === registered.id && link.storage_path === registered.storage_path
+          && link.sha256 === manualPdfSha256(bytes) && (link as {file_verified?: boolean}).file_verified === true
+          && !applicability.warnings.some(warning => warning.link === link));
+        if (match && await hasScannedManualContent(bytes)) { readable = true; break; }
+      } catch { /* Try another saved PDF. */ }
     }
     if (!readable) return NextResponse.json({ error: "Verification requires a saved, readable PDF. Empty or unreadable files remain preserved; upload a valid copy before verifying." }, { status: 400 });
     // Database verification is authoritative. Leave historical marker files intact.
