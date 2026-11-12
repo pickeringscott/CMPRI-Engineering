@@ -6,6 +6,7 @@ export type ManualEquipmentIdentity = {
   manufacturer: string | null;
   model_family: string | null;
   model_number: string | null;
+  serial_number?: string | null;
 };
 
 export async function extractManualPdfText(bytes: Uint8Array, options: { includeEmptyPages?: boolean } = {}) {

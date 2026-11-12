@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { serialRangeStatus } from '../src/lib/manual-applicability.ts';
 import { manualMatchesEquipment, manualTextContainsExactIdentity } from '../src/lib/manual-document-match.ts';
 
 const catalogSource=readFileSync(new URL('../src/lib/manual-document-catalog.ts',import.meta.url),'utf8');
@@ -143,6 +144,7 @@ test('shared catalog loader lists only active exact-family PDFs whose text confi
   const helperExports={};
   const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   vm.runInNewContext(compiled,{exports:helperExports,Uint8Array,Promise,require(name){
+    if(name==='@/lib/manual-applicability')return {serialRangeStatus};
     if(name==='@/lib/constants')return {HOTEL_ID:'hotel'};
     if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async(bytes)=>new TextDecoder().decode(bytes),manualPdfSha256:()=> 'sha256'};
     if(name==='@/lib/manual-document-catalog')return {catalogManualMatchesEquipment:catalogRuntime.matches,catalogManualModelFamily:catalogRuntime.modelFamily,catalogManualPdfMatchesEquipment:catalogRuntime.pdfMatches};
@@ -184,13 +186,13 @@ test('exact PDF matches use reviewed catalog knowledge without paid generation o
   assert.match(route,/loadVerifiedCatalogManuals\(dataClient, selectedAsset\)/);
 });
 
-test('equipment screen links every verified catalog PDF beside the asset name without a duplicate documentation section',()=>{
+test('equipment screen makes linked documentation accessible in its documentation section',()=>{
   const route=readFileSync(new URL('../src/app/api/assets/documentation/route.ts',import.meta.url),'utf8');
   const page=readFileSync(new URL('../src/app/management/equipment/page.tsx',import.meta.url),'utf8');
   assert.match(route,/loadVerifiedCatalogManuals\(auth\.admin, asset\)/);
   assert.match(route,/source:\s*"catalog"/);
   assert.match(page,/documents\.map\(\(doc\) => doc\.url && \(/);
-  assert.match(page,/Choose PDF/);
+  assert.match(page,/Add Documentation/);
   assert.doesNotMatch(page,/No exact-match manufacturer documentation/);
 });
 test('null code and rule entries do not crash the ticket',()=>{

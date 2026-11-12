@@ -12,7 +12,7 @@ function load(path,deps={},globals={}) {
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const client=load('../src/lib/pdf-direct-upload.ts');
 const server=load('../src/lib/server/pdf-direct-upload.ts',{'@/lib/pdf-direct-upload':client});
-const validation=load('../src/lib/stored-pdf-link.ts');
+const validation=load('../src/lib/stored-pdf-link.ts',{'./manual-applicability':load('../src/lib/manual-applicability.ts')});
 const small=fs.readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url));
 function fixture(options={}) {
  const stored=new Map(), calls=[], forms=[];let puts=0;

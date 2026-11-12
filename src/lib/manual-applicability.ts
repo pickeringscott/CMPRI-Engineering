@@ -14,6 +14,22 @@ export type ManualApplicabilityReview = {
   serial_number: string;
   confirmed: true;
 };
+export type NumericSerialRange = { kind: "numeric"; from: string; to: string };
+export function numericSerialRange(value: unknown): NumericSerialRange | null {
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid serial range.");
+  const range = value as Record<string, unknown>;
+  if (range.kind !== "numeric" || typeof range.from !== "string" || typeof range.to !== "string" || !/^\d{1,32}$/.test(range.from) || !/^\d{1,32}$/.test(range.to) || BigInt(range.from) > BigInt(range.to)) throw new Error("Enter an ascending numeric serial range with up to 32 digits per value.");
+  return { kind: "numeric", from: range.from, to: range.to };
+}
+export function serialRangeStatus(serial: unknown, rangeValue: unknown): "unrestricted" | "match" | "unknown" | "outside" {
+  if (rangeValue == null) return "unrestricted";
+  let range: NumericSerialRange | null;
+  try { range = numericSerialRange(rangeValue); } catch { return "unknown"; }
+  const number = text(serial);
+  if (!range || !/^\d{1,32}$/.test(number)) return "unknown";
+  return BigInt(number) >= BigInt(range.from) && BigInt(number) <= BigInt(range.to) ? "match" : "outside";
+}
 export type ApplicableManualLink = {
   object_id?: string;
   storage_path?: string;
@@ -24,6 +40,7 @@ export type ApplicableManualLink = {
   compatibility_basis?: string;
   saved_by?: string;
   applicability_review?: ManualApplicabilityReview | null;
+  serial_range?: NumericSerialRange | null;
 };
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const equal = (left: unknown, right: unknown) => text(left).toUpperCase() === text(right).toUpperCase();
@@ -49,6 +66,9 @@ export function eligibleManualLinks<T extends ApplicableManualLink>(asset: Manua
       // Preserve those choices; do not turn this release into mandatory re-review.
       const priorUserChoice = !link.applicability_review && link.compatibility_basis === 'user_confirmed' && Boolean(link.saved_by);
       if (!priorUserChoice) validateManualApplicability(asset, link.applicability_review);
+      const rangeStatus = serialRangeStatus(asset.serial_number, link.serial_range);
+      if (rangeStatus === "unknown") throw new Error("Serial range requires a numeric asset serial number and valid reviewed limits.");
+      if (rangeStatus === "outside") throw new Error("The asset serial number is outside this manual's reviewed range.");
       eligible.push(link);
       const identity = manualAssetIdentity(asset);
       if (link.applicability_review && !['manufacturer','model_number','model_family','serial_number'].every(key => equal((link.applicability_review as unknown as Record<string, unknown>)[key], identity[key as keyof typeof identity]))) {

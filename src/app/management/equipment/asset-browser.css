@@ -1,0 +1,42 @@
+/* The asset browser uses the modal's current theme tokens. */
+.asset-picker .asset-search,
+.asset-detail .asset-photo-placeholder,
+.asset-detail .asset-order {
+  background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 7%, var(--cmpri-modal-base, #181818));
+}
+.asset-picker .asset-group {
+  background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 10%, var(--cmpri-modal-base, #181818));
+}
+.asset-picker .asset-location {
+  background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 5%, var(--cmpri-modal-base, #181818));
+}
+.asset-picker .asset-result-selected {
+  border-left: 4px solid rgb(var(--cmpri-action-rgb, 207,144,254));
+  background: rgba(var(--cmpri-action-rgb, 207,144,254), .18);
+}
+.asset-picker .asset-result:hover {
+  background: rgba(var(--cmpri-action-rgb, 207,144,254), .12);
+}
+.asset-picker .asset-result-selected:hover {
+  background: rgba(var(--cmpri-action-rgb, 207,144,254), .22);
+}
+.asset-picker summary:focus-visible,
+.asset-picker button:focus-visible,
+.asset-detail button:focus-visible,
+.asset-detail label:focus-within {
+  outline: 2px solid rgb(var(--cmpri-action-rgb, 207,144,254));
+  outline-offset: 2px;
+}
+html[data-cmpri-modal-theme=true] .asset-picker .asset-search {
+  background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 7%, var(--cmpri-modal-base, #181818)) !important;
+}
+html[data-cmpri-embedded="true"] main.asset-workspace {
+  --cmpri-modal-type-scale: 1;
+}
+.asset-detail .asset-photo { width: 160px; height: 112px; }
+html[data-cmpri-embedded="true"] main.asset-workspace .asset-title {
+  font-size: calc(var(--cmpri-text-section, 1.125rem) * 1.35) !important;
+}
+@media (max-width: 480px) {
+  .asset-detail .asset-photo { width: 112px; height: 80px; }
+}

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 function load(path,deps={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>{assert.ok(name in deps,name);return deps[name];}});return exports;}
 const {withStoredPdfStatus}=load('../src/lib/server/stored-pdf-status.ts',{'@/lib/constants':{HOTEL_ID:'hotel'}});
-const {storedPdfStatusLabel}=load('../src/lib/stored-pdf-link.ts');
+const {storedPdfStatusLabel}=load('../src/lib/stored-pdf-link.ts',{'./manual-applicability':load('../src/lib/manual-applicability.ts')});
 const file=(path)=>({object_id:path,storage_path:path,size:20,title:path});
 function admin(rows,error=null){const calls=[];return {calls,from(table){assert.equal(table,'maintenance_documents');const q={select(){return q},eq(key,value){assert.equal(key,'hotel_id');assert.equal(value,'hotel');return q},in(key,paths){assert.equal(key,'storage_path');calls.push(paths);return Promise.resolve({data:rows.filter(row=>paths.includes(row.storage_path)),error});}};return q}};}
 test('catalog status distinguishes complete, pending, absent and quarantined without claiming readiness',async()=>{

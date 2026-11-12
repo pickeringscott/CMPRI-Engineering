@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {PGlite} from '@electric-sql/pglite';
 const load=(file,deps={})=>{const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>{if(name in deps)return deps[name];throw Error(name);},TextDecoder,Uint8Array,File,FormData,Response,crypto,console});return exports;};
-const validation=load('../src/lib/stored-pdf-link.ts');
+const validation=load('../src/lib/stored-pdf-link.ts',{'./manual-applicability':load('../src/lib/manual-applicability.ts')});
 const bytes=new TextEncoder().encode('%PDF-fixture');
 const file={object_id:'00000000-0000-4000-8000-000000000010',storage_path:'Asset Docs/fixture.pdf',object_version:'v1',etag:'etag1',size:bytes.length,title:'Original'};
 const edited={title:'My corrected title',manufacturer:'GE',models:['AZ95E09DACK1','AZ95E12DACK1'],selected_model:'AZ95E12DACK1',applicability:'confirmed_model',notes:'User-selected model',reason:'Confirm exact model',applicability_review:{asset_id:'asset',manufacturer:'',model_number:'',model_family:'',serial_number:'',confirmed:true}};

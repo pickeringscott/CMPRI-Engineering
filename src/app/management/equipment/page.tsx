@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./asset-browser.css";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
 import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { getValidSession } from "@/lib/supabase/client";
+import { parseTicketHistory } from "@/lib/ticket-note-presentation";
+import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
-import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import { maximumAssetInstallYear, parseAssetInstallYear } from "@/lib/asset-install-year";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { equipmentOptionLabel } from "@/lib/equipment-selection";
@@ -68,6 +70,7 @@ export default function ManageEquipmentPage() {
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [assetLoadError, setAssetLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [showDocumentationDialog, setShowDocumentationDialog] = useState(false);
@@ -81,6 +84,25 @@ export default function ManageEquipmentPage() {
   const [adding, setAdding] = useState(false);
   const [newAsset, setNewAsset] = useState<Asset>({ ...blankAsset });
   const [locations, setLocations] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
+  const [photo, setPhoto] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState("");
+  const [photoVersion, setPhotoVersion] = useState(0);
+  const [assetOrders, setAssetOrders] = useState<Array<{id:string; display_id:string; issue:string; status:string; room:string; notes:string | null; revision:number}>>([]);
+  const [ordersError, setOrdersError] = useState("");
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [destinationId, setDestinationId] = useState("");
+  const [moveOrderId, setMoveOrderId] = useState("");
+  const [moveError, setMoveError] = useState("");
+  const [orderVersion, setOrderVersion] = useState(0);
+  const [assetPanel, setAssetPanel] = useState<"details" | "orders" | "documents">("orders");
+  const [assetSearch, setAssetSearch] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [browseLocations, setBrowseLocations] = useState<Array<{id:string; name:string; area?:string | null}>>([]);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [createMessage, setCreateMessage] = useState("");
   const [creating, setCreating] = useState(false);
@@ -175,14 +197,15 @@ export default function ManageEquipmentPage() {
     finally { setOpeningRevision(false); }
   }
 
-  async function token() {
+  const token = useCallback(async () => {
     const session = await getValidSession();
     return session?.access_token || "";
-  }
+  }, []);
 
   async function loadAssets(preferId?: string): Promise<boolean> {
     setLoading(true);
     setMessage("");
+    setAssetLoadError(false);
     try {
       const access = await token();
       if (!access) throw new Error("Sign in again to load equipment.");
@@ -205,6 +228,7 @@ export default function ManageEquipmentPage() {
       }
       return true;
     } catch (error) {
+      setAssetLoadError(true);
       setMessage(error instanceof Error ? error.message : "Could not load equipment.");
       return false;
     } finally {
@@ -245,11 +269,18 @@ export default function ManageEquipmentPage() {
       const allowed = await enforceSessionPreference();
       if (!allowed) { window.location.replace("/"); return; }
       await loadAssets();
+      try {
+        const access = await token();
+        const response = await fetch("/api/rooms?mode=create", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+        const payload = await response.json();
+        if (response.ok && Array.isArray(payload.locations)) setBrowseLocations(payload.locations);
+      } catch { /* Assets remain searchable if location lookup is unavailable. */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function selectAsset(item: Asset) {
+    if (item.id !== selectedId) { setOrdersLoading(Boolean(item.id)); setAssetOrders([]); setOrdersError(""); setPhoto(""); setPhotoMessage(""); setMoving(false); setMoveError(""); }
     setSelectedId(item.id);
     setDraft({ ...item });
     setEditing(false);
@@ -272,6 +303,71 @@ export default function ManageEquipmentPage() {
     return () => { current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
+
+  useEffect(() => {
+    let current = true;
+    if (!selectedId) return () => { current = false; };
+    void (async () => {
+      try {
+        const access = await token();
+        const response = await fetch(`/api/work-orders?mode=asset&asset_id=${encodeURIComponent(selectedId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || !Array.isArray(payload.work_orders)) throw new Error(payload.error || "Unable to load work orders.");
+        if (current) setAssetOrders(payload.work_orders);
+      } catch (error) { if (current) setOrdersError(error instanceof Error ? error.message : "Unable to load work orders."); }
+      finally { if (current) setOrdersLoading(false); }
+    })();
+    return () => { current = false; };
+  }, [selectedId, token, orderVersion]);
+
+  useEffect(() => {
+    let current = true;
+    let url = "";
+    if (!selectedId) return () => { current = false; };
+    void (async () => {
+      try {
+        const access = await token();
+        const response = await fetch(`/api/assets/photo?asset_id=${encodeURIComponent(selectedId)}`, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+        if (response.status === 404) return;
+        if (!response.ok) throw new Error("Photo could not be loaded.");
+        const blob = await response.blob();
+        if (current) { url = URL.createObjectURL(blob); setPhoto(url); }
+      } catch { if (current) setPhotoMessage("Photo could not be loaded."); }
+    })();
+    return () => { current = false; if (url) URL.revokeObjectURL(url); };
+  }, [selectedId, photoVersion, token]);
+
+  async function uploadPhoto(file: File) {
+    if (!selectedId || !canManage || photoBusy) return;
+    setPhotoBusy(true); setPhotoMessage("");
+    try {
+      const access = await token();
+      const body = new FormData(); body.set("asset_id", selectedId); body.set("file", file);
+      const response = await fetch("/api/assets/photo", { method: "PUT", headers: { Authorization: `Bearer ${access}` }, body });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Photo could not be saved.");
+      setPhotoVersion(value => value + 1); setPhotoMessage("Photo saved.");
+    } catch (error) { setPhotoMessage(error instanceof Error ? error.message : "Photo could not be saved."); }
+    finally { setPhotoBusy(false); }
+  }
+
+  async function moveAsset() {
+    if (!selected || !selected.updated_at || !destinationId || moveBusy) return;
+    const order = assetOrders.find(item => item.id === moveOrderId);
+    if (!moveOrderId || (moveOrderId !== "none" && !order)) { setMoveError("Select a linked work order or choose no work order."); return; }
+    setMoveBusy(true); setMoveError("");
+    try {
+      const access = await token();
+      const response = await fetch("/api/assets/move", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` }, body: JSON.stringify({ assetId: selected.id, destinationId, expectedAssetUpdatedAt: selected.updated_at, workOrderId: order?.id || null, expectedWorkOrderRevision: order?.revision || null }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Move failed.");
+      setMoving(false); setDestinationId(""); setMoveOrderId("");
+      if (await loadAssets(selected.id)) setMessage("Asset moved.");
+      if (window.parent !== window) window.parent.postMessage({ type: "cmpri-assets-changed", assetId: selected.id, modalToken: new URLSearchParams(window.location.search).get("modalToken") || "" }, window.location.origin);
+      setOrdersLoading(true); setOrderVersion(value => value + 1);
+    } catch (error) { setMoveError(error instanceof Error ? error.message : "Move failed."); }
+    finally { setMoveBusy(false); }
+  }
 
   function setField<K extends keyof Asset>(key: K, value: Asset[K]) {
     if (!verified && canManage) setDraft((current) => ({ ...current, [key]: value }));
@@ -464,15 +560,28 @@ export default function ManageEquipmentPage() {
           && String(current).trim().toLowerCase() !== String(suggestion).trim().toLowerCase();
       }).map(([, label]) => label)
     : [];
-  const assetOptions: SearchableSelectOption[] = assets.map((asset) => ({
-    value: asset.id,
-    label: equipmentOptionLabel({ ...asset, name: asset.name || asset.asset_type || "Unnamed equipment" }),
-    group: asset.asset_type || "Equipment",
-    keywords: [asset.asset_type, asset.manufacturer, asset.model_number, asset.serial_number, asset.asset_tag, asset.binder_tag].filter(Boolean) as string[],
-  }));
+  const groupedAssets = useMemo(() => {
+    const words = assetSearch.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const groups = new Map<string, Map<string, Asset[]>>();
+    for (const asset of assets) {
+      const location = browseLocations.find((item) => item.id === asset.location_id);
+      if (locationFilter && asset.location_id !== locationFilter) continue;
+      if (typeFilter && asset.asset_type !== typeFilter) continue;
+      if (statusFilter && (asset.active === false ? "inactive" : "active") !== statusFilter) continue;
+      const haystack = [asset.name, asset.asset_type, asset.manufacturer, asset.model_family, asset.model_number, asset.serial_number, asset.asset_tag, asset.binder_tag, location?.name, location?.area].filter(Boolean).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, " ");
+      if (!words.every(word => haystack.includes(word))) continue;
+      const area = location?.area || "Other / unassigned";
+      const name = location?.name || (asset.location_id ? "Location unavailable" : "Unassigned");
+      if (!groups.has(area)) groups.set(area, new Map());
+      const locations = groups.get(area)!;
+      if (!locations.has(name)) locations.set(name, []);
+      locations.get(name)!.push(asset);
+    }
+    return [...groups.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true})).map(([area, locations]) => [area, [...locations.entries()].sort(([a],[b]) => a.localeCompare(b, undefined, {numeric:true}))] as const);
+  }, [assets, browseLocations, assetSearch, locationFilter, typeFilter, statusFilter]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="asset-workspace min-h-screen bg-slate-950 text-white">
       <div className="mx-auto w-full px-3 py-4 sm:px-4">
         {!embedded && <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-5">
           <div>
@@ -486,64 +595,90 @@ export default function ManageEquipmentPage() {
 
         {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</div>}
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <section className="rounded-2xl border border-slate-800 bg-slate-900">
-            <div className="border-b border-slate-800 px-4 py-3">
+        <div className="grid gap-4 pt-2 md:grid-cols-[minmax(260px,34%)_minmax(0,1fr)]">
+          <section className="asset-picker min-w-0 bg-slate-900">
+            <div className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-bold">All Equipment</h2>
+                <h2 className="text-xl font-bold">All Equipment</h2>
                 {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">Add Asset</button>}
               </div>
-              <p className="text-xs text-slate-500">{loading ? "Loading…" : `${assets.length} records`}</p>
+              <p className="text-xs text-slate-500">{loading ? "Loading…" : assetLoadError ? "Equipment unavailable" : `${assets.length} records`}</p>
             </div>
-            <div className="p-4">
-              <SearchableSelect
-                value={selectedId}
-                options={assetOptions}
-                onChange={(value) => {
-                  const item = assets.find((asset) => asset.id === value);
-                  if (item) selectAsset(item);
-                }}
-                placeholder={loading ? "Loading equipment…" : "Search all equipment…"}
-                topSuggestions={3}
-                expandOnOpen
-                noMatchesText="No equipment matches this search."
-                disabled={loading || !assets.length}
-              />
-              <p className="mt-2 text-xs text-slate-500">Search by equipment name, type, manufacturer, model, serial number, or asset tag.</p>
+            <div className="px-3 pb-3">
+              <label className="sr-only" htmlFor="asset-search">Search equipment</label>
+              <input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="asset-search min-h-10 w-full rounded px-3 text-sm text-white" />
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <label>Location <select value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                <label>Type <select value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+                <label>Status <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+              </div>
+              <div className="mt-3 max-h-[60vh] overflow-y-auto text-sm">
+                {loading ? <p>Loading equipment…</p> : assetLoadError ? <button type="button" onClick={() => void loadAssets()} className="underline">Retry loading equipment</button> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
+                  <summary className="asset-group cursor-pointer rounded px-3 py-2 font-bold">{area} <span className="float-right text-xs font-normal text-slate-400">{locations.length} locations · {locations.reduce((total, [, items]) => total + items.length, 0)} assets</span></summary>
+                  {locations.map(([location, items]) => <details key={location} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="ml-3">
+                    <summary className="asset-location cursor-pointer rounded px-2 py-2 text-slate-300">{location} <span className="text-xs text-slate-500">({items.length})</span></summary>
+                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`asset-result block w-full px-3 py-2 text-left ${selectedId === item.id ? "asset-result-selected font-bold" : ""}`}>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</button>)}
+                  </details>)}
+                </details>)}
+              </div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <section className="asset-detail min-w-0 bg-slate-900 p-3">
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <h2 className="text-2xl font-bold">{selected.name}</h2>
-                    {documents.map((doc) => doc.url && (
-                      <a key={statusKey(doc)} href={doc.url} target="_blank" rel="noreferrer" className="max-w-64 truncate text-sm font-semibold text-sky-300 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-200" title={doc.name}>
-                        {doc.name}
-                      </a>
-                    ))}
+              <div className="flex flex-wrap items-start gap-4">
+                <label className={`relative block shrink-0 ${canManage ? "cursor-pointer" : ""}`}>
+                  {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
+                  {canManage && <><span className="mt-1 block text-xs text-slate-400">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
+                </label>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <h2 className="asset-title font-bold">{selected.name || selected.asset_type}</h2>
+                    <div className="flex flex-wrap gap-3 text-sm font-semibold">
+                      {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="px-2 py-1 text-cyan-200">Edit Details</button>}
+                      {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="px-2 py-1 text-cyan-200 disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
+                      {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="px-2 py-1 text-cyan-200 disabled:opacity-50">Move Asset</button>}
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-slate-400">{verified ? "Verified fields are locked against casual edits." : "Review and save the equipment record before final documentation verification."}</p>
-                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders. Engineering must verify its installed location before assigning it.</p>}
+                  <p className="mt-2 text-sm text-slate-300">Current location: {browseLocations.find(location => location.id === selected.location_id)?.name || (selected.location_id ? "Location unavailable" : "Unassigned")}</p>
+                  <p className="mt-1 text-sm text-slate-300">Serial: {selected.serial_number || "Not yet recorded"}</p>
+                  <p className="mt-1 text-sm text-slate-300">{selected.status || (selected.active ? "Active" : "Inactive")}{verified ? " · Verified documentation" : ""}</p>
+                  {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
+                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders.</p>}
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {verified && <span className="rounded-full border border-emerald-500/40 bg-emerald-950/40 px-3 py-1 text-xs font-bold text-emerald-200">Verified documentation</span>}
-                  {canManage && !verified && !editing && <button type="button" onClick={() => setEditing(true)} className="rounded-lg border border-cyan-500/50 bg-cyan-950/30 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-900/40">Edit Equipment</button>}
-                  {canManage && !verified && editing && <button type="button" onClick={() => setShowDocumentationDialog(true)} className="rounded-md border border-cyan-500/50 bg-cyan-950/30 px-3 py-1.5 text-xs font-bold text-cyan-100">Choose PDF</button>}
-                  {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
+                  <div className="sr-only">{documents.map((doc) => doc.url && (<a key={statusKey(doc)} href={doc.url}>{doc.name}</a>))}</div>
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {moving && <section className="mt-4 rounded bg-slate-950 p-3" aria-label="Move asset">
+                <label className="block text-sm">Destination<select value={destinationId} onChange={event => setDestinationId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">Select a location</option>{browseLocations.filter(location => location.id !== selected.location_id).map(location => <option key={location.id} value={location.id}>{location.area ? `${location.area} · ` : ""}{location.name}</option>)}</select></label>
+                <label className="mt-3 block text-sm">Work order to move with this asset<select value={moveOrderId} onChange={event => setMoveOrderId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">Select an option</option><option value="none">Move without a work order</option>{assetOrders.map(order => <option key={order.id} value={order.id}>#{order.display_id} · {order.issue}</option>)}</select></label>
+                <p className="mt-2 text-xs text-slate-400">The selected work order will move with the asset and receive a note. Other work orders are unchanged.</p>
+                {ordersLoading && <p role="status" className="mt-2 text-xs">Loading linked work orders…</p>}
+                {ordersError && <p role="alert" className="mt-2 text-xs text-amber-200">Work orders could not be loaded; reload before moving.</p>}
+                {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{moveError}</p>}
+                <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? "Moving…" : "Confirm Move"}</button>
+              </section>}
+              <nav aria-label="Asset sections" className="mt-3 flex flex-wrap gap-x-6 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}>{label}</button>)}</nav>
+              <div hidden={assetPanel !== "details"}>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
                   <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
                 ))}
                 <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
 
+              </div>
+              <section hidden={assetPanel !== "orders"} className="mt-3" aria-label="Work orders and repairs">
+                <h3 className="sr-only">Work Orders &amp; Repairs</h3>
+                {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : ordersLoading ? <p role="status" className="text-sm text-slate-400">Loading work orders…</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 text-sm">
+                  <div className="asset-order rounded p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong>WO #{order.display_id} · {order.issue}</strong><span>{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="text-cyan-300 underline">Open Work Order</ModalNavigationButton></div>
+                  <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p></div>
+                  {order.notes && <><h4 className="mt-4 font-bold">Work order notes</h4><ul className="mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
+                </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
+              </section>
+
+              <div hidden={assetPanel !== "details"}>
               {canManage && verified && <div className="mt-4 rounded-lg border border-amber-600/40 p-3">
                 <p className="text-sm text-amber-100">To correct verified equipment, open a documented revision. Prior verification and saved files are retained; the revised record needs verification again.</p>
                 <label className="mt-2 block text-sm">Revision reason<input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} maxLength={2000} className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2" /></label>
@@ -551,10 +686,17 @@ export default function ManageEquipmentPage() {
               </div>}
               {unsavedEquipment && <p className="mt-3 text-sm text-amber-200">Save equipment changes before confirming documentation.</p>}
               {selected?.documentation_revision_id && <p className="mt-3 text-sm text-amber-200">Documentation revision in progress. Previous verification remains in the audit history.</p>}
-              {canManage && editing && !verified && <div className="mt-8 border-t border-slate-700 pt-6">
+              </div>
+              <div hidden={assetPanel !== "documents"} className="mt-3">
+                <h3 className="font-bold">Documentation</h3>
+                {canManage && !verified && <button type="button" onClick={() => { setEditing(true); setShowDocumentationDialog(true); }} className="my-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold">Add Documentation</button>}
+                {verified && <p className="text-sm text-slate-400">Open a revision in Details to change verified documentation.</p>}
+                {documents.length ? <ul className="space-y-1">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">No documentation attached.</p>}
+              {canManage && editing && !verified && <div className="mt-4 pt-3">
                 <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
                 <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying || unsavedEquipment || saving} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
               </div>}
+              </div>
             </>}
           </section>
         </div>
@@ -597,7 +739,7 @@ export default function ManageEquipmentPage() {
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>
             </div>
 
-            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadAssets(selected.id); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
+            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={() => { void loadDocuments(selected.id).then(result => displayDocuments(result.documents, result.verified, selected.id)).catch(() => setDialogMessage("Documentation saved, but the list could not be refreshed.")); }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
 
             <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
               <summary className="cursor-pointer font-semibold">Read an equipment label or document on this device</summary>

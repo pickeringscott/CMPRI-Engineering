@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
   const assetId = request.nextUrl.searchParams.get("asset_id")?.trim() || "";
   if (!assetId) return NextResponse.json({ error: "asset_id is required." }, { status: 400 });
   const { data: asset, error: assetError } = await auth.admin.from("assets")
-    .select("id, manufacturer, model_family, model_number, documentation_verified_at, documentation_revision_id")
+    .select("id, manufacturer, model_family, model_number, serial_number, documentation_verified_at, documentation_revision_id")
     .eq("id", assetId)
     .eq("hotel_id", HOTEL_ID)
     .maybeSingle();
@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
   if (existingPath && documentKey) return NextResponse.json({ error: "Choose one stored document source." }, { status: 400 });
 
   const { data: asset, error: assetError } = await auth.admin.from("assets")
-    .select("id, manufacturer, model_family, model_number, documentation_verified_at, documentation_revision_id")
+    .select("id, manufacturer, model_family, model_number, serial_number, documentation_verified_at, documentation_revision_id")
     .eq("id", assetId)
     .eq("hotel_id", HOTEL_ID)
     .maybeSingle();

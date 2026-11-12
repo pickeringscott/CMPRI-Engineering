@@ -675,10 +675,11 @@ export default function GlobalModalHost() {
         const displayTitle = modalDisplayTitle(entryPath,entry.title);
         const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(entryPath);
         const isPurchasing = entryPath === "/engineering/purchasing";
+        const isAssets = entryPath.split("?")[0] === "/management/equipment";
         const isRoomRanking = entryPath.split("?")[0] === "/engineering/room-ranking";
           const panelStyle: ModalPanelStyle = {
           ...modalThemeStyle(modalActionForRoute(entryPath,entry.title)),
-          "--cmpri-modal-width": `min(${(isRoomRanking ? 100 : (isPurchasing ? 94 : (isWorkOrderDetail ? 94 : 66))) * scale}vw, ${(isRoomRanking ? 120 : (isPurchasing ? 88 : (isWorkOrderDetail ? 88 : 72))) * scale}rem)`,
+          "--cmpri-modal-width": `min(${(isRoomRanking ? 100 : (isPurchasing || isAssets ? 94 : (isWorkOrderDetail ? 94 : 66))) * scale}vw, ${(isRoomRanking ? 120 : (isPurchasing || isAssets ? 88 : (isWorkOrderDetail ? 88 : 72))) * scale}rem)`,
           "--cmpri-modal-height": `calc(${(isWorkOrderDetail ? 82 : 100) * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
           "--cmpri-modal-mobile-width": `calc(${100 * scale}vw - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,
           "--cmpri-modal-mobile-height": `calc(${100 * scale}dvh - ${(isWorkOrderDetail ? 24 : 16) * scale}px)`,

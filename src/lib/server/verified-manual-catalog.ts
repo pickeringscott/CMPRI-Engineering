@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { serialRangeStatus, type NumericSerialRange } from "@/lib/manual-applicability";
 import { HOTEL_ID } from "@/lib/constants";
 import { extractManualPdfText, manualPdfSha256, type ManualEquipmentIdentity } from "@/lib/manual-pdf-knowledge";
 import { catalogManualMatchesEquipment, catalogManualModelFamily, catalogManualPdfMatchesEquipment, type CatalogManual } from "@/lib/manual-document-catalog";
@@ -36,7 +37,7 @@ export async function loadVerifiedCatalogManuals(
   if (!equipment.id) return { documents: [], warnings: [] };
   const { data: asset, error: linkError } = await admin.from("assets").select("pdf_import_links").eq("hotel_id", HOTEL_ID).eq("id", equipment.id).maybeSingle();
   if (linkError || !asset) throw new Error("Asset PDF associations could not be loaded.");
-  type Link = { object_id?: string; document_id?: string; document_key?: string; storage_path?: string; title?: string; manufacturer?: string; selected_model?: string; applicability?: string; preferred?: boolean; sha256?: string; legacy_sources?: string[]; };
+  type Link = { object_id?: string; document_id?: string; document_key?: string; storage_path?: string; title?: string; manufacturer?: string; selected_model?: string; applicability?: string; preferred?: boolean; sha256?: string; legacy_sources?: string[]; serial_range?: NumericSerialRange | null; };
   const links = (asset.pdf_import_links || []) as Link[];
   const preferred = links.find(l => l.preferred);
   const selected = preferred ? [preferred] : links;
@@ -48,6 +49,11 @@ export async function loadVerifiedCatalogManuals(
   const candidates: CatalogRow[] = [];
   const warnings: string[] = [];
   for (const link of selected) {
+    const serialStatus = serialRangeStatus(equipment.serial_number, link.serial_range);
+    if (serialStatus === "unknown" || serialStatus === "outside") {
+      warnings.push(`${link.title || "Manual"}: serial number is missing, unsupported, or outside the reviewed range. Review applicability.`);
+      continue;
+    }
     const original = rows.find(d => d.id === link.document_id);
     const manualChoice = link.applicability === "confirmed_model" && Boolean(link.selected_model);
     if (manualChoice && link.storage_path) {

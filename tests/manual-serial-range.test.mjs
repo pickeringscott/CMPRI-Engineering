@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { numericSerialRange, serialRangeStatus, eligibleManualLinks } from '../src/lib/manual-applicability.ts';
+import { reviewPdfFields } from '../src/lib/stored-pdf-link.ts';
+const range={kind:'numeric',from:'100000',to:'199999'};
+const id={id:'asset',manufacturer:'Friedrich',model_number:'V',serial_number:'150000'};
+const link={object_id:'doc',storage_path:'pdf',sha256:'a'.repeat(64),applicability:'confirmed_model',compatibility_basis:'user_confirmed',saved_by:'user',serial_range:range};
+test('numeric limits include endpoints and support very large values without rounding',()=>{assert.equal(serialRangeStatus('100000',range),'match');assert.equal(serialRangeStatus('199999',range),'match');assert.equal(serialRangeStatus('99999',range),'outside');assert.equal(serialRangeStatus('99999999999999999999',{kind:'numeric',from:'99999999999999999998',to:'99999999999999999999'}),'match');});
+test('unknown, nonnumeric, invalid and outside serials cannot select restricted manuals',()=>{for(const serial of ['',null,'V150000','99999']){const result=eligibleManualLinks({...id,serial_number:serial},[link]);assert.equal(result.eligible.length,0);assert.equal(result.unresolved.length,1);}assert.equal(eligibleManualLinks(id,[link]).eligible.length,1);assert.equal(serialRangeStatus('123',{kind:'numeric',from:'2',to:'1'}),'unknown');});
+test('invalid ranges are rejected before saving, and legacy manuals remain unrestricted',()=>{assert.throws(()=>numericSerialRange({kind:'numeric',from:'3',to:'2'}));assert.throws(()=>numericSerialRange({kind:'numeric',from:'A1',to:'Z9'}));assert.equal(serialRangeStatus(null,null),'unrestricted');const fields=reviewPdfFields({title:'Manual',manufacturer:'Friedrich',models:[],selected_model:'',applicability:'reference',notes:'',reason:'Add manual',serial_range:range});assert.deepEqual(fields.serial_range,range);});

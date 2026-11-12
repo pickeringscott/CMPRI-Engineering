@@ -38,6 +38,9 @@ const cases = [
 
 const troubleshootingPath = '/api/work-orders/00000000-0000-4000-8000-000000000042/troubleshooting';
 cases.push(
+  { path: '/api/assets/photo', method: 'GET', expected: anonymousDenied },
+  { path: '/api/assets/photo', method: 'PUT', expected: anonymousDenied },
+  { path: '/api/assets/move', method: 'POST', expected: anonymousDenied },
   { path: troubleshootingPath, method: 'GET', expected: anonymousDenied },
   { path: troubleshootingPath, method: 'PATCH', expected: anonymousDenied,
     body: { contextKey: 'a'.repeat(64), expectedRevision: 0, itemId: 'step-1',

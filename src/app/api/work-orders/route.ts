@@ -135,6 +135,18 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const mode = request.nextUrl.searchParams.get("mode")?.trim() || "dashboard";
 
+  if (mode === "asset") {
+    if (!allows(auth.principal, "view_dashboard") && !allows(auth.principal, "view_work_orders") && !allows(auth.principal, "add_work_order_notes")) return NextResponse.json({ error: "Work-order access is required." }, { status: 403 });
+    const assetId = request.nextUrl.searchParams.get("asset_id") || "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assetId)) return NextResponse.json({ error: "A valid asset is required." }, { status: 400 });
+    let query = auth.admin.from("work_orders").select("id,display_id,issue,status,room,notes,created_at,revision").eq("hotel_id", HOTEL_ID).eq("asset_id", assetId).order("created_at", { ascending: false }).limit(100);
+    const filter = workOrderReadFilter(workOrderReader(auth.principal));
+    if (filter) query = query.or(filter);
+    const { data, error } = await query;
+    if (error) return NextResponse.json({ error: "Asset work orders could not be loaded." }, { status: 503 });
+    return NextResponse.json({ work_orders: data || [] }, { headers: { "Cache-Control": "private, no-store" } });
+  }
+
   if (mode === "technician") {
     if (!roleAllows(auth.principal.profile.role, "edit_tickets")) {
       return NextResponse.json({ error: "Technician dashboard access is required." }, { status: 403 });
