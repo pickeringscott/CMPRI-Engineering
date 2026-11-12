@@ -135,7 +135,7 @@ export function guideRulesForIssue(knowledge: ManualKnowledge | null | undefined
   const rules = [...(knowledge.symptom_rules || []), ...(knowledge.manual_tests || []).filter(test => test.match?.length).map(test => ({
     match: test.match || [], steps: test.steps?.length ? test.steps : [test.test || test.action || ""].filter(Boolean), source_pages: test.source_pages,
   }))];
-  const matched = rules.filter(rule => !!rule.match?.length && rule.match.some(phrase => {
+  const matched = rules.filter(rule => !('reference_only' in rule && rule.reference_only) && !!rule.match?.length && rule.match.some(phrase => {
     const normalized = symptomText(phrase);
     // Code-qualified headings require the same positive exact report as the
     // diagnostic-code section. Literal text in a denial cannot bypass it.

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 // Native picture keeps the authenticated page-image blob browser-local and preserves its dimensions.
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import { sourcePageHtml } from "@/lib/manual-document-html";
+import ManualSourceLink from "./ManualSourceLink";
 import type { SourcePassage } from "@/lib/manual-source";
 
 /** Show original pages intact when their layout cannot be safely turned into steps. */
@@ -50,7 +51,7 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
       <label className="mt-1 flex items-center gap-2">
         <span className="font-semibold text-sky-300">Matching source pages ({pages.length}):</span>
         <select className="min-w-0 rounded border border-slate-700 bg-slate-950 px-1 text-slate-100" value={currentKey} onChange={event => setSelection(event.target.value)}>
-          {pages.map(([key, passage]) => <option key={key} value={key}>{passage.source_file_name || "Source"} · Page {passage.page}</option>)}
+          {pages.map(([key, passage]) => <option key={key} value={key}>{passage.source_file_name || "Source"} · PDF page {passage.page}{passage.printed_label && passage.printed_label!==String(passage.page) ? ` (printed ${passage.printed_label})` : ""}</option>)}
         </select>
       </label>
       <p className="mt-1 text-xs text-slate-400">Source references are not a diagnosis. Compare the complete page and its warnings before using a procedure.</p>
@@ -61,7 +62,7 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
       </section>)}
       <div className="mt-1">
         {image?.key === imageKey && <picture style={{ display: 'contents' }}><img className="h-auto w-full rounded border border-slate-700" src={image.url} alt={`Manual page ${current}, including diagrams and tables`} /></picture>}
-        <a className="text-sky-300 underline" href={`${currentSourceUrl.split('#')[0]}#page=${current}`} target="_blank" rel="noreferrer">Open page {current}</a>
+        <ManualSourceLink className="text-sky-300 underline" href={`${currentSourceUrl.split('#')[0]}#page=${current}`}>Open PDF page {current}</ManualSourceLink>
       </div>
     </div>
   );

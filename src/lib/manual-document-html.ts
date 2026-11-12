@@ -26,7 +26,7 @@ function heading(line: string, following: string[]): boolean {
 }
 
 export function structureManualPage(text: string, page: number, origin: 'pdf' | 'ocr' | 'reviewed' = 'pdf', confidence?: number): ManualHtmlPage {
-  if (!Number.isSafeInteger(page) || page < 1 || page > 600) throw new Error('Invalid manual source page.');
+  if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new Error('Invalid manual source page.');
   const lines = text.replace(/\r\n?/g, '\n').split('\n').map(line => line.trim());
   const blocks: ManualHtmlBlock[] = [];
   for (let index = 0; index < lines.length;) {
@@ -67,7 +67,7 @@ export function structureManualPage(text: string, page: number, origin: 'pdf' | 
 export function structureManualDocument(text: string): ManualHtmlPage[] {
   return [...text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)].flatMap(match => {
     const page = Number(match[1]);
-    return Number.isSafeInteger(page) && page >= 1 && page <= 600 ? [structureManualPage(match[2], page)] : [];
+    return Number.isSafeInteger(page) && page >= 1 && page <= 10000 ? [structureManualPage(match[2], page)] : [];
   });
 }
 
@@ -85,7 +85,7 @@ export function manualHtmlGuideText(pages: ManualHtmlPage[]): string {
 
 /** Sanitized by construction: only fixed tags/attributes and escaped text. */
 export function renderManualPageHtml(page: ManualHtmlPage): string {
-  if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 600) throw new Error('Invalid manual source page.');
+  if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 10000) throw new Error('Invalid manual source page.');
   const body = page.blocks.map(block => {
     if (block.kind === 'heading') return `<h3>${prose(block.text)}</h3>`;
     if (block.kind === 'paragraph') return `<p>${prose(block.text)}</p>`;

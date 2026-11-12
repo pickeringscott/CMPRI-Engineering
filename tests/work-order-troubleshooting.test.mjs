@@ -112,6 +112,7 @@ function fixture(initial = {}) {
       state.guideReads++; assert.equal(savedAsset.id, state.ticket.asset_id);
       return { manualKnowledge: state.manual, documentation_status: state.manual?.source?.verified ? 'verified' : 'no_guidance', documentation_reason: 'Synthetic attached source.', documentation_warnings: [] };
     } };
+    if (name === '@/lib/server/manual-preview') return { manualPreviewReadOnly: () => false };
     throw new Error(`Unexpected dependency ${name}`);
   } };
   vm.runInNewContext(compiled, { exports, ...dependencies });

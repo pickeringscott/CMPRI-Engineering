@@ -4,6 +4,8 @@ import { reportedDiagnosticCode } from '../manual-source';
 import type { PmTaskActor, PmTaskState } from '../pm/task-review';
 import { taskComplete } from '../pm/task-review';
 import { guideRulesForIssue } from './guide-selection';
+import {troubleshootingStepAlreadyDone} from '../troubleshooting-completed-steps';
+import {diagnosticCodeRuledOut,technicianTroubleshootingContext} from './technician-context';
 
 export type TroubleshootingChecklistAsset = {
   id: string;
@@ -53,6 +55,8 @@ export function troubleshootingTaskVisual(state: PmTaskState | undefined, canSee
 export function deriveTroubleshootingChecklistContext(input: {
   issue: string;
   reporter_notes?: string | null;
+  notes?:string|null;
+  action_root_cause?:string|null;
   asset?: TroubleshootingChecklistAsset | null;
 }, knowledge: ManualKnowledge | null | undefined): { contextIdentity: string | null; steps: TroubleshootingChecklistStep[] } {
   const asset = input.asset;
@@ -61,22 +65,28 @@ export function deriveTroubleshootingChecklistContext(input: {
   const sources = knowledge.sources?.length ? knowledge.sources : [knowledge.source];
   if (sources.some(source => source.verified !== true || source.source_kind !== 'asset-upload' || !source.storage_path || !source.registered_file_id || !/^[a-f0-9]{64}$/.test(source.sha256 || ''))) return { contextIdentity: null, steps: [] };
   const evidence = `${input.issue} ${input.reporter_notes || ''}`.trim();
+  const technicianContext=technicianTroubleshootingContext(input.notes,input.action_root_cause);
   const steps: TroubleshootingChecklistStep[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string,TroubleshootingChecklistStep>();
   const append = (label: string, kind: TroubleshootingChecklistStep['kind'], pages: number[] = [], sourceUrl?: string, code?: string, provenance: ManualProvenance = {}) => {
     label = label.trim();
-    if (!label) return;
+    if (!label || troubleshootingStepAlreadyDone(label,technicianContext)) return;
     const sourcePages = [...new Set(pages.filter(page => Number.isSafeInteger(page) && page > 0))].sort((a, b) => a - b);
     const source = sources.find(source => source.registered_file_id === provenance.source_document_id && source.sha256 === provenance.source_sha256)
       || (sources.length === 1 && !provenance.source_document_id ? sources[0] : undefined);
     if (!source) return;
     const source_document_id = source.registered_file_id, source_sha256 = source.sha256;
-    const identity = JSON.stringify({ label, sourcePages, kind, code, source_document_id, source_sha256 });
-    if (seen.has(identity)) return;
-    seen.add(identity);
+    const identity = JSON.stringify({ label, kind, code, source_document_id, source_sha256 });
     const media = (knowledge.step_media || []).filter(item => item.stepLabel === label && sourcePages.includes(item.sourcePage)
       && (item.source_document_id ? item.source_document_id === source_document_id && item.source_sha256 === source_sha256 : sources.length === 1));
-    steps.push({ source_document_id, source_sha256, sourceFileName: source.source_file_name || source.title, id: `step-${steps.length + 1}`, label, sourcePages, ...(sourceUrl ? { sourceUrl } : {}), kind, ...(code ? { code } : {}), ...(media.length ? { media } : {}) });
+    const previous=seen.get(identity);
+    if(previous){
+      previous.sourcePages=[...new Set([...previous.sourcePages,...sourcePages])].sort((a,b)=>a-b);
+      if(media.length)previous.media=[...new Map([...(previous.media||[]),...media].map(item=>[JSON.stringify(item),item])).values()];
+      return;
+    }
+    const step={ source_document_id, source_sha256, sourceFileName: source.source_file_name || source.title, id: `step-${steps.length + 1}`, label, sourcePages, ...(sourceUrl ? { sourceUrl } : {}), kind, ...(code ? { code } : {}), ...(media.length ? { media } : {}) };
+    seen.set(identity,step);steps.push(step);
   };
   for (const rule of guideRulesForIssue(knowledge, evidence)) {
     for (const step of rule.steps) append(step, 'symptom', rule.source_pages, rule.source_url, undefined, rule);
@@ -85,8 +95,11 @@ export function deriveTroubleshootingChecklistContext(input: {
   // imported ticket IDs, and symptom similarity do not establish an alarm.
   const code = reportedDiagnosticCode(evidence);
   if (code) for (const entry of knowledge.error_codes || []) {
-    if (entry.code.replace(/[^a-z0-9]/gi, '').toUpperCase() === code) {
-      append(entry.action, 'error-code', entry.source_pages, entry.source_url, entry.code, entry);
+    const reportedSubcode=evidence.match(/\bsub[ -]?code\s*[:#=-]?\s*(\d+)\b/i)?.[1];
+    if (entry.code.replace(/[^a-z0-9]/gi, '').toUpperCase() === code && !diagnosticCodeRuledOut(entry.code,technicianContext)
+      && (!entry.subcode || entry.subcode==='0' || entry.subcode===reportedSubcode)) {
+      // A unit response or Not Applicable entry is reference information, not a technician task.
+      if(/^(?:check|inspect|verify|test|measure|record|confirm|ensure|clean|disconnect|connect|turn|remove|replace|reset|restart|wait|contact|continue|tighten|do not)\b/i.test(entry.action.replace(/^[*•\s]+/,'')))append(entry.action, 'error-code', entry.source_pages, entry.source_url, entry.code, entry);
     }
   }
   const text = (value: string | null | undefined) => value || '';

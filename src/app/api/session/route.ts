@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireUserAttempt } from "@/lib/server/auth";
 import { allows } from "@/lib/server/access";
 import { landingPath, type Capability } from "@/lib/server/roles";
+import {manualPreviewReadOnly} from '@/lib/server/manual-preview';
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
     },
     hotelId: attempt.principal.hotelId,
     landing,
-    capabilities: capabilities.filter((capability) => allows(attempt.principal, capability)),
+    preview_read_only:manualPreviewReadOnly(),
+    capabilities: capabilities.filter((capability) => allows(attempt.principal, capability) && (!manualPreviewReadOnly() || capability.startsWith('view_'))),
   }, { headers: NO_STORE_HEADERS });
 }

@@ -104,6 +104,7 @@ test("every actual application role's /api/session capabilities match its role a
       if (name === "@/lib/server/auth") return { requireUserAttempt: async () => ({ ok: true, principal }) };
       if (name === "@/lib/server/access") return accessModule;
       if (name === "@/lib/server/roles") return roleModule;
+      if (name === "@/lib/server/manual-preview") return { manualPreviewReadOnly: () => false };
       throw new Error(`Unexpected session route dependency: ${name}`);
     },
   });

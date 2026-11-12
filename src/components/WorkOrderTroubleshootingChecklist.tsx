@@ -8,6 +8,7 @@ import { troubleshootingTaskVisual, type TroubleshootingChecklist, type Troubles
 import { subscribeResources } from "@/lib/events/browser";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { troubleshootingVisit } from "@/lib/work-orders/troubleshooting-visits";
+import ManualSourceLink, {ManualSourceFrame} from "./ManualSourceLink";
 import WorkOrderStepMedia from "@/components/WorkOrderStepMedia";
 import { sourceSemantics } from "@/lib/work-orders/source-semantics";
 
@@ -210,7 +211,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
   };
   return (
     <section aria-label="Work-order troubleshooting checklist" className="mt-1 space-y-0 [&>p]:leading-tight">
-      {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>Source: {manualUrl ? <a href={manualUrl} target="_blank" rel="noreferrer" className="text-sky-300 underline">{sourceFileName}</a> : sourceFileName}</p>}
+      {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>Source: {manualUrl ? <ManualSourceLink href={manualUrl} className="text-sky-300 underline">{sourceFileName}</ManualSourceLink> : sourceFileName}</p>}
       {preview && <p role="status" className="text-xs text-amber-200">Preview for the edited issue — save the work order to record checks.</p>}
       {disabledReason && <p role="status" className="text-xs text-amber-200">{disabledReason}</p>}
       {busy === "load" && <p role="status" className="text-xs text-slate-400">Loading saved checklist…</p>}
@@ -244,10 +245,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           return <li key={step.id} className="py-0">
             {showChart && <div className="text-xs font-semibold text-sky-300" data-chart-context>
               {chart.context}
-              {stepManualUrl && step.sourcePages?.length ? <details className="font-normal">
-                <summary className="cursor-pointer">{step.sourceFileName || "Source"} · Page {step.sourcePages[0]}</summary>
-                <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
-              </details> : null}
+              {stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
             </div>}
             <div className="flex items-start gap-0.5">
               <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={`Step ${index + 1}: ${step.label}`} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? "Uncheck completed step" : nextAction(display, state)} disabled={disabled} onClick={() => void request(step.id, display, action)} className="grid h-6 w-6 shrink-0 place-items-center rounded-sm outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default">
@@ -257,10 +255,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
                 <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
                 <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? "Saving…" : status}{state?.workerName ? ` · Completed by ${state.workerName}` : ""}{state?.reviewedBy ? ` · Reviewed by ${state.reviewedBy}` : ""}</p>
                 {!!step.media?.length && assetId && stepSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={stepSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
-                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <details className="text-xs text-sky-300">
-                  <summary className="cursor-pointer">{step.sourceFileName || "Source"} · Page {step.sourcePages[0]}</summary>
-                  <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
-                </details> : null}
+                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
               </div>
             </div>
           </li>;

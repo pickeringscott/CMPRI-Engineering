@@ -16,7 +16,7 @@ export type InspectedUploadedGuideMedia = {
 };
 
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
-const MAX_PAGES = 600;
+const MAX_PAGES = 10000;
 const MAX_INSPECTED_PAGES = 24;
 const MAX_STEPS = 128;
 const MAX_MEDIA = 24;
@@ -290,7 +290,7 @@ export async function renderUploadedGuideMedia(bytes: Uint8Array, selection: Ins
 /** Render an entire source page so tables and diagrams remain visible on mobile. */
 export async function renderUploadedGuidePage(bytes: Uint8Array, sha256: string, pageNumber: number): Promise<Uint8Array> {
   validateSource(bytes, sha256);
-  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 600) throw new Error('The source page is invalid.');
+  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 10000) throw new Error('The source page is invalid.');
   const { pdf, task } = await openPdf(bytes);
   try {
     if (pageNumber > pdf.numPages) throw new Error('The source page is unavailable.');

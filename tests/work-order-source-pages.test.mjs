@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {loadTs} from './helpers/load-ts.mjs';
 import {JSDOM} from 'jsdom';
 import * as manualHtml from '../src/lib/manual-document-html.ts';
 
@@ -12,7 +13,8 @@ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react');const {createRoot}=await import('react-dom/client');const require=createRequire(import.meta.url);
 const code=ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderSourcePages.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
+const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='react'||name==='react/jsx-runtime')return require(name);
+      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
 
 test('source page selector preserves the original PDF and resets when the issue or document changes',async()=>{
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
@@ -81,6 +83,7 @@ function imageViewer() {
   fetch(url,options){return new Promise(resolve=>pending.push({url,options,resolve}));},
   require(name){
    if(name==='react'||name==='react/jsx-runtime')return require(name);
+      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});
    if(name==='@/lib/manual-document-html')return manualHtml;
    if(name==='@/lib/supabase/client')return {
     getValidSession:async()=>state.session,

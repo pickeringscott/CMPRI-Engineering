@@ -11,6 +11,7 @@ import { normalizeManualKnowledge } from '@/lib/manual-knowledge';
 import type { PmTaskState } from '@/lib/pm/task-review';
 import { deriveTroubleshootingChecklistContext, type TroubleshootingChecklist, type TroubleshootingChecklistAsset } from '@/lib/work-orders/troubleshooting-checklist';
 import { loadUploadedAssetGuide } from '@/lib/server/uploaded-asset-guide';
+import {manualPreviewReadOnly} from '@/lib/server/manual-preview';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -20,7 +21,7 @@ const json = (value: unknown, status = 200) => NextResponse.json(value, { status
 const conflict = (message: string, code = 'context_changed') => json({ error: message, conflict: true, code }, 409);
 type Params = { params: Promise<{ id: string }> };
 type Auth = NonNullable<Awaited<ReturnType<typeof requireUser>>>;
-type WorkOrder = { id: string; hotel_id: string; troubleshooting_run_id?: string | null; issue: string; reporter_notes: string | null; asset_id: string | null; revision: number; status: string; created_by: string | null; technician_name: string | null };
+type WorkOrder = { id: string; hotel_id: string; troubleshooting_run_id?: string | null; issue: string; reporter_notes: string | null; notes?:string|null; action_root_cause?:string|null; asset_id: string | null; revision: number; status: string; created_by: string | null; technician_name: string | null };
 type Asset = TroubleshootingChecklistAsset & { pdf_import_links: unknown; active: boolean | null };
 type Authorized = { auth: Auth; order: WorkOrder };
 type Loaded = Authorized & { assetContext: Record<string, unknown> | null; checklist: TroubleshootingChecklist; mayReadGuide: boolean };
@@ -31,7 +32,7 @@ async function authorize(request: NextRequest, params: Params): Promise<Authoriz
   if (auth.principal.hotelId !== HOTEL_ID || !allows(auth.principal, 'view_work_orders')) return json({ error: 'Work-order access is required.' }, 403);
   const { id } = await params.params;
   if (!isUuid(id)) return json({ error: 'A valid work-order ID is required.' }, 400);
-  const ticket = await auth.admin.from('work_orders').select('id,hotel_id,issue,reporter_notes,asset_id,revision,status,created_by,technician_name,troubleshooting_run_id')
+  const ticket = await auth.admin.from('work_orders').select('id,hotel_id,issue,reporter_notes,notes,action_root_cause,asset_id,revision,status,created_by,technician_name,troubleshooting_run_id')
     .eq('hotel_id', auth.principal.hotelId).eq('id', id).maybeSingle();
   if (ticket.error) return json({ error: 'The work order could not be read.' }, 503);
   if (!ticket.data) return json({ error: 'Work order not found.' }, 404);
@@ -49,7 +50,8 @@ async function pendingVisits(auth: Auth, workOrderId: string) {
 }
 
 function visibleChecklist(loaded: Loaded) {
-  return loaded.mayReadGuide ? loaded.checklist : { ...loaded.checklist, contextIdentity: null, steps: [] };
+  const checklist=loaded.mayReadGuide ? loaded.checklist : { ...loaded.checklist, contextIdentity: null, steps: [] };
+  return manualPreviewReadOnly()?{...checklist,canEdit:false,canClearAll:false,canClearOwn:false,reason:'Read-only preview: checklist changes and notes are not saved.'}:checklist;
 }
 
 async function load(request: NextRequest, params: Params, base?: Authorized, allowOwnedClear = false): Promise<Loaded | Response> {
@@ -83,7 +85,7 @@ async function load(request: NextRequest, params: Params, base?: Authorized, all
   }); }
   catch { return finish({ ...empty, reason: 'The attached source document could not be verified. Saved visit changes remain pending for a combined note.' }); }
   const knowledge = normalizeManualKnowledge(result.manualKnowledge);
-  const derived = result.documentation_status === 'verified' ? deriveTroubleshootingChecklistContext({ issue: order.issue || '', reporter_notes: order.reporter_notes, asset }, knowledge) : { contextIdentity: null, steps: [] };
+  const derived = result.documentation_status === 'verified' ? deriveTroubleshootingChecklistContext({ issue: order.issue || '', reporter_notes: order.reporter_notes, notes:order.notes, action_root_cause:order.action_root_cause, asset }, knowledge) : { contextIdentity: null, steps: [] };
   const assetContext = Object.fromEntries(['id', 'manufacturer', 'model_family', 'model_number', 'serial_number', 'documentation_key', 'documentation_revision_id', 'documentation_verified_at', 'pdf_import_links'].map(key => [key, asset[key as keyof Asset] ?? null]));
   if (!derived.contextIdentity) return finish({ ...empty, reason: result.documentation_reason || 'No exact verified uploaded manual guidance is available for this saved equipment.' }, assetContext);
   const contextKey = createHash('sha256').update(order.troubleshooting_run_id ? JSON.stringify([derived.contextIdentity, order.troubleshooting_run_id]) : derived.contextIdentity).digest('hex');
