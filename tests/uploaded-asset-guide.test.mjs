@@ -586,3 +586,16 @@ test('a concurrent reviewed-text correction invalidates an in-flight guide even 
     assert.ok(current.body.manualKnowledge.symptom_rules[0].steps[0].includes('newly corrected'));
   }
 });
+
+test('a reviewed numeric serial range gates the actual troubleshooting source', async () => {
+  const h = fixture();
+  h.state.asset.pdf_import_links[0].serial_range = { kind: 'numeric', from: '100', to: '199' };
+  h.state.asset.serial_number = '150';
+  assert.equal((await h.load()).documentation_status, 'verified');
+  h.state.asset.serial_number = '200';
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  h.state.asset.serial_number = '';
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+  h.state.asset.serial_number = 'A150';
+  assert.equal((await h.load()).documentation_status, 'manual_applicability_unresolved');
+});
