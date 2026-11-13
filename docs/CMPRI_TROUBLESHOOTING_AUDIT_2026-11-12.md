@@ -1,7 +1,5 @@
 # CMPRI troubleshooting guide audit
 
-> Historical baseline from PR #36, preserved during reconciliation into PR #37. The findings below describe main at `12c7a9e`, before the preview implementation. See [the implementation report](CMPRI_MANUAL_READER_PREVIEW_2026-11-12.md) and [pending-work reconciliation](CMPRI_PENDING_WORK_RECONCILIATION_2026-11-12.md) for subsequent changes and validation.
-
 Date: November 12, 2026
 Code reviewed: [main at 12c7a9e](https://github.com/pickeringscott/CMPRI-Engineering/tree/12c7a9e481dd83511a9b1becc0c02bdb92031d10)
 
