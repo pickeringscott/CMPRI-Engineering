@@ -252,7 +252,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
         ...actions.error_codes.map(code => ({ stepLabel: code.action, sourcePages: code.source_pages || [] })),
       ];
       const instructionHash = manualPdfSha256(new TextEncoder().encode(JSON.stringify(steps)));
-      media = await cachedDerivative(`media:v2:${selected.sha256}:${instructionHash}`, () => inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps }));
+      media = await cachedDerivative(`media:v3:${selected.sha256}:${instructionHash}`, () => inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps }));
     } catch {
       if (image) return unavailable('uploaded_image_unavailable', 'The source illustration could not be read safely. Open the approved source PDF instead.');
       failures.push({ status: 'uploaded_image_unavailable', message: 'Some source illustrations could not be read safely. The instructions remain verbatim; open the approved source PDF to view its figures.' });

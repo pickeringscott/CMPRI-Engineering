@@ -245,8 +245,9 @@ export async function inspectUploadedGuideMedia(bytes: Uint8Array, input: {
             const graphic = candidates[0];
             if (graphic[2] < 24 || graphic[3] < 24 || graphic[2] * graphic[3] < 900
               || graphic[2] * graphic[3] > viewport.width * viewport.height * 0.65) continue;
-            const x = Math.max(0, graphic[0] - 4), y = Math.max(0, graphic[1] - 4);
-            const region: Rect = [x, y, Math.min(viewport.width, graphic[0] + graphic[2] + 4) - x, Math.min(viewport.height, graphic[1] + graphic[3] + 4) - y].map(value => Math.round(value * 100) / 100) as Rect;
+            // Painted bounds omit separate labels, arrows and notes. The
+            // association identifies a source page; show its complete contents.
+            const region: Rect = [0, 0, viewport.width, viewport.height];
             const size = outputSize(region);
             const descriptor = { stepLabel: step.stepLabel, sourcePage: number, caption: caption.text, width: size.width, height: size.height };
             const id = mediaId(input.sha256, descriptor, region);

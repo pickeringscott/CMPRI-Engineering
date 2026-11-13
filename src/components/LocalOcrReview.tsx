@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { localOcrFileKind, localOcrImageDimensions, recognizeLocalDocument } from "@/lib/ocr/local-ocr";
 import { createClient } from "@/lib/supabase/client";
+import PdfHtmlPreview from './PdfHtmlPreview';
 
 export type ReviewedOcrText = {
   fileName: string;
@@ -294,7 +295,7 @@ export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "
         <div className="min-w-0 space-y-1">
           <h4 className="break-all font-semibold">Original: {file.name}</h4>
           {fileKind === "pdf"
-            ? <p className="text-xs text-slate-300">Open the downloaded original in a trusted PDF viewer to compare the pages in this pass. PDF content is not embedded here.</p>
+            ? <PdfHtmlPreview key={previewUrl} file={file} />
             : !showImagePreview ? <p className="text-xs text-slate-300">This large image will be resized locally for recognition. Open the downloaded original to compare the result.</p>
             // This is a validated local image blob. A remote image optimizer must not receive it.
             // eslint-disable-next-line @next/next/no-img-element

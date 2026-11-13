@@ -1,0 +1,19 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {loadTs} from './helpers/load-ts.mjs';
+import {eligibleManualLinks} from '../src/lib/manual-applicability.ts';
+const hotel='00000000-0000-4000-8000-000000000001',assetId='00000000-0000-4000-8000-000000000002',fileId='00000000-0000-4000-8000-000000000003';
+function fixture(size=19){
+ const bytes=new Uint8Array(size);bytes.set(new TextEncoder().encode('%PDF-original bytes'));const sha=createHash('sha256').update(bytes).digest('hex');
+ const file={id:fileId,name:'manual.pdf',storage_path:hotel+'/manual.pdf'};
+ const asset={id:assetId,hotel_id:hotel,active:true,pdf_import_links:[{object_id:fileId,storage_path:file.storage_path,sha256:sha,applicability:'confirmed_model',compatibility_basis:'user_confirmed',saved_by:'reader'}]};
+ const state={allowed:true,signed:0,downloads:0,changed:false,reads:0};
+ const admin={from(){const q={select(){return q;},eq(){return q;},maybeSingle:async()=>({data:state.changed&&++state.reads>1?{...asset,active:false}:asset,error:null})};return q;},storage:{from:()=>({download:async()=>{state.downloads++;return {data:new Blob([bytes]),error:null};},createSignedUrl:async()=>{state.signed++;return {data:{signedUrl:'https://storage.test/manual.pdf'},error:null};}})}};
+ const route=loadTs('src/app/api/assets/documentation/source/route.ts',{'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},'node:crypto':{createHash},'@/lib/server/auth':{requireUser:async()=>({admin,principal:{hotelId:hotel}})},'@/lib/server/access':{allows:()=>state.allowed},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/uuid':{isUuid:value=>/^[\da-f-]{36}$/.test(value)},'@/lib/server/asset-file-register':{listRegisteredAssetFiles:async()=>({data:[file],error:null})},'@/lib/manual-applicability':{eligibleManualLinks},'@/lib/server/stored-pdf-status':{withStoredPdfStatus:async()=>[{catalog_status:'complete'}]}},{Response,ReadableStream,Buffer,Uint8Array,Error});
+ return {state,bytes,request:(format='pdf',hash=sha)=>route.GET({nextUrl:new URL(`https://app.test/api/assets/documentation/source?assetId=${assetId}&fileId=${fileId}&sha256=${hash}&format=${format}`)})};
+}
+test('HTML preview receives the verified original bytes in one authenticated read without creating another download link',async()=>{const f=fixture(),response=await f.request();assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/pdf');assert.deepEqual(new Uint8Array(await response.arrayBuffer()),f.bytes);assert.equal(f.state.downloads,1);assert.equal(f.state.signed,0);assert.match(response.headers.get('cache-control'),/no-store/);});
+test('ordinary source links retain their existing signed-link behavior',async()=>{const f=fixture(),response=await f.request('link');assert.equal((await response.json()).url,'https://storage.test/manual.pdf');assert.equal(f.state.signed,1);});
+test('large originals stream in bounded chunks without buffering a platform-sized response body',async()=>{const f=fixture(6*1024*1024),response=await f.request(),reader=response.body.getReader();let chunks=0,total=0;for(;;){const {done,value}=await reader.read();if(done)break;assert.ok(value.length<=64*1024);chunks++;total+=value.length;}assert.ok(chunks>1);assert.equal(total,f.bytes.length);assert.equal(response.headers.get('content-length'),null);});
+test('preview still enforces capabilities, current fingerprint and an unchanged asset association',async()=>{const denied=fixture();denied.state.allowed=false;assert.equal((await denied.request()).status,403);assert.equal(denied.state.downloads,0);const mismatch=fixture();assert.equal((await mismatch.request('pdf','b'.repeat(64))).status,409);const changed=fixture();changed.state.changed=true;assert.equal((await changed.request()).status,409);assert.equal(changed.state.signed,0);});
