@@ -29,6 +29,7 @@ const READ_VIEW_CAPABILITIES = {
 export function availableMcpReadViews(identity: McpIdentity) {
   const views = [
     ...(canUseHoursMcp(identity) ? ["hours_tracker"] : []),
+    ...(allows(identity.principal, "view_pm") ? ["preventive_maintenance"] : []),
     ...(identity.readAllWorkOrders ? DASHBOARD_VIEWS : []),
     ...(allows(identity.principal, "view_dashboard") || allows(identity.principal, "view_pool_log") ? ["pool_log"] as const : []),
     ...(allows(identity.principal, "view_work_orders") ? ["work_orders"] as const : []),
@@ -100,6 +101,16 @@ export async function callMcpReadView(
   }
 
   switch (view) {
+    case "preventive_maintenance": {
+      const week = argument(args, "week", 10);
+      if (!week) throw new Error("A week beginning on Monday in YYYY-MM-DD format is required to read the PM modal.");
+      const query = new URLSearchParams({ week });
+      if (args.id !== undefined) query.set("workOrder", recordId(args));
+      const route = await import("@/app/api/preventive-maintenance/route");
+      const snapshot = await callGet(incoming, `/api/preventive-maintenance?${query}`, route.GET);
+      const { PM_TEMPLATES } = await import("@/lib/pm/catalog");
+      return { ...(snapshot as Record<string, unknown>), templates: PM_TEMPLATES };
+    }
     case "hours_tracker": return readHoursMcp(identity, args);
     case "work_orders": {
       const route = await import("@/app/api/work-orders/route");

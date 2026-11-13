@@ -13,7 +13,7 @@ function load(relative, overrides = {}) {
   const exports={};
   const filename=path.join(root,relative);
   const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-  vm.runInNewContext(source,{exports,URL,Response,TextEncoder,require(name){
+  vm.runInNewContext(source,{exports,URL,URLSearchParams,Response,TextEncoder,require(name){
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
@@ -371,4 +371,80 @@ test('clock dispatch fixes action and forwards bearer without granting generic h
  await enabled.callMcpWriteAction(req,identity('Chief Engineer'),'hours_tracker.clock_in',{request_id:'synthetic-request-001'});
  assert.deepEqual(saved,{body:{request_id:'synthetic-request-001',action:'clock_in'},authorization:'Bearer synthetic-clock-token',path:'/api/hours-tracker/clock'});
  await assert.rejects(()=>enabled.callMcpWriteAction(req,identity('Chief Engineer'),'hours_tracker.clock_in',{request_id:'synthetic-request-001',action:'clock_out'}));
+});
+
+test('PM modal discovery follows view_pm even without broad work-order access',()=>{
+ const pmReads=load('lib/server/cmpri-mcp-reads.ts',{
+  '@/lib/server/access':{allows:(principal,capability)=>capability==='view_pm'&&principal.pmAccess},
+ });
+ const reader={...identity('Maintenance Technician'),canWrite:false,readAllWorkOrders:false,principal:{pmAccess:true}};
+ assert.ok(pmReads.availableMcpReadViews(reader).includes('preventive_maintenance'));
+ assert.ok(!pmReads.availableMcpReadViews(reader).includes('corporate_pm'));
+ assert.ok(!pmReads.availableMcpReadViews({...reader,readAllWorkOrders:true,principal:{pmAccess:false}}).includes('preventive_maintenance'));
+});
+
+test('PM modal read forwards the connected bearer, week and linked work order to the current API',async()=>{
+ const calls=[];
+ const templates=[{id:'daily',checklist:[{id:'task',label:'Check lights'}],fields:[]}];
+ const snapshot={week:'2026-11-09',entries:[{task_states:{task:{status:'needs',workerChecked:true}},revision:4}],review_queue:[{id:'pending',revision:2}],can_edit:false,can_review:false,spreadsheet_sync_enabled:false};
+ const pmReads=load('lib/server/cmpri-mcp-reads.ts',{
+  'next/server':{NextRequest:Request},
+  '@/app/api/preventive-maintenance/route':{GET:async request=>{calls.push({url:new URL(request.url),authorization:request.headers.get('authorization'),method:request.method});return Response.json(snapshot);}},
+  '@/app/api/corporate-pm/route':{GET:()=>assert.fail('PM modal must not use the legacy spreadsheet')},
+  '@/lib/pm/catalog':{PM_TEMPLATES:templates},
+ });
+ const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic-pm-token'})};
+ const result=await pmReads.callMcpReadView(incoming,{...identity('Chief Engineer'),canWrite:false},'preventive_maintenance',{week:'2026-11-09',id:'123e4567-e89b-42d3-a456-426614174000'});
+ assert.deepEqual(JSON.parse(JSON.stringify(result)),{...snapshot,templates});
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].authorization,'Bearer synthetic-pm-token');
+ assert.equal(calls[0].method,'GET');
+ assert.equal(calls[0].url.pathname,'/api/preventive-maintenance');
+ assert.equal(calls[0].url.searchParams.get('week'),'2026-11-09');
+ assert.equal(calls[0].url.searchParams.get('workOrder'),'123e4567-e89b-42d3-a456-426614174000');
+ await assert.rejects(()=>pmReads.callMcpReadView(incoming,identity('Chief Engineer'),'preventive_maintenance',{}),/week beginning on Monday/);
+ await assert.rejects(()=>pmReads.callMcpReadView(incoming,identity('Chief Engineer'),'preventive_maintenance',{week:'2026-11-09',id:'../elsewhere'}),/valid CMPRI record id/);
+ assert.equal(calls.length,1);
+});
+
+test('PM modal read preserves API validation and authorization errors',async()=>{
+ let calls=0;
+ const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic-pm-token'})};
+ for(const [status,error] of [[400,'Select a week beginning on Monday.'],[403,'Preventive Maintenance access is required.'],[503,'PM review records could not be loaded.']]){
+  const pmReads=load('lib/server/cmpri-mcp-reads.ts',{
+   'next/server':{NextRequest:Request},
+   '@/app/api/preventive-maintenance/route':{GET:async()=>{calls++;return Response.json({error},{status});}},
+  });
+  await assert.rejects(()=>pmReads.callMcpReadView(incoming,identity('Chief Engineer'),'preventive_maintenance',{week:'2026-11-09'}),e=>e.message===error);
+ }
+ assert.equal(calls,3);
+ const denied=load('lib/server/cmpri-mcp-reads.ts',{'@/lib/server/access':{allows:()=>false}});
+ await assert.rejects(()=>denied.callMcpReadView(incoming,identity('Chief Engineer'),'preventive_maintenance',{week:'2026-11-09'}),/not permitted/);
+});
+
+test('ChatGPT discovers and calls the PM modal through read_cmpri_data with read-only scope',async()=>{
+ const who={...identity('Chief Engineer'),canWrite:false};
+ let received;
+ const route=load('app/api/mcp/route.ts',{
+  '@/lib/server/cmpri-mcp-oauth-scope':{CMPRI_MCP_RESOURCE:'https://fixture.invalid/api/mcp'},
+  '@/lib/server/cmpri-mcp':{mcpIdentity:async()=>who},
+  '@/lib/server/cmpri-mcp-reads':{
+   availableMcpReadViews:value=>reads.availableMcpReadViews(value),
+   callMcpReadView:async(_request,actor,view,args)=>{received={actor,view,args};return {entries:[],can_edit:false,can_review:false};},
+  },
+  '@/lib/server/cmpri-mcp-writes':{availableMcpWriteActions:()=>[],callMcpWriteAction:()=>assert.fail('Read must not write')},
+  '@/lib/ai/mcp-work-order-location':{resolveMcpWorkOrderLocation:()=>({status:'not_found'})},
+ });
+ const listed=await rpc(route,'tools/list',{});
+ const tool=listed.result.tools.find(t=>t.name==='read_cmpri_data');
+ assert.ok(tool.inputSchema.properties.view.enum.includes('preventive_maintenance'));
+ assert.ok(tool.inputSchema.properties.week);
+ assert.match(tool.description,/corporate_pm is a separate legacy spreadsheet view/);
+ assert.equal(listed.result.tools.some(t=>t.name==='perform_cmpri_write'),false);
+ const called=await rpc(route,'tools/call',{name:'read_cmpri_data',arguments:{view:'preventive_maintenance',week:'2026-11-09'}});
+ assert.equal(called.result.isError,undefined);
+ assert.equal(received.actor,who);
+ assert.equal(received.view,'preventive_maintenance');
+ assert.equal(received.args.week,'2026-11-09');
+ assert.deepEqual(called.result.structuredContent,{entries:[],can_edit:false,can_review:false});
 });
