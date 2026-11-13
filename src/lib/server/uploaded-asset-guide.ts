@@ -252,7 +252,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
         ...actions.error_codes.map(code => ({ stepLabel: code.action, sourcePages: code.source_pages || [] })),
       ];
       const instructionHash = manualPdfSha256(new TextEncoder().encode(JSON.stringify(steps)));
-      media = await cachedDerivative(`media:v2:${selected.sha256}:${instructionHash}`, () => inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps }));
+      media = await cachedDerivative(`media:v3:${selected.sha256}:${instructionHash}`, () => inspectUploadedGuideMedia(selected.bytes, { sha256: selected.sha256, steps }));
     } catch {
       if (image) return unavailable('uploaded_image_unavailable', 'The source illustration could not be read safely. Open the approved source PDF instead.');
       failures.push({ status: 'uploaded_image_unavailable', message: 'Some source illustrations could not be read safely. The instructions remain verbatim; open the approved source PDF to view its figures.' });
@@ -320,7 +320,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       : needsOcr ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
       : searchIncomplete ? `Some pages of ${selected.file.name} have no readable text. ${['pending', 'processing'].includes(ocrStatus) ? 'Text recognition is processing those pages.' : ocrStatus === 'failed' ? 'Text recognition could not finish those pages.' : ocrStatus === 'complete' ? 'Text recognition did not recover searchable text from every page.' : 'Text recognition is unavailable for those pages.'} Search results may be incomplete; open the source PDF to review them.`
       : available ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
-      : `${selected.file.name} is selected for this equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
+      : `${selected.file.name} is attached, but no troubleshooting section or explicit actions were found. Reference pages remain available below. Select a service or troubleshooting manual in Assets to provide procedures.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
   };
   const results: GuideResult[] = [];
   for (const selected of matching) results.push(await readDocument(selected));

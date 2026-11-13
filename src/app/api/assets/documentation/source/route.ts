@@ -34,6 +34,18 @@ export async function GET(request:NextRequest){
     if(bytes.length<5||Buffer.from(bytes.subarray(0,5)).toString()!=='%PDF-'||createHash('sha256').update(bytes).digest('hex')!==sha)return NextResponse.json({error:'The original changed. Reload the guide.'},{status:409,headers});
     const after=await readAsset(),registered=await listRegisteredAssetFiles(auth.admin,assetId);
     if(after.error||registered.error||JSON.stringify(after.data)!==JSON.stringify(asset.data)||JSON.stringify(registered.data)!==JSON.stringify(files.data))return NextResponse.json({error:'The source changed while opening. Reload the guide.'},{status:409,headers});
+    if(request.nextUrl.searchParams.get('format')==='pdf'){
+      // Stream only after the fingerprint and current association are checked.
+      // Original manuals can exceed the hosting platform's buffered-body limit.
+      let offset=0;
+      const stream=new ReadableStream<Uint8Array>({pull(controller){
+        if(request.signal?.aborted){controller.error(new Error('The source request was cancelled.'));return;}
+        const end=Math.min(offset+64*1024,bytes.length);
+        controller.enqueue(bytes.subarray(offset,end));offset=end;
+        if(offset===bytes.length)controller.close();
+      }});
+      return new Response(stream,{headers:{...headers,'Content-Type':'application/pdf','X-Content-Type-Options':'nosniff','Content-Disposition':'inline'}});
+    }
     const signed=await auth.admin.storage.from('asset-documentation').createSignedUrl(file.storage_path,120);
     if(signed.error||!signed.data?.signedUrl)throw Error('The original could not be opened.');
     return NextResponse.json({url:signed.data.signedUrl},{headers});

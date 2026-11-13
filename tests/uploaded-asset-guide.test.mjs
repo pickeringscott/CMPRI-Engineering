@@ -394,6 +394,22 @@ test('an unlabelled future manual exposes searchable source pages without invent
  assert.equal(deriveTroubleshootingChecklistContext({issue:'door lock broken',asset},normalized).steps.length,0);
 });
 
+test('a parts-only attachment stays searchable and explains why it cannot provide a troubleshooting guide', async () => {
+  const bytes = pdf(['Parts Drawing', 'Ref Part No. Description', '1 1001 Exhaust pipe', '2 1002 Gasket']);
+  const partsFile = { ...file, name: 'Equipment Parts List.pdf' };
+  const h = fixture({ files: [partsFile], bytes: new Map([[path, bytes]]) });
+  const result = await h.load();
+  assert.equal(result.documentation_status, 'no_guidance');
+  assert.match(result.documentation_reason, /Equipment Parts List\.pdf.*no troubleshooting section/);
+  assert.match(result.documentation_reason, /service or troubleshooting manual in Assets/);
+  const knowledge = normalizeManualKnowledge(result.manualKnowledge);
+  assert.ok(knowledge.source.file_url);
+  assert.ok(knowledge.source_passages.length);
+  assert.ok(knowledge.source_passages.every(passage => passage.kind === 'reference'));
+  assert.deepEqual(source.relevantSourcePassages(knowledge.source_passages, 'Exhaust errors').map(passage => passage.page), [1]);
+  assert.deepEqual(deriveTroubleshootingChecklistContext({ issue: 'Exhaust errors', asset }, knowledge).steps, []);
+});
+
 
 test('OCR waits for a complete source-specific scan and then exposes source-linked checks',async()=>{
  const h=fixture({bytes:new Map([[path,pdf([], 'scan')]]),ocrStatus:'processing'});const pending=await h.load();assert.equal(pending.documentation_status,'uploaded_document_ocr_processing');assert.deepEqual(pending.manualKnowledge.symptom_rules,[]);

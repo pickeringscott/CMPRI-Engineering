@@ -1,0 +1,28 @@
+.viewport { max-width: 100%; overflow-x: auto; }
+.page { position: relative; width: 100%; background: white; color: black; }
+.page > picture > img { display: block; width: 100%; height: auto; max-height: none; object-fit: contain; }
+.textLayer {
+  position: absolute; inset: 0; text-align: initial; line-height: 1;
+  letter-spacing: normal; word-spacing: normal; transform-origin: 0 0;
+  text-size-adjust: none; forced-color-adjust: none;
+  --min-font-size: 1;
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) {
+  color: transparent; position: absolute; white-space: pre; cursor: text;
+  transform-origin: 0 0; user-select: text;
+}
+.textLayer > :not(:global(.markedContent)),
+.textLayer :global(.markedContent) span:not(:global(.markedContent)) {
+  --font-height: 0; --scale-x: 1; --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer :global(.markedContent) { display: contents; }
+.textLayer[data-main-rotation="90"] { transform: rotate(90deg) translateY(-100%); }
+.textLayer[data-main-rotation="180"] { transform: rotate(180deg) translate(-100%, -100%); }
+.textLayer[data-main-rotation="270"] { transform: rotate(270deg) translateX(-100%); }
+.textLayer ::selection { background: rgb(56 139 253 / 35%); }

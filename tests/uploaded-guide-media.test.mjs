@@ -174,3 +174,11 @@ test('full source pages render their diagrams and tables within mobile-safe boun
   await assert.rejects(renderUploadedGuidePage(replacement, sha256, 3), /SHA-256/);
   await assert.rejects(renderUploadedGuidePage(bytes, sha256, 999), /page/);
 });
+
+test('a cited diagram retains its entire page, including captions and disconnected labels outside painted bounds', async () => {
+  const pdf = vectorPdf({ captions: [{text:'Figure 1: Panel diagram and safety labels.',x:40,y:500}],drawings:[{x:50,y:300,width:400,height:130}] });
+  const [selected] = await inspectUploadedGuideMedia(pdf,{sha256:sha(pdf),steps:[{stepLabel:'Inspect Figure 1.',sourcePages:[1]}]});
+  assert.deepEqual(selected.region,[0,0,612,792]);
+  const image = await loadImage(Buffer.from(await renderUploadedGuideMedia(pdf,selected)));
+  assert.ok(Math.abs(image.width/image.height-612/792)<0.002);
+});

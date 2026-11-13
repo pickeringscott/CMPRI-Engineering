@@ -57,14 +57,14 @@ export function manualPartsPassages(text: string): SourcePassage[] {
     const page = pages[index];
     const header = page.text.match(/\b(?:ref(?:erence)?\s+)?part\s+(?:no\.?|number)\s+description\b/i);
     if (!header || /table of contents/i.test(page.text)) continue;
-    selected.set(page.page, { ...page, kind: "troubleshooting" });
+    selected.set(page.page, { ...page, kind: "reference" });
     const previous = pages[index - 1];
     if (!previous || previous.page !== page.page - 1) continue;
     const title = page.text.slice(0, header.index).replace(/^.*?\b(?:do not copy or transmit)\b/i, "");
     const words = title.toLowerCase().match(/[a-z]{4,}/g) || [];
     const meaningful = words.filter(word => !/^(parts|drawing|models|figure|copyright|alliance|laundry|systems)$/.test(word));
     if (meaningful.some(word => new RegExp(`\\b${word}\\b`, "i").test(previous.text))) {
-      selected.set(previous.page, { ...previous, kind: "troubleshooting" });
+      selected.set(previous.page, { ...previous, kind: "reference" });
     }
   }
   return [...selected.values()].sort((a, b) => a.page - b.page);

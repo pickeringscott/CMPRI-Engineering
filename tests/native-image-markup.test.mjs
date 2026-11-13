@@ -9,7 +9,7 @@ const components = [
   ['src/components/StaffNotesMedia.tsx', 4],
   ['src/components/WorkOrderAttachmentHistory.tsx', 2],
   ['src/components/WorkOrderMediaComposer.tsx', 1],
-  ['src/components/WorkOrderSourcePages.tsx', 1],
+  ['src/components/PdfHtmlPreview.tsx', 1],
 ];
 
 for (const [path, count] of components) test(`${path}: native media stays in layout-neutral picture elements`, () => {
