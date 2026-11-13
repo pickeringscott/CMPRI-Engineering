@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy, TextLayer } from 'pdfjs-dist';
 import { createClient, getValidSession } from '@/lib/supabase/client';
 import { localOcrPaths } from '@/lib/ocr/local-ocr';
+import { themeSourceDiagramBlob } from '@/lib/work-orders/diagram-theme';
 import styles from './PdfHtmlPreview.module.css';
 
 type PdfRuntime = typeof import('pdfjs-dist');
@@ -32,6 +33,18 @@ function PreviewDocument({ file, sourceUrl, userId, pageNumbers, isOpen = true, 
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const surface = useRef<HTMLDivElement>(null);
+  const [paletteVersion, setPaletteVersion] = useState(0);
+  useEffect(() => {
+    if (!surface.current || typeof MutationObserver === 'undefined') return;
+    const signature = () => { const style = getComputedStyle(surface.current!); return style.backgroundColor + '/' + style.color; };
+    let previous = signature();
+    const changed = () => { const next = signature(); if (next !== previous) { previous = next; setPaletteVersion(value => value + 1); } };
+    const observer = new MutationObserver(changed);
+    for (let node: HTMLElement | null = surface.current; node; node = node.parentElement) observer.observe(node, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-cmpri-modal-theme'] });
+    window.addEventListener('cmpri-palette-change', changed);
+    return () => { observer.disconnect(); window.removeEventListener('cmpri-palette-change', changed); };
+  }, []);
   const [started, setStarted] = useState(isOpen);
   if (isOpen && !started) setStarted(true);
   useEffect(() => {
@@ -106,9 +119,8 @@ function PreviewDocument({ file, sourceUrl, userId, pageNumbers, isOpen = true, 
   }, [file, sourceUrl, userId, retry, started]);
   const document = result?.file === file && result?.sourceUrl === sourceUrl ? result?.document ?? null : null;
   const pages = pageNumbers || (document ? Array.from({ length: document.pdf.numPages }, (_, index) => index + 1) : []);
-  return <div data-pdf-html-preview className="min-w-0 space-y-1">
+  return <div ref={surface} data-pdf-html-preview className="min-w-0 space-y-1" style={{backgroundColor:'var(--cmpri-modal-surface,#191b24)',color:'var(--cmpri-modal-text,#f0f1f6)'}}>
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span>HTML manual preview</span>
       <button type="button" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .25))} className="underline">Zoom out</button>
       <span>{Math.round(zoom * 100)}%</span>
       <button type="button" disabled={zoom >= 3} onClick={() => setZoom(value => Math.min(3, value + .25))} className="underline">Zoom in</button>
@@ -117,14 +129,14 @@ function PreviewDocument({ file, sourceUrl, userId, pageNumbers, isOpen = true, 
       : !document ? <p role="status" className="text-xs text-slate-400">{isOpen ? 'Loading original manual for HTML preview…' : 'Open this section to preview the manual.'}</p> : null}
     {pages.map(page => {
       const preview = <div className={styles.viewport}><div style={{ width: `${zoom * 100}%` }}>
-        {document && <HtmlPage key={JSON.stringify([file?.name, sourceUrl, retry, page])} document={document} pageNumber={page} isOpen={isOpen} />}
+        {document && <HtmlPage key={JSON.stringify([file?.name, sourceUrl, retry, page])} document={document} pageNumber={page} isOpen={isOpen} paletteVersion={paletteVersion} />}
       </div></div>;
       return <div key={page}>{renderPage ? renderPage(page, preview) : <section aria-label={`Original PDF page ${page}`}><p className="text-xs">PDF page {page}</p>{preview}</section>}</div>;
     })}
   </div>;
 }
 
-function HtmlPage({ document, pageNumber, isOpen }: { document: Document | null; pageNumber: number; isOpen: boolean }) {
+function HtmlPage({ document, pageNumber, isOpen, paletteVersion }: { document: Document | null; pageNumber: number; isOpen: boolean; paletteVersion:number }) {
   const host = useRef<HTMLDivElement>(null);
   const [seen, setSeen] = useState(false);
   const [activated, setActivated] = useState(false);
@@ -173,10 +185,17 @@ function HtmlPage({ document, pageNumber, isOpen }: { document: Document | null;
           const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
           if (cancelled) return;
           if (!blob) throw Error('This page could not be converted for display.');
-          objectUrl = URL.createObjectURL(blob);
-          setImage(objectUrl); setError('');
           const textContentSource = await page.getTextContent();
           if (cancelled) return;
+          const operators = await page.getOperatorList();
+          if (cancelled) return;
+          const raster = new Set(Object.entries(document.runtime.OPS).filter(([name]) => /paint.*Image|shadingFill|setFillColorN|setStrokeColorN/.test(name)).map(([,op]) => op));
+          const vectorOnly = !operators.fnArray.some(op => raster.has(op));
+          const sourceText = textContentSource.items.map(item => 'str' in item ? item.str : '').join(' ');
+          const themed = await themeSourceDiagramBlob(blob,host.current,sourceText,vectorOnly);
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(themed.blob);
+          setImage(objectUrl); setError('');
           target.replaceChildren();
           target.style.setProperty('--total-scale-factor', String(scale * (page.userUnit || 1)));
           text = new document.runtime.TextLayer({ container: target, viewport: page.getViewport({ scale }), textContentSource });
@@ -188,12 +207,12 @@ function HtmlPage({ document, pageNumber, isOpen }: { document: Document | null;
     }).catch(() => {});
     return () => { cancelled = true; rendering?.cancel(); text?.cancel(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
     // Once visited, keep the rendered page while scrolling or closing the section.
-  }, [document, activated, width, pageNumber, retry]);
+  }, [document, activated, width, pageNumber, retry, paletteVersion]);
   return <div ref={host} className={styles.page} data-pdf-html-page={pageNumber} style={{ aspectRatio: ratio }}>
-    {/* The full-page artwork remains original; the positioned HTML layer supplies selection. */}
+    {/* Neutral page colors follow the app; diagrams, source colors and geometry remain intact. */}
     {image && <picture style={{ display: 'contents' }}><img src={image} alt={`Original PDF page ${pageNumber}, including complete diagrams and tables`} /></picture>}
     <div ref={layer} className={styles.textLayer} data-pdf-text-layer />
-    {!image && !error && <p role="status" className="absolute left-2 top-2 text-xs text-slate-600">{seen ? 'Converting page to HTML…' : 'Page preview loads as you approach it.'}</p>}
-    {error && <p role="alert" className="relative bg-white p-2 text-xs text-red-800">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Retry page</button></p>}
+    {!image && !error && <p role="status" className="absolute left-2 top-2 text-xs opacity-70">{seen ? 'Loading page…' : 'Page loads as you approach it.'}</p>}
+    {error && <p role="alert" className="relative p-2 text-xs text-amber-200">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Retry page</button></p>}
   </div>;
 }

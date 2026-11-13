@@ -72,6 +72,7 @@ async function fixture() {
   await db.exec(migration);
   await db.exec('alter table assets add column serial_number text');
   await db.exec(readFileSync(new URL('../supabase/migrations/20261112065852_troubleshooting_serial_guard.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261113001000_troubleshooting_note_worker_attribution.sql', import.meta.url), 'utf8'));
   async function as(role, fn) {
     await db.exec(`set role ${role}`);
     try { return await fn(); } finally { await db.exec('reset role'); }
@@ -361,7 +362,8 @@ test('exit note distinguishes Chief direct completion from verification of a tec
     const result = await finalize();
     const [note] = parseTicketHistory(result.note);
     assert.match(note.text, /Complete filter inspection — completed and verified;/);
-    assert.match(note.text, /Inspect cooling demand — verified\./);
+    assert.match(note.text, /Inspect cooling demand — verified \(completed by Technician Worker\)\./);
+    assert.equal(note.actor, 'Chief Reviewer');
     assert.equal((note.text.match(/completed and verified/g) || []).length, 1);
     assert.equal(result.event_count, 2, 'Chief visit retains its direct completion and separate review');
     const reviewEvent = (await db.query('select before_state,after_state from cmpri_work_order_troubleshooting_events where actor_id=$1 order by event_number desc limit 1', [actor])).rows[0];

@@ -21,6 +21,7 @@ function fixture(){
    if(['react','react/jsx-runtime'].includes(name))return require(name);
    if(name==='./PdfHtmlPreview.module.css')return {default:{page:'page',viewport:'viewport',textLayer:'textLayer'}};
    if(name==='@/lib/ocr/local-ocr')return {localOcrPaths:()=>({pdfWorkerPath:'/worker',standardFontDataUrl:'/fonts',cMapUrl:'/cmaps',wasmUrl:'/wasm'})};
+   if(name==='@/lib/work-orders/diagram-theme')return {themeSourceDiagramBlob:async(blob)=>({blob,adapted:false})};
    if(name==='@/lib/supabase/client')return {getValidSession:async()=>state.session,createClient:()=>({auth:{onAuthStateChange(fn){subscriptions.add(fn);return {data:{subscription:{unsubscribe(){subscriptions.delete(fn);}}}};}}})};
    if(name==='pdfjs-dist')return {GlobalWorkerOptions:{},getDocument(options){const task={promise:Promise.resolve({numPages:9}),destroy:async()=>destroyed.push(task)};opened.push({task,options});return task;}};
    throw Error(name);

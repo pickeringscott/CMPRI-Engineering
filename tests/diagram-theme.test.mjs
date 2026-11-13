@@ -6,6 +6,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import sharp from 'sharp';
 import {createCanvas} from '@napi-rs/canvas';
+import {getDocument,OPS} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {themeSourceDiagram} from '../src/lib/work-orders/diagram-theme.ts';
 
 const palette={surface:[25,27,36],ink:[240,241,246]};
@@ -49,6 +50,15 @@ test('blank, transparent, complex and unbounded images do not receive a guessed 
   assert.equal(themeSourceDiagram(blank,palette).adapted,false);
 });
 
+test('known vector PDF pages follow the palette even when almost entirely paper',()=>{
+  const data=new Uint8ClampedArray(100*100*4).fill(255);
+  data[404]=data[405]=data[406]=0;
+  const result=themeSourceDiagram({width:100,height:100,data},palette,'Source PDF page',true);
+  assert.equal(result.adapted,true);
+  assert.deepEqual([...result.data.slice(0,3)],palette.surface);
+  assert.deepEqual([...result.data.slice(404,407)],palette.ink);
+});
+
 test('sparse binary halftone texture on white remains original rather than being mistaken for flat artwork',()=>{
   const width=500,height=300,data=new Uint8ClampedArray(width*height*4).fill(255);
   // Ordered halftone shading: the same kind of hard dot edges used in printed/scanned photographs.
@@ -58,17 +68,24 @@ test('sparse binary halftone texture on white remains original rather than being
   assert.equal(result.adapted,false);assert.equal(result.reason,'halftone-texture');assert.equal(result.data,data);
 });
 
-test('actual uploaded PDF vector and raster diagrams adapt only neutral pixels, using either host palette',async()=>{
+test('full PDF vector pages use proven vector geometry for theming while embedded raster pages remain original',async()=>{
   const output=mkdtempSync(path.join(tmpdir(),'cmpri-diagram-theme-'));
+  const task=getDocument({data:new Uint8Array(readFileSync('tests/fixtures/uploaded-guide-diagrams.pdf'))});
   try{
     execFileSync(process.execPath,['--import','./tests/helpers/resolve-ts.mjs','--experimental-strip-types','tests/helpers/uploaded-guide-media-preview.mjs',output],{cwd:process.cwd(),stdio:'pipe'});
     const manifest=JSON.parse(readFileSync(path.join(output,'manifest.json'),'utf8'));
     const variant=manifest.variants[0];
     const selected=[variant.knowledge.step_media.find(item=>/vector diagram/.test(item.caption)),variant.knowledge.step_media.find(item=>/Figure 1/.test(item.caption))];
+    const pdf=await task.promise;
+    const raster=new Set(Object.entries(OPS).filter(([name])=>/paint.*Image|shadingFill|setFillColorN|setStrokeColorN/.test(name)).map(([,op])=>op));
     for(const descriptor of selected){
       assert.ok(descriptor);const {data,info}=await sharp(variant.mediaFiles[descriptor.id]).ensureAlpha().raw().toBuffer({resolveWithObject:true});
+      const page=await pdf.getPage(descriptor.sourcePage),operators=await page.getOperatorList();
+      const vectorOnly=!operators.fnArray.some(op=>raster.has(op));
       for(const current of[palette,{surface:[23,28,35],ink:[242,246,250]}]){
-        const result=themeSourceDiagram({width:info.width,height:info.height,data:new Uint8ClampedArray(data)},current,descriptor.caption);
+        const pixels={width:info.width,height:info.height,data:new Uint8ClampedArray(data)};
+        const result=themeSourceDiagram(pixels,current,descriptor.caption,vectorOnly);
+        if(!vectorOnly){assert.equal(result.adapted,false);assert.equal(result.data,pixels.data);continue;}
         assert.equal(result.adapted,true,descriptor.caption);let paper=0,colors=0;
         for(let i=0;i<data.length;i+=4){
           if(data[i]===255&&data[i+1]===255&&data[i+2]===255){paper++;assert.deepEqual([...result.data.slice(i,i+3)],current.surface);}
@@ -77,5 +94,5 @@ test('actual uploaded PDF vector and raster diagrams adapt only neutral pixels, 
         assert.ok(paper>1000);assert.ok(colors>100);
       }
     }
-  }finally{rmSync(output,{recursive:true,force:true});}
+  }finally{await task.destroy();rmSync(output,{recursive:true,force:true});}
 });

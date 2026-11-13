@@ -96,12 +96,12 @@ async def main():
                 gate.set()
                 await expect(guide.get_by_text('The attachment register is temporarily unavailable.', exact=True)).to_be_visible()
                 state['failed'] = False
-                await guide.get_by_role('button', name='Reload guide', exact=True).click()
+                await guide.get_by_role('button', name='Retry guide', exact=True).click()
                 await expect(guide.get_by_role('checkbox')).to_have_count(1 if row['has_steps'] else 0)
                 if row['has_steps']:
                     await expect(guide.get_by_role('checkbox')).to_be_enabled()
                 else:
-                    await expect(guide.get_by_text('Fixture parts list.pdf is attached', exact=False)).to_be_visible()
+                    await expect(guide.get_by_text('No instructions match this description yet. Describe what you see or hear in the reported issue.', exact=True)).to_be_visible()
                 await expect(guide.get_by_text('The attachment register is temporarily unavailable.', exact=True)).to_have_count(0)
                 assert state['guide_reads'] >= 2
                 assert not errors, errors

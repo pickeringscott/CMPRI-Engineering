@@ -87,7 +87,7 @@ export function prepareUploadedGuide(text: string, identity: SourceIdentity, fil
     : "Troubleshooting and diagnostic excerpts from the uploaded PDF are available with page references." };
 }
 
-const stop = new Set("the and for with this that from have has was were been room unit equipment problem issue not does working work code error fault".split(" "));
+const stop = new Set("the and for with this that from have has was were been room unit equipment appliance machine dryer washer heater boiler problem issue not does working work code error fault".split(" "));
 function sourceSearchText(value: string): string {
   return value.toLowerCase()
     .replace(/\b(?:leaking|leaks|leakage|leaked)\b/g, "leak")
@@ -112,7 +112,7 @@ function sourceSearchWords(value: string): string[] {
     if (word.length > 5 && /(?:sses|ches|shes|xes)$/.test(word)) return word.slice(0, -2);
     if (word.length > 4 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
     return word;
-  });
+  }).filter(word=>!stop.has(word));
 }
 
 const sourceWordCache = new WeakMap<SourcePassage, { text: string; words: Set<string>; headings: Set<string>[] }>();

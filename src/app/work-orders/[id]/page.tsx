@@ -44,7 +44,6 @@ import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
-import ManualCoverage from "@/components/ManualCoverage";
 import ManualSourceLink from "@/components/ManualSourceLink";
 import {diagnosticCodeRuledOut,technicianTroubleshootingContext} from "@/lib/work-orders/technician-context";
 import { assetGuideIdentity, reconcileAssetGuide, type AssetGuideIdentity } from "@/lib/work-orders/asset-guide-cache";
@@ -61,8 +60,9 @@ import { type RoomRankerContext } from "@/lib/work-orders/room-ranker-context";
 import { workOrderHistoryText } from "@/lib/work-order-history";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { canSubmitWorkOrderNote, workOrderEditableFields, type WorkOrderEditableField } from "@/lib/work-order-edit-policy";
-import { relevantSourcePassages, reportedDiagnosticCode } from "@/lib/manual-source";
+import { reportedDiagnosticCode } from "@/lib/manual-source";
 import { guideRulesForIssue, equipmentSearchAliases } from "@/lib/work-orders/guide-selection";
+import { guideSourcePages } from "@/lib/work-orders/guide-source-pages";
 import { inferWorkOrder } from "@/lib/work-order-suggestions";
 import { assignableAssetsForLocation, roomAssetsForInference } from "@/lib/work-orders/assignable-assets";
 
@@ -1359,7 +1359,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
     && !!manualKnowledge.source.storage_path && /^[a-f0-9]{64}$/i.test(manualKnowledge.source.sha256 || "") && !!manualKnowledge.source.registered_file_id;
   const technicianDiagnosticContext=technicianTroubleshootingContext(notes,actionRootCause);
-  const matchedSourcePages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText, technicianDiagnosticContext) : [];
   const matchingSymptomRules = trustedManualKnowledge ? guideRulesForIssue(manualKnowledge, combinedDiagnosticText) : [];
 
   const manualSteps = Array.from(
@@ -1368,6 +1367,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const checklistIssueSaved = issue.trim() === cleanTicketReportedIssue(order?.issue || "", order?.room || "").trim();
   const checklistContextUnsaved = !checklistIssueSaved || assetId !== (order?.asset_id || "") || locationId !== (order?.location_id || "");
   const checklistContext = manualStatus === "verified" ? deriveTroubleshootingChecklistContext({ issue: checklistIssueSaved ? order?.issue || "" : issue, reporter_notes: order?.reporter_notes || "", notes, action_root_cause:actionRootCause, asset: selectedAsset || null }, manualKnowledge) : { contextIdentity: null, steps: [] };
+  const matchedSourcePages = trustedManualKnowledge ? guideSourcePages(manualKnowledge, combinedDiagnosticText, technicianDiagnosticContext, checklistContext.steps) : [];
   const checklistDisabledReason = exitFlushing ? "Saving this visit's checklist activity before leaving."
     : !ticketReady || manualLoading || saving ? "Wait for the current work order and guidance to finish loading or saving."
     : checklistContextUnsaved
@@ -2543,7 +2543,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">Preview. Check marks stay in this browser; live work-order records are unchanged.</p>}
               {selectedAsset && (manualLoading
                 ? <p role="status" className="mt-1 text-sm text-slate-400">Loading the equipment’s uploaded guide…</p>
-                : <button type="button" className="mt-1 text-xs text-sky-300 underline" onClick={() => void loadManualForAsset(selectedAsset, () => readLifetime.current.active)}>Reload guide</button>)}
+                : !trustedManualKnowledge ? <button type="button" className="mt-1 text-xs text-sky-300 underline" onClick={() => void loadManualForAsset(selectedAsset, () => readLifetime.current.active)}>Retry guide</button> : null)}
               {!selectedAsset && (
                 <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">
                   Choose the equipment to read its uploaded manual.
@@ -2564,26 +2564,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </div>
               )}
 
-                {selectedAsset && trustedManualKnowledge && manualKnowledge?.source?.search_incomplete && (
-                  <p role="status" className="text-xs text-amber-300">{manualReason}</p>
-                )}
-                {selectedAsset && trustedManualKnowledge && manualStatus === "no_guidance" && !manualKnowledge?.source?.search_incomplete && (
-                  <p role="status" className="mt-1 text-sm text-amber-100">{manualReason}</p>
-                )}
-                {selectedAsset && trustedManualKnowledge && manualStatus === "uploaded_document_needs_ocr" && (
-                  <p className="text-xs text-amber-300">This document has no searchable text. Open the source to read it.</p>
-                )}
-                {selectedAsset && trustedManualKnowledge && manualStatus === "uploaded_document_ocr_processing" && (
-                  <p className="text-xs text-slate-400">Text recognition is processing the source.</p>
-                )}
-                {selectedAsset && trustedManualKnowledge && manualStatus === "uploaded_document_ocr_failed" && (
-                  <p className="text-xs text-amber-300">Text recognition could not finish. Open the source or retry processing the document.</p>
-                )}
-
-                {selectedAsset && trustedManualKnowledge && manualKnowledge && <ManualCoverage knowledge={manualKnowledge} />}
-                {selectedAsset && trustedManualKnowledge && guideDocuments.length > 1 && <ul className="text-xs text-slate-300" aria-label="Linked manual sources">
-                  {guideDocuments.map(document => <li key={document.storage_path}><ManualSourceLink userId={cmpriSession?.user.id} className="text-sky-300 underline" href={document.url || ""}>{document.name}</ManualSourceLink></li>)}
-                </ul>}
                 {selectedAsset && trustedManualKnowledge && cmpriSession && (
                   <WorkOrderTroubleshootingChecklist
                     workOrderId={order.id}
@@ -2600,7 +2580,6 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     manualUrl={guideDocuments[0]?.url}
                     reportedIssue={issue}
                     equipmentName={selectedAsset.name}
-                    sourceFileName={guideDocuments.length === 1 ? guideDocuments[0]?.name : undefined}
                     assetId={selectedAsset.id}
                     sourceSha256={manualKnowledge?.source?.sha256 || ""}
                   />

@@ -25,7 +25,8 @@ test('source pages are continuous in original order and reset with their documen
   await render({});assert.equal(parent.querySelector('select'),null);
   assert.deepEqual([...parent.querySelectorAll('[data-continuous-source-page]')].map(page=>Number(page.dataset.continuousSourcePage)),[4,8]);
   assert.deepEqual([...parent.querySelectorAll('a')].map(link=>link.getAttribute('href')),['https://cmpri.test/manual.pdf?token=one#page=4','https://cmpri.test/manual.pdf?token=one#page=8']);
-  await render({passages:[passages[1]]});assert.match(parent.textContent,/Diagnostic cooling noise/);assert.doesNotMatch(parent.textContent,/Troubleshooting water leak/);
+  assert.deepEqual([...parent.querySelectorAll('a')].map(link=>link.textContent),['Page 4','Page 8']);
+  await render({passages:[passages[1]]});assert.match(parent.textContent,/Page 8/);assert.doesNotMatch(parent.textContent,/Page 4/);
   await render({passages:[]});assert.equal(parent.querySelector('[data-continuous-source-page]'),null);
  }finally{await React.act(async()=>root.unmount());parent.remove();}
 });
@@ -73,16 +74,13 @@ test('source-page search updates if a source entry changes',async()=>{
 });
 
 
-test('the work-order viewer renders semantic source HTML and never trusts supplied markup', async () => {
+test('each preview has only a linked page number and never repeats filenames or extracted text', async () => {
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);
  try {
   await React.act(async()=>root.render(React.createElement(exports.default,{sourceUrl:'https://cmpri.test/manual.pdf',passages:[{page:6,kind:'reference',origin:'ocr',text:'Door lock stuck\n1. Inspect the latch.\n2. Check <script>alert(1)</script> wiring.',html:'<img src=x onerror=alert(2)>'}]})));
-  assert.equal(parent.querySelector('[data-source-page="6"]').getAttribute('data-source-origin'),'ocr');
-  assert.equal(parent.querySelector('h3').textContent,'Door lock stuck');
-  assert.equal(parent.querySelectorAll('ol li').length,2);
+  assert.equal(parent.querySelectorAll('[data-pdf-html-page="6"]').length,1);
+  assert.equal(parent.textContent,'Page 6');
   assert.equal(parent.querySelector('script,img,svg'),null);
-  assert.match(parent.textContent,/<script>alert\(1\)<\/script>/);
-  assert.match(parent.textContent,/OCR text: compare with the original source page/);
   assert.equal(parent.querySelector('a').getAttribute('href'),'https://cmpri.test/manual.pdf#page=6');
  } finally {await React.act(async()=>root.unmount());parent.remove();}
 });
