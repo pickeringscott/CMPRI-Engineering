@@ -96,6 +96,19 @@ async function fixture() {
   return {db, as, save, finalize};
 }
 
+test('worker attribution preserves the production ranker lock before taking any ticket row lock', async () => {
+  const {db} = await fixture();
+  try {
+    const {body, security_definer} = (await db.query("select prosrc as body, prosecdef as security_definer from pg_proc where oid='public.cmpri_finalize_work_order_troubleshooting(uuid,uuid,uuid,uuid)'::regprocedure")).rows[0];
+    const lock = "perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('cmpri-room-ranker-global',0));";
+    assert.equal(body.split(lock).length - 1, 1);
+    assert.ok(body.indexOf(lock) < body.indexOf('select * into ticket from public.work_orders'));
+    assert.ok(body.indexOf(lock) < body.indexOf('update public.work_orders set'));
+    assert.match(body, /completed by/);
+    assert.equal(security_definer, false);
+  } finally { await db.close(); }
+});
+
 test('checklist saves reject a changed asset serial while older clients remain compatible', async () => {
   const {db, save} = await fixture();
   try {

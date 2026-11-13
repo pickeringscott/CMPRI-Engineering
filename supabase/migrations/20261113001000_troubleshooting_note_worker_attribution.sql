@@ -25,6 +25,9 @@ begin
   if not found then
     raise exception 'An active property account is required.' using errcode = '42501';
   end if;
+  -- Keep the lock order installed by room_ranker_automatic_escalation:
+  -- the shared ranker lock must precede the ticket row lock and note UPDATE.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('cmpri-room-ranker-global',0));
   -- The exclusive ticket lock serializes exit against every checklist save.
   select * into ticket from public.work_orders where id = p_work_order and hotel_id = p_hotel for update;
   if not found then raise exception 'Work order not found.' using errcode = '42501'; end if;
