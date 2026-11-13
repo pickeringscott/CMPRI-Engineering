@@ -1,5 +1,5 @@
 .viewport { max-width: 100%; overflow-x: auto; }
-.page { position: relative; width: 100%; background: white; color: black; }
+.page { position: relative; width: 100%; background: var(--cmpri-modal-surface, #191b24); color: var(--cmpri-modal-text, #f0f1f6); }
 .page > picture > img { display: block; width: 100%; height: auto; max-height: none; object-fit: contain; }
 .textLayer {
   position: absolute; inset: 0; text-align: initial; line-height: 1;

@@ -55,3 +55,39 @@ test('a plain-language complaint can find a generic low-pressure chart',async()=
  const rules=await flowchartBranches(page,items,10,ops);
  assert.equal(guideRulesForIssue({source:{verified:true},symptom_rules:rules},'water pressure is too low').length,1);
 });
+
+function splitDiamond({broken=false,label=true,header='Troubleshooting',title='6. Heating Element Does Not Heat or Burner Does Not Ignite'}={}) {
+ const line=(a,b)=>new Float32Array([0,...a,1,...b]);
+ const paths=[line([20,620],[70,645]),line([70,645],[120,620]),line([120,620],[70,595]),...(!broken?[line([70,595],[20,620])]:[]),rect(150,600,250,640),line([120,620],[145,620]),line([145,620],[150,620])];
+ const heading=item(20,700,title);heading.transform[0]=heading.transform[3]=2;
+ const items=[item(20,740,header),heading,item(40,620,'Supply on?'),item(160,620,'Check valve.'),...(label?[item(130,610,'Yes')]:[])];
+ return {items,page:{getOperatorList:async()=>({fnArray:[ops.constructPath],argsArray:[[0,paths]]})}};
+}
+test('numbered heating charts with separately drawn diamond edges restore conditional checklist steps',async()=>{
+ const {page,items}=splitDiamond();
+ const rules=await flowchartBranches(page,items,25,ops);
+ assert.equal(rules.length,1);
+ assert.deepEqual(rules[0].steps,['Heating Element Does Not Heat or Burner Does Not Ignite — Supply on? — Yes: Check valve.']);
+ assert.deepEqual(rules[0].source_pages,[25]);
+ assert.equal(guideRulesForIssue({source:{verified:true},symptom_rules:rules},'Heat error on dryer').length,1);
+ for(const issue of ['dryer door broken','heating works normally','error code E99','Maybe a heat error'])assert.equal(guideRulesForIssue({source:{verified:true},symptom_rules:rules},issue).length,0,issue);
+});
+test('generic headings never promote open diamonds, missing answers or unrelated numbered sections',async()=>{
+ for(const variant of [{broken:true},{label:false},{header:'Installation'},{title:'6. Electrical Connections'}]){
+  const {page,items}=splitDiamond(variant);assert.deepEqual(await flowchartBranches(page,items,25,ops),[]);
+ }
+});
+
+test('connector answers touching a node never become part of its question',async()=>{
+ const {page,items}=splitDiamond();items.push(item(70,645,'No'));
+ const rules=await flowchartBranches(page,items,25,ops);
+ assert.deepEqual(rules[0].steps,['Heating Element Does Not Heat or Burner Does Not Ignite — Supply on? — Yes: Check valve.']);
+});
+
+test('multiple columns keep the PDF text sequence rather than interleaving by vertical position',async()=>{
+ const paths=[rect(20,600,120,640),rect(150,600,250,640),new Float32Array([0,120,620,1,150,620]),rect(300,630,400,670),rect(430,630,530,670),new Float32Array([0,400,650,1,430,650])];
+ const items=[item(20,740,'TROUBLESHOOTING CHART'),item(40,700,'NO HEAT'),item(30,620,'First check?'),item(160,620,'First action.'),item(310,650,'Later check?'),item(440,650,'Later action.'),item(130,610,'Yes'),item(410,640,'No')];
+ const page={getOperatorList:async()=>({fnArray:[ops.constructPath],argsArray:[[0,paths]]})};
+ const rules=await flowchartBranches(page,items,25,ops);
+ assert.deepEqual(rules[0].steps,['NO HEAT — First check? — Yes: First action.','NO HEAT — Later check? — No: Later action.']);
+});

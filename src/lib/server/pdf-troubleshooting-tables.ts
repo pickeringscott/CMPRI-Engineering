@@ -36,7 +36,7 @@ export async function extractPdfManualStructure(bytes: Uint8Array) {
       rules.push(...diagnosticSectionRules(items, number, page.view[2] - page.view[0]));
       rules.push(...numberedSectionRules(items, number, page.view[2] - page.view[0]));
       rules.push(...flowchartPrerequisites(items, number));
-      if (items.some(item => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(item.str)) && items.some(item => isFlowchartTitle(item.str))) rules.push(...await flowchartBranches(page, items, number, pdfjs.OPS));
+      if (items.some(item => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(item.str)||/^troubleshooting$/i.test(item.str.trim())) && items.some(item => isFlowchartTitle(item.str.trim().replace(/^\d+[.)]\s+/,'')))) rules.push(...await flowchartBranches(page, items, number, pdfjs.OPS));
       const problems = items.filter(item => /^(problem|symptom|trouble|error type)$/i.test(item.str.trim()));
       if (problems.length && items.some(item => /^(solution|corrective action|remedy|check method)$/i.test(item.str.trim()))) {
         const bordered = await borderedTableRules(page, items, number, pdfjs.OPS);

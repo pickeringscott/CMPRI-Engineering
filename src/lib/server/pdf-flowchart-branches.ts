@@ -1,7 +1,7 @@
 import type { ManualSymptomRule } from '@/lib/manual-knowledge';
 
 type Item = { str: string; transform: number[] };
-type Box = { left: number; right: number; bottom: number; top: number; text: string };
+type Box = { left: number; right: number; bottom: number; top: number; text: string; sourceOrder?: number };
 type Point = [number, number];
 type Matrix = [number, number, number, number, number, number];
 type Page = { getOperatorList(): Promise<{ fnArray: number[]; argsArray: unknown[] }> };
@@ -20,7 +20,8 @@ export function isFlowchartTitle(value: string): boolean {
 
 /** Recover only directly connected, explicitly labelled horizontal chart branches. */
 export async function flowchartBranches(page: Page, items: Item[], pageNumber: number, ops: Operators): Promise<ManualSymptomRule[]> {
-  const chartHeader = items.find(item => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(item.str));
+  const chartHeader = items.find(item => /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(item.str))
+    || items.find(item => /^troubleshooting$/i.test(item.str.trim()) && items.some(title => /^\d+[.)]\s+/.test(title.str.trim()) && isFlowchartTitle(title.str.trim().replace(/^\d+[.)]\s+/,''))));
   if (!chartHeader) return [];
   const nearbySizes = items.filter(item => item.transform[5] < chartHeader.transform[5] && chartHeader.transform[5] - item.transform[5] < 300)
     .map(item => Math.hypot(item.transform[0], item.transform[1])).filter(size => size > 0).sort((a,b) => a-b);
@@ -28,11 +29,11 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
   const titles = items.filter(item => {
     const text = item.str.trim();
     const titleSize = Math.hypot(item.transform[0], item.transform[1]);
-    return isFlowchartTitle(text) && item.transform[5] < chartHeader.transform[5] && chartHeader.transform[5] - item.transform[5] < 180
+    return isFlowchartTitle(text.replace(/^\d+[.)]\s+/,'')) && item.transform[5] < chartHeader.transform[5] && chartHeader.transform[5] - item.transform[5] < 180
       && (text === text.toUpperCase() || (bodySize > 0 && titleSize >= bodySize * 1.25));
   });
   if (titles.length !== 1) return [];
-  const title = titles[0].str.trim();
+  const title = titles[0].str.trim().replace(/^\d+[.)]\s+/,'');
   // Short subtitle lines immediately under the chart heading identify the
   // source's equipment/model scope and must travel with its branches.
   const caption = items.filter(item => item.str.trim() && item.transform[5] < chartHeader.transform[5] - 2 && item.transform[5] > titles[0].transform[5] + 2 && chartHeader.transform[5] - item.transform[5] < 35)
@@ -60,7 +61,10 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
           if (points.length === 4) {
             const xs = points.map(value => value[0]), ys = points.map(value => value[1]);
             const box: Box = { left: Math.min(...xs), right: Math.max(...xs), bottom: Math.min(...ys), top: Math.max(...ys), text: '' };
-            if (box.right-box.left > 30 && box.right-box.left < 300 && box.top-box.bottom > 10 && box.top-box.bottom < 100 && new Set(xs.map(Math.round)).size === 2 && new Set(ys.map(Math.round)).size === 2 && !boxes.some(existing => Math.abs(existing.left-box.left)<2 && Math.abs(existing.right-box.right)<2 && Math.abs(existing.top-box.top)<2 && Math.abs(existing.bottom-box.bottom)<2)) boxes.push(box);
+            const rectangle = new Set(xs.map(Math.round)).size === 2 && new Set(ys.map(Math.round)).size === 2;
+            const midX=(box.left+box.right)/2,midY=(box.bottom+box.top)/2;
+            const diamond = points.every(([x,y]) => (Math.abs(x-midX)<2 && (Math.abs(y-box.bottom)<2 || Math.abs(y-box.top)<2)) || (Math.abs(y-midY)<2 && (Math.abs(x-box.left)<2 || Math.abs(x-box.right)<2)));
+            if (box.right-box.left > 30 && box.right-box.left < 300 && box.top-box.bottom > 10 && box.top-box.bottom < 220 && (rectangle || diamond) && !boxes.some(existing => Math.abs(existing.left-box.left)<2 && Math.abs(existing.right-box.right)<2 && Math.abs(existing.top-box.top)<2 && Math.abs(existing.bottom-box.bottom)<2)) boxes.push(box);
           }
           if (current && start) segments.push([current, start]); current = null; start = null; points = [];
         } else if (code === 2) cursor += 6;
@@ -69,13 +73,36 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
       }
     }
   }
-  for (const box of boxes) box.text = items.filter(item => item.str.trim() && item.transform[4] >= box.left-1 && item.transform[4] <= box.right+1 && item.transform[5] >= box.bottom-1 && item.transform[5] <= box.top+1)
-    .sort((a,b) => b.transform[5]-a.transform[5] || a.transform[4]-b.transform[4]).map(item => item.str.trim()).join(' ').replace(/\s+([.,;:!?])/g, '$1').replace(/\s+/g, ' ').trim();
+  // Some PDFs draw each side of a decision diamond as an independent path.
+  // Recover only closed four-edge source shapes; nearby text is not a node.
+  const vertices=new Map<string,Point>(), edges=new Map<string,Set<string>>();
+  const key=(point:Point)=>`${Math.round(point[0])},${Math.round(point[1])}`;
+  for(const [a,b] of segments){
+    const length=Math.hypot(a[0]-b[0],a[1]-b[1]);if(length<10||length>320)continue;
+    const ka=key(a),kb=key(b);vertices.set(ka,a);vertices.set(kb,b);
+    if(!edges.has(ka))edges.set(ka,new Set());if(!edges.has(kb))edges.set(kb,new Set());edges.get(ka)!.add(kb);edges.get(kb)!.add(ka);
+  }
+  for(const [a,adjacent] of edges)for(const b of adjacent)for(const c of edges.get(b)||[])for(const d of edges.get(c)||[]){
+    if(new Set([a,b,c,d]).size!==4||!edges.get(d)?.has(a)||[b,c,d].some(v=>v<a))continue;
+    const points=[a,b,c,d].map(v=>vertices.get(v)!);
+    const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+    const box:Box={left:Math.min(...xs),right:Math.max(...xs),bottom:Math.min(...ys),top:Math.max(...ys),text:''};
+    const midX=(box.left+box.right)/2,midY=(box.bottom+box.top)/2;
+    const diamond=points.every(([x,y])=>(Math.abs(x-midX)<2&&(Math.abs(y-box.bottom)<2||Math.abs(y-box.top)<2))||(Math.abs(y-midY)<2&&(Math.abs(x-box.left)<2||Math.abs(x-box.right)<2)));
+    if(diamond&&box.right-box.left>30&&box.right-box.left<300&&box.top-box.bottom>10&&box.top-box.bottom<220&&!boxes.some(old=>Math.abs(old.left-box.left)<2&&Math.abs(old.right-box.right)<2&&Math.abs(old.top-box.top)<2&&Math.abs(old.bottom-box.bottom)<2))boxes.push(box);
+  }
+  for (const box of boxes) {
+    // Connector answers can touch a diamond's bounding rectangle. They are
+    // branch labels, not part of the question or corrective action.
+    const content = items.filter(item => item.str.trim() && !/^(yes|no)$/i.test(item.str.trim()) && item.transform[4] >= box.left-1 && item.transform[4] <= box.right+1 && item.transform[5] >= box.bottom-1 && item.transform[5] <= box.top+1);
+    box.sourceOrder = content.length ? items.indexOf(content[0]) : items.length;
+    box.text = content.sort((a,b) => b.transform[5]-a.transform[5] || a.transform[4]-b.transform[4]).map(item => item.str.trim()).join(' ').replace(/\s+([.,;:!?])/g, '$1').replace(/\s+/g, ' ').trim();
+  }
   const populated = boxes.filter(box => box.text && box.text.length < 500);
-  const steps = new Map<string, { label: string; top: number; left: number }>();
+  const steps = new Map<string, { label: string; sourceOrder: number }>();
   const record = (from: Box, to: Box, answer: string) => {
     const label = [caption, title, from.text, `${answer}: ${to.text}`].filter(Boolean).join(' — ');
-    if (!steps.has(label)) steps.set(label, { label, top: from.top, left: from.left });
+    if (!steps.has(label)) steps.set(label, { label, sourceOrder: from.sourceOrder ?? items.length });
   };
   for (const from of populated) for (const to of populated) {
     if (from === to || /\?$/.test(to.text) || to.left <= from.right || to.left-from.right > 50) continue;
@@ -83,7 +110,13 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
     if (top-bottom < 5) continue;
     const labels = items.filter(item => /^(yes|no)$/i.test(item.str.trim()) && item.transform[4] >= from.right-4 && item.transform[4] <= to.left+4 && item.transform[5] >= bottom-12 && item.transform[5] <= top+8);
     if (labels.length !== 1) continue;
-    const connected = segments.some(([a,b]) => Math.abs(a[1]-b[1]) < 1 && a[1] >= bottom-2 && a[1] <= top+2 && ((Math.abs(a[0]-from.right)<3 && Math.abs(b[0]-to.left)<3) || (Math.abs(b[0]-from.right)<3 && Math.abs(a[0]-to.left)<3)));
+    // Arrowheads can be separate painted paths. Require a connected chain of
+    // actual segments across this branch corridor, including its arrow tip.
+    const corridor=segments.filter(edge=>edge.every(([x,y])=>x>=from.right-3&&x<=to.left+3&&y>=bottom-3&&y<=top+3));
+    const reached=corridor.flatMap(edge=>edge.filter(([x])=>Math.abs(x-from.right)<3));
+    const near=(a:Point,b:Point)=>Math.hypot(a[0]-b[0],a[1]-b[1])<3;
+    for(let round=0;round<8;round++)for(const [a,b] of corridor){if(reached.some(p=>near(p,a))&&!reached.some(p=>near(p,b)))reached.push(b);if(reached.some(p=>near(p,b))&&!reached.some(p=>near(p,a)))reached.push(a);}
+    const connected=reached.some(([x])=>Math.abs(x-to.left)<3);
     if (connected) record(from, to, labels[0].str.trim());
   }
   for (const from of populated) for (const to of populated) {
@@ -101,10 +134,14 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
   }
   if (!steps.size) return [];
   const match = [title];
+  // A general heating-error report can present source-qualified heating
+  // branches without asserting a fault code or removing their conditions.
+  if (/\b(?:heat|heating|overheating)\b/i.test(title)) match.push('heat error','heating error');
   if (/\bno cooling\b/i.test(title)) match.push('not cooling');
   if (/\bno heat(?:ing)?\b/i.test(title)) match.push('not heating');
   const degree = title.match(/^(low|high|poor|slow)\s+(.+)$/i);
   if (degree) match.push(`${degree[2]} ${degree[1]}`, `${degree[2]} is ${degree[1]}`, `${degree[2]} too ${degree[1]}`, `${degree[2]} is too ${degree[1]}`);
   // Retain the explicit question/answer on every branch; the original chart stays available.
-  return [{ match, steps: [...steps.values()].sort((a,b) => b.top-a.top || a.left-b.left).map(step => step.label), source_pages: [pageNumber] }];
+  // The PDF's text order preserves its multi-column reading sequence.
+  return [{ match, steps: [...steps.values()].sort((a,b) => a.sourceOrder-b.sourceOrder).map(step => step.label), source_pages: [pageNumber] }];
 }

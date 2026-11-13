@@ -42,7 +42,7 @@ export function themeSourceDiagram(image: DiagramPixels, palette: DiagramPalette
     }
   }
   // Flat, sparse, white-paper artwork only. Continuous-tone and ambiguous images stay original.
-  if (paper / count < .45 || paper / count > .975 || borderPaper / border < .90) return unchanged("paper-layout");
+  if (paper / count < .45 || (!vectorPage && paper / count > .975) || borderPaper / border < .90) return unchanged("paper-layout");
   if (!vectorPage && (middle / Math.max(1, ink) > .16 || texture / Math.max(1, pairs) > .12)) return unchanged("continuous-tone");
   // Halftone/dithered photographs have hard binary edges, rather than continuous-tone gradients.
   if (!vectorPage && (isolated / Math.max(1, dark) > .04 || darkTransitions / Math.max(1, dark) > .20)) return unchanged("halftone-texture");

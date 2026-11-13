@@ -235,7 +235,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       actions.symptom_rules.push(...ocrManualActions(ocrPages));
     }
     try {
-      const structure = await cachedDerivative(`structure:v9:${selected.sha256}`, () => extractPdfManualStructure(selected.bytes));
+      const structure = await cachedDerivative(`structure:v10:${selected.sha256}`, () => extractPdfManualStructure(selected.bytes));
       // Do not reintroduce the uncorrected PDF instruction on a reviewed page.
       const eligible=(entry:{source_pages?:number[]})=>!entry.source_pages?.some(page=>reviewedPageNumbers.has(page)||emptyTextPages.has(page));
       actions.symptom_rules.push(...structure.symptom_rules.filter(eligible));
