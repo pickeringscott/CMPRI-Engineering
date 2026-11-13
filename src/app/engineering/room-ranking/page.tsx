@@ -4,7 +4,9 @@ import { subscribeResources } from "@/lib/events/browser";
 import { useEffect, useRef, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
-import { readRankingFloorState, roomRankCounts, type RankedRoom, type RoomRank } from "@/lib/ticket-room-ranking";
+import { isTicketAutomaticallyEscalated, readRankingFloorState, roomRankCounts, type RankedRoom, type RoomRank } from "@/lib/ticket-room-ranking";
+import TicketEscalationIndicator from "@/components/TicketEscalationIndicator";
+import RoomRankerKey from "@/components/RoomRankerKey";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import styles from "./room-ranking.module.css";
@@ -77,6 +79,7 @@ export default function TicketRoomRankerPage() {
       </div>
       {embedded && <ModalDashboardLink className={styles.dashboard}>Dashboard</ModalDashboardLink>}
       <span className={styles.source}>CMPRI tickets · Active priorities and counts</span>
+      {!embedded && <RoomRankerKey />}
     </div>
     {error && <p role="alert" className={styles.error}>{error}{loaded && " Displaying the last successful refresh."}</p>}
     {!loaded && !error && <p role="status" className={styles.message}>Loading rooms and active tickets…</p>}
@@ -88,21 +91,25 @@ export default function TicketRoomRankerPage() {
         return <section key={floor} className={styles.floor} aria-label={`${({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor} Floor`}>
           <button type="button" className={styles.floorHeader} aria-expanded={open} aria-controls={`floor-${floor}`} onClick={() => toggleFloor(floor)}><span>{open ? "▾" : "▸"} {({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor} Floor</span><span>{list.length} rooms</span></button>
           <div id={`floor-${floor}`} hidden={!open}>
-            <div className={styles.columns}><span>Room</span><span>Rank</span><span>Issue</span><span /></div>
+            <div className={styles.columns}><span>Room</span><span>Rank</span><span /><span>Issue</span><span /></div>
             {list.map((room) => <div key={room.id} className={styles.row} data-room={room.number} data-rank={room.rank}>
               <span className={`${styles.room} ${styles[`text${room.rank}`]}`}>{room.number}</span><span className={`${styles.badge} ${styles[room.rank]}`}>{room.rank}</span>
+              {room.issues.some(isTicketAutomaticallyEscalated) ? <TicketEscalationIndicator /> : <span />}
               {room.issues[0] ? <a className={styles.issue} href={`/work-orders/${encodeURIComponent(room.issues[0].id)}`} title={room.issues[0].issue}>{room.issues[0].issue}</a> : <span className={styles.muted}>No active tickets</span>}
-              {room.issues.length > 1 ? <button type="button" className={styles.more} aria-label={`Show ${room.issues.length - 1} additional issues for room ${room.number}`} onClick={() => showAdditional(room)}>+{room.issues.length - 1} more</button> : <span />}
+              {room.issues.length > 1 ? <button type="button" className={styles.more} aria-label={`Show ${room.issues.length - 1} additional issues for room ${room.number}`} title={room.issues.slice(1).map((issue) => issue.issue).join("\n")} onClick={() => showAdditional(room)}>+{room.issues.length - 1} more</button> : <span />}
             </div>)}
             {!list.length && <p className={styles.message}>No matching rooms</p>}
           </div>
         </section>;
       })}
     </div>
-    <p className={styles.legend}>A: fewer than 3 Low and no higher-priority tickets. B: 3 Low or 1–2 Medium. C: 4 or more Low, 3 or more Medium, or any High / Urgent. The highest applicable rank wins. Counts use each ticket&apos;s base priority; affected tickets are raised automatically and return to their base priority as the room improves. Completed, Closed and Will Not Do tickets are excluded. +N more shows additional issues.</p>
-    <dialog ref={dialog} className={styles.dialog}>
+    <dialog ref={dialog} className={styles.dialog} aria-labelledby="additional-issues-title" onClick={(event) => {
+      if (event.target !== event.currentTarget) return;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) event.currentTarget.close();
+    }}>
       <button type="button" className={styles.close} onClick={() => dialog.current?.close()}>Close</button>
-      <h2 className={styles.detailTitle}>Room {selected?.number}<span>{extras.length} additional issue{extras.length === 1 ? "" : "s"}</span></h2>
+      <h2 id="additional-issues-title" className={styles.detailTitle}>Room {selected?.number}<span>{extras.length} additional issue{extras.length === 1 ? "" : "s"}</span></h2>
       <div className={styles.detailColumns}><span>Priority</span><span>Issue</span></div>
       {extras.map((issue) => <div key={issue.id} className={styles.detailRow}><strong>{issue.priority}</strong><a href={`/work-orders/${encodeURIComponent(issue.id)}`}>{issue.issue}</a></div>)}
       {!extras.length && <p className={styles.message}>No additional active issues.</p>}

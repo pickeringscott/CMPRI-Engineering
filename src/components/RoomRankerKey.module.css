@@ -7,3 +7,6 @@
 .panel li + li { margin-top:5px }
 .close { float:right;display:grid;place-items:center;width:26px;height:26px;min-height:0!important;border:1px solid var(--cmpri-outline);border-radius:4px;background:transparent;color:inherit;font-size:20px;line-height:1;cursor:pointer }
 .close:focus-visible { outline:2px solid currentColor;outline-offset:1px }
+
+.panel h3{margin:12px 0 4px;font-size:13px;font-weight:700}
+.escalation{display:flex;align-items:flex-start;gap:9px}

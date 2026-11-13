@@ -5,10 +5,40 @@ const ranking = loadTs('src/lib/ticket-room-ranking.ts');
 const location = (id, number) => ({id, room_number:number, name:'Room '+number, location_type:'Guest Room',active:true});
 const ticket = (id, priority, status='Open', location_id='r1', room='Room 101') => ({id,priority,status,location_id,room,issue:id});
 
+test('escalation marker identifies raised priorities, not a naturally high priority or a restored ticket',()=>{
+ for(const [base,current,expected] of [['Low','Medium',true],['Low','Urgent',true],['Medium','Urgent',true],['High','High',false],['Urgent','Urgent',false],['Low','Low',false],['High','Medium',false],[null,'Urgent',false],[undefined,'Urgent',false]]){
+  assert.equal(ranking.isTicketAutomaticallyEscalated({...ticket('t',current),ranker_base_priority:base}),expected,`${base} to ${current}`);
+ }
+});
+
 test('highest active priority derives room rank and sorts Urgent before High',()=>{
  const rooms=ranking.rankTicketRooms([location('r1','101'),location('r2','102')],[ticket('low','Low'),ticket('high','High'),ticket('urgent','Urgent'),ticket('medium','Medium')]);
  assert.equal(rooms[0].rank,'C'); assert.deepEqual(Array.from(rooms[0].issues,i=>i.priority),['Urgent','High','Medium','Low']);
  assert.equal(rooms[1].rank,'A'); assert.equal(rooms[1].issues.length,0);
+});
+test('automatic urgency ties show the highest original priority in the room list',()=>{
+ const tickets=[
+  {...ticket('a-low','Urgent'),ranker_base_priority:'Low'},
+  {...ticket('b-medium','Urgent'),ranker_base_priority:'Medium'},
+  {...ticket('c-high','Urgent'),ranker_base_priority:'High'},
+  ticket('z-urgent','Urgent'),
+ ];
+ for(const input of [tickets,[...tickets].reverse()]){
+  const room=ranking.rankTicketRooms([location('r1','101')],input)[0];
+  assert.equal(room.issues[0].id,'z-urgent');
+  assert.deepEqual(Array.from(room.issues.slice(1),i=>i.id),['c-high','b-medium','a-low']);
+  assert.equal(room.rank,'C');
+ }
+});
+test('current priority wins before original priority, and equal priorities keep a stable order',()=>{
+ const room=ranking.rankTicketRooms([location('r1','101')],[
+  ticket('z-high','High'),
+  {...ticket('b-escalated','Urgent'),ranker_base_priority:'Low'},
+  {...ticket('a-escalated','Urgent'),ranker_base_priority:'Low'},
+  {...ticket('null-base','Low'),ranker_base_priority:null},
+  ticket('no-base','Low'),
+ ])[0];
+ assert.deepEqual(Array.from(room.issues,i=>i.id),['a-escalated','b-escalated','z-high','no-base','null-base']);
 });
 test('priority and status changes recompute rather than preserve a corporate or stale rank',()=>{
  for(const [priority,expected]of [['Low','A'],['Medium','B'],['High','C'],['Urgent','C']])assert.equal(ranking.rankTicketRooms([location('r1','101')],[ticket('t',priority)])[0].rank,expected);

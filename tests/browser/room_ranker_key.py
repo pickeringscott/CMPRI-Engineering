@@ -42,6 +42,9 @@ async def main():
    await page.locator('.cmpri-header-v23').wait_for(timeout=60000)
    await page.evaluate("window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/engineering/room-ranking',title:'Room Ranker'}}))")
    shell=page.locator('.cmpri-modal-shell').last
+   # Wait for the host's initial iframe focus before exercising help focus.
+   frame=await (await shell.locator('iframe').element_handle()).content_frame()
+   await frame.get_by_role('group',name='Filter rooms by rank').wait_for(timeout=60000)
    await check(shell,page,'modal '+str(width))
    await shell.get_by_role('button',name='Close Room Ranker',exact=True).click()
    await expect(shell).to_have_count(0)
@@ -49,6 +52,8 @@ async def main():
     await page.locator('.cmpri-header-v23 .action[data-key="/engineering/room-ranking"]').click()
     window=page.locator('[data-cmpri-desktop-window="/engineering/room-ranking"]')
     await expect(window).to_be_visible()
+    frame=await (await window.locator('iframe').element_handle()).content_frame()
+    await frame.get_by_role('group',name='Filter rooms by rank').wait_for(timeout=60000)
     await check(window,page,'desktop window')
    assert not errors,errors
    await ctx.close()
