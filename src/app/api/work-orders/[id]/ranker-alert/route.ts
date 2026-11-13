@@ -3,17 +3,20 @@ import { requireUser } from "@/lib/server/auth";
 import { workOrderReader } from "@/lib/server/work-order-reader";
 import { canReadWorkOrder } from "@/lib/work-order-read-policy";
 import { isUuid } from "@/lib/uuid";
+import { isTicketAutomaticallyEscalated } from "@/lib/ticket-room-ranking";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: "Invalid work order." }, { status: 400 });
-  const { data: order, error } = await auth.admin.from("work_orders").select("id,hotel_id,location_id,room,ranker_alert_active,status")
+  const { data: order, error } = await auth.admin.from("work_orders").select("id,hotel_id,location_id,room,priority,ranker_base_priority,status")
     .eq("hotel_id", auth.principal.hotelId).eq("id", id).maybeSingle();
   if (error) return NextResponse.json({ error: "Room Ranker alert is unavailable." }, { status: 503 });
   if (!order || !canReadWorkOrder(workOrderReader(auth.principal), order)) return NextResponse.json({ error: "Work order unavailable." }, { status: 404 });
-  if (!order.ranker_alert_active || (!order.location_id && !order.room) || ["Closed", "Will Not Do"].includes(order.status)) return NextResponse.json({ active: false, related: [] });
+  // The stored alert remembers past escalation. The visible flag must reflect
+  // the current priority so it clears as soon as Room Ranker restores it.
+  if (!isTicketAutomaticallyEscalated(order) || (!order.location_id && !order.room) || ["Completed", "Closed", "Will Not Do"].includes(order.status)) return NextResponse.json({ active: false, related: [] }, { headers: { "Cache-Control": "private, no-store" } });
   let query = auth.admin.from("work_orders").select("id,display_id,hotel_id,status")
     .eq("hotel_id", auth.principal.hotelId).neq("id", id)
     .in("status", ["Open", "In Progress"]).order("created_at", { ascending: true });

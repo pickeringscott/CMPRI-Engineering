@@ -6,7 +6,7 @@ export type RankedRoom = { id: string; number: string; floor: string; rank: Room
 const excluded = new Set(["Completed", "Closed", "Will Not Do"]);
 const priorityOrder: Record<string, number> = { Urgent: 3, High: 2, Medium: 1, Low: 0 };
 
-export function isTicketAutomaticallyEscalated(ticket: RankingTicket): boolean {
+export function isTicketAutomaticallyEscalated(ticket: Pick<RankingTicket, "priority" | "ranker_base_priority">): boolean {
   return ticket.ranker_base_priority != null && priorityOrder[ticket.priority] > priorityOrder[ticket.ranker_base_priority];
 }
 
