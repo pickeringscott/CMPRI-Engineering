@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { localOcrFileKind, localOcrImageDimensions, recognizeLocalDocument } from "@/lib/ocr/local-ocr";
 import { createClient } from "@/lib/supabase/client";
 import PdfHtmlPreview from './PdfHtmlPreview';
+import PdfArtworkZoom from './PdfArtworkZoom';
 
 export type ReviewedOcrText = {
   fileName: string;
@@ -41,6 +42,7 @@ export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "
   const abortRef = useRef<AbortController | null>(null);
   const selectionRef = useRef(0);
   const previewRef = useRef("");
+  const imagePreviewHost = useRef<HTMLDivElement>(null);
   const completedRef = useRef<ReviewedOcrText['pages']>([]);
 
   useEffect(() => {
@@ -296,10 +298,11 @@ export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "
           <h4 className="break-all font-semibold">Original: {file.name}</h4>
           {fileKind === "pdf"
             ? <PdfHtmlPreview key={previewUrl} file={file} />
-            : !showImagePreview ? <p className="text-xs text-slate-300">This large image will be resized locally for recognition. Open the downloaded original to compare the result.</p>
-            // This is a validated local image blob. A remote image optimizer must not receive it.
-            // eslint-disable-next-line @next/next/no-img-element
-            : <img src={previewUrl} alt={`Original document: ${file.name}`} className="max-h-96 w-full rounded-lg border border-slate-700 object-contain" />}
+            : <div ref={imagePreviewHost} className="relative">
+                {!showImagePreview ? <p className="pr-10 text-xs text-slate-300">This large image will be resized locally for recognition. Open the original to compare the result.</p>
+                  : <picture><img src={previewUrl} draggable={false} alt={`Original document: ${file.name}`} className="max-h-96 w-full rounded-lg border border-slate-700 object-contain" /></picture>}
+                <PdfArtworkZoom key={previewUrl} host={imagePreviewHost} imageUrl={previewUrl} />
+              </div>}
           <a href={previewUrl} download={file.name} className="inline-block text-xs text-sky-300 underline">Download original for comparison</a>
         </div>
         <div className="min-w-0 space-y-3">

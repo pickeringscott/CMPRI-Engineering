@@ -45,7 +45,8 @@ function fixture(initial = asset()) {
     getValidSession: async () => ({ access_token: 'fixture-token' }),
     manualCompletedIdentity: completed, manualSelection: selection, manualLoadGeneration: { current: 0 },
     setAssets: next => { state.assets = typeof next === 'function' ? next(state.assets) : next; },
-    setManualResult: next => { state.result = next; },
+    setManualResult: next => { state.result = typeof next === 'function' ? next(state.result) : next; },
+    setManualRefreshing: next => { state.refreshing = next; },
 
   };
   const load = evaluate(`${loadSource}\nexports.value = loadManualForAsset;`, base);
@@ -72,6 +73,17 @@ function fixture(initial = asset()) {
     dispose: () => cleanup?.(),
   };
 }
+
+test('a same-source refresh retains the visible guide and disables checks until the recheck completes',async t=>{
+  t.mock.method(globalThis,'fetch',async()=>response(asset()));
+  const f=fixture();t.after(f.dispose);f.render();await f.settle();
+  const visible=f.state.result;
+  const pending=deferred();t.mock.method(globalThis,'fetch',()=>pending.promise);
+  const loading=f.reload();await tick();
+  assert.equal(f.state.result,visible);assert.equal(f.state.refreshing,true);assert.equal(f.current(),true);
+  pending.resolve(response(asset()));await loading;
+  assert.equal(f.state.refreshing,false);assert.equal(f.state.result.knowledge.source.sha256,visible.knowledge.source.sha256);
+});
 
 for (const type of ['washer', 'television', 'shower', 'door-lock']) test(`successful ${type} guide reconciles a newer revision/model and remains visible without a load loop`, async t => {
   const initial = asset(type), updated = { ...initial, model_number: 'Model-B', documentation_revision_id: 'revision-b', documentation_verified_at: '2026-11-10T12:00:00Z' };

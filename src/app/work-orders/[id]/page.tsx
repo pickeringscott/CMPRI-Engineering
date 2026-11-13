@@ -686,6 +686,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [manualResult, setManualResult] = useState<{ asset: AssetGuideIdentity; knowledge: ManualKnowledge | null; status: string; reason?: string; readOnly?:boolean } | null>(null);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const manualCompletedIdentity = useRef("");
   const manualLoadGeneration = useRef(0);
   const manualSelection = useRef("");
@@ -789,7 +790,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const manualKnowledge = manualCurrent && manualResult?.knowledge?.source?.source_kind === "asset-upload" ? manualResult.knowledge : null;
   const manualStatus = manualCurrent ? manualResult?.status : null;
   const manualReason = manualCurrent ? manualResult?.reason : null;
-  const manualLoading = !!selectedAsset && !manualCurrent;
+  const manualLoading = !!selectedAsset && (!manualCurrent || manualRefreshing);
   const guideSource = manualKnowledge?.source;
   const guideDocuments = (manualKnowledge?.sources?.length ? manualKnowledge.sources : guideSource ? [guideSource] : [])
     .filter(source => source.source_kind === "asset-upload" && source.storage_path).map(source => ({
@@ -1249,7 +1250,10 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     const requestIdentity = `${id}:${assetGuideIdentity(asset)}`;
     if (!isCurrent() || manualSelection.current !== requestIdentity) return;
     const generation = ++manualLoadGeneration.current;
-    setManualResult(null);
+    setManualRefreshing(true);
+    // Retain already rendered source pages while rechecking this same identity.
+    // A changed asset/source identity still clears immediately; checks wait below.
+    setManualResult(current => current && assetGuideIdentity(current.asset) === assetGuideIdentity(asset) ? current : null);
     let sourceAsset = asset;
     let knowledge: ManualKnowledge | null = null;
     let readOnly=false;
@@ -1279,6 +1283,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       knowledge = null;
       documentationReason = error instanceof Error ? error.message : "The uploaded guide could not be loaded. Try loading it again.";
     } finally {
+      if (generation === manualLoadGeneration.current) setManualRefreshing(false);
       if (isCurrent() && generation === manualLoadGeneration.current && manualSelection.current === requestIdentity) {
         // The guide endpoint can return a newer saved identity than the list.
         // Reconcile both snapshots so a successful guide does not stay hidden.

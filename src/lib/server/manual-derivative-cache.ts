@@ -1,8 +1,9 @@
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {HOTEL_ID} from '@/lib/constants';
-import {inspectManualPdf} from '../manual-pdf-knowledge';
+import {inspectManualPdf,manualPdfSha256} from '../manual-pdf-knowledge';
 import type {ManualPageQuality} from '../manual-page-quality';
 import {manualPreviewReadOnly} from './manual-preview';
+import {extractPdfManualStructure} from './pdf-troubleshooting-tables';
 
 const version='manual-reader-v4';
 const prefix=(sha:string)=>`${version}-${sha}-`;
@@ -24,4 +25,42 @@ export async function inspectCachedManualPdf(admin:SupabaseClient,bytes:Uint8Arr
     // A stopped request leaves completed batches reusable on the next read.
     try{await admin.from('troubleshooting_cache').upsert({hotel_id:HOTEL_ID,cache_type:'asset_manual_knowledge',cache_key:`${prefix(sha)}${batch[0].page}`,payload,expires_at:new Date(Date.now()+86400000).toISOString()},{onConflict:'hotel_id,cache_type,cache_key'});}catch{/* The original is still usable when caching is unavailable. */}
   }});
+}
+
+type PdfStructure = Awaited<ReturnType<typeof extractPdfManualStructure>>;
+const structureVersion = 'manual-pdf-structure-v10';
+const strings = (value: unknown): value is string[] => Array.isArray(value) && value.length <= 25000 && value.every(item => typeof item === 'string' && item.length <= 50000);
+const pages = (value: unknown) => Array.isArray(value) && value.length > 0 && value.every(page => Number.isSafeInteger(page) && page > 0 && page <= 10000);
+function validStructure(value: unknown): value is PdfStructure {
+  if (!value || typeof value !== 'object') return false;
+  const s = value as PdfStructure;
+  return strings(s.warnings) && Array.isArray(s.symptom_rules) && s.symptom_rules.length <= 25000 && Array.isArray(s.error_codes) && s.error_codes.length <= 25000
+    && s.symptom_rules.every(rule => rule && strings(rule.match) && strings(rule.steps) && pages(rule.source_pages)
+      && (rule.prerequisites === undefined || strings(rule.prerequisites)) && (rule.reference_only === undefined || typeof rule.reference_only === 'boolean')
+      && Object.keys(rule).every(key => ['match','steps','source_pages','prerequisites','reference_only'].includes(key)))
+    && s.error_codes.every(code => code && typeof code.code === 'string' && typeof code.problem === 'string' && typeof code.action === 'string' && pages(code.source_pages)
+      && (code.subcode === undefined || typeof code.subcode === 'string') && (code.unit_response === undefined || typeof code.unit_response === 'string')
+      && Object.keys(code).every(key => ['code','subcode','problem','action','unit_response','source_pages'].includes(key)));
+}
+
+/** Reuse only geometry-derived extraction, including across cold function instances.
+ * Asset approvals, reviewed corrections and permissions stay outside this cache.
+ */
+export async function readCachedPdfStructure(admin: SupabaseClient, bytes: Uint8Array, sha: string): Promise<PdfStructure> {
+  if (!/^[a-f0-9]{64}$/.test(sha) || manualPdfSha256(bytes) !== sha) throw Error('The PDF structure fingerprint changed.');
+  const key = `${structureVersion}-${sha}`;
+  try {
+    const result = await admin.from('troubleshooting_cache').select('payload,expires_at').eq('hotel_id',HOTEL_ID).eq('cache_type','asset_manual_knowledge').eq('cache_key',key).limit(1);
+    const row = result.data?.[0], payload = row?.payload;
+    if (row && !result.error && payload?.kind === 'manual-pdf-structure' && payload.version === structureVersion && payload.sha256 === sha
+      && Date.parse(row.expires_at) > Date.now() && validStructure(payload.structure)) return payload.structure;
+  } catch { /* An unavailable derivative must not prevent reading the source. */ }
+  const structure = await extractPdfManualStructure(bytes);
+  const payload = {kind:'manual-pdf-structure',version:structureVersion,sha256:sha,structure};
+  if (!manualPreviewReadOnly() && validStructure(structure) && JSON.stringify(payload).length <= 1500000) {
+    try {
+      await admin.from('troubleshooting_cache').upsert({hotel_id:HOTEL_ID,cache_type:'asset_manual_knowledge',cache_key:key,payload,expires_at:new Date(Date.now()+86400000).toISOString()},{onConflict:'hotel_id,cache_type,cache_key'});
+    } catch { /* Preserve a usable source result when caching fails. */ }
+  }
+  return structure;
 }

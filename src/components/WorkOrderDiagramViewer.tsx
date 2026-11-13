@@ -3,7 +3,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { SourceSemantics } from "@/lib/work-orders/source-semantics";
 
-type Props = { imageUrl: string; title: string; onClose: () => void; semantics?: SourceSemantics | null };
+export type DiagramTouchStart = { identifier: number; clientX: number; clientY: number }[];
+type Props = { imageUrl: string; title: string; onClose: () => void; semantics?: SourceSemantics | null; initialTouches?: DiagramTouchStart };
 const surfaceStyle = { backgroundColor: "var(--cmpri-modal-surface,#191b24)", color: "var(--cmpri-modal-text,#f0f1f6)", borderColor: "var(--cmpri-outline,rgba(162,171,209,.42))" };
 const controlStyle = { backgroundColor: "rgba(var(--cmpri-action-rgb,162,171,209),.14)", borderColor: "var(--cmpri-outline,rgba(162,171,209,.42))" };
 type Point = { x: number; y: number };
@@ -26,13 +27,14 @@ function bounded(view: View, geometry: Geometry): View {
 }
 
 /** The parent supplies an authorized image; no extra fetch or proxy is used. */
-export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, semantics }: Props) {
+export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, semantics, initialTouches }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<Gesture | null>(null);
+  const transferredPinch = useRef<(() => void) | null>(null);
   const viewRef = useRef<View>(INITIAL_VIEW);
   const [frame, setFrame] = useState({ source: imageUrl, view: INITIAL_VIEW });
   const [imageState, setImageState] = useState<{ source: string; state: "loading" | "ready" | "error" }>({ source: imageUrl, state: "loading" });
@@ -76,6 +78,37 @@ export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, seman
     const scale = clamp(current.scale * factor, 1, 6);
     commit({ scale, x: current.x * scale / current.scale, y: current.y * scale / current.scale });
   }
+
+  useLayoutEffect(() => {
+    if (!initialTouches || initialTouches.length !== 2) return;
+    // A pinch started on an inline page keeps working after the dialog opens.
+    const first = initialTouches[0], second = initialTouches[1];
+    const startMidpoint = midpoint({x:first.clientX,y:first.clientY},{x:second.clientX,y:second.clientY});
+    const startDistance = Math.max(1, Math.hypot(first.clientX-second.clientX,first.clientY-second.clientY));
+    let latest = initialTouches, finished = false;
+    const apply = () => {
+      if (finished || !imageRef.current?.complete || !imageRef.current.naturalWidth) return;
+      const [a,b] = latest, center = midpoint({x:a.clientX,y:a.clientY},{x:b.clientX,y:b.clientY});
+      const rect = viewportRef.current?.getBoundingClientRect();
+      const next = bounded({scale:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)/startDistance,x:center.x-startMidpoint.x,y:center.y-startMidpoint.y},
+        {width:rect?.width||0,height:rect?.height||0,imageWidth:imageRef.current.offsetWidth,imageHeight:imageRef.current.offsetHeight});
+      viewRef.current = next; setFrame({source:imageUrl,view:next});
+    };
+    transferredPinch.current = apply;
+    const move = (event: TouchEvent) => {
+      const active = Array.from(event.touches);
+      const a = active.find(touch=>touch.identifier===first.identifier), b = active.find(touch=>touch.identifier===second.identifier);
+      if (!a || !b || finished) return;
+      event.preventDefault(); latest = [a,b]; apply();
+    };
+    const end = (event: TouchEvent) => {
+      if (Array.from(event.touches).some(touch=>touch.identifier===first.identifier) && Array.from(event.touches).some(touch=>touch.identifier===second.identifier)) return;
+      finished = true; transferredPinch.current = null;
+    };
+    window.addEventListener('touchmove',move,{passive:false,capture:true});
+    window.addEventListener('touchend',end,true); window.addEventListener('touchcancel',end,true);
+    return () => { transferredPinch.current=null; window.removeEventListener('touchmove',move,true); window.removeEventListener('touchend',end,true); window.removeEventListener('touchcancel',end,true); };
+  }, [imageUrl, initialTouches]);
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
@@ -181,7 +214,7 @@ export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, seman
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           {/* This approved local image is supplied by the parent; Next's optimizer must not refetch it. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img key={imageUrl} ref={imageRef} data-diagram-image="true" src={imageUrl} alt={title} draggable={false} className="max-h-full max-w-full select-none object-contain" style={{ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`, transformOrigin: "center" }} onLoad={() => { setImageState({ source: imageUrl, state: "ready" }); reset(); }} onError={() => { releasePointers(); setImageState({ source: imageUrl, state: "error" }); }} />
+          <img key={imageUrl} ref={imageRef} data-diagram-image="true" src={imageUrl} alt={title} draggable={false} className="max-h-full max-w-full select-none object-contain" style={{ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`, transformOrigin: "center" }} onLoad={() => { setImageState({ source: imageUrl, state: "ready" }); reset(); transferredPinch.current?.(); }} onError={() => { releasePointers(); setImageState({ source: imageUrl, state: "error" }); }} />
         </div>
       </div>
     </div>

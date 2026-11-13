@@ -86,13 +86,13 @@ const effects=component.body.statements.filter(n=>ts.isExpressionStatement(n)&&n
 const manualEffect=effects.find(n=>n.getText(ast).includes('loadManualForAsset(selectedAsset')).getText(ast);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function hydrationHarness(asset) {
- const writes=[],pending=[],urls=[];let cleanup; let assets=[asset];
+ const writes=[],pending=[],urls=[];let cleanup, result=null; let assets=[asset];
  const selectionKey=`test-ticket:${assetGuideIdentity(asset)}`;
  const globals={id:"test-ticket",assetGuideIdentity,reconcileAssetGuide,manualSelection:{current:selectionKey},manualCompletedIdentity:{current:""},manualLoadGeneration:{current:0},manualSelectionKey:selectionKey,selectedAsset:asset,assetId:asset?.id,
   setAssets:next=>{assets=typeof next==="function"?next(assets):next;},
   getValidSession:async()=>({access_token:'fixture'}),authorizationHeaders:async()=>({}),
   // This harness records completed lookups; null is the loading transition.
-  normalizeManualKnowledge:x=>x,setManualResult:x=>{if(x)writes.push(x);},
+  normalizeManualKnowledge:x=>x,setManualRefreshing:()=>{},setManualResult:x=>{result=typeof x==='function'?x(result):x;if(result)writes.push(result);},
   fetch:url=>{urls.push(String(url));return new Promise(resolve=>pending.push(resolve));},encodeURIComponent,
   window:{setInterval:()=>1,clearInterval(){}},document:{addEventListener(){},removeEventListener(){}},
   subscribeResources(_topics,load,initial=true){if(initial)void load();return ()=>{};},
