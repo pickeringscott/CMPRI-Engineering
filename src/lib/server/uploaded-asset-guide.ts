@@ -320,7 +320,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       : needsOcr ? `${selected.file.name} contains no readable text. Open the source; text recognition is needed to search it.`
       : searchIncomplete ? `Some pages of ${selected.file.name} have no readable text. ${['pending', 'processing'].includes(ocrStatus) ? 'Text recognition is processing those pages.' : ocrStatus === 'failed' ? 'Text recognition could not finish those pages.' : ocrStatus === 'complete' ? 'Text recognition did not recover searchable text from every page.' : 'Text recognition is unavailable for those pages.'} Search results may be incomplete; open the source PDF to review them.`
       : available ? `Troubleshooting information comes only from the attached ${selected.file.name}. Compare the cited source pages before acting.`
-      : `${selected.file.name} is selected for this equipment, but no extractable troubleshooting section or explicit actions were found. Open the attached PDF.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
+      : `${selected.file.name} is attached, but no troubleshooting section or explicit actions were found. Reference pages remain available below. Select a service or troubleshooting manual in Assets to provide procedures.`, manualKnowledge, documentation_warnings: failures.map(failure => failure.message) };
   };
   const results: GuideResult[] = [];
   for (const selected of matching) results.push(await readDocument(selected));

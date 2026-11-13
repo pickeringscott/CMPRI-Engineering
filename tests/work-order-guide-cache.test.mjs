@@ -43,7 +43,7 @@ function fixture(initial = asset()) {
   const base = { id: 'test-ticket', assetGuideIdentity, reconcileAssetGuide, normalizeManualKnowledge,
     fetch: (...args) => globalThis.fetch(...args),
     getValidSession: async () => ({ access_token: 'fixture-token' }),
-    manualCompletedIdentity: completed, manualSelection: selection,
+    manualCompletedIdentity: completed, manualSelection: selection, manualLoadGeneration: { current: 0 },
     setAssets: next => { state.assets = typeof next === 'function' ? next(state.assets) : next; },
     setManualResult: next => { state.result = next; },
 
@@ -65,7 +65,7 @@ function fixture(initial = asset()) {
     });
     cleanup = run();
   }
-  return { state, render, selected,
+  return { state, render, selected, reload: () => load(selected()),
     current: () => evaluate(`exports.value = ${currentSource};`, { selectedAsset: selected(), manualResult: state.result, assetGuideIdentity }),
     refresh: () => state.subscriptions.at(-1).request(),
     settle: async () => { await tick(); await Promise.all(state.pending); await tick(); },
@@ -87,6 +87,41 @@ for (const type of ['washer', 'television', 'shower', 'door-lock']) test(`succes
   assert.equal(checklist.contextIdentity, serverContext.contextIdentity);
   f.render(); await f.settle(); assert.equal(calls, 1); assert.equal(f.state.subscriptions.at(-1).initial, false);
   f.refresh(); await f.settle(); assert.equal(calls, 2); assert.equal(f.current(), true);
+});
+
+test('a failed guide request exposes its error and can recover for the same equipment', async t => {
+  let attempts = 0;
+  t.mock.method(globalThis, 'fetch', async () => ++attempts === 1
+    ? { ok: false, status: 503, json: async () => ({ error: 'The attachment register is temporarily unavailable.' }) }
+    : response(asset()));
+  const f = fixture(); t.after(f.dispose); f.render(); await f.settle();
+  assert.equal(f.current(), true);
+  assert.equal(f.state.result.status, 'lookup_unavailable');
+  assert.match(f.state.result.reason, /attachment register is temporarily unavailable/);
+  await f.reload();
+  assert.equal(attempts, 2);
+  assert.equal(f.state.result.status, 'verified');
+  assert.equal(f.state.result.knowledge.source.registered_file_id, 'file-washer');
+});
+
+test('a non-JSON timeout response remains retryable and does not hide behind an empty result', async t => {
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 504, json: async () => { throw Error('Unexpected HTML'); } }));
+  const f = fixture(); t.after(f.dispose); f.render(); await f.settle();
+  assert.equal(f.state.result.knowledge, null);
+  assert.match(f.state.result.reason, /504/);
+});
+
+test('a same-equipment reload shows loading and cannot be overwritten by an older response', async t => {
+  const old = deferred(), fresh = deferred(); let attempts = 0;
+  t.mock.method(globalThis, 'fetch', () => ++attempts === 1 ? old.promise : fresh.promise);
+  const f = fixture(); t.after(f.dispose); f.render(); await tick();
+  const reloaded = f.reload(); await tick();
+  assert.equal(f.current(), false);
+  fresh.resolve(response(asset())); await reloaded;
+  old.resolve({ ok: false, status: 503, json: async () => ({ error: 'An older read failed.' }) });
+  await f.settle();
+  assert.equal(f.state.result.status, 'verified');
+  assert.equal(f.current(), true);
 });
 
 test('null and absent optional values are equivalent; revisions and exact model numbers are not', () => {

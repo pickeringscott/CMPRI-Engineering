@@ -7,6 +7,30 @@ function select(issue, headings) {
   return guideRulesForIssue(knowledge, issue).map(rule => rule.match[0]);
 }
 
+test('function-first failure descriptions select only that function across equipment types', () => {
+  const headings = ['No Power', 'No heat', 'Not cooling', 'No Drain', 'No Fill', 'Water leak'];
+  for (const [issue, expected] of [
+    ['Heat not working says its running but never got warm', ['No heat']],
+    ['Heating is not working', ['No heat']],
+    ['Cooling does not work', ['Not cooling']],
+    ['Washer drain is not working', ['No Drain']],
+    ['Filling not working', ['No Fill']],
+    ['Power is not working', ['No Power']],
+    ['No heating issues; cooling not working', ['Not cooling']],
+    ['Heating not working earlier; heating is fine', []],
+    ['Maybe heating is not working', []],
+  ]) assert.deepEqual(select(issue, headings), expected, issue);
+});
+
+test('plural issue wording matches the same explicit source heading without guessing a fault code', () => {
+  assert.deepEqual(select('Heater has exhaust errors', ['Exhaust error', 'Ignition error', 'Exhaust error when firing']), ['Exhaust error']);
+  assert.deepEqual(select('Washer has drain errors', ['Drain error', 'Fill error']), ['Drain error']);
+  assert.deepEqual(select('No exhaust errors', ['Exhaust error']), []);
+  assert.deepEqual(select('Possibly exhaust errors', ['Exhaust error']), []);
+  assert.deepEqual(select('Exhaust errors', ['Error code E110', 'Exhaust error E110']), []);
+  assert.deepEqual(select('Cooling issues', ['Not cooling', 'No heat']), ['Not cooling']);
+});
+
 for (const issue of ["It won’t turn on", "It won't start", 'The machine does not start', 'The unit cannot turn on']) test(`${issue} selects only explicit power/start or general nonoperation instructions`, () => {
   assert.deepEqual(select(issue, ['No Power', 'Will not start', 'Does not operate', 'No heat', 'Water leak']), ['No Power', 'Will not start', 'Does not operate']);
 });

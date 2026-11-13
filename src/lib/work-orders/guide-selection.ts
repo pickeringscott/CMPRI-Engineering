@@ -12,6 +12,7 @@ function symptomText(value: string) {
     .replace(/\bdoesn'?t\b/g, 'does not').replace(/\bdon'?t\b/g, 'do not')
     .replace(/\bisn'?t\b/g, 'is not').replace(/\baren'?t\b/g, 'are not')
     .replace(/\bwasn'?t\b/g, 'was not').replace(/\bweren'?t\b/g, 'were not')
+    .replace(/\b(errors|faults|issues|problems)\b/g, word => word.slice(0, -1))
     .replace(/\b(noisy|noises|loud)\b/g, "noise")
     .replace(/\b(rattling|rattles)\b/g, "rattle").replace(/\b(vibrating|vibrates)\b/g, "vibration")
     .replace(/[^a-z0-9]+/g, " ").replace(/\bnoise(?:\s+noise)+\b/g, 'noise').trim();
@@ -26,6 +27,12 @@ const symptomPatterns: { symptom: Symptom; pattern: RegExp }[] = [
   { symptom: 'cool', pattern: new RegExp(`\\b(?:no\\s*cool(?:ing)?|${failure} (?:cool(?:ing)?|(?:get(?:ting)?|become) cold))\\b`, 'g') },
   { symptom: 'drain', pattern: new RegExp(`\\b(?:no\\s*drain(?:ing)?|${failure} drain(?:ing)?|drain (?:failure|failed))\\b`, 'g') },
   { symptom: 'fill', pattern: new RegExp(`\\b(?:no\\s*fill(?:ing)?|${failure} fill(?:ing)?|fill (?:failure|failed))\\b`, 'g') },
+  // Staff often put the failing function first: "heat not working" rather
+  // than the manual's "not heating". Keep the named function as a requirement.
+  ...([
+    ['power', 'power'], ['heat', '(?:heat|heating)'], ['cool', '(?:cool|cooling)'],
+    ['drain', '(?:drain|draining)'], ['fill', '(?:fill|filling)'],
+  ] as const).map(([symptom, topic]) => ({ symptom, pattern: new RegExp(`\\b${topic} (?:is |was )?${failure} (?:work(?:ing)?|operat(?:e|ing))\\b`, 'g') })),
   { symptom: 'leak', pattern: /\b(?:water leak(?:age|ing|s)?|leak(?:age|ing|s)?|drip(?:ping|s)?|water (?:is |was )?(?:all )?(?:over|on|across) (?:the )?(?:floor|ground))\b/g },
   { symptom: 'noise', pattern: /\b(?:(?:abnormal|unusual|excessive) )?noise\b/g },
   { symptom: 'rattle', pattern: /\brattle\b/g },

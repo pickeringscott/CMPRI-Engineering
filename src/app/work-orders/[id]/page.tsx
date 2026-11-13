@@ -687,6 +687,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [manualResult, setManualResult] = useState<{ asset: AssetGuideIdentity; knowledge: ManualKnowledge | null; status: string; reason?: string; readOnly?:boolean } | null>(null);
   const manualCompletedIdentity = useRef("");
+  const manualLoadGeneration = useRef(0);
   const manualSelection = useRef("");
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
   const [workOrderImagesLoading, setWorkOrderImagesLoading] = useState(true);
@@ -1246,6 +1247,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   async function loadManualForAsset(asset?: Asset, isCurrent: () => boolean = () => true) {
     if (!asset) return;
     const requestIdentity = `${id}:${assetGuideIdentity(asset)}`;
+    if (!isCurrent() || manualSelection.current !== requestIdentity) return;
+    const generation = ++manualLoadGeneration.current;
+    setManualResult(null);
     let sourceAsset = asset;
     let knowledge: ManualKnowledge | null = null;
     let readOnly=false;
@@ -1254,13 +1258,14 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     try {
       const session = await getValidSession();
       const token = session?.access_token;
-      if (!token) return;
+      if (!token) throw new Error("Your session has expired. Sign in again to load the guide.");
       const response = await fetch(`/api/maintenance-reference?assetId=${encodeURIComponent(asset.id)}&source=asset-upload`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
-      if (!response.ok) return;
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || `The guide request failed (${response.status}). Try loading it again.`);
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("The guide response could not be read. Try loading it again.");
       readOnly=payload.preview_read_only===true;
       const currentAsset = Array.isArray(payload?.assets) ? payload.assets.find((item: Asset) => item?.id === asset.id) : null;
       if (currentAsset) sourceAsset = { ...asset, ...currentAsset };
@@ -1270,10 +1275,11 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       documentationReason = candidate && !knowledge
         ? "Only an approved document uploaded to this equipment can provide instructions."
         : String(payload?.documentation_reason || "The approved uploaded document has no instructions matching this report.");
-    } catch {
+    } catch (error) {
       knowledge = null;
+      documentationReason = error instanceof Error ? error.message : "The uploaded guide could not be loaded. Try loading it again.";
     } finally {
-      if (isCurrent() && manualSelection.current === requestIdentity) {
+      if (isCurrent() && generation === manualLoadGeneration.current && manualSelection.current === requestIdentity) {
         // The guide endpoint can return a newer saved identity than the list.
         // Reconcile both snapshots so a successful guide does not stay hidden.
         manualCompletedIdentity.current = `${id}:${assetGuideIdentity(sourceAsset)}`;
@@ -2535,6 +2541,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               </summary>
 
               {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">Preview. Check marks stay in this browser; live work-order records are unchanged.</p>}
+              {selectedAsset && (manualLoading
+                ? <p role="status" className="mt-1 text-sm text-slate-400">Loading the equipment’s uploaded guide…</p>
+                : <button type="button" className="mt-1 text-xs text-sky-300 underline" onClick={() => void loadManualForAsset(selectedAsset, () => readLifetime.current.active)}>Reload guide</button>)}
               {!selectedAsset && (
                 <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">
                   Choose the equipment to read its uploaded manual.
@@ -2557,6 +2566,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
                 {selectedAsset && trustedManualKnowledge && manualKnowledge?.source?.search_incomplete && (
                   <p role="status" className="text-xs text-amber-300">{manualReason}</p>
+                )}
+                {selectedAsset && trustedManualKnowledge && manualStatus === "no_guidance" && !manualKnowledge?.source?.search_incomplete && (
+                  <p role="status" className="mt-1 text-sm text-amber-100">{manualReason}</p>
                 )}
                 {selectedAsset && trustedManualKnowledge && manualStatus === "uploaded_document_needs_ocr" && (
                   <p className="text-xs text-amber-300">This document has no searchable text. Open the source to read it.</p>
@@ -2595,7 +2607,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 )}
 
               <div className="mt-0.5 pr-1">
-                {selectedAsset && trustedManualKnowledge && !(["uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.</p>}
+                {selectedAsset && trustedManualKnowledge && !(["no_guidance", "uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.</p>}
 
                 {reportedCode && !matchingErrorCode && (
                   <p className="mt-1 text-sm text-slate-400">
