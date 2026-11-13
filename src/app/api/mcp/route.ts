@@ -73,7 +73,7 @@ const MCP_TOOLS = [
   },
   {
     name: "read_cmpri_data",
-    description: `Read manager and engineering data from CMPRI using the connected user's current role and permissions. Choose a view from the allowed views listed for this account. For the Preventative Maintenance (PM) modal, use preventive_maintenance with week set to the Monday starting the requested week (YYYY-MM-DD). It returns the modal's saved entries, task states, review queue, current permissions, locations, and form templates. Optional id opens the same work-order-linked PM context as the modal. corporate_pm is a separate legacy spreadsheet view; do not use it for the PM modal. Report saved task/review states as returned; do not treat the empty workbook placeholder as completed or missing inspections. Supply record ids, dates, rooms, or asset ids when other views require them. ${ROOM_OPERATIONS_REPORTING_INSTRUCTIONS}`,
+    description: `Read manager and engineering data from CMPRI using the connected user's current role and permissions. Choose a view from the allowed views listed for this account. For the Preventative Maintenance (PM) modal, use preventive_maintenance with week set to the Monday starting the requested week (YYYY-MM-DD). It returns the modal's saved entries, task states, review queue, current permissions, locations, and form templates. Optional id opens the same work-order-linked PM context as the modal. For older connections, corporate_pm without sheet also reads the PM modal: date selects its week, or defaults to the current week in America/Chicago; room optionally selects that room's PM entries. Only an explicit sheet requests the legacy Corporate PM spreadsheet. Report saved task/review states as returned; do not treat the empty workbook placeholder as completed or missing inspections. Supply record ids, dates, rooms, or asset ids when other views require them. ${ROOM_OPERATIONS_REPORTING_INSTRUCTIONS}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -83,8 +83,8 @@ const MCP_TOOLS = [
         week: { type: "string", description: "Monday starting the requested week (YYYY-MM-DD), required for preventive_maintenance (the PM modal)." },
         facility: { type: "string", description: "Optional active pool facility id." },
         asset_id: { type: "string", description: "Equipment id for equipment documentation or a focused maintenance reference." },
-        room: { type: "string", description: "Room name/number for Corporate PM." },
-        sheet: { type: "string", description: "Sheet name for Corporate PM when no room is specified." },
+        room: { type: "string", description: "Optional room number for PM modal entries, including older corporate_pm calls." },
+        sheet: { type: "string", description: "Explicit legacy Corporate PM spreadsheet sheet; omit for the current PM modal." },
       },
       required: ["view"],
       additionalProperties: false,

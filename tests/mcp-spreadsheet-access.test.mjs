@@ -9,11 +9,11 @@ import ts from 'typescript';
 
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 
-function load(relative, overrides = {}) {
+function load(relative, overrides = {}, globals = {}) {
   const exports={};
   const filename=path.join(root,relative);
   const source=ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-  vm.runInNewContext(source,{exports,URL,URLSearchParams,Response,TextEncoder,require(name){
+  vm.runInNewContext(source,{exports,URL,URLSearchParams,Response,TextEncoder,...globals,require(name){
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
@@ -439,7 +439,7 @@ test('ChatGPT discovers and calls the PM modal through read_cmpri_data with read
  const tool=listed.result.tools.find(t=>t.name==='read_cmpri_data');
  assert.ok(tool.inputSchema.properties.view.enum.includes('preventive_maintenance'));
  assert.ok(tool.inputSchema.properties.week);
- assert.match(tool.description,/corporate_pm is a separate legacy spreadsheet view/);
+ assert.match(tool.description,/corporate_pm without sheet also reads the PM modal/);
  assert.equal(listed.result.tools.some(t=>t.name==='perform_cmpri_write'),false);
  const called=await rpc(route,'tools/call',{name:'read_cmpri_data',arguments:{view:'preventive_maintenance',week:'2026-11-09'}});
  assert.equal(called.result.isError,undefined);
@@ -447,4 +447,89 @@ test('ChatGPT discovers and calls the PM modal through read_cmpri_data with read
  assert.equal(received.view,'preventive_maintenance');
  assert.equal(received.args.week,'2026-11-09');
  assert.deepEqual(called.result.structuredContent,{entries:[],can_edit:false,can_review:false});
+});
+
+test('cached corporate_pm room calls read the modal without touching Google Sheets',async()=>{
+ const requests=[];
+ const snapshot={entries:[{id:'101',scope_key:'room:101'},{id:'102',scope_key:'room:102'},{id:'daily',scope_key:'property'}],review_queue:[{id:'review',scope_key:'room:101'},{id:'other',scope_key:'room:102'}],can_review:false};
+ const pmReads=load('lib/server/cmpri-mcp-reads.ts',{
+  'next/server':{NextRequest:Request},
+  '@/lib/pm/catalog':{PM_TEMPLATES:[],pmWeekStart:date=>{assert.equal(date,'2026-11-12');return '2026-11-09';}},
+  '@/app/api/preventive-maintenance/route':{GET:async request=>{requests.push(new URL(request.url));assert.equal(request.headers.get('authorization'),'Bearer synthetic');return Response.json(snapshot);}},
+  '@/app/api/corporate-pm/route':{GET:()=>assert.fail('Legacy cached calls must not use Google Sheets')},
+ });
+ const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic'})};
+ const result=await pmReads.callMcpReadView(incoming,{...identity('Chief Engineer'),canWrite:false},'corporate_pm',{room:'Room 101',date:'2026-11-12'});
+ assert.equal(requests[0].pathname,'/api/preventive-maintenance');
+ assert.equal(requests[0].searchParams.get('week'),'2026-11-09');
+ assert.equal(result.requested_room,'101');
+ assert.deepEqual(result.entries,snapshot.entries.slice(0,1));
+ assert.deepEqual(result.review_queue,snapshot.review_queue.slice(0,1));
+ assert.equal(result.can_review,false);
+});
+
+test('cached PM calls default to the hotel week across the UTC Monday boundary',async()=>{
+ class FixedDate extends Date { constructor(value){super(value===undefined?'2026-11-16T02:30:00Z':value);} }
+ const pmReads=load('lib/server/cmpri-mcp-reads.ts',{
+  'next/server':{NextRequest:Request},
+  '@/lib/pm/catalog':{PM_TEMPLATES:[],pmWeekStart:date=>{assert.equal(date,'2026-11-15');return '2026-11-09';}},
+  '@/app/api/preventive-maintenance/route':{GET:async request=>Response.json({week:new URL(request.url).searchParams.get('week'),entries:[],review_queue:[]})},
+ },{Date:FixedDate});
+ const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic'})};
+ const result=await pmReads.callMcpReadView(incoming,identity('Chief Engineer'),'corporate_pm',{});
+ assert.equal(result.week,'2026-11-09');
+});
+
+test('cached PM route preserves PM permission checks and rejects invalid dates',async()=>{
+ let apiCalls=0;
+ const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic'})};
+ const denied=load('lib/server/cmpri-mcp-reads.ts',{
+  '@/lib/server/access':{allows:(_principal,capability)=>capability!=='view_pm'},
+  '@/lib/pm/catalog':{pmWeekStart:()=> '2026-11-09'},
+  '@/app/api/preventive-maintenance/route':{GET:()=>{apiCalls++;assert.fail('PM access must be checked again');}},
+ });
+ await assert.rejects(()=>denied.callMcpReadView(incoming,identity('General Manager'),'corporate_pm',{date:'2026-11-12'}),/not permitted/);
+ for(const date of ['2026-02-30','2026-13-01','bad']){
+  await assert.rejects(()=>reads.callMcpReadView(incoming,identity('Chief Engineer'),'corporate_pm',{date}),/valid date/);
+ }
+ assert.equal(apiCalls,0);
+});
+
+test('explicit legacy sheet reads retain their existing administrator restriction',async()=>{
+ let requested;
+ const pmReads=load('lib/server/cmpri-mcp-reads.ts',{
+  'next/server':{NextRequest:Request},
+  '@/app/api/corporate-pm/route':{GET:async request=>{requested=new URL(request.url);return Response.json({sheet:'NOV'});}},
+  '@/app/api/preventive-maintenance/route':{GET:()=>assert.fail('An explicit spreadsheet request is distinct')},
+ });
+ const incoming={nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic'})};
+ await assert.rejects(()=>pmReads.callMcpReadView(incoming,identity('Chief Engineer'),'corporate_pm',{sheet:'NOV'}),/System Administrators/);
+ await pmReads.callMcpReadView(incoming,identity('System Administrator'),'corporate_pm',{sheet:'NOV'});
+ assert.equal(requested.pathname,'/api/corporate-pm');
+ assert.equal(requested.searchParams.get('sheet'),'NOV');
+ await assert.rejects(()=>pmReads.callMcpReadView(incoming,identity('System Administrator'),'corporate_pm',{room:'101',sheet:'NOV'}),/not both/);
+});
+
+test('the exact cached ChatGPT tool call works without a week field or new tool discovery',async()=>{
+ const who={...identity('Chief Engineer'),canWrite:false};
+ let path;
+ const modalReads=load('lib/server/cmpri-mcp-reads.ts',{
+  'next/server':{NextRequest:Request},
+  '@/lib/pm/catalog':{PM_TEMPLATES:[],pmWeekStart:()=> '2026-11-09'},
+  '@/app/api/preventive-maintenance/route':{GET:async request=>{path=new URL(request.url).pathname;return Response.json({entries:[{scope_key:'room:101',responses:{lights:'complete'}}],review_queue:[]});}},
+  '@/app/api/corporate-pm/route':{GET:()=>assert.fail('Cached tool call must not reach Google Sheets')},
+ });
+ const route=load('app/api/mcp/route.ts',{
+  '@/lib/server/cmpri-mcp-oauth-scope':{CMPRI_MCP_RESOURCE:'https://fixture.invalid/api/mcp'},
+  '@/lib/server/cmpri-mcp':{mcpIdentity:async()=>who},
+  '@/lib/server/cmpri-mcp-reads':modalReads,
+  '@/lib/server/cmpri-mcp-writes':{availableMcpWriteActions:()=>[],callMcpWriteAction:()=>assert.fail('Read must not write')},
+  '@/lib/ai/mcp-work-order-location':{resolveMcpWorkOrderLocation:()=>({status:'not_found'})},
+ });
+ const response=await route.POST({nextUrl:{origin:'https://fixture.invalid'},headers:new Headers({authorization:'Bearer synthetic'}),json:async()=>({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'read_cmpri_data',arguments:{view:'corporate_pm',room:'101'}}})});
+ const payload=await response.json();
+ assert.equal(payload.result.isError,undefined);
+ assert.equal(path,'/api/preventive-maintenance');
+ assert.equal(payload.result.structuredContent.requested_room,'101');
+ assert.equal(payload.result.structuredContent.entries[0].responses.lights,'complete');
 });
