@@ -9,6 +9,6 @@ export default function TicketEscalationIndicator() {
   const id = useId();
   return <span className={styles.indicator} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
     <button type="button" className={styles.trigger} aria-label="Ticket Escalation" aria-describedby={open ? id : undefined} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onClick={() => setOpen(true)} onKeyDownCapture={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}><TicketEscalationMark /></button>
-    {open && <span id={id} role="tooltip" className={styles.tooltip}><TicketEscalationMark /><span>!Ticket Escalation!</span></span>}
+    {open && <span id={id} role="tooltip" className={styles.tooltip}><TicketEscalationMark /><span>Ticket Escalation</span><TicketEscalationMark /></span>}
   </span>;
 }

@@ -33,7 +33,7 @@ export default function RoomRankerKey() {
   }, [open]);
 
   return <>
-    <button ref={trigger} type="button" className={styles.trigger} aria-label="Room ranker key" aria-expanded={open} aria-controls={id} onPointerDown={event => event.stopPropagation()} onClick={event => { setContainer(event.currentTarget.closest<HTMLElement>("[data-cmpri-modal-theme]") || event.currentTarget.closest<HTMLElement>("main")); setOpen(value => !value); }}>?</button>
+    <button ref={trigger} type="button" className={styles.trigger} aria-label="Room ranker key" title="Room Ranker Help" aria-expanded={open} aria-controls={id} onPointerDown={event => event.stopPropagation()} onClick={event => { setContainer(event.currentTarget.closest<HTMLElement>("[data-cmpri-modal-theme]") || event.currentTarget.closest<HTMLElement>("main")); setOpen(value => !value); }}>?</button>
     {open && container && createPortal(<section ref={panel} id={id} className={styles.panel} aria-label="Room ranker key">
       <button type="button" className={styles.close} aria-label="Close room ranker key" onClick={() => { setOpen(false); trigger.current?.focus(); }}>×</button>
       <h2>Room ranker key</h2>
