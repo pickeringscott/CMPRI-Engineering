@@ -11,8 +11,10 @@ export type TroubleshootingStepMedia = ManualProvenance & {
 };
 export type ManualErrorCode = ManualProvenance & {
   code: string;
+  subcode?: string;
   problem: string;
   action: string;
+  unit_response?: string;
   source_pages?: number[];
   source_url?: string;
 };
@@ -22,6 +24,8 @@ export type ManualSymptomRule = ManualProvenance & {
   steps: string[];
   source_pages?: number[];
   source_url?: string;
+  prerequisites?: string[];
+  reference_only?: boolean;
 };
 
 export type ManualTestEntry = {
@@ -56,6 +60,8 @@ export type ManualKnowledge = {
     storage_path?: string;
     registered_file_id?: string;
     registered_updated_at?: string | null;
+    coverage?: { total_pages: number; indexed_pages: number; needs_ocr: number[]; warnings: string[] };
+    page_labels?: Record<string, string>;
   };
   error_codes?: ManualErrorCode[];
   symptom_rules?: ManualSymptomRule[];
@@ -127,14 +133,16 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
           const item = objectRecord(entry);
           return {
             code: String(item.code ?? item.id ?? "").trim(),
+            ...(item.subcode ? { subcode: String(item.subcode) } : {}),
             problem: String(item.problem ?? item.description ?? item.meaning ?? "").trim(),
             action: String(item.action ?? item.solution ?? item.corrective_action ?? "").trim(),
+            ...(item.unit_response ? { unit_response: String(item.unit_response) } : {}),
             source_pages: pageNumbers(item.source_pages ?? item.pages),
             ...provenance(item),
             ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
         })
-        .filter((item) => item.code && (item.problem || item.action))
+        .filter((item) => item.code && (item.problem || item.action || item.unit_response))
     : [];
   const symptom_rules = Array.isArray(rawRules)
     ? rawRules
@@ -147,6 +155,8 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
             match: Array.isArray(matchRaw) ? matchRaw.map(String) : [String(matchRaw || "")].filter(Boolean),
             steps: Array.isArray(stepsRaw) ? stepsRaw.map(String) : [String(stepsRaw || "")].filter(Boolean),
             source_pages: pageNumbers(item.source_pages ?? item.pages),
+            ...(Array.isArray(item.prerequisites) ? { prerequisites: stringList(item.prerequisites) } : {}),
+            ...(item.reference_only === true ? { reference_only: true } : {}),
             ...provenance(item),
             ...(item.source_url ? { source_url: String(item.source_url) } : {}),
           };
@@ -196,11 +206,14 @@ export function normalizeManualKnowledge(input: unknown): ManualKnowledge | null
       ...(source.sha256 ? { sha256: String(source.sha256) } : {}),
       ...(source.registered_file_id ? { registered_file_id: String(source.registered_file_id) } : {}),
       ...(source.registered_updated_at !== undefined ? { registered_updated_at: source.registered_updated_at === null ? null : String(source.registered_updated_at) } : {}),
+      ...(source.coverage && typeof source.coverage === 'object' && Number.isSafeInteger(objectRecord(source.coverage).total_pages) && Number.isSafeInteger(objectRecord(source.coverage).indexed_pages)
+        ? { coverage:{total_pages:Number(objectRecord(source.coverage).total_pages),indexed_pages:Number(objectRecord(source.coverage).indexed_pages),needs_ocr:pageNumbers(objectRecord(source.coverage).needs_ocr).filter(p=>p<=10000),warnings:stringList(objectRecord(source.coverage).warnings)} } : {}),
+      ...(source.page_labels && typeof source.page_labels === 'object' ? { page_labels:Object.fromEntries(Object.entries(source.page_labels).filter(([page,label])=>/^\d{1,5}$/.test(page)&&Number(page)<=10000&&typeof label==='string'&&label.length<=40)) as Record<string,string> } : {}),
     },
     source_passages: Array.isArray(payload.source_passages) ? payload.source_passages.filter((entry): entry is SourcePassage => {
       if (!entry || typeof entry !== "object") return false;
       const item = entry as SourcePassage;
-      return Number.isInteger(item.page) && item.page > 0 && item.page <= 600 && typeof item.text === "string" &&
+      return Number.isInteger(item.page) && item.page > 0 && item.page <= 10000 && typeof item.text === "string" &&
         (item.kind === "diagnostic" || item.kind === "troubleshooting" || item.kind === "reference");
     }).map(item => typeof item.html === 'string' ? { ...item, html: sourcePageHtml(item.text, item.page, item.origin === 'reviewed' ? 'reviewed' : item.origin === 'ocr' ? 'ocr' : 'pdf') } : item) : [],
     error_codes,

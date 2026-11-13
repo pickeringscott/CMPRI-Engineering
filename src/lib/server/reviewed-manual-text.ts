@@ -9,7 +9,7 @@ const cacheType = 'asset_manual_knowledge';
 const assetFields = 'id,hotel_id,active,manufacturer,model_family,model_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links';
 type Source = { hotelId: string; assetId: string; sha256: string; file: RegisteredAssetFile; totalPages?: number };
 type Page = { page: number; text: string };
-type Submission = { assetId: string; sha256: string; totalPages: number; pages: Page[]; reviewConfirmed: true };
+type Submission = { assetId: string; fileId?: string; sha256: string; totalPages: number; pages: Page[]; reviewConfirmed: true };
 export class ReviewedManualError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
@@ -20,10 +20,11 @@ function canonical(value: unknown): string {
     ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, sort(entry)])) : item;
   return JSON.stringify(sort(value));
 }
-const fileIdentity = (file: RegisteredAssetFile) => ({ id: file.id, storage_path: file.storage_path, updated_at: file.updated_at, created_at: file.created_at, name: file.name, preferred: file.preferred });
+const fileIdentity = (file: RegisteredAssetFile) => ({ id: file.id, storage_path: file.storage_path, updated_at: file.updated_at, created_at: file.created_at, name: file.name });
 const prefix = (source: Source) => `reviewed-upload-${source.assetId}-${source.sha256}-${sha(canonical(fileIdentity(source.file)))}-`;
-function choose(files: RegisteredAssetFile[]): RegisteredAssetFile {
+function choose(files: RegisteredAssetFile[], fileId?: string): RegisteredAssetFile {
   const documents = files.filter(file => file.name !== '_cmpri-verification.json' && file.storage_path);
+  if(fileId){const selected=documents.find(file=>file.id===fileId&&/\.pdf$/i.test(file.name));if(!selected)return fail('Select a currently registered PDF.');return selected;}
   const preferred = documents.filter(file => file.preferred);
   if (preferred.length > 1) return fail('More than one preferred attachment exists. Select one preferred PDF before saving reviewed text.');
   if (preferred.length && !/\.pdf$/i.test(preferred[0].name)) return fail('The preferred attachment is not a PDF. Select the intended preferred PDF.');
@@ -60,7 +61,8 @@ export function validateReviewedManualSubmission(input: unknown): Submission {
   if (!Number.isSafeInteger(value.totalPages) || value.totalPages < 1 || value.totalPages > 600) return fail('The original PDF must have 1–600 pages.', 400);
   if (!Array.isArray(value.pages) || value.pages.length < 1 || value.pages.length > 10 || new Set(value.pages.map(page => page?.page)).size !== value.pages.length
     || value.pages.some(page => !page || !Number.isSafeInteger(page.page) || page.page < 1 || page.page > value.totalPages || typeof page.text !== 'string' || !page.text.trim() || page.text.length > 50000)) return fail('Submit up to ten distinct source pages with nonempty text of at most 50,000 characters per page.', 400);
-  return { assetId: value.assetId, sha256: value.sha256, totalPages: value.totalPages, reviewConfirmed: true, pages: value.pages.map(({ page, text }) => ({ page, text })) };
+  if(value.fileId!==undefined&&!isUuid(value.fileId))return fail('A valid registered source file is required.',400);
+  return { assetId: value.assetId, ...(value.fileId?{fileId:value.fileId}:{}), sha256: value.sha256, totalPages: value.totalPages, reviewConfirmed: true, pages: value.pages.map(({ page, text }) => ({ page, text })) };
 }
 
 /** Only dedicated reviewed-page records qualify. Generic uploaded/manual caches never do.
@@ -72,27 +74,25 @@ export async function readReviewedManualPages(admin: SupabaseClient, source: Sou
   const assetSnapshot = canonical(await readAsset(admin, source.assetId));
   const files = await registered(admin, source.assetId);
   if (!files.some(file => canonical(fileIdentity(file)) === canonical(fileIdentity(source.file)))) return [];
-  let selected: RegisteredAssetFile;
-  try { selected = choose(files); } catch (error) { if (error instanceof ReviewedManualError) return []; throw error; }
-  if (canonical(fileIdentity(selected)) !== canonical(fileIdentity(source.file))) return [];
-  const keyPrefix = prefix(source);
+  const keyPrefix = `reviewed-upload-${source.assetId}-${source.sha256}-`;
   const result = await admin.from('troubleshooting_cache').select('cache_key,payload').eq('hotel_id', source.hotelId).eq('cache_type', cacheType).like('cache_key', `${keyPrefix}%`).limit(600);
   if (result.error) return fail('Saved reviewed pages could not be read. Retry loading the guide.', 503);
   const pages = new Map<number, Page & { totalPages: number }>();
   for (const row of result.data || []) {
     const p = row.payload;
-    if (!p || p.version !== 1 || p.kind !== 'reviewed-upload-page' || p.hotel_id !== source.hotelId || p.asset_id !== source.assetId || p.sha256 !== source.sha256 || canonical(p.file) !== canonical(fileIdentity(source.file))
+    if (!p || p.version !== 1 || p.kind !== 'reviewed-upload-page' || p.hotel_id !== source.hotelId || p.asset_id !== source.assetId || p.sha256 !== source.sha256 || !p.file || typeof p.file !== 'object' || canonical(fileIdentity(p.file)) !== canonical(fileIdentity(source.file))
       || !Number.isSafeInteger(p.totalPages) || p.totalPages < 1 || p.totalPages > 600 || (source.totalPages !== undefined && p.totalPages !== source.totalPages)
-      || !Number.isSafeInteger(p.page) || p.page < 1 || p.page > p.totalPages || row.cache_key !== `${keyPrefix}${p.page}` || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 50000
+      || !Number.isSafeInteger(p.page) || p.page < 1 || p.page > p.totalPages || row.cache_key !== `${keyPrefix}${sha(canonical(p.file))}-${p.page}` || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 50000
       || !isUuid(p.reviewed_by) || typeof p.reviewed_at !== 'string' || !Number.isFinite(Date.parse(p.reviewed_at))) continue;
-    pages.set(p.page, { page: p.page, text: p.text, totalPages: p.totalPages });
+    const existing=pages.get(p.page) as (Page & {totalPages:number;reviewed_at?:string})|undefined;
+    if(!existing?.reviewed_at||existing.reviewed_at<p.reviewed_at)pages.set(p.page, { page: p.page, text: p.text, totalPages: p.totalPages, reviewed_at:p.reviewed_at } as Page & {totalPages:number});
   }
   const after = await registered(admin, source.assetId);
   if (canonical(await readAsset(admin, source.assetId)) !== assetSnapshot) return [];
   if (canonical(after) !== canonical(files)) return [];
   // Inconsistent totals are corrupt, not an invitation to guess the source length.
   if (new Set([...pages.values()].map(page => page.totalPages)).size > 1) return [];
-  return [...pages.values()].sort((a, b) => a.page - b.page);
+  return [...pages.values()].sort((a, b) => a.page - b.page).map(({page,text,totalPages})=>({page,text,totalPages}));
 }
 
 export async function saveReviewedManualPages(admin: SupabaseClient, actorId: string, input: unknown) {
@@ -100,7 +100,8 @@ export async function saveReviewedManualPages(admin: SupabaseClient, actorId: st
   if (!isUuid(actorId)) return fail('A signed-in reviewer is required.', 403);
   const asset = await readAsset(admin, value.assetId);
   const files = await registered(admin, value.assetId);
-  const file = choose(files);
+  const matches=files.filter(file=>(asset.pdf_import_links||[]).some((link:{object_id?:string;sha256?:string})=>link.object_id===file.id&&link.sha256===value.sha256));
+  const file = choose(files,value.fileId || (matches.length===1?matches[0].id:undefined));
   const bytes = await sourceBytes(admin, file);
   if (sha(bytes) !== value.sha256) return fail('The converter original does not match the currently attached PDF. Open that original in the converter, review it, and retry.');
   let actualPages: number;

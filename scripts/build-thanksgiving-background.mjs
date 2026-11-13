@@ -27,8 +27,23 @@ const css = publish('scene', readFileSync(resolve(source, 'scene.css')), 'css');
 const leaves = publish('leaves', readFileSync(resolve(source, 'leaves.js')), 'js');
 const scene = publish('scene', readFileSync(resolve(source, 'scene.js')), 'js');
 const layouts = readFileSync(resolve(root, 'src/lib/ui/thanksgiving-layouts.json'), 'utf8').replace(/</g, '\\u003c');
+// A cached image can paint before the deferred layout script arrives. Give the
+// first frame the same coordinates and layers, derived from the approved data.
+function initialLayout(mode) {
+  const layout = JSON.parse(layouts)[mode], unit = 'var(--cmpri-art-unit)';
+  const rules = [`:root{--cmpri-art-unit:min(calc(100vw / ${layout.canvas.width}),calc(100vh / ${layout.canvas.height}));--cmpri-art-left:calc((100vw - ${layout.canvas.width} * ${unit}) / 2);--cmpri-art-top:calc(100vh - ${layout.canvas.height} * ${unit})}`];
+  for (const [id, object] of Object.entries(layout.objects)) {
+    const greeting = mode === 'desktop' && id === 'greeting';
+    const left = greeting ? `100vw - ${24 + object.width} * ${unit}` : `var(--cmpri-art-left) + ${object.x} * ${unit}`;
+    const top = greeting ? `${object.y} * ${unit}` : `var(--cmpri-art-top) + ${object.y} * ${unit}`;
+    rules.push(`#${id}{left:calc(${left});top:calc(${top});width:calc(${object.width} * ${unit});height:calc(${object.height} * ${unit});z-index:${10 + object.layer}}`);
+  }
+  for (const [id, layer] of Object.entries(layout.leaves.layers)) rules.push(`#${id}{z-index:${10 + layer.layer}}`);
+  return rules.join('');
+}
+const initialStyle = `html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#271b14}.scene{position:absolute;inset:0;isolation:isolate;overflow:hidden}.decor{position:absolute}.decor>img,.decor>svg{display:block;width:100%;height:100%}${initialLayout('desktop')}@media(max-width:767px){${initialLayout('mobile')}}`;
 const turkey = readFileSync(resolve(source, 'turkey.svg'), 'utf8').replace('__TURKEY_IMAGE__', images.turkey);
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMPRI Thanksgiving</title><link rel="stylesheet" href="${css}"></head><body><main class="scene" id="scene" aria-label="CMPRI Thanksgiving theme"><div class="ground" aria-hidden="true"></div><div class="leaves" id="leavesA" aria-hidden="true"></div><div class="leaves" id="leavesB" aria-hidden="true"></div><div class="decor" id="turkey" aria-label="Animated Thanksgiving turkey">${turkey}</div><div class="decor" id="orange"><img src="${images.orange}" alt="Orange pumpkin: 2,492.5 lbs, STATE RECORD, Plainfield, ILL"></div><div class="decor" id="pale"><img src="${images.pale}" alt="Pale pumpkin: 2,497.5 lbs, not state record, Anamosa, Iowa, Pumpkin Fest 2026"></div><div class="decor" id="greeting"><img src="${images.greeting}" alt="Happy Thanksgiving"></div><div class="watermark" aria-hidden="true">CMPRI ENGINEERING</div><button class="control" id="toggle" type="button" aria-label="Pause animation" aria-pressed="false">Ⅱ</button></main><script id="theme-layouts" type="application/json">${layouts}</script><script src="${leaves}" defer></script><script src="${scene}" defer></script></body></html>`;
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CMPRI Thanksgiving</title><link rel="stylesheet" href="${css}"><style id="theme-initial-layout">${initialStyle}</style></head><body><main class="scene" id="scene" aria-label="CMPRI Thanksgiving theme"><div class="ground" aria-hidden="true"></div><div class="leaves" id="leavesA" aria-hidden="true"></div><div class="leaves" id="leavesB" aria-hidden="true"></div><div class="decor" id="turkey" aria-label="Animated Thanksgiving turkey">${turkey}</div><div class="decor" id="orange"><img src="${images.orange}" alt="Orange pumpkin: 2,492.5 lbs, STATE RECORD, Plainfield, ILL"></div><div class="decor" id="pale"><img src="${images.pale}" alt="Pale pumpkin: 2,497.5 lbs, not state record, Anamosa, Iowa, Pumpkin Fest 2026"></div><div class="decor" id="greeting"><img src="${images.greeting}" alt="Happy Thanksgiving"></div><div class="watermark" aria-hidden="true">CMPRI ENGINEERING</div><button class="control" id="toggle" type="button" aria-label="Pause animation" aria-pressed="false">Ⅱ</button></main><script id="theme-layouts" type="application/json">${layouts}</script><script src="${leaves}" defer></script><script src="${scene}" defer></script></body></html>`;
 const entry = publish('index', html, 'html');
 // Keep the original entry URL useful for already-open app bundles.
 write(resolve(publicRoot, 'index.html'), html);

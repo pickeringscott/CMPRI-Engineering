@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
+import * as nodeModule from 'node:module';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -16,7 +16,7 @@ export type InspectedUploadedGuideMedia = {
 };
 
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
-const MAX_PAGES = 600;
+const MAX_PAGES = 10000;
 const MAX_INSPECTED_PAGES = 24;
 const MAX_STEPS = 128;
 const MAX_MEDIA = 24;
@@ -40,8 +40,8 @@ async function openPdf(bytes: Uint8Array) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   // Resolve local PDF assets from the deployed application root. A bundled
   // import.meta.url can contain the build machine's original source path.
-  const require = createRequire(path.join(process.cwd(), 'package.json'));
-  const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
+  const nodeRequire = nodeModule.createRequire(path.join(process.cwd(), 'package.json'));
+  const root = path.dirname(nodeRequire.resolve('pdfjs-dist/package.json'));
   const options = {
     data: bytes.slice(),
     standardFontDataUrl: path.join(root, 'standard_fonts') + path.sep,
@@ -289,19 +289,27 @@ export async function renderUploadedGuideMedia(bytes: Uint8Array, selection: Ins
 
 /** Render an entire source page so tables and diagrams remain visible on mobile. */
 export async function renderUploadedGuidePage(bytes: Uint8Array, sha256: string, pageNumber: number): Promise<Uint8Array> {
+  return (await renderUploadedGuidePageDisplay(bytes,sha256,pageNumber)).bytes;
+}
+
+/** Vector-only pages can use native neutral colors without recoloring embedded photographs. */
+export async function renderUploadedGuidePageDisplay(bytes: Uint8Array, sha256: string, pageNumber: number): Promise<{bytes:Uint8Array;vectorOnly:boolean}> {
   validateSource(bytes, sha256);
-  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 600) throw new Error('The source page is invalid.');
-  const { pdf, task } = await openPdf(bytes);
+  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 10000) throw new Error('The source page is invalid.');
+  const { pdf, task, OPS } = await openPdf(bytes);
   try {
     if (pageNumber > pdf.numPages) throw new Error('The source page is unavailable.');
     const page = await pdf.getPage(pageNumber);
     try {
+      const operators=await page.getOperatorList();
+      const rasterOrPattern=new Set(Object.entries(OPS).filter(([name])=>/paint.*Image|shadingFill|setFillColorN|setStrokeColorN/.test(name)).map(([,op])=>op));
+      const vectorOnly=!operators.fnArray.some(op=>rasterOrPattern.has(op));
       const base = page.getViewport({ scale: 1 });
       const scale = Math.min(1.5, 1400 / base.width, Math.sqrt(3000000 / (base.width * base.height)));
       const viewport = page.getViewport({ scale });
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
       await page.render({ canvas: canvas as never, canvasContext: canvas.getContext('2d') as never, viewport, background: 'rgb(255,255,255)' }).promise;
-      return new Uint8Array(canvas.toBuffer('image/png'));
+      return {bytes:new Uint8Array(canvas.toBuffer('image/png')),vectorOnly};
     } finally { page.cleanup(); }
   } finally { await task.destroy(); }
 }

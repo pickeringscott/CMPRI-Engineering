@@ -49,7 +49,9 @@ test('PDF and OCR markup is escaped, never interpreted as active HTML', () => {
   assert.match(dom.window.document.body.textContent, /OCR text: compare with the original source page/);
   for (const element of dom.window.document.querySelectorAll('*')) for (const attribute of element.attributes) assert.ok(!attribute.name.startsWith('on'));
   assert.throws(() => structureManualPage('text', 0), /Invalid/);
-  assert.throws(() => structureManualPage('text', 601), /Invalid/);
+  assert.equal(structureManualPage('text', 601).page, 601);
+  assert.equal(structureManualPage('text', 10000).page, 10000);
+  assert.throws(() => structureManualPage('text', 10001), /Invalid/);
 });
 
 test('supplied HTML is discarded and source metadata survives knowledge normalization', () => {

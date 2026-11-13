@@ -7,6 +7,7 @@ import { allows, type AccessProfile, type Capability, type Membership, type Perm
 import { profileHasRole } from "./roles";
 import { createSupabaseAdmin } from "./supabase-admin";
 import { isMutatingMethod, mcpIdentity } from "./cmpri-mcp-auth";
+import {manualPreviewFetch,manualPreviewReadOnly} from './manual-preview';
 
 const authOptions = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -15,7 +16,7 @@ const authOptions = {
 function createBearerClient(token: string): SupabaseClient {
   return createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     ...authOptions,
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    global: { headers: { Authorization: `Bearer ${token}` }, ...(manualPreviewReadOnly()?{fetch:manualPreviewFetch()}: {}) },
   });
 }
 

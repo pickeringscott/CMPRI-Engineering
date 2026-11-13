@@ -1,4 +1,5 @@
 import { attachPartsStatuses } from "@/lib/server/work-order-parts-status";
+import {manualPreviewReadOnly} from '@/lib/server/manual-preview';
 import { persistMentionedWorkOrder } from "@/lib/server/work-order-mentions";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { canReadWorkOrder, canReadWorkOrderForMutation, workOrderReadFilter } from "@/lib/work-order-read-policy";
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const roomStatuses = await loadCurrentRoomStatuses(auth.admin);
   if (roomStatuses.error || !roomStatuses.statuses) return NextResponse.json({ error: "Current room availability could not be loaded." }, { status: 503 });
 
-  if (isEngineeringWorkOrderActor(auth.principal.profile)) {
+  if (!manualPreviewReadOnly() && isEngineeringWorkOrderActor(auth.principal.profile)) {
     try {
       await recordEngineeringWorkOrderView(auth.admin, workOrder, {
         id: auth.principal.identity.id,
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const isTechnician = roleKey(auth.principal.profile.role) === "technician";
-  if (isTechnician) {
+  if (isTechnician && !manualPreviewReadOnly()) {
     const { error: viewError } = await auth.admin
       .from("cmpri_work_order_technician_views")
       .upsert({

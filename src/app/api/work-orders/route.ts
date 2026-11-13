@@ -285,6 +285,20 @@ export async function POST(request: NextRequest) {
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
+  let pmPrepared: Awaited<ReturnType<typeof import("@/lib/server/pm-work-order").preparePmSubmission>> | null = null;
+  let orderInputs: unknown[] = body.orders;
+  if (body.pm_submission !== undefined) {
+    if (sourceDraftId || body.orders.length !== 1) return NextResponse.json({ error: "Confirm one PM issue at a time." }, { status: 400 });
+    if (!auth.principal || !allows(auth.principal, "view_pm") || !allows(auth.principal, "edit_tickets")) {
+      return NextResponse.json({ error: "PM editing permission is required." }, { status: 403 });
+    }
+    const { preparePmSubmission, PmSubmissionError } = await import("@/lib/server/pm-work-order");
+    try { pmPrepared = await preparePmSubmission(admin, auth.user.id, body.pm_submission); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "The saved PM issue could not be verified." }, { status: error instanceof PmSubmissionError ? error.status : 503 }); }
+    if (pmPrepared.existing) return NextResponse.json({ work_orders: [pmPrepared.existing], reused: true });
+    orderInputs = [pmPrepared.order];
+  }
+
   if (sourceDraftId) {
     const { data: existingDraftOrder, error: existingDraftOrderError } = await admin.from("work_orders")
       .select("id, display_id, status, source_draft_created_by")
@@ -363,7 +377,7 @@ export async function POST(request: NextRequest) {
   }
   const rows: Record<string, unknown>[] = [];
   try {
-    for (const value of body.orders) {
+    for (const value of orderInputs) {
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid work-order details.");
       const source = value as Record<string, unknown>;
       const row: Record<string, unknown> = {};
@@ -394,6 +408,7 @@ export async function POST(request: NextRequest) {
       rows.push({
         ...row,
         hotel_id: HOTEL_ID,
+        ...(pmPrepared ? { import_source: "PM Log", import_external_id: pmPrepared.externalId } : {}),
         ...attribution,
         technician_name: "",
         action_root_cause: "",
@@ -469,7 +484,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: existing, error: duplicateError } = await db.from("work_orders")
-    .select("id, display_id, location_id, asset_id, issue, status, source_draft_id")
+    .select("id, display_id, location_id, asset_id, issue, status, source_draft_id, import_source, import_external_id")
     .eq("hotel_id", HOTEL_ID)
     .in("location_id", uniqueLocationIds)
     .limit(ACTIVE_DUPLICATE_LIMIT);
@@ -477,6 +492,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Existing work orders could not be checked completely. No tickets were created." }, { status: 503 });
   }
   for (const row of rows) {
+    const linked = pmPrepared && existing.find(previous => previous.import_source === "PM Log" && previous.import_external_id === pmPrepared.externalId);
+    if (linked) return NextResponse.json({ work_orders: [linked], reused: true });
     const duplicate = existing.find((previous) => likelyDuplicate(row, previous));
     if (duplicate) {
       if (sourceDraftId && sourceDraftRevision !== null && String(duplicate.source_draft_id || "") === sourceDraftId) {
@@ -489,13 +506,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const insertOp = db.from("work_orders").insert(rows) as unknown as { select?: (cols: string) => Promise<{ data: unknown; error: unknown }> } & Promise<{ data: unknown; error: unknown }>;
-  const insertResult = typeof insertOp?.select === "function"
-    ? await insertOp.select("id, display_id, status")
-    : await insertOp;
+  // Source validation and ticket creation share the existing database transaction.
+  // A missing RPC or source drift must never fall back to an ordinary insert.
+  let insertResult: { data: unknown; error: unknown };
+  if (pmPrepared) {
+    const result = await db.rpc("cmpri_confirm_pm_work_order", { p_hotel: HOTEL_ID, p_guard: pmPrepared.guard, p_order: rows[0] });
+    if (result.data?.reused) return NextResponse.json(result.data);
+    insertResult = { data: result.data?.work_orders || null, error: result.error };
+  } else {
+    const insertOp = db.from("work_orders").insert(rows) as unknown as { select?: (cols: string) => Promise<{ data: unknown; error: unknown }> } & Promise<{ data: unknown; error: unknown }>;
+    insertResult = typeof insertOp?.select === "function" ? await insertOp.select("id, display_id, status") : await insertOp;
+  }
   const saved = (insertResult && (insertResult as { data?: Array<{ id: string; display_id?: string; status?: string }> }).data) || null;
   const insertError = insertResult && (insertResult as { error?: unknown }).error;
   if (insertError) {
+    if (pmPrepared) {
+      const prior = await db.from("work_orders").select("id,display_id,status").eq("hotel_id", HOTEL_ID)
+        .eq("import_source", "PM Log").eq("import_external_id", pmPrepared.externalId).maybeSingle();
+      if (!prior.error && prior.data) return NextResponse.json({ work_orders: [prior.data], reused: true });
+      return NextResponse.json({ error: "The PM source changed or its work order could not be confirmed. Reload and review before retrying." }, { status: 409 });
+    }
     if (sourceDraftId && sourceDraftRevision !== null) {
       const { data: existingDraftOrder, error: existingDraftOrderError } = await db.from("work_orders")
         .select("id, display_id, status")

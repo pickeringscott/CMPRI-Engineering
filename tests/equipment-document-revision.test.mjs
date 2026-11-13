@@ -7,11 +7,12 @@ import ts from 'typescript';
 import vm from 'node:vm';
 import {PGlite} from '@electric-sql/pglite';
 import {scannedPdf} from './helpers/scanned-pdf.mjs';
+import {loadTs} from './helpers/load-ts.mjs';
 const require=createRequire(import.meta.url);
 let routeDeps={};
 function load(path,deps={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(name)=>name in deps?deps[name]:name in routeDeps?routeDeps[name]:require(name),console,TextDecoder,TextEncoder,Uint8Array,File,FormData});return exports;}
 const sourceModule=load('../src/lib/manual-source.ts',{'./manual-document-match':load('../src/lib/manual-document-match.ts')});
-const pdfModule=load('../src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{}});
+const pdfModule=loadTs('src/lib/manual-pdf-knowledge.ts',{'@/lib/manual-document-match':{},'pdfjs-dist/legacy/build/pdf.mjs':require('pdfjs-dist/legacy/build/pdf.mjs')},{setTimeout,Uint8Array});
 test('real PDF extraction preserves upload bytes and SHA, including a second read',async()=>{
  const bytes=new Uint8Array(readFileSync(new URL('../public/guides/dormakaba.pdf',import.meta.url)));
  const hash=()=>createHash('sha256').update(bytes).digest('hex');const before=hash(),length=bytes.byteLength;

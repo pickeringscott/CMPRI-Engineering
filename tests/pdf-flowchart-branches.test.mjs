@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {flowchartBranches} from '../src/lib/server/pdf-flowchart-branches.ts';
 import {guideRulesForIssue} from '../src/lib/work-orders/guide-selection.ts';
+
 const ops={constructPath:1,transform:2,save:3,restore:4};
 const rect=(l,b,r,t)=>new Float32Array([0,l,t,1,r,t,1,r,b,1,l,b,4]);
 const item=(x,y,str)=>({str,transform:[1,0,0,1,x,y]});

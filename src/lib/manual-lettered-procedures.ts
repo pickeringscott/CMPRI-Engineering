@@ -75,7 +75,7 @@ function completeProcedure(lines: string[]): boolean {
 export function readLetteredTroubleshootingProcedures(pages: ManualHtmlPage[]): ManualSymptomRule[] {
   const rules: ManualSymptomRule[] = [];
   for (const page of pages) {
-    if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 600) continue;
+    if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 10000) continue;
     const lines = page.blocks.flatMap(block => block.kind === 'list'
       ? block.items.flatMap(item => item.lines) : block.lines).map(line => line.trim()).filter(Boolean);
     let scoped = false;

@@ -1,16 +1,20 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { createRequire } from 'node:module';
+const nativeRequire = createRequire(import.meta.url);
 
 export function loadTs(path, dependencies = {}, globals = {}) {
   const url = path instanceof URL ? path : new URL('../../' + path, import.meta.url);
   const exports = {};
   vm.runInNewContext(ts.transpileModule(readFileSync(url, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, ...globals, require(name) {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText, { exports, process, Buffer, console, ...globals, require(name) {
     if (name in dependencies) return dependencies[name];
+    if (name.startsWith('node:')) { const nodeModule = nativeRequire(name); return { ...nodeModule, default: nodeModule }; }
+    if (name === '@/lib/server/manual-preview') return loadTs('src/lib/server/manual-preview.ts', dependencies, globals);
     if (name === '@/lib/server/work-order-parts-status') return partsStatusDependency;
-    if (name.startsWith('.')) return loadTs(new URL(name + '.ts', url), dependencies);
+    if (name.startsWith('.')) return loadTs(new URL(name + '.ts', url), dependencies, globals);
     throw new Error(`Unmocked import: ${name}`);
   }});
   return exports;

@@ -51,3 +51,18 @@ test('aborting while obtaining auth prevents the request', async () => {
   const { save } = harness({ saved: true, pages: [1], message: 'Saved.' }, async () => 'token', async () => { throw new Error('cache unavailable'); });
   assert.match(await save(input, new AbortController().signal), /pages were saved.*Reload/);
  });
+
+test('one reviewed-document action saves consecutive internal batches without dropping source pages',async()=>{
+ const calls=[];
+ const pages=Array.from({length:23},(_,i)=>({page:i+1,text:input.pages[0].text}));
+ let count=0;
+ const context=vm.createContext({Error,selectedId:'asset-1',canManage:true,editing:true,token:async()=>'token',fetch:async(url,options)=>{
+  const body=JSON.parse(options.body);calls.push({url,options});assert.ok(body.pages.length<=10);count+=body.pages.length;
+  return {ok:true,json:async()=>({saved:true,pages:body.pages.map(p=>p.page)})};
+ },invalidateCachedResources:async()=>{}});
+ vm.runInContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+ const progress=[];
+ const result=await context.useReviewedGuide({...input,totalPages:23,pages},new AbortController().signal,message=>progress.push(message));
+ assert.equal(count,23);assert.equal(calls.length,3);assert.equal(progress.length,3);assert.match(result,/23 reviewed pages saved/);
+ assert.deepEqual(calls.flatMap(call=>JSON.parse(call.options.body).pages.map(page=>page.page)),Array.from({length:23},(_,i)=>i+1));
+});

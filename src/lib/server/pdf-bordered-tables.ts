@@ -59,7 +59,7 @@ export async function borderedTableRules(page: PdfPage, items: TextItem[], pageN
       const numbered = action.split(/(?=\b\d+\.\s)/).map(part => part.trim()).filter(Boolean);
       const sequential = numbered.length > 1 && numbered.every((part, index) => new RegExp(`^${index + 1}\\.\\s`).test(part));
       const steps = (sequential ? numbered : [action]).map(part => [condition, cause, part].filter(Boolean).join(' — '));
-      output.push({ match: [condition, ...aliases], steps, source_pages: [pageNumber] });
+      output.push({ match: [condition, ...(/\b(?:when|while|during|after|before|only|unless|if|with|without)\b/i.test(condition)?[]:aliases)], steps, source_pages: [pageNumber] });
     }
   }
   return output;

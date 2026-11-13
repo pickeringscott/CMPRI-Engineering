@@ -44,6 +44,9 @@ import SearchableSelect from "@/components/SearchableSelect";
 import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
+import ManualCoverage from "@/components/ManualCoverage";
+import ManualSourceLink from "@/components/ManualSourceLink";
+import {diagnosticCodeRuledOut,technicianTroubleshootingContext} from "@/lib/work-orders/technician-context";
 import { assetGuideIdentity, reconcileAssetGuide, type AssetGuideIdentity } from "@/lib/work-orders/asset-guide-cache";
 import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { accountRoleDisplayName } from "@/lib/account-display";
@@ -682,7 +685,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [assetReferenceLoading, setAssetReferenceLoading] = useState(true);
   const [assetReferenceError, setAssetReferenceError] = useState("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [manualResult, setManualResult] = useState<{ asset: AssetGuideIdentity; knowledge: ManualKnowledge | null; status: string; reason?: string } | null>(null);
+  const [manualResult, setManualResult] = useState<{ asset: AssetGuideIdentity; knowledge: ManualKnowledge | null; status: string; reason?: string; readOnly?:boolean } | null>(null);
   const manualCompletedIdentity = useRef("");
   const manualSelection = useRef("");
   const [workOrderImages, setWorkOrderImages] = useState<WorkOrderImage[]>([]);
@@ -1245,6 +1248,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     const requestIdentity = `${id}:${assetGuideIdentity(asset)}`;
     let sourceAsset = asset;
     let knowledge: ManualKnowledge | null = null;
+    let readOnly=false;
     let documentationStatus = "lookup_unavailable";
     let documentationReason = "The equipment’s uploaded document could not be checked. Only its approved document can provide instructions.";
     try {
@@ -1257,6 +1261,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
       });
       if (!response.ok) return;
       const payload = await response.json();
+      readOnly=payload.preview_read_only===true;
       const currentAsset = Array.isArray(payload?.assets) ? payload.assets.find((item: Asset) => item?.id === asset.id) : null;
       if (currentAsset) sourceAsset = { ...asset, ...currentAsset };
       const candidate = normalizeManualKnowledge(payload?.manualKnowledge);
@@ -1273,7 +1278,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         // Reconcile both snapshots so a successful guide does not stay hidden.
         manualCompletedIdentity.current = `${id}:${assetGuideIdentity(sourceAsset)}`;
         setAssets(items => reconcileAssetGuide(items, asset, sourceAsset));
-        setManualResult({ asset: sourceAsset, knowledge, status: documentationStatus, reason: documentationReason });
+        setManualResult({ asset: sourceAsset, knowledge, status: documentationStatus, reason: documentationReason, readOnly });
       }
     }
   }
@@ -1347,7 +1352,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const combinedDiagnosticText = `${issue} ${order?.reporter_notes || ""}`.trim();
   const trustedManualKnowledge = manualKnowledge?.source?.verified === true && manualKnowledge.source.source_kind === "asset-upload"
     && !!manualKnowledge.source.storage_path && /^[a-f0-9]{64}$/i.test(manualKnowledge.source.sha256 || "") && !!manualKnowledge.source.registered_file_id;
-  const matchedSourcePages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText) : [];
+  const technicianDiagnosticContext=technicianTroubleshootingContext(notes,actionRootCause);
+  const matchedSourcePages = trustedManualKnowledge ? relevantSourcePassages(manualKnowledge?.source_passages || [], combinedDiagnosticText, technicianDiagnosticContext) : [];
   const matchingSymptomRules = trustedManualKnowledge ? guideRulesForIssue(manualKnowledge, combinedDiagnosticText) : [];
 
   const manualSteps = Array.from(
@@ -1355,7 +1361,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   );
   const checklistIssueSaved = issue.trim() === cleanTicketReportedIssue(order?.issue || "", order?.room || "").trim();
   const checklistContextUnsaved = !checklistIssueSaved || assetId !== (order?.asset_id || "") || locationId !== (order?.location_id || "");
-  const checklistContext = manualStatus === "verified" ? deriveTroubleshootingChecklistContext({ issue: checklistIssueSaved ? order?.issue || "" : issue, reporter_notes: order?.reporter_notes || "", asset: selectedAsset || null }, manualKnowledge) : { contextIdentity: null, steps: [] };
+  const checklistContext = manualStatus === "verified" ? deriveTroubleshootingChecklistContext({ issue: checklistIssueSaved ? order?.issue || "" : issue, reporter_notes: order?.reporter_notes || "", notes, action_root_cause:actionRootCause, asset: selectedAsset || null }, manualKnowledge) : { contextIdentity: null, steps: [] };
   const checklistDisabledReason = exitFlushing ? "Saving this visit's checklist activity before leaving."
     : !ticketReady || manualLoading || saving ? "Wait for the current work order and guidance to finish loading or saving."
     : checklistContextUnsaved
@@ -1366,7 +1372,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if (trustedManualKnowledge) {
       for (const item of manualKnowledge?.error_codes ?? []) {
         const code = normalizeDiagnosticCode(item.code);
-        if (code) byCode.set(`${item.source_document_id || ""}:${code}`, item);
+        if (code) byCode.set(`${item.source_document_id || ""}:${code}:${item.subcode || ""}:${item.source_pages?.join(",") || ""}`, item);
       }
     }
     return Array.from(byCode.values());
@@ -1387,12 +1393,12 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
   const relevantErrorCodes = manualErrorCodes
     .map((item) => {
-      const haystack = `${item.problem} ${item.action}`.toLowerCase();
+      const haystack = `${item.problem} ${item.action} ${item.unit_response || ''}`.toLowerCase();
       const score = diagnosticKeywords.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
       return { item, score };
     })
     .filter(({ item, score }) =>
-      reportedCode ? normalizeDiagnosticCode(item.code) === reportedCode : score > 0
+      !diagnosticCodeRuledOut(item.code,technicianDiagnosticContext) && (reportedCode ? normalizeDiagnosticCode(item.code) === reportedCode : score > 0)
     )
     .sort((a, b) => {
       if (reportedCode) {
@@ -2528,6 +2534,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </h2>
               </summary>
 
+              {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">Preview. Check marks stay in this browser; live work-order records are unchanged.</p>}
               {!selectedAsset && (
                 <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">
                   Choose the equipment to read its uploaded manual.
@@ -2561,14 +2568,16 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <p className="text-xs text-amber-300">Text recognition could not finish. Open the source or retry processing the document.</p>
                 )}
 
+                {selectedAsset && trustedManualKnowledge && manualKnowledge && <ManualCoverage knowledge={manualKnowledge} />}
                 {selectedAsset && trustedManualKnowledge && guideDocuments.length > 1 && <ul className="text-xs text-slate-300" aria-label="Linked manual sources">
-                  {guideDocuments.map(document => <li key={document.storage_path}><a className="text-sky-300 underline" href={document.url} target="_blank" rel="noreferrer">{document.name}</a></li>)}
+                  {guideDocuments.map(document => <li key={document.storage_path}><ManualSourceLink userId={cmpriSession?.user.id} className="text-sky-300 underline" href={document.url || ""}>{document.name}</ManualSourceLink></li>)}
                 </ul>}
                 {selectedAsset && trustedManualKnowledge && cmpriSession && (
                   <WorkOrderTroubleshootingChecklist
                     workOrderId={order.id}
                     visitId={troubleshootingVisitId}
                     isOpen={troubleshootingOpen}
+                    previewReadOnly={manualResult?.readOnly}
                     onRestartRevision={revision => { const current = orderRef.current; if (current) setOrder({ ...current, revision }); }}
                     registerExitFlush={registerExitFlush}
                     session={cmpriSession}
@@ -2585,8 +2594,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   />
                 )}
 
-              <div className="mt-0.5 max-h-[26rem] overflow-y-auto pr-1">
-                {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && cmpriSession && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} assetId={selectedAsset.id} sourceSha256={manualKnowledge?.source?.sha256 || ""} userId={cmpriSession.user.id} />}
+              <div className="mt-0.5 pr-1">
                 {selectedAsset && trustedManualKnowledge && !(["uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.</p>}
 
                 {reportedCode && !matchingErrorCode && (
@@ -2603,19 +2611,23 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     {relevantErrorCodes.map((item) => {
                       const exact = !!reportedCode && normalizeDiagnosticCode(item.code) === reportedCode;
                       return (
-                        <div key={`${item.code}-${item.problem}`} className={`rounded-xl border p-1 ${exact ? "border-red-400/50 bg-red-950/25" : "border-slate-700 bg-slate-950"}`}>
+                        <div key={`${item.source_document_id}:${item.code}:${item.subcode}:${item.problem}`} className={`rounded-xl border p-1 ${exact ? "border-red-400/50 bg-red-950/25" : "border-slate-700 bg-slate-950"}`}>
                           <div className="flex flex-wrap items-center gap-0.5">
-                            <p className="font-semibold text-red-300">Code {item.code}</p>
+                            <p className="font-semibold text-red-300">Code {item.code}{item.subcode ? ` · Subcode ${item.subcode}` : ""}</p>
                             {exact && <span className="rounded-full border border-red-400/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-200">Reported code</span>}
                           </div>
                           <p className="mt-0.5 text-sm font-medium text-slate-100">{item.problem}</p>
-                          <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Solution / Action:</span> {item.action}</p>
+                          {item.unit_response && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Unit response:</span> {item.unit_response}</p>}
+                          {item.action && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Source action / response:</span> {item.action}</p>}
+                          {item.source_url && item.source_pages?.[0] && <ManualSourceLink userId={cmpriSession?.user.id} href={`${item.source_url}#page=${item.source_pages[0]}`} className="text-xs text-sky-300 underline">Source · PDF page {item.source_pages[0]}</ManualSourceLink>}
 
                         </div>
                       );
                     })}
                   </div>
                 )}
+
+                {selectedAsset && trustedManualKnowledge && guideDocuments[0]?.url && cmpriSession && <WorkOrderSourcePages passages={matchedSourcePages} sourceUrl={guideDocuments[0].url} assetId={selectedAsset.id} sourceSha256={manualKnowledge?.source?.sha256 || ""} userId={cmpriSession.user.id} sourceOrder={manualKnowledge?.sources?.map(source=>source.registered_file_id||'')} contextKey={combinedDiagnosticText} isOpen={troubleshootingOpen} startAtTop={!checklistContext.steps.length} />}
 
                 {displayedSteps.length > 0 && (
                   <div className="mt-1">
