@@ -109,6 +109,15 @@ export async function callMcpReadView(
       const route = await import("@/app/api/preventive-maintenance/route");
       const snapshot = await callGet(incoming, `/api/preventive-maintenance?${query}`, route.GET);
       const { PM_TEMPLATES } = await import("@/lib/pm/catalog");
+      const room = argument(args, "room", 80);
+      if (room) {
+        const number = room.match(/^(?:room\s*)?(\d{2,4})$/i)?.[1];
+        if (!number) throw new Error("Use a room number such as 101 for the PM modal.");
+        const data = snapshot as Record<string, unknown>;
+        const roomEntries = (value: unknown) => Array.isArray(value)
+          ? value.filter((entry) => entry?.scope_key === `room:${number}`) : [];
+        return { ...data, requested_room: number, entries: roomEntries(data.entries), review_queue: roomEntries(data.review_queue), templates: PM_TEMPLATES };
+      }
       return { ...(snapshot as Record<string, unknown>), templates: PM_TEMPLATES };
     }
     case "hours_tracker": return readHoursMcp(identity, args);
@@ -170,6 +179,20 @@ export async function callMcpReadView(
       const room = argument(args, "room", 80);
       const sheet = argument(args, "sheet", 80);
       if (room && sheet) throw new Error("Specify either room or sheet, not both.");
+      // Older ChatGPT sessions cache this view and cannot send the new week
+      // argument. Keep their existing PM calls on the current modal API.
+      if (!sheet) {
+        const week = argument(args, "week", 10);
+        const date = argument(args, "date", 10) || new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(new Date());
+        const parsedDate = new Date(`${date}T12:00:00Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) {
+          throw new Error("Use a valid date in YYYY-MM-DD format for the PM modal.");
+        }
+        const { pmWeekStart } = await import("@/lib/pm/catalog");
+        return callMcpReadView(incoming, identity, "preventive_maintenance", { ...args, week: week || pmWeekStart(date) });
+      }
       if (!room && roleKey(identity.principal.profile.role) !== "system_admin") {
         throw new Error("A room is required to read daily and weekly PM checks; monthly PM management is restricted to System Administrators.");
       }
