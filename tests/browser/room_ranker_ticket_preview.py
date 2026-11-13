@@ -4,6 +4,7 @@ from cmpri_fixture import *
 LEAD = 'Urgent water leak'
 EXTRA_TITLES = ['High priority HVAC repair', 'Medium priority lamp & shade', 'Low priority <paint> touch-up']
 ISSUES = [{'id': 'ticket-' + str(i), 'issue': title, 'priority': 'Urgent'} for i, title in enumerate([LEAD, *EXTRA_TITLES])]
+ISSUES[-1]['ranker_base_priority'] = 'Low'
 ROOMS = [
     {'id': 'r1', 'number': '101', 'floor': '1', 'rank': 'C', 'issues': ISSUES},
     {'id': 'r2', 'number': '102', 'floor': '1', 'rank': 'A', 'issues': []},
@@ -16,6 +17,19 @@ async def check(frame, page, label):
     row = frame.locator('[data-room="101"]')
     await expect(row.get_by_role('link')).to_have_text(LEAD)
     await expect(row.get_by_role('link')).to_have_attribute('href', '/work-orders/ticket-0')
+    escalation = row.get_by_role('button', name='Ticket Escalation', exact=True)
+    await escalation.hover()
+    tooltip = row.get_by_role('tooltip')
+    await expect(tooltip).to_have_text('!Ticket Escalation!')
+    assert await tooltip.locator('[aria-hidden="true"]').get_attribute('class') == await escalation.locator('[aria-hidden="true"]').get_attribute('class')
+    mark = await escalation.locator('[aria-hidden="true"]').bounding_box()
+    rank = await row.locator('span').nth(1).bounding_box()
+    assert abs(mark['height'] - rank['height']) < 2, (mark, rank)
+    link = await row.get_by_role('link').bounding_box()
+    assert rank['x'] + rank['width'] <= mark['x'] < link['x']
+    await escalation.focus()
+    await escalation.press('Escape')
+    await expect(tooltip).to_have_count(0)
     more = row.get_by_role('button', name='Show 3 additional issues for room 101')
     await expect(more).to_have_text('+3 more')
     # Native hover hints contain every additional title, without the visible lead.
@@ -73,6 +87,13 @@ async def main():
             page.on('pageerror', lambda e: errors.append(str(e)))
             await page.goto(BASE + '/engineering/room-ranking')
             await check(page, page, 'standalone ' + str(width))
+            await expect(page.locator('main > p')).to_have_count(0)
+            await page.get_by_role('button', name='Room ranker key', exact=True).click()
+            key = page.get_by_role('region', name='Room ranker key')
+            await expect(key.get_by_text('C needs the most attention.', exact=False)).to_be_visible()
+            await expect(key.get_by_text('Ticket Escalation:', exact=True)).to_be_visible()
+            await expect(key.locator('[aria-hidden="true"]')).to_have_count(1)
+            await key.get_by_role('button', name='Close room ranker key').click()
             await page.goto(BASE + '/engineering')
             await page.locator('.cmpri-header-v23').wait_for(timeout=60000)
             await page.evaluate("window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/engineering/room-ranking',title:'Room Ranker'}}))")
@@ -82,6 +103,9 @@ async def main():
             await expect(frame.get_by_role('button', name='1st Floor', exact=False)).to_have_attribute('aria-expanded', 'true')
             await frame.get_by_role('button', name='1st Floor', exact=False).click()
             await check(frame, page, 'embedded ' + str(width))
+            await shell.get_by_role('button', name='Room ranker key', exact=True).click()
+            await expect(shell.get_by_role('region', name='Room ranker key').get_by_text('Ticket Escalation:', exact=True)).to_be_visible()
+            await page.screenshot(path=str(OUT / ('room-ranker-escalation-' + str(width) + '.png')))
             assert not errors, errors
             await context.close()
         await browser.close()

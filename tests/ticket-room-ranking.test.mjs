@@ -5,6 +5,12 @@ const ranking = loadTs('src/lib/ticket-room-ranking.ts');
 const location = (id, number) => ({id, room_number:number, name:'Room '+number, location_type:'Guest Room',active:true});
 const ticket = (id, priority, status='Open', location_id='r1', room='Room 101') => ({id,priority,status,location_id,room,issue:id});
 
+test('escalation marker identifies raised priorities, not a naturally high priority or a restored ticket',()=>{
+ for(const [base,current,expected] of [['Low','Medium',true],['Low','Urgent',true],['Medium','Urgent',true],['High','High',false],['Urgent','Urgent',false],['Low','Low',false],['High','Medium',false],[null,'Urgent',false],[undefined,'Urgent',false]]){
+  assert.equal(ranking.isTicketAutomaticallyEscalated({...ticket('t',current),ranker_base_priority:base}),expected,`${base} to ${current}`);
+ }
+});
+
 test('highest active priority derives room rank and sorts Urgent before High',()=>{
  const rooms=ranking.rankTicketRooms([location('r1','101'),location('r2','102')],[ticket('low','Low'),ticket('high','High'),ticket('urgent','Urgent'),ticket('medium','Medium')]);
  assert.equal(rooms[0].rank,'C'); assert.deepEqual(Array.from(rooms[0].issues,i=>i.priority),['Urgent','High','Medium','Low']);
