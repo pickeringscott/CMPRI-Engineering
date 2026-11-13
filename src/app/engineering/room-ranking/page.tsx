@@ -92,7 +92,7 @@ export default function TicketRoomRankerPage() {
             {list.map((room) => <div key={room.id} className={styles.row} data-room={room.number} data-rank={room.rank}>
               <span className={`${styles.room} ${styles[`text${room.rank}`]}`}>{room.number}</span><span className={`${styles.badge} ${styles[room.rank]}`}>{room.rank}</span>
               {room.issues[0] ? <a className={styles.issue} href={`/work-orders/${encodeURIComponent(room.issues[0].id)}`} title={room.issues[0].issue}>{room.issues[0].issue}</a> : <span className={styles.muted}>No active tickets</span>}
-              {room.issues.length > 1 ? <button type="button" className={styles.more} aria-label={`Show ${room.issues.length - 1} additional issues for room ${room.number}`} onClick={() => showAdditional(room)}>+{room.issues.length - 1} more</button> : <span />}
+              {room.issues.length > 1 ? <button type="button" className={styles.more} aria-label={`Show ${room.issues.length - 1} additional issues for room ${room.number}`} title={room.issues.slice(1).map((issue) => issue.issue).join("\n")} onClick={() => showAdditional(room)}>+{room.issues.length - 1} more</button> : <span />}
             </div>)}
             {!list.length && <p className={styles.message}>No matching rooms</p>}
           </div>
@@ -100,9 +100,13 @@ export default function TicketRoomRankerPage() {
       })}
     </div>
     <p className={styles.legend}>A: fewer than 3 Low and no higher-priority tickets. B: 3 Low or 1–2 Medium. C: 4 or more Low, 3 or more Medium, or any High / Urgent. The highest applicable rank wins. Counts use each ticket&apos;s base priority; affected tickets are raised automatically and return to their base priority as the room improves. Completed, Closed and Will Not Do tickets are excluded. +N more shows additional issues.</p>
-    <dialog ref={dialog} className={styles.dialog}>
+    <dialog ref={dialog} className={styles.dialog} aria-labelledby="additional-issues-title" onClick={(event) => {
+      if (event.target !== event.currentTarget) return;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) event.currentTarget.close();
+    }}>
       <button type="button" className={styles.close} onClick={() => dialog.current?.close()}>Close</button>
-      <h2 className={styles.detailTitle}>Room {selected?.number}<span>{extras.length} additional issue{extras.length === 1 ? "" : "s"}</span></h2>
+      <h2 id="additional-issues-title" className={styles.detailTitle}>Room {selected?.number}<span>{extras.length} additional issue{extras.length === 1 ? "" : "s"}</span></h2>
       <div className={styles.detailColumns}><span>Priority</span><span>Issue</span></div>
       {extras.map((issue) => <div key={issue.id} className={styles.detailRow}><strong>{issue.priority}</strong><a href={`/work-orders/${encodeURIComponent(issue.id)}`}>{issue.issue}</a></div>)}
       {!extras.length && <p className={styles.message}>No additional active issues.</p>}

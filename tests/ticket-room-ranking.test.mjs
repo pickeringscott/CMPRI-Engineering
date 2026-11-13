@@ -10,6 +10,30 @@ test('highest active priority derives room rank and sorts Urgent before High',()
  assert.equal(rooms[0].rank,'C'); assert.deepEqual(Array.from(rooms[0].issues,i=>i.priority),['Urgent','High','Medium','Low']);
  assert.equal(rooms[1].rank,'A'); assert.equal(rooms[1].issues.length,0);
 });
+test('automatic urgency ties show the highest original priority in the room list',()=>{
+ const tickets=[
+  {...ticket('a-low','Urgent'),ranker_base_priority:'Low'},
+  {...ticket('b-medium','Urgent'),ranker_base_priority:'Medium'},
+  {...ticket('c-high','Urgent'),ranker_base_priority:'High'},
+  ticket('z-urgent','Urgent'),
+ ];
+ for(const input of [tickets,[...tickets].reverse()]){
+  const room=ranking.rankTicketRooms([location('r1','101')],input)[0];
+  assert.equal(room.issues[0].id,'z-urgent');
+  assert.deepEqual(Array.from(room.issues.slice(1),i=>i.id),['c-high','b-medium','a-low']);
+  assert.equal(room.rank,'C');
+ }
+});
+test('current priority wins before original priority, and equal priorities keep a stable order',()=>{
+ const room=ranking.rankTicketRooms([location('r1','101')],[
+  ticket('z-high','High'),
+  {...ticket('b-escalated','Urgent'),ranker_base_priority:'Low'},
+  {...ticket('a-escalated','Urgent'),ranker_base_priority:'Low'},
+  {...ticket('null-base','Low'),ranker_base_priority:null},
+  ticket('no-base','Low'),
+ ])[0];
+ assert.deepEqual(Array.from(room.issues,i=>i.id),['a-escalated','b-escalated','z-high','no-base','null-base']);
+});
 test('priority and status changes recompute rather than preserve a corporate or stale rank',()=>{
  for(const [priority,expected]of [['Low','A'],['Medium','B'],['High','C'],['Urgent','C']])assert.equal(ranking.rankTicketRooms([location('r1','101')],[ticket('t',priority)])[0].rank,expected);
  for(const status of ['Completed','Closed','Will Not Do']){const r=ranking.rankTicketRooms([location('r1','101')],[ticket('high','Urgent',status),ticket('low','Low')])[0];assert.equal(r.rank,'A');assert.equal(r.issues.length,1)}

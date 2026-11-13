@@ -28,7 +28,12 @@ export function rankTicketRooms(locations: RankingLocation[], tickets: RankingTi
     issues.set(room.id, list);
   }
   return rooms.map((room): RankedRoom => {
-    const list = (issues.get(room.id) || []).sort((a, b) => priorityOrder[b.priority] - priorityOrder[a.priority] || a.id.localeCompare(b.id));
+    // Automatic escalation can give every ticket the same display priority.
+    // Prefer the higher original priority before falling back to a stable ID.
+    const list = (issues.get(room.id) || []).sort((a, b) =>
+      priorityOrder[b.priority] - priorityOrder[a.priority]
+      || priorityOrder[b.ranker_base_priority ?? b.priority] - priorityOrder[a.ranker_base_priority ?? a.priority]
+      || a.id.localeCompare(b.id));
     // Escalated priorities are display priorities. Use the preserved original
     // priorities for counts so an automatic escalation cannot feed itself.
     const counts = { Low: 0, Medium: 0, High: 0, Urgent: 0 };
