@@ -9,7 +9,7 @@ const apiReachable = [401, 403, 405];
 const uiPaths = [
   '/', '/engineering', '/engineering/enseo-assignments', '/engineering/gss',
   '/engineering/import-work-orders', '/engineering/parts', '/engineering/pool-log',
-  '/engineering/preventive-maintenance', '/engineering/purchasing', '/engineering/room-operations',
+  '/engineering/preventive-maintenance', '/engineering/winter-preparedness', '/engineering/purchasing', '/engineering/room-operations',
   '/engineering/room-ranker', '/management/equipment', '/management/rooms', '/management/users',
   '/setup-guide', '/staff-notes', '/technician', '/work-orders', '/work-orders/test-id',
 ];
@@ -38,6 +38,8 @@ const cases = [
 
 const troubleshootingPath = '/api/work-orders/00000000-0000-4000-8000-000000000042/troubleshooting';
 cases.push(
+  { path: '/api/winter-preparedness', method: 'GET', expected: anonymousDenied },
+  { path: '/api/winter-preparedness', method: 'PATCH', expected: anonymousDenied },
   { path: '/api/assets/photo', method: 'GET', expected: anonymousDenied },
   { path: '/api/assets/photo', method: 'PUT', expected: anonymousDenied },
   { path: '/api/assets/move', method: 'POST', expected: anonymousDenied },

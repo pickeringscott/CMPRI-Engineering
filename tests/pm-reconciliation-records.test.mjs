@@ -20,6 +20,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
       create table cmpri_pm_proposals(id uuid primary key,hotel_id uuid,template_id text,period_start date,scope_key text,payload jsonb,revision int,status text,submitted_by uuid);
       create table cmpri_room_pm_history(hotel_id uuid,room text,period_start date,completed_on date,item_answers jsonb,primary key(hotel_id,room,period_start));
       create table locations(id uuid primary key,hotel_id uuid,name text,area text,room_number text,location_type text,active boolean);
+      create table cmpri_winter_items(hotel_id uuid,year int,item_id text,checked boolean,revision int,changed_by uuid,changed_by_name text,changed_at timestamptz);
       create table work_orders(id uuid primary key default gen_random_uuid(),hotel_id uuid,display_id text,location_id uuid,room text,asset_id uuid,asset_name text,category text,issue text,priority text,notes text,
         created_by uuid,creator_account_user_id uuid,creator_name text,submitted_by_name text,creator_source text,status text,submitted_by_user_id uuid,technician_name text,action_root_cause text,parts text,cost numeric,hours numeric,import_source text,import_external_id text);
       create unique index pm_identity on work_orders(hotel_id,import_source,import_external_id);
@@ -36,7 +37,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
     const before = await sourceSnapshot();
     let rpcCalls = 0, directInserts = 0, missingRpc = false, race = null, lastRpcError = '';
     const admin = { from(table) {
-      assert(['cmpri_pm_proposals','cmpri_room_pm_history','work_orders','locations'].includes(table));
+      assert(['cmpri_pm_proposals','cmpri_room_pm_history','work_orders','locations','cmpri_winter_items'].includes(table));
       const filters = [], orders = []; let range, projection;
       async function materialize() {
         // Match PostgREST's date wire format rather than PGlite's Date objects.
@@ -60,7 +61,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
     const principal={identity:{id:session.user.id,email:session.user.email},profile:account.profile,membership:account.membership,permissions:account.permissions,hotelId:hotel};
     const auth={principal,user:{id:session.user.id,email:session.user.email},profile:account.profile,membership:account.membership,admin};
     const deps={'server-only':{},'@/lib/constants':{HOTEL_ID:hotel},'next/server':{NextResponse:{json:(value,init)=>Response.json(value,init)}},
-      '@/lib/server/auth':{requireUser:async()=>({principal,admin})},'@/lib/server/request-auth':{authenticatedUser:async()=>auth},'@/lib/server/supabase-admin':{createSupabaseAdmin:()=>admin}};
+      '@/lib/server/auth':{requireUser:async()=>({principal,admin}),requireUserAttempt:async()=>({ok:true,principal,admin,mcp:false})},'@/lib/server/request-auth':{authenticatedUser:async()=>auth},'@/lib/server/supabase-admin':{createSupabaseAdmin:()=>admin}};
     const load=path=>loadTs(path,deps,{Error,Response,setTimeout});
     const current=loadTs('src/lib/pm/catalog.ts',{'./source-catalog.json':{default:JSON.parse(readFileSync('src/lib/pm/source-catalog.json','utf8'))}},{Error});
     deps['@/lib/pm/catalog']=current;
@@ -75,12 +76,25 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
       '@/lib/equipment-selection':'src/lib/equipment-selection.ts','@/lib/work-order-categories':'src/lib/work-order-categories.ts',
       '@/lib/pm/linked-form-review':'src/lib/pm/linked-form-review.ts','@/lib/pm/work-order-form-target':'src/lib/pm/work-order-form-target.ts',
       '@/lib/server/paginated-query':'src/lib/server/paginated-query.ts',
+      '@/lib/winter-preparedness':'src/lib/winter-preparedness.ts',
     }))deps[alias]=load(path);
     deps['@/lib/server/room-availability']={}; // POST never reads occupancy or calls another service.
     deps['@/lib/server/pm-work-order']=load('src/lib/server/pm-work-order.ts');
     const reader=load('src/lib/server/pm-recorded-issues.ts');
     const state=await reader.loadRecordedIssueState(admin,session.user.id);
     deps['@/lib/server/pm-recorded-issues']=reader;
+    deps['@/lib/server/winter-preparedness-store']=load('src/lib/server/winter-preparedness-store.ts');
+    const winterStore=deps['@/lib/server/winter-preparedness-store'];
+    assert.equal(winterStore.winterHotel(principal),hotel);
+    assert.throws(()=>winterStore.winterHotel(principal,true),error=>error.status===403);
+    assert.throws(()=>winterStore.winterHotel({...principal,profile:{...principal.profile,active:false}}),error=>error.status===403);
+    assert.throws(()=>winterStore.winterHotel({...principal,membership:{...principal.membership,active:false}}),error=>error.status===403);
+    assert(Array.isArray(data.winter?.items),'Include the actual winter-table export in private acceptance');
+    for(const row of data.winter.items)await db.query('insert into cmpri_winter_items select * from jsonb_populate_record(null::cmpri_winter_items,$1::jsonb)',[JSON.stringify(row)]);
+    const winterRoute=loadTs('src/app/api/winter-preparedness/route.ts',deps,{Error,Response,process:{env:{CMPRI_MANUAL_PREVIEW_READ_ONLY:'1'}}});
+    const winterResponse=await winterRoute.GET({});assert.equal(winterResponse.status,200);
+    const winter=await winterResponse.json();assert.deepEqual(winter.items,data.winter.items);assert.equal(winter.preview_read_only,true);
+    assert.equal((await winterRoute.PATCH({text:()=>{throw Error('Preview must reject before reading a mutation');}})).status,403);
     const savedIssuesRoute=load('src/app/api/preventive-maintenance/recorded-issues/route.ts');
     const savedIssuesResponse=await savedIssuesRoute.GET({});
     assert.equal(savedIssuesResponse.status,200);
@@ -92,7 +106,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
       const pmRoute=load('src/app/api/preventive-maintenance/route.ts');
       const response=await pmRoute.GET({nextUrl:{searchParams:new URLSearchParams({week:current.pmWeekStart(new Date().toISOString().slice(0,10))})}});
       assert.equal(response.status,200);
-      writeFileSync(process.env.CMPRI_PM_BROWSER_REPLAY_OUT,JSON.stringify({pm:await response.json(),issues:{...savedIssues,preview_read_only:true}}),{mode:0o600});
+      writeFileSync(process.env.CMPRI_PM_BROWSER_REPLAY_OUT,JSON.stringify({pm:await response.json(),issues:{...savedIssues,preview_read_only:true},winter}),{mode:0o600});
     }
     const externalId=(s,i)=>deps['@/lib/pm/issues'].pmIssueExternalId(s.templateId,s.period,s.scope,i.key);
     const linkedKeys=new Set(data.links.map(row=>row.import_external_id));
