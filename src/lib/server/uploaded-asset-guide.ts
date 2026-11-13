@@ -10,10 +10,9 @@ import { manualPartsPassages, manualReferencePages, manualSourcePassages, type S
 import { uploadedManualHtmlActions } from '@/lib/uploaded-manual-actions';
 import { structureManualDocument, structureManualPage, sourcePageHtml } from '@/lib/manual-document-html';
 import { readReviewedManualPages } from '@/lib/server/reviewed-manual-text';
-import { extractPdfManualStructure } from '@/lib/server/pdf-troubleshooting-tables';
 import { resolveManualProcedureReferences } from '@/lib/manual-procedure-references';
 import { manualPreviewReadOnly } from './manual-preview';
-import { inspectCachedManualPdf } from './manual-derivative-cache';
+import { inspectCachedManualPdf, readCachedPdfStructure } from './manual-derivative-cache';
 import { eligibleManualLinks, type ApplicableManualLink } from '@/lib/manual-applicability';
 import { withStoredPdfStatus } from '@/lib/server/stored-pdf-status';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
@@ -235,7 +234,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       actions.symptom_rules.push(...ocrManualActions(ocrPages));
     }
     try {
-      const structure = await cachedDerivative(`structure:v10:${selected.sha256}`, () => extractPdfManualStructure(selected.bytes));
+      const structure = await cachedDerivative(`structure:v10:${selected.sha256}`, () => readCachedPdfStructure(admin, selected.bytes, selected.sha256));
       // Do not reintroduce the uncorrected PDF instruction on a reviewed page.
       const eligible=(entry:{source_pages?:number[]})=>!entry.source_pages?.some(page=>reviewedPageNumbers.has(page)||emptyTextPages.has(page));
       actions.symptom_rules.push(...structure.symptom_rules.filter(eligible));

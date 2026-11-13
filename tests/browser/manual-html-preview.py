@@ -20,6 +20,7 @@ async def main():
         generator = await browser.new_page()
         await generator.set_content('''<style>@page{size:612pt 792pt;margin:0}body{margin:0}.sheet{height:792pt;position:relative;break-after:page}h1{margin:0;padding:20pt;font:18pt sans-serif}footer{position:absolute;bottom:15pt;right:20pt;font:14pt sans-serif}svg{position:absolute;left:15pt;top:100pt;width:580pt;height:550pt}</style>''' + ''.join(
             f'''<section class="sheet"><h1>HEAT ERROR PAGE {number}</h1><svg viewBox="0 0 580 550"><text x="5" y="20">LEFT DIAGRAM LABEL</text><rect x="30" y="40" width="500" height="450" fill="none" stroke="red" stroke-width="4"/><path d="M50 80 L500 450" stroke="blue" stroke-width="4"/><text x="360" y="530">BOTTOM DIAGRAM LABEL</text></svg><footer>COMPLETE FOOTER {number}</footer></section>''' for number in range(1, 4)))
+        label_image = await generator.screenshot()
         pdf = await generator.pdf(prefer_css_page_size=True)
         await generator.close()
         actual_path = os.environ.get('CMPRI_MANUAL_PREVIEW_PDF')
@@ -41,7 +42,7 @@ async def main():
         code = """import fs from 'node:fs';import {deriveTroubleshootingChecklistContext} from './src/lib/work-orders/troubleshooting-checklist.ts';import {normalizeManualKnowledge} from './src/lib/manual-knowledge.ts';const r=JSON.parse(fs.readFileSync(0,'utf8'));console.log(JSON.stringify(deriveTroubleshootingChecklistContext({...r.order,asset:r.asset},normalizeManualKnowledge(r.knowledge))));"""
         derived = json.loads(subprocess.check_output(['node', '--import', './tests/helpers/resolve-ts.mjs', '--experimental-strip-types', '--input-type=module', '-e', code], input=json.dumps({'order': order, 'asset': asset, 'knowledge': knowledge}), text=True))
         for width in [384, 1440]:
-            context = await browser.new_context(viewport={'width': width, 'height': 1000}, service_workers='block')
+            context = await browser.new_context(viewport={'width': width, 'height': 1000}, service_workers='block', has_touch=width == 384)
             await install(context, 'chief_engineer')
             order.update({'notes': '', 'revision': 1})
             exit_requests = []
@@ -69,7 +70,7 @@ async def main():
                     completed = [step['label'] for step in derived['steps'] if saved['taskStates'].get(step['id'], {}).get('workerChecked')]
                     order['notes'] = 'CMPRI2|2026-11-13T01:00:00Z|Fixture Chief|chief_engineer|note|Troubleshooting: ' + '; '.join(completed) + ' — checked.'
                     order['revision'] += 1
-                    return await reply({'ok': True, 'finalized': True, 'alreadyFinalized': False, 'eventCount': 1, 'workOrderRevision': order['revision'], 'notes': order['notes']})
+                    return await reply({'ok': True, 'finalized': True, 'alreadyFinalized': False, 'eventCount': saved['revision'], 'workOrderRevision': order['revision'], 'notes': order['notes']})
                 if url.path == '/api/work-orders/' + WID + '/troubleshooting':
                     if route.request.method == 'PATCH':
                         body = route.request.post_data_json
@@ -104,6 +105,16 @@ async def main():
             await check.click()
             await expect(check).to_be_checked()
             assert saved['revision'] == 1
+            box = check.locator('[data-troubleshooting-box]')
+            tick = box.locator('svg')
+            box_bounds, tick_bounds = await box.bounding_box(), await tick.bounding_box()
+            assert box_bounds['width'] == box_bounds['height']
+            assert tick_bounds['x'] > box_bounds['x'] and tick_bounds['y'] > box_bounds['y']
+            assert tick_bounds['x'] + tick_bounds['width'] < box_bounds['x'] + box_bounds['width']
+            assert tick_bounds['y'] + tick_bounds['height'] < box_bounds['y'] + box_bounds['height']
+            assert await box.evaluate('node=>parseFloat(getComputedStyle(node).borderTopLeftRadius)') <= 2
+            assert await check.evaluate('node=>getComputedStyle(node,"::before").content') in ['none', 'normal']
+            assert await check.evaluate('node=>parseFloat(getComputedStyle(node.closest("li")).paddingTop)') >= 3
             await page.screenshot(path=str(OUT / f'guide-top-{width}.png'))
             expected_pages = sorted({number for step in derived['steps'] for number in step['sourcePages']})
             assert await guide.locator('[data-continuous-source-page]').evaluate_all('(nodes)=>nodes.map(node=>Number(node.dataset.continuousSourcePage))') == expected_pages
@@ -112,7 +123,53 @@ async def main():
             first = guide.locator(f'[data-pdf-html-page="{expected_pages[0]}"]')
             await expect(first.locator('img')).to_be_visible(timeout=45000)
             first_url = await first.locator('img').get_attribute('src')
+            await first.get_by_role('button', name=f'Enlarge page {expected_pages[0]}', exact=True).click()
+            enlarged = page.locator('[data-diagram-modal]')
+            await expect(enlarged).to_be_visible()
+            await expect(enlarged.get_by_role('button', name='Zoom in', exact=True)).to_be_enabled()
+            await enlarged.get_by_role('button', name='Zoom in', exact=True).click()
+            assert float(await enlarged.locator('[data-diagram-viewport]').get_attribute('data-diagram-scale')) > 1
+            await enlarged.get_by_role('button', name='Reset zoom', exact=True).click()
+            await enlarged.get_by_role('button', name='Close diagram', exact=True).click()
+            if width == 384:
+                await first.scroll_into_view_if_needed()
+                bounds = await first.bounding_box()
+                x = bounds['x'] + bounds['width'] / 2
+                y = max(220, bounds['y'] + 180)
+                cdp = await context.new_cdp_session(page)
+                async def touch(kind, points):
+                    await cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [{'x': px, 'y': py, 'id': index + 1} for index, (px, py) in enumerate(points)]})
+                await touch('touchStart', [(x - 25, y), (x + 25, y)])
+                await expect(enlarged).to_be_visible()
+                await expect(enlarged.get_by_role('button', name='Zoom in', exact=True)).to_be_enabled()
+                await touch('touchMove', [(x - 75, y), (x + 75, y)])
+                await expect(enlarged.locator('[data-diagram-viewport]')).to_have_attribute('data-diagram-scale', re.compile(r'[2-6](?:\.\d+)?'))
+                await touch('touchEnd', [])
+                await enlarged.get_by_role('button', name='Close diagram', exact=True).click()
+                await first.get_by_role('button', name=f'Enlarge page {expected_pages[0]}', exact=True).click()
+                await expect(enlarged.get_by_role('button', name='Zoom in', exact=True)).to_be_enabled()
+                area = await enlarged.locator('[data-diagram-viewport]').bounding_box()
+                x, y = area['x'] + area['width'] / 2, area['y'] + area['height'] / 2
+                await touch('touchStart', [(x - 25, y), (x + 25, y)])
+                await touch('touchMove', [(x - 75, y), (x + 75, y)])
+                assert float(await enlarged.locator('[data-diagram-viewport]').get_attribute('data-diagram-scale')) > 2
+                await touch('touchEnd', [])
+                assert await page.evaluate('visualViewport.scale') == 1
+                await enlarged.get_by_role('button', name='Close diagram', exact=True).click()
+            else:
+                await first.locator('[data-pdf-text-layer]').click(position={'x': 8, 'y': 8})
+                await expect(enlarged).to_be_visible()
+                await enlarged.get_by_role('button', name='Close diagram', exact=True).click()
+            assert len(reads) == 1, reads
             settled_reads = len(reads)
+            last_check = guide.get_by_role('checkbox').last
+            await last_check.scroll_into_view_if_needed()
+            await last_check.click()
+            await expect(last_check).to_be_checked()
+            await expect(guide.get_by_text('Loading saved checklist…', exact=True)).to_have_count(0)
+            await expect(last_check).to_be_in_viewport(ratio=0.5)
+            assert await first.locator('img').get_attribute('src') == first_url
+            assert len(reads) == settled_reads, 'Checking a step must not reload its source PDF.'
             async def paper_color(preview):
                 return await preview.locator('img').evaluate('''async img => {const bitmap=await createImageBitmap(await (await fetch(img.src)).blob()); const canvas=document.createElement('canvas'); canvas.width=bitmap.width; canvas.height=bitmap.height; const ctx=canvas.getContext('2d'); ctx.drawImage(bitmap,0,0); const rgb=Array.from(ctx.getImageData(0,0,1,1).data).slice(0,3); bitmap.close(); return rgb;}''')
             async def surface_color(preview):
@@ -137,6 +194,10 @@ async def main():
             await first.scroll_into_view_if_needed()
             assert await first.locator('img').get_attribute('src') == first_url
             assert len(reads) == settled_reads, reads
+            await page.evaluate("async()=>{await window.__cmpriDeviceData.invalidate(['reference']);}")
+            await expect(guide.get_by_text('Loading the equipment’s uploaded guide…', exact=True)).to_have_count(0)
+            assert await first.locator('img').get_attribute('src') == first_url
+            assert len(reads) == settled_reads, 'A same-source refresh must keep the downloaded PDF.'
             await first.screenshot(path=str(OUT / f'work-order-html-{width}.png'))
             assert not order['notes'], 'Checkbox progress must not add notes before close.'
             await page.get_by_role('link', name='← Engineering Dashboard', exact=True).click()
@@ -147,6 +208,7 @@ async def main():
             guide = page.locator('[data-ticket-accordion="troubleshooting"]')
             await guide.locator('summary').first.click()
             await expect(guide.get_by_role('checkbox').first).to_be_checked()
+            await expect(guide.get_by_role('checkbox').last).to_be_checked()
             await guide.get_by_role('button', name='Zoom in', exact=True).click()
             await expect(first.locator('img')).to_be_visible()
             reader_baseline = len(reads)
@@ -165,9 +227,19 @@ async def main():
             await expect(local_first.locator('[data-pdf-text-layer] span').first).to_be_attached()
             assert len(reads) == reader_baseline, 'Local preview must use the selected File without a server read.'
             assert await paper_color(local_first) == await surface_color(local_first), 'Read preview must use the current app surface'
+            await local_first.get_by_role('button', name='Enlarge page 1', exact=True).click()
+            await expect(page.locator('[data-diagram-modal]')).to_be_visible()
+            await page.locator('[data-diagram-modal]').get_by_role('button', name='Close diagram', exact=True).click()
+
             await local_first.screenshot(path=str(OUT / f'reader-html-{width}.png'))
+            await dialog.get_by_label('Choose a manual PDF (up to 100 MB) or label image').set_input_files({'name': 'Fixture label.png', 'mimeType': 'image/png', 'buffer': label_image})
+            await reader.get_by_role('button', name='Enlarge image', exact=True).click()
+            await expect(page.locator('[data-diagram-modal]')).to_be_visible()
+            await page.locator('[data-diagram-modal]').get_by_role('button', name='Close diagram', exact=True).click()
+            assert len(reads) == reader_baseline, 'Image zoom must remain local too.'
+
             assert not errors, errors
-            print(json.dumps({'width': width, 'work_order_and_reader': 'passed', 'focused_pages': expected_pages, 'persisted_checkboxes': len(derived['steps']), 'additional_reads_on_theme_change_or_scroll': 0, 'app_theme': True, 'original_diagrams_and_selectable_text': True}), flush=True)
+            print(json.dumps({'width': width, 'work_order_and_reader': 'passed', 'focused_pages': expected_pages, 'persisted_checkboxes': len(derived['steps']), 'additional_reads_on_theme_change_or_scroll': 0, 'click_and_pinch_zoom': True, 'app_theme': True, 'original_diagrams_and_selectable_text': True}), flush=True)
             await context.close()
         await browser.close()
 

@@ -1,0 +1,23 @@
+.step { padding-block: 3px; }
+.checkbox[role="checkbox"][data-step-id] {
+  display: grid !important; place-items: center !important;
+  width: 24px !important; height: 24px !important;
+  min-width: 24px !important; min-height: 24px !important;
+  padding: 0 !important; border: 0 !important; border-radius: 0 !important;
+  background: transparent !important; box-shadow: none !important;
+}
+/* Other workspaces style their checkboxes with circles and generated ticks. */
+.checkbox[role="checkbox"][data-step-id][data-preview-status]::before,
+.checkbox[role="checkbox"][data-step-id][data-preview-status]::after {
+  content: none !important; display: none !important;
+}
+.box {
+  display: grid; place-items: center; box-sizing: border-box;
+  width: 18px; height: 18px; overflow: hidden;
+  border: 1px solid; border-radius: 2px !important;
+}
+.tick {
+  display: block; width: 12px; height: 12px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}

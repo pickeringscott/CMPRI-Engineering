@@ -6,6 +6,7 @@ import { createClient, getValidSession } from '@/lib/supabase/client';
 import { localOcrPaths } from '@/lib/ocr/local-ocr';
 import { themeSourceDiagramBlob } from '@/lib/work-orders/diagram-theme';
 import styles from './PdfHtmlPreview.module.css';
+import PdfArtworkZoom from './PdfArtworkZoom';
 
 type PdfRuntime = typeof import('pdfjs-dist');
 type Document = { pdf: PDFDocumentProxy; runtime: PdfRuntime; enqueue: <T>(work: () => Promise<T>) => Promise<T> };
@@ -210,8 +211,9 @@ function HtmlPage({ document, pageNumber, isOpen, paletteVersion }: { document: 
   }, [document, activated, width, pageNumber, retry, paletteVersion]);
   return <div ref={host} className={styles.page} data-pdf-html-page={pageNumber} style={{ aspectRatio: ratio }}>
     {/* Neutral page colors follow the app; diagrams, source colors and geometry remain intact. */}
-    {image && <picture style={{ display: 'contents' }}><img src={image} alt={`Original PDF page ${pageNumber}, including complete diagrams and tables`} /></picture>}
+    {image && <picture style={{ display: 'contents' }}><img src={image} draggable={false} alt={`Original PDF page ${pageNumber}, including complete diagrams and tables`} /></picture>}
     <div ref={layer} className={styles.textLayer} data-pdf-text-layer />
+    {image && isOpen && <PdfArtworkZoom key={image} host={host} imageUrl={image} pageNumber={pageNumber} />}
     {!image && !error && <p role="status" className="absolute left-2 top-2 text-xs opacity-70">{seen ? 'Loading page…' : 'Page loads as you approach it.'}</p>}
     {error && <p role="alert" className="relative p-2 text-xs text-amber-200">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Retry page</button></p>}
   </div>;

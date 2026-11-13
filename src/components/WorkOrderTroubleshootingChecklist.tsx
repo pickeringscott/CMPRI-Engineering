@@ -1,5 +1,7 @@
 "use client";
 
+import styles from './WorkOrderTroubleshootingChecklist.module.css';
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import type { CmpriClientSession } from "@/lib/auth/client-session";
@@ -253,7 +255,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
       {preview && <p role="status" className="text-xs text-amber-200">Preview for the edited issue — save the work order to record checks.</p>}
       {data?.previewReadOnly&&<p role="status" className="text-xs text-amber-200">Preview check marks stay in this browser. Live work orders are unchanged.</p>}
       {disabledReason && <p role="status" className="text-xs text-amber-200">{disabledReason}</p>}
-      {busy === "load" && <p role="status" className="text-xs text-slate-400">Loading saved checklist…</p>}
+      {busy === "load" && !data && <p role="status" className="text-xs text-slate-400">Loading saved checklist…</p>}
       {message && <div role="alert" className="text-xs text-amber-200">{message} <button type="button" disabled={!!busy || !!disabledReason} onClick={() => void request()} className="underline">Reload checklist</button></div>}
       {data?.pendingVisits?.filter(earlier => earlier.visitId !== visitId).map(earlier => <p key={earlier.visitId} className="text-xs text-slate-400">An earlier troubleshooting summary is pending. <button type="button" disabled={!!busy} onClick={() => void recoverEarlier(earlier.visitId)} className="underline">Recover earlier summary</button></p>)}
       {display && !display.steps.length && <div className="space-y-0 text-sm leading-tight text-slate-400">
@@ -281,14 +283,14 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           const previous = index > 0 ? display.steps[index - 1] : undefined;
           const previousChart = previous ? chartParts(previous.label) : null;
           const showChart = !!chart && (chart.context !== previousChart?.context || step.sourcePages?.[0] !== previous?.sourcePages?.[0] || step.source_document_id !== previous?.source_document_id);
-          return <li ref={index===0?firstStep:undefined} key={step.id} className="py-0">
+          return <li ref={index===0?firstStep:undefined} key={step.id} className={styles.step}>
             {showChart && <div className="text-xs font-semibold text-sky-300" data-chart-context>
               {chart.context}
               {stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
             </div>}
             <div className="flex items-start gap-0.5">
-              <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={`Step ${index + 1}: ${step.label}`} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? "Uncheck completed step" : nextAction(display, state)} disabled={disabled} onClick={() => void request(step.id, display, action)} className="grid h-6 w-6 shrink-0 place-items-center rounded-sm outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default">
-                <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-sm border text-[10px] font-bold leading-none" style={{ borderColor: color, color, backgroundColor: visual === "empty" ? "transparent" : `${color}18` }}>{visual !== "empty" ? "✓" : ""}</span>
+              <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={`Step ${index + 1}: ${step.label}`} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? "Uncheck completed step" : nextAction(display, state)} disabled={disabled} onClick={() => void request(step.id, display, action)} className={`${styles.checkbox} shrink-0 outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default`}>
+                <span aria-hidden="true" data-troubleshooting-box className={styles.box} style={{ borderColor: color, color, backgroundColor: visual === "empty" ? "transparent" : `${color}18` }}>{visual !== "empty" && <svg className={styles.tick} viewBox="0 0 16 16"><path d="m3 8.5 3.25 3 6.75-7" /></svg>}</span>
               </button>
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>

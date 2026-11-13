@@ -19,6 +19,7 @@ function fixture(){
   fetch:(url,options)=>new Promise(resolve=>pending.push({url,options,resolve})),
   require(name){
    if(['react','react/jsx-runtime'].includes(name))return require(name);
+   if(name==='./PdfArtworkZoom')return {default:()=>null};
    if(name==='./PdfHtmlPreview.module.css')return {default:{page:'page',viewport:'viewport',textLayer:'textLayer'}};
    if(name==='@/lib/ocr/local-ocr')return {localOcrPaths:()=>({pdfWorkerPath:'/worker',standardFontDataUrl:'/fonts',cMapUrl:'/cmaps',wasmUrl:'/wasm'})};
    if(name==='@/lib/work-orders/diagram-theme')return {themeSourceDiagramBlob:async(blob)=>({blob,adapted:false})};

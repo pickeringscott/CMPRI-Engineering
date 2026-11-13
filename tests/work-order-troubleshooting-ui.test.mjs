@@ -66,7 +66,7 @@ function harness(options={}) {
   vm.runInNewContext(visitCode,{exports:visits,Error,crypto,fetch:fetchFixture,sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},setTimeout,clearTimeout,BroadcastChannel:options.BroadcastChannel || class {postMessage(){}close(){}},require(name){if(name==='../supabase/client')return {getValidSession:getAuth};throw Error(name);}});
   const exports={};
   vm.runInNewContext(code,{exports,Error,crypto,AbortController,queueMicrotask,console,fetch:fetchFixture,
-    require(name){
+    require(name){if(name==='./WorkOrderTroubleshootingChecklist.module.css')return {default:{step:'step',checkbox:'checkbox',box:'box',tick:'tick'}};
       if(name==='react'||name==='react/jsx-runtime')return require(name);
       if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});
       if(name==='@/components/WorkOrderStepMedia')return {default:()=>null};
