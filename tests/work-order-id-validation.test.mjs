@@ -1,4 +1,4 @@
-import {partsStatusDependency} from "./helpers/load-ts.mjs";
+import {loadTs,partsStatusDependency} from "./helpers/load-ts.mjs";
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as accountDisplay from "../src/lib/account-display.ts";
@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
+const manualPreviewDependency=loadTs('src/lib/server/manual-preview.ts',{}, {process:{env:{}}});
 const uuidExports = {};
 vm.runInNewContext(ts.transpileModule(
   readFileSync(new URL('../src/lib/uuid.ts', import.meta.url), 'utf8'),
@@ -49,6 +50,7 @@ function routeFixture(relativePath, config = {}) {
     console,
     process: { env: {} },
     require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
+      if(name==='@/lib/server/manual-preview')return manualPreviewDependency;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/account-display") return accountDisplay;
       if (name === 'next/server') return { NextResponse: response };

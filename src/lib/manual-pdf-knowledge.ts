@@ -1,5 +1,15 @@
 import { createHash } from "node:crypto";
 import { manualTextContainsExactIdentity } from "@/lib/manual-document-match";
+import { manualTextQuality, type ManualPageQuality } from './manual-page-quality';
+import * as nodeModule from 'node:module';
+import path from 'node:path';
+
+export function manualPdfOptions(bytes: Uint8Array) {
+  // Keep this lookup in Node; webpack rewrites named createRequire imports.
+  const nodeRequire=nodeModule.createRequire(path.join(process.cwd(),'package.json'));
+  const root=path.dirname(nodeRequire.resolve('pdfjs-dist/package.json'));
+  return {data:bytes.slice(),standardFontDataUrl:path.join(root,'standard_fonts')+path.sep,cMapUrl:path.join(root,'cmaps')+path.sep,cMapPacked:true,wasmUrl:path.join(root,'wasm')+path.sep,useWorkerFetch:false,verbosity:0};
+}
 
 export type ManualEquipmentIdentity = {
   id?: string;
@@ -9,27 +19,69 @@ export type ManualEquipmentIdentity = {
   serial_number?: string | null;
 };
 
-export async function extractManualPdfText(bytes: Uint8Array, options: { includeEmptyPages?: boolean } = {}) {
+export async function extractManualPdfText(bytes: Uint8Array, options: { includeEmptyPages?: boolean; previewPages?: number } = {}) {
+  // Upload suggestions need a short preview, not a complete guide inspection.
+  // The saved original and the guide's full-document reader are unchanged.
+  if (options.previewPages !== undefined) {
+    if (!Number.isInteger(options.previewPages) || options.previewPages < 1 || options.previewPages > 10) throw new Error('Invalid PDF preview size.');
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const task = pdfjs.getDocument(manualPdfOptions(bytes));
+    try {
+      const pdf = await task.promise;
+      if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) throw new Error('The PDF has an invalid page count.');
+      const parts:string[]=[];
+      for(let number=1;number<=Math.min(pdf.numPages,options.previewPages);number++){
+        const page=await pdf.getPage(number);
+        try {
+          const content=await page.getTextContent();
+          const text=content.items.map(item=>'str' in item?item.str+(item.hasEOL?'\n':' '):'').join('').trim();
+          if(text)parts.push(`PAGE ${number}\n${text}`);
+        } finally {page.cleanup();}
+      }
+      return parts.join('\n\n');
+    } finally {await task.destroy();}
+  }
+  return (await inspectManualPdf(bytes,options)).text;
+}
+
+export async function inspectManualPdf(bytes: Uint8Array, options: { includeEmptyPages?: boolean; cachedPages?:ManualPageQuality[]; onBatch?:(pages:ManualPageQuality[])=>Promise<void> } = {}) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // pdf.js transfers ownership of its input buffer. Keep the caller's bytes
   // intact for storage, hashing, and subsequent reads.
-  const task = pdfjs.getDocument({ data: bytes.slice() });
+  const task = pdfjs.getDocument(manualPdfOptions(bytes));
   const pdf = await task.promise;
   try {
-    if (pdf.numPages > 600) throw new Error("Manual exceeds 600 pages; split the document before processing.");
+    if (pdf.numPages > 10000) throw new Error("This original exceeds the reader's page budget. The original is preserved for reference.");
     const parts: string[] = [];
+    const pages: ManualPageQuality[] = [], warnings:string[]=[];
+    const page_labels:Record<string,string>={};
+    const labels=await pdf.getPageLabels();
+    const cached=new Map((options.cachedPages||[]).map(page=>[page.page,page]));
     let totalLength = 0;
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const existing=cached.get(pageNumber);
+      if(existing){totalLength+=existing.text.length;if(totalLength>20_000_000){warnings.push(`Text indexing paused at PDF page ${pageNumber}; the complete original remains available.`);break;}pages.push(existing);if(existing.text||options.includeEmptyPages)parts.push(`PAGE ${pageNumber}\n${existing.text}`);if(existing.printed_label)page_labels[String(pageNumber)]=existing.printed_label;continue;}
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
       const text = content.items.map(item => "str" in item ? String(item.str || "") + (item.hasEOL ? "\n" : " ") : "")
         .join("").replace(/[ \t]+/g, " ").trim();
       totalLength += text.length;
-      if (totalLength > 2_000_000) throw new Error("Manual exceeds the supported text size; split the document before processing.");
+      if (totalLength > 20_000_000) { warnings.push(`Text indexing paused at PDF page ${pageNumber}; the complete original remains available.`); page.cleanup(); break; }
+      const operators=await page.getOperatorList();
+      const hasImage=operators.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageMaskXObject].includes(op));
+      const quality=manualTextQuality(text,hasImage);
+      // Labels supplied by the PDF are authoritative. Otherwise accept only a lone
+      // footer page token, keeping printed labels distinct from physical positions.
+      const footer=content.items.filter(item=>'str'in item && item.transform[5]<35 && /^\s*[–—-]?\s*\d{1,4}\s*[–—-]?\s*$/.test(item.str));
+      const label=labels?.[pageNumber-1] || (footer.length===1?('str'in footer[0]?footer[0].str.replace(/[^0-9]/g,''):''):undefined);
+      if(label)page_labels[String(pageNumber)]=label;
+      pages.push({page:pageNumber,text,...quality,...(label?{printed_label:label}:{})});
       if (text || options.includeEmptyPages) parts.push(`PAGE ${pageNumber}\n${text}`);
       page.cleanup();
+      if(pageNumber%25===0){const batch=pages.slice(-25);if(batch.some(page=>!cached.has(page.page)))await options.onBatch?.(batch);await new Promise(resolve=>setTimeout(resolve,0));}
     }
-    return parts.join("\n\n");
+    if(pages.length%25){const batch=pages.slice(-(pages.length%25));if(batch.some(page=>!cached.has(page.page)))await options.onBatch?.(batch);}
+    return {text:parts.join("\n\n"),pages,page_labels,total_pages:pdf.numPages,warnings};
   } finally {
     await task.destroy();
   }

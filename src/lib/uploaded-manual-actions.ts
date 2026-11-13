@@ -153,7 +153,7 @@ function scenarioMatches(title: string): string[] {
 function readNumberedScenarios(pages: ManualHtmlPage[]): ManualSymptomRule[] {
   const rules: ManualSymptomRule[] = [];
   for (const page of pages) {
-    if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 600) continue;
+    if (!Number.isSafeInteger(page.page) || page.page < 1 || page.page > 10000) continue;
     // Read allowlisted semantic nodes, never supplied/rendered HTML. Retain
     // lines split into paragraph blocks after a completed bullet sentence.
     const lines = page.blocks.flatMap(block => block.kind === 'list'

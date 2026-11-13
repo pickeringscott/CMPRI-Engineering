@@ -105,5 +105,6 @@ export async function flowchartBranches(page: Page, items: Item[], pageNumber: n
   if (/\bno heat(?:ing)?\b/i.test(title)) match.push('not heating');
   const degree = title.match(/^(low|high|poor|slow)\s+(.+)$/i);
   if (degree) match.push(`${degree[2]} ${degree[1]}`, `${degree[2]} is ${degree[1]}`, `${degree[2]} too ${degree[1]}`, `${degree[2]} is too ${degree[1]}`);
+  // Retain the explicit question/answer on every branch; the original chart stays available.
   return [{ match, steps: [...steps.values()].sort((a,b) => b.top-a.top || a.left-b.left).map(step => step.label), source_pages: [pageNumber] }];
 }

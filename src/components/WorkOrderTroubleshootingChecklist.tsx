@@ -4,10 +4,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import type { CmpriClientSession } from "@/lib/auth/client-session";
 import { taskEditable, type PmTaskState } from "@/lib/pm/task-review";
-import { troubleshootingTaskVisual, type TroubleshootingChecklist, type TroubleshootingChecklistStep } from "@/lib/work-orders/troubleshooting-checklist";
+import { changeTroubleshootingTask,troubleshootingTaskVisual, type TroubleshootingChecklist, type TroubleshootingChecklistStep } from "@/lib/work-orders/troubleshooting-checklist";
 import { subscribeResources } from "@/lib/events/browser";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { troubleshootingVisit } from "@/lib/work-orders/troubleshooting-visits";
+import ManualSourceLink, {ManualSourceFrame} from "./ManualSourceLink";
 import WorkOrderStepMedia from "@/components/WorkOrderStepMedia";
 import { sourceSemantics } from "@/lib/work-orders/source-semantics";
 
@@ -30,6 +31,7 @@ type Props = {
   onRestartRevision?: (revision: number) => void;
   registerExitFlush?: (flush: () => Promise<void>) => () => void;
   previewSteps?: TroubleshootingChecklistStep[];
+  previewReadOnly?:boolean;
 };
 
 function canClear(data: TroubleshootingChecklistResponse, state?: PmTaskState) {
@@ -53,7 +55,7 @@ function chartParts(label: string): { context: string; detail: string } | null {
 }
 
 /** PM completion/review visuals with explicit work-order ownership for clearing. */
-export default function WorkOrderTroubleshootingChecklist({ workOrderId, session, expectedContextIdentity, ticketRevision, disabledReason, manualUrl, sourceFileName, assetId, sourceSha256, visitId, isOpen = true, onRestartRevision, registerExitFlush, previewSteps }: Props) {
+export default function WorkOrderTroubleshootingChecklist({ workOrderId, session, expectedContextIdentity, ticketRevision, disabledReason, manualUrl, sourceFileName, assetId, sourceSha256, visitId, isOpen = true, onRestartRevision, registerExitFlush, previewSteps,previewReadOnly=false }: Props) {
   const scope = JSON.stringify([workOrderId, session.hotelId, session.user.id, expectedContextIdentity, ticketRevision]);
   const identity = useRef({ scope, generation: 0 });
   const mounted = useRef(true);
@@ -73,17 +75,23 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
   const refreshPending = useRef(false);
   const activeRequest = useRef<AbortController | null>(null);
   const activeWrite = useRef(false);
+  const localPreview=useRef<{key:string;states:Record<string,PmTaskState>}|null>(null);
+  const previewKey=useCallback((value:TroubleshootingChecklist)=>'cmpri:troubleshooting-preview:'+JSON.stringify([session.hotelId,workOrderId,value.contextKey||value.contextIdentity]),[session.hotelId,workOrderId]);
+  const savePreview=useCallback((value:TroubleshootingChecklist,states:Record<string,PmTaskState>)=>{
+    const key=previewKey(value);localPreview.current={key,states};
+    try{localStorage.setItem(key,JSON.stringify({version:1,contextIdentity:value.contextIdentity,states}));}catch{/* The current browser view remains usable if persistent storage is unavailable. */}
+  },[previewKey]);
   const data = result?.scope === scope && result.value.contextIdentity === expectedContextIdentity ? result.value : null;
   const getVisit = useCallback(() => troubleshootingVisit(visitId, workOrderId, session.user.id, session.hotelId), [session.hotelId, session.user.id, visitId, workOrderId]);
 
-  useEffect(() => registerExitFlush?.(() => getVisit().flush()), [getVisit, registerExitFlush]);
+  useEffect(() => previewReadOnly?undefined:registerExitFlush?.(() => getVisit().flush()), [getVisit, registerExitFlush,previewReadOnly]);
 
   const request = useCallback(async function fetchChecklist(itemId?: string, current?: TroubleshootingChecklistResponse, action: "toggle" | "clear" = "toggle") {
     if (inFlight.current) { if (!itemId) refreshPending.current = true; return; }
     if (disabledReason || !expectedContextIdentity) return;
     inFlight.current = true;
     let releaseWrite: (() => void) | undefined;
-    if (itemId) getVisit().track(new Promise<void>(resolve => { releaseWrite = resolve; }));
+    if (itemId&&!current?.previewReadOnly) getVisit().track(new Promise<void>(resolve => { releaseWrite = resolve; }));
     const generation = identity.current.generation;
     const controller = new AbortController();
     activeRequest.current = controller;
@@ -98,6 +106,11 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
       const token = await checkSession();
       setBusyState({ scope: busyScope, itemId: itemId || "load" });
       setError(null);
+      if(itemId&&current?.previewReadOnly){
+        if(current.contextIdentity!==expectedContextIdentity||!current.steps.some(step=>step.id===itemId))throw Error('The guide changed. Reopen it before checking a step.');
+        const states={...current.taskStates,[itemId]:changeTroubleshootingTask(current,current.taskStates[itemId],action)};
+        savePreview(current,states);setResult({scope,value:{...current,taskStates:states,revision:current.revision+1}});return;
+      }
       if (itemId) {
         if (!current || (action === "clear" ? !canClear(current, current.taskStates[itemId]) : !current.canEdit || !taskEditable(current.taskStates[itemId], current.actor))) throw new Error("This completion cannot be changed by this user.");
         getVisit().remember();
@@ -129,8 +142,15 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
         throw new Error("The issue, equipment, or verified guidance changed. Reload this work order before using the checklist.");
       }
       if (payload.actor?.id !== session.user.id || !Array.isArray(payload.steps) || !payload.taskStates || !Number.isSafeInteger(payload.revision)) throw new Error("The checklist response could not be verified. Reload it before continuing.");
-      if (!itemId) await getVisit().recoverLocal();
+      if (!itemId&&!payload.previewReadOnly&&!previewReadOnly) await getVisit().recoverLocal();
       await checkSession();
+      if(payload.previewReadOnly&&payload.previewAccess){
+        if(!['canEdit','canClearAll','canClearOwn'].every(key=>typeof payload.previewAccess[key]==='boolean'))throw Error('Preview permissions could not be verified. Reload the guide.');
+        const key=previewKey(payload);let states=localPreview.current?.key===key?localPreview.current.states:null;
+        if(!states)try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved?.version===1&&saved.contextIdentity===payload.contextIdentity&&saved.states&&typeof saved.states==='object'&&!Array.isArray(saved.states)&&Object.entries(saved.states).every(([id,state])=>payload.steps.some((step:TroubleshootingChecklistStep)=>step.id===id)&&state&&typeof state==='object'&&['empty','needs','approved'].includes((state as PmTaskState).status)))states=saved.states;}catch{/* An absent/corrupt local preview starts from the actual saved marks. */}
+        payload.taskStates=states||payload.taskStates;payload.pendingVisits=[];
+        payload.canEdit=payload.previewAccess.canEdit;payload.canClearAll=payload.previewAccess.canClearAll;payload.canClearOwn=payload.previewAccess.canClearOwn;
+      }
       setResult({ scope, value: payload as TroubleshootingChecklistResponse });
       if (itemId) void invalidateCachedResources(["orders"]);
     } catch (failure) {
@@ -148,7 +168,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
         }
       }
     }
-  }, [busyScope, disabledReason, expectedContextIdentity, getVisit, scope, session.user.id, visitId, workOrderId]);
+  }, [busyScope, disabledReason, expectedContextIdentity, getVisit, scope, session.user.id, visitId, workOrderId,savePreview,previewKey,previewReadOnly]);
 
   useEffect(() => {
     const { data: subscription } = createClient().auth.onAuthStateChange((_event, auth) => {
@@ -179,6 +199,10 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
   const showHandoff = Boolean(isOpen && handoffChoice !== visitId && data?.actor.role === "technician" && Object.values(data.taskStates).some(state => state.workerChecked && state.workerId && state.workerId !== session.user.id));
   const startNew = async () => {
     if (!data?.contextKey || busy) return;
+    if(data.previewReadOnly){
+      try{localStorage.setItem(previewKey(data)+':previous',JSON.stringify(data.taskStates));}catch{/* Live history is never modified by a preview run. */}
+      savePreview(data,{});setResult({scope,value:{...data,taskStates:{},revision:data.revision+1}});setHandoffChoice(visitId);return;
+    }
     setBusyState({ scope: busyScope, itemId: "restart" });
     try {
       const auth = await getValidSession();
@@ -200,6 +224,21 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
     contextKey: null, contextIdentity: expectedContextIdentity, revision: 0, actor: data?.actor || { id: session.user.id, name: session.user.name || "", role: "manager" },
     canEdit: false, canClearAll: false, canClearOwn: false, canSeePendingReview: false, steps: previewSteps, taskStates: {}, pendingVisits: [],
   } : data;
+  const firstStep=useRef<HTMLLIElement>(null);
+  const positioned=useRef('');
+  const startKey=JSON.stringify([workOrderId,session.user.id,expectedContextIdentity,visitId]);
+  const hasSteps=!!display?.steps.length;
+  useLayoutEffect(()=>{
+    if(!isOpen){positioned.current='';return;}
+    if(!hasSteps||showHandoff||positioned.current===startKey)return;
+    const target=firstStep.current;if(!target)return;
+    const editing=target.ownerDocument.activeElement;
+    if(editing?.matches('input,textarea,[contenteditable="true"]')&&!target.closest('[data-ticket-accordion="troubleshooting"]')?.contains(editing))return;
+    const header=target.closest('[data-ticket-layout]')?.querySelector('[data-preview-locked-pane]');
+    target.style.scrollMarginTop=((header?.getBoundingClientRect().height||0)+8)+'px';
+    target.scrollIntoView?.({block:'start',behavior:'instant'});
+    positioned.current=startKey;
+  },[isOpen,hasSteps,showHandoff,startKey]);
   const recoverEarlier = async (earlierVisitId: string) => {
     const generation = identity.current.generation;
     const current = () => mounted.current && identity.current.scope === scope && identity.current.generation === generation;
@@ -210,8 +249,9 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
   };
   return (
     <section aria-label="Work-order troubleshooting checklist" className="mt-1 space-y-0 [&>p]:leading-tight">
-      {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>Source: {manualUrl ? <a href={manualUrl} target="_blank" rel="noreferrer" className="text-sky-300 underline">{sourceFileName}</a> : sourceFileName}</p>}
+      {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>Source: {manualUrl ? <ManualSourceLink userId={session.user.id} href={manualUrl} className="text-sky-300 underline">{sourceFileName}</ManualSourceLink> : sourceFileName}</p>}
       {preview && <p role="status" className="text-xs text-amber-200">Preview for the edited issue — save the work order to record checks.</p>}
+      {data?.previewReadOnly&&<p role="status" className="text-xs text-amber-200">Preview check marks stay in this browser. Live work orders are unchanged.</p>}
       {disabledReason && <p role="status" className="text-xs text-amber-200">{disabledReason}</p>}
       {busy === "load" && <p role="status" className="text-xs text-slate-400">Loading saved checklist…</p>}
       {message && <div role="alert" className="text-xs text-amber-200">{message} <button type="button" disabled={!!busy || !!disabledReason} onClick={() => void request()} className="underline">Reload checklist</button></div>}
@@ -241,13 +281,10 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           const previous = index > 0 ? display.steps[index - 1] : undefined;
           const previousChart = previous ? chartParts(previous.label) : null;
           const showChart = !!chart && (chart.context !== previousChart?.context || step.sourcePages?.[0] !== previous?.sourcePages?.[0] || step.source_document_id !== previous?.source_document_id);
-          return <li key={step.id} className="py-0">
+          return <li ref={index===0?firstStep:undefined} key={step.id} className="py-0">
             {showChart && <div className="text-xs font-semibold text-sky-300" data-chart-context>
               {chart.context}
-              {stepManualUrl && step.sourcePages?.length ? <details className="font-normal">
-                <summary className="cursor-pointer">{step.sourceFileName || "Source"} · Page {step.sourcePages[0]}</summary>
-                <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
-              </details> : null}
+              {stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
             </div>}
             <div className="flex items-start gap-0.5">
               <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={`Step ${index + 1}: ${step.label}`} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? "Uncheck completed step" : nextAction(display, state)} disabled={disabled} onClick={() => void request(step.id, display, action)} className="grid h-6 w-6 shrink-0 place-items-center rounded-sm outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default">
@@ -257,10 +294,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
                 <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
                 <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? "Saving…" : status}{state?.workerName ? ` · Completed by ${state.workerName}` : ""}{state?.reviewedBy ? ` · Reviewed by ${state.reviewedBy}` : ""}</p>
                 {!!step.media?.length && assetId && stepSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={stepSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
-                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <details className="text-xs text-sky-300">
-                  <summary className="cursor-pointer">{step.sourceFileName || "Source"} · Page {step.sourcePages[0]}</summary>
-                  <iframe title={`Manual source page ${step.sourcePages[0]}`} src={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} loading="lazy" className="h-64 w-full border-0" />
-                </details> : null}
+                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
               </div>
             </div>
           </li>;

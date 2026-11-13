@@ -41,6 +41,7 @@ function modalHref(href: string) {
     "/engineering/room-ranker",
     "/engineering/room-ranking",
     "/engineering/preventive-maintenance",
+    "/engineering/winter-preparedness",
     "/engineering/purchasing",
     "/engineering/gss",
     "/engineering/pool-log",

@@ -19,9 +19,10 @@ function pdf() {
 
 test('positioned problem and solution columns retain source condition when everyday language matches', async () => {
   const rules=await extractPdfTroubleshootingTables(pdf());
-  const matches=guideRulesForIssue({source:{verified:true},symptom_rules:rules},'shower leaking');
+  assert.equal(guideRulesForIssue({source:{verified:true},symptom_rules:rules},'shower leaking').length,0);
+  const matches=guideRulesForIssue({source:{verified:true},symptom_rules:rules},'Valve leaks when shut off.');
   assert.equal(matches.length,1);
   assert.deepEqual(matches[0].source_pages,[1]);
-  assert.deepEqual(matches[0].steps,['Valve leaks when shut off. Replace washers using the repair kit.']);
+  assert.deepEqual(matches[0].steps,['Valve leaks when shut off. — Possible cause: Washers worn. — Replace washers using the repair kit.']);
   assert.ok(!matches[0].steps[0].includes('Turn on both supplies'));
 });

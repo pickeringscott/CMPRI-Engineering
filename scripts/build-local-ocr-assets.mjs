@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 // Explicit, versioned same-origin assets. Tesseract defaults to external CDNs
@@ -34,6 +34,9 @@ for (const [source, destination] of files) {
   const output = join(target, destination);
   await mkdir(dirname(output), { recursive: true });
   await copyFile(source, output);
+}
+for(const [source,destination] of [['standard_fonts','pdf-fonts'],['cmaps','pdf-cmaps'],['wasm','pdf-wasm']]) {
+  await cp(join('node_modules/pdfjs-dist',source),join(target,destination),{recursive:true});
 }
 await writeFile(join(target, 'licenses', 'NOTICE.txt'),
   'CMPRI local OCR bundles tesseract.js and tesseract.js-core (Apache-2.0), PDF.js (Apache-2.0), and @tesseract.js-data/eng (MIT as stated in its package metadata). See the accompanying notices and package metadata.\n');

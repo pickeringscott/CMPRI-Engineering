@@ -5,16 +5,19 @@ import { isUuid } from '@/lib/uuid';
 import { allows } from '@/lib/server/access';
 import { requireUser } from '@/lib/server/auth';
 import { listRegisteredAssetFiles, type RegisteredAssetFile } from '@/lib/server/asset-file-register';
-import { extractManualPdfText, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
+import { inspectManualPdf, manualPdfSha256 } from '@/lib/manual-pdf-knowledge';
 import { manualPartsPassages, manualReferencePages, manualSourcePassages, type SourcePassage } from '@/lib/manual-source';
 import { uploadedManualHtmlActions } from '@/lib/uploaded-manual-actions';
 import { structureManualDocument, structureManualPage, sourcePageHtml } from '@/lib/manual-document-html';
 import { readReviewedManualPages } from '@/lib/server/reviewed-manual-text';
-import { extractPdfTroubleshootingTables } from '@/lib/server/pdf-troubleshooting-tables';
+import { extractPdfManualStructure } from '@/lib/server/pdf-troubleshooting-tables';
+import { resolveManualProcedureReferences } from '@/lib/manual-procedure-references';
+import { manualPreviewReadOnly } from './manual-preview';
+import { inspectCachedManualPdf } from './manual-derivative-cache';
 import { eligibleManualLinks, type ApplicableManualLink } from '@/lib/manual-applicability';
 import { withStoredPdfStatus } from '@/lib/server/stored-pdf-status';
 import type { ManualKnowledge } from '@/lib/manual-knowledge';
-import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePage, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
+import { inspectUploadedGuideMedia, renderUploadedGuideMedia, renderUploadedGuidePageDisplay, type InspectedUploadedGuideMedia } from '@/lib/server/uploaded-guide-media';
 
 const bucket = 'asset-documentation';
 const verificationMarker = '_cmpri-verification.json';
@@ -49,9 +52,10 @@ function cachedDerivative<T>(key: string, calculate: () => Promise<T> | T): Prom
     if (derivatives.get(key) !== entry) return;
     try {
       // UTF-16 JSON size is a conservative estimate for the cached objects.
-      const serialized = value instanceof Uint8Array ? null : JSON.stringify(value);
+      const imageBytes=value instanceof Uint8Array?value:value&&typeof value==='object'&&'bytes'in value&&value.bytes instanceof Uint8Array?value.bytes:null;
+      const serialized = imageBytes ? null : JSON.stringify(value);
       if (serialized === undefined) throw new Error('Derivative size is unavailable');
-      entry.bytes = value instanceof Uint8Array ? value.byteLength : serialized!.length * 2;
+      entry.bytes = imageBytes ? imageBytes.byteLength+64 : serialized!.length * 2;
       entry.expires = Date.now() + derivativeTtl;
       trim();
     } catch {
@@ -74,7 +78,7 @@ type Asset = {
   documentation_verified_at: string | null;
   pdf_import_links?: unknown;
 };
-type GuideResult = { documentation_status: string; documentation_reason: string; manualKnowledge: ManualKnowledge | null; documentation_warnings: string[]; media_image?: Uint8Array };
+type GuideResult = { documentation_status: string; documentation_reason: string; manualKnowledge: ManualKnowledge | null; documentation_warnings: string[]; media_image?: Uint8Array; media_vector_only?:boolean };
 const unavailable = (documentation_status: string, documentation_reason: string, documentation_warnings: string[] = []): GuideResult => ({ documentation_status, documentation_reason, manualKnowledge: null, documentation_warnings });
 
 function registeredIdentity(files: RegisteredAssetFile[]) {
@@ -124,7 +128,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   if (!candidates.length) return unavailable(documents.length ? 'manual_applicability_unresolved' : 'no_uploaded_document', documents.length
     ? (unresolved[0] || 'No usable attached manual has been selected for this physical equipment. Choose its manuals in Assets.')
     : 'No uploaded PDF is attached to this asset.', unresolved);
-  const matching: { file: RegisteredAssetFile; text: string; sha256: string; bytes: Uint8Array; reviewed: Awaited<ReturnType<typeof readReviewedManualPages>> }[] = [];
+  const matching: { file: RegisteredAssetFile; text: string; inspection: Awaited<ReturnType<typeof inspectManualPdf>> | null; sha256: string; bytes: Uint8Array; reviewed: Awaited<ReturnType<typeof readReviewedManualPages>> }[] = [];
   const failures: { status: string; message: string }[] = [];
   for (const file of candidates) {
     if (image?.fileId && image.fileId !== file.id) continue;
@@ -158,10 +162,14 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       catch { return unavailable('uploaded_reviewed_text_unavailable', 'Saved reviewed text could not be checked. Reload the guide before using its instructions.'); }
     }
     let text: string;
+    let inspection: Awaited<ReturnType<typeof inspectManualPdf>> | null = null;
     // A whole source page does not depend on extracting checklist text or
     // associating cropped figures with steps. Those can fail on scanned PDFs
     // even when the original page can be rendered faithfully.
-    try { text = image?.page !== undefined ? '' : await cachedDerivative(`text:v2:${sha256}`, () => extractManualPdfText(bytes, { includeEmptyPages: true })); }
+    try {
+      if(image?.page!==undefined)text='';
+      else { inspection=await cachedDerivative(`inspection:v4:${sha256}`,()=>inspectCachedManualPdf(admin,bytes,sha256));text=inspection.text; }
+    }
     catch {
       if (!reviewed.length) {
         failures.push({ status: 'unreadable_uploaded_document', message: `${file.name}: readable text could not be extracted from the attached PDF. Open it for review or use on-device OCR with human verification.` });
@@ -174,7 +182,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     }
     // A readable PDF with no text can still be opened as a source. Never turn
     // an image-only page into guessed checklist instructions.
-    matching.push({ file, text, sha256, bytes, reviewed });
+    matching.push({ file, text, inspection, sha256, bytes, reviewed });
   }
   if (!matching.length) {
     const first = failures[0] || { status: image ? 'uploaded_document_changed' : 'no_uploaded_document', message: 'No usable uploaded source document is attached to this asset.' };
@@ -191,17 +199,18 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
   const readDocument = async (selected: typeof matching[number]): Promise<GuideResult> => {
     if (image && image.sha256 !== selected.sha256) return unavailable('uploaded_document_changed', 'The uploaded PDF changed. Reload the guide before opening its image.');
     if (image?.page !== undefined) {
-      let rendered: Uint8Array;
-      try { rendered = await cachedDerivative(`page:v1:${selected.sha256}:${image.page}`, () => renderUploadedGuidePage(selected.bytes, selected.sha256, image.page!)); }
+      let rendered: Awaited<ReturnType<typeof renderUploadedGuidePageDisplay>>;
+      try { rendered = await cachedDerivative(`page:v2:${selected.sha256}:${image.page}`, () => renderUploadedGuidePageDisplay(selected.bytes, selected.sha256, image.page!)); }
       catch { return unavailable('uploaded_image_unavailable', 'The source page could not be rendered safely. Open the approved source PDF instead.'); }
-      return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered };
+      return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered.bytes,media_vector_only:rendered.vectorOnly };
     }
     // Keep empty-page markers when extracting this source. A readable cover or
     // index must not prevent image-only procedure pages from reaching OCR.
     const extractedPages = [...selected.text.matchAll(/(?:^|\n\n)PAGE (\d+)\n([\s\S]*?)(?=\n\nPAGE \d+\n|$)/g)];
     const reviewedPageNumbers = new Set(selected.reviewed.map(page => page.page));
     const hasNativeText = extractedPages.some(page => page[2].trim()) || selected.reviewed.length > 0;
-    const emptyTextPages = new Set(extractedPages.filter(page => !page[2].trim() && !reviewedPageNumbers.has(Number(page[1]))).map(page => Number(page[1])));
+    const emptyTextPages = new Set(selected.inspection ? selected.inspection.pages.filter(page=>page.needs_ocr&&!reviewedPageNumbers.has(page.page)).map(page=>page.page)
+      : extractedPages.filter(page => !page[2].trim() && !reviewedPageNumbers.has(Number(page[1]))).map(page => Number(page[1])));
     let ocrStatus = '';
     let ocrPages: { page: number; text: string; confidence: number }[] = [];
     if (emptyTextPages.size && image?.page === undefined) {
@@ -210,13 +219,13 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
         const recognized = await readManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, sha256: selected.sha256 });
         ocrStatus = recognized.status;
         ocrPages = recognized.pages.filter(page => emptyTextPages.has(page.page));
-        if (!image && (ocrStatus === 'missing' || ocrStatus === 'cancelled')) {
+        if (!image && !manualPreviewReadOnly() && (ocrStatus === 'missing' || ocrStatus === 'cancelled') && (!selected.inspection || selected.inspection.total_pages<=600)) {
           await enqueueManualOcr(admin, { hotelId: HOTEL_ID, assetId: asset.id, path: selected.file.storage_path, sha256: selected.sha256, bytes: selected.bytes });
           ocrStatus = 'pending';
         }
       } catch { failures.push({ status: 'uploaded_ocr_unavailable', message: 'Text recognition is unavailable. Open the attached source PDF.' }); }
     }
-    const nativeDocument = structureManualDocument(selected.text).filter(page => !reviewedPageNumbers.has(page.page));
+    const nativeDocument = structureManualDocument(selected.text).filter(page => !reviewedPageNumbers.has(page.page) && !emptyTextPages.has(page.page));
     const actions = uploadedManualHtmlActions(nativeDocument);
     const reviewedActions = uploadedManualHtmlActions(selected.reviewed.map(page => structureManualPage(page.text, page.page, 'reviewed')));
     actions.symptom_rules.push(...reviewedActions.symptom_rules.map(rule => ({ ...rule, steps: rule.steps.map(step => `Human-reviewed text: ${step}`) })));
@@ -226,12 +235,16 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       actions.symptom_rules.push(...ocrManualActions(ocrPages));
     }
     try {
-      const tableRules = await cachedDerivative(`tables:v7:${selected.sha256}`, () => extractPdfTroubleshootingTables(selected.bytes));
+      const structure = await cachedDerivative(`structure:v9:${selected.sha256}`, () => extractPdfManualStructure(selected.bytes));
       // Do not reintroduce the uncorrected PDF instruction on a reviewed page.
-      actions.symptom_rules.push(...tableRules.filter(rule => !rule.source_pages?.some(page => reviewedPageNumbers.has(page))));
+      const eligible=(entry:{source_pages?:number[]})=>!entry.source_pages?.some(page=>reviewedPageNumbers.has(page)||emptyTextPages.has(page));
+      actions.symptom_rules.push(...structure.symptom_rules.filter(eligible));
+      actions.error_codes.push(...structure.error_codes.filter(eligible));
+      failures.push(...structure.warnings.map(message=>({status:'partial_structure',message})));
     } catch {
       failures.push({ status: 'uploaded_table_unavailable', message: 'Some source tables could not be read. Open the source PDF to review them.' });
     }
+    actions.symptom_rules=resolveManualProcedureReferences(actions.symptom_rules,nativeDocument);
     let media: InspectedUploadedGuideMedia[] = [];
     try {
       const steps = [
@@ -252,9 +265,8 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       catch { return unavailable('uploaded_image_unavailable', 'The source illustration could not be rendered safely. Open the approved source PDF instead.'); }
     }
     if (rendered) return { documentation_status: 'verified', documentation_reason: '', manualKnowledge: null, documentation_warnings: [], media_image: rendered };
-    const signed = await admin.storage.from(bucket).createSignedUrl(selected.file.storage_path, 3600);
-    if (signed.error || !signed.data?.signedUrl) throw new Error('The attached source PDF could not be opened for comparison.');
-    const sourceUrl = signed.data.signedUrl;
+    // The authenticated endpoint rechecks association and fingerprint and signs on every open.
+    const sourceUrl = `/api/assets/documentation/source?assetId=${encodeURIComponent(asset.id)}&fileId=${encodeURIComponent(selected.file.id)}&sha256=${selected.sha256}`;
     const actionPages = new Set([...actions.symptom_rules, ...actions.error_codes].flatMap(entry => entry.source_pages || []));
     const passages = manualSourcePassages(selected.text);
     for (const page of manualPartsPassages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
@@ -263,24 +275,30 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
       if (match[2].trim() && actionPages.has(page) && !passages.some(passage => passage.page === page)) passages.push({ page, text: match[2].trim(), kind: 'troubleshooting' });
     }
     for (const page of manualReferencePages(selected.text)) if (!passages.some(existing => existing.page === page.page)) passages.push(page);
-    if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim() && !passages.some(existing => existing.page === page.page)) passages.push({ page: page.page, text: page.text, kind: 'reference', origin: 'ocr' });
+    if (ocrStatus === 'complete') for (const page of ocrPages) if (page.text.trim()) {
+      const previous=passages.findIndex(existing=>existing.page===page.page);
+      const recognized:SourcePassage={page:page.page,text:page.text,kind:'reference',origin:'ocr'};
+      if(previous<0)passages.push(recognized);else passages[previous]=recognized;
+    }
     for (const page of selected.reviewed) {
       const previous = passages.findIndex(passage => passage.page === page.page);
       const passage: SourcePassage = { page: page.page, text: page.text, kind: actionPages.has(page.page) ? 'troubleshooting' : 'reference', origin: 'reviewed' };
       if (previous < 0) passages.push(passage); else passages[previous] = passage;
     }
     const source_passages: SourcePassage[] = passages.map(passage => ({
-      ...passage, origin: passage.origin || 'pdf',
+      ...passage, printed_label:selected.inspection?.page_labels[String(passage.page)], origin: passage.origin || 'pdf',
       html: sourcePageHtml(passage.text, passage.page, passage.origin || 'pdf'),
       source_file_name: selected.file.name, source_url: sourceUrl, source_document_id: selected.file.id, source_sha256: selected.sha256,
     }));
-    const indexedOcrPages = new Set(ocrPages.filter(page => page.text.trim()).map(page => page.page));
-    const searchIncomplete = hasNativeText && [...emptyTextPages].some(page => !indexedOcrPages.has(page));
+    const indexedOcrPages = new Set(ocrPages.filter(page => page.text.trim()&&page.confidence>=85).map(page => page.page));
+    const searchIncomplete = [...emptyTextPages].some(page => !indexedOcrPages.has(page)) || !!selected.inspection?.warnings.length;
     const manualKnowledge: ManualKnowledge = {
       step_media: media.map(item => ({ ...item.descriptor, source_document_id: selected.file.id, source_sha256: selected.sha256 })),
       manufacturer: asset.manufacturer || '', model_family: asset.model_family || '', model_number: asset.model_number || '',
       source: {
         search_incomplete: searchIncomplete,
+        coverage:{total_pages:selected.inspection?.total_pages||extractedPages.length,indexed_pages:extractedPages.length-emptyTextPages.size+indexedOcrPages.size,needs_ocr:[...emptyTextPages].filter(page=>!indexedOcrPages.has(page)),warnings:selected.inspection?.warnings||[]},
+        page_labels:selected.inspection?.page_labels||{},
         type: selected.reviewed.length ? 'Uploaded PDF with human-reviewed text' : 'Verbatim uploaded PDF excerpts', title: selected.file.name, source_file_name: selected.file.name, verified: true,
         manufacturer: asset.manufacturer || '', model_family: asset.model_family || '', file_url: sourceUrl,
         source_kind: 'asset-upload', storage_path: selected.file.storage_path, sha256: selected.sha256,
@@ -293,7 +311,7 @@ export async function loadUploadedAssetGuide(admin: SupabaseClient, asset: Asset
     };
     const available = source_passages.some(passage => passage.kind !== 'reference') || actions.symptom_rules.length > 0 || actions.error_codes.length > 0;
     const indexedOcr = ocrStatus === 'complete' && ocrPages.some(page => page.text.trim());
-    const needsOcr = !hasNativeText && !indexedOcr;
+    const needsOcr = !hasNativeText && !indexedOcr && emptyTextPages.size > 0;
     const processingOcr = needsOcr && ['pending', 'processing'].includes(ocrStatus);
     const failedOcr = needsOcr && ocrStatus === 'failed';
     return { documentation_status: processingOcr ? 'uploaded_document_ocr_processing' : failedOcr ? 'uploaded_document_ocr_failed' : needsOcr ? 'uploaded_document_needs_ocr' : available ? 'verified' : 'no_guidance', documentation_reason: processingOcr
@@ -342,7 +360,7 @@ export async function readUploadedAssetMaintenanceReference(request: NextRequest
   const fileId = request.nextUrl.searchParams.get('fileId') || undefined;
   if (fileId && !isUuid(fileId)) return NextResponse.json({ error: 'A valid source file identity is required.' }, { status: 400, headers });
   const sourceSha256 = request.nextUrl.searchParams.get('sha256') || '';
-  if (pageValue !== null && (imageId !== null || !/^\d{1,3}$/.test(pageValue) || !pageNumber || pageNumber > 600 || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A valid source page and PDF fingerprint are required.' }, { status: 400, headers });
+  if (pageValue !== null && (imageId !== null || !/^\d{1,5}$/.test(pageValue) || !pageNumber || pageNumber > 10000 || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A valid source page and PDF fingerprint are required.' }, { status: 400, headers });
   if (imageId !== null && (!/^media-[a-f0-9]{64}$/.test(imageId) || !/^[a-f0-9]{64}$/.test(sourceSha256))) return NextResponse.json({ error: 'A current source image identifier and PDF fingerprint are required.' }, { status: 400, headers });
   const assetResult = await auth.admin.from('assets').select('id,hotel_id,active,manufacturer,model_family,model_number,serial_number,documentation_key,documentation_revision_id,documentation_verified_at,pdf_import_links')
     .eq('hotel_id', HOTEL_ID).eq('id', assetId).maybeSingle();
@@ -351,10 +369,10 @@ export async function readUploadedAssetMaintenanceReference(request: NextRequest
   try {
     const result = await loadUploadedAssetGuide(auth.admin, assetResult.data as Asset, imageId ? { id: imageId, sha256: sourceSha256, fileId } : pageNumber ? { id: '', sha256: sourceSha256, page: pageNumber, fileId } : undefined);
     if (imageId || pageNumber) {
-      if (result.media_image) return new Response(result.media_image.slice().buffer as ArrayBuffer, { headers: { ...headers, 'Content-Type': 'image/png', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff' } });
+      if (result.media_image) return new Response(result.media_image.slice().buffer as ArrayBuffer, { headers: { ...headers, 'Content-Type': 'image/png', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff',...(result.media_vector_only!==undefined?{'X-CMPRI-Source-Artwork':result.media_vector_only?'vector':'raster'}:{}) } });
       return NextResponse.json({ error: result.documentation_reason, documentation_status: result.documentation_status }, { status: result.documentation_status === 'uploaded_document_changed' ? 409 : 404, headers });
     }
-    return NextResponse.json({ ...result, assets: [assetResult.data], technicians: [], asset_id: assetId, documentation_key: assetResult.data.documentation_key || null, can_edit_equipment: allows(auth.principal, 'manage_assets') }, { headers });
+    return NextResponse.json({ ...result, preview_read_only:manualPreviewReadOnly(), assets: [assetResult.data], technicians: [], asset_id: assetId, documentation_key: assetResult.data.documentation_key || null, can_edit_equipment: allows(auth.principal, 'manage_assets') }, { headers });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The attached source document could not be read.' }, { status: 503, headers });
   }

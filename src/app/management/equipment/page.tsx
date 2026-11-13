@@ -91,6 +91,7 @@ export default function ManageEquipmentPage() {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [showDocumentationDialog, setShowDocumentationDialog] = useState(false);
+  const [manualFile, setManualFile] = useState<File|null>(null);
   const [docStatuses, setDocStatuses] = useState<Record<string, DocStatus>>({});
   const [processingKey, setProcessingKey] = useState("");
   const [extracted, setExtracted] = useState<Suggestions | null>(null);
@@ -297,6 +298,7 @@ export default function ManageEquipmentPage() {
   }, []);
 
   function selectAsset(item: Asset) {
+    if(item.id!==selectedId)setManualFile(null);
     if (item.id !== selectedId) { setOrdersLoading(Boolean(item.id)); setAssetOrders([]); setOrdersError(""); setPhoto(""); setPhotoMessage(""); setMoving(false); setMoveError(""); }
     setSelectedId(item.id);
     setDraft({ ...item });
@@ -504,22 +506,31 @@ export default function ManageEquipmentPage() {
     setMessage("Reviewed documentation information loaded into the equipment record. Make any final corrections, then Save Equipment.");
   }
 
-  async function useReviewedGuide(result: ReviewedGuideText, signal: AbortSignal): Promise<string> {
+  async function useReviewedGuide(result: ReviewedGuideText, signal: AbortSignal, progress?: (message:string)=>void): Promise<string> {
     if (!selectedId || !canManage || !editing) throw new Error("Select equipment you can manage before saving guide text.");
     const access = await token();
     signal.throwIfAborted();
     if (!access) throw new Error("Sign in again to save reviewed text.");
-    const response = await fetch("/api/assets/documentation/reviewed-text", {
-      method: "POST",
-      signal,
-      headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ assetId: selectedId, sha256: result.sha256, totalPages: result.totalPages, pages: result.pages, reviewConfirmed: true }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    signal.throwIfAborted();
-    if (!response.ok || payload.saved !== true || !Array.isArray(payload.pages) ||
-        payload.pages.length !== result.pages.length || !result.pages.every(page => payload.pages.includes(page.page))) {
-      throw new Error(typeof payload.error === "string" ? payload.error : "The server did not confirm that reviewed pages were saved. Attach the same PDF to this equipment, then retry.");
+    const savedPages:number[]=[];
+    let savedMessage='';
+    for(let offset=0;offset<result.pages.length;offset+=10){
+      signal.throwIfAborted();
+      const batch=result.pages.slice(offset,offset+10);
+      progress?.(`Saving reviewed pages ${offset+1}–${offset+batch.length} of ${result.pages.length}…`);
+      const response = await fetch("/api/assets/documentation/reviewed-text", {
+        method: "POST",
+        signal,
+        headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId: selectedId, sha256: result.sha256, totalPages: result.totalPages, pages: batch, reviewConfirmed: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      signal.throwIfAborted();
+      if (!response.ok || payload.saved !== true || !Array.isArray(payload.pages) ||
+          payload.pages.length !== batch.length || !batch.every(page => payload.pages.includes(page.page))) {
+        throw new Error((savedPages.length?`${savedPages.length} reviewed pages were saved before this batch stopped. `:'')+(typeof payload.error === "string" ? payload.error : "The server did not confirm that reviewed pages were saved. Attach the same PDF to this equipment, then retry."));
+      }
+      savedPages.push(...payload.pages);
+      if(typeof payload.message==='string')savedMessage=payload.message;
     }
     try {
       await invalidateCachedResources(["reference", "orders"]);
@@ -528,7 +539,7 @@ export default function ManageEquipmentPage() {
       return "Reviewed pages were saved, but open guides could not refresh. Reload the work-order guide to use the saved text.";
     }
     signal.throwIfAborted();
-    return typeof payload.message === "string" && payload.message ? payload.message : "Reviewed pages saved. Reopen the work-order guide to use the updated text.";
+    return result.pages.length<=10&&savedMessage?savedMessage:`${savedPages.length} reviewed pages saved. Reopen the work-order guide to use the updated text.`;
   }
 
   function useReviewedOcr(result: ReviewedOcrText) {
@@ -646,6 +657,7 @@ export default function ManageEquipmentPage() {
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
               <div className="asset-overview flex flex-wrap items-start gap-4">
                 <label className={`relative block shrink-0 ${canManage ? "cursor-pointer" : ""}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- Signed private asset photos retain their original browser request. */}
                   {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
                   {canManage && <><span className="sr-only">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
                 </label>
@@ -664,7 +676,7 @@ export default function ManageEquipmentPage() {
                   {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
                   {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders.</p>}
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
-                  <div className="sr-only">{documents.map((doc) => doc.url && (<a key={statusKey(doc)} href={doc.url}>{doc.name}</a>))}</div>
+                  <div className="sr-only break-all">{documents.map((doc) => doc.url && (<a key={statusKey(doc)} href={doc.url}>{doc.name}</a>))}</div>
                 </div>
               </div>
 
@@ -694,7 +706,7 @@ export default function ManageEquipmentPage() {
                   <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p></div>
                   {order.notes && <><div className="asset-notes-heading"><h4>Work order notes</h4><span>Notes are saved on the work order and shown here for this asset.</span></div><ul className="asset-note-list mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
                 </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
-                {documents.length > 0 && !selected.serial_number && <div className="asset-manual-hint"><AssetIcon name="document" /><span>Manual: applicability needs serial number</span><button type="button" onClick={() => setAssetPanel("documents")}>View Documentation <AssetIcon name="external" /></button></div>}
+                {documents.length > 0 && !selected.serial_number && <div className="asset-manual-hint"><AssetIcon name="document" /><span>Manuals attached</span><button type="button" onClick={() => setAssetPanel("documents")}>View Documentation <AssetIcon name="external" /></button></div>}
               </section>
 
               <div hidden={assetPanel !== "details"}>
@@ -710,7 +722,7 @@ export default function ManageEquipmentPage() {
                 <h3 className="font-bold">Documentation</h3>
                 {canManage && !verified && <button type="button" onClick={() => { setEditing(true); setShowDocumentationDialog(true); }} className="my-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold">Add Documentation</button>}
                 {verified && canManage && <div className="my-2"><p className="text-sm text-slate-400">Updating documentation opens a revision. The current files and verification history stay available; review and verify the record again when finished.</p><button type="button" disabled={openingRevision} onClick={() => void beginRevision("Update asset documentation", true)} className="mt-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{openingRevision ? "Opening…" : "Update Documentation"}</button></div>}
-                {documents.length ? <ul className="space-y-1">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">No documentation attached.</p>}
+                {documents.length ? <ul className="space-y-1 break-all">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">No documentation attached.</p>}
               {canManage && editing && !verified && <div className="mt-4 pt-3">
                 <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
                 <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying || unsavedEquipment || saving} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
@@ -761,7 +773,7 @@ export default function ManageEquipmentPage() {
               <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>
             </div>
 
-            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} onSaved={(previousUpdatedAt, savedUpdatedAt) => {
+            <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} sourceFile={manualFile} onSourceFileChange={setManualFile} onSaved={(previousUpdatedAt, savedUpdatedAt) => {
               const assetId = selected.id;
               setAssets(current => current.map(asset => afterDocumentSave(asset, assetId, previousUpdatedAt, savedUpdatedAt)));
               setDraft(current => afterDocumentSave(current, assetId, previousUpdatedAt, savedUpdatedAt));
@@ -769,9 +781,9 @@ export default function ManageEquipmentPage() {
             }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
 
             <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
-              <summary className="cursor-pointer font-semibold">Read an equipment label or document on this device</summary>
-              <p className="mt-2 text-sm text-slate-400">Review recognized text against the original. Reading a file here does not upload it or attach it to this equipment; use the PDF controls above to save documentation separately.</p>
-              <LocalOcrReview key={selected.id} onUseText={useReviewedOcr} onUseGuide={useReviewedGuide} useTextLabel="Suggest equipment values" />
+              <summary className="cursor-pointer font-semibold">Read the complete manual or label on this device</summary>
+              <p className="mt-2 text-sm text-slate-400">Uses the file selected above. Reading is optional and keeps the original unchanged. Upload and use above attaches a PDF; this reader does not upload it.</p>
+              <LocalOcrReview key={selected.id} sourceFile={manualFile} onSourceFileChange={setManualFile} fullDocument onUseText={useReviewedOcr} onUseGuide={useReviewedGuide} useTextLabel="Suggest equipment values" />
             </details>
 
             {dialogMessage && <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${/processed/i.test(dialogMessage) ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-200" : /failed|could not|not configured|not loaded/i.test(dialogMessage) ? "border-red-500/40 bg-red-950/25 text-red-200" : "border-slate-700 bg-slate-950 text-slate-300"}`}>{dialogMessage}</div>}

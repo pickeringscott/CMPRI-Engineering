@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {flowchartPrerequisites} from '../src/lib/server/pdf-flowchart-notes.ts';
 import {guideRulesForIssue} from '../src/lib/work-orders/guide-selection.ts';
+
 const item=(x,y,str)=>({str,transform:[1,0,0,1,x,y]});
 const source=[item(215,668,'NO COOLING OPERATION'),item(362,632,'Before continuing'),item(368,624,'check for Error'),item(375,616,'Codes, see'),item(361,608,'electronics control'),item(368,600,'diagnostics on'),item(381,592,'page 16'),item(400,560,'No'),item(440,550,'Replace board')];
 test('chart prerequisite is preserved without converting conditional branches',()=>{

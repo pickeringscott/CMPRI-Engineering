@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {loadTs} from './helpers/load-ts.mjs';
 import {JSDOM} from 'jsdom';
 import * as taskReview from '../src/lib/pm/task-review.ts';
 import {sourceSemantics} from '../src/lib/work-orders/source-semantics.ts';
@@ -67,6 +68,7 @@ function harness(options={}) {
   vm.runInNewContext(code,{exports,Error,crypto,AbortController,queueMicrotask,console,fetch:fetchFixture,
     require(name){
       if(name==='react'||name==='react/jsx-runtime')return require(name);
+      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});
       if(name==='@/components/WorkOrderStepMedia')return {default:()=>null};
       if(name==='@/components/CopyButton')return {default:({text,label})=>React.createElement('button',{onClick:()=>copies.push(text)},label)};
       if(name==='@/lib/pm/task-review')return taskReview;
@@ -107,7 +109,8 @@ test('technician completion stays green after reload with one top source and no 
       assert.equal(row.querySelectorAll('[role=checkbox]').length,1);
       assert.equal(row.querySelectorAll('a').length,0);
       assert.ok(!/Source:|Washer service manual\.pdf/i.test(row.textContent));
-      assert.ok(row.querySelector('iframe[title^="Manual source page"]'));
+      assert.ok(row.querySelector('details summary')?.textContent.startsWith('Manual source page'));
+      assert.equal(row.querySelector('iframe'), null, 'private source links renew when opened');
       assert.notEqual(row.querySelector('button').title,'Clear check');
     }
     assert.equal(h.parent.querySelector('[data-guide-source-file]').textContent,'Source: Washer service manual.pdf');
@@ -429,7 +432,7 @@ test('the actual ticket integration uses the saved issue identity despite displa
   const cleaner=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='cleanTicketReportedIssue').getText(ast);
   const compiled=ts.transpileModule(cleaner+'\n'+declarations.join('\n')+'\nglobalThis.result={checklistIssueSaved,checklistContext,checklistDisabledReason};',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   const check=issue=>{
-    const scope={issue,order:{issue:'Room 316: washer not draining',room:'316',reporter_notes:'',asset_id:'washer',location_id:'loc'},assetId:'washer',locationId:'loc',selectedAsset:{id:'washer'},manualKnowledge:{},manualStatus:'verified',ticketReady:true,manualLoading:false,saving:false,exitFlushing:false,deriveTroubleshootingChecklistContext:input=>input};
+    const scope={issue,notes:'',actionRootCause:'',order:{issue:'Room 316: washer not draining',room:'316',reporter_notes:'',asset_id:'washer',location_id:'loc'},assetId:'washer',locationId:'loc',selectedAsset:{id:'washer'},manualKnowledge:{},manualStatus:'verified',ticketReady:true,manualLoading:false,saving:false,exitFlushing:false,deriveTroubleshootingChecklistContext:input=>input};
     vm.runInNewContext(compiled,scope);return scope.result;
   };
   const unchanged=check('Washer not draining');

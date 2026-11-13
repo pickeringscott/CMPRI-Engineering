@@ -15,7 +15,7 @@ export async function inspectStoredPdf(admin: SupabaseClient, objectId: string, 
   const sha256 = manualPdfSha256(bytes);
   validateStoredPdf(bytes, file, expectedHash, sha256);
   let text: string;
-  try { text = await extractManualPdfText(bytes); }
+  try { text = await extractManualPdfText(bytes, {previewPages:3}); }
   catch { throw new Error("The stored PDF could not be read by the existing importer. No association was saved."); }
   const { data: signed, error: signError } = await admin.storage.from("asset-documentation").createSignedUrl(file.storage_path, 900);
   if (signError || !signed?.signedUrl) throw new Error("The selected PDF could not be opened for review. No association was saved.");

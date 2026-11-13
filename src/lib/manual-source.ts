@@ -1,6 +1,6 @@
 import type { ManualKnowledge } from "./manual-knowledge";
 
-export type SourcePassage = import("./manual-knowledge").ManualProvenance & { page: number; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string; html?: string; origin?: 'pdf' | 'ocr' | 'reviewed' };
+export type SourcePassage = import("./manual-knowledge").ManualProvenance & { page: number; printed_label?:string; text: string; kind: "diagnostic" | "troubleshooting" | "reference"; source_file_name?: string; source_url?: string; html?: string; origin?: 'pdf' | 'ocr' | 'reviewed' };
 export type SourceIdentity = { manufacturer: string | null; model_family: string | null; model_number: string | null };
 
 /** Explicit source headings are discovery hints, never inferred repair instructions. */
@@ -12,7 +12,7 @@ function procedureHeadings(text: string): string[] {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (line.length > 140 || /[.!?]$/.test(line) || !headingCase(line)
-      || !/^(?:component\s+)?(?:test(?:ing|s)?|inspect(?:ion|ing)?|check(?:ing|s)?|diagnos(?:is|tics?))\b|\b(?:test(?:ing|s)?|inspection|diagnos(?:is|tics?))$/i.test(line)) continue;
+      || !/^(?:component\s+)?(?:test(?:ing|s)?|inspect(?:ion|ing)?|check(?:ing|s)?|diagnos(?:is|tics?|ing))\b|\b(?:test(?:ing|s)?|inspection|diagnos(?:is|tics?|ing))$|\b(?:troubleshooting|fault codes?|error codes?)\b/i.test(line)) continue;
     let title = line;
     // Wrapped headings remain one discovery label; page content is never cut up.
     for (let next = index + 1; next < Math.min(index + 3, lines.length); next++) {
@@ -118,9 +118,10 @@ function sourceSearchWords(value: string): string[] {
 const sourceWordCache = new WeakMap<SourcePassage, { text: string; words: Set<string>; headings: Set<string>[] }>();
 
 /** Find possible source pages, retaining the original PDF for context. */
-export function relevantSourcePassages(passages: SourcePassage[], issue: string): SourcePassage[] {
+export function relevantSourcePassages(passages: SourcePassage[], issue: string, technicianContext = ''): SourcePassage[] {
   const words = [...new Set(sourceSearchWords(issue))];
-  if (!words.length) return [];
+  const contextWords = [...new Set(sourceSearchWords(technicianContext))];
+  if (!words.length && !contextWords.length) return [];
   const ranked = passages.map(passage => {
     let cached = sourceWordCache.get(passage);
     if (!cached || cached.text !== passage.text) {
@@ -130,9 +131,15 @@ export function relevantSourcePassages(passages: SourcePassage[], issue: string)
     }
     const bodyMatches = words.filter(word => cached.words.has(word)).length;
     const headingMatches = Math.max(0, ...cached.headings.map(heading => words.filter(word => heading.has(word)).length));
-    return { passage, score: bodyMatches + headingMatches * 3 };
+    const contextMatches = contextWords.filter(word => cached.words.has(word)).length;
+    return { passage, score: bodyMatches + headingMatches * 3, contextScore: contextMatches };
   });
-  return ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).map(item => item.passage);
+  // Technician findings refine an issue match and can add references. They must
+  // not let a long history outrank the reported issue itself.
+  return ranked.filter(item => item.score > 0 || item.contextScore > 0)
+    .sort((a, b) => Number(b.score>0)-Number(a.score>0)
+      || Number(b.score>0&&b.passage.kind!=='reference')-Number(a.score>0&&a.passage.kind!=='reference')
+      || b.score-a.score || b.contextScore-a.contextScore).map(item => item.passage);
 }
 
 /** Require a positive diagnostic report; negated/hypothetical mentions are not reports. */
