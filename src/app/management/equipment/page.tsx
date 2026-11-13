@@ -657,6 +657,7 @@ export default function ManageEquipmentPage() {
             {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
               <div className="asset-overview flex flex-wrap items-start gap-4">
                 <label className={`relative block shrink-0 ${canManage ? "cursor-pointer" : ""}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- Signed private asset photos retain their original browser request. */}
                   {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
                   {canManage && <><span className="sr-only">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
                 </label>

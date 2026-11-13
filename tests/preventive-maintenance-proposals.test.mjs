@@ -1,3 +1,4 @@
+import {loadTs,ticketReadDependency} from './helpers/load-ts.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -81,6 +82,9 @@ function fixture(config = {}) {
     Object,
     JSON,
     require(name) {
+      if (name === '@/lib/work-order-read-policy' || name === '@/lib/server/work-order-reader') return ticketReadDependency(name,()=>true);
+      if (name === '@/lib/uuid') return loadTs('src/lib/uuid.ts');
+      if (name === '@/lib/pm/work-order-form-target') return loadTs('src/lib/pm/work-order-form-target.ts');
       if (name === '@/lib/pm/linked-form-review') return { projectLinkedFormReviews };
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@/lib/constants') return { HOTEL_ID: 'hotel-id' };

@@ -10,6 +10,7 @@ import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { workOrderFormTarget } from "@/lib/pm/work-order-form-target";
+import PmRecordedIssues from "@/components/PmRecordedIssues";
 import {
   findPmTemplate,
   PM_DAILY_TEMPLATE_ID,
@@ -1094,6 +1095,7 @@ export default function PreventiveMaintenancePage() {
         {tab === "history" && (
           <section className="mt-5">
             <SectionHeading eyebrow="CMPRI records" title="Maintenance History" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
+            <PmRecordedIssues key={actor.id} actorId={actor.id} locations={locations} onOpen={openLinkedWorkOrder} onHistory={()=>setTab("history")} />
             <p className="mt-2 max-w-4xl text-sm text-slate-400">This is a CMPRI review/export only and does not change Google Sheets. The CSV includes CMPRI checklist responses, scheduled inspection forms, and room completion records.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Routine checkbox cells</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
