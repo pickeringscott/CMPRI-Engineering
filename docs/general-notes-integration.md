@@ -10,7 +10,7 @@ This change starts the Samsung Notes-style notebook inside CMPRI. It follows the
 - A single pen style, pressure-sensitive vector strokes, the existing CMPRI accent colors, width control, eraser, and ink undo/redo. Existing ink retains its recorded color when themes change.
 - Finger scrolling and tap-to-keyboard while in ink mode. The typed title always remains editable.
 - Four-space-indented bullets/checklists below headings. Return continues the list; one Backspace removes its entire marker/indent. Check state and text sizes 8–24 in steps of two are saved.
-- Inline bottom controls only. The prototype's floating settings box and duplicate palette have been removed. The native application uses `modalThemeStyle`, `ModalTheme`, `followSitePalette`, and generated shared palette tokens rather than a second theme.
+- The approved rounded, icon-only bottom dock and compact pen/text bubbles. Pen controls retain a stroke preview, width slider, and color swatches; text controls retain checklist, bullet, check-state, and size controls. Tapping outside or pressing Escape closes the bubble without resetting selections. No extra separate controls box is added. The native application uses `modalThemeStyle`, `ModalTheme`, `followSitePalette`, and generated shared palette tokens to color those approved controls rather than redesigning them.
 
 ## Deliberate first-stage boundary
 
@@ -28,7 +28,7 @@ A web browser/PWA cannot observe the S Pen entering/leaving its holder. Actual h
 
 - `npm run test:general-notes` covers account/property keys, saved ink, list editing, invalid data, and stale revision recovery.
 - Run typecheck, lint, approved palette/header/modal and work-order mention regression tests, then the production build.
-- Browser acceptance covers desktop/mobile editor, native input composition, separate saved notes and reopening, ink/undo/redo, finger gestures, no settings popup, and session isolation using local fixtures. No real staff accounts or production data are used.
+- Browser acceptance covers desktop/mobile editor, native input composition, separate saved notes and reopening, ink/undo/redo, finger gestures, approved dock and compact bubbles, and session isolation using local fixtures. No real staff accounts or production data are used.
 
 ### Checks completed for this PR
 

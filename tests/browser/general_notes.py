@@ -8,6 +8,7 @@ import os
 import shutil
 import time
 from urllib.parse import urlparse
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("CMPRI_FIXTURE_URL", "http://127.0.0.1:3000")
@@ -52,6 +53,7 @@ with sync_playwright() as playwright:
     text = page.get_by_role("textbox", name="Note text", exact=True)
     title.fill("Pump checklist")
     text.fill("Inspection")
+    page.get_by_role("button", name="Text and keyboard handwriting", exact=True).click()
     page.get_by_role("button", name="Checklist", exact=True).click()
     assert text.input_value() == "Inspection\n    ☐ "
     page.keyboard.type("Inspect seal")
@@ -60,6 +62,16 @@ with sync_playwright() as playwright:
     assert text.input_value() == "Inspection\n    ☐ Inspect seal\n"
     page.get_by_label("Text size", exact=True).select_option("20")
     page.get_by_role("button", name="Handwritten ink", exact=True).click()
+    page.get_by_role("button", name="sky ink", exact=True).click()
+    page.get_by_label("Pen width", exact=True).fill("8")
+    title.click()
+    assert not page.locator(".general-notes-bubble").count()
+    page.get_by_role("button", name="Writing settings", exact=True).click()
+    assert page.get_by_label("Pen width", exact=True).input_value() == "8"
+    assert page.get_by_role("button", name="sky ink", exact=True).get_attribute("aria-pressed") == "true"
+    assert page.locator(".general-notes-bubble").bounding_box()["height"] <= 170
+    page.keyboard.press("Escape")
+    assert not page.locator(".general-notes-bubble").count()
     paper = page.locator("[data-ink-layer]").bounding_box()
     page.mouse.move(paper["x"] + 40, paper["y"] + 140)
     page.mouse.down()
@@ -78,8 +90,18 @@ with sync_playwright() as playwright:
     page.get_by_role("status").filter(has_text="Saved on this device").wait_for()
     page.locator(".general-notes-list button").filter(has_text="Pump checklist").click()
     assert page.locator("[data-ink-layer] g").count() == 1
+    page.get_by_role("button", name="Writing settings", exact=True).click()
     assert page.get_by_label("Text size", exact=True).input_value() == "20"
-    assert page.locator(".control-bubble").count() == 0
+    title.click()
+    assert page.locator(".general-notes-dock > button").count() == 6
+    assert page.locator(".general-notes-dock select, .general-notes-dock input").count() == 0
+    assert not page.locator(".general-notes-bubble").count()
+    page.get_by_role("button", name="Writing settings", exact=True).click()
+    assert page.locator(".general-notes-bubble").is_visible()
+    assert page.locator(".general-notes-bubble").bounding_box()["height"] <= 105
+    assert page.get_by_label("Text size", exact=True).input_value() == "20"
+    title.click()
+    assert not page.locator(".general-notes-bubble").count()
     assert page.locator("html").evaluate("e => getComputedStyle(e).getPropertyValue('--cmpri-action-rgb').trim()") == "207,144,254"
     page.reload()
     page.locator(".general-notes-list button").filter(has_text="Pump checklist").click()
@@ -98,6 +120,7 @@ with sync_playwright() as playwright:
     page.set_viewport_size({"width": 390, "height": 650})
     page.get_by_label("Open saved note", exact=True).select_option(label="Pump checklist")
     page.get_by_role("button", name="Handwritten ink", exact=True).click()
+    page.get_by_role("button", name="Close settings", exact=True).click()
     paper = page.locator("[data-ink-layer]").bounding_box()
     x, y = paper["x"] + 80, paper["y"] + 130
     protocol = context.new_cdp_session(page)
@@ -116,6 +139,15 @@ with sync_playwright() as playwright:
     assert "Recognized handwriting" in text.input_value()
     assert not text.evaluate("e => e.readOnly")
     assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
+    screenshots = os.environ.get("CMPRI_NOTES_SCREENSHOTS")
+    if screenshots:
+        output = Path(screenshots)
+        output.mkdir(parents=True, exist_ok=True)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.get_by_role("button", name="Writing settings", exact=True).click()
+        page.screenshot(path=str(output / "cmpri-notes-corrected-text.png"))
+        page.get_by_role("button", name="Handwritten ink", exact=True).click()
+        page.screenshot(path=str(output / "cmpri-notes-corrected-pen.png"))
     assert not errors, errors
     assert not [(method, path) for method, path in requests if method != "GET" and path != "/api/presence"]
     anonymous = browser.new_page()
@@ -123,4 +155,4 @@ with sync_playwright() as playwright:
     anonymous.get_by_text("Sign in to CMPRI to use your notebook.").wait_for()
     assert anonymous.locator("#general-note-title").count() == 0
     browser.close()
-    print("PASS: integrated Notes, desktop/mobile, account isolation, ink, lists, font size, native palette, no popup, finger gestures, IME input. Physical Gboard UI remains unverified.")
+    print("PASS: integrated Notes, desktop/mobile, account isolation, ink, lists, font size, native palette, approved icon dock/bubbles and retained selections, finger gestures, IME input. Physical Gboard UI remains unverified.")
