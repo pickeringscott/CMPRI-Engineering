@@ -1,7 +1,6 @@
-/** This implementation branch is an explicitly read-only preview, including accidental GET side effects. */
+/** Opt-in guard for captured/read-only reviews; ordinary previews use live behavior. */
 export function manualPreviewReadOnly() {
-  return process.env.CMPRI_MANUAL_PREVIEW_READ_ONLY === '1'
-    || process.env.VERCEL_ENV === 'preview';
+  return process.env.CMPRI_MANUAL_PREVIEW_READ_ONLY === '1';
 }
 
 const readRpcs=new Set(['cmpri_consolidation_ready','cmpri_list_asset_files','cmpri_import_stored_pdfs','cmpri_inventory_snapshot','cmpri_work_order_dashboard_counts']);
