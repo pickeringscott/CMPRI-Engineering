@@ -490,7 +490,13 @@ with sync_playwright() as playwright:
     dashboard_mobile = mobile_context.new_page()
     dashboard_mobile.goto(BASE + "/engineering")
     mobile_launcher = dashboard_mobile.get_by_role("button", name="Notes", exact=True)
-    # Direct mobile entry remains available even when Operations is collapsed.
+    # Notes opens from the existing header menu without a standalone launcher.
+    expect(mobile_launcher).to_have_count(1)
+    expect(dashboard_mobile.locator(".cmpri-header-v23").get_by_role("button", name="Notes", exact=True)).to_have_count(1)
+    notes_group = dashboard_mobile.locator("fieldset").filter(has=mobile_launcher)
+    collapsed_title = notes_group.locator('.group-title[aria-expanded="false"]')
+    if collapsed_title.count():
+        collapsed_title.click()
     expect(mobile_launcher.first).to_be_visible()
     flags["session_restart"] = True
     mobile_launcher.first.click()
