@@ -10,7 +10,8 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
  const root=useRef<HTMLDivElement>(null),latest=useRef(onLaunch);useEffect(()=>{latest.current=onLaunch},[onLaunch]);
  const [error,setError]=useState('');
  const summary=useStaffNotesSummary();
- const signature=JSON.stringify(groups);
+ const notebookGroups=groups.map(group=>({...group,items:group.items.flatMap(action=>action.key==='/staff-notes'&&!group.items.some(item=>item.key==='/notes')?[action,{...action,key:'/notes',href:'/notes',label:'Notes'}]:[action])}));
+ const signature=JSON.stringify(notebookGroups);
  useEffect(()=>{
   const element=root.current;if(!element)return;
   const count=summary?.hotelId===hotelId&&summary?.userId===userId?summary.flagCount:0;

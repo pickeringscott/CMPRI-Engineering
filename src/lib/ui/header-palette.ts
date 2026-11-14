@@ -1,6 +1,6 @@
 /** Coral Glow palette and inventory order from approved header v23. */
 import { sitePalette, paletteToken } from './site-palette-defaults';
-const names = ["Work Order List", "Daily Room Ops", "Staff Notes", "Pool Log", "Room Ranker", "Preventive Maintenance", "Pool", "Manage Profile", "Connect ChatGPT", "Sign Out", "Front Desk Quick Guides", "Preventative Maintenance", "Manage Rooms", "GSS Reports", "Enseo Assignments", "Room Ranker Old", "Candidate questionnaires", "PO", "Inventory", "Assets", "Manage Users", "Feedback", "Hours Tracker", "Refresh", "All Work Orders"];
+const names = ["Work Order List", "Daily Room Ops", "Staff Notes", "Pool Log", "Room Ranker", "Preventive Maintenance", "Pool", "Manage Profile", "Connect ChatGPT", "Sign Out", "Front Desk Quick Guides", "Preventative Maintenance", "Manage Rooms", "GSS Reports", "Enseo Assignments", "Room Ranker Old", "Candidate questionnaires", "PO", "Inventory", "Assets", "Manage Users", "Feedback", "Hours Tracker", "Refresh", "All Work Orders", "Notes"];
 export function headerActionStyle(label: string): Record<string,string> {
   label = label.replace(/ \(\d+\)$/,'');
   if (label === 'Manage Locations') label = 'Manage Rooms';
@@ -60,7 +60,7 @@ function modalAction(title: string) {
 
 export function modalActionForRoute(href: string, title = '') {
   const path = href.split('?')[0];
-  const routes: Record<string,string> = { '/work-orders':'Create Work Order', '/engineering/room-operations':'Daily Room Ops', '/engineering/room-ranking':'Room Ranker', '/engineering/preventive-maintenance':'Preventive Maintenance', '/engineering/pool-log':'Pool Log', '/pool':'Pool', '/staff-notes':'Staff Notes', '/profile':'Manage Profile', '/engineering/hours-tracker':'Hours Tracker', '/management/rooms':'Manage Locations', '/management/users':'Manage Users', '/management/equipment':'Assets', '/engineering/parts':'Inventory', '/engineering/purchasing':'PO', '/engineering/gss':'GSS Reports', '/engineering/enseo-assignments':'Enseo Assignments', '/engineering/employment':'Candidate questionnaires', '/feedback':'Feedback' };
+  const routes: Record<string,string> = { '/work-orders':'Create Work Order', '/engineering/room-operations':'Daily Room Ops', '/engineering/room-ranking':'Room Ranker', '/engineering/preventive-maintenance':'Preventive Maintenance', '/engineering/pool-log':'Pool Log', '/pool':'Pool', '/staff-notes':'Staff Notes', '/notes':'Notes', '/profile':'Manage Profile', '/engineering/hours-tracker':'Hours Tracker', '/management/rooms':'Manage Locations', '/management/users':'Manage Users', '/management/equipment':'Assets', '/engineering/parts':'Inventory', '/engineering/purchasing':'PO', '/engineering/gss':'GSS Reports', '/engineering/enseo-assignments':'Enseo Assignments', '/engineering/employment':'Candidate questionnaires', '/feedback':'Feedback' };
   return routes[path] || (path.startsWith('/work-orders/') ? 'Work Order Detail' : modalAction(title));
 }
 
