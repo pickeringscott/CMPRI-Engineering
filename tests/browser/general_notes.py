@@ -73,6 +73,15 @@ with sync_playwright() as playwright:
         expect(page.locator("#general-note-title")).to_be_enabled()
         return context, page
 
+    def expect_editor(locator, value, timeout=5000):
+        if isinstance(value, str):
+            expect(locator).to_have_js_property("textContent", value, timeout=timeout)
+        else:
+            expect(locator).to_have_text(value, timeout=timeout)
+
+    def select_text(locator, start=0, end=None):
+        locator.evaluate("""(e,args)=>{e.focus();const start=args[0],end=args[1]??e.textContent.length,walk=document.createTreeWalker(e,NodeFilter.SHOW_TEXT),r=document.createRange();let at=0,a=null,b=null,ao=0,bo=0;while(walk.nextNode()){const n=walk.currentNode;if(!a&&start<=at+n.length){a=n;ao=start-at}if(end<=at+n.length){b=n;bo=end-at;break}at+=n.length}if(a){r.setStart(a,ao);r.setEnd(b||a,b?bo:ao);const s=getSelection();s.removeAllRanges();s.addRange(r);document.dispatchEvent(new Event('selectionchange'))}}""",[start,end])
+
     def synced(page):
         expect(page.get_by_role("status")).to_have_text("Synced", timeout=15000)
 
@@ -109,39 +118,42 @@ with sync_playwright() as playwright:
     text.click()
     desktop.get_by_role("button", name="Text and keyboard handwriting", exact=True).click()
     desktop.get_by_role("button", name="Checklist", exact=True).click()
-    expect(text).to_have_value("☐ ")
+    expect_editor(text, "☐ ")
     desktop.keyboard.press("Backspace")
-    expect(text).to_have_value("")
+    expect_editor(text, "")
     desktop.get_by_role("button", name="Bullet list", exact=True).click()
-    expect(text).to_have_value("• ")
+    expect_editor(text, "• ")
     desktop.keyboard.type("Task")
     desktop.keyboard.press("Enter")
-    expect(text).to_have_value("• Task\n• ")
+    expect_editor(text, "• Task\n• ")
     desktop.keyboard.press("Backspace")
-    expect(text).to_have_value("• Task\n")
+    expect_editor(text, "• Task\n")
     text.fill("Heading")
     open_settings(desktop)
     desktop.get_by_role("button", name="Checklist", exact=True).click()
     desktop.keyboard.type("Inspect seal")
-    expect(text).to_have_value("Heading\n    ☐ Inspect seal")
+    expect_editor(text, "Heading\n    ☐ Inspect seal")
+    select_text(text)
     desktop.get_by_label("Text size", exact=True).select_option("20")
     assert desktop.get_by_role("button", name="Check or uncheck item", exact=True).count() == 0
-    expect(text).to_have_css("font-size", "20px")
+    expect(text.locator("span").filter(has_text="Inspect seal")).to_have_css("font-size", "20px")
     checkbox = desktop.get_by_role("checkbox", name="Inspect seal", exact=True)
     expect(checkbox).to_have_css("font-size", "20px")
     checkbox.click()
-    expect(text).to_have_value("Heading\n    ☑ Inspect seal")
+    expect_editor(text, "Heading\n    ☑ Inspect seal")
     checkbox.click()
-    expect(text).to_have_value("Heading\n    ☐ Inspect seal")
+    expect_editor(text, "Heading\n    ☐ Inspect seal")
     checkbox.focus()
     desktop.keyboard.press("Space")
-    expect(text).to_have_value("Heading\n    ☑ Inspect seal")
+    expect_editor(text, "Heading\n    ☑ Inspect seal")
     desktop.keyboard.press("Space")
-    expect(text).to_have_value("Heading\n    ☐ Inspect seal")
+    expect_editor(text, "Heading\n    ☐ Inspect seal")
     open_settings(desktop)
+    select_text(text)
     desktop.get_by_label("Text size", exact=True).select_option("24")
-    expect(text).to_have_css("font-size", "24px")
+    expect(text.locator("span").filter(has_text="Inspect seal")).to_have_css("font-size", "24px")
     expect(checkbox).to_have_css("font-size", "24px")
+    select_text(text)
     desktop.get_by_label("Text size", exact=True).select_option("20")
     assert desktop.get_by_role("button", name="Text and keyboard handwriting", exact=True).bounding_box()["width"] == 30
     assert desktop.locator(".general-notes-bubble").bounding_box()["width"] == 232
@@ -175,7 +187,7 @@ with sync_playwright() as playwright:
     assert desktop.locator("[data-ink-layer]").inner_html() == original_ink
     assert text.evaluate("e=>getComputedStyle(e).backgroundColor") == "rgba(0, 0, 0, 0)"
     assert desktop.locator("[data-ink-layer]").evaluate("e=>+getComputedStyle(e).zIndex") > text.evaluate("e=>+getComputedStyle(e).zIndex")
-    assert text.get_attribute("placeholder") == ""
+    assert text.get_attribute("data-placeholder") == ""
     expect(desktop.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
     desktop.get_by_role("button", name="Create another note", exact=True).click()
     text.fill("Shopping list\nSeal kit")
@@ -183,8 +195,8 @@ with sync_playwright() as playwright:
     expect(desktop.locator(".general-notes-list button").filter(has_text="Shopping list")).to_have_count(1)
     # The first-line title is finalized on leaving the note, without a Save button.
     assert any(row["document"] and row["document"]["title"] == "Shopping list" for row in state()["records"])
-    assert text.get_attribute("placeholder") == "Type, or select the pen to write…"
-    metrics = text.evaluate("e=>{const s=getComputedStyle(e),p=getComputedStyle(e,'::placeholder');return [s.fontSize,p.fontSize,s.lineHeight,p.lineHeight]}")
+    assert text.get_attribute("data-placeholder") == "Type, or select the pen to write…"
+    metrics = text.evaluate("e=>{const s=getComputedStyle(e),p=getComputedStyle(e,'::before');return [s.fontSize,p.fontSize,s.lineHeight,p.lineHeight]}")
     assert metrics[0] == metrics[1] and metrics[2] == metrics[3]
     desktop.get_by_role("button", name="Handwritten ink", exact=True).click()
     desktop.get_by_role("button", name="Close settings", exact=True).click()
@@ -213,22 +225,22 @@ with sync_playwright() as playwright:
     mobile.wait_for_timeout(550)
     mobile.get_by_label("Open saved note", exact=True).click()
     phone_text = mobile.get_by_role("textbox", name="Note text", exact=True)
-    expect(phone_text).to_have_value(re.compile("Inspect seal"), timeout=15000)
+    expect_editor(phone_text, re.compile("Inspect seal"), timeout=15000)
     expect(mobile.locator("[data-ink-layer] g")).to_have_count(1)
     expect(mobile.get_by_role("button", name="Delete saved note", exact=True)).to_be_enabled()
     desktop.get_by_label("Open saved note", exact=True).click()
     desktop.locator(".general-notes-picker-results").get_by_role("button", name="Pump inspection", exact=True).click()
-    phone_text.fill(phone_text.input_value() + "\nPhone update")
+    phone_text.fill(phone_text.evaluate("e=>e.textContent") + "\nPhone update")
     synced(mobile)
     desktop.evaluate("window.dispatchEvent(new Event('focus'))")
-    expect(text).to_have_value(phone_text.input_value(), timeout=15000)
+    expect_editor(text, phone_text.evaluate("e=>e.textContent"), timeout=15000)
     protocol = mobile_context.new_cdp_session(mobile)
     phone_text.click()
     protocol.send("Input.imeSetComposition", {"text": "Recognized handwriting", "selectionStart": 22, "selectionEnd": 22})
     protocol.send("Input.insertText", {"text": "Recognized handwriting"})
     phone_text.dispatch_event("pointerdown", {"pointerType": "pen", "buttons": 1, "bubbles": True})
     expect(mobile.get_by_role("button", name="Text and keyboard handwriting", exact=True)).to_have_attribute("aria-pressed", "true")
-    assert not phone_text.evaluate("e=>e.readOnly")
+    assert phone_text.evaluate("e=>e.isContentEditable")
     mobile.get_by_role("button", name="Handwritten ink", exact=True).click()
     mobile.get_by_role("button", name="Close settings", exact=True).click()
     mobile.set_viewport_size({"width": 390, "height": 620})
@@ -252,7 +264,7 @@ with sync_playwright() as playwright:
     text.fill("@Fix")
     text.press("End")
     desktop.get_by_role("option").filter(has_text="Fixture Person").click()
-    expect(text).to_have_value("@Fixture ")
+    expect_editor(text, "@Fixture ")
     for query, label in [("@Front", "Front Desk"), ("@Lob", "Lobby"), ("@Pa", "Pat"), ("@321", "WO#321")]:
         text.press("Control+End")
         desktop.keyboard.type(query)
@@ -260,9 +272,9 @@ with sync_playwright() as playwright:
     text.press("Control+End")
     desktop.keyboard.type("https://example.invalid/manual")
     synced(desktop)
-    linked_text = text.input_value()
+    linked_text = text.evaluate("e=>e.textContent")
     expect(desktop.locator(".general-notes-rich-layer a[href='https://example.invalid/manual']")).to_have_attribute("target", "_blank")
-    expect(desktop.locator(".general-notes-rich-layer a[href='/work-orders/00000000-0000-4000-8000-000000000321']")).to_have_text("@321")
+    expect(desktop.locator(".general-notes-rich-layer a[href='/work-orders/00000000-0000-4000-8000-000000000321']")).to_have_attribute("aria-label", "@321")
     desktop_context.route("https://example.invalid/**", lambda route: route.fulfill(content_type="text/html", body="<title>Fixture manual</title>"))
     with desktop.expect_popup() as opened:
         desktop.locator(".general-notes-rich-layer a[href='https://example.invalid/manual']").click()
@@ -270,11 +282,56 @@ with sync_playwright() as playwright:
     assert opened.value.url == "https://example.invalid/manual"
     opened.value.close()
     desktop.reload()
-    expect(text).to_have_value(linked_text)
-    expect(desktop.locator(".general-notes-rich-layer [data-note-mention='location']")).to_have_text("@Lobby")
+    expect_editor(text, linked_text)
+    expect(desktop.locator(".general-notes-text [data-note-mention='location']")).to_have_text("@Lobby")
     linked_record = next(r for r in state()["records"] if r["document"] and r["document"]["title"] == "Linked note")
     assert len(linked_record["document"]["mentions"]) == 5
     assert mobile.get_by_role("button", name="Text and keyboard handwriting", exact=True).bounding_box()["width"] == 44
+    desktop.get_by_role("button", name="Create another note", exact=True).click()
+    title.fill("Styled note")
+    text.fill("Small blue and large gold")
+    open_settings(desktop)
+    select_text(text, 0, 10)
+    desktop.get_by_label("Text size", exact=True).select_option("12")
+    desktop.get_by_role("button", name="sky text", exact=True).click()
+    blue = desktop.get_by_role("button", name="sky text", exact=True).evaluate("e=>getComputedStyle(e).backgroundColor")
+    expect(text.locator("span").filter(has_text="Small blue")).to_have_css("font-size", "12px")
+    expect(text.locator("span").filter(has_text="Small blue")).to_have_css("color", blue)
+    select_text(text, 15, 25)
+    desktop.get_by_label("Text size", exact=True).select_option("24")
+    desktop.get_by_role("button", name="apricot text", exact=True).click()
+    gold = desktop.get_by_role("button", name="apricot text", exact=True).evaluate("e=>getComputedStyle(e).backgroundColor")
+    expect(text.locator("span").filter(has_text="large gold")).to_have_css("font-size", "24px")
+    expect(text.locator("span").filter(has_text="large gold")).to_have_css("color", gold)
+    select_text(text, 0, 5)
+    desktop.get_by_label("Text size", exact=True).select_option("18")
+    expect(text.locator("span").filter(has_text="Small")).to_have_css("color", blue)
+    text.press("Control+z")
+    expect(text.locator("span").filter(has_text="Small blue")).to_have_css("font-size", "12px")
+    text.press("Control+Shift+z")
+    expect(text.locator("span").filter(has_text="Small")).to_have_css("font-size", "18px")
+    select_text(text, 25, 25)
+    desktop.get_by_label("Text size", exact=True).select_option("22")
+    desktop.get_by_role("button", name="orchid text", exact=True).click()
+    text.press("End")
+    desktop.keyboard.type(" tail")
+    expect(text.locator("span").filter(has_text="tail")).to_have_css("font-size", "22px")
+    text.press("Control+z")
+    expect_editor(text, "Small blue and large gold")
+    text.press("Control+Shift+z")
+    expect_editor(text, "Small blue and large gold tail")
+    text.press("Control+z")
+    expect_editor(text, "Small blue and large gold")
+    synced(desktop)
+    desktop.reload()
+    expect_editor(text, "Small blue and large gold")
+    expect(text.locator("span").filter(has_text="large gold")).to_have_css("font-size", "24px")
+    expect(text.locator("span").filter(has_text="large gold")).to_have_css("color", gold)
+    # A second independent device receives formatting without sharing local storage.
+    mobile.reload()
+    expect_editor(phone_text, "Small blue and large gold")
+    expect(phone_text.locator("span").filter(has_text="Small")).to_have_css("font-size", "18px")
+    expect(phone_text.locator("span").filter(has_text="Small")).to_have_css("color", blue)
     resize_host = desktop_context.new_page()
     resize_host.on("pageerror", lambda error: errors.append(str(error)))
     resize_host.goto(BASE + "/engineering")
@@ -298,7 +355,7 @@ with sync_playwright() as playwright:
         resize_host.mouse.move(modal["x"] + width, modal["y"] + height, steps=8)
         resize_host.mouse.up()
         frame.locator("html").evaluate("()=>window.dispatchEvent(new Event('focus'))")
-        expect(resize_text).to_have_value("Unsynced resize draft")
+        expect_editor(resize_text, "Unsynced resize draft")
         assert frame.locator("html").evaluate("()=>window.__resizeIdentity") == identity
     expect(frame.locator(".general-notes-session-notice")).to_contain_text("temporarily unavailable")
     assert frame.get_by_text("Sign in to CMPRI to use your notebook.").count() == 0
@@ -306,7 +363,7 @@ with sync_playwright() as playwright:
     flags["notes_unavailable"] = False
     flags["session_unavailable"] = False
     frame.locator("html").evaluate("()=>location.reload()")
-    expect(frame.get_by_role("textbox", name="Note text", exact=True)).to_have_value("Unsynced resize draft", timeout=15000)
+    expect_editor(frame.get_by_role("textbox", name="Note text", exact=True), "Unsynced resize draft", timeout=15000)
     try:
         synced(frame)
     except Exception:
@@ -338,7 +395,7 @@ with sync_playwright() as playwright:
         except Exception:
             pass  # The closed frame may already have cancelled its connection.
     mobile_launcher.first.click()
-    expect(mobile_frame.get_by_role("textbox", name="Note text", exact=True)).to_have_value("Protected mobile close", timeout=15000)
+    expect_editor(mobile_frame.get_by_role("textbox", name="Note text", exact=True), "Protected mobile close", timeout=15000)
     synced(mobile_frame)
     dashboard_mobile.get_by_role("button", name="Close Notes", exact=True).click()
     expect(dashboard_mobile.locator("iframe[title='Notes']")).to_have_count(0, timeout=5000)

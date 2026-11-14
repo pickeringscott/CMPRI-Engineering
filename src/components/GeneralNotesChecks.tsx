@@ -1,33 +1,20 @@
 "use client";
 import type {NoteToken} from './GeneralNotesMentions';
-import {useLayoutEffect,useRef,useState,type RefObject} from 'react';
-type Check={offset:number;left:number;top:number;width:number;height:number;checked:boolean;label:string};
-/** Keep the native textarea/IME while making its saved checkbox markers clickable.
- * A hidden text mirror measures wrapping using the editor's actual font and width. */
-export default function GeneralNotesChecks({field,text,fontSize,disabled,onToggle,tokens}:{field:RefObject<HTMLTextAreaElement|null>;text:string;fontSize:number;disabled:boolean;onToggle:(offset:number)=>void;tokens:NoteToken[]}){
- const rich=useRef<HTMLDivElement>(null),layer=useRef<HTMLDivElement>(null),[checks,setChecks]=useState<Check[]>([]);
- useLayoutEffect(()=>{
-  const editor=field.current;if(!editor)return;
-  const mirror=document.createElement('div');mirror.setAttribute('aria-hidden','true');
-  Object.assign(mirror.style,{position:'fixed',left:'0',top:'0',visibility:'hidden',pointerEvents:'none',height:'auto',minHeight:'0',border:'0',boxSizing:'border-box',whiteSpace:'pre-wrap',overflowWrap:'break-word'});
-  document.body.append(mirror);
-  function measure(){
-   if(!editor)return;const style=getComputedStyle(editor);
-   for(const key of ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','paddingTop','paddingRight','paddingBottom','paddingLeft','textIndent','textAlign','direction','tabSize'] as const)mirror.style[key]=style[key];
-   mirror.style.width=editor.clientWidth+'px';if(rich.current){for(const key of ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','paddingTop','paddingRight','paddingBottom','paddingLeft','textIndent','textAlign','direction','tabSize'] as const)rich.current.style.setProperty(key.replace(/[A-Z]/g,c=>'-'+c.toLowerCase()),style[key],'important');rich.current.style.width=editor.clientWidth+'px'}mirror.replaceChildren();
-   let at=0;const markers:{node:HTMLSpanElement;offset:number;checked:boolean;label:string}[]=[];
-   for(const match of text.matchAll(/^([ \t]*)([☐☑]) /gm)){
-    const offset=match.index!+match[1].length;mirror.append(document.createTextNode(text.slice(at,offset)));
-    const node=document.createElement('span');node.textContent=match[2];mirror.append(node);
-    markers.push({node,offset,checked:match[2]==='☑',label:text.slice(offset+2).split('\n')[0].trim()||'List item'});at=offset+1;
-   }
-   mirror.append(document.createTextNode(text.slice(at)||'\u200b'));const box=mirror.getBoundingClientRect();
-   setChecks(markers.map(({node,...check})=>{const rect=node.getBoundingClientRect();return{...check,left:rect.left-box.left,top:rect.top-box.top,width:rect.width,height:rect.height}}));
+import {noteTextRange,type NoteEditorHandle} from './GeneralNotesText';
+import {useLayoutEffect,useRef,useState,type RefObject,type CSSProperties} from 'react';
+type Mark={offset:number;left:number;top:number;width:number;height:number;size:number;color:string;checked?:boolean;label:string;token?:NoteToken};
+/** Measure the actual rich editor so mixed font sizes, wrapping and hit targets agree. */
+export default function GeneralNotesChecks({field,text,fontSize,disabled,onToggle,tokens,stylesKey}:{field:RefObject<NoteEditorHandle|null>;text:string;fontSize:number;disabled:boolean;onToggle:(offset:number)=>void;tokens:NoteToken[];stylesKey:string}){
+ const layer=useRef<HTMLDivElement>(null),[marks,setMarks]=useState<Mark[]>([]),tokenKey=JSON.stringify(tokens);
+ useLayoutEffect(()=>{const editor=field.current?.element;if(!editor)return;
+  function measure(){if(!editor)return;const box=editor.getBoundingClientRect(),next:Mark[]=[];
+   function mark(start:number,end:number,label:string,token?:NoteToken,checked?:boolean){const range=noteTextRange(editor!,start,end),style=getComputedStyle(range.startContainer.parentElement||editor!);for(const rect of Array.from(range.getClientRects()))if(rect.width)next.push({offset:start,left:rect.left-box.left+editor!.scrollLeft,top:rect.top-box.top+editor!.scrollTop,width:rect.width,height:rect.height,size:parseFloat(style.fontSize),color:style.color,label,token,checked})}
+   for(const match of text.matchAll(/^([ \t]*)([☐☑]) /gm)){const offset=match.index!+match[1].length;mark(offset,offset+1,text.slice(offset+2).split('\n')[0].trim()||'List item',undefined,match[2]==='☑')}
+   for(const token of JSON.parse(tokenKey) as NoteToken[])if(token.href)mark(token.start,token.end,text.slice(token.start,token.end),token);
+   setMarks(next);
   }
   function scroll(){if(layer.current)layer.current.style.transform=`translate(${-editor!.scrollLeft}px,${-editor!.scrollTop}px)`}
-  measure();scroll();const observer=new ResizeObserver(measure);observer.observe(editor);editor.addEventListener('scroll',scroll,{passive:true});document.fonts?.addEventListener('loadingdone',measure);
-  return()=>{observer.disconnect();editor.removeEventListener('scroll',scroll);document.fonts?.removeEventListener('loadingdone',measure);mirror.remove()};
- },[field,text,fontSize]);
- const parts:React.ReactNode[]=[];let at=0;for(const token of tokens){if(token.start<at)continue;parts.push(text.slice(at,token.start));const label=text.slice(token.start,token.end);parts.push(token.href?<a key={token.start} href={token.href} target={token.external?'_blank':undefined} rel={token.external?'noopener noreferrer':undefined} tabIndex={disabled?-1:0} style={{pointerEvents:disabled?'none':undefined}}>{label}</a>:<span key={token.start} data-note-mention={token.kind}>{label}</span>);at=token.end}parts.push(text.slice(at));
- return <div className="general-notes-check-clip"><div ref={layer} className="general-notes-check-layer"><div ref={rich} className="general-notes-rich-layer">{parts}</div>{checks.map(check=><button key={check.offset} type="button" role="checkbox" aria-checked={check.checked} aria-label={check.label} disabled={disabled} style={{left:check.left,top:check.top,width:check.width,height:check.height,fontSize}} onPointerDown={event=>event.preventDefault()} onClick={()=>onToggle(check.offset)}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="2"/>{check.checked&&<path d="m5 10 3 3 7-7"/>}</svg></button>)}</div></div>;
+  measure();scroll();const observer=new ResizeObserver(measure);observer.observe(editor);editor.addEventListener('scroll',scroll,{passive:true});document.fonts?.addEventListener('loadingdone',measure);return()=>{observer.disconnect();editor.removeEventListener('scroll',scroll);document.fonts?.removeEventListener('loadingdone',measure)};
+ },[field,text,fontSize,tokenKey,stylesKey]);
+ return <div className="general-notes-check-clip"><div ref={layer} className="general-notes-check-layer general-notes-rich-layer">{marks.map((mark,i)=>mark.token?<a key={'link-'+i} href={mark.token.href} target={mark.token.external?'_blank':undefined} rel={mark.token.external?'noopener noreferrer':undefined} aria-label={mark.label} tabIndex={disabled?-1:0} style={{position:'absolute',left:mark.left,top:mark.top,width:mark.width,height:mark.height,pointerEvents:disabled?'none':'auto'}}/>:<button key={'check-'+i} type="button" role="checkbox" aria-checked={mark.checked} aria-label={mark.label} disabled={disabled} style={{left:mark.left,top:mark.top,width:mark.width,height:mark.height,'--note-font-size':mark.size+'px',color:mark.color} as CSSProperties} onPointerDown={event=>event.preventDefault()} onClick={()=>onToggle(mark.offset)}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="2"/>{mark.checked&&<path d="m5 10 3 3 7-7"/>}</svg></button>)}</div></div>;
 }

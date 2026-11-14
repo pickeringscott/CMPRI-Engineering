@@ -1,4 +1,5 @@
 "use client";
+import type {NoteEditorHandle} from './GeneralNotesText';
 import {useEffect,useId,useState,type KeyboardEvent,type RefObject} from 'react';
 import {authorizationHeaders} from '@/lib/auth/client-session';
 import {staffMentionQuery,staffReferenceQuery,staffMentionSuggestions,staffTargetKey,staffTargetType,insertStaffMention,insertStaffReference,type StaffMention,type StaffMentionRange} from '@/lib/staff-note-targets';
@@ -7,7 +8,7 @@ import {workOrderReferences,workOrderNumber} from '@/lib/work-order-reference.js
 import {plainTextParts} from '@/lib/plain-text-links';
 export type NoteToken={start:number;end:number;href?:string;external?:boolean;kind?:string};
 type Ticket={id:string;display_id:string;room?:string;issue?:string};
-export function useGeneralNotesMentions({text,caret,selected,active,field,onEdit}:{text:string;caret:number;selected:StaffMentionRange[];active:boolean;field:RefObject<HTMLTextAreaElement|null>;onEdit:(text:string,mentions:StaffMentionRange[],caret:number)=>void}){
+export function useGeneralNotesMentions({text,caret,selected,active,field,onEdit}:{text:string;caret:number;selected:StaffMentionRange[];active:boolean;field:RefObject<NoteEditorHandle|null>;onEdit:(text:string,mentions:StaffMentionRange[],caret:number)=>void}){
  const id=useId(),[directory,setDirectory]=useState<StaffMention[]|null>(null),[tickets,setTickets]=useState<Ticket[]>([]),[index,setIndex]=useState(0),[dismissed,setDismissed]=useState(''),[error,setError]=useState('');
  const raw=active?staffMentionQuery(text,caret):null;
  const query=raw&&!selected.some(m=>m.start===raw.start&&caret>=m.end)?raw:null;
@@ -21,8 +22,8 @@ export function useGeneralNotesMentions({text,caret,selected,active,field,onEdit
  const candidates=query?staffMentionSuggestions(query.query,directory||[]):[];
  const ticketChoices:StaffMention[]=lookup?tickets.filter(t=>workOrderNumber(t.display_id)===lookup).map(t=>({id:t.id,kind:'work_order',label:'WO#'+lookup,description:[t.room,t.issue].filter(Boolean).join(' · '),userIds:[]})):[];
  const signature=text+'\u0000'+caret,options=active&&dismissed!==signature?[...candidates,...ticketChoices].slice(0,30):[],current=index%Math.max(1,options.length);
- function accept(target:StaffMention){const range=target.kind==='work_order'&&reference?reference:query;if(!range)return;const inserted=target.kind==='work_order'&&reference?insertStaffReference(text,range,target,selected):insertStaffMention(text,range,target,selected);onEdit(inserted.value,inserted.mentions,inserted.caret);setDismissed(inserted.value+'\u0000'+inserted.caret);if(field.current){field.current.value=inserted.value;field.current.focus({preventScroll:true});field.current.setSelectionRange(inserted.caret,inserted.caret)}}
- function keyDown(event:KeyboardEvent<HTMLTextAreaElement>){if(!active||event.nativeEvent.isComposing||!options.length)return false;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setDismissed(signature);return true}if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setIndex((current+(event.key==='ArrowDown'?1:-1)+options.length)%options.length);return true}if(event.key==='Tab'||(event.key==='Enter'&&!event.shiftKey)){event.preventDefault();accept(options[current]);return true}return false}
+ function accept(target:StaffMention){const range=target.kind==='work_order'&&reference?reference:query;if(!range)return;const inserted=target.kind==='work_order'&&reference?insertStaffReference(text,range,target,selected):insertStaffMention(text,range,target,selected);onEdit(inserted.value,inserted.mentions,inserted.caret);setDismissed(inserted.value+'\u0000'+inserted.caret);if(field.current){field.current.setValue(inserted.value);field.current.focus({preventScroll:true});field.current.setSelectionRange(inserted.caret,inserted.caret)}}
+ function keyDown(event:KeyboardEvent<HTMLDivElement>){if(!active||event.nativeEvent.isComposing||!options.length)return false;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setDismissed(signature);return true}if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setIndex((current+(event.key==='ArrowDown'?1:-1)+options.length)%options.length);return true}if(event.key==='Tab'||(event.key==='Enter'&&!event.shiftKey)){event.preventDefault();accept(options[current]);return true}return false}
  const urls=plainTextParts(text).filter(p=>p.href);
  const mentions=[...selected,...staffMentionMatches(text,directory||[]).filter(m=>!selected.some(s=>s.start<m.end&&s.end>m.start)).map(m=>({...m,...m.mention}))];
  const tokens:NoteToken[]=[...urls.map(p=>({...p,external:true})),...mentions.filter(m=>!urls.some(p=>p.start<m.end&&p.end>m.start)).map(m=>({start:m.start,end:m.end,kind:m.kind,...(m.kind==='work_order'&&tickets.some(t=>t.id===m.id)?{href:'/work-orders/'+encodeURIComponent(m.id)}:{})}))];

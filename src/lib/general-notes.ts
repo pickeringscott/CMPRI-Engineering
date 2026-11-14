@@ -1,8 +1,9 @@
+import {validNoteStyles,type NoteTextStyle} from './general-note-formatting';
 import {selectedStaffMentions,type StaffMentionRange} from './staff-note-targets';
 /** First integration stage: personal, device-local notes; never work-order history. */
 export type InkPoint = { x: number; y: number; p: number };
 export type InkStroke = { id: string; color: string; size: number; points: InkPoint[] };
-export type GeneralNote = { id: string; title: string; text: string; fontSize: number; strokes: InkStroke[]; revision: number; updated: number; titleAutomatic?: boolean; mentions?:StaffMentionRange[] };
+export type GeneralNote = { id: string; title: string; text: string; fontSize: number; strokes: InkStroke[]; revision: number; updated: number; titleAutomatic?: boolean; mentions?:StaffMentionRange[];textStyles?:NoteTextStyle[] };
 export type NoteScope = { hotelId: string; userId: string };
 export type TextEdit = { start: number; end: number; insert: string; caret?: number };
 export const NOTE_FONT_SIZES = [8,10,12,14,16,18,20,22,24] as const;
@@ -63,7 +64,7 @@ export function parseGeneralNotes(raw: string | null): GeneralNote[] {
   const ids=new Set<string>();
   for(const n of data){
     if(!n || typeof n.id!=='string' || !n.id || ids.has(n.id) || typeof n.title!=='string' || !n.title.trim() || n.title.length>120
-      || (n.titleAutomatic!==undefined&&typeof n.titleAutomatic!=='boolean') || typeof n.text!=='string' || n.text.length>100000 || selectedStaffMentions(n.text,n.mentions)===null || !NOTE_FONT_SIZES.includes(n.fontSize) || !Number.isInteger(n.revision) || n.revision<1
+      || (n.titleAutomatic!==undefined&&typeof n.titleAutomatic!=='boolean') || typeof n.text!=='string' || n.text.length>100000 || selectedStaffMentions(n.text,n.mentions)===null || !validNoteStyles(n.text,n.textStyles) || !NOTE_FONT_SIZES.includes(n.fontSize) || !Number.isInteger(n.revision) || n.revision<1
       || !finite(n.updated,0,Number.MAX_SAFE_INTEGER) || !Array.isArray(n.strokes) || n.strokes.length>5000 || !n.strokes.every(validStroke)) {
       throw Error('Saved notebook could not be read. Existing data has not been changed.');
     }
@@ -80,15 +81,15 @@ export function saveGeneralNote(storage: Pick<Storage,'getItem'|'setItem'>, scop
   return next;
 }
 
-export type NoteDocument = Pick<GeneralNote,'title'|'text'|'fontSize'|'strokes'|'titleAutomatic'|'mentions'>;
+export type NoteDocument = Pick<GeneralNote,'title'|'text'|'fontSize'|'strokes'|'titleAutomatic'|'mentions'|'textStyles'>;
 export type NoteSummary = Pick<GeneralNote,'id'|'title'|'revision'|'updated'> & {text?:string};
-export function noteDocument(note:NoteDocument):NoteDocument {return {title:note.title,text:note.text,fontSize:note.fontSize,strokes:note.strokes,titleAutomatic:note.titleAutomatic??false,...(note.mentions?.length?{mentions:note.mentions}:{})}}
-export function automaticNoteTitle(note:Pick<GeneralNote,'title'|'text'|'strokes'|'titleAutomatic'|'mentions'>,finalize=false){
+export function noteDocument(note:NoteDocument):NoteDocument {return {title:note.title,text:note.text,fontSize:note.fontSize,strokes:note.strokes,titleAutomatic:note.titleAutomatic??false,...(note.mentions?.length?{mentions:note.mentions}:{}),...(note.textStyles?.length?{textStyles:note.textStyles}:{})}}
+export function automaticNoteTitle(note:Pick<GeneralNote,'title'|'text'|'strokes'|'titleAutomatic'|'mentions'|'textStyles'>,finalize=false){
  if(!note.titleAutomatic&&note.title.trim())return note.title.trim().slice(0,120);
  if(!finalize||note.strokes.length)return 'Untitled';
  return note.text.split('\n').map(line=>line.replace(/^[ \t]*(?:[☐☑•] )?/,'').trim()).find(Boolean)?.slice(0,120)||'Untitled';
 }
 export function validNoteDocument(value:unknown):value is NoteDocument {
- if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['title','text','fontSize','strokes','titleAutomatic','mentions'].includes(key)))return false;
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['title','text','fontSize','strokes','titleAutomatic','mentions','textStyles'].includes(key)))return false;
  try{parseGeneralNotes(JSON.stringify([{...value,id:'validation',revision:1,updated:0}]));return true}catch{return false}
 }
