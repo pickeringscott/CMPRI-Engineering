@@ -24,3 +24,6 @@ export function rebaseNoteStyles(before:string,after:string,runs:NoteTextStyle[]
  for(const run of runs){if(run.start<start)output.push({...run,end:Math.min(run.end,start)});if(run.end>end)output.push({...run,start:Math.max(run.start,end)+delta,end:run.end+delta})}
  if(insertEnd>start)output.push({start,end:insertEnd,...noteStyleAt(runs,start<end?start:Math.max(0,start-1)),...typing});return normalizeNoteStyles(output);
 }
+/** A list marker follows the first visible character in its item, even when
+ * only the label was selected for formatting. Empty items use the marker style. */
+export function noteListMarkers(text:string){return [...text.matchAll(/^([ \t]*)([☐☑•]) ([^\n]*)/gm)].map(match=>{const start=match.index!+match[1].length,visible=match[3].search(/\S/);return{start,end:start+1,styleOffset:visible<0?start:start+2+visible}})}

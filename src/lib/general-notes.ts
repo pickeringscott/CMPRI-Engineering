@@ -83,7 +83,10 @@ export function saveGeneralNote(storage: Pick<Storage,'getItem'|'setItem'>, scop
 
 export type NoteDocument = Pick<GeneralNote,'title'|'text'|'fontSize'|'strokes'|'titleAutomatic'|'mentions'|'textStyles'>;
 export type NoteSummary = Pick<GeneralNote,'id'|'title'|'revision'|'updated'> & {text?:string};
-export function noteDocument(note:NoteDocument):NoteDocument {return {title:note.title,text:note.text,fontSize:note.fontSize,strokes:note.strokes,titleAutomatic:note.titleAutomatic??false,...(note.mentions?.length?{mentions:note.mentions}:{}),...(note.textStyles?.length?{textStyles:note.textStyles}:{})}}
+/** Canonicalize nested JSON too: PostgreSQL JSONB can reorder object keys.
+ * Equality must not turn an unchanged page into a new pending mutation. */
+export function noteDocument(note:NoteDocument):NoteDocument {return {title:note.title,text:note.text,fontSize:note.fontSize,strokes:note.strokes.map(stroke=>({id:stroke.id,color:stroke.color,size:stroke.size,points:stroke.points.map(point=>({x:point.x,y:point.y,p:point.p}))})),titleAutomatic:note.titleAutomatic??false,...(note.mentions?.length?{mentions:note.mentions.map(mention=>({id:mention.id,kind:mention.kind,label:mention.label,start:mention.start,end:mention.end}))}:{}),...(note.textStyles?.length?{textStyles:note.textStyles.map(style=>({start:style.start,end:style.end,...(style.fontSize!==undefined?{fontSize:style.fontSize}:{}),...(style.color!==undefined?{color:style.color}:{})}))}:{})}}
+
 export function automaticNoteTitle(note:Pick<GeneralNote,'title'|'text'|'strokes'|'titleAutomatic'|'mentions'|'textStyles'>,finalize=false){
  if(!note.titleAutomatic&&note.title.trim())return note.title.trim().slice(0,120);
  if(!finalize||note.strokes.length)return 'Untitled';

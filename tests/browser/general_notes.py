@@ -188,7 +188,7 @@ with sync_playwright() as playwright:
     assert text.evaluate("e=>getComputedStyle(e).backgroundColor") == "rgba(0, 0, 0, 0)"
     assert desktop.locator("[data-ink-layer]").evaluate("e=>+getComputedStyle(e).zIndex") > text.evaluate("e=>+getComputedStyle(e).zIndex")
     assert text.get_attribute("data-placeholder") == ""
-    expect(desktop.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
+    expect(desktop.get_by_role("button", name="Delete saved note", exact=True)).to_be_enabled()
     desktop.get_by_role("button", name="Create another note", exact=True).click()
     text.fill("Shopping list\nSeal kit")
     desktop.get_by_role("button", name="Create another note", exact=True).click()
@@ -332,6 +332,64 @@ with sync_playwright() as playwright:
     expect_editor(phone_text, "Small blue and large gold")
     expect(phone_text.locator("span").filter(has_text="Small")).to_have_css("font-size", "18px")
     expect(phone_text.locator("span").filter(has_text="Small")).to_have_css("color", blue)
+    # Resize only the list labels, leaving markers outside the selection.
+    other.get_by_role("button", name="Create another note", exact=True).click()
+    other.locator("#general-note-title").fill("Delete me")
+    list_text = other.get_by_role("textbox", name="Note text", exact=True)
+    list_text.fill("☐ Small item\n• Bullet item")
+    open_settings(other)
+    select_text(list_text, 2, 12)
+    other.get_by_label("Text size", exact=True).select_option("8")
+    small_check = other.get_by_role("checkbox", name="Small item", exact=True).locator("svg").bounding_box()["width"]
+    select_text(list_text, 2, 12)
+    other.get_by_label("Text size", exact=True).select_option("24")
+    big_check = other.get_by_role("checkbox", name="Small item", exact=True).locator("svg").bounding_box()["width"]
+    assert big_check > small_check * 2.5, (small_check, big_check)
+    bullet_label = "☐ Small item\n• Bullet item".index("Bullet")
+    select_text(list_text, bullet_label, bullet_label + 11)
+    other.get_by_label("Text size", exact=True).select_option("8")
+    bullet = list_text.locator("[data-note-list-marker]").filter(has_text="•")
+    small_bullet = bullet.bounding_box()["width"]
+    select_text(list_text, bullet_label, bullet_label + 11)
+    other.get_by_label("Text size", exact=True).select_option("24")
+    big_bullet = bullet.bounding_box()["width"]
+    assert big_bullet > small_bullet * 2.5, (small_bullet, big_bullet)
+    synced(other)
+    if os.environ.get("CMPRI_NOTES_SCREENSHOTS"):
+        other.screenshot(path=str(Path(os.environ["CMPRI_NOTES_SCREENSHOTS"]) / "cmpri-notes-scaled-markers.png"))
+    expect(other.get_by_role("button", name="Delete saved note", exact=True)).to_be_enabled()
+    delete_context, delete_desktop = device(USER_B)
+    delete_field = delete_desktop.get_by_role("textbox", name="Note text", exact=True)
+    expect_editor(delete_field, "☐ Small item\n• Bullet item")
+    assert delete_desktop.get_by_role("checkbox", name="Small item", exact=True).locator("svg").bounding_box()["width"] > small_check * 2.5
+    expect(delete_field.locator("[data-note-list-marker]").filter(has_text="•")).to_have_css("font-size", "24px")
+    delete_desktop.get_by_role("button", name="Delete saved note", exact=True).click()
+    deletion = delete_desktop.get_by_role("alertdialog", name="Delete saved note?", exact=True)
+    deletion.get_by_role("button", name="Cancel", exact=True).click()
+    expect_editor(delete_field, "☐ Small item\n• Bullet item")
+    delete_desktop.get_by_role("button", name="Delete saved note", exact=True).click()
+    deletion.get_by_role("button", name="Delete", exact=True).click()
+    expect_editor(delete_field, "")
+    assert all(row["document"] is None for row in state()["records"] if row["user_id"] == USER_B)
+    other.reload()
+    try:
+        synced(other)
+        expect_editor(list_text, "")
+        expect(other.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
+    except Exception:
+        print("DELETE_DIAGNOSTICS", json.dumps({"text":list_text.evaluate("e=>e.textContent"),"status":other.get_by_role("status").all_text_contents(),"records":[r for r in state()["records"] if r["user_id"]==USER_B],"outbox":other.evaluate("Object.fromEntries(Object.keys(localStorage).filter(k=>k.endsWith(':outbox')).map(k=>[k,localStorage.getItem(k)]))")}),flush=True)
+        raise
+    other.locator("#general-note-title").fill("Mobile delete")
+    list_text.fill("Delete directly after autosave")
+    synced(other)
+    other.get_by_role("button", name="Delete saved note", exact=True).click()
+    other.get_by_role("alertdialog", name="Delete saved note?", exact=True).get_by_role("button", name="Delete", exact=True).click()
+    expect_editor(list_text, "")
+    other.reload()
+    expect_editor(list_text, "")
+    deleted = [row for row in state()["records"] if row["user_id"] == USER_B]
+    assert len(deleted) == 2 and all(row["deleted_at"] and row["document"] is None for row in deleted)
+    delete_context.close()
     resize_host = desktop_context.new_page()
     resize_host.on("pageerror", lambda error: errors.append(str(error)))
     resize_host.goto(BASE + "/engineering")
@@ -413,4 +471,4 @@ with sync_playwright() as playwright:
         mobile.screenshot(path=str(output / "cmpri-notes-compact-empty.png"))
     assert not errors, errors
     browser.close()
-    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, desktop-scaled controls and bubbles, size-matched clickable checkboxes, preserved mention identities, clickable URLs, mobile close during stalled sync/IME, contained compact title picker, 500ms title/body search, mobile dashboard launcher, actual desktop resize handles, legacy/current cache session restarts, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")
+    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, desktop-scaled controls and bubbles, visually scaled checkbox/dot for label-only formatting, direct autosaved-note deletion with inline confirmation, size-matched clickable checkboxes, preserved mention identities, clickable URLs, mobile close during stalled sync/IME, contained compact title picker, 500ms title/body search, mobile dashboard launcher, actual desktop resize handles, legacy/current cache session restarts, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")

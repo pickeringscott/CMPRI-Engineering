@@ -1,6 +1,6 @@
 "use client";
 import {forwardRef,useImperativeHandle,useLayoutEffect,useRef,type KeyboardEvent,type CSSProperties} from 'react';
-import {noteStyleAt,type NoteTextStyle} from '@/lib/general-note-formatting';
+import {noteStyleAt,noteListMarkers,type NoteTextStyle} from '@/lib/general-note-formatting';
 import type {NoteToken} from './GeneralNotesMentions';
 export type NoteEditorHandle={element:HTMLDivElement;value:string;setValue:(value:string)=>void;selectionStart:number;selectionEnd:number;focus:(options?:FocusOptions)=>void;setSelectionRange:(start:number,end:number)=>void;addEventListener:HTMLElement['addEventListener'];removeEventListener:HTMLElement['removeEventListener']};
 /** Normalize native editable blocks/BRs to the same plain-text representation
@@ -22,19 +22,19 @@ const GeneralNotesText=forwardRef<NoteEditorHandle,Props>(function GeneralNotesT
  function port(){if(handle.current)return handle.current;const element=root.current!;handle.current={element,get value(){return noteEditorPlainText(element)},set value(value:string){element.textContent=value},setValue:(value:string)=>{element.textContent=value;painted.current=''},get selectionStart(){return selection(element,cached.current).start},get selectionEnd(){return selection(element,cached.current).end},focus:options=>{if(document.activeElement===element)return;element.focus(options);const {start,end}=cached.current;handle.current?.setSelectionRange(start,end)},setSelectionRange:(start,end)=>{cached.current={start,end};if(document.activeElement!==element)return;const range=noteTextRange(element,start,end),selected=window.getSelection();selected?.removeAllRanges();selected?.addRange(range)},addEventListener:element.addEventListener.bind(element),removeEventListener:element.removeEventListener.bind(element)};return handle.current}
  useImperativeHandle(ref,port);
  useLayoutEffect(()=>{
-  const element=root.current;if(!element||composing.current)return;const signature=JSON.stringify([props.text,props.styles,props.fontSize,props.tokens]);if(signature===painted.current)return;const saved=selection(element,cached.current),focused=document.activeElement===element;
+  const element=root.current;if(!element||composing.current)return;const markers=noteListMarkers(props.text),formatAt=(at:number)=>noteStyleAt(props.styles,markers.find(marker=>marker.start===at)?.styleOffset??at);const signature=JSON.stringify([props.text,props.styles,props.fontSize,props.tokens]);if(signature===painted.current)return;const saved=selection(element,cached.current),focused=document.activeElement===element;
   // Do not rewrite the native DOM during ordinary input: preserve IME and undo.
   // Formatting commands or remote documents rebuild safe text spans only.
   if(nativeInput.current&&element.textContent===props.text){
    nativeInput.current=false;let offset=0,matching=true;const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
    while(walker.nextNode()){const node=walker.currentNode as Text,style=getComputedStyle(node.parentElement||element);const points=[offset,...props.styles.flatMap(r=>[r.start,r.end]).filter(at=>at>offset&&at<offset+node.length)];
-    for(const at of points){const format=noteStyleAt(props.styles,at);if(parseFloat(style.fontSize)!==(format.fontSize||props.fontSize)||(format.color&&style.color!==(format.color==='text'?getComputedStyle(element).color:format.color)))matching=false}offset+=node.length;
+    for(const at of points){const format=formatAt(at);if(parseFloat(style.fontSize)!==(format.fontSize||props.fontSize)||(format.color&&style.color!==(format.color==='text'?getComputedStyle(element).color:format.color)))matching=false}offset+=node.length;
    }
    if(matching){painted.current=signature;return}
   }
   painted.current=signature;
-  const points=[...new Set([0,props.text.length,...props.styles.flatMap(r=>[r.start,r.end]),...props.tokens.flatMap(t=>[t.start,t.end])])].sort((a,b)=>a-b),fragment=document.createDocumentFragment();
-  for(let i=0;i<points.length-1;i++){const start=points[i],end=points[i+1];if(end<=start)continue;const span=document.createElement('span'),format=noteStyleAt(props.styles,start),token=props.tokens.find(t=>t.start<=start&&t.end>=end);span.textContent=props.text.slice(start,end);span.dataset.noteStart=String(start);span.dataset.noteSize=String(format.fontSize||props.fontSize);span.style.setProperty('font-size',(format.fontSize||props.fontSize)+'px','important');span.style.setProperty('line-height','32px','important');span.style.color=format.color==='text'?'var(--cmpri-modal-text)':format.color||(token?'rgb(var(--cmpri-action-rgb))':'var(--cmpri-modal-text)');if(token){span.dataset.noteMention=token.kind||'url';if(token.href)span.style.textDecoration='underline'}fragment.append(span)}
+  const points=[...new Set([0,props.text.length,...props.styles.flatMap(r=>[r.start,r.end]),...markers.flatMap(marker=>[marker.start,marker.end]),...props.tokens.flatMap(t=>[t.start,t.end])])].sort((a,b)=>a-b),fragment=document.createDocumentFragment();
+  for(let i=0;i<points.length-1;i++){const start=points[i],end=points[i+1];if(end<=start)continue;const span=document.createElement('span'),format=formatAt(start),token=props.tokens.find(t=>t.start<=start&&t.end>=end);span.textContent=props.text.slice(start,end);span.dataset.noteStart=String(start);if(markers.some(marker=>marker.start===start&&marker.end===end))span.dataset.noteListMarker='true';span.dataset.noteSize=String(format.fontSize||props.fontSize);span.style.setProperty('font-size',(format.fontSize||props.fontSize)+'px','important');span.style.setProperty('line-height','32px','important');span.style.color=format.color==='text'?'var(--cmpri-modal-text)':format.color||(token?'rgb(var(--cmpri-action-rgb))':'var(--cmpri-modal-text)');if(token){span.dataset.noteMention=token.kind||'url';if(token.href)span.style.textDecoration='underline'}fragment.append(span)}
   if(!fragment.childNodes.length)fragment.append(document.createTextNode(''));if(props.text.endsWith('\n')){const tail=document.createElement('br');tail.dataset.noteTail='';fragment.append(tail)}element.replaceChildren(fragment);
   if(focused)port().setSelectionRange(Math.min(saved.start,props.text.length),Math.min(saved.end,props.text.length));
  },[props.text,props.styles,props.fontSize,props.tokens]);

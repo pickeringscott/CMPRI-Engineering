@@ -63,7 +63,17 @@ export class GeneralNotesSync{
    }finally{this.flights.delete(id)}})();this.flights.set(id,flight);const success=await flight;if(success&&this.pending.has(id)){if(drain)return this.flush(id,keepalive,true);this.schedule(id)}return success;
  }
  async flushAll(keepalive=false){await Promise.all([...this.pending.keys()].map(id=>this.flush(id,keepalive,true)))}
- async remove(id:string){if(this.pending.has(id)&&!await this.flush(id,false,true))throw Error('Your current draft must sync before deleting it.');const note=this.cache.get(id);if(!note)throw Error('Load a synced note before deleting it.');const pending:PendingNote={note,expectedRevision:note.revision,changeId:crypto.randomUUID(),sequence:0,since:Date.now()};this.ownChanges.add(pending.changeId);await this.transport.write(pending,false,true);this.cancelTimer(id);this.cache.delete(id);this.summaries.delete(id);this.pending.delete(id);this.conflicts.delete(id);this.persistCache();this.message='Deleted';this.protect()}
+ private removed(id:string){this.cancelTimer(id);this.cache.delete(id);this.summaries.delete(id);this.pending.delete(id);this.conflicts.delete(id);this.persistCache();this.message='Deleted';this.protect()}
+ async remove(id:string){
+  if(this.pending.has(id)&&!await this.flush(id,false,true)){
+   // Explicit deletion may also discard an old local conflict when the server
+   // confirms the note was already deleted; never erase a competing live edit.
+   if(this.conflicts.has(id)&&await this.transport.read(id)===null){this.removed(id);return}
+   throw Error('Your current draft must sync before deleting it.');
+  }
+  const note=this.cache.get(id);if(!note)throw Error('Load a synced note before deleting it.');const pending:PendingNote={note,expectedRevision:note.revision,changeId:crypto.randomUUID(),sequence:0,since:Date.now()};this.ownChanges.add(pending.changeId);await this.transport.write(pending,false,true);this.removed(id);
+ }
+
  // Explicit conflict recovery preserves both versions, rather than last-writer-wins.
  keepBoth(id:string){const pending=this.pending.get(id);if(!pending)return null;const copy={...pending.note,id:crypto.randomUUID(),revision:0,title:pending.note.title+' (copy)',titleAutomatic:false};this.pending.delete(id);this.conflicts.delete(id);this.cache.delete(id);this.summaries.delete(id);this.queue(copy);this.protect();void this.refresh(true);return copy}
  stop(){this.stopped=true;for(const id of this.timers.keys())this.cancelTimer(id)}
