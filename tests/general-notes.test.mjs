@@ -39,3 +39,4 @@ test('private autosaves bypass the generic response cache and do not refresh unr
  const {dataCachePolicy,mutationTopics}=await import('../src/lib/data-cache/policy.ts');
  assert.equal(dataCachePolicy('/api/notes'),null);assert.deepEqual(mutationTopics('/api/notes'),[]);
 });
+test('selected mention identity survives note storage; stale or URL-overlapping ranges are rejected',()=>{const text='@Sam https://example.invalid/@Sam',selected={id:'sam-id',kind:'person',label:'Sam',start:0,end:4};const withMention={...note,text,mentions:[selected]};assert.deepEqual(parseGeneralNotes(JSON.stringify([withMention]))[0].mentions,[selected]);assert.throws(()=>parseGeneralNotes(JSON.stringify([{...withMention,text:'Changed'}])));assert.throws(()=>parseGeneralNotes(JSON.stringify([{...withMention,mentions:[{...selected,start:text.lastIndexOf('@'),end:text.length}]}])))});

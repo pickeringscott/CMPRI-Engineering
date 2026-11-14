@@ -65,3 +65,34 @@
 /* Override CMPRI's global 40px input minimum inside this compact title row. */
 .general-notes #general-note-title{min-height:0!important;height:100%;line-height:26px!important}
 .general-notes .general-notes-title-picker .general-notes-picker-popup>input{min-height:30px!important}
+
+/* Native textarea text and its list markers share the selected note size,
+   including inside CMPRI's embedded modal typography overrides. */
+.general-notes .general-notes-paper textarea{font-size:var(--note-font-size,16px)!important;line-height:32px!important}
+.general-notes-check-clip{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:3}
+.general-notes-check-layer{position:absolute;inset:0;pointer-events:none}
+.general-notes .general-notes-check-layer>button{position:absolute;display:grid;place-items:center;min-width:0;min-height:0!important;margin:0;padding:0;border:0;border-radius:0;background:var(--cmpri-modal-base)!important;color:var(--cmpri-modal-text);font-size:var(--note-font-size,16px)!important;line-height:1!important;pointer-events:auto;opacity:1}
+.general-notes .general-notes-check-layer>button:disabled{pointer-events:none;opacity:1}
+.general-notes-check-layer svg{width:.9em;height:.9em;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+@media(hover:hover) and (pointer:fine){
+ .general-notes-tools .general-notes-dock{max-width:360px;gap:3px;padding:4px 6px;border-radius:21px}
+ .general-notes-dock>button,.general-notes-bubble button{width:30px;height:30px;min-width:30px;min-height:30px;padding:6px}
+ .general-notes-tools svg{width:18px;height:18px}
+ .general-notes-bubble{width:min(232px,calc(100% - 16px));padding:2px 6px 7px;border-radius:16px;bottom:calc(100% + 3px)}
+ .general-notes-bubble-top{height:26px}.general-notes-bubble-top>span{padding:2px 4px}.general-notes-bubble-top>span svg{width:16px;height:16px}
+ .general-notes-bubble-top button{width:26px;height:26px;min-width:26px;min-height:26px;padding:5px}
+ .general-notes-text-settings>button{width:32px;height:30px;min-width:30px;padding:6px;border-radius:10px}
+ .general-notes .general-notes-text-settings>select{width:48px;min-height:30px!important;height:30px;padding:2px 4px;border-radius:8px}
+ .general-notes-tools .general-notes-pen-preview{height:26px;padding:0 3px}
+ .general-notes-width{gap:4px;padding:0 3px 2px}.general-notes-width input{min-height:20px!important;height:20px}
+ .general-notes-swatches{gap:3px;padding:3px 3px 1px}
+ .general-notes-bubble .general-notes-swatch{width:21px;height:21px;min-width:21px;min-height:21px;padding:0}
+ .general-notes-swatch[aria-pressed=true]{outline-offset:2px}.general-notes-swatch span{font-size:15px}
+}
+.general-notes-rich-layer{position:absolute;top:0;left:0;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:break-word;pointer-events:none;color:transparent}
+.general-notes-rich-layer a,.general-notes-rich-layer [data-note-mention]{color:rgb(var(--cmpri-action-rgb));background:rgba(var(--cmpri-action-rgb),.1)}
+.general-notes-rich-layer a{pointer-events:auto;text-decoration:underline;text-underline-offset:2px}
+.general-notes-mention-options{position:absolute;bottom:calc(100% + 4px);left:8px;right:8px;max-height:190px;overflow:auto;border:1px solid var(--cmpri-outline);border-radius:12px;padding:3px;background:var(--cmpri-modal-surface);z-index:7}
+.general-notes .general-notes-mention-options>button{display:block;width:100%;min-height:32px;padding:3px 6px;border:0;border-radius:6px;text-align:left}
+.general-notes-mention-options small{margin-left:6px;color:var(--cmpri-modal-muted);font-size:11px}
+.general-notes-mention-error{position:absolute;bottom:100%;padding:3px 8px;font-size:12px;background:var(--cmpri-modal-surface)}

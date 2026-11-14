@@ -31,7 +31,8 @@ with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=True, **({"executable_path": executable} if executable else {}))
     errors = []
     session_trace = []
-    flags = {"session_unavailable": False, "notes_unavailable": False, "session_restart": False}
+    pending_saves = []
+    flags = {"session_unavailable": False, "notes_unavailable": False, "session_restart": False, "notes_hang": False}
 
     def device(user, mobile=False):
         context = browser.new_context(viewport={"width": 390 if mobile else 1360, "height": 740 if mobile else 1000}, is_mobile=mobile, has_touch=mobile)
@@ -40,11 +41,18 @@ with sync_playwright() as playwright:
         def api(route):
             path = urlparse(route.request.url)
             if path.path == "/api/notes":
+                if flags["notes_hang"] and route.request.method == "PUT":
+                    pending_saves.append(route)
+                    return
                 if flags["notes_unavailable"] and route.request.method == "PUT":
                     route.fulfill(status=503, json={"error": "Temporary connection failure"})
                     return
                 response = route.fetch(url=BACKEND + path.path + ("?" + path.query if path.query else ""))
                 route.fulfill(response=response)
+            elif path.path == "/api/notes/targets":
+                route.fulfill(json={"mentions":[{"id":"person-a","kind":"person","label":"Fixture","description":"Fixture Person","userIds":[]},{"id":"role-front","kind":"role","label":"Front Desk","userIds":[]},{"id":"location-a","kind":"location","label":"Lobby","userIds":[]},{"id":"fd-a","kind":"front_desk_name","label":"Pat","userIds":[]}]})
+            elif path.path == "/api/work-orders/references":
+                route.fulfill(json={"tickets":[{"id":"00000000-0000-4000-8000-000000000321","display_id":"WO-321","room":"Lobby","issue":"Fixture work","status":"open"}]})
             elif path.path == "/api/session":
                 session_trace.append({"frame": route.request.frame.url, "unavailable": flags["session_unavailable"]})
                 if flags["session_restart"]:
@@ -117,6 +125,28 @@ with sync_playwright() as playwright:
     desktop.keyboard.type("Inspect seal")
     expect(text).to_have_value("Heading\n    ☐ Inspect seal")
     desktop.get_by_label("Text size", exact=True).select_option("20")
+    assert desktop.get_by_role("button", name="Check or uncheck item", exact=True).count() == 0
+    expect(text).to_have_css("font-size", "20px")
+    checkbox = desktop.get_by_role("checkbox", name="Inspect seal", exact=True)
+    expect(checkbox).to_have_css("font-size", "20px")
+    checkbox.click()
+    expect(text).to_have_value("Heading\n    ☑ Inspect seal")
+    checkbox.click()
+    expect(text).to_have_value("Heading\n    ☐ Inspect seal")
+    checkbox.focus()
+    desktop.keyboard.press("Space")
+    expect(text).to_have_value("Heading\n    ☑ Inspect seal")
+    desktop.keyboard.press("Space")
+    expect(text).to_have_value("Heading\n    ☐ Inspect seal")
+    open_settings(desktop)
+    desktop.get_by_label("Text size", exact=True).select_option("24")
+    expect(text).to_have_css("font-size", "24px")
+    expect(checkbox).to_have_css("font-size", "24px")
+    desktop.get_by_label("Text size", exact=True).select_option("20")
+    assert desktop.get_by_role("button", name="Text and keyboard handwriting", exact=True).bounding_box()["width"] == 30
+    assert desktop.locator(".general-notes-bubble").bounding_box()["width"] == 232
+    if os.environ.get("CMPRI_NOTES_SCREENSHOTS"):
+        desktop.screenshot(path=str(Path(os.environ["CMPRI_NOTES_SCREENSHOTS"]) / "cmpri-notes-desktop-controls.png"))
     synced(desktop)
     assert len(state()["records"]) == 1
     writes = state()["writes"]
@@ -126,6 +156,7 @@ with sync_playwright() as playwright:
     synced(desktop)
     assert state()["writes"] == writes + 1, "A typing burst should coalesce to one server save"
     desktop.get_by_role("button", name="Handwritten ink", exact=True).click()
+    assert desktop.locator(".general-notes-bubble").bounding_box()["width"] == 232
     desktop.get_by_role("button", name="sky ink", exact=True).click()
     desktop.get_by_label("Pen width", exact=True).fill("8")
     title.click()
@@ -216,6 +247,34 @@ with sync_playwright() as playwright:
     other.get_by_label("Open saved note", exact=True).click()
     assert other.locator(".general-notes-picker-results button").count() == 0
     expect(other.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
+    desktop.get_by_role("button", name="Create another note", exact=True).click()
+    title.fill("Linked note")
+    text.fill("@Fix")
+    text.press("End")
+    desktop.get_by_role("option").filter(has_text="Fixture Person").click()
+    expect(text).to_have_value("@Fixture ")
+    for query, label in [("@Front", "Front Desk"), ("@Lob", "Lobby"), ("@Pa", "Pat"), ("@321", "WO#321")]:
+        text.press("Control+End")
+        desktop.keyboard.type(query)
+        desktop.get_by_role("option").filter(has_text=label).click()
+    text.press("Control+End")
+    desktop.keyboard.type("https://example.invalid/manual")
+    synced(desktop)
+    linked_text = text.input_value()
+    expect(desktop.locator(".general-notes-rich-layer a[href='https://example.invalid/manual']")).to_have_attribute("target", "_blank")
+    expect(desktop.locator(".general-notes-rich-layer a[href='/work-orders/00000000-0000-4000-8000-000000000321']")).to_have_text("@321")
+    desktop_context.route("https://example.invalid/**", lambda route: route.fulfill(content_type="text/html", body="<title>Fixture manual</title>"))
+    with desktop.expect_popup() as opened:
+        desktop.locator(".general-notes-rich-layer a[href='https://example.invalid/manual']").click()
+    opened.value.wait_for_load_state()
+    assert opened.value.url == "https://example.invalid/manual"
+    opened.value.close()
+    desktop.reload()
+    expect(text).to_have_value(linked_text)
+    expect(desktop.locator(".general-notes-rich-layer [data-note-mention='location']")).to_have_text("@Lobby")
+    linked_record = next(r for r in state()["records"] if r["document"] and r["document"]["title"] == "Linked note")
+    assert len(linked_record["document"]["mentions"]) == 5
+    assert mobile.get_by_role("button", name="Text and keyboard handwriting", exact=True).bounding_box()["width"] == 44
     resize_host = desktop_context.new_page()
     resize_host.on("pageerror", lambda error: errors.append(str(error)))
     resize_host.goto(BASE + "/engineering")
@@ -262,6 +321,27 @@ with sync_playwright() as playwright:
     flags["session_restart"] = True
     mobile_launcher.first.click()
     expect(dashboard_mobile.frame_locator('iframe[title="Notes"]').locator("#general-note-title")).to_be_enabled(timeout=15000)
+    mobile_frame = dashboard_mobile.frame_locator('iframe[title="Notes"]')
+    mobile_frame.get_by_role("button", name="Create another note", exact=True).click()
+    closing_text = mobile_frame.get_by_role("textbox", name="Note text", exact=True)
+    flags["notes_unavailable"] = True
+    flags["notes_hang"] = True
+    closing_text.fill("Protected mobile close")
+    closing_text.dispatch_event("compositionstart")
+    dashboard_mobile.get_by_role("button", name="Close Notes", exact=True).click()
+    expect(dashboard_mobile.locator("iframe[title='Notes']")).to_have_count(0, timeout=5000)
+    flags["notes_unavailable"] = False
+    flags["notes_hang"] = False
+    for pending_save in pending_saves:
+        try:
+            pending_save.fulfill(status=503, json={"error":"Temporary connection failure"})
+        except Exception:
+            pass  # The closed frame may already have cancelled its connection.
+    mobile_launcher.first.click()
+    expect(mobile_frame.get_by_role("textbox", name="Note text", exact=True)).to_have_value("Protected mobile close", timeout=15000)
+    synced(mobile_frame)
+    dashboard_mobile.get_by_role("button", name="Close Notes", exact=True).click()
+    expect(dashboard_mobile.locator("iframe[title='Notes']")).to_have_count(0, timeout=5000)
     dashboard_mobile.close()
     screenshots = os.environ.get("CMPRI_NOTES_SCREENSHOTS")
     if screenshots:
@@ -276,4 +356,4 @@ with sync_playwright() as playwright:
         mobile.screenshot(path=str(output / "cmpri-notes-compact-empty.png"))
     assert not errors, errors
     browser.close()
-    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, contained compact title picker, 500ms title/body search, mobile dashboard launcher, actual desktop resize handles, legacy/current cache session restarts, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")
+    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, desktop-scaled controls and bubbles, size-matched clickable checkboxes, preserved mention identities, clickable URLs, mobile close during stalled sync/IME, contained compact title picker, 500ms title/body search, mobile dashboard launcher, actual desktop resize handles, legacy/current cache session restarts, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")
