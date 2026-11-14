@@ -77,3 +77,18 @@ test('missing activity data reports an error instead of showing an incomplete da
   const db = fixture({}, 'cmpri_pool_control_history');
   await assert.rejects(loadPoolDailyEntries(db, 'hotel', 'pool', '2026-11-01', null), /activity could not be loaded/);
 });
+
+test('status-button closure and reopening are daily notes with names even before readings exist', async () => {
+ const db=fixture({
+  cmpri_pool_control_history:[
+   {id:'closure',hotel_id:'hotel',facility_id:'pool',actor_id:'desk',recorded_at:'2026-11-01T15:00:00.000Z',action:'close',request:{reason:'Broken pump'}},
+   {id:'reopen',hotel_id:'hotel',facility_id:'pool',actor_id:'engineer',recorded_at:'2026-11-01T16:00:00.000Z',action:'open',request:{reason:''}},
+  ],
+  profiles:[{id:'desk',full_name:'Alex Desk'},{id:'engineer',full_name:'Jordan Engineer'}],
+ });
+ const {entries}=await loadPoolDailyEntries(db,'hotel','pool','2026-11-01',null);
+ assert.deepEqual(Array.from(entries,e=>({kind:e.kind,name:e.actor_name,reason:e.reason})),[
+  {kind:'close',name:'Alex Desk',reason:'Broken pump'},
+  {kind:'open',name:'Jordan Engineer',reason:''},
+ ]);
+});

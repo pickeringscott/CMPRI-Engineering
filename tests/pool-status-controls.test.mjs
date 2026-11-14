@@ -50,3 +50,15 @@ test('a notification read failure after the action reports the confirmed pool st
  const response=await route.POST({json:async()=>({id:'11111111-1111-4111-8111-111111111111',action:'pool-status',closed:false,reason:'',expectedRevision:3})});
  assert.equal(response.status,200);assert.equal(response.body.closed,false);assert.equal(response.body.revision,4);assert.match(response.body.warning,/status saved/i);assert.equal('notifications' in response.body,false);assert.deepEqual(queries,['pool_facilities','cmpri_dashboard_notifications']);
 });
+
+test('every role must supply a nonblank closure reason before the action RPC', async()=>{
+ for(const role of ['front_desk','engineer','chief_engineer','manager','assistant_manager','system_admin']) {
+  const calls=[];
+  const admin={from(){const q={select(){return q},eq(){return q},order(){return q},limit:async()=>({data:[{id:'pool'}],error:null})};return q},rpc:async(...args)=>{calls.push(args);throw Error('must not save')}};
+  const route=loadTs('src/app/api/pool-status/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200})}},'@/lib/server/auth':{requireUser:async()=>({principal:{profile:{role},identity:{id:'signed-in-actor'}},admin})},'@/lib/server/roles':{roleKey:()=>role},'@/lib/constants':{HOTEL_ID:'hotel'},'@/lib/pool-log':{poolCurrentClosureReasons:()=>[]}});
+  for(const reason of ['', ' \t\n ']) {
+   const response=await route.POST({json:async()=>({id:'11111111-1111-4111-8111-111111111111',action:'pool-status',closed:true,reason,expectedRevision:3})});
+   assert.equal(response.status,400,role);assert.match(response.body.error,/reason/);assert.equal(calls.length,0);
+  }
+ }
+});

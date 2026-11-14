@@ -262,7 +262,8 @@ export default function PoolLogPage() {
         const session = await getValidSession();
         if (!session) throw new Error("Sign in again to view pool activity.");
         const query = new URLSearchParams({ date, facility: facility.id });
-        const response = await fetch(`/api/pool-log?${query}`, { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store", signal: controller.signal });
+        // Activity refreshes must bypass the device cache, including after a status action.
+        const response = await fetch(`/api/pool-log?${query}`, { headers: { Authorization: `Bearer ${session.access_token}`, "X-CMPRI-Refresh": "1" }, cache: "no-store", signal: controller.signal });
         const result = await response.json() as { error?: string; daily_entries?: PoolDailyEntry[] | null; daily_entries_error?: string };
         if (!response.ok || !Array.isArray(result.daily_entries)) throw new Error(result.daily_entries_error || result.error || "Pool activity could not be loaded.");
         if (!controller.signal.aborted) setDailyActivity({ date, facilityId: facility.id, entries: result.daily_entries, error: "" });

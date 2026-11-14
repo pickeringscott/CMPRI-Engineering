@@ -37,12 +37,13 @@ test('first snapshot keeps differing shallow and deep values alongside the gener
 test('the daily timeline renders one row per action and labels legacy current data honestly', () => {
   const html = renderToStaticMarkup(React.createElement(exports.default, { entries: [
     { id: 'one', kind: 'close', recorded_at: '2026-11-10T18:00:00Z', actor_name: 'Alex', reason: 'Cleaning' },
+    { id: 'reopen', kind: 'open', recorded_at: '2026-11-10T18:10:00Z', actor_name: 'Sam Engineer' },
     { id: 'two', kind: 'clear-manual', recorded_at: '2026-11-10T18:15:00Z', actor_name: 'Jordan' },
     { id: 'three', kind: 'reading', source: 'current', recorded_at: '2026-11-10T18:30:00Z', snapshot: { ph_am: 7.4, remarks: 'Routine' } },
   ] }));
-  assert.match(html, /Pool closed: Cleaning/); assert.match(html, /Manual hold cleared/);
+  assert.match(html, /Pool closed: Cleaning/); assert.match(html, /Pool reopened/); assert.match(html, /Sam Engineer/); assert.match(html, /Manual hold cleared/);
   assert.match(html, /Current saved record: AM pH 7.4/); assert.match(html, /Notes: Routine/);
-  assert.equal((html.match(/<time /g) || []).length, 3);
+  assert.equal((html.match(/<time /g) || []).length, 4);
 });
 
 test('the pool form has one accessible notes editor and a single top-row save button', () => {

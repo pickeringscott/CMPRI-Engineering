@@ -79,7 +79,7 @@ export default function PoolDailyHistory({ entries, error, loading, onRetry }: {
         const time = Number.isNaN(instant.getTime()) ? "Time unavailable" : instant.toLocaleString("en-US", { timeZone: "America/Chicago", month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
         const text = entry.kind === "reading" ? `${entry.source === "current" ? "Current saved record" : "Log entry"}: ${poolSnapshotDescription(entry.snapshot || {}, entry.previous_snapshot || {})}`
           : entry.kind === "close" ? `Pool closed${entry.reason ? `: ${entry.reason}` : ""}`
-          : entry.kind === "open" ? `Pool opened${entry.reason ? `: ${entry.reason}` : ""}`
+          : entry.kind === "open" ? `Pool reopened${entry.reason ? `: ${entry.reason}` : ""}`
           : `Manual hold cleared${entry.reason ? `: ${entry.reason}` : ""}`;
         return <div key={`${entry.kind}:${entry.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-1 border-b border-slate-800 px-2 py-1 text-xs last:border-0 sm:grid-cols-[8rem_7rem_minmax(0,1fr)]">
           <time className="text-slate-400" dateTime={entry.recorded_at}>{time}</time>
