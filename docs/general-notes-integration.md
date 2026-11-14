@@ -4,10 +4,11 @@ Notes is a separate notebook in CMPRI's existing desktop/mobile modal workspace.
 
 ## Approved interaction
 
-- The approved rounded six-icon dock and compact pen/text bubbles are retained. Pen settings have one pen style, stroke preview, width, and native palette swatches. Text settings have checklist, bullets, check state, and sizes 8–24 by two. Outside taps and Escape dismiss settings without resetting selections.
+- The approved rounded dock and compact pen/text bubbles are retained. Its five icons are keyboard, pen, eraser, undo and redo; the duplicate Writing settings control is removed, and selecting the keyboard or pen icon opens its matching bubble. Pen settings have one pen style, stroke preview, width, and native palette swatches. Text settings have checklist, bullets, check state, and sizes 8–24 by two. Outside taps and Escape dismiss settings without resetting selections.
 - Text and original pressure-sensitive vector ink share a page. Ink stays above the transparent native text field in both modes; switching to text no longer hides it. The native textarea placeholder shares the cursor's exact font, line height and padding.
 - Text mode stays selected during Gboard/native keyboard handwriting input. Choose the pen icon explicitly for original ink. Finger swipes scroll the writing area and finger taps return to text. Real Android keyboard UI and S Pen hardware still require device testing.
 - Headerless lists have no indent. Lists beneath a preceding plain-text header indent four spaces. Return preserves that indentation; one Backspace removes the complete marker and its indent.
+- A single compact title/picker box replaces the separate title label and field. It shows muted **Note Title** until a title is entered; its arrow opens saved notes. Header/picker spacing and the gaps around Trash/+ are tightened. The unruled writing page uses an 8px outer inset matching the app scrollbar, without a desktop width cap. Bottom helper and preview-only copy are removed.
 - **No Save or Download buttons.** Trash is immediately after the always-visible saved-note picker. It is disabled for a newly created note, including after autosave, and enabled only when a saved note is loaded. Deletion requires confirmation and server acknowledgement.
 - A stable UUID is allocated once per new note; repeated autosaves update that note. Starting another note and reopening previous notes cannot reuse its identity.
 
@@ -20,6 +21,14 @@ Switching notes flushes queued work without losing the local draft. Modal close 
 An explicit title is preserved. Untitled handwritten/mixed notes default to **Untitled**. For text-only notes with no explicit title, the first nonempty text line becomes the title on leaving/closing the note (list markers are stripped and titles are bounded to 120 characters). Empty new pages do not create database records. Blank titles may temporarily appear as Untitled while editing; no handwriting recognition is required to name an ink note.
 
 Status distinguishes local protection, **Syncing…**, **Synced**, and failure/conflict. Synced is shown only after a successful read/acknowledgement. Offline drafts remain local and retry with bounded exponential backoff or on reconnect. An offline edit cannot appear on another device until it reaches the server. Physical Gboard's panel availability is not established by synthetic IME tests.
+
+## Desktop resizing and session revalidation
+
+The Notes session guard distinguishes real access denial from transient failures. A failed focus/network recheck (or a temporary missing SDK snapshot) keeps the already verified editor mounted, with a brief connection warning. An explicit sign-out, account change, or HTTP 401/403 still hides the notebook. Rechecks are coalesced and throttled; resizing changes only layout and does not recreate the note or its iframe.
+
+The shared request cache also tracks its creator document. If a modal iframe created that cache, closing/reloading it aborts that owner’s outstanding reads, releases its listeners/channel, and restores the host’s original native fetch. Surviving windows can create a fresh cache; a reloaded iframe cannot inherit unresolved promises from a discarded document. Sign-out still clears persistent cached records, including after the old owner has closed, and incremental releases tolerate a still-live parent using the previous cache interface.
+
+The browser regression resizes a same-origin Notes iframe through desktop/mobile widths while session rechecks and note writes return 503. It verifies that the document identity, visible unsynced text and local outbox survive, then reloads and confirms draft recovery and successful sync. Dedicated session/cache-owner tests cover actual denial, account changes, late responses, sibling-window recovery, legacy interfaces and sign-out so preserving a draft does not bypass authorization.
 
 ## Shared storage and privacy
 

@@ -30,6 +30,8 @@ with sync_playwright() as playwright:
     executable = os.environ.get("CHROMIUM_PATH") or shutil.which("chromium")
     browser = playwright.chromium.launch(headless=True, **({"executable_path": executable} if executable else {}))
     errors = []
+    session_trace = []
+    flags = {"session_unavailable": False, "notes_unavailable": False}
 
     def device(user, mobile=False):
         context = browser.new_context(viewport={"width": 390 if mobile else 1360, "height": 740 if mobile else 1000}, is_mobile=mobile, has_touch=mobile)
@@ -38,9 +40,16 @@ with sync_playwright() as playwright:
         def api(route):
             path = urlparse(route.request.url)
             if path.path == "/api/notes":
+                if flags["notes_unavailable"] and route.request.method == "PUT":
+                    route.fulfill(status=503, json={"error": "Temporary connection failure"})
+                    return
                 response = route.fetch(url=BACKEND + path.path + ("?" + path.query if path.query else ""))
                 route.fulfill(response=response)
             elif path.path == "/api/session":
+                session_trace.append({"frame": route.request.frame.url, "unavailable": flags["session_unavailable"]})
+                if flags["session_unavailable"]:
+                    route.fulfill(status=503, json={"error": "Temporary verification failure"})
+                    return
                 route.fulfill(json={"user": {"id": user, "name": "Fixture", "role": "engineer"}, "hotelId": HOTEL, "landing": "/engineering", "capabilities": ["view_work_orders"]})
             else:
                 route.fulfill(json={})
@@ -56,9 +65,12 @@ with sync_playwright() as playwright:
         expect(page.get_by_role("status")).to_have_text("Synced", timeout=15000)
 
     def open_settings(page):
-        control = page.get_by_role("button", name="Writing settings", exact=True)
-        if control.get_attribute("aria-expanded") != "true":
-            control.click()
+        if page.locator(".general-notes-bubble").count():
+            return
+        control = page.get_by_role("button", name="Text and keyboard handwriting", exact=True)
+        if control.get_attribute("aria-pressed") != "true":
+            control = page.get_by_role("button", name="Handwritten ink", exact=True)
+        control.click()
 
     def state():
         return desktop_context.request.get(BACKEND + "/fixture/state").json()
@@ -69,7 +81,14 @@ with sync_playwright() as playwright:
     expect(desktop.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
     assert desktop.get_by_role("button", name="Save note", exact=True).count() == 0
     assert desktop.get_by_role("button", name="Download notes and draft", exact=True).count() == 0
-    assert desktop.locator("select[aria-label='Open saved note'] + button").get_attribute("aria-label") == "Delete saved note"
+    assert desktop.locator(".general-notes-title-picker + button").get_attribute("aria-label") == "Delete saved note"
+    expect(title).to_have_attribute("placeholder", "Note Title")
+    assert desktop.locator("label[for='general-note-title']").count() == 0
+    assert desktop.get_by_role("button", name="Writing settings", exact=True).count() == 0
+    assert desktop.locator(".general-notes-help").count() == 0
+    assert desktop.locator(".general-notes-paper").evaluate("e=>getComputedStyle(e).backgroundImage") == "none"
+    assert desktop.locator(".general-notes-scroll").evaluate("e=>getComputedStyle(e).paddingLeft") == "8px"
+    assert desktop.locator(".general-notes-mobile-library").evaluate("e=>getComputedStyle(e).gap") == "2px"
     title.fill("Pump inspection")
     text.click()
     desktop.get_by_role("button", name="Text and keyboard handwriting", exact=True).click()
@@ -160,6 +179,7 @@ with sync_playwright() as playwright:
     assert not phone_text.evaluate("e=>e.readOnly")
     mobile.get_by_role("button", name="Handwritten ink", exact=True).click()
     mobile.get_by_role("button", name="Close settings", exact=True).click()
+    mobile.set_viewport_size({"width": 390, "height": 620})
     paper = mobile.locator("[data-ink-layer]").bounding_box()
     x, y = paper["x"] + 80, paper["y"] + 110
     protocol.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
@@ -174,6 +194,37 @@ with sync_playwright() as playwright:
     other_context, other = device(USER_B, True)
     assert other.get_by_label("Open saved note", exact=True).locator("option").count() == 1
     expect(other.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
+    desktop_context.route("**/fixture/notes-resize", lambda route: route.fulfill(content_type="text/html", body='<html><body style="margin:0"><div id="notes-window" style="width:900px;height:650px"><iframe title="Notes resize fixture" src="/notes?embedded=1" style="width:100%;height:100%;border:0"></iframe></div></body></html>'))
+    resize_host = desktop_context.new_page()
+    resize_host.on("pageerror", lambda error: errors.append(str(error)))
+    resize_host.goto(BASE + "/fixture/notes-resize")
+    frame = resize_host.frame_locator('iframe')
+    expect(frame.locator("#general-note-title")).to_be_enabled()
+    frame.get_by_role("button", name="Create another note", exact=True).click()
+    flags["notes_unavailable"] = True
+    resize_text = frame.get_by_role("textbox", name="Note text", exact=True)
+    resize_text.fill("Unsynced resize draft")
+    identity = frame.locator("html").evaluate("()=>window.__resizeIdentity=crypto.randomUUID()")
+    flags["session_unavailable"] = True
+    resize_host.wait_for_timeout(15100)  # Exercise the real 15-second session-recheck boundary.
+    for width, height in [(640, 560), (1100, 740), (510, 520), (900, 650)]:
+        resize_host.locator("#notes-window").evaluate("(e,s)=>{e.style.width=s[0]+'px';e.style.height=s[1]+'px'}", [width, height])
+        frame.locator("html").evaluate("()=>window.dispatchEvent(new Event('focus'))")
+        expect(resize_text).to_have_value("Unsynced resize draft")
+        assert frame.locator("html").evaluate("()=>window.__resizeIdentity") == identity
+    expect(frame.locator(".general-notes-session-notice")).to_contain_text("temporarily unavailable")
+    assert frame.get_by_text("Sign in to CMPRI to use your notebook.").count() == 0
+    assert frame.locator("html").evaluate("()=>Object.keys(localStorage).some(k=>k.endsWith(':outbox')&&localStorage.getItem(k).includes('Unsynced resize draft'))")
+    flags["notes_unavailable"] = False
+    flags["session_unavailable"] = False
+    frame.locator("html").evaluate("()=>location.reload()")
+    expect(frame.get_by_role("textbox", name="Note text", exact=True)).to_have_value("Unsynced resize draft", timeout=15000)
+    try:
+        synced(frame)
+    except Exception:
+        print("RESIZE_DIAGNOSTICS", json.dumps({"requests": session_trace, "errors": errors, "frame": frame.locator("html").evaluate("async()=>({url:location.href,ready:document.readyState,keys:Object.keys(sessionStorage),locks:await navigator.locks.query(),resources:performance.getEntriesByType('resource').map(e=>new URL(e.name).pathname).filter(p=>p.includes('/api/'))})")}), flush=True)
+        raise
+    resize_host.close()
     screenshots = os.environ.get("CMPRI_NOTES_SCREENSHOTS")
     if screenshots:
         output = Path(screenshots)
@@ -183,6 +234,8 @@ with sync_playwright() as playwright:
         mobile.screenshot(path=str(output / "cmpri-notes-autosave-text.png"))
         mobile.get_by_role("button", name="Handwritten ink", exact=True).click()
         mobile.screenshot(path=str(output / "cmpri-notes-autosave-pen.png"))
+        mobile.get_by_role("button", name="Create another note", exact=True).click()
+        mobile.screenshot(path=str(output / "cmpri-notes-compact-empty.png"))
     assert not errors, errors
     browser.close()
-    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, approved controls, trash placement, account isolation, gestures and IME input.")
+    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, compact title picker, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")

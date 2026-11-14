@@ -29,3 +29,23 @@
 .general-notes .general-notes-paper.is-text textarea{z-index:1}.general-notes .general-notes-ink{z-index:2}
 .general-notes .general-notes-paper textarea::placeholder{font:inherit;line-height:inherit;color:var(--cmpri-modal-subtle);opacity:1}
 .general-notes-mobile-library{display:flex;gap:6px;margin-bottom:7px;align-items:center}.general-notes-mobile-library>select{flex:1;min-width:0;max-width:none}.general-notes-mobile-library>button{display:grid;place-items:center;flex-shrink:0;min-width:44px;width:44px;height:44px;padding:9px}.general-notes-mobile-library>button svg{width:22px;height:22px}
+
+/* Compact title picker and blank edge-to-edge note page. The inset matches
+   CMPRI's 8px native scrollbar instead of surrounding the page with a gutter. */
+.general-notes-top{padding:3px 8px 2px}
+.general-notes-mobile-library{gap:2px;margin-bottom:0}
+.general-notes-title-picker{position:relative;flex:1;min-width:0;height:36px;border:1px solid var(--cmpri-outline);border-radius:8px;background:var(--cmpri-modal-surface)}
+.general-notes-title-picker>input{display:block;width:100%;height:100%;min-height:0;border:0;border-radius:inherit;background:transparent;padding:4px 34px 4px 8px;font-size:16px}
+.general-notes-title-picker>input::placeholder{color:var(--cmpri-modal-muted);opacity:1}
+.general-notes-title-picker>select{position:absolute;inset:0 0 0 auto;min-height:0;width:30px;height:100%;padding:0;opacity:0;cursor:pointer}
+.general-notes-title-picker:focus-within{outline:2px solid rgb(var(--cmpri-action-rgb));outline-offset:1px}
+.general-notes-title-picker>input:focus-visible{outline:none}
+.general-notes-picker-arrow{position:absolute;right:5px;top:7px;width:20px;height:20px;color:var(--cmpri-modal-muted);pointer-events:none}
+.general-notes-mobile-library>button{min-width:34px;width:34px;min-height:36px;height:36px;padding:6px;border-radius:8px}
+.general-notes-mobile-library>button svg{width:20px;height:20px}
+.general-notes-save{margin-top:1px;min-height:14px;font-size:10px}
+.general-notes-page-header{padding-top:2px;padding-bottom:2px}
+.general-notes-scroll{padding:0 8px;background:var(--cmpri-modal-base)}
+.general-notes-paper{max-width:none;width:100%;margin:0;border:0;background:var(--cmpri-modal-base)}
+.general-notes-session-notice{margin:0;padding:4px 8px;font-size:11px;color:var(--cmpri-modal-muted);border-bottom:1px solid var(--cmpri-outline)}
+@media(max-width:760px){.general-notes-top{padding:3px 8px 2px}.general-notes-mobile-library{gap:2px;margin-bottom:0}.general-notes-mobile-library>button{min-width:34px;width:34px;height:36px;min-height:36px;padding:6px}.general-notes-scroll{padding:0 8px}}
