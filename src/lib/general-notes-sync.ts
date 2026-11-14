@@ -69,7 +69,7 @@ export class GeneralNotesSync{
    // Explicit deletion may also discard an old local conflict when the server
    // confirms the note was already deleted; never erase a competing live edit.
    if(this.conflicts.has(id)&&await this.transport.read(id)===null){this.removed(id);return}
-   throw Error('Your current draft must sync before deleting it.');
+   throw Error('This note was not deleted. '+this.message);
   }
   const note=this.cache.get(id);if(!note)throw Error('Load a synced note before deleting it.');const pending:PendingNote={note,expectedRevision:note.revision,changeId:crypto.randomUUID(),sequence:0,since:Date.now()};this.ownChanges.add(pending.changeId);await this.transport.write(pending,false,true);this.removed(id);
  }

@@ -32,7 +32,7 @@ with sync_playwright() as playwright:
     errors = []
     session_trace = []
     pending_saves = []
-    flags = {"session_unavailable": False, "notes_unavailable": False, "session_restart": False, "notes_hang": False}
+    flags = {"session_unavailable": False, "notes_unavailable": False, "session_restart": False, "notes_hang": False, "notes_setup_unavailable": False}
 
     def device(user, mobile=False):
         context = browser.new_context(viewport={"width": 390 if mobile else 1360, "height": 740 if mobile else 1000}, is_mobile=mobile, has_touch=mobile)
@@ -41,6 +41,9 @@ with sync_playwright() as playwright:
         def api(route):
             path = urlparse(route.request.url)
             if path.path == "/api/notes":
+                if flags["notes_setup_unavailable"] and route.request.method == "PUT":
+                    route.fulfill(status=503,json={"code":"NOTES_NOT_READY","error":"Notes sync is not available yet. Your draft remains on this device."})
+                    return
                 if flags["notes_hang"] and route.request.method == "PUT":
                     pending_saves.append(route)
                     return
@@ -389,6 +392,24 @@ with sync_playwright() as playwright:
     expect_editor(list_text, "")
     deleted = [row for row in state()["records"] if row["user_id"] == USER_B]
     assert len(deleted) == 2 and all(row["deleted_at"] and row["document"] is None for row in deleted)
+    # A preview without Notes database setup must show the real failure inside
+    # confirmation and retain the draft; it must not claim the note was deleted.
+    flags["notes_setup_unavailable"] = True
+    other.locator("#general-note-title").fill("Unavailable Notes sync")
+    list_text.fill("Protected unsynced draft")
+    other.get_by_role("button", name="Delete saved note", exact=True).tap()
+    failed_delete = other.get_by_role("alertdialog", name="Delete saved note?", exact=True)
+    failed_delete.get_by_role("button", name="Delete", exact=True).tap()
+    expect(failed_delete.get_by_role("alert")).to_contain_text("This note was not deleted. Notes sync is not available yet.")
+    expect_editor(list_text, "Protected unsynced draft")
+    failed_delete.get_by_role("button", name="Cancel", exact=True).tap()
+    expect(failed_delete).to_have_count(0)
+    flags["notes_setup_unavailable"] = False
+    list_text.fill("Protected unsynced draft recovered")
+    synced(other)
+    other.get_by_role("button", name="Delete saved note", exact=True).tap()
+    failed_delete.get_by_role("button", name="Delete", exact=True).tap()
+    expect_editor(list_text, "")
     # A tooltip can appear on a disabled HTML button; verify actual clicks/taps
     # before the first server acknowledgement, not just after Synced.
     for page, touch in [(other, True), (delete_desktop, False)]:

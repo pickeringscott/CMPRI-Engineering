@@ -2,6 +2,8 @@ import {NextRequest,NextResponse} from 'next/server';
 import {requireUser} from '@/lib/server/auth';
 import {validNoteDocument,type GeneralNote,type NoteDocument} from '@/lib/general-notes';
 const headers={'Cache-Control':'private, no-store'};
+const setupError={error:'Notes sync is not available yet. Your draft remains on this device.',code:'NOTES_NOT_READY'};
+function missingNotesSetup(error:{code?:string}){return ['42P01','42883','PGRST202','PGRST204','PGRST205'].includes(error.code||'')}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Row={id:string;document:NoteDocument|null;revision:number;updated_at:string;deleted_at:string|null;change_id:string};
 function project(row:Row):GeneralNote|null{return row.document?{...row.document,id:row.id,revision:Number(row.revision),updated:Date.parse(row.updated_at)}:null}
@@ -11,8 +13,8 @@ export async function GET(request:NextRequest){
  const id=request.nextUrl.searchParams.get('id');
  if(id&&!uuid.test(id))return NextResponse.json({error:'Invalid note.'},{status:400,headers});
  const owner=auth.principal.identity.id,hotel=auth.principal.hotelId;
- if(id){const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,document,revision,updated_at,deleted_at,change_id').eq('hotel_id',hotel).eq('user_id',owner).eq('id',id).maybeSingle();if(error)return NextResponse.json({error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});return NextResponse.json({note:data?project(data as unknown as Row):null},{headers})}
- const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,title,revision,updated_at,text:document->>text').eq('hotel_id',hotel).eq('user_id',owner).is('deleted_at',null).order('updated_at',{ascending:false}).limit(500);if(error)return NextResponse.json({error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});
+ if(id){const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,document,revision,updated_at,deleted_at,change_id').eq('hotel_id',hotel).eq('user_id',owner).eq('id',id).maybeSingle();if(error)return NextResponse.json(missingNotesSetup(error)?setupError:{error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});return NextResponse.json({note:data?project(data as unknown as Row):null},{headers})}
+ const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,title,revision,updated_at,text:document->>text').eq('hotel_id',hotel).eq('user_id',owner).is('deleted_at',null).order('updated_at',{ascending:false}).limit(500);if(error)return NextResponse.json(missingNotesSetup(error)?setupError:{error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});
  return NextResponse.json({notes:(data||[]).map(row=>({id:row.id,title:row.title,text:row.text||'',revision:Number(row.revision),updated:Date.parse(row.updated_at)}))},{headers});
 }
 // Bound the actual stream, not only Content-Length (which callers can omit).
@@ -24,6 +26,6 @@ export async function PUT(request:NextRequest){
  if(!body||Array.isArray(body)||Object.keys(body).some(key=>!['id','expectedRevision','changeId','document'].includes(key))||!uuid.test(body.id||'')||!uuid.test(body.changeId||'')
   ||!(body.expectedRevision===null||(Number.isSafeInteger(body.expectedRevision)&&body.expectedRevision>0))||!(body.document===null||validNoteDocument(body.document)))return NextResponse.json({error:'Supply a valid note and its loaded revision.'},{status:400,headers});
  const {data,error}=await auth.admin.rpc('cmpri_save_general_note',{p_hotel:auth.principal.hotelId,p_actor:auth.principal.identity.id,p_id:body.id,p_expected:body.expectedRevision,p_change:body.changeId,p_document:body.document});
- if(error){const status=error.code==='40001'?409:error.code==='42501'?403:error.code==='54000'?422:error.code==='22023'?400:503;return NextResponse.json({error:status===409?'This note changed on another device. Your local draft is safe.':status===422?'Your notebook has reached its note limit.':'The note could not be synced. Your local draft is safe.'},{status,headers})}
+ if(error){if(missingNotesSetup(error))return NextResponse.json(setupError,{status:503,headers});const status=error.code==='40001'?409:error.code==='42501'?403:error.code==='54000'?422:error.code==='22023'?400:503;return NextResponse.json({error:status===409?'This note changed on another device. Your local draft is safe.':status===422?'Your notebook has reached its note limit.':'The note could not be synced. Your local draft is safe.'},{status,headers})}
  const row=(Array.isArray(data)?data[0]:data) as Row;return NextResponse.json({note:project(row),id:row.id,revision:Number(row.revision)},{headers});
 }
