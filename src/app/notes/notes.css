@@ -49,3 +49,19 @@
 .general-notes-paper{max-width:none;width:100%;margin:0;border:0;background:var(--cmpri-modal-base)}
 .general-notes-session-notice{margin:0;padding:4px 8px;font-size:11px;color:var(--cmpri-modal-muted);border-bottom:1px solid var(--cmpri-outline)}
 @media(max-width:760px){.general-notes-top{padding:3px 8px 2px}.general-notes-mobile-library{gap:2px;margin-bottom:0}.general-notes-mobile-library>button{min-width:34px;width:34px;height:36px;min-height:36px;padding:6px}.general-notes-scroll{padding:0 8px}}
+
+/* The saved-note popup is anchored to the full title box, never a narrow
+   transparent native select. Keep title rows compact at every viewport size. */
+.general-notes-title-picker{z-index:6;height:32px}
+.general-notes .general-notes-title-picker>input{padding:2px 30px 2px 6px;line-height:26px}
+.general-notes .general-notes-picker-trigger{position:absolute;right:0;top:0;width:28px;height:30px;min-height:0;padding:4px;border:0;border-radius:7px;background:transparent}
+.general-notes-picker-trigger svg{display:block;width:20px;height:20px}
+.general-notes-picker-popup{position:absolute;top:calc(100% + 2px);left:0;right:0;padding:2px;border:1px solid var(--cmpri-outline);border-radius:8px;background:var(--cmpri-modal-surface);box-shadow:0 6px 16px #0005}
+.general-notes .general-notes-picker-popup>input{display:block;width:100%;min-height:30px;padding:3px 6px;font-size:13px}
+.general-notes-picker-results{max-height:240px;overflow:auto}
+.general-notes .general-notes-picker-results>button{display:block;width:100%;min-height:28px;border:0;border-radius:4px;padding:3px 6px;text-align:left;font-size:14px;line-height:22px;overflow-wrap:anywhere}
+.general-notes-picker-results p{margin:3px 6px;font-size:12px;color:var(--cmpri-modal-muted)}
+.general-notes-mobile-library>button{height:32px;min-height:32px}
+/* Override CMPRI's global 40px input minimum inside this compact title row. */
+.general-notes #general-note-title{min-height:0!important;height:100%;line-height:26px!important}
+.general-notes .general-notes-title-picker .general-notes-picker-popup>input{min-height:30px!important}

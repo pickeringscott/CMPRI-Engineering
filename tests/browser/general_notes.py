@@ -31,7 +31,7 @@ with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=True, **({"executable_path": executable} if executable else {}))
     errors = []
     session_trace = []
-    flags = {"session_unavailable": False, "notes_unavailable": False}
+    flags = {"session_unavailable": False, "notes_unavailable": False, "session_restart": False}
 
     def device(user, mobile=False):
         context = browser.new_context(viewport={"width": 390 if mobile else 1360, "height": 740 if mobile else 1000}, is_mobile=mobile, has_touch=mobile)
@@ -47,14 +47,18 @@ with sync_playwright() as playwright:
                 route.fulfill(response=response)
             elif path.path == "/api/session":
                 session_trace.append({"frame": route.request.frame.url, "unavailable": flags["session_unavailable"]})
+                if flags["session_restart"]:
+                    flags["session_restart"] = False
+                    route.fulfill(status=401, headers={"Content-Type":"application/json"}, json={"error":"The device session changed. Reload to continue."})
+                    return
                 if flags["session_unavailable"]:
                     route.fulfill(status=503, json={"error": "Temporary verification failure"})
                     return
                 route.fulfill(json={"user": {"id": user, "name": "Fixture", "role": "engineer"}, "hotelId": HOTEL, "landing": "/engineering", "capabilities": ["view_work_orders"]})
             else:
-                route.fulfill(json={})
+                route.fulfill(json={"work_orders":[], "notifications":[], "drafts":[], "rooms":[]})
         context.route("**/api/**", api)
-        context.route("https://ci-placeholder.supabase.co/**", lambda route: route.fulfill(json={}))
+        context.route("https://ci-placeholder.supabase.co/**", lambda route: route.fulfill(json={"work_orders":[], "notifications":[], "drafts":[], "rooms":[]}))
         page = context.new_page()
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(BASE + "/notes")
@@ -89,6 +93,10 @@ with sync_playwright() as playwright:
     assert desktop.locator(".general-notes-paper").evaluate("e=>getComputedStyle(e).backgroundImage") == "none"
     assert desktop.locator(".general-notes-scroll").evaluate("e=>getComputedStyle(e).paddingLeft") == "8px"
     assert desktop.locator(".general-notes-mobile-library").evaluate("e=>getComputedStyle(e).gap") == "2px"
+    geometry = title.evaluate("e=>({input:e.getBoundingClientRect().toJSON(),box:e.parentElement.getBoundingClientRect().toJSON()})")
+    assert geometry["input"]["top"] >= geometry["box"]["top"]
+    assert geometry["input"]["bottom"] <= geometry["box"]["bottom"]
+    assert geometry["box"]["height"] == 32
     title.fill("Pump inspection")
     text.click()
     desktop.get_by_role("button", name="Text and keyboard handwriting", exact=True).click()
@@ -141,7 +149,7 @@ with sync_playwright() as playwright:
     desktop.get_by_role("button", name="Create another note", exact=True).click()
     text.fill("Shopping list\nSeal kit")
     desktop.get_by_role("button", name="Create another note", exact=True).click()
-    expect(desktop.get_by_label("Open saved note", exact=True).locator("option").filter(has_text="Shopping list")).to_have_count(1)
+    expect(desktop.locator(".general-notes-list button").filter(has_text="Shopping list")).to_have_count(1)
     # The first-line title is finalized on leaving the note, without a Save button.
     assert any(row["document"] and row["document"]["title"] == "Shopping list" for row in state()["records"])
     assert text.get_attribute("placeholder") == "Type, or select the pen to write…"
@@ -160,12 +168,25 @@ with sync_playwright() as playwright:
 
     # A real second browser context has no local notes from the desktop.
     mobile_context, mobile = device(USER_A, True)
-    mobile.get_by_label("Open saved note", exact=True).select_option(label="Pump inspection")
+    mobile.get_by_label("Open saved note", exact=True).click()
+    mobile.locator(".general-notes-picker-results").get_by_role("button", name="Pump inspection", exact=True).click()
+    mobile.get_by_label("Open saved note", exact=True).click()
+    search = mobile.get_by_role("searchbox", name="Search note titles and text", exact=True)
+    search.fill("Inspect seal")
+    mobile.wait_for_timeout(200)
+    assert mobile.locator(".general-notes-picker-results button").count() >= 2
+    mobile.wait_for_timeout(350)
+    expect(mobile.locator(".general-notes-picker-results button")).to_have_count(1)
+    expect(mobile.locator(".general-notes-picker-results button")).to_have_text("Pump inspection")
+    search.fill("")
+    mobile.wait_for_timeout(550)
+    mobile.get_by_label("Open saved note", exact=True).click()
     phone_text = mobile.get_by_role("textbox", name="Note text", exact=True)
     expect(phone_text).to_have_value(re.compile("Inspect seal"), timeout=15000)
     expect(mobile.locator("[data-ink-layer] g")).to_have_count(1)
     expect(mobile.get_by_role("button", name="Delete saved note", exact=True)).to_be_enabled()
-    desktop.get_by_label("Open saved note", exact=True).select_option(label="Pump inspection")
+    desktop.get_by_label("Open saved note", exact=True).click()
+    desktop.locator(".general-notes-picker-results").get_by_role("button", name="Pump inspection", exact=True).click()
     phone_text.fill(phone_text.input_value() + "\nPhone update")
     synced(mobile)
     desktop.evaluate("window.dispatchEvent(new Event('focus'))")
@@ -192,13 +213,15 @@ with sync_playwright() as playwright:
     assert phone_text.evaluate("e=>document.activeElement===e")
     assert not mobile.evaluate("document.documentElement.scrollWidth > innerWidth")
     other_context, other = device(USER_B, True)
-    assert other.get_by_label("Open saved note", exact=True).locator("option").count() == 1
+    other.get_by_label("Open saved note", exact=True).click()
+    assert other.locator(".general-notes-picker-results button").count() == 0
     expect(other.get_by_role("button", name="Delete saved note", exact=True)).to_be_disabled()
-    desktop_context.route("**/fixture/notes-resize", lambda route: route.fulfill(content_type="text/html", body='<html><body style="margin:0"><div id="notes-window" style="width:900px;height:650px"><iframe title="Notes resize fixture" src="/notes?embedded=1" style="width:100%;height:100%;border:0"></iframe></div></body></html>'))
     resize_host = desktop_context.new_page()
     resize_host.on("pageerror", lambda error: errors.append(str(error)))
-    resize_host.goto(BASE + "/fixture/notes-resize")
-    frame = resize_host.frame_locator('iframe')
+    resize_host.goto(BASE + "/engineering")
+    resize_host.locator(".cmpri-header-v23 [data-key='/notes']").click()
+    expect(resize_host.locator("[data-cmpri-desktop-window='/notes']")).to_be_visible()
+    frame = resize_host.frame_locator('iframe[title="Notes"]')
     expect(frame.locator("#general-note-title")).to_be_enabled()
     frame.get_by_role("button", name="Create another note", exact=True).click()
     flags["notes_unavailable"] = True
@@ -208,7 +231,13 @@ with sync_playwright() as playwright:
     flags["session_unavailable"] = True
     resize_host.wait_for_timeout(15100)  # Exercise the real 15-second session-recheck boundary.
     for width, height in [(640, 560), (1100, 740), (510, 520), (900, 650)]:
-        resize_host.locator("#notes-window").evaluate("(e,s)=>{e.style.width=s[0]+'px';e.style.height=s[1]+'px'}", [width, height])
+        handle = resize_host.locator("[data-cmpri-desktop-window='/notes'] .cmpri-desktop-resize-se")
+        box = handle.bounding_box()
+        modal = resize_host.locator("[data-cmpri-desktop-window='/notes']").bounding_box()
+        resize_host.mouse.move(box["x"] + box["width"]/2, box["y"] + box["height"]/2)
+        resize_host.mouse.down()
+        resize_host.mouse.move(modal["x"] + width, modal["y"] + height, steps=8)
+        resize_host.mouse.up()
         frame.locator("html").evaluate("()=>window.dispatchEvent(new Event('focus'))")
         expect(resize_text).to_have_value("Unsynced resize draft")
         assert frame.locator("html").evaluate("()=>window.__resizeIdentity") == identity
@@ -225,6 +254,15 @@ with sync_playwright() as playwright:
         print("RESIZE_DIAGNOSTICS", json.dumps({"requests": session_trace, "errors": errors, "frame": frame.locator("html").evaluate("async()=>({url:location.href,ready:document.readyState,keys:Object.keys(sessionStorage),locks:await navigator.locks.query(),resources:performance.getEntriesByType('resource').map(e=>new URL(e.name).pathname).filter(p=>p.includes('/api/'))})")}), flush=True)
         raise
     resize_host.close()
+    dashboard_mobile = mobile_context.new_page()
+    dashboard_mobile.goto(BASE + "/engineering")
+    mobile_launcher = dashboard_mobile.get_by_role("button", name="Notes", exact=True)
+    # Direct mobile entry remains available even when Operations is collapsed.
+    expect(mobile_launcher.first).to_be_visible()
+    flags["session_restart"] = True
+    mobile_launcher.first.click()
+    expect(dashboard_mobile.frame_locator('iframe[title="Notes"]').locator("#general-note-title")).to_be_enabled(timeout=15000)
+    dashboard_mobile.close()
     screenshots = os.environ.get("CMPRI_NOTES_SCREENSHOTS")
     if screenshots:
         output = Path(screenshots)
@@ -238,4 +276,4 @@ with sync_playwright() as playwright:
         mobile.screenshot(path=str(output / "cmpri-notes-compact-empty.png"))
     assert not errors, errors
     browser.close()
-    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, compact title picker, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")
+    print("PASS: actual note API + isolated PostgreSQL, independent desktop/mobile contexts, autosave coalescing, first-line/Untitled titles, multiple notes, ink retention, headerless lists, placeholder metrics, contained compact title picker, 500ms title/body search, mobile dashboard launcher, actual desktop resize handles, legacy/current cache session restarts, unruled page, five approved dock icons, resize/session failure recovery, trash placement, account isolation, gestures and IME input.")

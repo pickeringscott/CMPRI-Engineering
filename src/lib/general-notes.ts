@@ -80,7 +80,7 @@ export function saveGeneralNote(storage: Pick<Storage,'getItem'|'setItem'>, scop
 }
 
 export type NoteDocument = Pick<GeneralNote,'title'|'text'|'fontSize'|'strokes'|'titleAutomatic'>;
-export type NoteSummary = Pick<GeneralNote,'id'|'title'|'revision'|'updated'>;
+export type NoteSummary = Pick<GeneralNote,'id'|'title'|'revision'|'updated'> & {text?:string};
 export function noteDocument(note:NoteDocument):NoteDocument {return {title:note.title,text:note.text,fontSize:note.fontSize,strokes:note.strokes,titleAutomatic:note.titleAutomatic??false}}
 export function automaticNoteTitle(note:Pick<GeneralNote,'title'|'text'|'strokes'|'titleAutomatic'>,finalize=false){
  if(!note.titleAutomatic&&note.title.trim())return note.title.trim().slice(0,120);

@@ -22,3 +22,11 @@ export class NotesSessionGuard{
  }
  stop(){this.stopped=true;this.generation++}
 }
+
+/** Older dashboard bundles returned the cache-race sentinel without its header. */
+export async function isNotesSessionRestart(response:Response){
+ if(response.headers.get('X-CMPRI-Session-Changed')==='1')return true;
+ if(response.status!==401)return false;
+ const body=await response.clone().json().catch(()=>null);
+ return body?.error==='The device session changed. Reload to continue.';
+}

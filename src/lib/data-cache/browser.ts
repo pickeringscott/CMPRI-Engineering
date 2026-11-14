@@ -4,7 +4,7 @@ import { IndexedDataStore, MemoryDataStore } from './store';
 import { dataCachePolicy, mutationTopics } from './policy';
 
 type Session = { user: { id: string; role: string; secondary_roles?: string[] }; hotelId: string; capabilities: string[] };
-const sessionChanged = () => new Response(JSON.stringify({ error: 'The device session changed. Reload to continue.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+const sessionChanged = () => new Response(JSON.stringify({ error: 'The device session changed. Reload to continue.' }), { status: 401, headers: { 'Content-Type': 'application/json', 'X-CMPRI-Session-Changed': '1' } });
 type CacheWindow = Window & typeof globalThis & { __cmpriDeviceData?: BrowserDataCache; __cmpriNativeFetch?: typeof fetch };
 type CachedFetch = typeof fetch & { cmpriCached?: boolean; cmpriCacheDocument?: Document };
 function activeDocument(document?: Document) { try { return !!document && document.defaultView?.document === document; } catch { return false; } }

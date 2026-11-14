@@ -1,10 +1,11 @@
 "use client";
 import {getValidSession,createClient} from '@/lib/supabase/client';
+import {isNotesSessionRestart} from './general-notes-session';
 import {GeneralNotesSync,NoteSyncError} from './general-notes-sync';
 import {noteDocument,type NoteScope} from './general-notes';
 export function createNotesSync(scope:NoteScope){
  const authorization=async()=>{const session=await getValidSession();if(!session||session.user.id!==scope.userId)throw new NoteSyncError('Sign in again to sync this account’s notes.',401);return {Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json','X-CMPRI-Property':scope.hotelId}};
- async function request(path:string,options:RequestInit={}){const response=await fetch(path,{...options,headers:await authorization(),cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw new NoteSyncError(data.error||'Could not sync. Changes are protected on this device.',response.status);return data}
+ async function request(path:string,options:RequestInit={}){const init={...options,headers:await authorization(),cache:'no-store' as RequestCache};let response=await fetch(path,init);if(await isNotesSessionRestart(response))response=await fetch(path,init);if(await isNotesSessionRestart(response))throw new NoteSyncError('Session check restarted. Your local draft is safe.',503);const data=await response.json().catch(()=>({}));if(!response.ok)throw new NoteSyncError(data.error||'Could not sync. Changes are protected on this device.',response.status);return data}
  const storage={getItem:(key:string)=>localStorage.getItem(key),setItem:(key:string,value:string)=>localStorage.setItem(key,value),removeItem:(key:string)=>localStorage.removeItem(key)};
  return new GeneralNotesSync(scope,storage,{
   list:async()=>(await request('/api/notes')).notes,

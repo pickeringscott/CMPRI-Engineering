@@ -3,13 +3,13 @@ import {useEffect,useState} from 'react';
 import GeneralNotes from '@/components/GeneralNotes';
 import ModalDashboardLink from '@/components/ModalDashboardLink';
 import type {CmpriClientSession} from '@/lib/auth/client-session';
-import {NotesSessionGuard} from '@/lib/general-notes-session';
+import {NotesSessionGuard,isNotesSessionRestart} from '@/lib/general-notes-session';
 import {createClient,getValidSession} from '@/lib/supabase/client';
 import './notes.css';
 export default function GeneralNotesPage(){
  const [session,setSession]=useState<CmpriClientSession|null>(null),[error,setError]=useState('Checking your CMPRI session…');
  useEffect(()=>{
-  const guard=new NotesSessionGuard(async()=>{const token=await getValidSession();if(!token?.access_token)return {kind:'missing'};const response=await fetch('/api/session',{headers:{Authorization:`Bearer ${token.access_token}`},cache:'no-store'});if(response.status===401||response.status===403)return {kind:'denied'};if(!response.ok)throw Error('Session check unavailable');const authorized=await response.json() as CmpriClientSession;if(!authorized.user?.id||!authorized.hotelId)throw Error('Incomplete session');return {kind:'authorized',session:authorized}},(authorized,message)=>{setSession(authorized);setError(message)});
+  const guard=new NotesSessionGuard(async()=>{const token=await getValidSession();if(!token?.access_token)return {kind:'missing'};const options={headers:{Authorization:`Bearer ${token.access_token}`},cache:'no-store' as RequestCache};let response=await fetch('/api/session',options);if(await isNotesSessionRestart(response))response=await fetch('/api/session',options);if(await isNotesSessionRestart(response))throw Error('Session check restarted');if(response.status===401||response.status===403)return {kind:'denied'};if(!response.ok)throw Error('Session check unavailable');const authorized=await response.json() as CmpriClientSession;if(!authorized.user?.id||!authorized.hotelId)throw Error('Incomplete session');return {kind:'authorized',session:authorized}},(authorized,message)=>{setSession(authorized);setError(message)});
   void guard.refresh();
   const {data}=createClient().auth.onAuthStateChange((event,auth)=>guard.authChanged(event,auth?.user.id));
   const resize=()=>document.documentElement.style.setProperty('--notes-visible-height',(window.visualViewport?.height||innerHeight)+'px');resize();window.visualViewport?.addEventListener('resize',resize);

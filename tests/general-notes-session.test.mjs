@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {NotesSessionGuard} from '../src/lib/general-notes-session.ts';
+import {NotesSessionGuard,isNotesSessionRestart} from '../src/lib/general-notes-session.ts';
 const account={user:{id:'a'},hotelId:'hotel',landing:'/engineering',capabilities:[]};
 test('temporary focus failures and a missing SDK snapshot never unmount an already verified notebook',async()=>{
  let now=0,mode='ok';const updates=[];const guard=new NotesSessionGuard(async()=>{if(mode==='fail')throw Error('Temporary 503');return mode==='missing'?{kind:'missing'}:{kind:'authorized',session:account}},(session,message)=>updates.push({session,message}),()=>now);
@@ -16,3 +16,5 @@ test('sign-out and account changes invalidate in-flight checks instead of restor
 test('an initially missing session remains gated, and disposed guards do not publish late responses',async()=>{
  const updates=[];const guard=new NotesSessionGuard(async()=>({kind:'missing'}),(session,message)=>updates.push({session,message}));await guard.refresh();assert.equal(updates.at(-1).session,null);assert.match(updates.at(-1).message,/Sign in/);guard.stop();let resolve;const late=new NotesSessionGuard(()=>new Promise(done=>resolve=done),()=>{throw Error('Published after disposal')});const reading=late.refresh();late.stop();resolve({kind:'authorized',session:account});await reading;
 });
+
+test('current and older parent-cache restarts retry without confusing actual authorization denials',async()=>{assert.equal(await isNotesSessionRestart(new Response('{}',{status:401,headers:{'X-CMPRI-Session-Changed':'1'}})),true);const legacy=Response.json({error:'The device session changed. Reload to continue.'},{status:401});assert.equal(await isNotesSessionRestart(legacy),true);assert.ok((await legacy.json()).error);for(const response of [Response.json({error:'Unauthorized'},{status:401}),Response.json({error:'Forbidden'},{status:403}),new Response('unreadable',{status:401})])assert.equal(await isNotesSessionRestart(response),false)});

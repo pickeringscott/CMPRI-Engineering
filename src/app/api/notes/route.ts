@@ -12,8 +12,8 @@ export async function GET(request:NextRequest){
  if(id&&!uuid.test(id))return NextResponse.json({error:'Invalid note.'},{status:400,headers});
  const owner=auth.principal.identity.id,hotel=auth.principal.hotelId;
  if(id){const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,document,revision,updated_at,deleted_at,change_id').eq('hotel_id',hotel).eq('user_id',owner).eq('id',id).maybeSingle();if(error)return NextResponse.json({error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});return NextResponse.json({note:data?project(data as unknown as Row):null},{headers})}
- const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,title,revision,updated_at').eq('hotel_id',hotel).eq('user_id',owner).is('deleted_at',null).order('updated_at',{ascending:false}).limit(500);if(error)return NextResponse.json({error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});
- return NextResponse.json({notes:(data||[]).map(row=>({id:row.id,title:row.title,revision:Number(row.revision),updated:Date.parse(row.updated_at)}))},{headers});
+ const {data,error}=await auth.admin.from('cmpri_general_notes').select('id,title,revision,updated_at,text:document->>text').eq('hotel_id',hotel).eq('user_id',owner).is('deleted_at',null).order('updated_at',{ascending:false}).limit(500);if(error)return NextResponse.json({error:'Notes could not be loaded. Reconnect to try again.'},{status:503,headers});
+ return NextResponse.json({notes:(data||[]).map(row=>({id:row.id,title:row.title,text:row.text||'',revision:Number(row.revision),updated:Date.parse(row.updated_at)}))},{headers});
 }
 // Bound the actual stream, not only Content-Length (which callers can omit).
 async function bodyText(request:NextRequest){const reader=request.body?.getReader();if(!reader)return '';const decoder=new TextDecoder();let size=0,text='';try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>2_097_152){await reader.cancel();return null}text+=decoder.decode(value,{stream:true})}return text+decoder.decode()}finally{reader.releaseLock()}}
