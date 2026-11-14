@@ -27,10 +27,10 @@ export class GeneralNotesSync{
  }
  notes(){return [...this.summaries.values()].sort((a,b)=>b.updated-a.updated)}
  draft(id:string){return this.pending.get(id)?.note||this.cache.get(id)||null}
- queue(input:GeneralNote,finalize=false){
+ queue(input:GeneralNote,finalize=true){
   if(!this.ready||this.stopped)return;
   const previous=this.pending.get(input.id),cached=this.cache.get(input.id),automatic=input.titleAutomatic||!input.title.trim();
-  const title=automatic?(finalize?automaticNoteTitle({...input,titleAutomatic:true},true):(previous?.note.title||cached?.title||'Untitled')):input.title.trim();
+  const title=automatic?automaticNoteTitle({...input,titleAutomatic:true},finalize):input.title.trim();
   const note={...input,title,titleAutomatic:automatic,revision:input.revision||1,updated:Date.now()};
   if(!cached&&!this.flights.has(note.id)&&!note.text.trim()&&!note.strokes.length&&automatic){this.pending.delete(note.id);this.summaries.delete(note.id);this.cancelTimer(note.id);this.message='No changes to save';this.protect();return}
   if(!this.conflicts.has(note.id)&&!this.flights.has(note.id)&&cached&&JSON.stringify(noteDocument(cached))===JSON.stringify(noteDocument(note))){this.pending.delete(note.id);this.cancelTimer(note.id);this.protect();return}

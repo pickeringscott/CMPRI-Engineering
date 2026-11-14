@@ -382,13 +382,51 @@ with sync_playwright() as playwright:
     other.locator("#general-note-title").fill("Mobile delete")
     list_text.fill("Delete directly after autosave")
     synced(other)
-    other.get_by_role("button", name="Delete saved note", exact=True).click()
-    other.get_by_role("alertdialog", name="Delete saved note?", exact=True).get_by_role("button", name="Delete", exact=True).click()
+    other.get_by_role("button", name="Delete saved note", exact=True).tap()
+    other.get_by_role("alertdialog", name="Delete saved note?", exact=True).get_by_role("button", name="Delete", exact=True).tap()
     expect_editor(list_text, "")
     other.reload()
     expect_editor(list_text, "")
     deleted = [row for row in state()["records"] if row["user_id"] == USER_B]
     assert len(deleted) == 2 and all(row["deleted_at"] and row["document"] is None for row in deleted)
+    # A tooltip can appear on a disabled HTML button; verify actual clicks/taps
+    # before the first server acknowledgement, not just after Synced.
+    for page, touch in [(other, True), (delete_desktop, False)]:
+        page.get_by_role("button", name="Create another note", exact=True).click()
+        field = page.get_by_role("textbox", name="Note text", exact=True)
+        flags["notes_hang"] = True
+        field.fill("First line title\nBody")
+        expect(page.locator("#general-note-title")).to_have_value("First line title")
+        early_trash = page.get_by_role("button", name="Delete saved note", exact=True)
+        expect(early_trash).to_be_enabled()
+        if touch:
+            early_trash.tap()
+        else:
+            early_trash.hover()
+            early_trash.click()
+        dialog = page.get_by_role("alertdialog", name="Delete saved note?", exact=True)
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("button", name="Cancel", exact=True).click()
+        flags["notes_hang"] = False
+        for pending_save in pending_saves:
+            try:
+                pending_save.fulfill(status=503, json={"error":"Retry fixture"})
+            except Exception:
+                pass
+        pending_saves.clear()
+        field.fill("Changed first line\nBody")
+        expect(page.locator("#general-note-title")).to_have_value("Changed first line")
+        synced(page)
+        assert any(row["document"] and row["document"]["title"] == "Changed first line" for row in state()["records"] if row["user_id"]==USER_B)
+        page.locator("#general-note-title").fill("Manual title")
+        field.fill("Another first line\nBody")
+        expect(page.locator("#general-note-title")).to_have_value("Manual title")
+        if touch:
+            early_trash.tap()
+        else:
+            early_trash.click()
+        dialog.get_by_role("button", name="Delete", exact=True).click()
+        expect_editor(field, "")
     delete_context.close()
     resize_host = desktop_context.new_page()
     resize_host.on("pageerror", lambda error: errors.append(str(error)))
@@ -455,6 +493,17 @@ with sync_playwright() as playwright:
     mobile_launcher.first.click()
     expect_editor(mobile_frame.get_by_role("textbox", name="Note text", exact=True), "Protected mobile close", timeout=15000)
     synced(mobile_frame)
+    trash = mobile_frame.get_by_role("button", name="Delete saved note", exact=True)
+    target = trash.bounding_box()
+    hit = trash.evaluate("e=>{const r=e.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===e}")
+    assert hit, "Trash is covered inside the mobile modal"
+    trash.tap()
+    inline_delete = mobile_frame.get_by_role("alertdialog", name="Delete saved note?", exact=True)
+    expect(inline_delete).to_be_visible()
+    inline_delete.get_by_role("button", name="Cancel", exact=True).tap()
+    trash.tap()
+    inline_delete.get_by_role("button", name="Delete", exact=True).tap()
+    expect_editor(mobile_frame.get_by_role("textbox", name="Note text", exact=True), "")
     dashboard_mobile.get_by_role("button", name="Close Notes", exact=True).click()
     expect(dashboard_mobile.locator("iframe[title='Notes']")).to_have_count(0, timeout=5000)
     dashboard_mobile.close()
