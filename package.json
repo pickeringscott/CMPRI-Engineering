@@ -37,7 +37,8 @@
     "test:manual-associations": "node --experimental-strip-types --test tests/manual-applicability.test.mjs tests/stored-pdf-status.test.mjs tests/stored-pdf-status-ui.test.mjs tests/stored-pdf-import.test.mjs tests/pdf-direct-upload.test.mjs",
     "test:manual-collection": "node --experimental-transform-types scripts/validate-manual-collection.mjs",
     "test:manual-source-controls": "node scripts/validate-manual-source-controls.mjs",
-    "test:general-notes": "node --experimental-strip-types --test tests/general-notes.test.mjs"
+    "test:general-notes": "node --import ./tests/helpers/resolve-ts.mjs --experimental-strip-types --test tests/general-notes.test.mjs tests/general-notes-sync.test.mjs tests/general-notes-api.test.mjs tests/general-notes-database.test.mjs",
+    "test:general-notes-ui": "node scripts/test-general-notes-ui.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

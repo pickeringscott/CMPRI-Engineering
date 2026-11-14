@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Read-only release gate. Never prints configuration values or database rows.
 const required = {
+  cmpri_general_notes: ['hotel_id','user_id','id','document','title','revision','change_id','updated_at','deleted_at'],
   cmpri_staff_notes: ['id','hotel_id','attachments','gif_ids','hashtags','mentions','author_name_id'],
   cmpri_staff_note_names: ['id','hotel_id','name','name_key'],
   cmpri_staff_note_uploads: ['id','hotel_id','author_user_id','note_id','storage_path','ready'],

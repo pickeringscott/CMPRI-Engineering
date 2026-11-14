@@ -1,0 +1,38 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {GeneralNotesSync,NoteSyncError} from '../src/lib/general-notes-sync.ts';
+import {automaticNoteTitle,noteInputEdit,noteToggleList,applyNoteTextEdit} from '../src/lib/general-notes.ts';
+const scope={hotelId:'hotel',userId:'user'};
+const blank=(id='a')=>({id,title:'',titleAutomatic:true,text:'',fontSize:16,strokes:[],revision:0,updated:1});
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function fixture(){const values=new Map(),storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)},records=new Map(),changes=new Map();let writes=0,offline=false,delay=null,lost=false;
+ const transport={list:async()=>[...records.values()].map(({id,title,revision,updated})=>({id,title,revision,updated})),read:async id=>records.get(id)||null,write:async(pending,_keepalive,deleted)=>{writes++;if(offline)throw Error('Offline');if(delay)await delay;const prior=records.get(pending.note.id);if(changes.has(pending.changeId))return changes.get(pending.changeId);if((prior?.revision??null)!==pending.expectedRevision)throw new NoteSyncError('Conflict',409);const next=deleted?null:{...pending.note,revision:(prior?.revision||0)+1};if(deleted)records.delete(pending.note.id);else records.set(next.id,next);changes.set(pending.changeId,next);if(lost){lost=false;throw Error('Lost response')}return next}};
+ const make=()=>new GeneralNotesSync(scope,storage,transport,{idleMs:25,maxWaitMs:100});
+ return {storage,values,records,transport,make,writes:()=>writes,setOffline:v=>offline=v,setDelay:v=>delay=v,lose:()=>lost=true};}
+test('headerless lists have no indent; lists beneath headers indent and continue consistently',()=>{
+ for(const kind of ['check','bullet']){const marker=kind==='check'?'☐ ':'• ';assert.equal(applyNoteTextEdit('',noteToggleList('',0,0,kind)).value,marker);assert.equal(applyNoteTextEdit('Heading\n',noteToggleList('Heading\n',8,8,kind)).value,'Heading\n    '+marker);assert.equal(noteInputEdit(marker+'Item',6,6,'return').insert,'\n'+marker)}
+});
+test('automatic titles keep ink Untitled and derive text titles only on finalization',()=>{
+ const note={...blank(),text:'Heading\nBody'};assert.equal(automaticNoteTitle(note),'Untitled');assert.equal(automaticNoteTitle(note,true),'Heading');assert.equal(automaticNoteTitle({...note,strokes:[{}]},true),'Untitled');assert.equal(automaticNoteTitle({...note,title:'Manual',titleAutomatic:false},true),'Manual');
+});
+test('local protection is immediate; bursts coalesce, unchanged edits do not write, notes keep stable IDs',async()=>{
+ const f=fixture(),s=f.make();await s.start();const n={...blank(),text:'First'};s.queue(n);assert.ok([...f.values].some(([key,value])=>key.endsWith(':outbox')&&value.includes('First')));s.queue({...n,text:'First line'});assert.equal(f.writes(),0);await pause(65);assert.equal(f.writes(),1);assert.equal(f.records.size,1);s.queue({...n,text:'First line'});await pause(50);assert.equal(f.writes(),1);s.queue({...blank('b'),text:'Second'});await s.flushAll();assert.equal(f.records.size,2);s.stop();
+});
+test('native composition defers sync; finalization and device handoff do not require Save',async()=>{
+ const f=fixture(),desktop=f.make();await desktop.start();desktop.setComposing(true);desktop.queue({...blank(),text:'Recognized heading'});await pause(55);assert.equal(f.writes(),0);desktop.setComposing(false);desktop.finalize('a');await desktop.flushAll();assert.equal(f.records.get('a').title,'Recognized heading');const mobile=new GeneralNotesSync(scope,{getItem:()=>null,setItem(){},removeItem(){}},f.transport);await mobile.start();assert.equal((await mobile.open('a')).text,'Recognized heading');desktop.stop();mobile.stop();
+});
+test('edits during in-flight saves queue behind the acknowledgement instead of being dropped',async()=>{
+ const f=fixture(),s=f.make();await s.start();let release;f.setDelay(new Promise(resolve=>release=resolve));s.queue({...blank(),text:'One'});const flight=s.flush('a');s.queue({...blank(),text:'Two'});release();await flight;f.setDelay(null);await s.flushAll();assert.equal(f.records.get('a').text,'Two');assert.equal(f.records.size,1);assert.equal(s.pending.size,0);s.stop();
+});
+test('offline recovery and lost acknowledgements reuse the same mutation identity',async()=>{
+ const f=fixture(),s=f.make();await s.start();f.setOffline(true);s.queue({...blank(),text:'Offline draft'});const change=s.pending.get('a').changeId;assert.equal(await s.flush('a'),false);assert.equal(s.pending.size,1);s.stop();f.setOffline(false);f.lose();const recovered=f.make();await recovered.start();assert.equal(recovered.pending.get('a').changeId,change);await recovered.flush('a');await recovered.flush('a');assert.equal(f.records.size,1);assert.equal(f.records.get('a').revision,1);recovered.stop();
+});
+test('competing devices preserve conflicting local work and allow an explicit separate copy',async()=>{
+ const f=fixture(),a=f.make();await a.start();a.queue({...blank(),text:'Original'});await a.flushAll();const otherStorage={getItem:()=>null,setItem(){},removeItem(){}},b=new GeneralNotesSync(scope,otherStorage,f.transport);await b.start();const old=await b.open('a');a.queue({...blank(),text:'Desktop edit'});await a.flushAll();b.queue({...old,text:'Mobile edit'});assert.equal(await b.flush('a'),false);assert.equal(f.records.get('a').text,'Desktop edit');assert.equal(b.pending.get('a').note.text,'Mobile edit');const copy=b.keepBoth('a');assert.ok(copy.id!=='a');await b.flushAll();assert.equal(f.records.size,2);assert.equal(f.records.get(copy.id).text,'Mobile edit');a.stop();b.stop();
+});
+
+test('a boundary flush drains edits made during a request before reporting completion',async()=>{
+ const f=fixture(),s=f.make();await s.start();let release;f.setDelay(new Promise(resolve=>release=resolve));s.queue({...blank(),text:'Before close'});const draining=s.flushAll();s.queue({...blank(),text:'Final edit'});f.setDelay(null);release();await draining;assert.equal(f.records.get('a').text,'Final edit');assert.equal(s.pending.size,0);s.stop();
+});
+test('clearing a new page before its first sync does not create an empty note',async()=>{
+ const f=fixture(),s=f.make();await s.start();s.queue({...blank(),text:'Draft'});s.queue(blank());await s.flushAll();assert.equal(f.writes(),0);assert.equal(s.pending.size,0);s.stop();
+});

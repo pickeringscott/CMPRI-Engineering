@@ -9,7 +9,7 @@ function segment(stroke:InkStroke,index:number){
 }
 function group(stroke:InkStroke){const g=document.createElementNS(NS,'g');g.dataset.stroke=stroke.id;const fragment=document.createDocumentFragment();stroke.points.forEach((_,i)=>fragment.append(segment(stroke,i)));g.append(fragment);return g}
 type Active={id:number;rect:DOMRect;stroke?:InkStroke;group?:SVGGElement;before:InkStroke[]};
-export default function GeneralNotesInk({strokes,mode,color,width,scroller,onChange,onType}:{strokes:InkStroke[];mode:'text'|'pen'|'eraser';color:string;width:number;scroller:React.RefObject<HTMLDivElement|null>;onChange:(strokes:InkStroke[])=>void;onType:()=>void}){
+export default function GeneralNotesInk({strokes,mode,color,width,scroller,onChange,onType,onDrawingChange}:{strokes:InkStroke[];mode:'text'|'pen'|'eraser';color:string;width:number;scroller:React.RefObject<HTMLDivElement|null>;onChange:(strokes:InkStroke[])=>void;onType:()=>void;onDrawingChange?:(drawing:boolean)=>void}){
  const svg=useRef<SVGSVGElement>(null),data=useRef(strokes),active=useRef<Active|null>(null),finger=useRef<{id:number;x:number;y:number;lastY:number;moved:boolean}|null>(null);
  useEffect(()=>{data.current=strokes;const fragment=document.createDocumentFragment();strokes.forEach(stroke=>fragment.append(group(stroke)));svg.current?.replaceChildren(fragment)},[strokes]);
  function point(event:PointerEvent,rect:DOMRect):InkPoint{return{x:Math.max(0,Math.min(800,(event.clientX-rect.left)*800/rect.width)),y:Math.max(0,Math.min(1100,(event.clientY-rect.top)*1100/rect.height)),p:event.pointerType==='pen'?(event.pressure||.3):.5}}
@@ -20,7 +20,7 @@ export default function GeneralNotesInk({strokes,mode,color,width,scroller,onCha
  function append(event:PointerEvent){const current=active.current;if(!current?.stroke||!current.group)return;const samples=event.getCoalescedEvents?.(),fragment=document.createDocumentFragment();for(const sample of samples?.length?samples:[event]){const p=point(sample,current.rect),last=current.stroke.points.at(-1);if(last?.x===p.x&&last?.y===p.y)continue;current.stroke.points.push(p);fragment.append(segment(current.stroke,current.stroke.points.length-1))}current.group.append(fragment)}
  function down(event:ReactPointerEvent<SVGSVGElement>){if(mode==='text'||active.current||event.button!==0)return;
   if(event.pointerType==='touch'){if(finger.current)return;finger.current={id:event.pointerId,x:event.clientX,y:event.clientY,lastY:event.clientY,moved:false};event.currentTarget.setPointerCapture(event.pointerId);return}
-  finger.current=null;event.preventDefault();event.currentTarget.setPointerCapture(event.pointerId);const rect=event.currentTarget.getBoundingClientRect();active.current={id:event.pointerId,rect,before:data.current};
+  finger.current=null;onDrawingChange?.(true);event.preventDefault();event.currentTarget.setPointerCapture(event.pointerId);const rect=event.currentTarget.getBoundingClientRect();active.current={id:event.pointerId,rect,before:data.current};
   if(mode==='eraser'){erase(event.nativeEvent);return}
   // Resolve a palette token once. Original ink does not change when the app theme changes.
   const marker=document.createElementNS(NS,'g');marker.style.color=color;event.currentTarget.append(marker);const resolved=getComputedStyle(marker).color;marker.remove();
@@ -32,7 +32,7 @@ export default function GeneralNotesInk({strokes,mode,color,width,scroller,onCha
  }
  function end(event:ReactPointerEvent<SVGSVGElement>){const touch=finger.current;
   if(touch?.id===event.pointerId){const tap=event.type==='pointerup'&&!touch.moved&&Math.hypot(event.clientX-touch.x,event.clientY-touch.y)<=10;finger.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);if(tap)onType();return}
-  const current=active.current;if(current?.id!==event.pointerId)return;if(event.type==='pointerup'&&current.stroke)append(event.nativeEvent);active.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);if(current.before!==data.current)onChange(data.current);
+  const current=active.current;if(current?.id!==event.pointerId)return;if(event.type==='pointerup'&&current.stroke)append(event.nativeEvent);active.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);if(current.before!==data.current)onChange(data.current);onDrawingChange?.(false);
  }
  return <svg ref={svg} className="general-notes-ink" data-ink-layer="true" style={{pointerEvents:mode==='text'?'none':'auto'}} viewBox="0 0 800 1100" role="img" aria-label="Handwriting. In pen mode, fingers scroll or tap to type." onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}/>;
 }

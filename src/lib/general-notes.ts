@@ -1,7 +1,7 @@
 /** First integration stage: personal, device-local notes; never work-order history. */
 export type InkPoint = { x: number; y: number; p: number };
 export type InkStroke = { id: string; color: string; size: number; points: InkPoint[] };
-export type GeneralNote = { id: string; title: string; text: string; fontSize: number; strokes: InkStroke[]; revision: number; updated: number };
+export type GeneralNote = { id: string; title: string; text: string; fontSize: number; strokes: InkStroke[]; revision: number; updated: number; titleAutomatic?: boolean };
 export type NoteScope = { hotelId: string; userId: string };
 export type TextEdit = { start: number; end: number; insert: string; caret?: number };
 export const NOTE_FONT_SIZES = [8,10,12,14,16,18,20,22,24] as const;
@@ -33,10 +33,14 @@ export function noteToggleList(value: string, a: number, b: number, kind: 'check
   const last = b>a && value[b-1]==='\n' ? b-1:b;
   const end = noteLine(value,last).end, old = value.slice(line.start,end), lines = old.split('\n');
   const remove = lines.every(text=>{const info=noteListInfo(text);return info && (kind==='bullet'?info.marker==='•':info.marker!=='•')});
+  // Only a preceding plain-text line supplies a list header. Preserve an existing
+  // list's indentation, including an intentionally unindented list.
+  const preceding=value.slice(0,line.start).split('\n').reverse().find(text=>text.trim());
+  const indent=preceding && !noteListInfo(preceding) ? NOTE_INDENT : '';
   const insert = lines.map(text=>{
     const info=noteListInfo(text);
     if(remove) return text.replace(prefix,'');
-    return (info?.indent || NOTE_INDENT)+marker+text.replace(prefix,'').replace(/^[ \t]+/,'');
+    return (info ? info.indent : indent)+marker+text.replace(prefix,'').replace(/^[ \t]+/,'');
   }).join('\n');
   const caret = a===b ? Math.max(line.start+(noteListInfo(insert)?.length||0),a-(noteListInfo(old)?.length||0)+(noteListInfo(insert)?.length||0)):undefined;
   return { start:line.start,end,insert,caret };
@@ -58,7 +62,7 @@ export function parseGeneralNotes(raw: string | null): GeneralNote[] {
   const ids=new Set<string>();
   for(const n of data){
     if(!n || typeof n.id!=='string' || !n.id || ids.has(n.id) || typeof n.title!=='string' || !n.title.trim() || n.title.length>120
-      || typeof n.text!=='string' || n.text.length>100000 || !NOTE_FONT_SIZES.includes(n.fontSize) || !Number.isInteger(n.revision) || n.revision<1
+      || (n.titleAutomatic!==undefined&&typeof n.titleAutomatic!=='boolean') || typeof n.text!=='string' || n.text.length>100000 || !NOTE_FONT_SIZES.includes(n.fontSize) || !Number.isInteger(n.revision) || n.revision<1
       || !finite(n.updated,0,Number.MAX_SAFE_INTEGER) || !Array.isArray(n.strokes) || n.strokes.length>5000 || !n.strokes.every(validStroke)) {
       throw Error('Saved notebook could not be read. Existing data has not been changed.');
     }
@@ -73,4 +77,17 @@ export function saveGeneralNote(storage: Pick<Storage,'getItem'|'setItem'>, scop
   parseGeneralNotes(JSON.stringify(next)); // Validate before replacing any saved data.
   storage.setItem(key,JSON.stringify(next));
   return next;
+}
+
+export type NoteDocument = Pick<GeneralNote,'title'|'text'|'fontSize'|'strokes'|'titleAutomatic'>;
+export type NoteSummary = Pick<GeneralNote,'id'|'title'|'revision'|'updated'>;
+export function noteDocument(note:NoteDocument):NoteDocument {return {title:note.title,text:note.text,fontSize:note.fontSize,strokes:note.strokes,titleAutomatic:note.titleAutomatic??false}}
+export function automaticNoteTitle(note:Pick<GeneralNote,'title'|'text'|'strokes'|'titleAutomatic'>,finalize=false){
+ if(!note.titleAutomatic&&note.title.trim())return note.title.trim().slice(0,120);
+ if(!finalize||note.strokes.length)return 'Untitled';
+ return note.text.split('\n').map(line=>line.replace(/^[ \t]*(?:[☐☑•] )?/,'').trim()).find(Boolean)?.slice(0,120)||'Untitled';
+}
+export function validNoteDocument(value:unknown):value is NoteDocument {
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['title','text','fontSize','strokes','titleAutomatic'].includes(key)))return false;
+ try{parseGeneralNotes(JSON.stringify([{...value,id:'validation',revision:1,updated:0}]));return true}catch{return false}
 }

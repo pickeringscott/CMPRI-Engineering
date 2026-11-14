@@ -2,6 +2,8 @@ export type CachePolicy = { topics: string[]; ttl: number; durable: boolean };
 const second = 1000;
 /** App-local JSON only. Authentication, secrets, signed URLs and private files stay on the network. */
 export function dataCachePolicy(path: string, search?: URLSearchParams): CachePolicy | null {
+  // Private notebook revisions are revalidated by its own local outbox and Realtime channel.
+  if (path === '/api/notes') return null;
   // Checklist permissions, revisions and attached-source bytes are authoritative reads.
   if (/^\/api\/work-orders\/[^/]+\/troubleshooting(?:\/|$)/.test(path)
     || (path === '/api/maintenance-reference' && search?.get('source') === 'asset-upload')) return null;
@@ -26,6 +28,7 @@ export function dataCachePolicy(path: string, search?: URLSearchParams): CachePo
   return { topics: ['reference','orders','rooms'], ttl: 30*second, durable: true };
 }
 export function mutationTopics(path: string): string[] | undefined {
+  if (path === '/api/notes') return []; // Never refresh work orders/rooms for a private autosave.
   if (/\/(extract|preview|parse|export|suggestions)(\/|$)/.test(path) || /\/staff-notes\/uploads$/.test(path)) return [];
   if (/^\/api\/profile\/header-layout$/.test(path)) return [];
   if (/^\/api\/(profile|users|session)(\/|$)/.test(path)) return undefined;

@@ -34,3 +34,8 @@ test('invalid notebook data is not silently discarded or overwritten',()=>{
  for(const change of [{fontSize:9},{strokes:[{...note.strokes[0],points:[{x:NaN,y:1,p:1}]}]},{title:''},{revision:0}])assert.throws(()=>parseGeneralNotes(JSON.stringify([{...note,...change}])));
  let wrote=false;assert.throws(()=>saveGeneralNote({getItem:()=>'{broken',setItem:()=>{wrote=true}},scope,note,null));assert.equal(wrote,false);
 });
+
+test('private autosaves bypass the generic response cache and do not refresh unrelated work orders',async()=>{
+ const {dataCachePolicy,mutationTopics}=await import('../src/lib/data-cache/policy.ts');
+ assert.equal(dataCachePolicy('/api/notes'),null);assert.deepEqual(mutationTopics('/api/notes'),[]);
+});

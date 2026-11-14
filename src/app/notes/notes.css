@@ -23,3 +23,9 @@
 .general-notes-swatches{display:flex;justify-content:space-between;gap:4px;padding:4px 5px 1px}.general-notes-bubble .general-notes-swatch{width:30px;height:30px;min-width:30px;min-height:30px;padding:0;border:1px solid var(--cmpri-outline);border-radius:50%;color:var(--cmpri-modal-base)}.general-notes-swatch[aria-pressed=true]{outline:2px solid var(--cmpri-modal-text);outline-offset:3px}.general-notes-swatch span{font-size:20px;text-shadow:0 0 2px var(--cmpri-modal-text)}
 .general-notes-save-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}.general-notes-save-actions>button:last-child{white-space:nowrap}
 @media(max-width:760px){.general-notes-tools{padding:0 9px 7px}.general-notes-tools .general-notes-dock{padding:6px 8px;gap:3px}.general-notes-bubble{padding-bottom:9px}.general-notes-save-actions>button:not(:last-child){width:34px;min-width:34px;padding:7px}.general-notes-save>span{font-size:10px}}
+
+/* Keep original ink above the native text editor in both input modes. */
+.general-notes .general-notes-paper textarea{background:transparent!important;background-color:transparent!important;box-shadow:none;z-index:1;padding:24px;line-height:32px}
+.general-notes .general-notes-paper.is-text textarea{z-index:1}.general-notes .general-notes-ink{z-index:2}
+.general-notes .general-notes-paper textarea::placeholder{font:inherit;line-height:inherit;color:var(--cmpri-modal-subtle);opacity:1}
+.general-notes-mobile-library{display:flex;gap:6px;margin-bottom:7px;align-items:center}.general-notes-mobile-library>select{flex:1;min-width:0;max-width:none}.general-notes-mobile-library>button{display:grid;place-items:center;flex-shrink:0;min-width:44px;width:44px;height:44px;padding:9px}.general-notes-mobile-library>button svg{width:22px;height:22px}
