@@ -4,8 +4,10 @@ import { IndexedDataStore, MemoryDataStore } from './store';
 import { dataCachePolicy, mutationTopics } from './policy';
 
 type Session = { user: { id: string; role: string; secondary_roles?: string[] }; hotelId: string; capabilities: string[] };
-const sessionChanged = () => new Response(JSON.stringify({ error: 'The device session changed. Reload to continue.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-type CacheWindow = Window & typeof globalThis & { __cmpriDeviceData?: BrowserDataCache };
+const sessionChanged = () => new Response(JSON.stringify({ error: 'The device session changed. Reload to continue.' }), { status: 401, headers: { 'Content-Type': 'application/json', 'X-CMPRI-Session-Changed': '1' } });
+type CacheWindow = Window & typeof globalThis & { __cmpriDeviceData?: BrowserDataCache; __cmpriNativeFetch?: typeof fetch };
+type CachedFetch = typeof fetch & { cmpriCached?: boolean; cmpriCacheDocument?: Document };
+function activeDocument(document?: Document) { try { return !!document && document.defaultView?.document === document; } catch { return false; } }
 function owner(view: Window = window): CacheWindow {
   let current: Window = view;
   try { while (current.parent !== current && current.parent.location.origin === view.location.origin) current = current.parent; } catch {}
@@ -27,6 +29,11 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 class BrowserDataCache {
   private native: typeof fetch;
+  private lifetime: AbortController;
+  get signal() { return this.lifetime.signal; }
+  readonly creatorDocument = window.document;
+  private headerClick?: (event: MouseEvent) => void;
+  private releaseOwner?: () => void;
   private cache: DeviceDataCache;
   private scope?: string;
   private identity?: Session;
@@ -39,7 +46,8 @@ class BrowserDataCache {
   private host: CacheWindow;
   constructor(host: CacheWindow) {
     this.host = host;
-    this.native = host.fetch.bind(host);
+    this.lifetime = new host.AbortController();
+    this.native = host.__cmpriNativeFetch ??= host.fetch.bind(host);
     let store; try { store = host.indexedDB ? new IndexedDataStore(host.indexedDB) : new MemoryDataStore(); } catch { store = new MemoryDataStore(); }
     this.cache = new DeviceDataCache(store);
     if (host.BroadcastChannel) {
@@ -52,10 +60,27 @@ class BrowserDataCache {
         }
       };
     }
-    host.document.addEventListener('click', event => {
+    this.headerClick = event => {
       const control = (event.target as Element | null)?.closest?.('button,[role=button]');
       if (control && (/^refresh(?:\s|$)/i.test(control.textContent?.trim() || '') || control.hasAttribute('data-cmpri-force-refresh'))) void this.invalidate();
-    }, true);
+    };
+    host.document.addEventListener('click', this.headerClick, true);
+    this.releaseOwner = () => {
+      if (host.__cmpriDeviceData === this) {
+        delete host.__cmpriDeviceData;
+        if ((host.fetch as CachedFetch).cmpriCacheDocument === this.creatorDocument) host.fetch = host.__cmpriNativeFetch!;
+      }
+      this.dispose();
+    };
+    this.creatorDocument.defaultView?.addEventListener('pagehide', this.releaseOwner, { once: true });
+  }
+  isActive() { return activeDocument(this.creatorDocument); }
+  dispose() {
+    this.generation++;
+    this.lifetime.abort(new this.host.DOMException('The cache owner document closed.', 'AbortError'));
+    this.channel?.close();
+    if (this.headerClick) this.host.document.removeEventListener('click', this.headerClick, true);
+    if (this.releaseOwner) this.creatorDocument.defaultView?.removeEventListener('pagehide', this.releaseOwner);
   }
   private notify(topics?: readonly string[]) {
     this.host.dispatchEvent(new this.host.CustomEvent('cmpri-data-cache-invalidated', { detail: { topics } }));
@@ -87,7 +112,7 @@ class BrowserDataCache {
     const scope = this.scope, generation = this.generation, identity = this.identity;
     this.revisionRead = (async () => {
       try {
-        const result = await this.native(new Request(new URL('/api/resource-revisions', this.host.location.origin), { headers: { Authorization: this.authorization }, cache: 'no-store' }));
+        const result = await this.native(new Request(new URL('/api/resource-revisions', this.host.location.origin), { headers: { Authorization: this.authorization }, cache: 'no-store', signal: this.signal }));
         if (generation !== this.generation) return;
         if (result.status === 401 || result.status === 403) { await this.clear(); return; }
         const payload = await result.json();
@@ -130,7 +155,7 @@ class BrowserDataCache {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.origin !== this.host.location.origin || !url.pathname.startsWith('/api/')) return this.native(request);
-    if (url.pathname === '/api/session' && request.method === 'GET') return withAbort(this.session(new Request(request, { signal: new AbortController().signal })), request.signal);
+    if (url.pathname === '/api/session' && request.method === 'GET') return withAbort(this.session(new Request(request, { signal: this.signal })), request.signal);
     if (request.method !== 'GET') {
       const response = await this.native(request);
       if (response.status === 401 || response.status === 403) await this.clear();
@@ -155,7 +180,7 @@ class BrowserDataCache {
     const force = request.cache === 'reload' || request.headers.get('X-CMPRI-Refresh') === '1';
     const scopedPolicy = { ...policy, topics: [...policy.topics, 'session'] };
     const result = await withAbort(this.cache.read(scope, key, scopedPolicy, async () => {
-      const response = await this.native(new Request(request, { signal: new AbortController().signal }));
+      const response = await this.native(new Request(request, { signal: this.signal }));
       if (response.status === 401 || response.status === 403) await this.clear();
       return response;
     }, force), request.signal);
@@ -165,16 +190,28 @@ class BrowserDataCache {
 }
 export function installDeviceDataCache() {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function' || typeof Request === 'undefined') return;
-  const host = owner(); host.__cmpriDeviceData ??= new BrowserDataCache(host);
-  const manager = host.__cmpriDeviceData;
+  const host = owner();
+  host.__cmpriNativeFetch ??= host.fetch.bind(host);
+  if (host.__cmpriDeviceData && typeof host.__cmpriDeviceData.isActive === 'function' && !host.__cmpriDeviceData.isActive()) {
+    host.__cmpriDeviceData.dispose();
+    delete host.__cmpriDeviceData;
+  }
+  host.__cmpriDeviceData ??= new BrowserDataCache(host);
   const apply = (view: CacheWindow) => {
-    if ((view.fetch as typeof fetch & { cmpriCached?: boolean }).cmpriCached) return;
-    const wrapped: typeof fetch & { cmpriCached?: boolean } = (input, init) => {
+    const current = view.fetch as CachedFetch;
+    if (current.cmpriCached && (!current.cmpriCacheDocument || activeDocument(current.cmpriCacheDocument))) return;
+    const wrapped: CachedFetch = (input, init) => {
       const source = typeof input === 'string' ? new URL(input, view.location.href) : input;
       const request = new Request(source, init);
-      return withAbort(manager.fetch(request), request.signal);
+      // A surviving sibling may call after the creator iframe was removed.
+      if (!host.__cmpriDeviceData) installDeviceDataCache();
+      const manager = host.__cmpriDeviceData!;
+      const signal = manager.signal ? AbortSignal.any([request.signal, manager.signal]) : request.signal;
+      return withAbort(manager.fetch(new Request(request, { signal })), signal);
     };
-    wrapped.cmpriCached = true; view.fetch = wrapped;
+    wrapped.cmpriCached = true;
+    wrapped.cmpriCacheDocument = window.document;
+    view.fetch = wrapped;
   };
   apply(host); apply(window as CacheWindow);
 }
@@ -184,4 +221,4 @@ export function invalidateCachedResources(topics?: readonly string[], revision?:
   return revision !== undefined && topics?.length === 1 ? manager?.revision(topics[0], revision, emit) || Promise.resolve() : manager?.invalidate(topics, true, emit) || Promise.resolve();
 }
 export function reconcileDeviceDataCache() { return typeof window === 'undefined' ? Promise.resolve() : owner().__cmpriDeviceData?.reconcile() || Promise.resolve(); }
-export function clearDeviceDataCache() { return typeof window === 'undefined' ? Promise.resolve() : owner().__cmpriDeviceData?.clear() || Promise.resolve(); }
+export function clearDeviceDataCache() { if (typeof window === 'undefined') return Promise.resolve(); installDeviceDataCache(); return owner().__cmpriDeviceData!.clear(); }

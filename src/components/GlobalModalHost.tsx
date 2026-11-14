@@ -32,6 +32,7 @@ function modalHref(href: string) {
   const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(href);
   const modalRoutes = new Set([
     "/staff-notes",
+    "/notes",
     "/work-orders",
     "/management/equipment",
     "/management/rooms",

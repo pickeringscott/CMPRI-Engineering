@@ -1,0 +1,5 @@
+import {spawn} from 'node:child_process';import {once} from 'node:events';
+let existing=false;try{existing=(await fetch('http://127.0.0.1:3128/fixture/state',{signal:AbortSignal.timeout(500)})).ok}catch{}
+if(existing)throw Error('Port 3128 already serves a fixture. Stop that fixture first.');
+const backend=spawn(process.execPath,['--import','./tests/helpers/resolve-ts.mjs','--experimental-strip-types','tests/browser/general_notes_backend.mjs'],{stdio:['ignore','pipe','inherit']});let ready=false;backend.stdout.on('data',value=>{if(value.toString().includes('"ready":true'))ready=true});
+try{for(let n=0;n<150&&!ready;n++){if(backend.exitCode!==null)throw Error('Fixture backend failed');await new Promise(resolve=>setTimeout(resolve,100))}if(!ready)throw Error('Fixture backend did not start');const browser=spawn('python',['tests/browser/general_notes.py'],{stdio:'inherit',env:process.env});const [code]=await once(browser,'exit');process.exitCode=code??1}finally{if(backend.exitCode===null){backend.kill('SIGTERM');await once(backend,'exit')}}

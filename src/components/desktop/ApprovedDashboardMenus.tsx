@@ -10,7 +10,9 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
  const root=useRef<HTMLDivElement>(null),latest=useRef(onLaunch);useEffect(()=>{latest.current=onLaunch},[onLaunch]);
  const [error,setError]=useState('');
  const summary=useStaffNotesSummary();
- const signature=JSON.stringify(groups);
+ const notebookGroups=groups.map(group=>({...group,items:group.items.flatMap(action=>action.key==='/staff-notes'&&!group.items.some(item=>item.key==='/notes')?[action,{...action,key:'/notes',href:'/notes',label:'Notes'}]:[action])}));
+ const notebookAction=notebookGroups.flatMap(group=>group.items).find(action=>action.key==='/notes');
+ const signature=JSON.stringify(notebookGroups);
  useEffect(()=>{
   const element=root.current;if(!element)return;
   const count=summary?.hotelId===hotelId&&summary?.userId===userId?summary.flagCount:0;
@@ -34,5 +36,5 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
   mount();void load();const wake=()=>{dirty=false;void load()};window.addEventListener('focus',wake);window.addEventListener('online',wake);document.addEventListener('visibilitychange',wake);
   return()=>{active=false;unmount?.();window.removeEventListener('focus',wake);window.removeEventListener('online',wake);document.removeEventListener('visibilitychange',wake)};
  },[signature,userId,hotelId]);
- return <div className="min-w-0 w-full"><div ref={root} className="cmpri-header-v23"/>{error&&<p role="status" className="text-xs text-amber-200">{error}</p>}</div>;
+ return <div className="min-w-0 w-full">{notebookAction&&<button type="button" className="mb-1 rounded border px-2 py-0.5 text-xs lg:hidden" style={modalLauncherStyle('/notes','Notes')} onClick={()=>onLaunch(notebookAction,Date.now())}>Notes</button>}<div ref={root} className="cmpri-header-v23"/>{error&&<p role="status" className="text-xs text-amber-200">{error}</p>}</div>;
 }
