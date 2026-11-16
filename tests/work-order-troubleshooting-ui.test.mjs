@@ -90,7 +90,7 @@ function harness(options={}) {
   return {parent,render,click,boxes,auth,dispose,requests,invalidations,copies,ledgers,ledger,payload,reply,storage,journals,notes,finalized,visitHelpers:visits,flush:async()=>{for(const flush of flushes)await flush();},setFetch:value=>{override=value;},setAuth:id=>{authId=id;},refresh:async()=>React.act(async()=>{await Promise.all([...listeners].map(load=>load()));})};
 }
 
-test('technician completion stays green after reload with one top source and no row source controls',async()=>{
+test('technician completion retains its shared palette after reload with one top source and no row source controls',async()=>{
   const h=harness();
   try{
     await h.render();assert.equal(h.boxes().length,2);
@@ -99,7 +99,7 @@ test('technician completion stays green after reload with one top source and no 
     await h.click(h.boxes()[0]);
     assert.equal(h.boxes()[0].dataset.previewStatus,'approved');
     assert.equal(h.boxes()[0].dataset.taskStatus,'needs');
-    assert.equal(h.boxes()[0].querySelector('span').style.color,'rgb(52, 211, 153)');
+    assert.equal(h.boxes()[0].querySelector('span').style.color,'var(--cmpri-palette-completed)');
     assert.ok(h.parent.textContent.includes('Completed by Alex Technician'));
     assert.ok(!h.parent.textContent.includes('Green means completed'));
     assert.equal(h.parent.querySelectorAll('a').length,1);
@@ -124,12 +124,12 @@ test('technician completion stays green after reload with one top source and no 
   }finally{await h.dispose();}
 });
 
-test('Chief verifies red technician completion and can clear the whole approved check',async()=>{
+test('Chief verifies pending technician completion and can clear the whole approved check',async()=>{
   const ledgers=new Map([['issue-a',{revision:1,taskStates:{'step-1':{status:'needs',workerChecked:true,workerId:'tech-a',workerName:'Alex Technician'}}}]]);
   const h=harness({ledgers,actorRole:'chief',props:{session:session('chief','Chief Engineer')}});
   try{
     await h.render();assert.equal(h.boxes()[0].dataset.previewStatus,'needs');
-    assert.equal(h.boxes()[0].querySelector('span').style.color,'rgb(239, 68, 68)');
+    assert.equal(h.boxes()[0].querySelector('span').style.color,'var(--cmpri-palette-priority)');
     assert.equal(h.boxes()[0].getAttribute('aria-checked'),'true');
     await h.click(h.boxes()[0]);assert.equal(h.boxes()[0].dataset.previewStatus,'approved');
     assert.ok(h.parent.textContent.includes('Reviewed by Chief Engineer'));
@@ -140,12 +140,12 @@ test('Chief verifies red technician completion and can clear the whole approved 
   }finally{await h.dispose();}
 });
 
-test('the Chief checkbox alone cycles blank to red to green to blank',async()=>{
+test('the Chief checkbox alone cycles blank to pending to approved to blank',async()=>{
   const h=harness({actorRole:'chief',props:{session:session('chief','Chief Engineer')}});
   try{
     await h.render();assert.equal(h.boxes()[0].dataset.previewStatus,'empty');
     await h.click(h.boxes()[0]);assert.equal(h.boxes()[0].dataset.previewStatus,'needs');
-    assert.equal(h.boxes()[0].querySelector('span').style.color,'rgb(239, 68, 68)');
+    assert.equal(h.boxes()[0].querySelector('span').style.color,'var(--cmpri-palette-priority)');
     await h.click(h.boxes()[0]);assert.equal(h.boxes()[0].dataset.previewStatus,'approved');
     await h.click(h.boxes()[0]);assert.equal(h.boxes()[0].dataset.previewStatus,'empty');
     assert.deepEqual(h.ledger().taskStates['step-1'],{status:'empty'});
@@ -167,11 +167,11 @@ test('compact source badges reflect only explicit step labels and never change c
       assert.equal(badge.style.color,expected[index][2]);
       assert.equal(badge.getAttribute('aria-label'),`Source label: ${expected[index][1]}`);
       assert.equal(h.boxes()[index].getAttribute('aria-checked'),'false','source labels do not check the task');
-      assert.equal(h.boxes()[index].querySelector('span').style.color,'rgb(100, 116, 139)','unchecked boxes retain their existing color');
+      assert.equal(h.boxes()[index].querySelector('span').style.color,'var(--cmpri-palette-closed)','unchecked boxes use the neutral shared status token');
     }
     for(const row of rows.slice(4))assert.equal(row.querySelector('[data-source-semantics]'),null,'urgent issue context and negated labels do not color ordinary steps');
     await h.click(h.boxes()[0]);
-    assert.equal(h.boxes()[0].querySelector('span').style.color,'rgb(52, 211, 153)','normal technician completion remains green');
+    assert.equal(h.boxes()[0].querySelector('span').style.color,'var(--cmpri-palette-completed)','normal technician completion uses the shared completed token');
     assert.equal(rows[0].querySelector('[data-source-semantics]').style.color,'rgb(239, 68, 68)','the source badge remains independent of completion');
     await h.click(h.boxes()[4]);
     assert.equal(rows[4].querySelector('[data-source-semantics]'),null,'completing a generic instruction does not invent a source success badge');
@@ -179,13 +179,13 @@ test('compact source badges reflect only explicit step labels and never change c
   }finally{await h.dispose();}
 });
 
-test('managers and a generic System Administrator see pending completed steps green',async()=>{
+test('managers and a generic System Administrator see pending completed steps with the shared completed token',async()=>{
   const ledgers=new Map([['issue-a',{revision:1,taskStates:{'step-1':{status:'needs',workerChecked:true,workerId:'tech-a',workerName:'Alex'}}}]]);
   for(const options of [{actorRole:'manager',canEdit:false,canClearAll:false,props:{session:session('manager','Manager')}},{actorRole:'chief',canClearAll:true,props:{session:session('admin','System Administrator')}}]){
     const h=harness({...options,canSeePendingReview:false,ledgers});
     try{
       await h.render();assert.equal(h.boxes()[0].dataset.previewStatus,'approved');
-      assert.equal(h.boxes()[0].querySelector('span').style.color,'rgb(52, 211, 153)');
+      assert.equal(h.boxes()[0].querySelector('span').style.color,'var(--cmpri-palette-completed)');
       assert.ok(!h.parent.textContent.includes('Chief Engineer: blank'));
     }finally{await h.dispose();}
   }
@@ -202,7 +202,7 @@ test('a different technician chooses whether to continue previous work when the 
   } finally { await h.dispose(); }
 });
 
-test('pending or conflicting writes never show an optimistic green completion',async()=>{
+test('pending or conflicting writes never show an optimistic approved completion',async()=>{
   const pending=deferred();const h=harness({fetch:r=>r.init.method==='PATCH'?pending.promise:null});
   try{
     await h.render();await h.click(h.boxes()[0]);

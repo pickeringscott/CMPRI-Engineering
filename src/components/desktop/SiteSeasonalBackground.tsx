@@ -2,9 +2,10 @@
 
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import ThanksgivingBackground from "./ThanksgivingBackground";
+import FootballBackground from "./FootballBackground";
 
 // Register future seasonal artwork here so sign-in and the desktop change together.
-const backgrounds = { thanksgiving: ThanksgivingBackground };
+const backgrounds = { thanksgiving: ThanksgivingBackground, "illinois-iowa": FootballBackground };
 
 export default function SiteSeasonalBackground() {
   const Background = backgrounds[SITE_SEASONAL_THEME];

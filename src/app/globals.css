@@ -4,6 +4,7 @@
 @import "./modal-theme.css";
 @import "./approved-header.css";
 @import "./thanksgiving-theme.css";
+@import "./football-theme.css";
 @import "./sign-in-theme.css";
 @import "./staff-notes-design.css";
 
@@ -44,56 +45,56 @@ html[data-theme="dark"] {
   --foreground: #ededed;
 }
 
-html[data-theme="light"] {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) {
   color-scheme: light;
   --background: #f8fafc;
   --foreground: #0f172a;
 }
 
-html[data-theme="light"] body {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) body {
   background: var(--background);
   color: var(--foreground);
 }
 
-html[data-theme="light"] .bg-slate-950,
-html[data-theme="light"] [class*="bg-slate-950/"] {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .bg-slate-950,
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) [class*="bg-slate-950/"] {
   background-color: #ffffff;
 }
 
-html[data-theme="light"] .bg-slate-900,
-html[data-theme="light"] [class*="bg-slate-900/"] {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .bg-slate-900,
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) [class*="bg-slate-900/"] {
   background-color: #f1f5f9;
 }
 
-html[data-theme="light"] .bg-slate-800,
-html[data-theme="light"] [class*="bg-slate-800/"] {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .bg-slate-800,
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) [class*="bg-slate-800/"] {
   background-color: #e2e8f0;
 }
 
-html[data-theme="light"] .text-white {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-white {
   color: #0f172a;
 }
 
-html[data-theme="light"] .text-slate-100,
-html[data-theme="light"] .text-slate-200 {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-slate-100,
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-slate-200 {
   color: #1e293b;
 }
 
-html[data-theme="light"] .text-slate-300,
-html[data-theme="light"] .text-slate-400 {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-slate-300,
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-slate-400 {
   color: #475569;
 }
 
-html[data-theme="light"] .text-slate-500,
-html[data-theme="light"] .text-slate-600 {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-slate-500,
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .text-slate-600 {
   color: #64748b;
 }
 
-html[data-theme="light"] [class*="border-slate-"] {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) [class*="border-slate-"] {
   border-color: #cbd5e1;
 }
 
-html[data-theme="light"] [class*="placeholder:text-slate-"]::placeholder {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) [class*="placeholder:text-slate-"]::placeholder {
   color: #64748b;
 }
 
@@ -526,7 +527,7 @@ html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="ne"], [data-cmpri-
 html.cmpri-desktop-interacting:is([data-cmpri-desktop-cursor="nw"], [data-cmpri-desktop-cursor="se"]) * { cursor: nwse-resize !important; }
 
 /* Keep the list's semantic badge/count colors readable on light slate surfaces. */
-html[data-theme="light"] .cmpri-work-order-list {
+html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) .cmpri-work-order-list {
   --color-purple-950: var(--color-purple-100);
   --color-green-950: var(--color-green-100);
   --color-yellow-950: var(--color-yellow-100);
@@ -555,7 +556,7 @@ html[data-theme="light"] .cmpri-work-order-list {
 }
 
 @media (width < 64rem) {
-  html[data-theme="light"] [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar {
+  html[data-theme="light"]:not([data-cmpri-site-theme="illinois-iowa"]) [data-chief-engineer-mobile="true"] .cmpri-desktop-topbar {
     background-image: none;
     background-color: var(--color-slate-100);
     --color-amber-300: var(--color-amber-800);

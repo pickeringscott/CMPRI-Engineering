@@ -10,8 +10,12 @@ PDF = BASE + '/guides/guest-room.pdf'
 CHIEF = '00000000-0000-4000-8000-000000000021'
 MANAGER = '00000000-0000-4000-8000-000000000031'
 OTHER_TECH = '00000000-0000-4000-8000-000000000041'
-RED = 'rgb(239, 68, 68)'
-GREEN = 'rgb(52, 211, 153)'
+PALETTE = json.loads((Path(__file__).resolve().parents[2] / 'src/lib/ui/site-palette.json').read_text())['semantic']
+def palette_rgb(name):
+ color = PALETTE[name].lstrip('#')
+ return 'rgb(' + ', '.join(str(int(color[i:i+2], 16)) for i in (0, 2, 4)) + ')'
+NEEDS_REVIEW = palette_rgb('priority')
+COMPLETED = palette_rgb('completed')
 
 KNOWLEDGE = {
  'manufacturer': 'Fixture Laundry', 'equipment': 'Demonstrator', 'model_family': 'Demonstrator',
@@ -336,7 +340,7 @@ async def main():
    for index in [0, 1]:
     if index == 1: await note.fill(unsaved_note)
     await controls.nth(index).click()
-    await visual(controls.nth(index), 'approved', GREEN)
+    await visual(controls.nth(index), 'approved', COMPLETED)
     await expect(controls.nth(index)).to_have_attribute('data-task-status', 'needs')
    async with tech.expect_response(lambda response: urlparse(response.url).path == '/api/work-orders/' + WID) as refreshed:
     await tech.evaluate("async () => { await window.__cmpriDeviceData.invalidate(['orders']); }")
@@ -358,13 +362,13 @@ async def main():
    assert await tech.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'The checklist must fit without horizontal overflow'
    await capture(tech, guide, 'final-guide-tech-' + ('phone' if width == 384 else 'desktop'))
    guide, checklist = await reopen(tech)
-   for index in [0, 1]: await visual(checklist.get_by_role('checkbox').nth(index), 'approved', GREEN)
+   for index in [0, 1]: await visual(checklist.get_by_role('checkbox').nth(index), 'approved', COMPLETED)
    # A new editor session must be able to clear its worker's durable completion.
    await checklist.get_by_role('checkbox').first.click()
    await visual(checklist.get_by_role('checkbox').first, 'empty')
    assert writes[-1]['state'] == {'status': 'empty'}
    await checklist.get_by_role('checkbox').first.click()
-   await visual(checklist.get_by_role('checkbox').first, 'approved', GREEN)
+   await visual(checklist.get_by_role('checkbox').first, 'approved', COMPLETED)
    own_clear_visit = writes[-1]['visitId']
    assert not any(entry['visitId'] == own_clear_visit for entry in exit_notes)
    own_note = await leave_and_confirm(tech, UID, own_clear_visit)
@@ -376,17 +380,17 @@ async def main():
 
    chief_ctx, chief, chief_guide, chief_list, chief_errors = await open_role('chief_engineer', CHIEF, 'Jordan Lee')
    chief_controls = chief_list.get_by_role('checkbox')
-   for index in [0, 1]: await visual(chief_controls.nth(index), 'needs', RED)
+   for index in [0, 1]: await visual(chief_controls.nth(index), 'needs', NEEDS_REVIEW)
    await chief_controls.first.click()
-   await visual(chief_controls.first, 'approved', GREEN)
-   await visual(chief_controls.nth(1), 'needs', RED)
+   await visual(chief_controls.first, 'approved', COMPLETED)
+   await visual(chief_controls.nth(1), 'needs', NEEDS_REVIEW)
    await expect(chief_list.get_by_text('Approved · Completed by Alex Morgan · Reviewed by Jordan Lee', exact=True)).to_be_visible()
    await capture(chief, chief_guide, 'final-guide-chief-' + ('phone' if width == 384 else 'desktop'))
    manager_ctx, manager, manager_guide, manager_list, manager_errors = await open_role('manager', MANAGER, 'Morgan Taylor')
    for control in await manager_list.get_by_role('checkbox').all():
     await expect(control).to_be_disabled()
     assert await control.get_attribute('data-preview-status') != 'needs', 'Only the Chief Engineer may see red review marks'
-   for index in [0, 1]: await visual(manager_list.get_by_role('checkbox').nth(index), 'approved', GREEN)
+   for index in [0, 1]: await visual(manager_list.get_by_role('checkbox').nth(index), 'approved', COMPLETED)
    await manager_ctx.close()
    chief_visit = writes[-1]['visitId']
    assert not any(entry['visitId'] == chief_visit for entry in exit_notes)
@@ -396,13 +400,13 @@ async def main():
    await visual(chief_list.get_by_role('checkbox').first, 'empty')
    assert writes[-1]['state'] == {'status': 'empty'}
    await chief_list.get_by_role('checkbox').nth(1).click()
-   await visual(chief_list.get_by_role('checkbox').nth(1), 'approved', GREEN)
+   await visual(chief_list.get_by_role('checkbox').nth(1), 'approved', COMPLETED)
    await chief_list.get_by_role('checkbox').nth(1).click()
    await visual(chief_list.get_by_role('checkbox').nth(1), 'empty')
    await chief_list.get_by_role('checkbox').nth(2).click()
-   await visual(chief_list.get_by_role('checkbox').nth(2), 'needs', RED)
+   await visual(chief_list.get_by_role('checkbox').nth(2), 'needs', NEEDS_REVIEW)
    await chief_list.get_by_role('checkbox').nth(2).click()
-   await visual(chief_list.get_by_role('checkbox').nth(2), 'approved', GREEN)
+   await visual(chief_list.get_by_role('checkbox').nth(2), 'approved', COMPLETED)
    await chief_list.get_by_role('checkbox').nth(2).click()
    await visual(chief_list.get_by_role('checkbox').nth(2), 'empty')
    assert len(visits[chief_visit]['events']) == 7
@@ -458,7 +462,7 @@ async def main():
      # Exercise the real issue editor. Blurring the field saves
      # the issue; simply typing must only change the read-only guide preview.
      await chief_list.get_by_role('checkbox').first.click()
-     await visual(chief_list.get_by_role('checkbox').first, 'needs', RED)
+     await visual(chief_list.get_by_role('checkbox').first, 'needs', NEEDS_REVIEW)
      before_checklist_writes = len(writes)
      await chief.get_by_role('button', name='Edit reported issue', exact=True).click()
      await chief.get_by_role('textbox', name='Reported Issue', exact=True).fill(variants[1]['order']['issue'])
@@ -488,7 +492,7 @@ async def main():
     for control in await chief_list.get_by_role('checkbox').all(): await visual(control, 'empty')
     if index < 4:
      await chief_list.get_by_role('checkbox').first.click()
-     await visual(chief_list.get_by_role('checkbox').first, 'needs', RED)
+     await visual(chief_list.get_by_role('checkbox').first, 'needs', NEEDS_REVIEW)
 
    if width == 1440:
     before_everyday = len(writes)

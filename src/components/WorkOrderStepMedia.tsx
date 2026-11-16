@@ -44,7 +44,7 @@ export default function WorkOrderStepMedia(props: Props) {
     return () => { observer.disconnect(); window.removeEventListener("cmpri-palette-change", changed); };
   }, [hasMedia]);
   const scope = JSON.stringify([props.assetId, props.sourceSha256, props.userId, props.contextIdentity, props.media.map(mediaKey), paletteVersion]);
-  return props.media.length ? <div ref={host} data-source-media-surface="true" style={{ backgroundColor: "var(--cmpri-modal-surface,#191b24)", color: "var(--cmpri-modal-text,#f0f1f6)" }}><StepMediaView key={scope} {...props} host={host} /></div> : null;
+  return props.media.length ? <div ref={host} data-source-media-surface="true" style={{ backgroundColor: "var(--cmpri-modal-surface,var(--cmpri-palette-modal-base))", color: "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))" }}><StepMediaView key={scope} {...props} host={host} /></div> : null;
 }
 
 function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & { host: React.RefObject<HTMLDivElement | null> }) {
@@ -162,15 +162,15 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
 
   if (!authorized) return null;
   return <section ref={section} aria-label="Step images and diagrams" className="space-y-0">
-    {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={mediaKey(item)} data-media-id={mediaKey(item)} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
-      {semantics && <span className="text-[10px] leading-tight" style={{ color: semantics.color }}>{semantics.label}</span>}
+    {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={mediaKey(item)} data-media-id={mediaKey(item)} data-source-semantics={semantics?.kind} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
+      {semantics && <span data-source-semantics={semantics.kind} className="text-[10px] leading-tight" style={{ color: semantics.color }}>{semantics.label}</span>}
       {desktop
         ? images[mediaKey(item)] ? <a href={sourceUrl(item)} aria-label={`Open image/diagram: ${item.caption || "uploaded manual illustration"}`} onClick={event => { event.preventDefault(); event.stopPropagation(); void open(item); }} className="block w-fit max-w-full">
             {/* Source pixels are held locally; flat neutral artwork alone follows the host palette. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img data-diagram-adapted={adapted[mediaKey(item)] ? "true" : "false"} src={images[mediaKey(item)]} alt={item.caption || "Image/diagram from the uploaded manual"} width={item.width} height={item.height} className="max-h-64 w-auto max-w-full object-contain" />
           </a> : <p className="text-[10px] leading-tight text-slate-400" style={{ width: item.width, maxWidth: "100%", maxHeight: 256, aspectRatio: `${item.width} / ${item.height}` }}>{errors[mediaKey(item)] ? "Image unavailable" : "Loading image…"}</p>
-        : <a href={sourceUrl(item)} aria-disabled={opening === mediaKey(item)} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== mediaKey(item)) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,#f0f1f6)" }}>{opening === mediaKey(item) ? "Opening image…" : "Open image/diagram"}</a>}
+        : <a data-source-semantics={semantics?.kind} href={sourceUrl(item)} aria-disabled={opening === mediaKey(item)} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== mediaKey(item)) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))" }}>{opening === mediaKey(item) ? "Opening image…" : "Open image/diagram"}</a>}
       {errors[mediaKey(item)] && <p role="status" className="text-[10px] leading-tight text-amber-200">{errors[mediaKey(item)]}</p>}
     </div>; })}
     {selected && <WorkOrderDiagramViewer imageUrl={selected.imageUrl} title={selected.title} semantics={selected.semantics} onClose={() => { openGeneration.current++; setSelected(null); setOpening(null); }} />}

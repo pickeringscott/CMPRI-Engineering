@@ -34,20 +34,20 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
   background: color-mix(in srgb, var(--cmpri-modal-text, #f3edf5) 5%, var(--cmpri-modal-base, #181818));
 }
 .asset-picker .asset-result-selected {
-  border-left: 4px solid rgb(var(--cmpri-action-rgb, 207,144,254));
-  background: rgba(var(--cmpri-action-rgb, 207,144,254), .18);
+  border-left: 4px solid rgb(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)));
+  background: rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)), .18);
 }
 .asset-picker .asset-result:hover {
-  background: rgba(var(--cmpri-action-rgb, 207,144,254), .12);
+  background: rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)), .12);
 }
 .asset-picker .asset-result-selected:hover {
-  background: rgba(var(--cmpri-action-rgb, 207,144,254), .22);
+  background: rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)), .22);
 }
 .asset-picker summary:focus-visible,
 .asset-picker button:focus-visible,
 .asset-detail button:focus-visible,
 .asset-detail label:focus-within {
-  outline: 2px solid rgb(var(--cmpri-action-rgb, 207,144,254));
+  outline: 2px solid rgb(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)));
   outline-offset: 2px;
 }
 html[data-cmpri-modal-theme=true] .asset-picker .asset-search {
@@ -90,7 +90,7 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-title {
 .asset-header-action, .asset-meta, .asset-tabs button { display: inline-flex; align-items: center; gap: .55rem; }
 .asset-header-action { color: var(--cmpri-modal-text, #eee) !important; white-space: nowrap; }
 .asset-meta { display: flex; }
-.asset-service-status { color: #75dc8b !important; }
+.asset-service-status { color: var(--cmpri-palette-completed) !important; }
 .asset-service-status > span { border: 1px solid currentColor; border-radius: 50%; width: 1.15rem; height: 1.15rem; text-align: center; }
 .asset-tabs { display: flex; justify-content: space-between; gap: .6rem; margin: 1rem 0; }
 .asset-tabs button { padding: .45rem .5rem; white-space: nowrap; }
@@ -100,7 +100,7 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-title {
 .asset-notes-heading > span { font-size: .75rem; font-style: italic; color: var(--cmpri-modal-muted, #aaa); }
 .asset-note-list { padding-left: 1.4rem; }
 .asset-note-list > li { position: relative; }
-.asset-note-list > li::before { content: ""; position: absolute; left: -1.1rem; top: .45rem; width: .45rem; height: .45rem; border-radius: 50%; background: rgb(var(--cmpri-action-rgb, 207,144,254)); }
+.asset-note-list > li::before { content: ""; position: absolute; left: -1.1rem; top: .45rem; width: .45rem; height: .45rem; border-radius: 50%; background: rgb(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb))); }
 @media (max-width: 767px) {
   .asset-workspace .asset-layout { gap: .75rem; }
   .asset-overview { flex-wrap: wrap; }
@@ -112,7 +112,7 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-title {
 html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
 .asset-picker .asset-filters select { flex: 1; width: 100%; max-width: 100%; }
 .asset-manual-hint { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin-top: 2rem; }
-.asset-manual-hint button { display: inline-flex; align-items: center; gap: .35rem; margin-left: auto; color: rgb(var(--cmpri-action-rgb, 207,144,254)); }
+.asset-manual-hint button { display: inline-flex; align-items: center; gap: .35rem; margin-left: auto; color: rgb(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb))); }
 @media (max-width: 500px) {
   .asset-picker .asset-filters { display: flex; justify-content: flex-start; gap: .15rem .7rem; }
   .asset-picker .asset-filters label { width: auto; }
@@ -121,7 +121,7 @@ html[data-cmpri-embedded="true"] main.asset-workspace .asset-filters select,
 }
 .asset-order-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
 .asset-order-status { color: var(--cmpri-modal-muted, #aaa); }
-.asset-open-order { display: inline-flex; align-items: center; gap: .4rem; color: rgb(var(--cmpri-action-rgb, 207,144,254)) !important; }
+.asset-open-order { display: inline-flex; align-items: center; gap: .4rem; color: rgb(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb))) !important; }
 
 /* Keep the asset browser compact in both desktop windows and modal frames. */
 html[data-cmpri-embedded="true"] main.asset-workspace { font-size: .75rem; }

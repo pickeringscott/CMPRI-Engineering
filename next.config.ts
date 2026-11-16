@@ -35,6 +35,9 @@ const nextConfig: NextConfig = {
 			{ source: "/backgrounds/thanksgiving-animated/index.html", headers: revalidate },
 			{ source: "/backgrounds/thanksgiving-animated/:asset((?:index|scene|leaves)\\.[a-f0-9]{16}\\.(?:html|css|js))", headers: immutable },
 			{ source: "/backgrounds/thanksgiving-animated/assets/:asset([a-z-]+\\.[a-f0-9]{16}\\.png)", headers: immutable },
+			{ source: "/backgrounds/illinois-iowa/cache-worker.js", headers: revalidate },
+			{ source: "/backgrounds/illinois-iowa/index.html", headers: revalidate },
+			{ source: "/backgrounds/illinois-iowa/:asset(index\\.[a-f0-9]{16}\\.html)", headers: immutable },
 		];
 	},
 	async redirects() {

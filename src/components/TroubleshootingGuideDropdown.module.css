@@ -6,7 +6,7 @@
   align-items: center;
   justify-content: center;
   padding: 0.5rem;
-  background: rgb(2 6 23 / 82%);
+  background: rgb(0 0 0 / 82%);
 }
 
 .dialog {
@@ -16,10 +16,10 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #475569;
+  border: 1px solid var(--cmpri-outline);
   border-radius: 1rem;
-  background: #f8fafc;
-  color: #172033;
+  background: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
   outline: none;
 }
@@ -31,13 +31,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  border-bottom: 1px solid #cbd5e1;
-  background: #fff;
+  border-bottom: 1px solid var(--cmpri-outline);
+  background: var(--cmpri-modal-surface, var(--cmpri-palette-modal-base));
   padding: 0.75rem 1rem;
 }
 
 .modalEyebrow {
-  color: #475569;
+  color: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -46,7 +46,7 @@
 
 .modalTitle {
   margin-top: 0.1rem;
-  color: #0f172a;
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -68,24 +68,29 @@
 
 .secondaryButton,
 .closeButton {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #1e293b;
+  border: 1px solid var(--cmpri-outline);
+  background: var(--cmpri-modal-surface, var(--cmpri-palette-modal-base));
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
 }
 
 .secondaryButton:hover,
 .closeButton:hover {
-  background: #f1f5f9;
+  background: color-mix(in srgb, rgb(var(--cmpri-action-rgb, var(--cmpri-palette-control-rgb))) 20%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+}
+
+.controlButtons button:focus-visible {
+  outline: 2px solid var(--cmpri-palette-gold);
+  outline-offset: 2px;
 }
 
 .printButton {
-  border: 1px solid #1d4ed8;
-  background: #1d4ed8;
-  color: #fff;
+  border: 1px solid rgb(var(--cmpri-action-rgb, var(--cmpri-palette-control-rgb)));
+  background: rgb(var(--cmpri-action-rgb, var(--cmpri-palette-control-rgb)));
+  color: var(--cmpri-palette-black);
 }
 
 .printButton:hover {
-  background: #1e40af;
+  background: color-mix(in srgb, rgb(var(--cmpri-action-rgb, var(--cmpri-palette-control-rgb))) 84%, var(--cmpri-palette-white));
 }
 
 .scrollArea {
@@ -98,7 +103,7 @@
   width: min(100%, 60rem);
   margin-inline: auto;
   padding: clamp(1rem, 4vw, 2.5rem);
-  color: #172033;
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   font-size: 0.95rem;
   line-height: 1.65;
 }
@@ -106,7 +111,7 @@
 .document h1,
 .document h2,
 .document h3 {
-  color: #0f172a;
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   line-height: 1.2;
 }
 
@@ -153,7 +158,7 @@
 }
 
 .guideHeader {
-  border-bottom: 2px solid #cbd5e1;
+  border-bottom: 2px solid var(--cmpri-outline);
   padding-bottom: 1.1rem;
 }
 
@@ -162,7 +167,7 @@
 }
 
 .eyebrow {
-  color: #1d4ed8;
+  color: var(--cmpri-palette-gold);
   font-size: 0.73rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -171,7 +176,7 @@
 
 .guideSection {
   margin-top: 1.2rem;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--cmpri-outline);
   padding-bottom: 1rem;
 }
 
@@ -181,7 +186,7 @@
 
 .sourceDate {
   margin-top: 1rem !important;
-  color: #64748b;
+  color: var(--cmpri-modal-subtle, var(--cmpri-palette-desktop-tone-7));
   font-size: 0.8rem;
   text-align: right;
 }
@@ -199,7 +204,7 @@
 
 .sectionHeading p {
   margin: 0.25rem 0 0;
-  color: #475569;
+  color: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   font-size: 0.88rem;
 }
 
@@ -210,8 +215,8 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 0.5rem;
-  background: #dbeafe;
-  color: #1e3a8a;
+  background: color-mix(in srgb, var(--cmpri-palette-gold) 18%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+  color: var(--cmpri-palette-gold-light);
   font-size: 0.8rem;
   font-weight: 800;
 }
@@ -232,7 +237,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  color: #0f172a;
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   font-size: 0.72rem;
   font-weight: 700;
   white-space: nowrap;
@@ -243,10 +248,11 @@
   width: 0.72rem;
   height: 0.72rem;
   flex: 0 0 auto;
-  border: 1px solid #475569;
+  border: 1px solid var(--cmpri-outline);
   border-radius: 50%;
 }
 
+/* These dots reproduce the physical LED colors in the source troubleshooting guide. */
 .ledG {
   background: #16a34a;
 }
@@ -268,9 +274,9 @@
 .entry {
   min-width: 0;
   break-inside: avoid;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--cmpri-outline);
   border-radius: 0.7rem;
-  background: #fff;
+  background: var(--cmpri-modal-surface, var(--cmpri-palette-modal-base));
   padding: 0.8rem;
 }
 
@@ -283,9 +289,9 @@
 .entryCode {
   flex: 0 0 auto;
   border-radius: 0.35rem;
-  background: #e2e8f0;
+  background: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
   padding: 0.15rem 0.35rem;
-  color: #334155;
+  color: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   font-size: 0.68rem;
   font-weight: 800;
 }
@@ -298,7 +304,7 @@
 .patternPanel {
   margin-top: 0.65rem;
   border-radius: 0.5rem;
-  background: #f1f5f9;
+  background: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
   padding: 0.55rem;
 }
 
@@ -317,7 +323,7 @@
 }
 
 .signalConnector {
-  color: #334155;
+  color: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   font-size: 0.9rem;
   font-weight: 800;
 }
@@ -331,7 +337,7 @@
 }
 
 .signalDetail {
-  color: #1e293b;
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   font-size: 0.72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -339,7 +345,7 @@
 
 .patternText {
   margin: 0.4rem 0 0 !important;
-  color: #475569;
+  color: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   font-size: 0.75rem;
 }
 
@@ -359,47 +365,52 @@
 }
 
 .urgency {
-  border: 1px solid #64748b;
+  border: 1px solid currentColor;
   border-radius: 999px;
   padding: 0.1rem 0.45rem;
-  color: #0f172a;
+  color: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
   font-size: 0.65rem;
   font-weight: 850;
   text-transform: uppercase;
 }
 
 .urgencyNone {
-  background: #dcfce7;
+  background: color-mix(in srgb, var(--cmpri-palette-closed) 16%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+  color: var(--cmpri-palette-closed);
 }
 
 .urgencyLow {
-  background: #e0f2fe;
+  background: color-mix(in srgb, var(--cmpri-palette-open) 16%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+  color: var(--cmpri-palette-open);
 }
 
 .urgencyMedium {
-  background: #fef3c7;
+  background: color-mix(in srgb, var(--cmpri-palette-progress) 16%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+  color: var(--cmpri-palette-progress);
 }
 
 .urgencyHigh {
-  background: #ffedd5;
+  background: color-mix(in srgb, var(--cmpri-palette-priority) 16%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+  color: var(--cmpri-palette-priority);
 }
 
 .urgencyCritical {
-  background: #fee2e2;
+  background: color-mix(in srgb, var(--cmpri-palette-overdue) 16%, var(--cmpri-modal-base, var(--cmpri-palette-modal-base)));
+  color: var(--cmpri-palette-overdue);
 }
 
 .sourceNote {
-  border-left: 3px solid #64748b;
+  border-left: 3px solid var(--cmpri-palette-gold);
   padding-left: 0.55rem;
-  color: #334155;
+  color: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   font-size: 0.75rem;
 }
 
 .guideNotes {
   margin-top: 1rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--cmpri-outline);
   border-radius: 0.7rem;
-  background: #f1f5f9;
+  background: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
   padding: 0.85rem 1rem;
   font-size: 0.78rem;
 }
@@ -508,6 +519,11 @@
   .document p,
   .document li,
   .sectionHeading p,
+  .sourceDate,
+  .eyebrow,
+  .sectionNumber,
+  .entryCode,
+  .signalConnector,
   .entryTitle,
   .entryExplanation,
   .signalDetail,
@@ -550,6 +566,12 @@
   .guideNotes {
     border: 1px solid #888 !important;
     background: #fff !important;
+  }
+
+  .sectionNumber,
+  .entryCode,
+  .urgency {
+    background: transparent !important;
   }
 
   .ledDot {
