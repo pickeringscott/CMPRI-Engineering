@@ -27,7 +27,8 @@ export function dataCachePolicy(path: string, search?: URLSearchParams): CachePo
   if (/feedback/.test(path)) return { topics: ['feedback'], ttl: 30*second, durable: false };
   return { topics: ['reference','orders','rooms'], ttl: 30*second, durable: true };
 }
-export function mutationTopics(path: string): string[] | undefined {
+export function mutationTopics(path: string, method?: string): string[] | undefined {
+  if (path === '/api/work-orders/drafts' && method === 'PUT') return []; // Starting an inactivity clock saves no data.
   if (path === '/api/notes') return []; // Never refresh work orders/rooms for a private autosave.
   if (/\/(extract|preview|parse|export|suggestions)(\/|$)/.test(path) || /\/staff-notes\/uploads$/.test(path)) return [];
   if (/^\/api\/profile\/header-layout$/.test(path)) return [];

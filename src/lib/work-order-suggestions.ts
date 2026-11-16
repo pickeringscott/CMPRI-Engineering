@@ -155,6 +155,14 @@ export function separateIssueFromReporterNotes(rawIssue: string): {
 
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
 
+  // Occupancy/access comments often follow the symptom without punctuation.
+  // Share these patterns between whole-line and inline parsing.
+  const accessNotePatterns = [
+    /\b(?:the\s+)?guests?\s+(?:is\s+|are\s+|will\s+be\s+)?(?:out\s+of\s+(?:(?:the|their)\s+)?room|not\s+in\s+(?:(?:the|their)\s+)?room|away\s+from\s+(?:(?:the|their)\s+)?room)\b.*$/i,
+    /\b(?:the\s+)?guests?\s+(?:has|have)\s+(?:a\s+)?(?:dog|cat|pet)\b.*$/i,
+    /\b(?:says?\s+)?(?:you|engineering|maintenance)\s+(?:can|may)\s+(?:come|enter|access)\b.*$/i,
+  ];
+
   const notePatterns = [
     /^(?:please|pls|por favor|hi|hey|hello|greetings|fwiw|btw|just so you know|heads up|n\.b\.|note:|comment:|additional (?:info|details)|for context|background:?)\b/i,
     /^(?:i think|i believe|i guess|maybe|perhaps|posiblemente|creo que|pienso que|not sure|i'm not sure|no estoy seguro)\b/i,
@@ -197,11 +205,12 @@ export function separateIssueFromReporterNotes(rawIssue: string): {
       line = reportedIssue;
     }
 
-    const isNote = notePatterns.some((pattern) => pattern.test(line));
+    const isNote = notePatterns.some((pattern) => pattern.test(line))
+      || accessNotePatterns.some(pattern => pattern.exec(line)?.index === 0);
     if (isNote) {
       noteLines.push(line);
     } else {
-      const inlineMatch = inlineNotePatterns
+      const inlineMatch = [...inlineNotePatterns, ...accessNotePatterns]
         .map((pattern) => pattern.exec(line))
         .filter((match): match is RegExpExecArray => Boolean(match))
         .sort((a, b) => a.index - b.index)[0];

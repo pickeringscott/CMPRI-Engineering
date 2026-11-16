@@ -159,7 +159,7 @@ class BrowserDataCache {
     if (request.method !== 'GET') {
       const response = await this.native(request);
       if (response.status === 401 || response.status === 403) await this.clear();
-      else if (response.ok && ['POST','PUT','PATCH','DELETE'].includes(request.method)) await this.invalidate(mutationTopics(url.pathname));
+      else if (response.ok && ['POST','PUT','PATCH','DELETE'].includes(request.method)) await this.invalidate(mutationTopics(url.pathname, request.method));
       return response;
     }
     const policy = dataCachePolicy(url.pathname, url.searchParams), authorization = request.headers.get('authorization');

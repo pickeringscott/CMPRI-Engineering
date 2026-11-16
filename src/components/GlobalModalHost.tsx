@@ -546,6 +546,12 @@ export default function GlobalModalHost() {
       if (event.origin !== window.location.origin || !event.data || stack.length === 0) return;
       const top = stack.find(entry => event.source === frameRefs.current.get(entry.id)?.contentWindow);
       if (!top) return;
+      if (event.data.type === "cmpri-work-order-draft-status" && event.data.modalToken === top.modalToken) {
+        if (new URL(top.href, window.location.origin).pathname !== "/work-orders") return;
+        setStack(current => current.map(entry => entry.id === top.id
+          ? { ...entry, title: event.data.isDraft ? "Draft — awaiting approval" : "Create Work Order" } : entry));
+        return;
+      }
       if (event.data.type === "cmpri-open-modal" && typeof event.data.href === "string") {
         if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
         if (!isSameOriginInternal(event.data.href)) return;
