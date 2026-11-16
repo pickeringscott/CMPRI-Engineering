@@ -8,25 +8,17 @@ import { googleSheetsRequest } from "@/lib/server/google-sheets";
 // The corporate workbook is an output of the current ticket ranker. The old
 // editable ranker and its historical per-ticket retry queue stay retired.
 export const CORPORATE_RANKER_HEADERS = ["Rooms", "Room Inspected by", "Specific Room Check 1", "Specific Room Check 2", "Specific Room Check 3", "Room Ranker", "Notes/Actions needed in Room"];
-const START = "[CMPRI work orders]";
-const END = "[/CMPRI work orders]";
 type Ticket = RankingTicket & { display_id: string | null };
 type SheetCell = { userEnteredValue?: { stringValue?: string; numberValue?: number; formulaValue?: string }; dataValidation?: { condition?: { type?: string; values?: Array<{ userEnteredValue?: string }> } } };
 type Sheet = { properties: { sheetId: number; title: string; gridProperties: { rowCount: number; columnCount: number } }; tables?: Array<{ range: { startRowIndex?: number; endRowIndex?: number; startColumnIndex?: number; endColumnIndex?: number }; columnProperties?: Array<{ columnIndex?: number; columnName?: string; dataValidationRule?: SheetCell["dataValidation"] }> }>; data?: Array<{ startRow?: number; startColumn?: number; rowData?: Array<{ values?: SheetCell[] }> }> };
 type Update = { range: string; values: string[][] };
 const text = (cell?: SheetCell) => String(cell?.userEnteredValue?.stringValue ?? cell?.userEnteredValue?.numberValue ?? "");
-const oneLine = (value: string) => value.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").replaceAll(START, "(CMPRI work orders)").replaceAll(END, "(/CMPRI work orders)").trim();
+const oneLine = (value: string) => value.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
 
-export function corporateRankerNotes(existing: string, tickets: Ticket[]) {
-  const start = existing.indexOf(START), end = existing.indexOf(END);
-  if ((start >= 0) !== (end >= 0) || (start >= 0 && (end < start || existing.indexOf(START, start + START.length) >= 0 || existing.indexOf(END, end + END.length) >= 0))) {
-    throw new Error("The corporate notes contain an incomplete CMPRI block; review it before syncing.");
-  }
-  // Remove only our own delimited block. Preserve all other corporate notes.
-  const manual = start < 0 ? existing : (existing.slice(0, start).replace(/\n$/, "") + existing.slice(end + END.length));
-  if (!tickets.length) return manual;
-  const lines = tickets.map(ticket => `[${oneLine(ticket.display_id || ticket.id)}] ${oneLine(ticket.priority)} / ${oneLine(ticket.status)}: ${oneLine(ticket.issue)}`);
-  const result = `${manual}${manual && !manual.endsWith("\n") ? "\n" : ""}${START}\n${lines.join("\n")}\n${END}`;
+export function corporateRankerNotes(tickets: Ticket[]) {
+  // Corporate descriptions are owned by CMPRI: issues only, one per line.
+  // An empty active-ticket list clears old corporate and legacy sync notes.
+  const result = tickets.map(ticket => oneLine(ticket.issue)).filter(Boolean).join("\n");
   if (result.length > 50_000) throw new Error("The corporate notes exceed Google's cell limit; no notes were truncated.");
   return result;
 }
@@ -60,7 +52,7 @@ export function planCorporateRankerUpdates(sheet: Sheet, locations: RankingLocat
     if (rankRule && (rankRule.type !== "ONE_OF_LIST" || !rankRule.values?.some(value => value.userEnteredValue === room.rank))) {
       throw new Error(`Corporate room ${number} does not permit rank ${room.rank}.`);
     }
-    const notes = corporateRankerNotes(text(cells[6]), room.issues as Ticket[]);
+    const notes = corporateRankerNotes(room.issues as Ticket[]);
     if (notes !== text(cells[6]) && cells[6]?.dataValidation) throw new Error(`Corporate room ${number} has unsupported notes validation.`);
     if (text(cells[5]) !== room.rank) updates.push({ range: `${quoted}!F${index + 1}`, values: [[room.rank]] });
     if (text(cells[6]) !== notes) updates.push({ range: `${quoted}!G${index + 1}`, values: [[notes]] });

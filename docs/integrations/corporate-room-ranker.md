@@ -12,7 +12,7 @@ Production workbook: `1VSuwfAG0yM780fc9-Ds0JlzT0wQIdJmTWnCGlnjgfGA`, tab `Room R
 | D | Specific Room Check 2 | Corporate inspection field. No equivalent current CMPRI source; preserve the existing value. |
 | E | Specific Room Check 3 | Corporate inspection field. No equivalent current CMPRI source; preserve the existing value. |
 | F | Room Ranker | Current shared `rankTicketRooms` calculation, including accumulated-ticket thresholds and original priorities beneath automatic escalation. Output is A, B, or C. |
-| G | Notes/Actions needed in Room (existing trailing space retained) | Active work-order display IDs, priorities, statuses, and issue summaries inside a delimited CMPRI block; preserve all other corporate notes. Completed, Closed, and Will Not Do tickets disappear from the block. |
+| G | Notes/Actions needed in Room (existing trailing space retained) | Active work-order issue text only, one issue per line. No work-order numbers, priorities, statuses, or wrapper labels. Replace old corporate notes completely; clear the cell when no active issues remain. Completed, Closed, and Will Not Do tickets are excluded. |
 
 Inspector and checks 1–3 are deliberately not fabricated from unrelated technician names or PM entries. The retired ranker supported direct inspection-cell edits; current CMPRI no longer exposes that editor.
 
@@ -25,7 +25,7 @@ Inspector and checks 1–3 are deliberately not fabricated from unrelated techni
 5. The worker loads current committed data, validates all seven headers and every room mapping, then compares current corporate F/G cells with the desired output. It batches only changed values using RAW input. Identical output produces no write.
 6. Read-back verifies the saved values before acknowledging the revision. If a newer revision arrived during delivery, completion wakes another worker immediately from that change event.
 
-The write does not change A:E, headings, tables, dropdown definitions, conditional formatting, summary formulas, dimensions, or sheet layout. Corporate manual notes remain outside `[CMPRI work orders]` and `[/CMPRI work orders]`. Missing/duplicate rooms, shifted headers, formulas in output cells, unsupported rank validation, malformed note blocks, or oversized notes stop the write rather than truncate data or invent mappings.
+The write does not change A:E, headings, tables, dropdown definitions, conditional formatting, summary formulas, dimensions, or sheet layout. Column G is entirely owned by the active issue descriptions, as requested on November 16, 2026. Missing/duplicate rooms, shifted headers, formulas in output cells, unsupported rank validation, or oversized notes stop the write rather than truncate data or invent mappings.
 
 ## Configuration and recovery
 
@@ -37,4 +37,4 @@ An initial reconciliation or explicit operator retry can call the service-only R
 
 ## Verification
 
-Tests cover the seven-column contract, current grade thresholds, preservation of corporate content, unchanged-output skips, missing/duplicate mappings, malformed note blocks, formula/validation protection, webhook authorization, transaction rollback/coalescing, concurrent delivery claims, new revisions during delivery, failure retention, and absence of ranker cron jobs.
+Tests cover the seven-column contract, current grade thresholds, preservation of inspection fields and replacement of legacy descriptions, unchanged-output skips, missing/duplicate mappings, issue-only output, formula/validation protection, webhook authorization, transaction rollback/coalescing, concurrent delivery claims, new revisions during delivery, failure retention, and absence of ranker cron jobs.

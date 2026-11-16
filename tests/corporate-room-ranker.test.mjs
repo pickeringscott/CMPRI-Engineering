@@ -28,11 +28,11 @@ function admin(){return {rpc:async(name,args)=>{
  calls.push([name,args]);return {data:name.endsWith('_claim')?(claimed?{owner:'owner',revision:1}:null):true,error:null};
 },from:table=>{const q={};for(const name of ['select','eq','not','order'])q[name]=()=>q;q.range=async()=>({data:table==='locations'?[location]:[ticket],error:null});return q;}};}
 
-test('maps all corporate headers; only F/G change and preserve inspector, checks, and manual notes',()=>{
+test('maps all corporate headers; only F/G change and preserve inspector, checks, and replace legacy notes',()=>{
  const sheet=fixture(),before=structuredClone(sheet);
  const plan=ranker.planCorporateRankerUpdates(sheet,[location],[ticket]);
  assert.equal(plan.rooms,1);assert.deepEqual(Array.from(plan.updates,u=>u.range),["'Room Ranker'!F2","'Room Ranker'!G2"]);
- assert.equal(plan.updates[0].values[0][0],'C');assert.match(plan.updates[1].values[0][0],/^Corporate note\n\[CMPRI work orders\]\n\[WO-0001\] High \/ Open: A\/C not cooling/);
+ assert.equal(plan.updates[0].values[0][0],'C');assert.equal(plan.updates[1].values[0][0],'A/C not cooling');
  assert.equal(JSON.stringify(sheet),JSON.stringify(before));
 });
 test('current rank thresholds match CMPRI and completed tickets remove the managed notes',()=>{
@@ -41,24 +41,22 @@ test('current rank thresholds match CMPRI and completed tickets remove the manag
   const plan=ranker.planCorporateRankerUpdates(sheet,[location],low.slice(0,count));
   assert.equal(plan.updates.find(u=>u.range.endsWith('F2'))?.values[0][0]??'A',expected);
  }
- const notes=ranker.corporateRankerNotes('Corporate note',[ticket]);
- assert.equal(ranker.corporateRankerNotes(notes,[ticket]),notes);
- assert.equal(ranker.corporateRankerNotes(notes,[]),'Corporate note');
+ assert.equal(ranker.corporateRankerNotes([ticket,{...ticket,id:'t2',issue:'  Broken light\n in bathroom  '}]),'A/C not cooling\nBroken light in bathroom');
+ assert.equal(ranker.corporateRankerNotes([]),'');
  const completed=ranker.planCorporateRankerUpdates(sheet,[location],[{...ticket,status:'Completed'}]);
- assert.equal(completed.updates.length,0);
+ assert.equal(completed.updates.length,1);
+ assert.equal(completed.updates[0].values[0][0],'');
 });
 test('fails safely on missing rooms, duplicates, shifted headers, formulas, or incompatible validation',()=>{
  for(const change of [s=>s.data[0].rowData[1].values[0]=cell('102'),s=>s.data[0].rowData.push(s.data[0].rowData[1]),s=>s.data[0].rowData[0].values[1]=cell('Inspector'),s=>s.data[0].rowData[1].values[5]={userEnteredValue:{formulaValue:'=1'}},s=>s.data[0].rowData[1].values[5].dataValidation={condition:{type:'ONE_OF_LIST',values:[{userEnteredValue:'A'}]}}]){
   const sheet=fixture();change(sheet);assert.throws(()=>ranker.planCorporateRankerUpdates(sheet,[location],[ticket]));
  }
  assert.throws(()=>ranker.planCorporateRankerUpdates(fixture(),[],[]));
- assert.throws(()=>ranker.corporateRankerNotes('[CMPRI work orders]',[ticket]));
  const sheet=fixture();sheet.tables=[{range:{startRowIndex:0,endRowIndex:2,startColumnIndex:0,endColumnIndex:8},columnProperties:[{columnIndex:5,dataValidationRule:{condition:{type:'ONE_OF_LIST',values:[{userEnteredValue:'A'}]}}}]}];
  assert.throws(()=>ranker.planCorporateRankerUpdates(sheet,[location],[ticket]),/does not permit/);
  sheet.tables[0].columnProperties[0].dataValidationRule.condition.values.push({userEnteredValue:'C'});
  assert.equal(ranker.planCorporateRankerUpdates(sheet,[location],[ticket]).updates.length,2);
- const escaped=ranker.corporateRankerNotes('Corporate note',[{...ticket,issue:'[CMPRI work orders] [/CMPRI work orders] =1+1'}]);
- assert.equal(ranker.corporateRankerNotes(escaped,[]),'Corporate note');
+ assert.equal(ranker.corporateRankerNotes([{...ticket,issue:'=1+1'}]),'=1+1');
 });
 test('event delivery verifies its write; duplicate/unchanged deliveries make no Sheets writes',async()=>{
  process.env.CMPRI_CORPORATE_RANKER_ENABLED='true';process.env.CMPRI_ROOM_RANKER_SPREADSHEET_ID='corporate';process.env.CMPRI_ROOM_RANKER_SHEET_NAME='Room Ranker';
