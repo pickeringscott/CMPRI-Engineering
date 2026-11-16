@@ -18,7 +18,7 @@ function loadModule(config={}) {
   const calls=[];
   const source=ts.transpileModule(readFileSync(path.join(root,'lib/server/google-sheets.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const exports={};
-  vm.runInNewContext(source,{exports,URL,URLSearchParams,Buffer,Date,fetch:async(url,init={})=>{
+  vm.runInNewContext(source,{exports,URL,URLSearchParams,Buffer,Date,AbortSignal,fetch:async(url,init={})=>{
     calls.push({url:String(url),init});
     if(String(url)==='https://oauth2.googleapis.com/token'){
       const assertion=new URLSearchParams(init.body).get('assertion');
