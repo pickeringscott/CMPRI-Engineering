@@ -6,6 +6,7 @@ import { inventoryUnitOptions } from "@/lib/inventory";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { chemicalRemark, type PoolChemicalUse, type PoolSupply } from "@/lib/pool-chemicals";
 import PoolSpecs from "./PoolSpecs";
+import PoolReport from "./PoolReport";
 import PoolDailyHistory, { type PoolDailyEntry } from "./PoolDailyHistory";
 import "./pool-log.css";
 import { getValidSession } from "@/lib/supabase/client";
@@ -18,8 +19,6 @@ import {
   poolClosureReasons,
   poolCurrentClosureReasons,
   applyPoolTestStatus,
-  poolLocationReadings,
-  poolLocationValue,
   poolReadingWarnings,
   poolLogTodayDate,
   sampleLocationLabel,
@@ -184,7 +183,6 @@ export default function PoolLogPage() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [facility, setFacility] = useState<Facility | null>(null);
   const [saved, setSaved] = useState<Log | null>(null);
-  const [retests, setRetests] = useState<Record<string, unknown>[]>([]);
   const [dailyActivity, setDailyActivity] = useState<{ date: string; facilityId: string; entries: PoolDailyEntry[]; error: string } | null>(null);
   const [activityRefresh, setActivityRefresh] = useState(0);
   const requestedActivityRefresh = useRef(0);
@@ -236,7 +234,6 @@ export default function PoolLogPage() {
       setFacilities(result.facilities || []);
       setFacility(result.facility || null);
       setSaved(result.log || null);
-      setRetests(result.retests || []);
       if (result.facility?.id) setDailyActivity({ date, facilityId: result.facility.id, entries: result.daily_entries || [], error: Array.isArray(result.daily_entries) ? "" : result.daily_entries_error || "Pool activity could not be loaded." });
       setForm(values);
       setBaseline(savedValues);
@@ -431,7 +428,6 @@ export default function PoolLogPage() {
             <PoolSpecs />
             {saved && canEditSavedLog ? <button type="button" disabled={loading || saving || editingSavedLog || dirty} onClick={() => setEditingSavedLog(true)} className="rounded-lg border border-amber-400/60 px-3 py-2 text-amber-100 disabled:opacity-50">{editingSavedLog ? "Editing saved log" : "Edit saved log"}</button> : null}
             <button type="button" disabled={!facility || loading || historyLoading} onClick={() => void toggleHistory()} className="rounded-lg border border-cyan-400/50 px-3 py-2 text-cyan-100 disabled:opacity-50">{historyLoading ? "Loading pool log…" : showHistory ? "Hide entire pool log" : "View entire pool log"}</button>
-            <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
           </div>
         </header>}
         {embedded && <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
@@ -440,7 +436,6 @@ export default function PoolLogPage() {
             <PoolSpecs />
             {saved && canEditSavedLog ? <button type="button" disabled={loading || saving || editingSavedLog || dirty} onClick={() => setEditingSavedLog(true)} className="rounded-lg border border-amber-400/60 px-3 py-2 text-amber-100 disabled:opacity-50">{editingSavedLog ? "Editing saved log" : "Edit saved log"}</button> : null}
             <button type="button" disabled={!facility || loading || historyLoading} onClick={() => void toggleHistory()} className="rounded-lg border border-cyan-400/50 px-3 py-2 text-cyan-100 disabled:opacity-50">{historyLoading ? "Loading pool log…" : showHistory ? "Hide entire pool log" : "View entire pool log"}</button>
-          <button type="button" disabled={!saved || dirty || loading || saving} onClick={() => window.print()} className="rounded-lg bg-cyan-700 px-3 py-2 disabled:opacity-50">Print saved log</button>
           </div>
         </div>}
 
@@ -610,28 +605,7 @@ export default function PoolLogPage() {
           </div> : <p className="mt-3">No saved pool-log entries were found.</p>}
         </section> : null}
 
-        {saved ? <section className="hidden rounded-lg border border-slate-600 p-3 print:block print:border-black">
-          <h2 className="font-semibold">Shallow and deep recording</h2>
-          <p className="text-sm">Shared means one sample applied to both shallow and deep, with collection location unspecified. Historical stored readings and attribution are retained. Sample attribution: AM {sampleLocationLabel(saved.sample_location_am)} · PM {sampleLocationLabel(saved.sample_location_pm)}.</p>
-          <table className="mt-3 w-full border-collapse text-sm"><thead><tr><th className="border p-2 text-left">Location / measurement</th><th className="border p-2 text-left">Recorded value</th></tr></thead><tbody>{poolLocationReadings.map(([key, label]) => {
-            const value = poolLocationValue(saved, key);
-            const bandLabel = bromineBands.find(([band]) => band === value)?.[1];
-            return <tr key={key}><td className="border p-2">{label}</td><td className="border p-2">{value == null ? "Not recorded" : bandLabel ?? String(value)}</td></tr>;
-          })}</tbody></table>
-          {retests.length ? <section className="mt-4">
-            <h3 className="font-semibold">Recorded additional tests</h3>
-            <table className="mt-2 w-full border-collapse text-sm"><thead><tr>{["Recorded at (Central)", "pH", "Bromine band", "Sample"].map((label) => <th key={label} className="border p-2 text-left">{label}</th>)}</tr></thead><tbody>{retests.map((test) => <tr key={String(test.id)}>
-              <td className="border p-2">{new Date(String(test.recorded_at)).toLocaleString("en-US", { timeZone: "America/Chicago" })}</td>
-              <td className="border p-2">{String(test.ph)}</td><td className="border p-2">{String(test.sanitizer_band)}</td><td className="border p-2">One shared sample</td>
-            </tr>)}</tbody></table>
-          </section> : null}
-          <p className="mt-4 text-sm">Daily checks: water temperature {saved.temperature_f == null ? "not recorded" : `${String(saved.temperature_f)}°F`} · flow rate {saved.flow_rate_gpm == null ? "not recorded" : `${String(saved.flow_rate_gpm)} GPM`} · main drain visible {saved.main_drain_visible === true ? "Yes" : saved.main_drain_visible === false ? "No" : "not recorded"} · filter backwashed {saved.filter_backwashed === true ? "Yes" : saved.filter_backwashed === false ? "No" : "not recorded"}</p>
-          <p className="mt-2 whitespace-pre-wrap text-sm font-semibold">Current status for this log: {saved.closure_condition === true ? "CLOSED" : "Open"}</p>
-          {saved.latest_test && typeof saved.latest_test === "object" ? <p className="mt-2 text-sm">Latest submitted test: {String((saved.latest_test as Record<string, unknown>).period)} · pH {String((saved.latest_test as Record<string, unknown>).ph)} · bromine {String((saved.latest_test as Record<string, unknown>).sanitizer_band ?? (saved.latest_test as Record<string, unknown>).sanitizer)}. One shared sample; earlier tests remain in the audit history.</p> : null}
-          {saved.closure_reason ? <p className="mt-2 whitespace-pre-wrap text-sm">Closure history / actions: {String(saved.closure_reason)}</p> : null}
-          <p className="mt-2 whitespace-pre-wrap text-sm">Remarks: {saved.remarks || "None recorded"}</p>
-          <p className="mt-2 text-sm">Recorded by: {saved.completed_by_initials} · Saved: {new Date(saved.updated_at).toLocaleString("en-US", { timeZone: "America/Chicago" })} Central · Revision {saved.revision}</p>
-        </section> : null}
+        <PoolReport key={facility?.id || "unselected"} facilityId={facility?.id} disabled={loading || saving || dirty} />
       </div>
     </main>
   );

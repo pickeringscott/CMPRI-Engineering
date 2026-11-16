@@ -45,6 +45,7 @@ const required = {
     'id', 'hotel_id', 'work_order_id', 'attempts', 'next_attempt_at',
     'processed_at', 'last_error', 'created_at', 'updated_at',
   ],
+  cmpri_corporate_ranker_state: ['hotel_id', 'revision', 'delivered_revision', 'source_txid', 'owner', 'lease_until', 'last_error', 'last_delivered_at', 'updated_at'],
   cmpri_dashboard_notifications: [
     'id', 'hotel_id', 'recipient_user_id', 'notification_key', 'work_order_id',
     'target_path', 'message', 'recorded_at', 'read_at', 'cleared_at',

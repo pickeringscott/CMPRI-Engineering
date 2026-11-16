@@ -238,6 +238,7 @@ async function googleAccessToken() {
       assertion,
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
   });
   const result = await response.json().catch(() => ({})) as { access_token?: unknown; expires_in?: unknown };
   if (!response.ok || typeof result.access_token !== "string" || !result.access_token) {

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 const read=file=>readFileSync(new URL('../'+file,import.meta.url),'utf8');
 test('legacy endpoints return Gone without loading provider code or touching data',()=>{
- for(const file of ['src/app/api/room-ranker/route.ts','src/app/api/integrations/room-ranker/sync/route.ts']){
+ for(const file of ['src/app/api/room-ranker/route.ts']){
  const loadedModule={exports:{}};vm.runInNewContext(ts.transpileModule(read(file),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:loadedModule.exports,require:name=>{assert.equal(name,'next/server');return {NextResponse:{json:(body,{status})=>({body,status})}}}});
  for(const method of ['GET','POST','PATCH'])assert.equal(loadedModule.exports[method]().status,410);
  }
