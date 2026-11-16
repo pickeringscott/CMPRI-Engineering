@@ -1,0 +1,30 @@
+/* Football chrome uses the shared desktop palette; modal launchers retain their native colors. */
+[data-cmpri-seasonal-theme="illinois-iowa"] {
+  --color-slate-950:var(--cmpri-palette-desktop-tone-1,#0b1423);--color-slate-900:var(--cmpri-palette-desktop-tone-2,#13233a);--color-slate-800:var(--cmpri-palette-desktop-tone-3,#20344c);
+  --color-slate-700:var(--cmpri-palette-desktop-tone-4,#334b64);--color-slate-600:var(--cmpri-palette-desktop-tone-5,#4d657d);--color-slate-500:var(--cmpri-palette-desktop-tone-6,#6f879d);
+  --color-slate-400:var(--cmpri-palette-desktop-tone-7,#96a9b9);--color-slate-300:var(--cmpri-palette-desktop-tone-8,#bdcad4);--color-slate-200:var(--cmpri-palette-desktop-tone-9,#dce4e9);
+  --color-slate-100:var(--cmpri-palette-desktop-tone-10,#f3f5f2);--color-sky-200:var(--cmpri-palette-desktop-tone-11,#c0d2e0);--color-amber-300:var(--cmpri-palette-desktop-tone-12,#f2cc63);
+  background:var(--cmpri-palette-desktop-tone-13,#081321);color:var(--cmpri-palette-desktop-tone-10,#f3f5f2);
+}
+[data-cmpri-seasonal-theme="illinois-iowa"].cmpri-sign-in,
+[data-cmpri-seasonal-theme="illinois-iowa"].cmpri-desktop-root,
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-desktop { background:transparent; }
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-desktop-topbar {
+  background:linear-gradient(var(--cmpri-palette-desktop-tone-14,#13233af5),var(--cmpri-palette-desktop-tone-15,#0b1728f5));border-color:var(--cmpri-palette-desktop-tone-16,#ba773e);
+}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 fieldset.group,
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 fieldset.group>legend {background:var(--cmpri-palette-desktop-tone-17,#172b42)}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .preview .header fieldset.group>legend {
+  background:var(--cmpri-palette-desktop-tone-18,#5c351d);color:var(--cmpri-palette-desktop-tone-19,#ffe0a3);
+}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .group-outline path {stroke:var(--cmpri-palette-desktop-tone-20,#9a8256)}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .layout-b .groups {border-top-color:var(--cmpri-palette-desktop-tone-21,#546c82)}
+/* Tab actions inherit each modal's palette through modalLauncherStyle. */
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-create {background:var(--cmpri-palette-desktop-tone-26,#ed8a37);border-color:var(--cmpri-palette-desktop-tone-27,#ffbd72);color:var(--cmpri-palette-desktop-tone-28,#20180d)}
+
+.cmpri-football-artwork { background:var(--cmpri-palette-desktop-tone-13,#081321); }
+.cmpri-football-animation-control { display:flex;align-items:center;justify-content:center;width:64px;height:44px;bottom:14px;border-color:var(--cmpri-palette-desktop-tone-16,#ba773e);color:var(--cmpri-palette-desktop-tone-10,#f3f5f2);background:var(--cmpri-palette-desktop-tone-14,#13233af5);font:11px system-ui; }
+.cmpri-football-animation-control:focus-visible { outline-color:var(--cmpri-palette-desktop-tone-12,#f2cc63); }
+.cmpri-football-animation-control:disabled { opacity:.6;cursor:wait; }
+@media(max-width:767px) { .cmpri-football-animation-control { bottom:90px; } }
+@media(prefers-reduced-motion:reduce) { .cmpri-football-animation-control { display:flex; } }

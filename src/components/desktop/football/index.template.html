@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101a2c">
+<title>Illinois × Iowa — CMPRI Game Day</title>
+<style>
+:root{color-scheme:dark;--orange:#ff6a24;--gold:#ffcd00;--ink:#09111e;--muted:#a6afbf}*{box-sizing:border-box}body{margin:0;background:var(--ink);color:#f6f5f1;font-family:Arial,Helvetica,sans-serif}button,a{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #ffcd00;outline-offset:4px}button{color:inherit}header{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px 32px;background:#0e1828;border-bottom:1px solid #263244}.identity{display:flex;align-items:center;gap:14px}.monogram{height:38px;width:38px;border:1px solid #f47635;display:grid;place-items:center;color:var(--orange);font-weight:900;letter-spacing:-2px;font-size:19px}.eyebrow{font-size:10px;letter-spacing:2.6px;font-weight:700;color:var(--muted);margin-bottom:6px}h1{font-size:19px;letter-spacing:-.4px;margin:0;font-weight:600}h1 span{color:#707b8d;margin:0 7px}.venue{font-size:11px;color:var(--muted);line-height:1.8;text-align:right}.venue strong{font-size:11px;letter-spacing:1.4px;color:#e9edf2;font-weight:500}.scoreboard{display:flex;align-items:stretch;border:1px solid #344053;border-radius:4px;overflow:hidden;min-width:386px}.team{display:flex;align-items:center;gap:16px;min-width:128px;padding:9px 14px;border-bottom:3px solid var(--orange);background:#142039}.team.iowa{background:#1e211e;border-color:var(--gold)}.team-word{font-size:10px;letter-spacing:1.3px;font-weight:bold}.team-mark{font:900 25px Georgia,serif;color:var(--orange);line-height:1}.iowa .team-mark{color:var(--gold);font:900 18px Arial,sans-serif;font-style:italic}.team-info{display:flex;align-items:center;gap:8px}.score{font-size:27px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;margin-left:auto}.clock{display:flex;align-items:center;justify-content:center;flex-direction:column;padding:8px 14px;min-width:113px;gap:4px;background:#070f1b}.clock b{font-size:17px;font-weight:500;font-variant-numeric:tabular-nums}.clock small{font-size:9px;color:var(--muted);letter-spacing:1.4px}.stage-wrap{position:relative;display:flex;align-items:center;justify-content:center;min-height:260px;background:radial-gradient(ellipse at center,#1d2c27,#070e16 80%);overflow:hidden}.stage{position:relative;flex:0 0 auto;width:min(100%,calc((100svh - 206px)*2));aspect-ratio:2/1;isolation:isolate}.stage canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}#still{z-index:0}#motion{z-index:1}.frame-corners{position:absolute;inset:16px;pointer-events:none;border:1px solid #ffffff15;z-index:2}.camera-label{position:absolute;left:24px;top:20px;z-index:3;background:#07111dda;padding:9px 11px;font-size:9px;letter-spacing:1.8px;border-left:2px solid var(--orange)}.camera-label span{color:#a9b5c6;margin-left:8px}.image-error{position:absolute;inset:30%;z-index:4;text-align:center;background:#101a2c;padding:24px}.ribbon{padding:17px 32px 18px;display:flex;justify-content:space-between;align-items:center;gap:24px;background:#101a2c;border-top:1px solid #2b3543}.live{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:1.5px;font-weight:bold;color:#e4e8ed}.live-dot{width:6px;height:6px;border-radius:50%;background:#9ed5a2;box-shadow:0 0 9px #9ed5a244}.play-description{font-size:12px;color:#b8c0cc;margin-top:6px;min-width:250px}.fan-split{width:280px;flex-shrink:0}.split-labels{display:flex;justify-content:space-between;gap:8px;font-size:10px;letter-spacing:.5px;margin-bottom:8px}.split-labels b{font-weight:500}.split-labels span:first-child{color:#ffa471}.split-labels span:last-child{color:#ffe377}.split-bar{display:flex;gap:3px;height:3px}.split-bar i:first-child{width:55%;background:var(--orange)}.split-bar i:last-child{width:45%;background:var(--gold)}.controls{display:flex;align-items:center;gap:8px}button{padding:10px 13px;border:1px solid #3c4655;background:#182437;border-radius:3px;font-size:11px;line-height:18px;white-space:nowrap;min-height:40px}button:hover{background:#25344a;border-color:#7d8a9e}button.active{border-color:#ff9a68;background:#2c2625}#pause{min-width:95px}.subfooter{display:flex;align-items:flex-start;justify-content:space-between;gap:30px;padding:14px 32px;color:#8492a7;font-size:10px;line-height:1.7}.subfooter p{margin:0}details{max-width:720px}summary{cursor:pointer;color:#acb7c6;white-space:nowrap}details p{padding-top:9px;font-size:11px;max-width:630px}.kbd{font-family:monospace;font-size:10px;letter-spacing:.6px;color:#a8b4c5}.screen-reader{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}body.ambient header,body.ambient .ribbon,body.ambient .subfooter,body.ambient .play-log{display:none}body.ambient .stage-wrap{height:100svh}body.ambient .stage{width:min(100%,200svh)}body.ambient .camera-label,body.ambient .frame-corners{display:none}#exitAmbient{display:none;position:fixed;right:18px;bottom:18px;z-index:10;background:#0a1523e8}body.ambient #exitAmbient{display:block}.noscript{padding:24px;text-align:center}.noscript img{max-width:100%}@media(min-width:1650px){header,.ribbon,.subfooter{padding-left:4vw;padding-right:4vw}}@media(max-width:1000px){header{padding:18px 20px;flex-wrap:wrap;gap:18px}.venue{display:none}.scoreboard{min-width:340px}.team{min-width:115px}.ribbon{padding:17px 20px;flex-wrap:wrap;gap:18px}.controls{margin-left:auto}.subfooter{padding:14px 20px}.stage{width:100%}.fan-split{width:280px}}@media(max-width:650px){header{padding:17px 16px;gap:16px}.identity{gap:10px}.monogram{height:34px;width:34px}.eyebrow{font-size:9px;letter-spacing:2px}h1{font-size:17px}.scoreboard{width:100%;min-width:0}.team{flex:1;min-width:0;gap:10px;padding:9px 12px}.clock{min-width:100px}.team-mark{display:none}.score{font-size:25px}.team-word{font-size:10px}.stage-wrap{min-height:0}.stage{width:100%}.camera-label{left:10px;top:10px;font-size:7px;padding:6px;letter-spacing:1px}.camera-label span{display:none}.frame-corners{inset:8px}.ribbon{padding:16px;gap:18px}.game-status{width:100%}.fan-split{width:100%}.controls{margin:0;width:100%;display:grid;grid-template-columns:1fr 1fr 1fr}.controls button{min-height:44px;padding:9px 7px;font-size:11px}.subfooter{padding:12px 16px;gap:16px;flex-wrap:wrap}.kbd{display:none}.play-description{min-width:0}.live{font-size:9px}}@media(max-height:550px) and (min-width:651px){header{padding:10px 20px}.stage{width:min(100%,calc((100svh - 163px)*2))}.ribbon{padding:10px 20px}.subfooter{padding-top:8px;padding-bottom:8px}.venue{display:none}}
+.attendance{font-size:10px;color:#d4dce4;letter-spacing:1.1px;margin-bottom:9px}.lead-summary{font-size:9px;color:#d4c7aa;letter-spacing:1.1px;margin-top:7px}.speed-label{font-size:10px;color:#bac5d3;display:flex;align-items:center;gap:5px;white-space:nowrap}select{background:#182437;color:#f6f5f1;border:1px solid #3c4655;padding:9px 4px;min-height:40px;border-radius:3px}select:focus-visible{outline:3px solid #ffcd00;outline-offset:3px}.ribbon{flex-wrap:wrap}.controls{flex-wrap:wrap}.game-status{flex:1;min-width:270px}@media(max-width:650px){.controls{grid-template-columns:1fr 1fr}.controls .speed-label{grid-column:1/-1}.game-status{min-width:0}.speed-label select{min-height:44px}.fan-split{width:100%}}
+/* Insert cmpriScorebug inside the positioned .stage; no external assets. */
+.play-log{padding:0 32px 16px;color:#bec8d5;font-size:11px;max-width:none}.play-log ol{max-height:200px;overflow:auto;line-height:1.7;padding-left:28px}.play-log summary{font-size:11px}
+@media(max-width:650px){.stage-wrap{padding-bottom:115px}.play-log{padding:0 16px 16px}body.ambient .stage-wrap{padding-bottom:0}}
+@media(max-width:650px){.stage-wrap{padding-bottom:107px}}
+#ambience{z-index:1}#motion{z-index:2}
+
+#cmpriScorebug{position:absolute;z-index:5;left:50%;bottom:10px;transform:translateX(-50%);width:min(440px,calc(100% - 20px));padding-top:6px;font-family:Arial,Helvetica,sans-serif;font-variant-numeric:tabular-nums;color:#fff;line-height:1;contain:layout style}
+#cmpriScorebug .sb-graphic{position:relative;height:51px;isolation:isolate;border:1.5px solid #b2b2a0;border-bottom-color:#dddccc;border-radius:5px 5px 2px 2px;background:linear-gradient(#92958c 0,#3e443e 13%,#0a0c0e 35%,#030809 89%,#c7cab3 92%,#8a927e 100%);box-shadow:inset 0 1px 2px #ffffdf80}
+#cmpriScorebug .sb-graphic:before{content:"";position:absolute;inset:1px 1px auto;height:11px;border-radius:3px 3px 0 0;background:linear-gradient(90deg,#ac3d18,#762610 34%,#42483e 57%,#635d3c 100%);box-shadow:0 1px 1px #fff4}
+#cmpriScorebug .sb-team-name{position:absolute;z-index:3;top:2px;font-size:9px;line-height:10px;font-weight:800;letter-spacing:.15px;text-shadow:0 1px #000;white-space:nowrap}
+#cmpriScorebug .sb-name-ill{left:4px}#cmpriScorebug .sb-name-iowa{right:5px}#cmpriScorebug .sb-rank{font-size:8px}
+#cmpriScorebug .sb-side{position:absolute;top:12px;bottom:3px;width:39%;overflow:hidden}
+#cmpriScorebug .sb-ill{left:0;background:linear-gradient(115deg,#a74721,#692817 31%,#172139 61%,#050b10 97%)}
+#cmpriScorebug .sb-iowa{right:0;background:linear-gradient(245deg,#9e8b3c,#514728 32%,#172016 62%,#050b10 97%)}
+#cmpriScorebug .sb-team-logo{position:absolute;object-fit:contain;bottom:2px;height:29px;width:43px}
+#cmpriScorebug .sb-ill .sb-team-logo{left:15px;width:23px;height:31px}#cmpriScorebug .sb-iowa .sb-team-logo{right:10px}
+#cmpriScorebug .sb-score{position:absolute;left:70%;top:-1px;transform:translateX(-50%);min-width:42px;text-align:center;font-size:30px;line-height:35px;font-weight:900;letter-spacing:-1px;text-shadow:0 1px 2px #000}
+#cmpriScorebug .sb-iowa .sb-score{left:28%}
+#cmpriScorebug .sb-timeouts{position:absolute;left:52%;right:17%;bottom:0;height:2px;display:flex;gap:3px}
+#cmpriScorebug .sb-iowa .sb-timeouts{left:14%;right:55%}#cmpriScorebug .sb-timeouts>i{height:2px;background:#eeeedc;flex:1}
+#cmpriScorebug .sb-down{position:absolute;z-index:4;left:50%;top:-3px;transform:translateX(-50%);width:124px;height:21px;border:1px solid #a6aa9b;border-top-color:#dddccb;border-radius:4px 4px 6px 6px;background:linear-gradient(#45483c,#272c23 40%,#020704 66%,#081008);box-shadow:0 2px 3px #0009,inset 0 1px #ffffdf4d;text-align:center;font-size:13px;line-height:19px;font-weight:900;white-space:nowrap}
+#cmpriScorebug .sb-center{position:absolute;z-index:3;left:36%;right:36%;top:24px;bottom:4px;background:#050b08;display:flex;align-items:center;justify-content:center}
+#cmpriScorebug .sb-game-time{display:flex;align-items:center;justify-content:space-between;width:calc(100% - 12px);gap:0;white-space:nowrap;font-size:9px;color:#efd344;font-weight:800}
+#cmpriScorebug #sbQuarter{text-transform:lowercase}#cmpriScorebug #sbClock{font-size:16px;font-weight:900;letter-spacing:-.4px;color:#fff;min-width:44px;text-align:center}#cmpriScorebug #sbPlayClock{font-size:9px;min-width:10px}
+#cmpriScorebug .sb-ticker{height:12px;display:flex;align-items:center;padding:0 5px;border:1px solid #9da28f;border-top:0;background:linear-gradient(#bfc2b1,#949d8b 58%,#bdc2ae);border-radius:0 0 2px 2px;overflow:hidden;color:#15201b;text-transform:uppercase;font-size:8px;font-weight:700;line-height:10px;text-align:center}
+#cmpriScorebug .sb-ticker-viewport{width:100%;min-width:0;overflow:hidden}#cmpriScorebug #sbTicker{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:none;transform:none;padding:0}
+.sim-tally{position:absolute;z-index:4;left:24px;top:49px;display:flex;align-items:center;gap:10px;padding:5px 8px;border:1px solid #53615d80;border-radius:2px;background:#07131de3;color:#e0e4dc;font-size:8px;font-weight:700;line-height:12px;letter-spacing:.2px;white-space:nowrap}
+.sim-tally .sb-tally-ill{color:#ffb587}.sim-tally .sb-tally-iowa{color:#efd36b}.sim-tally b{color:#fff;font-weight:800}.sim-tally .sb-tally-label{color:#cbd4cc;font-size:7px}
+@media(max-width:650px){.stage-wrap{padding-bottom:80px}.stage #cmpriScorebug,body.ambient .stage #cmpriScorebug{bottom:-72px;width:calc(100% - 20px)}#cmpriScorebug .sb-graphic{height:45px}#cmpriScorebug .sb-team-name{font-size:8px;line-height:9px}#cmpriScorebug .sb-rank{font-size:7px}#cmpriScorebug .sb-down{height:19px;line-height:17px;width:110px;font-size:12px}#cmpriScorebug .sb-side{top:12px;bottom:3px}#cmpriScorebug .sb-score{font-size:24px;line-height:28px;min-width:30px;top:0}#cmpriScorebug .sb-team-logo{height:24px;width:36px}#cmpriScorebug .sb-ill .sb-team-logo{height:26px;width:19px;left:10px}#cmpriScorebug .sb-iowa .sb-team-logo{right:7px}#cmpriScorebug .sb-center{top:23px;bottom:3px;left:35%;right:35%}#cmpriScorebug .sb-game-time{gap:3px;font-size:8px}#cmpriScorebug #sbClock{font-size:15px;min-width:40px}#cmpriScorebug #sbPlayClock{font-size:8px;min-width:8px}#cmpriScorebug .sb-ticker{height:11px;font-size:7.5px;line-height:9px}.sim-tally{left:10px;top:28px;gap:7px;padding:3px 5px;font-size:7px;line-height:9px}.sim-tally .sb-tally-label{font-size:6px}}
+
+.field-surface{position:absolute;inset:0;width:100%;height:100%}.game-break{position:absolute;z-index:6;left:50%;top:42%;transform:translate(-50%,-50%);width:min(390px,calc(100% - 32px));padding:18px 22px;text-align:center;border:1px solid #d5c48b;border-radius:4px;background:#08141bef;color:#f7f4e8;box-shadow:0 4px 16px #0008}.game-break[hidden]{display:none}.game-break strong{display:block;font-size:19px;letter-spacing:1.3px}.game-break p{margin:9px 0 0;color:#dae0df;font-size:12px;line-height:1.5}body.cmpri-embedded #exitAmbient{display:none!important}
+@media (max-width:767px) and (orientation:portrait),(max-width:1024px) and (pointer:coarse){
+ .stage-wrap{height:calc(100svh - 72px);padding:0;overflow:hidden}.stage{width:100%;height:100%;aspect-ratio:auto}.field-surface{inset:auto;left:50%;top:50%;width:min(calc(100vw * 2),calc(100svh - 96px));height:auto;aspect-ratio:2/1;transform:translate(-50%,-50%) rotate(90deg);transform-origin:center}.stage #cmpriScorebug,body.ambient .stage #cmpriScorebug{position:fixed;left:50%;bottom:6px;width:min(440px,calc(100vw - 20px));z-index:7}.sim-tally{position:fixed;top:77px;left:8px;font-size:7px;gap:7px;padding:4px 6px}.camera-label{top:8px}.game-break{position:fixed;top:42%;width:calc(100vw - 32px)}body.ambient .stage-wrap{height:100svh;padding:0}body.ambient .field-surface{width:min(calc(100vw * 2),calc(100svh - 88px))}body.ambient .sim-tally{top:8px}body.ambient #exitAmbient{top:36px;bottom:auto;right:8px}body.ambient .game-break{top:42%}body.cmpri-embedded .camera-label{display:none}
+}
+</style>
+</head>
+<body>
+<header>
+ <div class="identity"><div class="monogram" aria-hidden="true">C</div><div><div class="eyebrow">CMPRI · GAME DAY COLLECTION</div><h1>Illinois <span>×</span> Iowa</h1></div></div>
+ <div class="venue"><strong>GIES MEMORIAL STADIUM</strong><br>CHAMPAIGN, ILLINOIS · OVERHEAD CAM</div>
+</header>
+<main>
+ <div class="stage-wrap"><div class="stage" role="img" aria-describedby="sceneDescription">
+  <div class="field-surface"><canvas id="still" width="1520" height="760" aria-hidden="true"></canvas><canvas id="ambience" width="1520" height="760" aria-hidden="true"></canvas><canvas id="motion" width="1520" height="760" aria-hidden="true"></canvas></div>
+<div id="cmpriScorebug" class="broadcast-scorebug" role="group" aria-label="Simulated Illinois versus Iowa football score">
+  <div class="sb-graphic">
+    <div class="sb-team-name sb-name-ill">ILLINOIS</div>
+    <div class="sb-team-name sb-name-iowa"><span class="sb-rank">15</span> IOWA</div>
+    <div class="sb-down" id="sbDown">1ST &amp; 10</div>
+    <div class="sb-side sb-ill"><img class="sb-team-logo" src="__ILLINOIS_LOGO__" alt="Illinois Block I"><strong class="sb-score" id="sbIllScore">0</strong><i class="sb-timeouts" aria-hidden="true"><i></i><i></i><i></i></i></div>
+    <div class="sb-center"><div class="sb-game-time"><span id="sbQuarter">1ST</span> <strong id="sbClock">15:00</strong> <span class="sb-play-clock" id="sbPlayClock">40</span></div></div>
+    <div class="sb-side sb-iowa"><strong class="sb-score" id="sbIowaScore">0</strong><img class="sb-team-logo" src="__IOWA_LOGO__" alt="Iowa Hawkeyes"><i class="sb-timeouts" aria-hidden="true"><i></i><i></i><i></i></i></div>
+  </div>
+  <div class="sb-ticker"><div class="sb-ticker-viewport"><span id="sbTicker" role="status" aria-live="polite">Illinois vs #15 Iowa · Simulated game starting</span></div></div>
+
+  <span id="sbAccessibleSummary" class="screen-reader" aria-live="polite">Simulated score: Illinois 0, Iowa 0. First quarter.</span>
+</div>
+
+  <div class="sim-tally" aria-label="Persistent simulation win and loss tally"><span class="sb-tally-label">SIMULATIONS W–L</span><span class="sb-tally-ill">ILLINOIS <b id="tallyIllWins">0</b>–<b id="tallyIllLosses">0</b></span><span class="sb-tally-iowa">IOWA <b id="tallyIowaWins">0</b>–<b id="tallyIowaLosses">0</b></span><span><b id="tallyTotal">0</b> GAMES</span></div>
+
+<div class="game-break" id="gameBreak" hidden role="status" aria-live="polite"><strong id="gameBreakTitle"></strong><p id="gameBreakMessage"></p></div>
+  <div class="frame-corners"></div><div class="camera-label">STADIUM CAM 01 <span>ILLINI / HAWKEYES</span></div>
+  <p id="imageError" class="image-error" hidden>The stadium image could not be decoded. Reopen the downloaded HTML in a browser.</p>
+ </div></div>
+ <p id="sceneDescription" class="screen-reader">Iowa fans cluster around section 109 at the upper right and blend outward along both sides of the stands. Aerial photograph of Gies Memorial Stadium with 60,670 spectators, 100 percent of regular seating capacity: 55 percent Illinois fans in orange and navy, 45 percent Iowa fans in gold and black. Illinois keeps its orange end zone; the opposite end zone reads IOWA in gold on black with matching vertical block lettering. Eleven players per team run passing and rushing plays with an animated football. Both sidelines have substitutes, coaches, trainers, benches, and equipment.</p>
+ <div class="ribbon">
+  <div class="game-status"><div class="live"><i class="live-dot" aria-hidden="true"></i><span id="stateLabel">GAME IN MOTION</span><span style="color:#63718a">/</span><span id="downLabel">DRIVE 1</span></div><div class="play-description" id="playText" role="status" aria-live="polite">A fresh game is starting. Each snap is simulated.</div><div id="leadSummary" class="lead-summary">TIED · 0 LEAD CHANGES</div></div>
+  <div class="fan-split" aria-label="Sold out: 60,670 spectators. Illinois 33,369; Iowa 27,301."><div class="attendance">SOLD OUT · 60,670 / 60,670</div><div class="split-labels"><span>ILLINOIS <b>55% · 33,369</b></span><span>IOWA <b>45% · 27,301</b></span></div><div class="split-bar" aria-hidden="true"><i></i><i></i></div></div>
+  <div class="controls"><label class="speed-label">Motion <select id="motionQuality" aria-label="Motion quality and processing"><option value="light" selected>Low CPU</option><option value="smooth">Smooth</option></select></label><label class="speed-label">Speed <select id="speed" aria-label="Simulation speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option></select></label><button id="pause" type="button" aria-pressed="false">Pause</button><button id="next" type="button">Next play →</button><button id="newGame" type="button">New game</button><button id="ambient" type="button">Theme view</button></div>
+ </div>
+</main>
+<details class="play-log"><summary>Play-by-play</summary><ol id="playLog"></ol></details>
+<div class="subfooter"><details><summary>About this theme</summary><p>Built on the supplied GiesOverheadView.jpg. An illustrated four-quarter simulation, not a live broadcast. All 60,670 seats are filled: 33,369 Illinois fans and 27,301 Iowa fans. Iowa occupies the section 109 core in the upper right and blends outward along both neighboring seating arms; Illinois occupies the remaining home sections. Iowa is labeled AP No. 15. Illinois has no rank label on the scorebug. The broadcast scorebug at bottom center shows the simulated score, clock, quarter, and down. Every completed play appears in the bottom ticker and play-by-play log. The completed-game win/loss tally persists locally. The second half starts with the opposite opening receiver. Two-minute warnings in the second and fourth quarters and halftime have explicit clock-stopped intermissions. Mobile portrait artwork is vertical, with an upright scorebug fixed at the bottom of the screen. Artwork uses WebP compression, and a versioned IndexedDB cache stores the rendered scene plus compressed animation metadata. Stationary sideline figures are baked into the background. Only the field players and a small set of moving staff and fans are redrawn, using cached sprites at up to 15 frames per second in Low CPU mode, or 24 in Smooth mode. HUD values are updated only when they change. The moving canvas follows the actual display size, redraws only changed areas, and stops when hidden or offscreen. New-game preparation yields between short batches and reuses its frame storage. The scorebug and score numerals are smaller. Low CPU mode is the default; it keeps sidelines visible on a separate static layer while the game moves. Smooth mode also animates a few staff and fans. The motion choice is saved locally. If browser storage is unavailable the embedded file still runs offline. Each new game is sampled from randomized player interactions, with at least three lead changes. The game plays individual snaps with downs, distance, field position, first downs, punts, field goals, sacks, incompletions, interceptions, touchdowns, and changing possession. Player movement, the airborne ball, catches and contact resolve each snap; the rules engine carries that result into the next down. Playback speed is selectable. Neither team is scripted to win; ties are resampled. Both sidelines are filled with reserve players, seated bench groups, headset coaches, trainers, medical tables, coolers, and media crews. Field players use independent role-specific routes, pass protection, run blocking, coverage, pursuit, and tackles. Theme view presents the full artwork without the preview chrome. Motion pauses when the page is hidden and starts paused if your device requests reduced motion. This standalone preview follows CMPRI’s shared-background, responsive-layout, keyboard-focus, and motion-control requirements. CMPRI integration uses the shared sign-in/desktop background registry, shared desktop palette, and versioned asset cache.</p></details><p class="kbd">SPACE pause / resume &nbsp; · &nbsp; N next play &nbsp; · &nbsp; ESC exit theme view</p><p><span id="cacheStatus">OFFLINE READY</span></p></div>
+<button id="exitAmbient" type="button">Exit theme view</button>
+<noscript><div class="noscript">Enable JavaScript to see the animated game.<br><img src="__STADIUM_IMAGE__" alt="Overhead view of Gies Memorial Stadium"></div></noscript>
+<script>
+/* CMPRI standalone theme preview, v9.0. Photo is embedded for offline portability.
+   Integration contract: fixed viewport iframe, shared sign-in/desktop registry,
+   native modal palettes preserved, versioned assets. This file does not activate a site theme. */
+(()=>{'use strict';
+const W=1520,H=760,still=document.getElementById('still'),motion=document.getElementById('motion');
+const s=still.getContext('2d',{alpha:false}),c=motion.getContext('2d'),ambience=document.getElementById('ambience'),ambientContext=ambience.getContext('2d');let smoothMotion=false;try{smoothMotion=localStorage.getItem('cmpri.game.motion-quality')==='smooth'}catch{}document.getElementById('motionQuality').value=smoothMotion?'smooth':'light';const targetFps=()=>smoothMotion?24:15;
+const $=id=>document.getElementById(id), photo=new Image();
+const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+let artworkReady=false,gameReady=false,generating=false,sceneInView=true,hostSuspended=false;const breakSeen=new Set();const EMBEDDED_THEME=new URLSearchParams(location.search).get('theme')==='1';if(EMBEDDED_THEME){hostSuspended=true;document.body.classList.add('ambient','cmpri-embedded')}const visibleWaiters=[];let paused=reduced.matches,ready=false,raf=0,last=0,time=0,playNo=0,statusKey='',ambient=false;
+let seed=1923;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
+const lerp=(a,b,t)=>a+(b-a)*t,clamp=(n,a=0,b=1)=>Math.max(a,Math.min(b,n)),smooth=t=>{t=clamp(t);return t*t*(3-2*t)};
+function poly(ctx,points){ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath()}
+function ellipse(ctx,x,y,rx,ry,color){ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill()}
+function inside(x,y,p){let hit=false;for(let i=0,j=p.length-1;i<p.length;j=i++){let a=p[i],b=p[j];if((a[1]>y)!=(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])hit=!hit}return hit}
+const fans=[],wavers=[],sideline=[];
+// Photographed seating footprints. Aisles are individually traced, rather
+// than removing periodic stripes that could cut through actual bench rows.
+const eastConcourse=[[1370,0],[1386,0],[1426,75],[1451,150],[1470,225],[1481,300],[1485,375],[1480,450],[1469,525],[1448,600],[1413,675],[1367,750],[1357,760],[1335,760],[1348,750],[1390,675],[1424,600],[1446,525],[1457,450],[1461,375],[1457,300],[1447,225],[1427,150],[1408,75]];
+const eastPortals=[[[1402,47],[1482,0],[1492,14],[1410,62]],[[1423,124],[1520,95],[1520,108],[1429,137]],[[1454,238],[1520,216],[1520,228],[1459,249]],[[1460,333],[1520,322],[1520,335],[1462,346]],[[1460,430],[1520,440],[1520,452],[1459,441]],[[1446,533],[1520,551],[1520,564],[1442,545]],[[1420,632],[1520,659],[1520,672],[1416,644]]];
+const sections=[
+ {id:'north',p:[[251,0],[1250,0],[1250,83],[272,83]],axis:'h',cutsX:[378,485,595,704,811,922,1032,1145]},
+ {id:'south',p:[[253,684],[1245,684],[1255,760],[247,760]],axis:'h',cutsX:[375,486,595,704,813,922,1034,1143]},
+ {id:'west-outer',p:[[0,49],[105,63],[110,697],[0,727]],axis:'v',crossings:[[106,.16],[245,.13],[383,.06],[523,-.05],[662,-.11]]},
+ {id:'west-inner',p:[[148,74],[186,76],[187,134],[210,145],[212,615],[158,633],[148,651]],axis:'v',crossings:[[186,.035],[314,.025],[434,.04],[580,-.075]]},
+ {id:'east',p:[[1250,0],[1520,0],[1520,760],[1255,760],[1245,684],[1264,676],[1273,658],[1357,654],[1375,611],[1392,549],[1400,455],[1405,350],[1400,247],[1386,169],[1375,123],[1359,108],[1272,112],[1257,84]],axis:'v',holes:[eastConcourse,...eastPortals]}
+];
+for(const section of sections)if(section.holes)section.holes=section.holes.map(p=>({p,minX:Math.min(...p.map(q=>q[0])),maxX:Math.max(...p.map(q=>q[0])),minY:Math.min(...p.map(q=>q[1])),maxY:Math.max(...p.map(q=>q[1]))}));
+function seatingAisle(section,x,y){if(section.cutsX)for(const a of section.cutsX)if(Math.abs(x-a)<3.1)return true;if(section.crossings)for(const [base,slope]of section.crossings)if(Math.abs(y-(base+slope*x))<3.4)return true;if(section.holes)for(const h of section.holes)if(x>=h.minX&&x<=h.maxX&&y>=h.minY&&y<=h.maxY&&inside(x,y,h.p))return true;return false;}
+
+const CAPACITY=60670;
+function seatsAt(spacing,collect=true){
+ const slots=[];let count=0;
+ for(const section of sections){const p=section.p,minX=Math.min(...p.map(p=>p[0])),maxX=Math.max(...p.map(p=>p[0])),minY=Math.min(...p.map(p=>p[1])),maxY=Math.max(...p.map(p=>p[1]));
+ const dx=(section.axis==='v'?5.8:4.1)*spacing,dy=(section.axis==='v'?4.2:5.5)*spacing;
+ for(let y=minY+dy/2,row=0;y<maxY;y+=dy,row++)for(let x=minX+dx/2+(row%2)*dx/2;x<maxX;x+=dx){
+ if(!inside(x,y,p))continue;
+ if(seatingAisle(section,x,y))continue;
+ count++;if(collect)slots.push({x,y});
+ }}return collect?slots:count;
+}
+function makeCrowd(){
+ // Find a nearly fully occupied seating grid, then distribute exact capacity
+ // across every section. Keep concrete aisles and stairs free of spectators.
+ let low=.35,high=.6;
+ for(let i=0;i<10;i++){const mid=(low+high)/2;if(seatsAt(mid,false)>=CAPACITY)low=mid;else high=mid}
+ const slots=seatsAt(low);let selected=0;
+ for(let i=0;i<slots.length;i++)if(Math.floor((i+1)*CAPACITY/slots.length)>Math.floor(i*CAPACITY/slots.length)){
+ const seat=slots[i];fans.push({x:seat.x+(random()-.5)*.18,y:seat.y+(random()-.5)*.18,size:.72+random()*.1,shade:random(),skin:random(),phase:random()*6.28});selected++;
+ }
+ if(selected!==CAPACITY)throw new Error('Crowd capacity mismatch');
+ const illCount=Math.round(CAPACITY*.55),iowaCount=CAPACITY-illCount;
+ const noise=(x,y)=>{const n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n)};
+ function affinity(f){let distance;
+ if(f.y<115&&f.x>250)distance=Math.max(0,1390-f.x)+Math.abs(f.y-48)*.15;
+ else if(f.x>1260)distance=Math.max(0,f.y-70)+Math.max(0,1370-f.x)*.35;
+ else if(f.y>680)distance=690+Math.max(0,1270-f.x);
+ else distance=1550+Math.abs(f.y-380)*.4;
+ const cluster=noise(Math.floor(f.x/26),Math.floor(f.y/18));
+ return distance<185?distance-1000:distance+(cluster-.5)*230+(noise(f.x,f.y)-.5)*145;
+ }
+ const ranked=fans.map((f,i)=>({i,affinity:affinity(f)})).sort((a,b)=>a.affinity-b.affinity);
+ fans.forEach(f=>f.team='ill');ranked.slice(0,iowaCount).forEach(({i})=>fans[i].team='iowa');
+ fans.forEach((f,i)=>{f.color=f.team==='ill'?(f.shade<.77?['#e96d32','#fa7935','#c64a23','#f98d43'][i%4]:'#14223a'):(f.shade<.62?['#e9bb17','#f4ca35','#d4a90c'][i%3]:'#222424');drawFan(s,f);if(i%120===0)wavers.push(f)});
+ window.cmpriTheme={version:'9.0',fans:fans.length,capacity:CAPACITY,occupancy:1,illinoisFans:illCount,iowaFans:fans.length-illCount,players:22,sidelinePeople:0,source:'public/GiesOverheadView.jpg'};
+}
+
+function drawFan(ctx,f,cheer=0){const {x,y,size:q}=f;ellipse(ctx,x+.65,y+.9,1.5*q,1.4*q,'#080d1470');ellipse(ctx,x,y+.4,1.38*q,1.5*q,f.color);ellipse(ctx,x-.12,y-.9,.76*q,.79*q,f.skin<.35?'#a87651':f.skin<.72?'#d2a57e':'#665044');if(f.shade<.23){ctx.fillStyle=f.color;ctx.fillRect(x-.85*q,y-1.6*q,1.6*q,.8*q)}if(cheer>.35){ctx.strokeStyle=f.color;ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(x-1,y);ctx.lineTo(x-2.5,y-2.1*cheer);ctx.moveTo(x+1,y);ctx.lineTo(x+2.5,y-2*cheer);ctx.stroke()}}
+function endzone(){s.save();poly(s,[[1114,196],[1182,197],[1182,571],[1114,571]]);s.clip();s.fillStyle='#171b19';s.fillRect(1114,195,70,378);for(let i=0;i<4200;i++){s.fillStyle=i%2?'#ffffff06':'#00000012';s.fillRect(1114+random()*69,196+random()*376,.8+random()*2,.5)}s.strokeStyle='#ffcc00';s.lineWidth=2;s.strokeRect(1117,199,62,369);s.translate(1148,384);s.rotate(Math.PI/2);s.scale(1.3,.84);s.textAlign='center';s.textBaseline='middle';s.font='italic 900 67px Arial, sans-serif';s.lineJoin='round';s.strokeStyle='#e8e6d9';s.lineWidth=2.9;s.strokeText('IOWA',0,1);s.fillStyle='#f3c329';s.fillText('IOWA',0,1);s.restore()}
+function paintPerson(ctx,x,y,team,scale=1,angle=0,gait=0,number=null,staff=false,pose='stand'){
+ ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.scale(scale,scale);
+ const ill=team==='ill',jersey=staff?(ill?'#294459':'#363b3d'):(ill?'#eb6c2a':'#eeeae0'),pants=staff?'#a59c83':ill?'#e6e1d2':'#c4a125',helmet=ill?'#ec692b':'#171e22';
+ const seated=pose==='seated',fallen=pose==='fallen',blocking=pose==='block',coach=pose==='coach',trainer=pose==='trainer';
+ if(fallen){ctx.rotate(.65);ctx.scale(1.1,.72)}
+ ellipse(ctx,.9,1.1,2.7,4,'#06100c55');
+ // Bent, alternating knees and elbows replace the old straight H-shaped limbs.
+ ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=pants;ctx.lineWidth=1.35;
+ for(const side of [-1,1]){const swing=gait*side,kx=side*(.65+Math.abs(swing)*.2),ky=seated?1.8:2.1+swing*.85,fx=side*(.9+Math.max(0,swing)*.4),fy=seated?1.2:3.7+swing*.9;
+ ctx.beginPath();ctx.moveTo(side*.65,1.05);ctx.lineTo(kx,ky);ctx.lineTo(fx,fy);ctx.stroke();ctx.strokeStyle='#202928';ctx.lineWidth=.9;ctx.beginPath();ctx.moveTo(fx,fy);ctx.lineTo(fx+.15,fy+.65);ctx.stroke();ctx.strokeStyle=pants;ctx.lineWidth=1.35;}
+ ctx.fillStyle=jersey;ctx.beginPath();ctx.moveTo(-1.1,1.4);ctx.quadraticCurveTo(-2,-.15,-1.85,-1.6);ctx.quadraticCurveTo(0,-2.5,1.85,-1.6);ctx.quadraticCurveTo(2,-.15,1.1,1.4);ctx.closePath();ctx.fill();
+ ctx.strokeStyle=jersey;ctx.lineWidth=1.2;
+ for(const side of [-1,1]){const elbowY=blocking?-2.2:-.1+gait*side*.85,handY=blocking?-3.2:.95-gait*side*.6,elbowX=side*(blocking?2.2:2.45),handX=side*(blocking?1.55:1.65);ctx.beginPath();ctx.moveTo(side*1.6,-1.4);ctx.lineTo(elbowX,elbowY);ctx.lineTo(handX,handY);ctx.stroke();ellipse(ctx,handX,handY,.43,.5,'#ae825e')}
+ if(!staff&&number!==null){ctx.fillStyle=ill?'#f9eee5':'#252c2f';ctx.font='bold 2.25px Arial';ctx.textAlign='center';ctx.fillText(String(number),0,.75)}
+ ellipse(ctx,0,-3.05,staff?1.1:1.38,staff?1.2:1.55,staff?'#c39a74':helmet);
+ if(!staff){ctx.strokeStyle=ill?'#23394d':'#d9b838';ctx.lineWidth=.42;ctx.beginPath();ctx.moveTo(0,-4.5);ctx.lineTo(0,-1.65);ctx.stroke();ctx.strokeStyle='#b8c1bd';ctx.beginPath();ctx.moveTo(-1.1,-3.65);ctx.lineTo(-.85,-4.18);ctx.lineTo(.85,-4.18);ctx.lineTo(1.1,-3.65);ctx.stroke();ellipse(ctx,-.45,-3.6,.32,.5,'#ffffff2b')}
+ else{ctx.fillStyle=ill?'#ed793e':'#cdb342';ctx.fillRect(-1.15,-4.1,2.3,.8);if(coach){ctx.strokeStyle='#12191f';ctx.lineWidth=.6;ctx.beginPath();ctx.arc(0,-3,1.45,Math.PI,Math.PI*2);ctx.stroke();ctx.fillStyle='#141b23';ctx.fillRect(1.1,-3.3,.7,1);ctx.fillStyle='#e4dfcf';ctx.fillRect(1.5,.3,1.6,2.1)}if(trainer){ctx.fillStyle='#eeeeeb';ctx.fillRect(-2.1,-1.3,4.2,2.4);ctx.fillStyle='#a1302d';ctx.fillRect(-.25,-1.2,.5,2);ctx.fillRect(-1,-.4,2,.5)}}
+ ctx.restore();
+}
+const spriteCache=new Map(),MAX_SPRITES=512;
+function person(ctx,x,y,team,scale=1,angle=0,gait=0,number=null,staff=false,pose='stand'){
+ if(ctx===s){paintPerson(ctx,x,y,team,scale,angle,gait,number,staff,pose);return}
+ const turn=((Math.round(angle/(Math.PI/12))%24)+24)%24,stride=Math.round(gait*2)/2,key=team+'|'+turn+'|'+stride+'|'+number+'|'+staff+'|'+pose;
+ let sprite=spriteCache.get(key);
+ if(!sprite){sprite=document.createElement('canvas');sprite.width=32;sprite.height=32;paintPerson(sprite.getContext('2d'),16,16,team,1.5,turn*Math.PI/12,stride,number,staff,pose);spriteCache.set(key,sprite);if(spriteCache.size>MAX_SPRITES)spriteCache.delete(spriteCache.keys().next().value)}
+ const size=32/1.5*scale;if(ctx===c)dirty(x-size/2-2,y-size/2-2,size+4,size+4);ctx.drawImage(sprite,x-size/2,y-size/2,size,size);
+}
+function prepareStaticScene(){let mobile=0;sideline.forEach(a=>{if(a.mobile)a.mobile=(mobile++%3===0);if(!a.mobile)paintPerson(s,a.x,a.y,a.team,a.scale,a.angle,0,a.staff?null:a.number,a.staff,a.pose)});wavers.splice(24);window.cmpriTheme.performance={targetFps:20,staticSidelines:sideline.filter(a=>!a.mobile).length,animatedSidelines:sideline.filter(a=>a.mobile).length,animatedFans:wavers.length};}
+
+function sidelines(){
+ // Populate the actual orange bench boxes plus team areas running between
+ // the 15-yard lines. The white field perimeter remains clear for officials.
+ for(const team of ['iowa','ill']){
+ const near=team==='ill',front=near?598:172,back=near?634:138,face=near?0:Math.PI;
+ const add=(x,y,role='reserve',pose='stand',mobile=false)=>sideline.push({x,y,team,angle:face+(random()-.5)*.7,staff:role!=='reserve',role,pose,mobile,phase:random()*6.28,scale:.95+random()*.13,number:integerArt(1,98)});
+ // Touchline reserves stand in loose small groups, not a dotted single row.
+ for(let i=0;i<74;i++){const group=Math.floor(i/5),x=438+group*43+(i%5)*5.9+(random()-.5)*2,y=front+(near?1:-1)*(Math.floor(i%5/3)*9+random()*3);add(x,y)}
+ // Four bench/medical stations occupy the otherwise empty central boxes.
+ for(let k=0;k<4;k++){
+ const bx=596+k*89,by=near?620:151;
+ s.fillStyle='#273a45';s.fillRect(bx-6,by-3,69,6);s.fillStyle='#b5c2bc';s.fillRect(bx-6,by-3,69,1.4);s.fillStyle='#101d23';s.fillRect(bx-6,by+4,69,2);
+ for(let j=0;j<8;j++)add(bx+j*7.4,by,'reserve','seated');
+ for(let j=0;j<7;j++)add(bx-5+j*10,back+(near?-2:2)+(random()-.5)*3);
+ for(let j=0;j<3;j++)add(bx+10+j*14,near?644:125,'trainer','trainer',j===0);
+ // A cooler rack, bottles, equipment bins, and a medical table.
+ s.fillStyle='#d9d7c5';s.fillRect(bx+63,by-2,10,7);s.fillStyle='#e16d24';s.fillRect(bx+64,by-1,8,5);s.fillStyle='#ebe8d8';s.fillRect(bx+64,by-2,8,1);
+ s.fillStyle='#4c6268';s.fillRect(bx+39,near?648:116,20,7);s.fillStyle='#d1cdbc';s.fillRect(bx+40,near?647:115,18,3);
+ for(let j=0;j<4;j++){s.fillStyle='#e5e4d7';s.fillRect(bx+3+j*3,near?640:132,1.4,3)}
+ }
+ // Coaches at the front, staff and handlers distributed across the full team area.
+ for(let i=0;i<16;i++)add(440+i*42+(random()-.5)*7,near?589+random()*3:182-random()*3,'coach','coach',i%3===0);
+ for(let i=0;i<20;i++)add(433+i*34+(random()-.5)*9,near?650+random()*8:112+random()*10,i%3===0?'trainer':'staff',i%3===0?'trainer':'stand',i%5===0);
+ // Warm-up groups at both ends; small conversations, stretching, spotters.
+ for(const x of [426,1101])for(let i=0;i<10;i++)add(x+(i%3)*7+(random()-.5)*3,(near?620:147)+Math.floor(i/3)*8+(random()-.5)*2,i%4===0?'staff':'reserve',i%5===0?'block':'stand',i%4===1);
+ }
+ // Everything in the sidelines is rendered on the dynamic layer, so walking
+ // staff do not leave a static duplicate underneath them.
+ for(let i=0;i<5;i++){const x=490+i*133;s.fillStyle='#ed7c26';s.fillRect(x-2,575,4,5)}
+ for(const x of [406,476,547,617,687,758,829,899,970,1041,1110]){s.fillStyle='#eb651d';poly(s,[[x-3,584],[x+3,584],[x,578]]);s.fill()}
+ for(const [x,y] of [[334,155],[1169,612],[370,616],[1193,167],[1080,650],[449,124]]){sideline.push({x,y,team:'iowa',angle:0,staff:true,role:'media',pose:'stand',mobile:false,phase:0,scale:1,number:0});s.fillStyle='#141c24';s.fillRect(x+4,y-4,5,3);s.strokeStyle='#202d30';s.lineWidth=.8;s.beginPath();s.moveTo(x+6,y);s.lineTo(x+3,y+5);s.moveTo(x+6,y);s.lineTo(x+9,y+5);s.stroke()}
+ window.cmpriTheme.sidelinePeople=sideline.length;window.cmpriTheme.sidelineRoles=sideline.reduce((out,p)=>(out[p.role]=(out[p.role]||0)+1,out),{});
+}
+function integerArt(a,b){return a+Math.floor(random()*(b-a+1))}
+// Field coordinates are offense-relative yards; teams change ends each quarter.
+const randomState=new Uint32Array(4);function seedGameRandom(){crypto.getRandomValues(randomState);if(!randomState.some(Boolean))randomState[0]=1}seedGameRandom();const rotate=(x,k)=>(x<<k)|(x>>>(32-k));const chance=()=>{const r=Math.imul(rotate(Math.imul(randomState[1],5),7),9)>>>0,t=randomState[1]<<9;randomState[2]^=randomState[0];randomState[3]^=randomState[1];randomState[1]^=randomState[2];randomState[0]^=randomState[3];randomState[2]^=t;randomState[3]=rotate(randomState[3],11);return r/4294967296};
+const integer=(a,b)=>a+Math.floor(chance()*(b-a+1));
+let plays=[],gameResult=null,finished=false,gameSerial=0,speed=2,gameId='',recorded=new Set();
+__FOOTBALL_RULES__
+
+const framePool=[];let frameCursor=0;function pooledFrame(){return framePool[frameCursor++]||(framePool[frameCursor-1]=new Float32Array(48))}
+// Fixed-step, agent-based snap simulation. Gain, catch, interception and tackle
+// outcomes below come from ball/player positions rather than a drive outcome table.
+function simulateSnap(ctx){
+ if(ctx.type==='punt')return simulatePunt(ctx);
+ const dt=1/20,frames=[],stride=48,hash=26.65+(chance()-.5)*5,flip=chance()<.5?-1:1;
+ const layout=[[0,-4],[0,-2],[0,0],[0,2],[0,4],[-5.4,0],[-6.6,3.2],[0,7.2],[0,-20],[-1.1,20],[-1.1,-12]];
+ const defense=[[1.2,-5],[1.1,-1.4],[1.3,2.5],[1.8,7.8],[5.4,-3.5],[5.8,4],[4.5,-19],[7,8],[5,-11],[6,20],[14,2]];
+ const make=([u,v],i)=>({u:clamp(ctx.start+u,-8.8,108.8),v:clamp(hash+v*flip,3,50.3),vx:0,vy:0,speed:(i<5?4.4:7)*( .92+chance()*.16),held:0,stun:0});
+ const off=layout.map(make),def=defense.map((p,i)=>({...make(p,i),speed:(i<4?4.8:7.35)*(.94+chance()*.12)}));
+ const routeStyle=Array.from({length:11},()=>integer(0,4)),routeBreak=Array.from({length:11},()=>8+chance()*7),routes=off.map((p,i)=>{const side=p.v<hash?-1:1,k=routeStyle[i],cut=routeBreak[i];return{u:p.u,v:p.v,cut,k,side,speed:5.5+chance()*1.2}});
+ let t=0,carrier=-1,flight=null,dead=false,resolve=8.8,end=ctx.start,outcome=null,tackler=-1,contact=0,throwTarget=8,ball={u:ctx.start,v:hash,z:0},throwAt=2.7+chance()*.85;
+ const runGap=hash+flip*(chance()<.5?-1:1)*(1.5+chance()*4),cutSide=chance()<.5?-1:1;
+ const special=ctx.type==='punt'||ctx.type==='fieldgoal';
+ if(ctx.type==='fieldgoal'){[7,8,9,10].forEach((i,k)=>{off[i].u=ctx.start-.2;off[i].v=hash+[-6,6,-8,8][k]});[6,7,8,9].forEach((i,k)=>{def[i].u=ctx.start+1.2;def[i].v=hash+[-6.5,6.5,-9,9][k]});}
+ if(special){off[5].u=Math.max(-8.8,ctx.start-(ctx.type==='punt'?13:7));off[6].u=Math.max(-8.8,ctx.start-10);off[6].v=hash+3.5;}
+ const heldFor=Array.from({length:11},()=>chance()<.12?.45:2.5+chance()*1.7),pull=ctx.type==='run'&&chance()<.35;
+ const dist=(a,b)=>Math.hypot(a.u-b.u,a.v-b.v);
+ const waypoint=(i,at)=>{const r=routes[i],d=Math.max(0,at-.8)*r.speed;
+ if(d<r.cut)return{u:r.u+d,v:r.v};const q=d-r.cut;
+ if(r.k===0)return{u:r.u+d,v:r.v};
+ if(r.k===1)return{u:r.u+r.cut+q*.48,v:clamp(r.v-r.side*q*.85,2,51.3)};
+ if(r.k===2)return{u:r.u+r.cut+q*.18,v:clamp(r.v+r.side*q*.92,2,51.3)};
+ if(r.k===3)return{u:r.u+r.cut+q*.72,v:clamp(r.v-r.side*q*.55,2,51.3)};
+ return{u:r.u+r.cut-Math.min(q,3.5),v:r.v+r.side*Math.min(q*.35,1.6)};};
+ function move(a,goal,max,step=dt){const x=goal.u-a.u,y=goal.v-a.v,d=Math.hypot(x,y),v=d<.25?0:Math.min(max,d/step);const vx=d?x/d*v:0,vy=d?y/d*v:0,acc=15*step;a.vx+=clamp(vx-a.vx,-acc,acc);a.vy+=clamp(vy-a.vy,-acc,acc);a.u=clamp(a.u+a.vx*step,-9,109);a.v=clamp(a.v+a.vy*step,.1,53.2);}
+ function finish(kind,spot){if(dead)return;dead=true;outcome=kind;end=clamp(spot,-1,100);resolve=t;}
+ function carryGoal(a){let lateral=0;for(let j=0;j<def.length;j++){const d=def[j];const dx=d.u-a.u,dy=d.v-a.v;if(dx>-.8&&dx<6&&Math.abs(dy)<5&&d.held<=0){lateral-=(dy===0?cutSide:Math.sign(dy))*(6-dx)*1.1/(1+Math.abs(dy));}}
+ const gap=t<2.4?runGap:a.v;return{u:a.u+8,v:clamp(gap+lateral,1,52.3)};}
+ function record(){for(const roster of [off,def])for(const p of roster){p.u=clamp(p.u,-9,109);p.v=clamp(p.v,.1,53.2)}const f=pooledFrame();off.forEach((p,i)=>{f[i*2]=p.u;f[i*2+1]=p.v});def.forEach((p,i)=>{f[22+i*2]=p.u;f[23+i*2]=p.v});f[44]=ball.u;f[45]=ball.v;f[46]=ball.z;f[47]=carrier;frames.push(f);}
+ let kick=null;
+ if(ctx.type==='punt')kick={land:clamp(ctx.start+integer(34,52),10,110),v:clamp(hash+(chance()-.5)*14,4,49),time:3.4};
+ if(ctx.type==='fieldgoal'){const distance=117-ctx.start;const gaussian=Math.sqrt(-2*Math.log(Math.max(chance(),.00001)))*Math.cos(2*Math.PI*chance());kick={land:118,peak:65+chance()*25,v:26.65+gaussian*(distance/24),time:3,good:distance<integer(54,66)};}
+ for(let n=0;n<600;n++){
+  t=n*dt;
+  if(!dead&&t>.75){
+   off.forEach((a,i)=>{
+    if(i===carrier){move(a,carryGoal(a),ctx.type==='run'?6.8:6.5);return;}
+    if(i<5){const j=ctx.type==='run'&&i===2?4:[0,1,1,2,3][i],d=def[j];let g;
+     if(ctx.type==='run'){g={u:d.u-.55,v:d.v};if(pull&&i===1&&t<2)g={u:ctx.start-2+Math.max(0,t-1)*3,v:runGap+flip*2};}
+     else g={u:clamp(d.u-.65,ctx.start-3.8,ctx.start+.5),v:lerp(off[2].v+(i-2)*2.3*flip,d.v,.8)};
+     move(a,g,3.8);
+     if(dist(a,d)<2.05&&d.held<heldFor[i]){d.held+=dt;d.stun=t+.15;d.vx*=.1;d.vy*=.1;a.vx*=.45;a.vy*=.45;if(ctx.type==='run')d.u+=dt*1.55;}
+    }else if(i===5){move(a,{u:ctx.start-(special?(ctx.type==='punt'?13:7):ctx.type==='run'?4.8:7),v:hash+Math.sin(t*.8)*.65},3.9);}
+    else if(ctx.type==='run'){
+     if(i===6)move(a,t<1.5?{u:ctx.start-4.8,v:hash+1}:carryGoal(a),6.5);
+     else{const assignment={7:5,8:6,9:9,10:8}[i],d=def[assignment];move(a,{u:d.u-.5,v:d.v},a.speed*.8);if(dist(a,d)<1.1&&t<4.4){d.stun=t+.12;d.vx*=.35;d.vy*=.35;}}
+    }else if(i===6){if(special)move(a,{u:ctx.start-8,v:hash},3.5);else{const d=def[4];move(a,t<2.9?{u:ctx.start-3,v:hash+flip*4}:{u:ctx.start+4+(t-3)*3,v:hash+flip*9},5.8);if(dist(a,d)<1.2&&t<3.5)d.stun=t+.12;}}
+    else if(ctx.type==='fieldgoal'){const d=def[Math.min(i-1,9)];move(a,{u:ctx.start-.6,v:d.v},2.5);if(dist(a,d)<1.8)d.stun=t+.15;}else move(a,waypoint(i,t+.35),a.speed);
+   });
+   const carrying=carrier>=0,ballCarrier=carrying?off[carrier]:off[5];
+   def.forEach((d,i)=>{let goal,max=d.speed;
+    if(i<4){goal=carrying?{u:ballCarrier.u+ballCarrier.vx*.18,v:ballCarrier.v+ballCarrier.vy*.18}:off[5];if(t<1.8)goal={u:ctx.start-1.8,v:d.v+(i===0?-1.4:i===3?1.4:0)};}
+    else if(carrying&&t>(ctx.type==='run'?2.6:3.7)){goal={u:ballCarrier.u+Math.max(0,ballCarrier.vx)*.28,v:ballCarrier.v+ballCarrier.vy*.2};}
+    else if(i===4){goal=ctx.type==='run'?{u:ctx.start+3,v:runGap}:t<3?{u:ctx.start+7,v:hash-4*flip}:ball;}
+    else if(i===5){goal=ctx.type==='run'?{u:ctx.start+4,v:runGap+2*flip}:off[6];}
+    else if(i===10){goal=flight?{u:flight.to.u+1,v:flight.to.v}:t>2?{u:ctx.start+17,v:hash+flip*3}:{u:ctx.start+14,v:hash+flip*2};}
+    else{const receiver={6:8,7:7,8:10,9:9}[i],r=off[receiver];goal={u:r.u+1.2,v:r.v+(r.v<hash?.9:-.9)};if(flight&&dist(d,flight.to)<12)goal=flight.to;}
+    if(t<d.stun)max*=.15;move(d,goal,max);
+   });
+   // Players have body width: teammates separate rather than occupying a line.
+   for(const roster of [off,def])for(let i=0;i<roster.length;i++)for(let j=i+1;j<roster.length;j++){const a=roster[i],b=roster[j],du=b.u-a.u,dv=b.v-a.v,dd=Math.hypot(du,dv);if(dd>.02&&dd<.7){const push=(.7-dd)*.27;a.u-=du/dd*push;b.u+=du/dd*push;a.v=clamp(a.v-dv/dd*push,.1,53.2);b.v=clamp(b.v+dv/dd*push,.1,53.2);}}
+  }
+  if(t<.75){ball={u:ctx.start,v:hash,z:0};}
+  else if(special&&!dead){
+   if(t<1.45){const a=clamp((t-.75)/.45);ball={u:lerp(ctx.start,off[5].u,a),v:lerp(hash,off[5].v,a),z:0};}
+   else{const a=clamp((t-1.45)/kick.time);ball={u:lerp(off[5].u,kick.land,a),v:lerp(hash,kick.v,a),z:Math.sin(a*Math.PI)*(ctx.type==='punt'?35:kick.peak)};
+    if(ctx.type==='fieldgoal'&&ball.u>=110)finish(kick.good&&Math.abs(ball.v-26.65)<3.08&&ball.z>=23.67?'fieldgoal':'missedfieldgoal',ctx.start);else if(a>=1&&ctx.type==='punt')finish('punt',kick.land);
+   }
+  }else if(!dead){
+   if(carrier===-1&&!flight){ball={u:off[5].u,v:off[5].v,z:0};
+    if(ctx.type==='run'&&t>=1.55){carrier=6;}
+    else if(ctx.type==='pass'&&t>=throwAt){
+     let best=-Infinity;for(const i of [6,7,8,9,10]){const r=off[i];if(r.u<ctx.start+1||r.u>101)continue;const sep=Math.min(...def.map(d=>dist(d,r)));const score=sep*.9+Math.min(r.u-ctx.start,19)*.075+chance()*.7;if(score>best){best=score;throwTarget=i;}}
+     const aim=waypoint(throwTarget,t+.9),range=dist(off[5],aim),flightTime=clamp(range/23,.58,1.35);const lead=throwTarget===6?{u:off[6].u+off[6].vx*flightTime,v:off[6].v+off[6].vy*flightTime}:waypoint(throwTarget,t+flightTime);
+     const accuracy=.4+range*.021;flight={from:{...off[5]},to:{u:clamp(lead.u+(chance()-.5)*accuracy*2,-1,105),v:clamp(lead.v+(chance()-.5)*accuracy*2,.1,53.2)},start:t,duration:flightTime};
+    }
+   }
+   if(flight){const a=clamp((t-flight.start)/flight.duration);ball={u:lerp(flight.from.u,flight.to.u,a),v:lerp(flight.from.v,flight.to.v,a),z:Math.sin(a*Math.PI)*12};
+    if(a>=1){const rd=dist(off[throwTarget],ball);let nearest=0;def.forEach((d,i)=>{if(dist(d,ball)<dist(def[nearest],ball))nearest=i});const dd=dist(def[nearest],ball);
+     if(dd<1.15&&dd+.15<rd){if(chance()<.13){tackler=nearest;finish('interception',def[nearest].u);carrier=-2;}else finish('incomplete',ctx.start);}
+     else if(rd<2.1){carrier=throwTarget;flight=null;}
+     else finish('incomplete',ctx.start);
+    }
+   }
+   if(carrier>=0){const a=off[carrier];ball={u:a.u+.15,v:a.v+.25,z:0};
+    if(a.u>=100)finish('touchdown',100);
+    else if(a.v<.65||a.v>52.65)finish('outofbounds',a.u);
+    else{let close=-1,min=Infinity;def.forEach((d,i)=>{const r=dist(a,d);if(r<min){min=r;close=i}});if(min<.95){contact+=dt;if(contact>.1){tackler=close;finish('tackle',a.u)}}else contact=0;}
+   }else if(!flight&&!special&&ctx.type==='pass'&&t<throwAt){let close=-1;def.forEach((d,i)=>{if(dist(d,off[5])<.85)close=i});if(close>=0){carrier=5;tackler=close;ball={u:off[5].u,v:off[5].v,z:0};finish('sack',off[5].u);}}
+   if(t>25&&!dead)finish(carrier>=0?'forwardprogress':'incomplete',carrier>=0?off[carrier].u:ctx.start);
+  }
+  if(dead){off.forEach(a=>{a.vx*=.65;a.vy*=.65});def.forEach(a=>{a.vx*=.65;a.vy*=.65});if(outcome==='interception'&&tackler>=0){ball.u=def[tackler].u;ball.v=def[tackler].v;ball.z=0;}else if(outcome!=='punt'&&outcome!=='fieldgoal'&&outcome!=='missedfieldgoal')ball.z=0;}
+  if(!dead&&!special&&t>=.75&&t<1.03){const a=(t-.75)/.28;ball={u:lerp(off[2].u,off[5].u,a),v:lerp(hash,off[5].v,a),z:0};}
+  if(!dead&&ctx.type==='run'&&t>=1.3&&t<1.55){const a=(t-1.3)/.25;ball={u:lerp(off[5].u,off[6].u,a),v:lerp(off[5].v,off[6].v,a),z:0};}
+  record();if(dead&&t>=resolve+1.8)break;
+ }
+ if(!dead)finish('incomplete',ctx.start);
+ const gain=outcome==='incomplete'?0:Math.round((end-ctx.start)*10)/10;
+ return{good:outcome==='fieldgoal',landingSpot:kick&&ctx.type==='punt'?kick.land:undefined,returnYards:0,gain,end:outcome==='incomplete'?ctx.start:Math.round(end*10)/10,outcome,td:outcome==='touchdown',target:carrier>=0?carrier:throwTarget,lane:ball.v,duration:outcome==='incomplete'?integer(9,16):integer(23,43),animationDuration:(frames.length-1)*dt,resolveTime:resolve,carrier,tackler,frames,frameDt:dt,frameStride:stride,hash,flightStart:flight?flight.start:throwAt,throwTarget};
+}
+
+// Punt unit: one of the eleven receiving players is an actual deep returner.
+// All coordinates remain relative to the kicking team's own goal line.
+function simulatePunt(ctx){
+ const dt=.05,stride=48,frames=[],hash=26.65+(chance()-.5)*4;
+ const landing={u:clamp(ctx.start+integer(34,52),12,110),v:clamp(hash+(chance()-.5)*17,5,48)};
+ const kickAt=1.6,airTime=3.55+chance()*.35,catchAt=kickAt+airTime;
+ const offLayout=[[0,-4],[0,-2],[0,0],[0,2],[0,4],[-Math.min(13,ctx.start+8.5),0],[-4.5,4.5],[-4.5,-5],[0,-20],[0,20],[-4.5,7.5]];
+ const defLayout=[[1.2,-4.8],[1.1,-1.5],[1.2,1.5],[1.4,5],[3,-7],[3,8],[3,-19],[3,19],[17,-9],[20,9],[40,0]];
+ const make=(p,i,receiving)=>({u:clamp(ctx.start+p[0],-8.5,108.5),v:clamp(hash+p[1],2,51.3),vx:0,vy:0,speed:(receiving?(i<4?5:6.7):(i<5?4.7:7.15))*(.94+chance()*.12),stun:0});
+ const off=offLayout.map((p,i)=>make(p,i,false)),def=defLayout.map((p,i)=>make(p,i,true));
+ def[10].u=clamp(ctx.start+40+(chance()-.5)*5,ctx.start+20,98);def[10].v=clamp(hash+(chance()-.5)*6,5,48);def[10].speed=6.7;
+ const returnerInitial={u:def[10].u,v:def[10].v};
+ let t=0,ball={u:ctx.start,v:hash,z:0},dead=false,resolve=0,end=landing.u,outcome=null,puntEndReason=null,returning=false,received=false,carrier=-1,tackler=-1,contact=0,rollStart=0,fairCatch=false;
+ const cutSide=chance()<.5?-1:1,rollDistance=2+chance()*5.5;
+ const dist=(a,b)=>Math.hypot(a.u-b.u,a.v-b.v);
+ function move(a,g,max){const x=g.u-a.u,y=g.v-a.v,d=Math.hypot(x,y),speed=d<.2?0:Math.min(max,d/dt),acc=15*dt;a.vx+=clamp((d?x/d*speed:0)-a.vx,-acc,acc);a.vy+=clamp((d?y/d*speed:0)-a.vy,-acc,acc);a.u=clamp(a.u+a.vx*dt,-9,109);a.v=clamp(a.v+a.vy*dt,.1,53.2);}
+ function finish(reason,spot){if(dead)return;dead=true;returning=false;resolve=t;end=clamp(spot,-1,100);outcome=reason;puntEndReason=reason;}
+ function record(){const f=pooledFrame();for(const roster of [off,def])roster.forEach(a=>{a.u=clamp(a.u,-9,109);a.v=clamp(a.v,.1,53.2)});off.forEach((a,i)=>{f[2*i]=a.u;f[2*i+1]=a.v});def.forEach((a,i)=>{f[22+2*i]=a.u;f[23+2*i]=a.v});f[44]=ball.u;f[45]=ball.v;f[46]=ball.z;f[47]=received?110:-1;frames.push(f);}
+ function returnGoal(){const a=def[10];let avoid=0;for(const p of off){const ahead=a.u-p.u,side=p.v-a.v;if(ahead>-.5&&ahead<7&&Math.abs(side)<5)avoid-=(side===0?cutSide:Math.sign(side))*(7-ahead)*1.05/(1+Math.abs(side));}return{u:a.u-9,v:clamp(a.v+avoid,1,52.3)};}
+ for(let n=0;n<520;n++){
+  t=n*dt;
+  if(!dead&&t>.75){
+   if(returning){
+    move(def[10],returnGoal(),6.7);
+    // Receiving teammates seek coverage players between the returner and its goal.
+    def.forEach((a,i)=>{if(i===10)return;let target=off[0],score=Infinity;for(const o of off){const r=dist(a,o)+Math.max(0,o.u-def[10].u)*.4;if(r<score){score=r;target=o}}move(a,{u:target.u+.65,v:target.v},a.speed);if(dist(a,target)<1.25){target.stun=t+.13;target.vx*=.25;target.vy*=.25;}});
+    off.forEach(a=>{const max=t<a.stun?a.speed*.2:a.speed;move(a,{u:def[10].u+def[10].vx*.2,v:def[10].v+def[10].vy*.22},max)});
+   }else{
+    off.forEach((a,i)=>{
+     if(i===5){move(a,{u:clamp(ctx.start-Math.min(13,ctx.start+8.5),-9,109),v:hash},3);return;}
+     if(t<kickAt&&i<5){const d=def[Math.min(i,3)];move(a,{u:ctx.start-.35,v:hash+(i-2)*2},3);if(dist(a,d)<1.8)d.stun=t+.13;}
+     else if(t<kickAt&&[6,7,10].includes(i)){move(a,{u:ctx.start-3.5,v:hash+(i===7?-5:i===6?4:7)},4);}
+     else{
+      const wide=i===8?-1:i===9?1:0,offset=wide*(t<catchAt-1?3:1.1);
+      const target=rollStart?ball:landing;move(a,{u:target.u-1.4,v:clamp(target.v+offset,1,52.3)},a.speed*(t<a.stun?.2:1));
+     }
+    });
+    def.forEach((a,i)=>{
+     if(i===10){
+      // Read the airborne kick, move underneath it, and settle before the catch.
+      const goal=t<kickAt+.3?returnerInitial:landing;move(a,goal,a.speed);return;
+     }
+     if(i<4&&t<kickAt+.25){move(a,off[5],a.speed*(t<a.stun?.18:1));return;}
+     const gunner=i===6?off[8]:i===7?off[9]:off[(i+3)%11];
+     move(a,{u:gunner.u+.8,v:gunner.v},a.speed);
+     if(dist(a,gunner)<1.2&&t>kickAt){gunner.stun=t+.12;gunner.vx*=.3;gunner.vy*=.3;}
+    });
+   }
+   for(const roster of [off,def])for(let i=0;i<11;i++)for(let j=i+1;j<11;j++){const a=roster[i],b=roster[j],du=b.u-a.u,dv=b.v-a.v,r=Math.hypot(du,dv);if(r>.02&&r<.7){const push=(.7-r)*.25;a.u-=du/r*push;b.u+=du/r*push;a.v-=dv/r*push;b.v+=dv/r*push;}}
+  }
+  if(!dead){
+   if(returning){
+    const a=def[10];ball={u:a.u-.2,v:a.v+.2,z:0};
+    if(a.u<=0)finish('punt-return-touchdown',0);
+    else if(a.v<.65||a.v>52.65)finish('punt-return-outofbounds',a.u);
+    else{let nearest=-1,min=Infinity;off.forEach((o,i)=>{const r=dist(o,a);if(r<min){min=r;nearest=i}});if(min<.95){contact+=dt;if(contact>=.1){tackler=nearest;finish('punt-return-tackle',a.u)}}else contact=0;}
+   }else if(rollStart){
+    const a=clamp((t-rollStart)/1.4);ball={u:landing.u+rollDistance*a,v:landing.v,z:Math.abs(Math.sin(a*Math.PI*4))*(1-a)*2.5};
+    if(ball.u>=100)finish('punt-touchback',100);
+    else if(a>=1||off.some(p=>dist(p,ball)<.8))finish('punt-down',ball.u);
+   }else if(t<.75){ball={u:ctx.start,v:hash,z:0};}
+   else if(t<kickAt){const a=clamp((t-.75)/.42);ball={u:lerp(ctx.start,off[5].u,a),v:lerp(hash,off[5].v,a),z:0};}
+   else{
+    const a=clamp((t-kickAt)/airTime);ball={u:lerp(off[5].u,landing.u,a),v:lerp(hash,landing.v,a),z:Math.sin(a*Math.PI)*40};
+    if(a>=1){
+     if(landing.u>=100)finish('punt-touchback',100);
+     else if(dist(def[10],landing)<1.4){
+      const coverage=Math.min(...off.map(p=>dist(p,def[10])));received=true;carrier=10;ball={u:def[10].u,v:def[10].v,z:0};
+      if(coverage<3){fairCatch=true;finish('punt-faircatch',def[10].u);}else returning=true;
+     }else rollStart=t;
+    }
+   }
+   if(t>23&&!dead)finish(returning?'punt-return-forwardprogress':'punt-down',returning?def[10].u:ball.u);
+  }
+  if(dead){off.forEach(a=>{a.vx*=.65;a.vy*=.65});def.forEach(a=>{a.vx*=.65;a.vy*=.65});if(received){ball.u=def[10].u;ball.v=def[10].v;ball.z=0;}}
+  record();if(dead&&t>resolve+1.8)break;
+ }
+ if(!dead)finish('punt-down',ball.u);
+ const finalSpot=Math.round(end*10)/10,returned=received?Math.max(0,landing.u-finalSpot):0;
+ return{type:'punt',gain:Math.round((finalSpot-ctx.start)*10)/10,end:finalSpot,outcome,snapOutcome:outcome,landingSpot:landing.u,kickYards:landing.u-ctx.start,returnYards:Math.round(returned*10)/10,returner:10,carrierTeam:received?'def':null,carrier:received?10:-1,returnerInitial,catchTime:received?catchAt:null,returnStart:received?landing.u:null,puntEndReason,fairCatch,tackler,target:10,lane:ball.v,duration:integer(23,42),animationDuration:(frames.length-1)*dt,resolveTime:resolve,frames,frameDt:dt,frameStride:stride,hash,flightStart:kickAt,td:outcome==='punt-return-touchdown',touchback:outcome==='punt-touchback'};
+}
+
+
+function artworkVisible(){return !document.hidden&&sceneInView&&!hostSuspended}
+function wakeVisibleWork(){if(artworkVisible()){const waiters=visibleWaiters.splice(0);waiters.forEach(fn=>fn())}}
+function yieldGameWork(){return new Promise(resolve=>{const resume=()=>{if(artworkVisible())requestAnimationFrame(resolve);else visibleWaiters.push(resume)};resume()})}
+function gameFailure(){generating=false;ready=false;setText('stateLabel','UNABLE TO START GAME');setText('playText','Use New game to try again.');$('newGame').disabled=false;setText('newGame','New game');}
+async function generateGame(){
+ if(generating)return;generating=true;$('gameBreak').hidden=true;publishHostState();gameReady=false;ready=false;cancelAnimationFrame(raf);raf=0;last=0;
+ for(const id of ['pause','next','newGame'])$(id).disabled=true;
+ setText('newGame','Starting…');setText('stateLabel','STARTING GAME');setText('playText','Preparing a randomized game.');
+ seedGameRandom();let game=null,sliceStart=performance.now(),attempts=0;
+ await yieldGameWork();
+ for(attempts=1;attempts<=300;attempts++){
+  frameCursor=0;const steps=FootballRules.sampleGameSteps(simulateSnap,{random:chance});let step;
+  do{step=steps.next();if(performance.now()-sliceStart>=8){await yieldGameWork();sliceStart=performance.now()}}while(!step.done);
+  if(step.value.result.winner&&step.value.result.leadChanges>=3){game=step.value;break}
+ }
+ if(!game)throw new Error('Unable to sample a competitive game');
+ framePool.length=frameCursor;plays=game.plays;gameResult=game.result;finished=false;gameSerial++;gameId=crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+integer(0,2147483647);recorded.clear();breakSeen.clear();if(window.cmpriTheme)window.cmpriTheme.events=[];$('playLog').replaceChildren();setText('sbTicker','Illinois vs #15 Iowa · Opening possession');playNo=0;time=0;statusKey='';lastDraw=0;
+ generating=false;gameReady=true;ready=artworkReady;for(const id of ['pause','next','newGame'])$(id).disabled=false;setText('newGame','New game');setText('next','Next play →');
+ if(window.cmpriTheme){window.cmpriTheme.version='9.0';window.cmpriTheme.preparation={attempts,pooledFrames:frameCursor}}
+ if(ready)setPaused(paused);publishHostState();
+}
+void generateGame().catch(gameFailure);
+
+function project(p,u,v){return{x:404+((p.attackDirection||1)>0?u:100-u)*7.09,y:193+v*7.1}}
+function frameAt(p,t){const x=clamp(t/p.frameDt,0,p.frames.length-1),i=Math.floor(x),a=p.frames[i],b=p.frames[Math.min(i+1,p.frames.length-1)],k=x-i;return {a,b,k};}
+const positionBuffers=Array.from({length:2},()=>({off:Array.from({length:11},()=>({u:0,v:0})),def:Array.from({length:11},()=>({u:0,v:0}))}));
+function positions(p,t,buffer=0){const {a,b,k}=frameAt(p,t),out=positionBuffers[buffer];for(let i=0;i<11;i++){out.off[i].u=lerp(a[i*2],b[i*2],k);out.off[i].v=lerp(a[i*2+1],b[i*2+1],k);out.def[i].u=lerp(a[22+i*2],b[22+i*2],k);out.def[i].v=lerp(a[23+i*2],b[23+i*2],k)}return out;}
+
+function football(p,t){const {a,b,k}=frameAt(p,t),u=lerp(a[44],b[44],k),v=lerp(a[45],b[45],k),z=lerp(a[46],b[46],k),pt=project(p,u,v);
+ dirty(pt.x-9,pt.y-z-9,18,z+22);ellipse(c,pt.x+1,pt.y+3,2.2,1.2,'#020a0470');c.save();c.translate(pt.x,pt.y-z);c.rotate(z>0?t*6:.4);ellipse(c,0,0,2.7,1.55,'#703b20');c.strokeStyle='#ebcaa0';c.lineWidth=.65;c.beginPath();c.moveTo(-1.5,0);c.lineTo(1.5,0);c.moveTo(-.6,-.7);c.lineTo(-.6,.7);c.moveTo(.6,-.7);c.lineTo(.6,.7);c.stroke();c.restore();c.strokeStyle=z>0?'#fff1baaf':'#ffffff70';c.lineWidth=.7;c.beginPath();c.arc(pt.x,pt.y-z,5.5,0,Math.PI*2);c.stroke();
+}
+let lastAmbientDraw=0;
+function refreshAmbient(t,force=false){if(!artworkReady)return;const now=performance.now();if(!force&&(!smoothMotion||now-lastAmbientDraw<125))return;lastAmbientDraw=now;ambientContext.clearRect(0,0,W,H);sideline.forEach(a=>{if(!a.mobile)return;const walking=smoothMotion?Math.sin(t*.32+a.phase)*5:0;person(ambientContext,a.x+walking,a.y+(smoothMotion?Math.sin(t*.45+a.phase)*.6:0),a.team,a.scale,smoothMotion?(walking>0?Math.PI/2:-Math.PI/2):a.angle,smoothMotion?Math.sin(t*6+a.phase)*.65:0,a.staff?null:a.number,a.staff,a.pose)});if(smoothMotion)wavers.forEach(f=>{const a=Math.max(0,Math.sin(t*2.1+f.phase))*.55;if(a>.25)drawFan(ambientContext,f,a)});}
+const dirtyBounds=[Infinity,Infinity,-Infinity,-Infinity];function resetDirty(){dirtyBounds[0]=dirtyBounds[1]=Infinity;dirtyBounds[2]=dirtyBounds[3]=-Infinity}function dirty(x,y,w,h){dirtyBounds[0]=Math.min(dirtyBounds[0],x);dirtyBounds[1]=Math.min(dirtyBounds[1],y);dirtyBounds[2]=Math.max(dirtyBounds[2],x+w);dirtyBounds[3]=Math.max(dirtyBounds[3],y+h)}function clearMotion(){if(dirtyBounds[0]!==Infinity)c.clearRect(dirtyBounds[0],dirtyBounds[1],dirtyBounds[2]-dirtyBounds[0],dirtyBounds[3]-dirtyBounds[1]);resetDirty()}
+function render(){if(!ready)return;const p=plays[playNo],t=Math.min(time,p.animationDuration),{off,def}=positions(p,t);clearMotion();
+ refreshAmbient(time);
+ // Officials wear striped shirts and stay outside the play.
+ for(const [u,v] of [[p.start-10,27],[Math.min(p.start+p.gain+8,97),49],[p.start+3,3]]){const q=project(p,u,v);person(c,q.x,q.y,'iowa',.9,0,0,null,true);c.fillStyle='#e8e9db';for(let k=-2;k<3;k+=2)c.fillRect(q.x+k,q.y-1,.7,3)}
+ const all=[...off.map((q,i)=>({...q,i,team:p.team,offense:true})),...def.map((q,i)=>({...q,i,team:p.team==='ill'?'iowa':'ill',offense:false}))];
+ const later=positions(p,Math.min(t+.055,p.animationDuration),1);
+ all.sort((a,b)=>a.v-b.v).forEach(q=>{
+ const pt=project(p,q.u,q.v),nq=q.offense?later.off[q.i]:later.def[q.i],next=project(p,nq.u,nq.v),dx=next.x-pt.x,dy=next.y-pt.y,velocity=Math.hypot(dx,dy)/.055;
+ const moving=t>.75&&t<p.resolveTime&&velocity>1.5,gait=moving?Math.sin(t*(q.i<5?9:13)+q.i*2.17)*(q.i<5?.4:.8):0;
+ let angle=(p.attackDirection>0?Math.PI/2:-Math.PI/2)+(q.offense?0:Math.PI);
+ if(moving)angle=Math.atan2(dx,-dy);
+ else if(t>=p.resolveTime){const f=frameAt(p,t).a,ball=project(p,f[44],f[45]);angle=Math.atan2(ball.x-pt.x,-(ball.y-pt.y));}
+ const tackled=t>p.resolveTime&&(p.carrierTeam==='def'?p.puntEndReason==='punt-return-tackle'&&(q.offense?q.i===p.tackler:q.i===p.carrier):['tackle','sack','forwardprogress'].includes(p.snapOutcome)&&(q.offense?q.i===p.carrier:q.i===p.tackler));
+ const pose=tackled?'fallen':t>.75&&t<p.resolveTime&&(q.offense?q.i<5:q.i<4)?'block':'stand';
+ person(c,pt.x,pt.y,q.team,1.12,angle,gait,q.offense?[67,74,58,71,79,12,24,87,8,11,6][q.i]:[92,95,54,97,42,34,41,9,21,5,4][q.i],false,pose);
+ });
+ // Expose concrete rendered positions for preview verification, not a fixed logo.
+ if(window.cmpriTheme)window.cmpriTheme.action={time:t,offense:off,defense:def,type:p.type};
+
+ football(p,t,off);
+ // Chain and down marker sit on the near boundary outside the painted field.
+ const chain=project(p,p.start,53.3),first=project(p,p.lineToGain,53.3);dirty(Math.min(chain.x,first.x)-6,570,Math.abs(chain.x-first.x)+12,24);c.strokeStyle='#e3a835';c.lineWidth=.75;c.beginPath();c.moveTo(chain.x,582);c.lineTo(first.x,582);c.stroke();[chain,first].forEach(q=>{c.fillStyle='#e96625';c.fillRect(q.x-1,576,2,13);ellipse(c,q.x,575,2.6,2.6,'#ef732b');ellipse(c,q.x,575,1.2,1.2,'#10191e')});
+ if(p.td&&t>p.resolveTime){dirty(610,106,300,46);c.save();c.fillStyle='#091423e8';c.fillRect(613,110,294,39);c.fillStyle=(p.scoringTeam||p.team)==='ill'?'#ff9a61':'#ffdb3c';c.font='bold 17px Arial';c.textAlign='center';c.fillText(((p.scoringTeam||p.team)==='ill'?'ILLINOIS':'IOWA')+' TOUCHDOWN',760,135);c.restore()}
+ updateStatus(p,t);
+}
+const TALLY_KEY='cmpri.illinois-iowa.completed-games.v1';let tally={ill:0,iowa:0,ids:[]};
+function readTally(){try{const a=JSON.parse(localStorage.getItem(TALLY_KEY)||'null');if(a&&Number.isSafeInteger(a.ill)&&Number.isSafeInteger(a.iowa)&&a.ill>=0&&a.iowa>=0&&Array.isArray(a.ids))tally={ill:a.ill,iowa:a.iowa,ids:a.ids.slice(-100)}}catch{}return tally}
+function displayTally(){const a=readTally();$('tallyIllWins').textContent=a.ill;$('tallyIllLosses').textContent=a.iowa;$('tallyIowaWins').textContent=a.iowa;$('tallyIowaLosses').textContent=a.ill;$('tallyTotal').textContent=a.ill+a.iowa;if(window.cmpriTheme)window.cmpriTheme.tally={illinoisWins:a.ill,iowaWins:a.iowa,games:a.ill+a.iowa};}
+function countFinishedGame(){readTally();if(tally.ids.includes(gameId))return;tally[gameResult.winner]++;tally.ids.push(gameId);tally.ids=tally.ids.slice(-100);try{localStorage.setItem(TALLY_KEY,JSON.stringify(tally))}catch{}displayTally()}
+addEventListener('storage',e=>{if(e.key===TALLY_KEY)displayTally()});displayTally();
+function describePlay(p){
+ if(p.td)return(p.scoringTeam==='ill'?'Illinois':'Iowa')+(p.puntEndReason==='punt-return-touchdown'?' punt-return touchdown.':' touchdown.')+' '+(p.conversion.good?'Extra point good.':'Extra point missed.');
+ if(p.outcome==='fieldgoal-good')return p.kickDistance.toFixed(0)+'-yard field goal is good.';
+ if(p.outcome==='fieldgoal-missed')return p.kickDistance.toFixed(0)+'-yard field goal misses. Possession changes.';
+ if(p.type==='punt'){if(p.outcome==='punt-touchback')return'Punt into the end zone. Touchback at the 20.';if(p.puntEndReason==='punt-faircatch')return'Fair catch by the deep punt returner. Ball at the '+p.next.start.toFixed(0)+'.';if(p.puntEndReason==='punt-down')return'Punt bounces and is downed. Ball at the '+p.next.start.toFixed(0)+'.';return'Punt caught by '+(p.team==='ill'?'Iowa':'Illinois')+' and returned '+Math.max(0,p.returnYards||0).toFixed(0)+' yards. '+(p.puntEndReason==='punt-return-outofbounds'?'Out of bounds.':'Returner tackled.');}
+ if(p.outcome==='interception')return'Intercepted! '+(p.next.team==='ill'?'Illinois':'Iowa')+' takes possession.';
+ if(p.outcome==='turnover-on-downs')return'Stopped short on fourth down. Possession changes.';
+ if(p.outcome==='incomplete')return'Incomplete. Ball returns to the line of scrimmage.';
+ if(p.outcome==='sack')return'Quarterback sacked. Loss of '+Math.abs(p.gain).toFixed(0)+' yards.';
+ if(p.outcome==='safety')return'Safety. Two points for the defense.';
+ return(p.snapOutcome==='outofbounds'?'Out of bounds. ':p.snapOutcome==='forwardprogress'?'Forward progress stopped. ':'Tackled. ')+(p.gain>=0?'Gain of ':'Loss of ')+Math.abs(p.gain).toFixed(0)+(Math.round(Math.abs(p.gain))===1?' yard.':' yards.')+(p.next.downNum===1?' First down.':'');
+}
+function tickerResult(p){const yards=Math.abs(Math.round(p.gain)),gain=(p.gain<0?'−':'+')+yards+' yd';if(p.td)return(p.scoringTeam==='ill'?'ILL':'IOWA')+(p.type==='punt'?' punt-return TD':' touchdown')+' · PAT '+(p.conversion.good?'good':'missed');if(p.type==='punt'){if(p.outcome==='punt-touchback')return'Punt · touchback';if(p.puntEndReason==='punt-faircatch')return'Punt · fair catch';if(p.puntEndReason==='punt-down')return'Punt downed';return'Punt · '+(p.team==='ill'?'IOWA':'ILL')+' return +'+Math.max(0,Math.round(p.returnYards||0))+' yd'}if(p.type==='fieldgoal')return Math.round(p.kickDistance)+' yd FG '+(p.outcome==='fieldgoal-good'?'good':'missed');if(p.outcome==='interception')return'Pass intercepted';if(p.outcome==='incomplete')return'Pass incomplete';if(p.outcome==='sack')return'Sack '+gain;if(p.outcome==='safety')return'Safety';if(p.outcome==='turnover-on-downs')return'Fourth-down stop · turnover';return(p.type==='run'?'Run ':'Pass ')+gain+(p.next.downNum===1?' · first down':'')}
+function publishPlay(p,index){if(recorded.has(index))return;recorded.add(index);const clock=String(Math.floor(p.endClock/60)).padStart(2,'0')+':'+String(Math.floor(p.endClock%60)).padStart(2,'0'),text='Q'+p.quarter+' '+clock+' · '+(p.team==='ill'?'ILL':'IOWA')+' · '+p.down+' · '+describePlay(p);setText('sbTicker','Q'+p.quarter+' '+clock+' · '+(p.team==='ill'?'ILL':'IOWA')+' · '+tickerResult(p));const li=document.createElement('li');li.textContent=text;$('playLog').prepend(li);}
+function playDuration(p){return p.animationDuration+(p.breakAfter&&p.breakAfter.type!=='final'?(p.breakAfter.seconds||4):0)}
+function currentBreak(p,t){return p.breakAfter&&t>=p.resolveTime+.15?p.breakAfter:null}
+function showBreak(p,t){const event=currentBreak(p,t),box=$('gameBreak');if(box.hidden===Boolean(event))box.hidden=!event;if(event){setText('gameBreakTitle',event.title);setText('gameBreakMessage',event.message||'');if(!breakSeen.has(playNo)){breakSeen.add(playNo);if(window.cmpriTheme)(window.cmpriTheme.events??=[]).push({type:event.type,quarter:p.quarter,clock:p.endClock,receivingTeam:event.receivingTeam,openingReceiver:event.openingReceiver});}if(!finished)setText('next','Continue →');}else if(!finished)setText('next','Next play →');return event;}
+function publishHostState(){if(!EMBEDDED_THEME||parent===window)return;try{parent.postMessage({type:'cmpri-football-state',paused,ready:ready&&!generating},location.origin)}catch{}}
+addEventListener('message',event=>{if(!EMBEDDED_THEME||event.source!==parent||event.origin!==location.origin||!event.data||event.data.type!=='cmpri-football-control')return;const data=event.data;if(data.action==='suspend'&&typeof data.suspended==='boolean'){hostSuspended=data.suspended;cancelAnimationFrame(raf);raf=0;last=0;wakeVisibleWork();start();}else if(data.action==='toggle'&&ready&&!generating){if(finished)newGame();else setPaused(!paused);}publishHostState();});
+function setText(id,value){const el=$(id),text=String(value);if(el.textContent!==text)el.textContent=text}
+function updateStatus(p,t){
+ const event=showBreak(p,t);const resolved=t>=p.resolveTime,passing=p.type==='pass',special=p.type==='punt'||p.type==='fieldgoal';
+ const phase=resolved?4:t<.75?0:t<1.55?1:t<(passing?p.flightStart:2.5)?2:3,key=playNo+':'+phase+(event?':'+event.type:'')+(p.type==='punt'&&Number.isFinite(p.catchTime)&&t>=p.catchTime?':return':''),score=resolved?p.after:p.before,team=p.team==='ill'?'Illinois':'Iowa';
+ if(key!==statusKey){statusKey=key;const result=describePlay(p);
+ const call=special?(p.type==='punt'?'Punt unit on the field.':'Field-goal unit: '+p.kickDistance.toFixed(0)+'-yard attempt.'):p.down+' · '+(passing?'Pass formation.':'Run formation.');
+ const text=[team+': '+call,'Snap to '+(special?'the specialist.':'the quarterback.'),special?'Protection holds. The kick is away.':passing?'Quarterback reads the coverage.':'Handoff. The runner follows the blocks.',special?'The ball is in flight.':passing?'Pass in flight; coverage reacts.':'Runner cuts upfield; defenders pursue.',result][phase];
+ if(resolved)publishPlay(p,playNo);const liveText=event?event.message:p.type==='punt'&&!resolved&&Number.isFinite(p.catchTime)&&t>=p.catchTime?'Punt caught. The returner advances as the coverage closes.':text;setText('playText',finished?'Final: Illinois '+gameResult.ill+' — Iowa '+gameResult.iowa+'. '+gameResult.leadChanges+' lead changes.':liveText);
+ setText('downLabel',finished?'FINAL':p.down+' · '+(p.team==='ill'?'ILL':'IOWA')+' BALL');
+ }
+ const fraction=clamp(t/Math.max(.1,p.resolveTime)),secs=Math.max(0,Math.round(lerp(p.startClock,p.endClock,fraction)));setText('sbClock',String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0'));
+ setText('sbQuarter',finished?'FINAL':event?.type==='halftime'?'HALF':['','1ST','2ND','3RD','4TH'][p.quarter]);setText('sbIllScore',score.ill);setText('sbIowaScore',score.iowa);setText('sbDown',finished?'FINAL':event?.type==='two-minute-warning'?'2-MIN WARNING':event?.type==='halftime'?'HALFTIME':p.down);setText('sbPlayClock',t<.75?String(Math.max(1,Math.ceil(40-t*8))):'—');const summary='Simulated score: Illinois '+score.ill+', Iowa '+score.iowa+'. '+(finished?'Final.':'Quarter '+p.quarter+'. '+p.down+'.');if($('sbAccessibleSummary').textContent!==summary)setText('sbAccessibleSummary',summary);
+ const lead=score.ill===score.iowa?'TIED':score.ill>score.iowa?'ILLINOIS LEADS':'IOWA LEADS',changes=resolved?p.leadChanges:playNo?plays[playNo-1].leadChanges:0;setText('leadSummary',lead+' · '+changes+' LEAD CHANGE'+(changes===1?'':'S'));
+ if(window.cmpriTheme)window.cmpriTheme.game={game:gameSerial,snap:playNo+1,totalSnaps:plays.length,quarter:p.quarter,score:{...score},leadChanges:changes,finished,down:p.downNum,toGo:p.toGo,ballOn:p.start,possession:p.team,outcome:resolved?p.outcome:null};
+}
+
+function finishGame(){if(finished)return;finished=true;countFinishedGame();time=plays[playNo].animationDuration;statusKey='';setPaused(true);$('stateLabel').textContent='FINAL · '+(gameResult.winner==='ill'?'ILLINOIS':'IOWA')+' WINS';$('pause').textContent='New game';$('next').textContent='New game';}
+function advance(){publishPlay(plays[playNo],playNo);if(playNo+1>=plays.length){finishGame();return}playNo++;time=0;statusKey='';}
+let lastDraw=0;
+function tick(now){raf=0;if(paused||!artworkVisible()||!ready)return;const dt=last?Math.min((now-last)/1000,.08):0;last=now;time+=dt*speed;if(time>playDuration(plays[playNo])+.5){advance();if(finished)return}const elapsed=now-lastDraw;if(elapsed>=1000/targetFps()){lastDraw=now-elapsed%(1000/targetFps());render()}raf=requestAnimationFrame(tick)}
+
+function start(){if(!paused&&artworkVisible()&&ready&&!raf){last=0;raf=requestAnimationFrame(tick)}}
+function setPaused(value){paused=value;cancelAnimationFrame(raf);raf=0;last=0;$('pause').setAttribute('aria-pressed',String(paused));$('pause').textContent=paused?'Resume':'Pause';$('stateLabel').textContent=paused?(reduced.matches?'REDUCED MOTION · PAUSED':'SIMULATION PAUSED'):'GAME IN MOTION';if(ready)render();start();publishHostState()}
+function newGame(){if(generating)return;paused=reduced.matches;void generateGame().catch(gameFailure)}
+function nextPlay(){if(generating||!ready)return;if(finished){newGame();return}const p=plays[playNo];if(p.breakAfter&&p.breakAfter.type!=='final'&&!breakSeen.has(playNo)){publishPlay(p,playNo);time=p.resolveTime+.2;statusKey='';render();last=0;start();return}advance();render();last=0;start()}
+
+function themeView(on){ambient=on;document.body.classList.toggle('ambient',on);if(on)$('exitAmbient').focus();else $('ambient').focus()}
+$('pause').addEventListener('click',()=>finished?newGame():setPaused(!paused));$('next').addEventListener('click',nextPlay);$('newGame').addEventListener('click',newGame);$('motionQuality').addEventListener('change',e=>{smoothMotion=e.target.value==='smooth';try{localStorage.setItem('cmpri.game.motion-quality',smoothMotion?'smooth':'light')}catch{}lastDraw=0;resizeMotionCanvas();refreshAmbient(time,true);if(ready)render()});$('speed').addEventListener('change',e=>{speed=Number(e.target.value);last=0});$('ambient').addEventListener('click',()=>themeView(true));$('exitAmbient').addEventListener('click',()=>themeView(false));
+addEventListener('keydown',e=>{if(generating&&e.key!=='Escape')return;if(e.target.closest('button,a,input,summary,textarea,select')&&e.key!=='Escape')return;if(e.code==='Space'){e.preventDefault();finished?newGame():setPaused(!paused)}else if(e.key.toLowerCase()==='n')nextPlay();else if(e.key==='Escape'&&ambient)themeView(false)});
+document.addEventListener('visibilitychange',()=>{cancelAnimationFrame(raf);raf=0;last=0;wakeVisibleWork();start()});reduced.addEventListener('change',e=>{if(e.matches)setPaused(true)});
+function resizeMotionCanvas(){const displayWidth=motion.clientWidth,scale=Math.min(1,Math.max(.01,displayWidth/W*Math.min(devicePixelRatio||1,1.25))),width=Math.max(1,Math.round(W*scale)),height=Math.max(1,Math.round(H*scale));if(motion.width!==width||motion.height!==height){motion.width=width;motion.height=height;ambience.width=width;ambience.height=height;c.setTransform(width/W,0,0,height/H,0,0);ambientContext.setTransform(width/W,0,0,height/H,0,0);resetDirty();refreshAmbient(time,true);if(ready)render()}if(window.cmpriTheme){window.cmpriTheme.performance={...window.cmpriTheme.performance,targetFps:targetFps(),mobileVertical:matchMedia('(max-width:767px) and (orientation:portrait),(max-width:1024px) and (pointer:coarse)').matches,motionMode:smoothMotion?'smooth':'light',staticSidelines:smoothMotion?396:410,animatedSidelines:smoothMotion?14:0,animatedFans:smoothMotion?24:0,motionPixels:width*height,motionWidth:width,motionHeight:height,offscreenPaused:!sceneInView};}}
+const motionResizeObserver=new ResizeObserver(resizeMotionCanvas);motionResizeObserver.observe(document.querySelector('.stage'));resizeMotionCanvas();
+const sceneObserver=new IntersectionObserver(entries=>{const visible=entries[0].isIntersecting;if(sceneInView===visible)return;sceneInView=visible;cancelAnimationFrame(raf);raf=0;last=0;if(window.cmpriTheme?.performance)window.cmpriTheme.performance.offscreenPaused=!visible;wakeVisibleWork();if(visible){if(ready)render();start()}},{threshold:0});sceneObserver.observe(document.querySelector('.stage'));
+const SCENE_KEY='v9-west-end-tiers-vertical-1-__ASSET_DIGEST__',DB_NAME='cmpri-illinois-iowa-offline',STORE_NAME='scene';
+function openSceneDB(){return new Promise((resolve,reject)=>{if(!('indexedDB'in window)){reject(new Error('Unavailable'));return}const req=indexedDB.open(DB_NAME,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(STORE_NAME))req.result.createObjectStore(STORE_NAME)};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(new Error('Blocked'));})}
+async function sceneRecord(){const db=await openSceneDB();try{return await new Promise((resolve,reject)=>{const r=db.transaction(STORE_NAME).objectStore(STORE_NAME).get(SCENE_KEY);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}finally{db.close()}}
+async function storeScene(){try{const image=await new Promise(resolve=>still.toBlob(resolve,'image/webp',.87));if(!image)return;const stats={...window.cmpriTheme};delete stats.game;delete stats.action;delete stats.tally;delete stats.cache;delete stats.events;delete stats.preparation;const raw=new Blob([JSON.stringify({wavers,sideline,stats})],{type:'application/json'});const gzip=typeof CompressionStream==='function',metadata=gzip?await new Response(raw.stream().pipeThrough(new CompressionStream('gzip'))).blob():raw;const db=await openSceneDB();try{await new Promise((resolve,reject)=>{const tx=db.transaction(STORE_NAME,'readwrite'),store=tx.objectStore(STORE_NAME);store.clear();store.put({key:SCENE_KEY,image,metadata,gzip},SCENE_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)})}finally{db.close()}window.cmpriTheme.cache={version:SCENE_KEY,hit:false,stored:true,bytes:image.size+metadata.size,format:gzip?'webp+gzip':'webp+json'};$('cacheStatus').textContent='OFFLINE READY · LOCAL CACHE';}catch{if(window.cmpriTheme)window.cmpriTheme.cache={version:SCENE_KEY,hit:false,stored:false};}}
+async function restoreScene(){try{const record=await sceneRecord();if(!record||record.key!==SCENE_KEY)return false;const text=record.gzip?await new Response(record.metadata.stream().pipeThrough(new DecompressionStream('gzip'))).text():await record.metadata.text(),meta=JSON.parse(text);if(meta.stats.fans!==CAPACITY||meta.stats.iowaFans!==27301||!Array.isArray(meta.wavers)||!Array.isArray(meta.sideline))return false;const bitmap=await createImageBitmap(record.image);s.drawImage(bitmap,0,0,W,H);bitmap.close();wavers.push(...meta.wavers);sideline.push(...meta.sideline);window.cmpriTheme={...meta.stats,cache:{version:SCENE_KEY,hit:true,stored:true,bytes:record.image.size+record.metadata.size,format:record.gzip?'webp+gzip':'webp+json'}};$('cacheStatus').textContent='OFFLINE READY · LOCAL CACHE';return true;}catch{return false}}
+async function initializeArtwork(){await yieldGameWork();if(!await restoreScene()){await new Promise((resolve,reject)=>{photo.onload=resolve;photo.onerror=reject;photo.src='__STADIUM_IMAGE__'});s.drawImage(photo,0,0,W,H);endzone();makeCrowd();sidelines();prepareStaticScene();void storeScene();}artworkReady=true;ready=gameReady;window.cmpriTheme.version='9.0';resizeMotionCanvas();refreshAmbient(time,true);displayTally();if(ready)setPaused(paused);}
+initializeArtwork().catch(()=>{$('imageError').hidden=false});
+
+})();
+</script>
+</body>
+</html>
