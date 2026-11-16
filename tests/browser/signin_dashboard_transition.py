@@ -35,10 +35,17 @@ async def verify_first_paint():
               const select=document.createElement('select');
               select.innerHTML='<option selected>Selected</option><option>Other</option>';
               const listbox=document.createElement('div');listbox.setAttribute('role','listbox');listbox.textContent='Menu';
-              document.body.append(select,listbox);
+              const modal=document.createElement('div');modal.dataset.cmpriModalTheme='true';
+              const modalCheckbox=document.createElement('input');modalCheckbox.type='checkbox';modal.append(modalCheckbox);
+              document.body.append(select,listbox,modal);
               const selected=select.options[0],checkbox=document.querySelector('input[type=checkbox]');
+              const animationControl=document.querySelector('.cmpri-animation-control'),controlStyle=getComputedStyle(animationControl);
               const values={
                 theme:root.dataset.cmpriSiteTheme,
+                animationControl:{text:animationControl.textContent,width:animationControl.getBoundingClientRect().width,height:animationControl.getBoundingClientRect().height,radius:controlStyle.borderRadius},
+                rootColorScheme:style.colorScheme,
+                checkboxColorScheme:getComputedStyle(checkbox).colorScheme,
+                modalCheckboxColorScheme:getComputedStyle(modalCheckbox).colorScheme,
                 root:rgb(style.backgroundColor),body:rgb(getComputedStyle(document.body).backgroundColor),
                 modalBase:token('--cmpri-modal-base'),surface:token('--cmpri-modal-surface'),
                 action:token('--cmpri-action-rgb').replaceAll(' ',''),
@@ -52,9 +59,12 @@ async def verify_first_paint():
                 menu:rgb(getComputedStyle(listbox).backgroundColor),
                 framePainted:document.querySelector('iframe').dataset.painted
               };
-              select.remove();listbox.remove();return values;
+              select.remove();listbox.remove();modal.remove();return values;
             }''')
             assert result['theme'] == 'illinois-iowa', result
+            assert result['animationControl'] == {'text':'Ⅱ','width':44,'height':44,'radius':'50%'}, ('Production animation control appearance changed',result)
+            assert result['rootColorScheme'] == result['checkboxColorScheme'] == 'normal', ('Production sign-in control appearance changed', result)
+            assert result['modalCheckboxColorScheme'] == 'dark', ('Modal control scheme changed', result)
             assert result['root'] == result['body'] == [0, 0, 0], result
             assert result['modalBase'] == '#101010' and result['surface'] and 'var(' not in result['surface'], result
             assert result['action'] == '255,95,5' and result['outline'], result

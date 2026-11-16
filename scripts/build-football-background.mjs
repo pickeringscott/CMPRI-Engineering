@@ -20,11 +20,26 @@ function svgUri(name) {
   return 'data:image/svg+xml;base64,' + readFileSync(resolve(source, name)).toString('base64');
 }
 
+// The standalone document uses the same source palette as sign-in and all modals.
+const palette = JSON.parse(readFileSync(resolve(root, 'src/lib/ui/site-palette.json'), 'utf8'));
+const tint = rgb => 'rgb(' + rgb.split(',').map(n => Math.round(Number(n) * .18 + 255 * .82)).join(',') + ')';
+const paletteTokens = { 'modal-base': palette.modalBase, maintenance: palette.maintenance, 'maintenance-text': tint(palette.maintenance), ...palette.semantic };
+for (const [name, value] of Object.entries(palette.desktop)) paletteTokens['desktop-' + name] = value;
+for (const accent of palette.accents) { paletteTokens[accent.name + '-rgb'] = accent.rgb; paletteTokens[accent.name + '-text'] = tint(accent.rgb); }
+for (const [name, scheme] of Object.entries(palette.special)) { paletteTokens[name + '-rgb'] = scheme.rgb; paletteTokens[name + '-base'] = scheme.base; }
+for (const [name, value] of Object.entries(palette.signOut)) paletteTokens['sign-out-' + name] = value;
+const paletteCss = ':root{' + Object.entries(paletteTokens).map(([name, value]) => '--cmpri-palette-' + name + ':' + value + ';').join('') + '}';
+// Resolve canvas annotations once at build time, never during animation frames.
+const canvasUiPalette = { overlay: palette.desktop['tone-14'], illinois: 'rgb(' + palette.desktop['action-rgb'] + ')', iowa: palette.semantic.gold };
+
 const artwork = await sharp(resolve(root, 'public/GiesOverheadView.jpg')).webp({ quality: 82, effort: 6 }).toBuffer();
 // Keep the no-script explanation without duplicating the full embedded stadium.
 const template = readFileSync(resolve(source, 'index.template.html'), 'utf8').replace(/(<noscript>[\s\S]*?)<img\b[^>]*>([\s\S]*?<\/noscript>)/g, '$1$2');
 const rules = readFileSync(resolve(source, 'football-rules.js'), 'utf8').replace(/^export const FootballRules\b/m, 'const FootballRules');
 let html = template
+  .replaceAll('__SITE_PALETTE_CSS__', paletteCss)
+  .replaceAll('__SITE_THEME_COLOR__', palette.desktop['tone-1'])
+  .replaceAll('__CANVAS_UI_PALETTE__', JSON.stringify(canvasUiPalette))
   .replaceAll('__FOOTBALL_RULES__', rules)
   .replaceAll('__STADIUM_IMAGE__', 'data:image/webp;base64,' + artwork.toString('base64'))
   .replaceAll('__ILLINOIS_LOGO__', svgUri('illinois-block-i-official.svg'))

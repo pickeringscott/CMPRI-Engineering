@@ -16,7 +16,7 @@ export default function FootballBackground() {
   const pathname = usePathname();
   const visible = pathname === "/" || pathname === "/engineering" || pathname === "/front-desk";
   const frame = useRef<HTMLIFrameElement>(null);
-  const [artwork, setArtwork] = useState<ArtworkState>({ paused: true, ready: false, painted: false });
+  const [artwork, setArtwork] = useState<ArtworkState>({ paused: false, ready: false, painted: false });
   const sendControl = useCallback((control: ArtworkControl) => {
     frame.current?.contentWindow?.postMessage(
       { type: "cmpri-football-control", ...control },
@@ -76,7 +76,7 @@ export default function FootballBackground() {
         aria-pressed={artwork.paused}
         onClick={() => sendControl({ action: "toggle" })}
       >
-        {!artwork.ready ? "Loading" : artwork.paused ? "Resume" : "Pause"}
+        {artwork.paused ? "▶" : "Ⅱ"}
       </button>
     </>
   );

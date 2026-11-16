@@ -10,7 +10,7 @@ html[data-cmpri-site-theme="illinois-iowa"][data-theme] {
   --cmpri-modal-subtle:color-mix(in srgb,var(--cmpri-modal-text) 45%,var(--cmpri-modal-base));
   --cmpri-outline:rgba(var(--cmpri-action-rgb),.42);
   --cmpri-scroll-thumb:rgba(var(--cmpri-action-rgb),.28);
-  background:var(--cmpri-palette-black);color:var(--cmpri-palette-modal-text);color-scheme:dark;
+  background:var(--cmpri-palette-black);color:var(--cmpri-palette-modal-text);
 }
 html[data-cmpri-site-theme="illinois-iowa"] body { background:var(--background);color:var(--foreground); }
 [data-cmpri-seasonal-theme="illinois-iowa"] { color:var(--cmpri-palette-modal-text); }
@@ -31,11 +31,11 @@ html[data-cmpri-site-theme="illinois-iowa"] body { background:var(--background);
 [data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-create {background:var(--cmpri-palette-desktop-tone-26);border-color:var(--cmpri-palette-desktop-tone-27);color:var(--cmpri-palette-desktop-tone-28)}
 
 .cmpri-football-artwork { background:var(--cmpri-palette-desktop-tone-13); }
-.cmpri-football-animation-control { display:flex;align-items:center;justify-content:center;width:64px;height:44px;bottom:14px;border-color:var(--cmpri-palette-desktop-tone-16);color:var(--cmpri-palette-desktop-tone-10);background:var(--cmpri-palette-desktop-tone-14);font:11px system-ui; }
+.cmpri-football-animation-control { bottom:14px;border-color:var(--cmpri-palette-desktop-tone-16);color:var(--cmpri-palette-desktop-tone-10);background:var(--cmpri-palette-desktop-tone-14); }
 .cmpri-football-animation-control:focus-visible { outline-color:var(--cmpri-palette-desktop-tone-12); }
 .cmpri-football-animation-control:disabled { opacity:.6;cursor:wait; }
 @media(max-width:767px) { .cmpri-football-animation-control { bottom:90px; } }
-@media(prefers-reduced-motion:reduce) { .cmpri-football-animation-control { display:flex; } }
+@media(prefers-reduced-motion:reduce) { .cmpri-football-animation-control { display:flex;align-items:center;justify-content:center; } }
 
 /* Paint the cached stadium before revealing the iframe; routing never replaces it. */
 .cmpri-football-artwork iframe { opacity:0;transition:opacity 180ms ease; }
@@ -57,3 +57,7 @@ html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="caution"] { 
 html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="success"] { --cmpri-source-accent:var(--cmpri-palette-completed); }
 html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="information"] { --cmpri-source-accent:var(--cmpri-palette-link); }
 html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics] { color:var(--cmpri-source-accent)!important;border-color:var(--cmpri-source-accent)!important; }
+
+/* Keep production sign-in's native control appearance; modal controls retain their dark scheme. */
+html[data-cmpri-site-theme="illinois-iowa"][data-cmpri-modal-theme="true"],
+html[data-cmpri-site-theme="illinois-iowa"] [data-cmpri-modal-theme="true"] { color-scheme:dark; }

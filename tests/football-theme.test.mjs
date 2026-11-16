@@ -53,6 +53,28 @@ test('football build publishes a self-contained immutable entry and matching sta
   assert.doesNotMatch(html, /__(?:STADIUM_IMAGE|ILLINOIS_LOGO|IOWA_LOGO|ASSET_DIGEST)__/);
 });
 
+test('standalone interface and canvas annotations use the shared JSON palette', () => {
+  const palette = JSON.parse(readFileSync('src/lib/ui/site-palette.json', 'utf8'));
+  const html = readFileSync('public' + manifest.entry, 'utf8');
+  const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  for (const [name, value] of Object.entries(palette.semantic)) assert.ok(css.includes('--cmpri-palette-' + name + ':' + value + ';'), name);
+  for (const [name, value] of Object.entries(palette.desktop)) assert.ok(css.includes('--cmpri-palette-desktop-' + name + ':' + value + ';'), name);
+  for (const accent of palette.accents) assert.ok(css.includes('--cmpri-palette-' + accent.name + '-rgb:' + accent.rgb + ';'), accent.name);
+  assert.ok(css.includes('--cmpri-palette-modal-base:' + palette.modalBase + ';'));
+  assert.ok(css.includes('--orange:rgb(var(--cmpri-palette-control-rgb))'));
+  assert.ok(css.includes('--gold:var(--cmpri-palette-gold)'));
+  assert.ok(css.includes('::selection{background:var(--gold);color:var(--ink)}'));
+  assert.ok(html.includes('<meta name="theme-color" content="' + palette.desktop['tone-1'] + '">'));
+  const source = readFileSync('src/components/desktop/football/index.template.html', 'utf8');
+  const sourceCss = source.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.doesNotMatch(sourceCss, /#[0-9a-f]{3,8}\b/i, 'interface colors must resolve shared tokens instead of a second palette');
+  assert.ok(source.includes('c.fillStyle=UI_PALETTE.overlay'));
+  assert.ok(source.includes('?UI_PALETTE.illinois:UI_PALETTE.iowa'));
+  assert.ok(html.includes(palette.desktop['tone-14']));
+  assert.ok(html.includes('rgb(' + palette.desktop['action-rgb'] + ')'));
+  assert.doesNotMatch(html, /__(?:SITE_PALETTE_CSS|SITE_THEME_COLOR|CANVAS_UI_PALETTE)__/);
+});
+
 test('the cache reuses identical immutable artwork across versions and preserves unrelated caches', async () => {
   const a = harness({ previous: true });
   await a.event('install');

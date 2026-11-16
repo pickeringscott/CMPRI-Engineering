@@ -20,7 +20,12 @@ npm run build:football
 - `illinois-block-i-official.svg` and `iowa-hawkeye-official.svg`: team marks.
 - `public/GiesOverheadView.jpg`: the supplied stadium photograph.
 - `cache-worker.template.js`: the generated service worker's artwork allowlist.
+- `src/lib/ui/site-palette.json`: the same authoritative palette used by sign-in and every modal.
 
+The builder embeds the shared palette tokens and resolves canvas UI annotation
+colors from that JSON, so the standalone document has no separate interface
+palette. Changing the JSON and rebuilding updates both app and stadium colors.
+Physical artwork, uniforms, and supplied team marks retain their source colors.
 The builder injects the rules, compresses the photograph to WebP at quality 82
 with Sharp, embeds all images as data URIs, and minifies the inline script with
 Next's bundled Terser. It writes:
