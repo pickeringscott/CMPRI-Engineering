@@ -439,8 +439,6 @@ export default function PoolLogPage() {
           </div>
         </div>}
 
-        <PoolReport key={facility?.id || "unselected"} facilityId={facility?.id} disabled={loading || saving || dirty} />
-
         <section className="print:hidden">
           <div className="pool-date-actions">
             <input aria-label="Date" type="date" max={poolLogTodayDate()} value={date} disabled={saving || dirty} onChange={(event) => setDate(event.target.value)} className="pool-date-input rounded-lg border border-slate-600 bg-slate-950 p-2 text-white disabled:opacity-70" />
@@ -607,7 +605,7 @@ export default function PoolLogPage() {
           </div> : <p className="mt-3">No saved pool-log entries were found.</p>}
         </section> : null}
 
-
+        <PoolReport key={facility?.id || "unselected"} facilityId={facility?.id} disabled={loading || saving || dirty} />
       </div>
     </main>
   );

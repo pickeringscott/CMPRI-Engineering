@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
+import { runInNewContext } from 'node:vm';
 import { createPoolReport, reportMonths, reportReading } from '../src/lib/pool-report.ts';
 
 test('inclusive MM/YY ranges span years and validate input', () => {
@@ -31,4 +32,13 @@ test('annual output keeps the official Letter pages and adds readable long remar
   if (process.env.POOL_REPORT_SAMPLE) writeFileSync(process.env.POOL_REPORT_SAMPLE, bytes);
   const long = await createPoolReport(template, ['2026-01'], [{ ...logs[0], remarks: 'Long note with Unicode 🏊. '.repeat(500) }]);
   assert.ok((await PDFDocument.load(long)).getPageCount() > 2);
+});
+
+
+test('PDF template buffers from the desktop parent window are accepted', async () => {
+  const bytes = readFileSync(new URL('../public/forms/swimming-facility-daily-operational-report.pdf', import.meta.url));
+  const parentBuffer = runInNewContext('new Uint8Array(bytes).buffer', { bytes: Array.from(bytes) });
+  assert.equal(parentBuffer instanceof ArrayBuffer, false);
+  const report = await createPoolReport(parentBuffer, ['2026-01'], []);
+  assert.equal((await PDFDocument.load(report)).getPageCount(), 1);
 });

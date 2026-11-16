@@ -28,7 +28,9 @@ export function reportReading(log: ReportLog, reading: "ph" | "sanitizer", locat
 /** Overlay the supplied official Letter form, keeping its artwork and geometry intact. */
 export async function createPoolReport(template: ArrayBuffer, months: string[], logs: ReportLog[]) {
   const { PDFDocument, StandardFonts, rgb, setCharacterSpacing, setWordSpacing } = await import("pdf-lib");
-  const source = await PDFDocument.load(template);
+  // Embedded views share a parent-owned fetch. Its ArrayBuffer belongs to a
+  // different window, so normalize it before pdf-lib checks instanceof.
+  const source = await PDFDocument.load(new Uint8Array(template));
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const clean = (value: unknown) => Array.from(String(value ?? "").replace(/[–−]/g, "-").replace(/—/g, "-").replace(/[\r\n\t]+/g, " ")).map(char => {
