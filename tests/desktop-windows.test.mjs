@@ -136,7 +136,7 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.match(migration, /enable row level security/);
   assert.match(migration, /revoke all on table public\.cmpri_dashboard_notifications from anon, authenticated;/);
   assert.match(route, /requireUser\(request\)/);
-  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 3, 'every inbox read/write is scoped to the requester');
+  assert.equal((route.match(/\.eq\("recipient_user_id", userId\)/g) || []).length, 5, 'every inbox read/write is scoped to the requester');
   assert.match(route, /\.update\(update\)/);
   assert.match(route, /body\.action === "read"[\s\S]*read_at: new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(route, /\.delete\(/);

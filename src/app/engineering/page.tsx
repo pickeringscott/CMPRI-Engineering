@@ -543,7 +543,7 @@ export default function EngineeringDashboardPage() {
     const origin = window.location.origin;
     openWindow({
       key: `work-order-draft:${draftId}`,
-      title: "Review Work-Order Draft",
+      title: "Draft — awaiting approval",
       kind: "frame",
       src: desktopFrameHref(`/work-orders?draftId=${encodeURIComponent(draftId)}&reviewDraft=1`, crypto.randomUUID(), origin),
       accent: "bg-amber-400",

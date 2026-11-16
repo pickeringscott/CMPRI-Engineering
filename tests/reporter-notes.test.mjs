@@ -81,3 +81,18 @@ test('reporter-prefixed guest context remains a note', () => {
   assert.equal(result.issue, '');
   assert.equal(result.reporterNotes, 'Guest reports that the guest is upset about the wait');
 });
+
+for (const [text, issue, note] of [
+  ['Tv not working guest is out of room till night', 'Tv not working', 'guest is out of room till night'],
+  ['Heat doesn\'t turn on. says you can come at anytime.', "Heat doesn't turn on.", 'says you can come at anytime.'],
+  ['TV not working\nGuest is not in the room until tonight', 'TV not working', 'Guest is not in the room until tonight'],
+  ['TV not working. Guests are away from their room', 'TV not working.', 'Guests are away from their room'],
+  ['Vanity light is out guest has a dog in room', 'Vanity light is out', 'guest has a dog in room'],
+  ['Guest is out of room till night', '', 'Guest is out of room till night'],
+  ['Guest says the shower water pressure is low', 'the shower water pressure is low', ''],
+  ['Guest room TV is not working', 'Guest room TV is not working', ''],
+]) test(`preserves and separates access context: ${text}`, () => {
+  const result = split(text);
+  assert.equal(result.issue, issue);
+  assert.equal(result.reporterNotes, note);
+});

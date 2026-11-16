@@ -26,7 +26,6 @@ const WRITE_ACTIONS: WriteAction[] = [
   { action: "room_operations.import", description: "For Daily Room Ops CSVs from the approved Drive folder, read the import contract and use source: drive with validate_only: true for preview. Confirmation requires validate_only: false and the preview previousId/source_digest; only save on an explicit import request. Read room_operations first for its import_contract. ChatGPT reads all supplied photos and extracts the complete report_data using that contract; never send images to server OCR. Include every active room with its exact room_status. Occupied rows require guest name, code, room type, arrival date, departure date, and length of stay; keep incoming guest fields separate. Preserve printed dates, times, and pages; ask for unreadable fields instead of guessing. Older-than-today reports are accepted when newer than stored source data. Validate with validate_only: true, then submit the same data without validate_only only when explicitly asked to import/save. Never claim success from validation alone.", capability: "edit_tickets" },
   { action: "work_orders.update", description: "Edit an authorized work order by supplying its UUID as id, expected_revision from the latest work-order read, and editable fields. Fields may be flat or nested under changes, updates, or fields. Editable fields include notes, status, technician_name (assignment), category, issue, priority, asset_id, cost, hours, due_by, parts, and action_root_cause. Use the exact status 'In Progress' or 'Completed' when reopening a closed work order; reopening to Open is rejected. An In Progress order must have an assigned technician.", anyOf: ["edit_tickets", "review_tickets"] },
   { action: "work_orders.delete", description: "Cancel a work order by marking it Will Not Do. The ticket and its history are retained. Include its UUID.", anyOf: ["review_tickets", "close_tickets"] },
-  { action: "work_order_drafts.create", description: "Create a CMPRI work-order draft.", capability: "submit" },
   { action: "work_order_drafts.update", description: "Update your CMPRI work-order draft using its current revision.", capability: "submit" },
   { action: "work_order_drafts.delete", description: "Delete a draft allowed by CMPRI draft ownership and supervisory policy.", capability: "submit" },
   { action: "assets.create", description: "Create equipment under CMPRI equipment-management validation.", capability: "manage_assets" },
@@ -144,12 +143,11 @@ export async function callMcpWriteAction(
       const path = withId("/api/work-orders");
       return callApi(incoming, path, "DELETE", bearer, input, (request) => route.DELETE(request, { params: Promise.resolve({ id }) }));
     }
-    case "work_order_drafts.create":
     case "work_order_drafts.update":
     case "work_order_drafts.delete": {
       const route = await import("@/app/api/work-orders/drafts/route");
-      const method = actionName.endsWith(".create") ? "POST" : actionName.endsWith(".update") ? "PATCH" : "DELETE";
-      const handler = method === "POST" ? route.POST : method === "PATCH" ? route.PATCH : route.DELETE;
+      const method = actionName.endsWith(".update") ? "PATCH" : "DELETE";
+      const handler = method === "PATCH" ? route.PATCH : route.DELETE;
       const path = method === "DELETE" ? `/api/work-orders/drafts?id=${encodeURIComponent(id)}` : "/api/work-orders/drafts";
       return callApi(incoming, path, method, bearer, input, handler);
     }
@@ -203,8 +201,8 @@ export async function callMcpWriteAction(
     case "users.update":
     case "users.delete": {
       const route = await import("@/app/api/users/route");
-      const method = actionName.endsWith(".create") ? "POST" : actionName.endsWith(".update") ? "PATCH" : "DELETE";
-      const handler = method === "POST" ? route.POST : method === "PATCH" ? route.PATCH : route.DELETE;
+      const method = actionName.endsWith(".update") ? "PATCH" : "DELETE";
+      const handler = method === "PATCH" ? route.PATCH : route.DELETE;
       return callApi(incoming, "/api/users", method, bearer, input, handler);
     }
     case "rooms.update": {

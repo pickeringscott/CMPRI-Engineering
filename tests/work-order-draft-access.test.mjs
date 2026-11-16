@@ -5,6 +5,7 @@ import { ticketReadDependency } from "./helpers/load-ts.mjs";
 import * as equipmentSelection from "../src/lib/equipment-selection.ts";
 import * as accountDisplay from "../src/lib/account-display.ts";
 import assert from "node:assert/strict";
+import * as crypto from "node:crypto";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -22,6 +23,8 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 
 function fixture(role, actorId = "actor") {
+  let now = Date.now();
+  class Clock extends Date { static now() { return now; } }
   const profiles = [
     { id: actorId, role, full_name: "Audit Actor", active: true },
     { id: "submitter", role: "Front Desk", full_name: "Audit Submitter", active: true },
@@ -106,8 +109,8 @@ function fixture(role, actorId = "actor") {
   const principal = { identity: { id: actorId }, profile: { id: actorId, role, full_name: "Audit Actor", active: true } };
   const exports = {};
   vm.runInNewContext(compiled, {
-    exports,
-    require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
+    exports, Buffer, Date: Clock, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "test-secret" } },
+    require(name) { if (name === "node:crypto") return crypto; if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
@@ -134,7 +137,14 @@ function fixture(role, actorId = "actor") {
     simulateInsertRace: (handler) => { insertRace = handler; },
     writes,
     get: (params = {}) => exports.GET({ ...request(), nextUrl: { searchParams: new URLSearchParams(params) } }),
-    post: (body) => exports.POST(request(body)),
+    start: body => exports.PUT(request(body)),
+    advance: milliseconds => { now += milliseconds; },
+    rawPost: body => exports.POST(request(body)),
+    post: async (body) => {
+      const receipt = await exports.PUT(request(body));
+      now += 30 * 60 * 1000;
+      return exports.POST(request({ ...body, inactivity_receipt: receipt.body.inactivity_receipt }));
+    },
     patch: (body) => exports.PATCH(request(body)),
     delete: (id) => exports.DELETE(request(undefined, id)),
   };
@@ -179,7 +189,7 @@ function submittedDraftRetryFixture() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     exports: routeExports,
-    require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
+    require(name) { if (name === "node:crypto") return crypto; if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
@@ -486,4 +496,22 @@ test("retrying an already approved draft returns its existing order after draft 
   assert.equal(response.body.work_orders[0].id, "created-work-order");
   assert.ok(route.calls.indexOf("work_orders.maybeSingle") < route.calls.indexOf("cmpri_work_order_drafts.delete"));
   assert.equal(route.calls.includes("cmpri_work_order_drafts.maybeSingle"), false);
+});
+
+
+test("draft creation requires 30 minutes on server time and a receipt for the same account and fields", async () => {
+  const route = fixture("Chief Engineer");
+  const fields = { location_id: "room-1", issue: "Unsubmitted request" };
+  assert.equal((await route.rawPost(fields)).status, 409);
+  const start = await route.start(fields);
+  assert.equal(route.writes.length, 0, "starting the clock does not create a draft");
+  const input = { ...fields, inactivity_receipt: start.body.inactivity_receipt };
+  assert.equal((await route.rawPost(input)).status, 409);
+  route.advance(30 * 60 * 1000 - 1);
+  assert.equal((await route.rawPost(input)).status, 409);
+  route.advance(1);
+  assert.equal((await route.rawPost({ ...input, issue: "Edited request" })).status, 409);
+  assert.equal((await fixture("Chief Engineer", "other-account").rawPost(input)).status, 409);
+  assert.equal((await route.rawPost(input)).status, 200);
+  assert.equal(route.writes.length, 1);
 });

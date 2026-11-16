@@ -78,15 +78,15 @@ test('first-name field is required and all three creation paths use the common s
   assert.equal((source.match(/await submitWorkOrders\(/g)||[]).length,4);
   assert.equal(/\.insert\(/.test(source),false);
 });
-test('only roles classified submit-only by the shared role policy lose draft controls',()=>{
+test('all roles use inactivity-only drafts while submit-only role presentation remains shared',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
   const roles=readFileSync(path.join(root,'lib/server/roles.ts'),'utf8');
-  assert.match(source,/!isSubmitOnlyUser && <button type="button" onClick=\{\(\) => void saveDraft\(\)\}/);
+  assert.doesNotMatch(source,/onClick=\{\(\) => void saveDraft\(/);
   assert.match(source,/const isSubmitOnlyUser = isSubmitOnlyRole\(currentRole\)/);
   assert.match(roles,/export const isSubmitOnlyRole = \(role: unknown\) =>\s*\[\s*"front_desk", "housekeeping"\s*\]\.includes\(roleKey\(role\)\)/);
   assert.doesNotMatch(source,/const isSubmitOnlyUser = \[[^\n]*(?:front desk manager|assistant general manager)/i);
   assert.match(source,/frontdeskmanager/);
-  assert.match(source,/setTimeout\(\(\) => \{ void saveDraft\(true\); \}, 30 \* 60 \* 1000\)/);
+  assert.match(source,/setTimeout\(\(\) => \{ if \(!cancelled\) void saveDraft\(\); \}, 30 \* 60 \* 1000\)/);
 });
 test('issue-driven suggestions share inference with submit-only overrides',()=>{
   const source=readFileSync(path.join(root,'app/work-orders/page.tsx'),'utf8');
@@ -416,4 +416,36 @@ test('creation guide honors server-selected manuals without name inference but r
 test('creation guide preserves unavailable-source explanations and never loads for a disallowed role',async()=>{
   const h=creationGuideHarness();try{await settleCreationGuide();h.respond(0,{...guidePayload(guideAsset,null),documentation_status:'no_uploaded_document',documentation_reason:'Attach the approved equipment document.'});await settleCreationGuide();assert.equal(h.result.knowledge,null);assert.equal(h.result.reason,'Attach the approved equipment document.');}finally{h.close();}
   const denied=creationGuideHarness(guideAsset,{allowed:false});try{await settleCreationGuide();assert.equal(denied.requests.length,0);}finally{denied.close();}
+});
+
+for (const [previousIssue, newIssue] of [
+  ['Low water pressure in shower', 'Her shower water pressure is just drizzling out'],
+  ['Shower Handle is hard to turn on... Pressure is very low in', 'Low water pressure in shower'],
+  ["Heat doesn't turn on. says you can come at anytime.", 'Guest has no heat working in room'],
+]) test(`server rejects reworded repeat before creating any rows: ${newIssue}`, async () => {
+  const f = fixture({orders: [{...order, issue: newIssue}], staff_first_name: 'Scott'}, {
+    assets: [], existing: [{...order, id: 'prior-order', issue: previousIssue, asset_id: null, status: 'Pending Verification'}],
+  });
+  const result = await f.handler(f.request);
+  assert.equal(result.status, 409);
+  assert.equal(result.body.existing_work_order_id, 'prior-order');
+  assert.equal(f.writes.length, 0);
+});
+
+test('Room 224 access comment reaches Notes through the creation endpoint', async () => {
+  const f = fixture({orders: [{...order, issue: 'Tv not working guest is out of room till night', notes: 'Remote checked.'}], staff_first_name: 'Scott'});
+  const result = await f.handler(f.request);
+  assert.equal(result.status, 200);
+  assert.equal(f.writes[0].issue, 'Tv not working');
+  assert.equal(f.writes[0].notes, 'Remote checked.\nguest is out of room till night');
+});
+
+test('batch submissions preserve access comments on every created work order', async () => {
+  const f = fixture({orders: [
+    {...order, issue: 'TV not working guest is out of room till night', notes: 'Shared reporter context.'},
+    {...order, issue: 'Sink leaking guest is out of room till night', notes: 'Shared reporter context.'},
+  ], staff_first_name: 'Scott'});
+  assert.equal((await f.handler(f.request)).status, 200);
+  assert.deepEqual(f.writes.map(row => row.issue), ['TV not working', 'Sink leaking']);
+  assert.ok(f.writes.every(row => row.notes === 'Shared reporter context.\nguest is out of room till night'));
 });

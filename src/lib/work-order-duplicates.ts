@@ -43,12 +43,34 @@ function canonicalWords(issue: unknown) {
     .filter((word) => !ignored.has(word))
     .map((word) => synonym[word] || word);
 }
+/** Match specific faults even when a repeat report uses different words. */
+function reportedFaults(issue: unknown) {
+  const text = String(issue || "").toLowerCase();
+  const faults = new Set<string>();
+  // Keep pressure problems separate from leaks, loose handles, temperature,
+  // and pressure problems at another fixture in the same room.
+  const lowPressure = /\b(?:low|weak|poor|little|reduced|no)\b[^.;\n]{0,30}\b(?:pressure|flow)\b|\b(?:pressure|flow)\b[^.;\n]{0,30}\b(?:low|weak|poor|little|reduced|drizzl\w*)\b/;
+  if (lowPressure.test(text) && !/\b(?:not|isn['’]?t|no)\s+(?:have\s+)?(?:very\s+)?(?:low|weak|poor|reduced)\b/.test(text)) {
+    for (const fixture of ["shower", "sink", "toilet"] as const) {
+      if (new RegExp(`\\b${fixture}(?:head)?\\b`).test(text)) faults.add(`${fixture}:low-pressure`);
+    }
+  }
+  // An inability to turn the room heat on and 'no heat' describe the same fault.
+  if (!/\b(?:water|boiler|oven|stove|cooktop|dryer)\b/.test(text)
+    && /\b(?:no|without)\s+heat\b|\b(?:not|isn['’]?t)\s+heating\b|\bheat(?:ing)?\s+(?:doesn['’]?t|does\s+not|won['’]?t|will\s+not|isn['’]?t|is\s+not)\s+(?:turn\s+on|work(?:ing)?|com(?:e|ing)\s+on)\b/.test(text)) {
+    faults.add("room-heat:not-working");
+  }
+  return faults;
+}
+
 export function likelyDuplicate(a: Candidate, b: Candidate) {
   if (!a.location_id || a.location_id !== b.location_id || terminal.has(String(b.status || "Open").toLowerCase().trim())) return false;
   if (a.asset_id && b.asset_id && a.asset_id !== b.asset_id) return false;
   const left = words(a.issue), right = words(b.issue);
   if (!left.length || !right.length) return false;
   if (left.join(" ") === right.join(" ")) return true;
+  const faults = reportedFaults(a.issue);
+  if ([...reportedFaults(b.issue)].some(fault => faults.has(fault))) return true;
   if (left.some(word => negation.has(word)) !== right.some(word => negation.has(word))) return false;
   const x = new Set(canonicalWords(a.issue));
   const y = new Set(canonicalWords(b.issue));

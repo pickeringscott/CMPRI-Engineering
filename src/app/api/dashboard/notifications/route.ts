@@ -86,6 +86,33 @@ export async function GET(request: NextRequest) {
   const admin = auth.admin;
   const userId = auth.principal.identity.id;
   const checkedAt = new Date().toISOString();
+  if (profileIsChiefEngineerOrSystemAdmin(auth.principal.profile)) {
+    const { data: drafts, error } = await admin.from("cmpri_work_order_drafts")
+      .select("id, room, issue, updated_at, revision").eq("hotel_id", HOTEL_ID);
+    if (error) return NextResponse.json({ error: "Draft notifications could not be loaded." }, { status: 503 });
+    const candidates: WorkOrderNotification[] = (drafts || []).map(draft => ({
+      id: `draft:${draft.id}:${draft.revision}`,
+      work_order_id: null,
+      target_path: `/work-orders?draftId=${encodeURIComponent(draft.id)}&reviewDraft=1`,
+      message: `Draft — awaiting approval: ${draft.room} — ${draft.issue}`,
+      recorded_at: draft.updated_at,
+    }));
+    if (!(await recordNotifications(admin, userId, candidates, auth.principal.profile))) {
+      return NextResponse.json({ error: "Draft notifications could not be saved." }, { status: 503 });
+    }
+    const { data: previous, error: previousError } = await admin.from("cmpri_dashboard_notifications")
+      .select("notification_key").eq("hotel_id", HOTEL_ID).eq("recipient_user_id", userId)
+      .like("notification_key", "draft:%").is("cleared_at", null);
+    if (previousError) return NextResponse.json({ error: "Draft notifications could not be checked." }, { status: 503 });
+    const current = new Set(candidates.map(candidate => candidate.id));
+    const obsolete = (previous || []).filter(row => !current.has(row.notification_key)).map(row => row.notification_key);
+    if (obsolete.length) {
+      const { error: clearError } = await admin.from("cmpri_dashboard_notifications")
+        .update({ cleared_at: checkedAt }).eq("hotel_id", HOTEL_ID).eq("recipient_user_id", userId)
+        .in("notification_key", obsolete);
+      if (clearError) return NextResponse.json({ error: "Draft notifications could not be resolved." }, { status: 503 });
+    }
+  }
   const inboxQuery = admin
     .from("cmpri_dashboard_notifications")
     .select("notification_key, work_order_id, target_path, message, recorded_at, read_at")

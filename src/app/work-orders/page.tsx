@@ -1123,8 +1123,17 @@ export default function WorkOrdersPage() {
     return () => window.clearTimeout(timer);
   }, [activeDraftId, cmpriSession, drafts, reviewDraft, restoreDraft]);
 
-  async function saveDraft(automatic = false) {
-    if (draftSaveInFlight.current) return;
+  useEffect(() => {
+    if (!embedded || window.parent === window || !modalToken) return;
+    window.parent.postMessage({ type: "cmpri-work-order-draft-status", modalToken, isDraft: Boolean(activeDraftId) }, window.location.origin);
+  }, [activeDraftId, embedded, modalToken]);
+
+  const draftIdleReceipt = useRef("");
+  const draftCreationReceipts = useRef(new Map<string, string>());
+
+  async function saveDraft() {
+    if (draftSaveInFlight.current || submittingRef.current || loading || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
+    const inactivityReceipt = draftIdleReceipt.current;
     if (!locationId || !issue.trim()) {
       setMessage("Select a room/location and enter the issue before saving a draft.");
       return;
@@ -1162,10 +1171,15 @@ export default function WorkOrdersPage() {
             try { sessionStorage.setItem(`cmpri:unconfirmed-draft:${scope}`, body.creation_id); } catch {}
             setUnconfirmedCreationId(body.creation_id);
           }
+          if (method === "POST" && typeof body.creation_id === "string" && !draftCreationReceipts.current.has(body.creation_id)) {
+            draftCreationReceipts.current.set(body.creation_id, inactivityReceipt);
+          }
+          const receipt = method === "POST" && typeof body.creation_id === "string"
+            ? draftCreationReceipts.current.get(body.creation_id) : inactivityReceipt;
           return fetch("/api/work-orders/drafts", {
             method,
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ ...body, inactivity_receipt: receipt }),
           });
         }),
         read: async id => {
@@ -1179,6 +1193,7 @@ export default function WorkOrdersPage() {
           if (draftIdentityScope.current !== scope || draftIdentityGeneration.current !== generation) throw new Error("Account changed");
           try { if (sessionStorage.getItem(`cmpri:unconfirmed-draft:${scope}`) === saved.id) sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
           setUnconfirmedCreationId(current => current === saved.id ? "" : current);
+          draftCreationReceipts.current.delete(saved.id);
           setActiveDraftId(saved.id); setActiveDraftRevision(saved.revision);
         },
       });
@@ -1197,7 +1212,7 @@ export default function WorkOrdersPage() {
         await checkSession();
       }
       const editedDuringSave = draftFieldsKey(currentDraftFields.current) !== draftFieldsKey(fields);
-      setMessage(`${automatic ? "Draft autosaved after 30 minutes of inactivity." : "Draft saved."}${editedDuringSave ? " Changes made while saving have not yet been saved." : ""}${photos.length ? " Selected photos are not saved in drafts; reselect them after reopening." : ""}${refreshed ? "" : " The saved-draft list could not be refreshed."}`);
+      setMessage(`Draft saved after 30 minutes of inactivity — awaiting approval.${editedDuringSave ? " Changes made while saving have not yet been saved." : ""}${photos.length ? " Selected photos are not saved in drafts; reselect them after reopening." : ""}${refreshed ? "" : " The saved-draft list could not be refreshed."}`);
     } catch (error) {
       if (!activeDraftId && !pendingDraftSave.current && draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) {
         try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
@@ -2040,13 +2055,37 @@ export default function WorkOrdersPage() {
     issue.trim() || locationId || notes.trim() || assetId || staffFirstName.trim() || photos.length > 0
   );
   useEffect(() => {
-    if (!createHasUnsavedChanges || !locationId || !issue.trim() || loading || draftBusy) return;
+    if (!createHasUnsavedChanges || !locationId || !issue.trim() || loading || draftBusy || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
     if (activeDraftId && !pendingDraftSave.current && currentDraftKey === lastSavedDraftKey) return;
-    const timeout = window.setTimeout(() => { void saveDraft(true); }, 30 * 60 * 1000);
-    return () => window.clearTimeout(timeout);
+    let cancelled = false;
+    let timeout: number | undefined;
+    draftIdleReceipt.current = "";
+    // Obtain a server timestamp bound to these exact fields. No draft is made here.
+    void (async () => {
+      try {
+        const session = await getValidSession();
+        if (cancelled || !session?.access_token) return;
+        const response = await fetch("/api/work-orders/drafts", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify(draftFields),
+        });
+        const result = await response.json();
+        if (cancelled) return;
+        if (!response.ok || typeof result.inactivity_receipt !== "string") {
+          setMessage("The draft inactivity timer could not start. Your text is still here; edit the form to retry or submit the work order.");
+          return;
+        }
+        draftIdleReceipt.current = result.inactivity_receipt;
+        timeout = window.setTimeout(() => { if (!cancelled) void saveDraft(); }, 30 * 60 * 1000);
+      } catch {
+        if (!cancelled) setMessage("The draft inactivity timer could not start. Your text is still here; reconnect and edit the form to retry.");
+      }
+    })();
+    return () => { cancelled = true; draftIdleReceipt.current = ""; window.clearTimeout(timeout); };
     // saveDraft is intentionally omitted: the form values above reset this timer on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, loading, draftBusy, activeDraftId, currentDraftKey, lastSavedDraftKey]);
+  }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, photos, loading, draftBusy, activeDraftId, currentDraftKey, lastSavedDraftKey, cmpriSession?.user.id, createState, mainWorkOrderCreated, pendingPhotoUploads.length]);
   const isSpanish = formLanguage === "es";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
   const categoryLabelEs: Record<string, string> = {
@@ -2092,6 +2131,7 @@ export default function WorkOrdersPage() {
 
   return (
     <main className="min-h-[100svh] bg-slate-950 p-1 text-white">
+      {activeDraftId && <p role="status" className="mb-2 font-semibold text-amber-200">Draft — awaiting approval</p>}
       <div data-work-order-form-layout className="mx-auto w-full max-w-none lg:w-[66vw]">
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
@@ -2148,7 +2188,6 @@ export default function WorkOrdersPage() {
               <div data-preview-create-actions className="flex flex-wrap items-center justify-end gap-1">
                 <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading} onSelect={files=>acceptSelectedPhotos(files)} />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
-                {!isSubmitOnlyUser && <button type="button" onClick={() => void saveDraft()} disabled={loading || draftBusy || loadingLocations || loadingAssets} className="min-h-10 rounded-lg border border-sky-600/70 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/50 disabled:opacity-60">{draftBusy ? tx("Saving Draft...", "Guardando borrador...") : activeDraftId ? tx("Update Draft", "Actualizar borrador") : tx("Save Draft", "Guardar borrador")}</button>}
                 <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>

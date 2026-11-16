@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -104,12 +105,48 @@ export async function GET(request: NextRequest) {
   }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
+// Receipts are bound to the account and form contents, and use server time.
+// Starting the inactivity clock does not insert a draft or notify engineering.
+function receiptSignature(userId: string, body: Record<string, unknown>, started: string) {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("Draft inactivity verification is unavailable.");
+  const fields = ["staff_first_name", "location_id", "issue", "notes", "asset_id", "asset_name", "category", "priority"]
+    .map(field => String(body[field] ?? "").trim());
+  return createHmac("sha256", key).update(JSON.stringify([HOTEL_ID, userId, started, fields])).digest("hex");
+}
+
+function staleReceipt(userId: string, body: Record<string, unknown>) {
+  if (typeof body.inactivity_receipt !== "string") return false;
+  const [started, signature] = body.inactivity_receipt.split(".");
+  const elapsed = Date.now() - Number(started);
+  if (!started || !signature || !Number.isFinite(elapsed) || elapsed < 30 * 60 * 1000) return false;
+  const expected = Buffer.from(receiptSignature(userId, body, started));
+  const supplied = Buffer.from(signature);
+  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+
+export async function PUT(request: NextRequest) {
+  const auth = await requireCapability(request, "submit");
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await readBody(request);
+  if (!body || !text(body.location_id, 100, true) || !text(body.issue, 4000, true)) {
+    return NextResponse.json({ error: "Enter a room/location and issue first." }, { status: 400 });
+  }
+  const started = String(Date.now());
+  return NextResponse.json({ inactivity_receipt: `${started}.${receiptSignature(auth.principal.identity.id, body, started)}` },
+    { headers: { "Cache-Control": "private, no-store" } });
+}
+
 export async function POST(request: NextRequest) {
   const auth = await requireCapability(request, "submit");
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { admin, principal } = auth;
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid draft is required." }, { status: 400 });
+
+  if (!staleReceipt(principal.identity.id, body)) {
+    return NextResponse.json({ error: "Drafts are created only after 30 minutes without submission or edits." }, { status: 409 });
+  }
 
   const locationId = text(body.location_id, 100, true);
   const issue = text(body.issue, 4000, true);
