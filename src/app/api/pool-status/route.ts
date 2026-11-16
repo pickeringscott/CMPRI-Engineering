@@ -20,9 +20,9 @@ async function respond(request:NextRequest, write:boolean) {
   // still checks current tests and never reopens on clear-manual alone.
   const action=b.action==='pool-clear-manual'?'clear-manual':b.action==='pool-status'&&typeof b.closed==='boolean'?(b.closed?'close':'open'):null;
   if(!action)return NextResponse.json({error:'Unsupported pool action.'},{status:400});
-  result=await auth.admin.rpc('cmpri_pool_action',{p_hotel:HOTEL_ID,p_facility:facility,p_actor:auth.principal.identity.id,p_id:b.id,p_action:action,p_reason:b.reason,p_revision:b.expectedRevision});
+  result=await auth.admin.rpc('cmpri_pool_action',{p_hotel:HOTEL_ID,p_facility:facility,p_actor:auth.principal.identity.id,p_id:b.id,p_action:action,p_reason:b.reason,p_revision:b.expectedRevision}).retry(false);
  }else result=await auth.admin.rpc('cmpri_pool_snapshot',{p_hotel:HOTEL_ID,p_facility:facility});
- if(result.error)return NextResponse.json({error:result.error.code==='P0001'||result.error.code==='40001'?result.error.message:'Pool status could not be saved or loaded.'},{status:result.error.code==='40001'?409:result.error.code==='P0001'?403:503});
+ if(result.error)return NextResponse.json({error:result.error.code==='P0001'||result.error.code==='40001'||result.error.code==='PT409'?result.error.message:'Pool status could not be saved or loaded.'},{status:(result.error.code==='40001'||result.error.code==='PT409')?409:result.error.code==='P0001'?403:503});
  const s=result.data;
  const failures=s.log?poolCurrentClosureReasons(s.log):[];
  const reason=failures.length?failures.join('\n'):s.reason;

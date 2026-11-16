@@ -38,11 +38,17 @@ await assert.rejects(db.exec(poolMigration),/Pool log stamp behavior changed/);
 await db.exec('rollback');
 await db.exec(originalStamp);
 await db.exec(poolMigration);
+await db.exec(readFileSync('supabase/migrations/20261116214159_pool_status_nonretryable_conflict.sql','utf8'));
 const clock=async s=>db.exec(`create or replace function cmpri_pool_clock() returns timestamptz language sql stable as $$select '${s}'::timestamptz$$`);
 await clock('2026-10-22T15:00:00Z');
 await db.query(`insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure) values($1,$2,$3,'2026-10-22',7.4,4,true,false,80,50,$4,$4,false,false)`,[log,h,f,eng]);
 const snapshot=async()=> (await db.query(`select cmpri_pool_snapshot('${h}','${f}') s`)).rows[0].s;
 const act=async(actor,key,action,reason='',revision)=>{await db.query(`select cmpri_pool_reconcile('${h}','${f}',false)`);return db.query(`select cmpri_pool_action($1,$2,$3,$4,$5,$6,$7) s`,[h,f,actor,id(key),action,reason,revision??(await snapshot()).revision]);};
+const beforeConflict=await snapshot();
+await assert.rejects(db.query('select cmpri_pool_action($1,$2,$3,$4,$5,$6,$7)',[h,f,eng,id(900),'close','Stale request',-1]),error=>error.code==='PT409' && /Reload before saving/.test(error.message));
+assert.deepEqual(await snapshot(),beforeConflict,'a stale action must not change pool state');
+assert.equal((await db.query('select count(*)::int as total from cmpri_pool_control_history where id=$1',[id(900)])).rows[0].total,0);
+
 assert.equal((await snapshot()).closed,false);
 await assert.rejects(act(fd,10,'close',' '),/reason/);
 await act(fd,11,'close','Maintenance');assert.equal((await snapshot()).reason,'Maintenance');

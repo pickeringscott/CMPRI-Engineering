@@ -45,8 +45,19 @@ test('cancelling the manual reopen and lacking permission never sends an open',a
 
 test('a notification read failure after the action reports the confirmed pool state',async()=>{
  const queries=[],snapshot={closed:false,reason:'',revision:4,hours_closed:false,manual_closed:false,log:null};
- const admin={from(table){queries.push(table);const q={select(){return q},eq(){return q},like(){return q},is(){return q},order(){return q},limit(){return Promise.resolve(table==='pool_facilities'?{data:[{id:'pool'}],error:null}:{data:null,error:{message:'notification read failed'}})}};return q},rpc:async(name,args)=>{assert.equal(name,'cmpri_pool_action');assert.equal(args.p_action,'open');return {data:snapshot,error:null}}};
+ const admin={from(table){queries.push(table);const q={select(){return q},eq(){return q},like(){return q},is(){return q},order(){return q},limit(){return Promise.resolve(table==='pool_facilities'?{data:[{id:'pool'}],error:null}:{data:null,error:{message:'notification read failed'}})}};return q},rpc(name,args){assert.equal(name,'cmpri_pool_action');assert.equal(args.p_action,'open');return {retry:async enabled=>{assert.equal(enabled,false);return {data:snapshot,error:null}}}}};
  const route=loadTs('src/app/api/pool-status/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200})}},'@/lib/server/auth':{requireUser:async()=>({principal:{profile:{role:'Engineer'},identity:{id:'actor'}},admin})},'@/lib/server/roles':{roleKey:()=> 'engineer'},'@/lib/constants':{HOTEL_ID:'hotel'},'@/lib/pool-log':{poolCurrentClosureReasons:()=>[]}});
  const response=await route.POST({json:async()=>({id:'11111111-1111-4111-8111-111111111111',action:'pool-status',closed:false,reason:'',expectedRevision:3})});
  assert.equal(response.status,200);assert.equal(response.body.closed,false);assert.equal(response.body.revision,4);assert.match(response.body.warning,/status saved/i);assert.equal('notifications' in response.body,false);assert.deepEqual(queries,['pool_facilities','cmpri_dashboard_notifications']);
+});
+
+
+test('pool revision conflicts return once as HTTP 409 without retrying the action',async()=>{
+ for(const code of ['PT409','40001']){
+  let calls=0;
+  const admin={from(){const q={select(){return q},eq(){return q},order(){return q},limit:async()=>({data:[{id:'pool'}],error:null})};return q},rpc(){calls++;return {retry:async enabled=>{assert.equal(enabled,false);return {data:null,error:{code,message:'Pool status changed. Reload before saving.'}}}}}};
+  const route=loadTs('src/app/api/pool-status/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200})}},'@/lib/server/auth':{requireUser:async()=>({principal:{profile:{role:'Engineer'},identity:{id:'actor'}},admin})},'@/lib/server/roles':{roleKey:()=> 'engineer'},'@/lib/constants':{HOTEL_ID:'hotel'},'@/lib/pool-log':{poolCurrentClosureReasons:()=>[]}});
+  const response=await route.POST({json:async()=>({id:'11111111-1111-4111-8111-111111111111',action:'pool-status',closed:false,reason:'',expectedRevision:3})});
+  assert.equal(response.status,409);assert.match(response.body.error,/Reload before saving/);assert.equal(calls,1);
+ }
 });
