@@ -2,7 +2,7 @@
 
 This folder holds the editable v9 artwork and game source. The shared seasonal
 selection in `src/lib/ui/site-seasonal-theme.ts` activates `illinois-iowa` for
-both public sign-in and the signed-in desktop. `SiteSeasonalBackground.tsx`
+public sign-in and the signed-in desktop, including its `/front-desk` alias. `SiteSeasonalBackground.tsx`
 registers the renderer; `FootballBackground.tsx` hosts its persistent iframe.
 
 ## Build and downloadable HTML
@@ -98,13 +98,19 @@ visibility is known. Same-origin messages provide the control contract:
 { type: "cmpri-football-control", action: "request-state" }
 
 // Iframe to host:
-{ type: "cmpri-football-state", paused: true, ready: false }
+{ type: "cmpri-football-state", paused: true, ready: false, painted: false }
 ```
 
 Both sides check the message origin and source window. Suspension preserves the
-user's paused state. The host control stays disabled until preparation finishes.
-Shared desktop/sign-in chrome uses the `desktop` palette and scoped
-`src/app/football-theme.css`; native modal colors remain independent.
+user's paused state. The host control stays disabled until preparation finishes. A separate
+`painted` flag reveals the static stadium as soon as it is drawn.
+All interface colors come from `src/lib/ui/site-palette.json`: desktop/sign-in,
+modal accents and special schemes, semantic statuses, controls, selections, and
+charts use Illinois orange and Iowa gold over black/charcoal. Generated utility
+ramps cover Tailwind classes in every route and embedded modal.
+`src/app/football-theme.css` applies the palette before hydration, keeps the
+artwork visible during delayed sign-in authorization, and fades the already
+painted stadium in without waiting for the full game to prepare.
 
 ## Verification
 
@@ -115,6 +121,8 @@ npm run build
 python tests/browser/football_background.py
 # With a local app running and synthetic API fixtures:
 CMPRI_UI_BASE=http://localhost:3120 python tests/browser/football_theme_app.py
+CMPRI_UI_BASE=http://localhost:3120 python tests/browser/signin_dashboard_transition.py
+CMPRI_UI_BASE=http://localhost:3120 python tests/browser/football_palette_modals.py
 ```
 
 `tests/football-theme.test.mjs` checks the self-contained generated artifact,

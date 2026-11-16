@@ -2,7 +2,7 @@
 
 The public sign-in page and signed-in desktop share the active selection in
 `src/lib/ui/site-seasonal-theme.ts`, the artwork renderer in
-`src/components/desktop/SiteSeasonalBackground.tsx`, and the desktop colors in
+`src/components/desktop/SiteSeasonalBackground.tsx`, and all shared interface colors in
 `src/lib/ui/site-palette.json`. Sign-in surfaces use those palette variables in
 `src/app/sign-in-theme.css`; they do not have a separate seasonal color set.
 
@@ -12,9 +12,13 @@ Thanksgiving renderer. Christmas remains in scope for a later release.
 ## Illinois versus Iowa
 
 - `FootballBackground.tsx` keeps one iframe mounted while moving between the
-  public sign-in page and `/engineering`. Other routes and hidden documents
+  public sign-in page, `/engineering`, and its `/front-desk` desktop alias. Other
+  routes and hidden documents
   suspend the simulation and its preparation work. A shared Pause/Resume button
   controls the iframe through messages validated against its source and origin.
+  A separate painted-state message reveals the stadium with a short fade while
+  game preparation continues; routing and delayed authorization preserve the
+  same iframe. Browser/PWA chrome shares the black palette base.
 - The editable source is
   `src/components/desktop/football/index.template.html`, with its tested game
   rules in `football-rules.js`. `npm run build:football` embeds the supplied
@@ -39,9 +43,12 @@ Thanksgiving renderer. Christmas remains in scope for a later release.
   unchanged files locally and leaves application/API requests alone. IndexedDB
   stores the rendered WebP scene and compressed metadata when available. These
   caches do not fetch or store database data.
-- Only the shared `desktop` palette uses team navy, orange, and gold. Keep
-  `modalLauncherStyle` and native modal palette slots intact when changing the
-  seasonal chrome.
+- The complete JSON palette uses Illinois orange and Iowa gold over black and
+  charcoal: desktop, six modal accents, Create/Detail/Hours special schemes,
+  sign-out, status indicators, links, controls, charts, and selections. Generated
+  utility-color ramps also theme Tailwind surfaces and states in every modal.
+  `modalLauncherStyle` keeps launchers and their modal titles consistent. The
+  server-rendered HTML declares the active theme before client hydration.
 
 Run `npm run test:football-theme` for the generated HTML, cache-worker behavior,
 and football rules. Check sign-in and `/engineering` in desktop and mobile
@@ -55,7 +62,7 @@ Build details and the runtime contract are documented in
 - Add the approved Christmas artwork renderer and asset cache to the shared
   background registry, then change the single active theme selection.
 - Update the shared desktop palette and seasonal desktop chrome together.
-- Keep home-page tab buttons connected to their destination modal's native colors
+- Keep home-page tab buttons connected to their destination modal's shared colors
   through `modalLauncherStyle`; seasonal chrome must not override those colors.
 - Include the public sign-in page: normal Google sign-in, Remember me, expanded
   password access, validation/error messages, OAuth return and dashboard loading.

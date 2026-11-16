@@ -1,4 +1,4 @@
-/** Coral Glow palette and inventory order from approved header v23. */
+/** Shared seasonal palette with the established header v23 inventory order. */
 import { sitePalette, paletteToken } from './site-palette-defaults';
 const names = ["Work Order List", "Daily Room Ops", "Staff Notes", "Pool Log", "Room Ranker", "Preventive Maintenance", "Pool", "Manage Profile", "Connect ChatGPT", "Sign Out", "Front Desk Quick Guides", "Preventative Maintenance", "Manage Rooms", "GSS Reports", "Enseo Assignments", "Room Ranker Old", "Candidate questionnaires", "PO", "Inventory", "Assets", "Manage Users", "Feedback", "Hours Tracker", "Refresh", "All Work Orders", "Notes"];
 export function headerActionStyle(label: string): Record<string,string> {
@@ -15,7 +15,7 @@ export function headerActionStyle(label: string): Record<string,string> {
   return {"background-color":`rgba(${rgb},0.14)`,"border-color":`rgba(${rgb},0.42)`,color:paletteToken(maintenance?'maintenance-text':accent.name+'-text',text),"--action-rgb":rgb,"box-shadow":"none"};
 }
 
-/** Approved work-order modal schemes; dashboard action colors keep their inventory mapping. */
+/** Shared work-order modal schemes; dashboard actions keep their inventory mapping. */
 function modalPaletteStyle(action: string): Record<string,string> {
   const name = action === 'Create Work Order' || action === '+ Work Order'
     ? 'create'
@@ -43,7 +43,7 @@ export function modalTitleStyle(title: string) {
   return {backgroundColor:palette["background-color"],borderColor:palette["border-color"],color:palette.color};
 }
 
-/** Home-page tab buttons use the native modal scheme, including special palettes. */
+/** Home-page tab buttons use the shared modal scheme, including special palettes. */
 export function modalLauncherStyle(href: string, title: string): Record<string,string> {
   return { ...modalPaletteStyle(modalActionForRoute(href, title)), 'box-shadow': 'none' };
 }

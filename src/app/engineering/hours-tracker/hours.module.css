@@ -76,12 +76,12 @@
 /* Approved 07 Eucalyptus: match the host modal, including segmented time inputs. */
 .tracker{
  --hours-base:var(--cmpri-modal-base,var(--cmpri-palette-hours-base,#101512));
- --hours-accent:rgb(var(--cmpri-action-rgb,142,189,170));
+ --hours-accent:rgb(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)));
  --hours-panel:color-mix(in srgb,var(--hours-accent) 5.5%,var(--hours-base));
  --hours-field:color-mix(in srgb,var(--hours-accent) 2.5%,var(--hours-base));
  --hours-hover:color-mix(in srgb,var(--hours-accent) 17%,var(--hours-base));
  --hours-line:color-mix(in srgb,var(--hours-accent) 32%,var(--hours-base));
  --hours-track:color-mix(in srgb,var(--hours-accent) 12%,var(--hours-base));
- --hours-muted:color-mix(in srgb,var(--hours-accent) 30%,#d2d3d5);
+ --hours-muted:color-mix(in srgb,var(--hours-accent) 30%,var(--cmpri-palette-modal-text));
  --hours-text:color-mix(in srgb,var(--hours-accent) 12%,var(--cmpri-palette-white,#ffffff));
 }

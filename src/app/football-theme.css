@@ -1,30 +1,59 @@
-/* Football chrome uses the shared desktop palette; modal launchers retain their native colors. */
-[data-cmpri-seasonal-theme="illinois-iowa"] {
-  --color-slate-950:var(--cmpri-palette-desktop-tone-1,#0b1423);--color-slate-900:var(--cmpri-palette-desktop-tone-2,#13233a);--color-slate-800:var(--cmpri-palette-desktop-tone-3,#20344c);
-  --color-slate-700:var(--cmpri-palette-desktop-tone-4,#334b64);--color-slate-600:var(--cmpri-palette-desktop-tone-5,#4d657d);--color-slate-500:var(--cmpri-palette-desktop-tone-6,#6f879d);
-  --color-slate-400:var(--cmpri-palette-desktop-tone-7,#96a9b9);--color-slate-300:var(--cmpri-palette-desktop-tone-8,#bdcad4);--color-slate-200:var(--cmpri-palette-desktop-tone-9,#dce4e9);
-  --color-slate-100:var(--cmpri-palette-desktop-tone-10,#f3f5f2);--color-sky-200:var(--cmpri-palette-desktop-tone-11,#c0d2e0);--color-amber-300:var(--cmpri-palette-desktop-tone-12,#f2cc63);
-  background:var(--cmpri-palette-desktop-tone-13,#081321);color:var(--cmpri-palette-desktop-tone-10,#f3f5f2);
+/* Every route and embedded modal uses the shared Illinois/Iowa palette from first paint. */
+html[data-cmpri-site-theme="illinois-iowa"],
+html[data-cmpri-site-theme="illinois-iowa"][data-theme] {
+  --background:var(--cmpri-palette-desktop-tone-13);--foreground:var(--cmpri-palette-modal-text);
+  --cmpri-action-rgb:var(--cmpri-palette-control-rgb);
+  --cmpri-modal-base:var(--cmpri-palette-modal-base);
+  --cmpri-modal-surface:color-mix(in srgb,rgb(var(--cmpri-action-rgb)) 5.5%,var(--cmpri-modal-base));
+  --cmpri-modal-text:var(--cmpri-palette-modal-text);
+  --cmpri-modal-muted:color-mix(in srgb,var(--cmpri-modal-text) 62%,var(--cmpri-modal-base));
+  --cmpri-modal-subtle:color-mix(in srgb,var(--cmpri-modal-text) 45%,var(--cmpri-modal-base));
+  --cmpri-outline:rgba(var(--cmpri-action-rgb),.42);
+  --cmpri-scroll-thumb:rgba(var(--cmpri-action-rgb),.28);
+  background:var(--cmpri-palette-black);color:var(--cmpri-palette-modal-text);color-scheme:dark;
 }
+html[data-cmpri-site-theme="illinois-iowa"] body { background:var(--background);color:var(--foreground); }
+[data-cmpri-seasonal-theme="illinois-iowa"] { color:var(--cmpri-palette-modal-text); }
 [data-cmpri-seasonal-theme="illinois-iowa"].cmpri-sign-in,
 [data-cmpri-seasonal-theme="illinois-iowa"].cmpri-desktop-root,
 [data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-desktop { background:transparent; }
 [data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-desktop-topbar {
-  background:linear-gradient(var(--cmpri-palette-desktop-tone-14,#13233af5),var(--cmpri-palette-desktop-tone-15,#0b1728f5));border-color:var(--cmpri-palette-desktop-tone-16,#ba773e);
+  background:linear-gradient(var(--cmpri-palette-desktop-tone-14),var(--cmpri-palette-desktop-tone-15));border-color:var(--cmpri-palette-desktop-tone-16);
 }
 [data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 fieldset.group,
-[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 fieldset.group>legend {background:var(--cmpri-palette-desktop-tone-17,#172b42)}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 fieldset.group>legend {background:var(--cmpri-palette-desktop-tone-17)}
 [data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .preview .header fieldset.group>legend {
-  background:var(--cmpri-palette-desktop-tone-18,#5c351d);color:var(--cmpri-palette-desktop-tone-19,#ffe0a3);
+  background:var(--cmpri-palette-desktop-tone-18);color:var(--cmpri-palette-desktop-tone-19);
 }
-[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .group-outline path {stroke:var(--cmpri-palette-desktop-tone-20,#9a8256)}
-[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .layout-b .groups {border-top-color:var(--cmpri-palette-desktop-tone-21,#546c82)}
-/* Tab actions inherit each modal's palette through modalLauncherStyle. */
-[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-create {background:var(--cmpri-palette-desktop-tone-26,#ed8a37);border-color:var(--cmpri-palette-desktop-tone-27,#ffbd72);color:var(--cmpri-palette-desktop-tone-28,#20180d)}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .group-outline path {stroke:var(--cmpri-palette-desktop-tone-20)}
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-v23 .layout-b .groups {border-top-color:var(--cmpri-palette-desktop-tone-21)}
+/* Tab actions and modal titles resolve the same team palette. */
+[data-cmpri-seasonal-theme="illinois-iowa"] .cmpri-header-create {background:var(--cmpri-palette-desktop-tone-26);border-color:var(--cmpri-palette-desktop-tone-27);color:var(--cmpri-palette-desktop-tone-28)}
 
-.cmpri-football-artwork { background:var(--cmpri-palette-desktop-tone-13,#081321); }
-.cmpri-football-animation-control { display:flex;align-items:center;justify-content:center;width:64px;height:44px;bottom:14px;border-color:var(--cmpri-palette-desktop-tone-16,#ba773e);color:var(--cmpri-palette-desktop-tone-10,#f3f5f2);background:var(--cmpri-palette-desktop-tone-14,#13233af5);font:11px system-ui; }
-.cmpri-football-animation-control:focus-visible { outline-color:var(--cmpri-palette-desktop-tone-12,#f2cc63); }
+.cmpri-football-artwork { background:var(--cmpri-palette-desktop-tone-13); }
+.cmpri-football-animation-control { display:flex;align-items:center;justify-content:center;width:64px;height:44px;bottom:14px;border-color:var(--cmpri-palette-desktop-tone-16);color:var(--cmpri-palette-desktop-tone-10);background:var(--cmpri-palette-desktop-tone-14);font:11px system-ui; }
+.cmpri-football-animation-control:focus-visible { outline-color:var(--cmpri-palette-desktop-tone-12); }
 .cmpri-football-animation-control:disabled { opacity:.6;cursor:wait; }
 @media(max-width:767px) { .cmpri-football-animation-control { bottom:90px; } }
 @media(prefers-reduced-motion:reduce) { .cmpri-football-animation-control { display:flex; } }
+
+/* Paint the cached stadium before revealing the iframe; routing never replaces it. */
+.cmpri-football-artwork iframe { opacity:0;transition:opacity 180ms ease; }
+.cmpri-football-artwork iframe[data-painted="true"] { opacity:1; }
+@media(prefers-reduced-motion:reduce) { .cmpri-football-artwork iframe { transition:none; } }
+
+/* Native controls, browser text selections, and portaled menus follow the same tokens. */
+html[data-cmpri-site-theme="illinois-iowa"] ::selection { background:var(--cmpri-palette-gold);color:var(--cmpri-palette-black); }
+html[data-cmpri-site-theme="illinois-iowa"] :is(input,select,textarea,progress) { accent-color:rgb(var(--cmpri-palette-control-rgb)); }
+html[data-cmpri-site-theme="illinois-iowa"] :focus-visible { outline-color:var(--cmpri-palette-gold); }
+html[data-cmpri-site-theme="illinois-iowa"] :is(select,option,optgroup) { color-scheme:dark;background-color:var(--cmpri-modal-surface,var(--cmpri-palette-desktop-tone-2));color:var(--cmpri-modal-text,var(--cmpri-palette-modal-text)); }
+html[data-cmpri-site-theme="illinois-iowa"] option:checked { background-color:var(--cmpri-palette-gold)!important;color:var(--cmpri-palette-black)!important; }
+html[data-cmpri-site-theme="illinois-iowa"] :is(input,textarea)::placeholder { color:var(--cmpri-modal-muted,var(--cmpri-palette-desktop-tone-8)); }
+html[data-cmpri-site-theme="illinois-iowa"] :is([role="listbox"],[role="menu"],[data-cmpri-dropdown-panel]) { background-color:var(--cmpri-modal-surface,var(--cmpri-palette-desktop-tone-2));color:var(--cmpri-modal-text,var(--cmpri-palette-modal-text));border-color:var(--cmpri-outline,var(--cmpri-palette-desktop-tone-16)); }
+
+/* Source labels keep their wording while their UI badge uses the active team palette. */
+html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="urgent"] { --cmpri-source-accent:var(--cmpri-palette-priority); }
+html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="caution"] { --cmpri-source-accent:var(--cmpri-palette-gold); }
+html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="success"] { --cmpri-source-accent:var(--cmpri-palette-completed); }
+html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics="information"] { --cmpri-source-accent:var(--cmpri-palette-link); }
+html[data-cmpri-site-theme="illinois-iowa"] [data-source-semantics] { color:var(--cmpri-source-accent)!important;border-color:var(--cmpri-source-accent)!important; }

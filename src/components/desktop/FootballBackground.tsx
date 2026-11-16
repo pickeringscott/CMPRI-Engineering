@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import assets from "@/lib/ui/football-assets.json";
 import { ensureFootballCache } from "@/lib/ui/football-cache";
 
-type ArtworkState = { paused: boolean; ready: boolean };
+type ArtworkState = { paused: boolean; ready: boolean; painted: boolean };
 type ArtworkControl =
   | { action: "suspend"; suspended: boolean }
   | { action: "toggle" }
@@ -14,9 +14,9 @@ type ArtworkControl =
 /** One persistent artwork instance, shared by sign-in and the desktop. */
 export default function FootballBackground() {
   const pathname = usePathname();
-  const visible = pathname === "/" || pathname === "/engineering";
+  const visible = pathname === "/" || pathname === "/engineering" || pathname === "/front-desk";
   const frame = useRef<HTMLIFrameElement>(null);
-  const [artwork, setArtwork] = useState<ArtworkState>({ paused: true, ready: false });
+  const [artwork, setArtwork] = useState<ArtworkState>({ paused: true, ready: false, painted: false });
   const sendControl = useCallback((control: ArtworkControl) => {
     frame.current?.contentWindow?.postMessage(
       { type: "cmpri-football-control", ...control },
@@ -41,8 +41,8 @@ export default function FootballBackground() {
       if (!event.data || typeof event.data !== "object") return;
       const data = event.data as Record<string, unknown>;
       if (data.type !== "cmpri-football-state" || typeof data.paused !== "boolean" || typeof data.ready !== "boolean") return;
-      const next = { paused: data.paused, ready: data.ready };
-      setArtwork((current) => current.paused === next.paused && current.ready === next.ready ? current : next);
+      const next = { paused: data.paused, ready: data.ready, painted: typeof data.painted === "boolean" ? data.painted : data.ready };
+      setArtwork((current) => current.paused === next.paused && current.ready === next.ready && current.painted === next.painted ? current : next);
     };
     window.addEventListener("message", receiveState);
     return () => window.removeEventListener("message", receiveState);
@@ -62,6 +62,7 @@ export default function FootballBackground() {
           title="Illinois versus Iowa football background"
           src={`${assets.entry}?theme=1`}
           sandbox="allow-scripts allow-same-origin"
+          data-painted={artwork.painted}
           className="fixed inset-0 h-full w-full border-0"
           onLoad={handleLoad}
         />
