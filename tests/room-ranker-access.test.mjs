@@ -73,8 +73,9 @@ const syncRoute = load("app/api/integrations/room-ranker/sync/route.ts", {
   },
   "@/lib/server/auth": { requireUser: async () => currentAuth },
   "@/lib/server/supabase-admin": { createSupabaseAdmin: () => cronAdmin },
-  "@/lib/server/room-ranker": {
-    processDueRoomRankerSync: async (admin) => {
+  "@/lib/constants": { HOTEL_ID: "test-hotel" },
+  "@/lib/server/corporate-room-ranker": {
+    dispatchCorporateRoomRanker: async (admin) => {
       syncCalls.push(admin);
       return [];
     },
@@ -112,7 +113,9 @@ test("Room Ranker policy checks secondary roles and both account email identitie
 test("legacy Ranker endpoints deny all roles without provider calls",async()=>{
  for(const role of ["Chief Engineer","General Manager","Front Desk","System Administrator"]){
   authenticate(role);
-  for(const response of [await apiRoute.GET(),await apiRoute.PATCH(),await syncRoute.GET(),await syncRoute.POST()])assert.equal(response.status,410);
+  for(const response of [await apiRoute.GET(),await apiRoute.PATCH(),await syncRoute.GET(),await syncRoute.PATCH()])assert.equal(response.status,410);
+  // POST now accepts only the committed-change webhook secret, never a user role.
+  assert.equal((await syncRoute.POST({headers:{get:()=>null}})).status,401);
  }
  assert.equal(roomRankerCalls.length,0);assert.equal(syncCalls.length,0);
 });
