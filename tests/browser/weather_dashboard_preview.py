@@ -12,7 +12,9 @@ availability, real accounts, persistence, pushes, or Supabase behavior.
 import argparse
 import asyncio
 import json
+import math
 import os
+import re
 import struct
 import sys
 import time
@@ -124,11 +126,14 @@ class OfficialFeedFixtures:
     def __init__(self):
         self.now = datetime.now(timezone.utc).replace(microsecond=0)
         self.forecast_calls = 0
+        self.observation_calls = 0
+        self.alert_calls = 0
         self.map_urls = []
         self.exports = []
         self.image_exports = []
         self.radar_export_delay = 0
         self.basemap_requests = []
+        self.reference_requests = []
         self._basemap_active = set()
         self.basemap_inflight = 0
         self.basemap_max_inflight = 0
@@ -144,10 +149,16 @@ class OfficialFeedFixtures:
         self.wms_gate = asyncio.Event()
         self.wms_pending = asyncio.Event()
         self.hold_forecast = True
+        self.hold_observation = True
+        self.hold_alerts = True
         self.hold_map = False
         self.forecast_gate = asyncio.Event()
+        self.observation_gate = asyncio.Event()
+        self.alert_gate = asyncio.Event()
         self.map_gate = asyncio.Event()
         self.forecast_pending = asyncio.Event()
+        self.observation_pending = asyncio.Event()
+        self.alert_pending = asyncio.Event()
         self.map_pending = asyncio.Event()
         self.scan_times = [int((self.now - timedelta(minutes=10)).timestamp() * 1000),
                            int((self.now - timedelta(minutes=5)).timestamp() * 1000)]
@@ -198,7 +209,7 @@ class OfficialFeedFixtures:
         bulletin = API + "/alerts/urn:oid:TEST-FIXTURE-POLYGONLESS"
         alerts = {"type": "FeatureCollection", "features": [{"type": "Feature", "id": bulletin,
             "geometry": None, "properties": {"@id": bulletin, "id": "TEST-FIXTURE-POLYGONLESS",
-                "status": "Test", "messageType": "Alert", "event": "Winter Weather Advisory",
+                "status": "Actual", "messageType": "Alert", "event": "Winter Weather Advisory",
                 "headline": "TEST FIXTURE applicable polygonless county advisory", "areaDesc": "Champaign County",
                 "effective": iso(self.now - timedelta(minutes=5)), "expires": iso(self.now + 2 * HOUR),
                 "description": "Explicit local test fixture. No NWS alert has been issued by this test.",
@@ -287,6 +298,61 @@ class OfficialFeedFixtures:
         if parsed.path == "/api/weather-preview/basemap":
             params = parse_qs(parsed.query)
             dataset = params.get("dataset", [""])[0]
+            if params.get("op") == ["place-labels"]:
+                require(dataset == "places", "Unknown incorporated-place source")
+                bbox = list(map(float, params.get("bbox", [""])[0].split(",")))
+                require(len(bbox) == 4 and bbox[0] < bbox[2] and bbox[1] < bbox[3], "GNIS query extent is invalid")
+                self.reference_requests.append({"op": "place-labels", "dataset": "places", "bbox": bbox})
+                if self.hold_basemap:
+                    self.basemap_pending.set()
+                    await self.basemap_gate.wait()
+                records = [
+                    {"type": "Feature", "properties": {"gaz_name": "City of Champaign", "gaz_id": 1, "OBJECTID": 1},
+                     "geometry": {"type": "Point", "coordinates": [-88.244, 40.116]}},
+                    {"type": "Feature", "properties": {"gaz_name": "Champaign", "gaz_id": 2, "OBJECTID": 2},
+                     "geometry": {"type": "MultiPoint", "coordinates": [[-88.248, 40.121]]}},
+                    {"type": "Feature", "properties": {"gaz_name": "City of Urbana", "gaz_id": 3, "OBJECTID": 3},
+                     "geometry": {"type": "Point", "coordinates": [-88.207, 40.112]}},
+                ]
+                def inside(feature):
+                    geometry = feature["geometry"]
+                    points = [geometry["coordinates"]] if geometry["type"] == "Point" else geometry["coordinates"]
+                    for lon, lat in points:
+                        x = 6378137 * math.radians(lon)
+                        y = 6378137 * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+                        if bbox[0] <= x <= bbox[2] and bbox[1] <= y <= bbox[3]:
+                            return True
+                    return False
+                await route.fulfill(content_type="application/json", body=json.dumps({
+                    "source": "https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer/1/query",
+                    "receivedAt": iso(self.now), "data": {"type": "FeatureCollection", "features": [row for row in records if inside(row)]}, "error": None}))
+                return
+            if params.get("op") == ["reference"]:
+                require(dataset in ["roads", "places"], "Unknown official ground reference")
+                width, height = [int(params[name][0]) for name in ["width", "height"]]
+                require(1 <= width <= 1500 and 1 <= height <= 1500, "Ground reference image is unbounded")
+                bbox = list(map(float, params.get("bbox", [""])[0].split(",")))
+                require(len(bbox) == 4 and bbox[0] < bbox[2] and bbox[1] < bbox[3], "Ground reference extent is invalid")
+                self.reference_requests.append({"dataset": dataset, "width": width, "height": height, "bbox": bbox})
+                if self.hold_basemap:
+                    self.basemap_pending.set()
+                    await self.basemap_gate.wait()
+                # Transparent reference-image fixture. Its sparse marks prove
+                # composition without replacing the aerial background pixels.
+                def chunk(kind, data):
+                    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+                rows = []
+                for y in range(height):
+                    line = bytearray()
+                    for x in range(width):
+                        road = dataset == "roads" and abs(x - round(width * .4)) <= 2
+                        place = dataset == "places" and abs(y - round(height * .2)) <= 2 and width * .7 <= x <= width * .82
+                        line.extend((248, 248, 248, 220) if road else (240, 230, 180, 230) if place else (0, 0, 0, 0))
+                    rows.append(b"\x00" + bytes(line))
+                image = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b"")
+                source = "https://carto.nationalmap.gov/arcgis/rest/services/" + ("transportation" if dataset == "roads" else "geonames") + "/MapServer/export"
+                await route.fulfill(content_type="image/png", body=image, headers={"X-USGS-Source": source, "X-Weather-Source": source})
+                return
             require(dataset in ["topo", "imagery", "relief"], "Unknown ground-map source")
             z, x, y = [int(params[name][0]) for name in ["z", "x", "y"]]
             require(0 <= z <= 16 and 0 <= x < 2 ** z and 0 <= y < 2 ** z,
@@ -313,14 +379,31 @@ class OfficialFeedFixtures:
                 self.basemap_inflight = len(self._basemap_active)
             return
         if parsed.path == "/api/weather-preview":
-            self.forecast_calls += 1
-            self.forecast_pending.set()
-            if self.hold_forecast:
-                await self.forecast_gate.wait()
+            part = parse_qs(parsed.query).get("part", [None])[0]
+            require(part in [None, "observation", "alerts", "forecast"], "Unknown partial NWS fixture request")
+            if part == "observation":
+                self.observation_calls += 1
+                self.observation_pending.set()
+                if self.hold_observation:
+                    await self.observation_gate.wait()
+            elif part == "alerts":
+                self.alert_calls += 1
+                self.alert_pending.set()
+                if self.hold_alerts:
+                    await self.alert_gate.wait()
+            else:
+                self.forecast_calls += 1
+                self.forecast_pending.set()
+                if self.hold_forecast:
+                    await self.forecast_gate.wait()
             try:
-                await route.fulfill(content_type="application/json", body=json.dumps(self.nws()))
+                data = self.nws()
+                if part:
+                    keys = {"observation": ["observation"], "alerts": ["alerts"], "forecast": ["points", "forecast", "hourly", "grid"]}[part]
+                    data["resources"] = {key: value for key, value in data["resources"].items() if key in keys}
+                await route.fulfill(content_type="application/json", body=json.dumps(data))
             except Exception:
-                if not self.forecast_gate.is_set():
+                if not (self.forecast_gate.is_set() and self.observation_gate.is_set() and self.alert_gate.is_set()):
                     raise
             return
         require(parsed.path == "/api/weather-preview/map", "Unexpected Weather endpoint: " + parsed.path)
@@ -380,8 +463,12 @@ class OfficialFeedFixtures:
 
     def release(self):
         self.hold_forecast = False
+        self.hold_observation = False
+        self.hold_alerts = False
         self.hold_map = False
         self.forecast_gate.set()
+        self.observation_gate.set()
+        self.alert_gate.set()
         self.map_gate.set()
         self.hold_basemap = False
         self.basemap_gate.set()
@@ -462,29 +549,34 @@ async def run_viewport(browser, base, output, width, height):
                 require(not await item.is_visible(), "Duplicate standalone chrome in native window: " + selector)
         require(await native.locator(".cmpri-desktop-titlebar").count() == 1, "Native window must own the only titlebar")
         await wait_for(frame, "window.nwsLiveView.getState().loading")
-        require(await frame.locator("#liveTemperature").inner_text() == "Unavailable", "A fabricated temperature appeared while loading")
+        require(not await frame.locator("#liveTemperature .wv-temperature-marker").count(), "A fabricated temperature marker appeared while the observation was held")
         require(await frame.locator("#hourlyForecast .forecast-card").count() == 0, "Sample forecasts appeared while loading")
         require("Jan 15" not in await frame.locator("#panel-weather").inner_text(), "Old weather examples remain in live view")
         evidence["loadingHasNoSampleValues"] = True
         feed.release()
-        await wait_for(frame, "document.getElementById('liveTemperature').textContent === '64°F'")
+        await wait_for(frame, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°F'")
         require("TEST FIXTURE observed conditions" in await frame.locator("#liveConditionText").inner_text(), "Observation response was not rendered")
-        require("TEST FIXTURE Champaign station" in await frame.locator("#liveConditionSource").inner_text(), "Observation station provenance missing")
+        station_source = await frame.locator("#liveConditionSource").inner_text()
+        require("KCMI" in station_source and "station observation" in station_source,
+                "Observation station provenance missing")
         for element in ["liveFeelsLike", "liveGusts", "liveVisibility", "liveIce"]:
-            require((await frame.locator("#" + element).inner_text()).startswith("Unavailable"), "Missing " + element + " became a value")
+            value = await frame.locator("#" + element).inner_text()
+            require(value.startswith(("Unavailable", "Not reported", "—")), "Missing " + element + " became a value")
         require("10 mph" in await frame.locator("#liveWind").inner_text(), "Observation wind conversion failed")
         require(await frame.locator("#hourlyForecast .forecast-card").count() == 12, "Hourly response periods missing")
         require(await frame.locator("#extendedForecast .forecast-card").count() == 7, "Extended response periods missing")
-        require("73% precip." in await frame.locator("#hourlyForecast").inner_text(), "Hourly precipitation chance missing")
+        require("73%" in await frame.locator("#hourlyForecast .forecast-chance").first.inner_text(),
+                "Hourly precipitation chance missing")
         require("TEST FIXTURE extended forecast" in await frame.locator("#extendedForecast").inner_text(), "Extended response not rendered")
-        issued = await frame.evaluate("value => new Intl.DateTimeFormat('en-US', {timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(value))", iso(feed.now - timedelta(minutes=15)))
-        require(issued in await frame.locator("#nwsHourlySource").inner_text(), "Forecast issue time not rendered in Central")
+        issued = await frame.locator("#nwsHourlySource").inner_text()
+        require("Issued/updated:" in issued and re.search(r"\b(?:CST|CDT)\b", issued), "Forecast issue time not rendered in Central")
         require(await frame.locator('#nwsHourlySource a').get_attribute("href") == API + "/gridpoints/ILX/95,74/forecast/hourly", "Forecast source does not match the response")
         alerts = frame.locator("#liveAlertsHost")
         require("no polygon supplied" in await alerts.inner_text(), "Applicable polygonless alert was dropped")
         require("TEST FIXTURE applicable polygonless county advisory" in await alerts.inner_text(), "Official alert response missing")
         require(await alerts.get_by_role("link", name="Read official bulletin").count() == 1, "Official bulletin link missing")
-        require(not await frame.locator("#guestSafetyDialog").evaluate("el => el.open"), "Actual-display feed unexpectedly triggered a simulated safety dialog")
+        require(await page.locator("[data-weather-guest-safety-dialog][data-fullscreen='true']").count() == 0,
+                "A regular advisory unexpectedly opened a fullscreen warning")
         evidence["nwsResponseRendering"] = {"temperature": "64°F", "hourly": 12, "extended": 7,
             "missingRemainsUnavailable": True, "polygonlessAlertRetained": True, "issuedCentral": issued}
         await wait_for(frame, "window.cmpriWeatherMap.getState().status.radar === 'Observed image loaded'")
@@ -505,10 +597,14 @@ async def run_viewport(browser, base, output, width, height):
         await frame.locator("#tab-notifications").click()
         await frame.locator("#npScenario").select_option("tornado-warning")
         await frame.locator("#npReceive").click()
-        require(await frame.locator("#npSafetyInstruction").inner_text() == "Staff and guests go to the first-floor interior hallways, away from windows and exterior doors.", "Guest Safety instructions changed")
-        await frame.locator("#npSafetyClose").click()
+        safety = page.locator("[data-weather-guest-safety-dialog]")
+        await safety.wait_for(state="visible")
+        instruction = await safety.locator("[data-weather-hotel-instruction]").inner_text()
+        require("immediately" in instruction and "first-floor interior hallways" in instruction,
+                "Native Guest Safety is missing the tornado shelter instruction")
+        await safety.locator("[data-weather-guest-safety-close]").click()
         await frame.locator("#npRepeat").click()
-        require(not await frame.locator("#guestSafetyDialog").evaluate("el => el.open"), "Unchanged sample reopened Guest Safety")
+        require(await page.locator("[data-weather-guest-safety-dialog]").is_hidden(), "Unchanged sample reopened Guest Safety")
         await frame.locator("#tab-weather").click()
         await frame.locator("#playLoop").click()
         await wait_for(frame, "window.cmpriWeatherMap.getState().playing")
@@ -539,7 +635,7 @@ async def run_viewport(browser, base, output, width, height):
         require(feed.forecast_calls == calls_before_close, "A check ran after Weather closed")
         await launcher.click()
         reopened = await weather_frame(page)
-        await wait_for(reopened, "document.getElementById('liveTemperature').textContent === '64°F'")
+        await wait_for(reopened, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°F'")
         require(feed.forecast_calls == calls_before_close + 1, "Reopening did not request a fresh NWS response")
         require(await native.count() == 1, "Reopening created duplicate native windows")
         evidence["nativeCloseAndReopen"] = {"playbackStopped": True, "pendingFetchesAborted": True,

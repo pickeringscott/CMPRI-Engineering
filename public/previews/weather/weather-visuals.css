@@ -1,0 +1,37 @@
+/* Local weather symbols and one fixed actual-air-temperature scale. */
+.wv-temperature{display:inline-flex;flex-direction:column;align-items:flex-start;gap:5px;max-width:100%;vertical-align:middle;line-height:1.1}
+.wv-temperature-value{display:block;color:#f8f5ee;font-size:inherit;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 1px 2px #000}
+.wv-temperature-scale{display:block;width:88px;max-width:100%;font-size:8px;font-weight:400;line-height:1.2}
+.wv-temperature-track{display:block;position:relative;height:6px;margin:0 4px;border:1px solid #ffffff40;border-radius:5px;box-shadow:0 1px 2px #0009}
+.wv-temperature-marker{position:absolute;top:50%;width:8px;height:12px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:3px;background:var(--wv-temperature-color);box-shadow:0 0 0 1px #111,0 1px 3px #000}
+.wv-temperature-limits{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:#bdb8ad;letter-spacing:0;white-space:nowrap}
+.wv-temperature.wv-unavailable .wv-temperature-track{opacity:.3}
+.wv-condition{display:inline-block;width:45px;height:36px;max-width:100%;flex-shrink:0;vertical-align:middle;overflow:visible}
+.wv-condition path,.wv-condition circle{stroke-linecap:round;stroke-linejoin:round}
+.wv-sun{fill:#f4ce68;stroke:#f9df9b;stroke-width:1.6}
+.wv-sun-rays{fill:none;stroke:#d7b85e;stroke-width:1.8}
+.wv-moon{fill:#e9d496;stroke:#f5e4b6;stroke-width:1.7}
+.wv-star{fill:none;stroke:#f5e4b6;stroke-width:1.7}
+.wv-cloud{fill:#c4d0dc;stroke:#e7edf3;stroke-width:1.6}
+.wv-rain{fill:none;stroke:#81c9f3;stroke-width:3}
+.wv-snow{fill:none;stroke:#e3f5ff;stroke-width:1.6}
+.wv-lightning{fill:#f5d35b;stroke:#16140d;stroke-width:.8}
+.wv-fog{fill:none;stroke:#b9c7cc;stroke-width:2.3}
+.wv-wind-lines{fill:none;stroke:#bccdd1;stroke-width:2.4}
+.wv-unknown-ring{fill:#191a19;stroke:#777e82;stroke-width:1.5}
+.wv-unknown-mark{fill:none;stroke:#c9ced0;stroke-width:2.5}
+.wv-wind{display:inline-flex;align-items:center;gap:5px;max-width:100%;vertical-align:middle;line-height:1.25;font-size:inherit;font-variant-numeric:tabular-nums}
+.wv-wind-compass{display:block;width:30px;height:30px;flex:0 0 30px;overflow:visible}
+.wv-wind-ring{fill:#141410;stroke:#666052;stroke-width:1}
+.wv-wind-north{fill:#c8bd9f;font-size:6px;font-family:inherit;font-weight:600}
+.wv-wind-arrow{fill:none;stroke:var(--gold,#d7b768);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.wv-wind-calm{fill:#b8c5b8}
+.wv-wind-unknown{fill:none;stroke:#787b7c;stroke-width:1.5;stroke-linecap:round}
+.wv-wind-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.wv-wind-value{color:var(--text,#f0ece2);white-space:normal}
+.wv-wind-gust{color:var(--muted,#bcb7a8);font-size:.9em;white-space:normal}
+.forecast-card .wv-condition{width:42px;height:33px}
+.forecast-card .wv-temperature{font-size:20px}
+.forecast-card .wv-wind{font-size:10px}
+.compact-temperature>.wv-temperature{font-size:inherit}
+@media(max-width:640px){.wv-temperature-scale{width:80px}.wv-condition{width:42px;height:33px}.wv-wind{gap:4px}.wv-wind-compass{width:27px;height:27px;flex-basis:27px}.forecast-card .wv-condition{width:40px;height:31px}}

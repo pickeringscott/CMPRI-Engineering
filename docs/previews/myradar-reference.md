@@ -18,7 +18,7 @@ These are useful behavior references for CMPRI's map selector, independent weath
 
 The [official upgrade list](https://acmeaom.freshdesk.com/support/solutions/articles/44001261755-upgrades-available-for-ios) identifies Per-Station Radar, Historical Radar, hurricanes, the CONUS-wide Road Weather toggle, and RouteCast as Premium Features; aviation charts use a separate subscription. The current documentation does not establish a complete free/paid entitlement table for every basemap style. In particular, a name containing “Pro” alone is not sufficient evidence of its subscription requirement.
 
-The [MyRadar embedding documentation](https://myradar.com/apidocs/embed-a-weather-map/) requires a MyRadar API key. CMPRI does not use that embed. MyRadar's Hi-Def smoothing/morphing and precipitation models are not equivalent to a direct NOAA observed composite. CMPRI's observed radar must continue to use NOAA catalog valid times and exact raster IDs, with unavailable scans and stale data labeled. No proprietary HD, predicted radar, storm tracking, or paid road-weather capability is implied by adopting similar controls.
+The [MyRadar embedding documentation](https://myradar.com/apidocs/embed-a-weather-map/) requires a MyRadar API key. CMPRI does not use that embed. MyRadar's Hi-Def smoothing/morphing and precipitation models are not equivalent to a direct NOAA observed composite. CMPRI's observed radar must continue to use NOAA catalog valid times and exact raster IDs, with unavailable scans labeled and the actual displayed Central scan time retained. The current user-requested playback removes the radar stale label and uses a muted bar for buffering. No proprietary HD, predicted radar, storm tracking, or paid road-weather capability is implied by adopting similar controls.
 
 ## Chosen CMPRI ground-map choices
 
@@ -30,6 +30,8 @@ The four CMPRI choices below are implementation choices for this revision. **The
 | Roads | USGS Topo's roads, place names, boundaries, hydrography, and other reference features; this is a topographic reference map, not a dedicated traffic or road-condition feed | [USGSTopo](https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer) |
 | Aerial | USGS/USDA orthoimagery of the ground | [USGSImageryOnly](https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer) |
 | Terrain | USGS elevation-derived shaded relief; labels and road detail are not guaranteed by this backdrop | [USGSShadedReliefOnly](https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer) |
+
+The current CMPRI default is **Aerial at regional zoom**, with official USGS transportation roads/shields and GNIS incorporated-place town labels above it. GNIS labels use actual source names and one actual Point/MultiPoint coordinate per town, with deduplication and collision decluttering. This geographic reference overlay is separate from reported winter road conditions. Its source can refresh without establishing the aerial imagery's acquisition year; capture year at the hotel remains unavailable.
 
 The [USGS basemap overview](https://www.usgs.gov/faqs/what-are-base-map-services-or-urls-used-national-map) describes the underlying products. The [current service directory](https://basemap.nationalmap.gov/arcgis/rest/services?f=pjson) and individual service metadata were checked. They expose cached, 256×256-pixel Web Mercator tiles using:
 
@@ -53,7 +55,7 @@ USGS explicitly states that [National Map services and data are free and public 
 
 > Map services and data available from U.S. Geological Survey, National Geospatial Program.
 
-Ground-map requests must remain bounded to the current viewport and stop with the Weather view. No device GPS, user tracking, MyRadar account, API key, Supabase activity, notification permission, real push delivery, or background scheduler is introduced. Existing live NWS forecasts, observations, applicable point alerts—including alerts without polygons—and their provenance remain in place. Notification and adaptive-check demonstrations remain explicitly simulated.
+Ground-map requests must remain bounded to the current viewport and stop with the Weather view. No device GPS, user tracking, MyRadar account, API key, Supabase activity, notification permission, real push delivery, or background scheduler is introduced. Existing live NWS forecasts, observations, applicable point alerts—including alerts without polygons—and their provenance remain in place. Weather Prep and adaptive-check demonstrations remain explicitly simulated. Actual official point alerts now create local in-app Guest Safety notices; no device push or database work is added.
 
 The existing Local velocity and Precipitation type buttons use verified free NOAA WMS products rather than MyRadar's proprietary products. Both official capabilities documents, exact-time PNG maps and legends succeeded through the published preview transport. These latest observed views retain their actual scan times and geographic extents. Regional reflectivity retains the separate catalog-based observed loop; selecting another product must not imply that NOAA supplied a corresponding loop or MyRadar smoothing.
 

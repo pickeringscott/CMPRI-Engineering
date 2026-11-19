@@ -43,6 +43,7 @@ import PoolStatus from "@/components/desktop/PoolStatus";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
+import WeatherPreviewWindow from "@/components/desktop/WeatherPreviewWindow";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder, type DesktopWorkOrderDraft } from "@/components/desktop/WorkOrderListWindow";
@@ -868,6 +869,13 @@ export default function EngineeringDashboardPage() {
           const rect = rects[entry.key];
           if (!rect) return null;
           const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
+          if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
+            return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
+              rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
+              onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
+              registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}
+              onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => closeWindow(entry.key)} />;
+          }
           return (
             <DesktopWindow
               guest={windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`)}

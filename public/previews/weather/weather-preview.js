@@ -88,7 +88,7 @@
       && !document.querySelector('dialog[open]') && !document.fullscreenElement
       && !byId('mapShell').classList.contains('expanded')) close();
   });
-  byId('openMapReference').addEventListener('click', (event) => {
+  byId('openMapReference')?.addEventListener('click', (event) => {
     event.preventDefault();
     setTab('sources');
     byId('map-control-reference').scrollIntoView({ block: 'start' });

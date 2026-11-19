@@ -136,14 +136,20 @@ async def run_viewport(browser, base, output, width, height):
         fixture.wms_modes["velocity"] = "stale"
         await select_product(frame, "velocity")
         await wms_ready(frame, "velocity")
-        stale_label = (await frame.locator("#scanTime").inner_text()).lower()
-        require(any(word in stale_label for word in ["stale", "unavailable"]),
-                "Old WMS data did not receive a visible stale/unavailable label")
+        old_scan = await frame.evaluate("window.cmpriWeatherMap.getState().wms")
+        old_scan_label = await frame.locator("#scanTime").inner_text()
+        require(old_scan["displayedTime"] == old_scan["time"]
+                and old_scan_label and any(zone in old_scan_label for zone in ["CST", "CDT"]),
+                "Older published WMS data lost its actual Central scan time")
+        require(not any(word in old_scan_label.lower() for word in ["loading", "buffer", "stale"]),
+                "Playback replaced the actual observed scan time with a status label")
         fixture.wms_modes["precipitation"] = "unavailable"
         await select_product(frame, "ptype")
         await wait_for(frame, "() => {const w=window.cmpriWeatherMap.getState().wms;return w && /unavailable/i.test(w.status) && w.pending===0;}")
         await settled(frame)
-        require(await frame.locator("#mapGroundStatus").is_visible(), "A WMS failure removed the geographic background status")
+        require(await frame.locator("#mapAttribution").is_visible()
+                and "USGS" in await frame.locator("#mapAttribution").inner_text(),
+                "A WMS failure removed the geographic background attribution")
         failed = await frame.evaluate("window.cmpriWeatherMap.getState().wms")
         require(not failed["displayedTime"], "An unavailable selected product retained another product's image time")
         unavailable_pixel = await pixel(frame)
@@ -171,7 +177,7 @@ async def run_viewport(browser, base, output, width, height):
         require(len(fixture.wms_requests) == calls, "WMS fetched again after Weather closed")
         require(not errors and not externals and not await frame_forbidden(page), "Unexpected browser errors or external/permission activity")
         require(len(mutations) == mutation_start, "WMS controls caused application mutations")
-        evidence.update({"passed": True, "staleLabeled": True, "unavailableLabeled": True,
+        evidence.update({"passed": True, "olderObservedTimePreserved": old_scan_label, "unavailableLabeled": True,
             "nativeCloseAbortsWms": True, "noBackgroundRequests": True, "errors": errors})
         print(f"PASS actual dashboard WMS layers {width}×{height} (local fixtures)", flush=True)
         return evidence

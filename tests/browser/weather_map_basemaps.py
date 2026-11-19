@@ -13,6 +13,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -150,8 +151,43 @@ async def run_viewport(browser, base, output, width, height):
         await settled(frame)
         await wait_for(frame, "window.cmpriWeatherMap.getState().status.radar === 'Observed image loaded'")
         initial = await frame.evaluate("window.cmpriWeatherMap.getState()")
-        require(initial["zoom"] == 4 and initial["grid"] is False, "Default map extent or optional grid is incorrect")
+        require(initial["zoom"] == 4 and initial["grid"] is False and initial["backgroundStyle"] == "aerial",
+                "Default aerial map extent or optional grid is incorrect")
         require(initial["ground"]["visibleLoaded"] > 0, "No actual ground fixture tile decoded")
+        await wait_for(frame, """() => {
+          const refs = window.cmpriWeatherMap.getState().ground.reference;
+          return refs && refs.enabled && refs.roads.loaded && refs.places.loaded &&
+            refs.places.renderedCount > 0 && refs.pending === 0;
+        }""")
+        ground = await frame.evaluate("window.cmpriWeatherMap.getState().ground")
+        require(ground["dataset"] == "imagery" and ground.get("imageryAcquisitionYear") is None,
+                "Aerial did not use real imagery or invented a hotel-specific capture year")
+        require({row["dataset"] for row in fixture.reference_requests} == {"roads", "places"},
+                "Aerial is missing an actual road or populated-place reference response")
+        require(any(row.get("op") == "place-labels" for row in fixture.reference_requests),
+                "Town labels did not use the official GNIS feature response")
+        require(all("carto.nationalmap.gov" in ground["reference"][key]["source"] for key in ["roads", "places"]),
+                "Ground labels do not identify their official USGS reference source")
+        require(ground["reference"]["places"]["count"] == 2
+                and 1 <= ground["reference"]["places"]["renderedCount"] <= 2,
+                "Official place names were not normalized/deduplicated or collision-decluttered")
+        places = ground["reference"]["places"]
+        require(places["sourceCount"] == 3 and places["uniqueCount"] == 2,
+                "Source GNIS features were replaced by a hand-written town list")
+        labels = places["renderedLabels"]
+        require(len({row["name"] for row in labels}) == len(labels)
+                and all(row["name"] in ["Champaign", "Urbana"] for row in labels),
+                "Duplicate or invented town labels were drawn")
+        annotation = await frame.locator("#radarCanvas").evaluate("""canvas => {
+          const context=canvas.getContext('2d');
+          const read=(x,y)=>Array.from(context.getImageData(Math.round(canvas.width*x),Math.round(canvas.height*y),1,1).data);
+          return {road:read(.4,.55),beside:read(.43,.55)};
+        }""")
+        require(annotation["road"][0] > 205 and annotation["road"][1] > 205
+                and max(abs(annotation["road"][n] - annotation["beside"][n]) for n in range(3)) > 45,
+                "Road reference PNG did not compose visibly over the aerial/weather raster")
+        evidence["aerialRoadsAndPlaceLabels"] = {"source": ground["reference"], "fixturePixels": annotation,
+                                                 "captureYearNotInvented": True}
         require(await frame.locator("#mapBackgroundMenu").count() == 1 and await frame.locator("#mapLayersMenu").count() == 1,
                 "Separate Map and Layers controls are missing")
         await radar(frame, False)
@@ -219,7 +255,7 @@ async def run_viewport(browser, base, output, width, height):
         # Slow official-raster fixtures expose request bursts during rapid
         # scrubbing. Only two image loads and the latest desired scan may wait.
         await wait_for(frame, "window.cmpriWeatherMap.getState().rasterLoads === 0")
-        fixture.radar_export_delay = .12
+        fixture.radar_export_delay = .2
         exports_before_scrub = len(fixture.exports)
         scrub = await frame.evaluate("""() => {
           const range=document.getElementById('frameRange'), before=window.cmpriWeatherMap.getState();
@@ -231,10 +267,22 @@ async def run_viewport(browser, base, output, width, height):
           for(let n=0;n<80;n++) select(n%before.frameCount);
           select(target);
           return {target, peakLoads, peakQueue, previousScan:before.displayedScanTime,
-            heldScan:window.cmpriWeatherMap.getState().displayedScanTime};
+            heldScan:window.cmpriWeatherMap.getState().displayedScanTime,
+            buffering:window.cmpriWeatherMap.getState().buffering,
+            loadingAttribute:document.querySelector('.loop').dataset.loading,
+            playbackOpacity:parseFloat(getComputedStyle(document.querySelector('.loop')).opacity),
+            canvasOpacity:parseFloat(getComputedStyle(document.getElementById('radarCanvas')).opacity),
+            visibleScan:document.getElementById('scanTime').textContent};
         }""")
         require(scrub["peakLoads"] <= 2 and scrub["peakQueue"] <= 1, "Rapid seek created an unbounded raster request queue")
         require(scrub["previousScan"] == scrub["heldScan"], "Seeking relabeled a previous image as an unloaded scan")
+        require(scrub["buffering"] and scrub["loadingAttribute"] == "true",
+                "Pending real radar scans did not mute the playback controls: " + str(scrub))
+        await wait_for(frame, """() => document.querySelector('.loop').dataset.loading === 'true' &&
+          parseFloat(getComputedStyle(document.querySelector('.loop')).opacity) <= .5""", timeout=2000)
+        scrub["mutedOpacityAfterTransition"] = await frame.locator(".loop").evaluate("el=>parseFloat(getComputedStyle(el).opacity)")
+        require(scrub["canvasOpacity"] == 1 and not re.search(r"loading|buffer|stale", scrub["visibleScan"], re.I),
+                "Buffering dimmed the map or replaced its actual displayed scan time with loading/stale text")
         await wait_for(frame, "target => {const s=window.cmpriWeatherMap.getState(); return s.displayedFrame===target && s.rasterLoads===0 && s.rasterQueue===0;}", scrub["target"])
         require(len(fixture.exports) - exports_before_scrub <= 6, "Rapid seek requested an export for every slider tick")
         require((await frame.evaluate("window.cmpriWeatherMap.getState()"))["imageCacheSize"] <= 36, "Radar image cache exceeded its bound")

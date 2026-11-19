@@ -34,7 +34,6 @@
       return highest === 3 ? { name: 'Warning', minutes: 1 } :
         highest === 2 ? { name: 'Watch / advisory', minutes: 2 } : { name: 'Clear', minutes: 5 };
     }
-    function enabled() { return !byId('simPushEnabled') || byId('simPushEnabled').checked; }
     function append(message) {
       log.unshift({ at: now, message });
       if (log.length > 24) log.length = 24;
@@ -87,7 +86,6 @@
       };
     }
     function notify(alert, version, action, changedThisCheck) {
-      if (!enabled()) return false;
       // One representative opted-in recipient. A real implementation would use
       // a unique alert/version/recipient delivery key inside the shared worker.
       const key = [alert.id, version, action, 'SIM-RECIPIENT-1'].join('|');
@@ -157,7 +155,7 @@
       const message = (options.reason ? options.reason + ': ' : '') +
         (changes.length ? changes.join('; ') : 'cached comparison unchanged') +
         '. +1 simulated NWS request; +' + deltaDb + ' simulated DB transaction' + (deltaDb === 1 ? '' : 's') +
-        '; +' + deltaPush + ' simulated push' + (deltaPush === 1 ? '' : 'es') +
+        '; +' + deltaPush + ' simulated in-app notification' + (deltaPush === 1 ? '' : 's') +
         '. Shared interval ' + current.minutes + ' min.';
       append(message);
       checks.push({ now, request: requests, changes: clone(changes), db: deltaDb, push: deltaPush, mode: current.name, minutes: current.minutes });
@@ -206,13 +204,14 @@
     }
     function snapshot() {
       return {
-        now, sequenceStep, requests, transactions, pushes, mode: clone(mode()),
+        now, sequenceStep, requests, transactions, pushes, messages: pushes, mode: clone(mode()),
         nextCheck: now + mode().minutes * MINUTE,
         alerts: activeAlerts().map(clone), cache: Array.from(cache.values()).map(clone),
         deliveredKeys: Array.from(delivered), checks: clone(checks), log: clone(log)
       };
     }
     function reset() {
+      document.dispatchEvent(new CustomEvent('cmpri:simulated-alert-reset'));
       now = start; sequenceStep = 0; requests = 0; transactions = 0; pushes = 0;
       cache = new Map(); delivered = new Set(); log = []; checks = [];
       append('SIMULATION baseline: no active alerts in the sample. One shared property check every 5 minutes. No timer is running.');
@@ -222,7 +221,6 @@
     const actions = { simStep: step, simUnchanged: unchanged, simChange: change,
       simCancel: cancel, simExpire: expire, simReset: reset };
     Object.entries(actions).forEach(([id, action]) => { if (byId(id)) byId(id).addEventListener('click', action); });
-    if (byId('simPushEnabled')) byId('simPushEnabled').addEventListener('change', render);
     window.weatherSim = { initialized: true, step, unchanged, change, cancel, expire, reset, snapshot };
     reset();
     return window.weatherSim;
