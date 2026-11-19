@@ -1,12 +1,20 @@
-/* Isolated branch review shell. It never imports or contacts the CMPRI app. */
+/* Weather content hosted by the existing CMPRI desktop window in embedded mode. */
 'use strict';
 (() => {
   const byId = (id) => document.getElementById(id);
+  const query = new URLSearchParams(location.search);
+  const embedded = query.get('embedded') === '1' && window.parent !== window;
+  if (embedded) {
+    document.documentElement.classList.add('cmpri-weather-embedded');
+    byId('weatherWindow').removeAttribute('role');
+    byId('weatherWindow').removeAttribute('aria-modal');
+  }
   let opened = false;
   let activeTab = 'weather';
   let returnFocus = null;
   const map = window.cmpriWeatherMap;
   map.init();
+  window.nwsLiveView.init();
   window.initNotificationPreview();
   window.initWeatherSimulation();
 
@@ -15,9 +23,9 @@
     byId('lifecycleStatus').textContent = !opened
       ? 'Weather closed · playback and pending map requests stopped'
       : state.playing ? 'Map playback running · no background scheduler'
-      : 'Map paused · official feeds load only on explicit request · no scheduler';
+      : 'Official NOAA / NWS feeds · foreground requests only · no scheduler';
     const badge = byId('mapModeBadge');
-    if (badge) badge.textContent = state.mode === 'live' ? 'See layer status' : 'Simulated map';
+    if (badge) badge.textContent = state.mode === 'live' ? 'NOAA feed status below' : 'Unavailable';
   }
   function setTab(name, focus = false) {
     activeTab = name;
@@ -43,12 +51,14 @@
     byId('dashboard').inert = true;
     byId('weatherLauncher').dataset.open = 'true';
     map.open();
+    window.nwsLiveView.open();
     setTab('weather');
-    byId('closeWeather').focus();
+    if (!embedded) byId('closeWeather').focus();
   }
-  function close() {
+  function close(notifyParent = true) {
     window.notificationPreview?.closeSafety?.();
     map.close();
+    window.nwsLiveView.close();
     opened = false;
     byId('weatherWindow').hidden = true;
     document.body.classList.remove('weather-open');
@@ -56,10 +66,12 @@
     byId('weatherLauncher').dataset.open = 'false';
     lifecycle();
     returnFocus?.focus();
+    if (embedded && notifyParent) window.parent.postMessage({ type: 'cmpri-modal-close', modalToken: query.get('modalToken') }, location.origin);
   }
   byId('weatherLauncher').addEventListener('click', () => opened ? close() : open());
   byId('openWeather').addEventListener('click', open);
-  byId('closeWeather').addEventListener('click', close);
+  byId('closeWeather').addEventListener('click', () => close());
+  document.addEventListener('cmpri-modal-cancel-request', () => close(false));
   document.querySelectorAll('[role="tab"]').forEach((button, index, all) => {
     button.addEventListener('click', () => setTab(button.id.slice(4)));
     button.addEventListener('keydown', (event) => {
@@ -86,47 +98,8 @@
     if (document.hidden || !opened || activeTab !== 'weather') map.pause();
     else map.resume();
   });
-  window.addEventListener('pagehide', () => map.close());
+  window.addEventListener('pagehide', () => close(false));
 
-  const hours = [
-    ['5 PM', '☁', '29°F', 'Cloudy', '30%', 'NE 10 mph'],
-    ['6 PM', '❄', '28°F', 'Snow possible', '50%', 'NE 11 mph'],
-    ['7 PM', '❄', '27°F', 'Snow likely', '70%', 'NE 12 mph'],
-    ['8 PM', '❄', '26°F', 'Snow likely', '80%', 'NE 12 mph'],
-    ['9 PM', '❄', '25°F', 'Snow likely', '80%', 'N 13 mph'],
-    ['10 PM', '❄', '25°F', 'Snow likely', '70%', 'N 12 mph'],
-    ['11 PM', '❄', '24°F', 'Snow possible', '50%', 'N 11 mph'],
-    ['12 AM', '☁', '24°F', 'Mostly cloudy', '30%', 'N 10 mph'],
-    ['1 AM', '☁', '23°F', 'Mostly cloudy', '20%', 'N 9 mph'],
-    ['2 AM', '☁', '23°F', 'Mostly cloudy', '10%', 'N 9 mph'],
-    ['3 AM', '☁', '23°F', 'Mostly cloudy', '10%', 'NW 8 mph'],
-    ['4 AM', '☁', '23°F', 'Mostly cloudy', '10%', 'NW 8 mph']
-  ];
-  const days = [
-    ['Tonight', '❄', '29° / 23°F', 'Snow likely', '80%', 'NE 12 mph'],
-    ['Friday', '❄', '30° / 18°F', 'Snow ending early', '40%', 'N 11 mph'],
-    ['Saturday', '☁', '27° / 16°F', 'Mostly cloudy', '10%', 'N 8 mph'],
-    ['Sunday', '☀', '31° / 21°F', 'Partly sunny', '10%', 'SE 7 mph'],
-    ['Monday', '☁', '34° / 25°F', 'Mostly cloudy', '20%', 'S 8 mph'],
-    ['Tuesday', '❄', '36° / 26°F', 'Chance rain / snow', '40%', 'W 9 mph'],
-    ['Wednesday', '☀', '33° / 22°F', 'Partly sunny', '20%', 'NW 8 mph']
-  ];
-  function cards(host, values, hourly) {
-    values.forEach((entry) => {
-      const card = document.createElement('article');
-      card.className = 'forecast-card';
-      const label = document.createElement('h3'); label.textContent = entry[0] + (hourly ? ' CST' : '');
-      const icon = document.createElement('span'); icon.className = 'forecast-icon'; icon.setAttribute('aria-hidden', 'true'); icon.textContent = entry[1];
-      const temp = document.createElement('strong'); temp.className = 'forecast-temperature'; temp.textContent = entry[2];
-      const detail = document.createElement('p'); detail.className = 'forecast-detail'; detail.textContent = entry[3];
-      const chance = document.createElement('p'); chance.className = 'forecast-chance'; chance.textContent = entry[4] + ' precip.';
-      const wind = document.createElement('p'); wind.className = 'forecast-wind'; wind.textContent = entry[5];
-      card.append(label, icon, temp, detail, chance, wind);
-      host.append(card);
-    });
-  }
-  cards(byId('hourlyForecast'), hours, true);
-  cards(byId('extendedForecast'), days, false);
   document.querySelectorAll('[data-scroll-target]').forEach((button) => {
     button.addEventListener('click', () => {
       const strip = byId(button.dataset.scrollTarget);
@@ -142,5 +115,5 @@
   modeTiles();
   window.weatherPreview = { open, close, setTab, layer: map.selectLayer,
     getState: () => ({ ...map.getState(), opened, activeTab, databaseCalls: 0, pushes: 0 }) };
-  if (new URLSearchParams(location.search).get('weather') === 'open') open();
+  if (embedded || query.get('weather') === 'open') open();
 })();

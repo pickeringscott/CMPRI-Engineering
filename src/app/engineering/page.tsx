@@ -55,6 +55,7 @@ const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
 const APPROVALS_KEY = "work-order-approvals";
+const WEATHER_PREVIEW_PATH = "/previews/cmpri-weather-preview.html";
 const WORK_ORDER_LIMIT_MESSAGE = "You can have up to five work orders open. Close a work order before opening another.";
 const DEFAULT_WINDOW_SIZE: WindowSize = { width: 1040, height: 720 };
 
@@ -105,6 +106,7 @@ function DashboardLauncherButton({
 }
 
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
+  [WEATHER_PREVIEW_PATH]: { title: "Weather", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
   "/engineering/room-ranking": { title: "Room Ranker", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
   "/profile": { title: "Manage Profile", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
@@ -683,6 +685,7 @@ export default function EngineeringDashboardPage() {
     {
       label: "Operations",
       items: [
+        process.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW === "1" && hasCapability(session, "view_dashboard") && { key: WEATHER_PREVIEW_PATH, label: "Weather", href: `${WEATHER_PREVIEW_PATH}?weather=open`, tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
         canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
         canReviewEmployment(session.user,session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
         { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
@@ -762,7 +765,7 @@ export default function EngineeringDashboardPage() {
       group.items = [...keys.flatMap(key => present.filter(item => item.key === key)), ...present.filter(item => !keys.includes(item.key))];
     };
     reorder(work, ["/work-orders", WORK_ORDER_LIST_KEY]);
-    reorder(operations, ["/engineering/preventive-maintenance", "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/staff-notes"]);
+    reorder(operations, ["/engineering/preventive-maintenance", WEATHER_PREVIEW_PATH, "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/staff-notes"]);
     reorder(assets, ["/engineering/purchasing", "/engineering/parts", "/management/equipment"]);
     const tracker = account.items.find(item => item && item.key === "/engineering/hours-tracker");
     if (tracker) {
