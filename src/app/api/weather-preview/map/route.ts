@@ -94,8 +94,7 @@ export async function GET(request: Request) {
   if (request.method !== "GET") return unavailable(405, "Only GET is supported");
   const requestUrl = new URL(request.url);
   if (request.url.length > MAX_URL_LENGTH * 2
-    || requestUrl.searchParams.getAll("url").length !== 1
-    || Array.from(requestUrl.searchParams.keys()).some((key) => key !== "url")) {
+    || requestUrl.searchParams.getAll("url").length !== 1) {
     return unavailable(400, "A single allowlisted NOAA map URL is required");
   }
   const source = validateSource(requestUrl.searchParams.get("url"));

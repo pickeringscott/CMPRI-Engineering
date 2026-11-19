@@ -276,6 +276,15 @@ async def run_viewport(browser, base, output, width, height):
         before_mutations = len(mutations)
         await launcher.click()
         frame = await weather_frame(page)
+        # Native close dispatches this event before React unmounts the iframe.
+        # Observe after the content's registered close handler; removed iframes
+        # need not deliver pagehide in every Chromium configuration.
+        await frame.evaluate("""() => document.addEventListener('cmpri-modal-cancel-request', () => {
+          const audit = parent.__weatherFrameAudits.at(-1);
+          audit.closed = true;
+          audit.map = window.cmpriWeatherMap.getState();
+          audit.nws = window.nwsLiveView.getState();
+        })""")
         native = page.locator('[data-cmpri-desktop-window="' + PREVIEW + '"]')
         require(await native.count() == 1, "Weather did not use one native DesktopWindow")
         require(parse_qs(urlparse(frame.url).query).get("embedded") == ["1"], "Weather iframe did not use embedded=1")
@@ -321,7 +330,7 @@ async def run_viewport(browser, base, output, width, height):
         if width < 640:
             box = await native.bounding_box()
             desktop = await page.locator(".cmpri-desktop").bounding_box()
-            require(abs(box["width"] - desktop["width"]) < 2, "Mobile Weather did not fill the existing desktop area")
+            require(abs(box["width"] - (desktop["width"] - 8)) < 2, "Mobile Weather did not match the native 4px desktop insets")
         await frame.locator("#tab-notifications").click()
         await frame.locator("#npScenario").select_option("tornado-warning")
         await frame.locator("#npReceive").click()

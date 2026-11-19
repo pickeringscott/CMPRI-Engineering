@@ -3,10 +3,11 @@ import test from 'node:test';
 import {loadTs} from './helpers/load-ts.mjs';
 
 const API='https://api.weather.gov', POINT='40.138080,-88.251416';
+const LOOKUP_POINT='40.1381,-88.2514';
 const now=new Date().toISOString();
 function payloads(overrides={}) {
   return {
-    ['/points/'+POINT]:{properties:{forecast:API+'/gridpoints/ILX/95,71/forecast',forecastHourly:API+'/gridpoints/ILX/95,71/forecast/hourly',forecastGridData:API+'/gridpoints/ILX/95,71',observationStations:API+'/gridpoints/ILX/95,71/stations'}},
+    ['/points/'+LOOKUP_POINT]:{properties:{forecast:API+'/gridpoints/ILX/95,71/forecast',forecastHourly:API+'/gridpoints/ILX/95,71/forecast/hourly',forecastGridData:API+'/gridpoints/ILX/95,71',observationStations:API+'/gridpoints/ILX/95,71/stations'}},
     '/gridpoints/ILX/95,71/forecast':{properties:{updateTime:now,periods:[{name:'Tonight',detailedForecast:'Official forecast text.',temperature:35}]}},
     '/gridpoints/ILX/95,71/forecast/hourly':{properties:{updateTime:now,periods:[{startTime:now,probabilityOfPrecipitation:{unitCode:'wmoUnit:percent',value:null}}]}},
     '/gridpoints/ILX/95,71':{properties:{updateTime:now,snowfallAmount:{uom:'wmoUnit:mm',values:[{validTime:now+'/PT6H',value:null}]},iceAccumulation:{uom:'wmoUnit:mm',values:[]}}},
@@ -56,6 +57,9 @@ test('live property resources preserve official text, times, null amounts and po
   const response=await get(), body=await response.json();
   assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'no-store');
   assert.equal(body.location.latitude,40.138080);assert.equal(body.location.longitude,-88.251416);
+  assert.equal(body.resources.points.source,API+'/points/'+LOOKUP_POINT);
+  assert.ok(calls.some(call=>call.url===API+'/alerts/active?point='+POINT));
+  assert.ok(!calls.some(call=>call.url===API+'/points/'+POINT),'Use the official canonical point directly rather than its301 alias');
   assert.equal(calls.length,7);assert.equal(new Set(calls.map(call=>call.url)).size,7);
   for(const resource of Object.values(body.resources)) {
     assert.equal(resource.status,'live');assert.equal(resource.error,null);assert.ok(resource.receivedAt);
@@ -75,7 +79,7 @@ test('live property resources preserve official text, times, null amounts and po
 });
 
 test('point discovery failure leaves alerts independent and never fabricates forecasts',async()=>{
-  const {get,calls}=fixture({sources:payloads({['/points/'+POINT]:new Error('NWS temporarily unavailable')})});
+  const {get,calls}=fixture({sources:payloads({['/points/'+LOOKUP_POINT]:new Error('NWS temporarily unavailable')})});
   const {resources}=await(await get()).json();
   assert.equal(calls.length,2);assert.equal(resources.points.status,'unavailable');
   assert.equal(resources.forecast.status,'unavailable');assert.equal(resources.forecast.data,null);
@@ -101,7 +105,7 @@ test('malformed alert collections remain unavailable rather than an empty all-cl
 
 test('discovered URLs cannot redirect requests to user URLs or unrelated official endpoints',async()=>{
   const points={properties:{forecast:'https://evil.example/forecast',forecastHourly:API+'/alerts',forecastGridData:API+'/gridpoints/ILX/95,71?url=https://evil.example',observationStations:'https://api.weather.gov.evil.example/stations'}};
-  const {get,calls}=fixture({sources:payloads({['/points/'+POINT]:points})});
+  const {get,calls}=fixture({sources:payloads({['/points/'+LOOKUP_POINT]:points})});
   const {resources}=await(await get()).json();
   assert.equal(calls.length,2);
   for(const key of ['forecast','hourly','grid','stations','observation'])assert.equal(resources[key].status,'unavailable');

@@ -59,6 +59,25 @@ test('JSON metadata, catalog, WSSI and exact-raster exports retain upstream JSON
   assert.equal(error.status,404);assert.equal((await error.json()).error.message,'No rasters');
 });
 
+test('outer preview-sharing metadata is ignored and never forwarded upstream',async()=>{
+  let calls=0;
+  const source=radar+'?f=json';
+  const api=fixture(async(input)=>{
+    calls++;
+    assert.equal(input,source);
+    assert.equal(new URL(input).searchParams.has('previewShareMetadata'),false);
+    return new Response('{"name":"radar"}',{headers:jsonHeaders});
+  });
+  const response=await api.GET(new Request('https://preview.cmpri.example/api/weather-preview/map?url='
+    +encodeURIComponent(source)+'&previewShareMetadata=review-fixture&unrelated=https%3A%2F%2Fexample.com'));
+  assert.equal(response.status,200);
+  assert.equal(calls,1);
+  const duplicate=await api.GET(new Request('https://preview.cmpri.example/api/weather-preview/map?url='
+    +encodeURIComponent(source)+'&url='+encodeURIComponent(source)+'&previewShareMetadata=review-fixture'));
+  assert.equal(duplicate.status,400);
+  assert.equal(calls,1);
+});
+
 test('allowlisted generated PNGs pass through while non-images and oversized responses fail closed',async()=>{
   const image='https://mapservices.weather.noaa.gov/eventdriven/rest/directories/arcgisoutput/radar/radar_base_reflectivity_time_ImageServer/_ags_123.png';
   const png=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,0]);

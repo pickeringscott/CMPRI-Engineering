@@ -8,6 +8,9 @@ const LOCATION = {
   name: 'Residence Inn Champaign', address: '502 West Marketview Drive, Champaign, IL',
   latitude: 40.138080, longitude: -88.251416, timeZone: 'America/Chicago',
 };
+// NWS canonicalizes point discovery to four decimals. The property and alert
+// query retain the verified exact coordinates; discovery avoids its 301 redirect.
+const LOOKUP_POINT = LOCATION.latitude.toFixed(4) + ',' + LOCATION.longitude.toFixed(4);
 type Json = Record<string, unknown>;
 type Station = { id: string; name: string | null; latitude: number | null; longitude: number | null; distanceMeters: number | null };
 type Resource = {
@@ -26,7 +29,7 @@ function officialUrl(value: unknown): URL | null {
       return url.searchParams.get('point') === POINT && Array.from(url.searchParams.keys()).length === 1 ? url : null;
     }
     if (url.search) return null;
-    return url.pathname === '/points/' + POINT
+    return url.pathname === '/points/' + LOOKUP_POINT
       || /^\/gridpoints\/[A-Z]{3}\/\d{1,4},\d{1,4}(?:\/forecast(?:\/hourly)?|\/stations)?$/.test(url.pathname)
       || /^\/stations\/[A-Z0-9]{3,8}\/observations\/latest$/.test(url.pathname) ? url : null;
   } catch { return null; }
@@ -98,7 +101,7 @@ function nearestStation(data: Json | null): Station | null {
   return stations[0] || null;
 }
 async function propertyResources(signal: AbortSignal) {
-  const points = await read(API + '/points/' + POINT, signal);
+  const points = await read(API + '/points/' + LOOKUP_POINT, signal);
   const properties = object(points.data?.properties);
   const missing = () => unavailable(null, 'NWS point discovery is unavailable; no forecast or station value was substituted.');
   if (!properties) return { points, forecast: missing(), hourly: missing(), grid: missing(), stations: missing(), observation: missing() };
