@@ -10,7 +10,7 @@ const DATASETS = {
 } as const;
 const REFERENCES = {
   roads: { source: "https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer", layers: "2,3,8,9,16,17,18,29,30", attribution: "USGS The National Map · National Transportation Dataset" },
-  places: { source: "https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer", layers: "1,2,3", attribution: "USGS The National Map · Geographic Names Information System" },
+  places: { source: "https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer", layers: "1,2", attribution: "USGS The National Map · Geographic Names Information System" },
 } as const;
 const MAX_BYTES = 2 * 1024 * 1024;
 const ERROR_HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
