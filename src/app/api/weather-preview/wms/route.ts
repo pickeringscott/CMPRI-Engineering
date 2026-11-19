@@ -24,7 +24,6 @@ const TIMEOUT_MS = 12000;
 const METADATA_TTL_MS = 5 * 60000;
 const HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
 const ALLOWED_PARAMETERS = new Set(["product", "op", "layer", "style", "time", "bbox", "width", "height"]);
-const SHARE_PARAMETERS = new Set(["previewShareMetadata"]);
 
 function enabled() {
   return process.env.VERCEL_ENV !== "production"
@@ -179,7 +178,9 @@ export async function GET(request: Request) {
   if (request.method !== "GET") return unavailable(405, "Only GET is supported");
   const query = new URL(request.url).searchParams;
   if (request.url.length > 8192) return unavailable(400, "WMS request is too long");
-  for (const key of query.keys()) if ((!ALLOWED_PARAMETERS.has(key) && !SHARE_PARAMETERS.has(key)) || query.getAll(key).length !== 1) return unavailable(400, "Unsupported or duplicate WMS parameter");
+  // Preview connectors may append sharing metadata. Ignore unknown outer keys;
+  // upstream URLs are constructed below from meaningful, validated values only.
+  for (const key of ALLOWED_PARAMETERS) if (query.getAll(key).length > 1) return unavailable(400, "Duplicate WMS parameter");
   const productValue = query.get("product"), op = query.get("op");
   if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose velocity or precipitation and a supported WMS operation");
   const product = productValue as Product;

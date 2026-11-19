@@ -73,11 +73,11 @@ def iso(value):
     return value.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def png_fixture(width=16, height=16):
-    """A local green raster fixture, not generated weather or a remote image."""
+def png_fixture(width=16, height=16, rgba=(30, 170, 75, 180)):
+    """A local raster fixture, not generated weather or a remote image."""
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    rows = b"".join(b"\x00" + bytes([30, 170, 75, 180]) * width for _ in range(height))
+    rows = b"".join(b"\x00" + bytes(rgba) * width for _ in range(height))
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 
 
@@ -92,6 +92,12 @@ async def wait_for(page_or_frame, expression, arg=None, timeout=15000):
         await asyncio.sleep(.05)
 
 
+async def block_websocket(socket):
+    # HTTP routes do not intercept WebSockets. Do not connect dashboard Realtime
+    # to any external service, including the synthetic Supabase hostname.
+    await socket.close(code=1000, reason="Local fixture blocks external connections")
+
+
 class OfficialFeedFixtures:
     """Deterministic official-response shapes; no service is contacted."""
     def __init__(self):
@@ -100,6 +106,15 @@ class OfficialFeedFixtures:
         self.map_urls = []
         self.exports = []
         self.image_exports = []
+        self.radar_export_delay = 0
+        self.basemap_requests = []
+        self._basemap_active = set()
+        self.basemap_inflight = 0
+        self.basemap_max_inflight = 0
+        self.basemap_fail_datasets = set()
+        self.hold_basemap = False
+        self.basemap_gate = asyncio.Event()
+        self.basemap_pending = asyncio.Event()
         self.hold_forecast = True
         self.hold_map = False
         self.forecast_gate = asyncio.Event()
@@ -174,6 +189,34 @@ class OfficialFeedFixtures:
     async def route(self, route):
         parsed = urlparse(route.request.url)
         require(route.request.method == "GET", "Weather endpoints must remain read-only")
+        if parsed.path == "/api/weather-preview/basemap":
+            params = parse_qs(parsed.query)
+            dataset = params.get("dataset", [""])[0]
+            require(dataset in ["topo", "imagery", "relief"], "Unknown ground-map source")
+            z, x, y = [int(params[name][0]) for name in ["z", "x", "y"]]
+            require(0 <= z <= 16 and 0 <= x < 2 ** z and 0 <= y < 2 ** z,
+                    "Ground map requested tiles outside the verified native zoom range")
+            self.basemap_requests.append({"dataset": dataset, "z": z, "x": x, "y": y})
+            self._basemap_active.add(route.request)
+            self.basemap_inflight = len(self._basemap_active)
+            self.basemap_max_inflight = max(self.basemap_max_inflight, self.basemap_inflight)
+            try:
+                if self.hold_basemap:
+                    self.basemap_pending.set()
+                    await self.basemap_gate.wait()
+                # A brief deterministic network delay exposes unbounded queues.
+                await asyncio.sleep(.025)
+                if dataset in self.basemap_fail_datasets:
+                    await route.fulfill(status=503, content_type="application/json",
+                                        body=json.dumps({"error": "TEST FIXTURE ground tiles unavailable"}))
+                else:
+                    color = {"topo": (52, 101, 173, 255), "imagery": (173, 80, 42, 255),
+                             "relief": (112, 140, 64, 255)}[dataset]
+                    await route.fulfill(content_type="image/png", body=png_fixture(256, 256, color))
+            finally:
+                self._basemap_active.discard(route.request)
+                self.basemap_inflight = len(self._basemap_active)
+            return
         if parsed.path == "/api/weather-preview":
             self.forecast_calls += 1
             self.forecast_pending.set()
@@ -199,7 +242,10 @@ class OfficialFeedFixtures:
             elif source.path.endswith("/exportImage"):
                 rule = json.loads(query.get("mosaicRule", ["{}"])[0])
                 self.exports.append(rule)
-                require(rule.get("lockRasterIds") in [[99001], [99002]], "Export did not lock to an exact catalog fixture raster")
+                require(rule.get("lockRasterIds") in [[99001 + n] for n in range(len(self.scan_times))],
+                        "Export did not lock to an exact catalog fixture raster")
+                if self.radar_export_delay:
+                    await asyncio.sleep(self.radar_export_delay)
                 if self.hold_map:
                     self.map_pending.set()
                     await self.map_gate.wait()
@@ -231,11 +277,19 @@ class OfficialFeedFixtures:
             if not self.map_gate.is_set():
                 raise
 
+    def request_failed(self, request):
+        # Canceled browser fetches no longer count as concurrent traffic even
+        # if their intercepted route is still unwinding a fixture delay.
+        self._basemap_active.discard(request)
+        self.basemap_inflight = len(self._basemap_active)
+
     def release(self):
         self.hold_forecast = False
         self.hold_map = False
         self.forecast_gate.set()
         self.map_gate.set()
+        self.hold_basemap = False
+        self.basemap_gate.set()
 
 
 async def weather_frame(page):
@@ -251,7 +305,9 @@ async def weather_frame(page):
 async def run_viewport(browser, base, output, width, height):
     context = await browser.new_context(viewport={"width": width, "height": height},
         has_touch=width < 640, is_mobile=width < 640, service_workers="block", reduced_motion="reduce")
+    await context.route_web_socket("**/*", block_websocket)
     feed = OfficialFeedFixtures()
+    context.on("requestfailed", feed.request_failed)
     counts, posts, external, mutations, errors = {}, [], [], [], []
     await install(context, "chief_engineer", counts=counts, posts=posts)
     await context.route("**/api/weather-preview**", feed.route)
@@ -278,7 +334,8 @@ async def run_viewport(browser, base, output, width, height):
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
         launcher = page.get_by_role("button", name="Weather", exact=True)
         await launcher.wait_for(state="visible", timeout=60000)
-        require(feed.forecast_calls == 0 and not feed.map_urls, "Weather feeds requested before opening Weather")
+        require(feed.forecast_calls == 0 and not feed.map_urls and not feed.basemap_requests,
+                "Weather or ground-map feeds requested before opening Weather")
         operations = page.locator("fieldset").filter(has=page.locator("legend", has_text="Operations"))
         require(await operations.get_by_role("button", name="Weather", exact=True).count() == 1, "Weather launcher is outside existing Operations")
         before_mutations = len(mutations)

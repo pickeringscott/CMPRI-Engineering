@@ -45,7 +45,6 @@ test('fixed products/operations and bounded map parameters reject arbitrary inpu
  let calls=0;const api=fixture(()=>{calls++;throw Error('must not fetch');});
  for(const params of [
   {product:'anything',op:'capabilities'},{product:'velocity',op:'delete'},
-  {product:'velocity',op:'capabilities',url:'https://example.com/ows'},
   {product:'velocity',op:'capabilities',layer:actualLayer},
   {...base,bbox:'-1,2,-3,4'},{...base,bbox:'-1,,2,4'},{...base,bbox:'-1,2,30000000,4'},
   {...base,width:'1501'},{...base,height:'0'},{...base,width:'1.5'},
@@ -187,9 +186,23 @@ test('network failure and cancellation remain unavailable and do not retry',asyn
  assert.equal(canceled.status,504);assert.equal(calls,1);
 });
 
-test('preview sharing metadata is accepted but never forwarded to official WMS',async()=>{
+test('unknown outer sharing parameters are ignored and never forwarded to official WMS',async()=>{
+ let calls=0;
  const response=await fixture(async(url)=>{
-  assert.equal(new URL(url).searchParams.has('previewShareMetadata'),false);return xmlResponse();
- }).GET(request({product:'velocity',op:'capabilities',previewShareMetadata:'review-context'}));
- assert.equal(response.status,200);
+  calls++;const query=new URL(url).searchParams;
+  assert.deepEqual([...query.keys()].sort(),['request','service','version']);
+  assert.equal(query.get('request'),'GetCapabilities');
+  assert.equal(new URL(url).origin+new URL(url).pathname,velocity);
+  return xmlResponse();
+ }).GET(new Request('https://preview.cmpri.example/api/weather-preview/wms?product=velocity&op=capabilities'
+  +'&previewShareMetadata=review-context&connectorSharingToken=outer-only&url=https%3A%2F%2Fexample.com%2Fprivate'
+  +'&REQUEST=delete&FORMAT=text%2Fhtml&unknown=first&unknown=second'));
+ assert.equal(response.status,200);assert.equal(calls,1);
+ const api=fixture(()=>{throw Error('duplicate meaningful parameter must not fetch');});
+ for(const key of ['product','op','layer','style','time','bbox','width','height']) {
+  const query=new URLSearchParams({...base});query.append(key,'duplicate');
+  if(!new URLSearchParams(base).has(key))query.append(key,'another');
+  const duplicate=await api.GET(new Request('https://preview.cmpri.example/api/weather-preview/wms?'+query));
+  assert.equal(duplicate.status,400,key);
+ }
 });

@@ -289,6 +289,7 @@
     renderObservation(); renderForecast('hourly', 'hourlyForecast', 'nwsHourlySource', true);
     renderForecast('forecast', 'extendedForecast', 'nwsExtendedSource', false);
     renderAccumulations(); renderAlerts(); renderDiagnostics();
+    window.cmpriWeatherMap?.setAlerts?.(resource('alerts'));
     const button = byId('refreshNws'); if (button) button.disabled = loading || !opened;
   }
   function getState() {

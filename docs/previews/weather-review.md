@@ -12,9 +12,13 @@ The property is fixed at 40.138080, -88.251416, from the [Residence Inn Champaig
 
 `GET /api/weather-preview/map?url=...` transports only allowlisted read resources on `mapservices.weather.noaa.gov`: the time-enabled MRMS radar catalog / exact raster exports and WSSI overall Days 1–3 layer 4. Radar reads the authoritative extent/dimensions as JSON, then requests the same LockRaster IDs directly as PNG, avoiding NOAA temporary-file URLs. It rejects arbitrary hosts, credentials, redirects, unsupported operations and oversized responses. Observed scan labels come from actual catalog times and LockRaster IDs. WSSI guidance is separate from reported road surfaces, with issue / valid times, incomplete coverage and stale guidance labeled.
 
-Both endpoints omit upstream credentials and have bounded requests. Neither imports CMPRI authentication, Supabase, notification dispatch, storage or scheduling code. Weather loads once on open or an explicit refresh, aborts pending requests on close, and stops map playback on close, hiding, or leaving the map tab. There is no real adaptive scheduler.
+`GET /api/weather-preview/basemap` reads only fixed USGS Topo, ImageryOnly and ShadedReliefOnly tile services. The Map menu provides Gray, Roads, Aerial and Terrain backgrounds beneath the same NOAA weather and fixed property pin. Gray is a local presentation of Topo; Roads retains the original Topo colors and labels. Aerial is historical USGS/USDA ground imagery, not a live cloud image. Tile levels are bounded to 0–16; closer zoom enlarges existing pixels. The engine limits concurrent tile requests to four, retains at most 150 decoded tiles, and keeps USGS request counts separate from NOAA requests.
+
+The preview-only endpoints omit upstream credentials and have bounded requests. They do not import CMPRI authentication, Supabase, notification dispatch, storage or scheduling code. Weather loads on open or an explicit refresh, aborts pending requests on close, and stops map playback on close, hiding, or leaving the map tab. Panning and changing backgrounds request only the necessary geographic tiles; observed playback requests actual selected radar scans. There is no real adaptive scheduler.
 
 IDOT's official reported winter-road map is linked but its concrete feed and report timestamps remain unverified. The map therefore labels current road reports unavailable and draws no substitute road network or conditions. Local velocity, precipitation type, satellite and lightning retain official source links with their actual availability limitations.
+
+Map and Layers menus are separate. Layers independently select observed radar, reported-road availability, WSSI forecast impacts and actual property-applicable alert polygons. Alerts without polygons remain in the alert list and are counted in the map explanation. Wheel, double click and two-finger pinch zoom around the interaction point; dragging pans; recenter returns to the fixed hotel. Observed playback has speed and 60/90/120-minute window choices limited to actual available scans. Each control records its CMPRI component owner, official feed, effect and browser exercise in the Sources tab.
 
 ## Review behavior retained
 
@@ -31,10 +35,11 @@ Unit tests validate fixed-source routing, independent failed-resource handling, 
 The draft PR records the separate published endpoint verification results. Successful endpoint envelopes and actual NOAA catalog/export responses are required before describing a feed as verified live. No production deployment or main branch is changed.
 
 ```sh
-node --experimental-strip-types --test tests/weather-dashboard-launcher.test.mjs tests/weather-preview-api.test.mjs tests/weather-preview-map-api.test.mjs tests/weather-preview-routing.test.mjs tests/manual-preview.test.mjs
+node --experimental-strip-types --test tests/weather-dashboard-launcher.test.mjs tests/weather-preview-api.test.mjs tests/weather-preview-map-api.test.mjs tests/weather-preview-basemap-api.test.mjs tests/weather-preview-wms-api.test.mjs tests/weather-preview-routing.test.mjs tests/manual-preview.test.mjs
 VERCEL_ENV=preview NEXT_PUBLIC_SUPABASE_URL=https://ci-placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=ci-build-placeholder npm run build
-VERCEL_ENV=preview npm run start -- --port 3018
-python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3018 --output /tmp/cmpri-weather-dashboard-review
+VERCEL_ENV=preview npm run start -- --port 3019
+python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3019 --output /tmp/cmpri-weather-dashboard-review
+python tests/browser/weather_map_basemaps.py --base http://127.0.0.1:3019 --output /tmp/cmpri-weather-ground-review
 ```
 
 Reviewed guidelines remain the current Illinois / Iowa palette and native dashboard / DesktopWindow / profile notification patterns. No applicable root/source `AGENTS.md` is present; the only discovered AGENTS file is in an archived `.bridge` subdirectory.
@@ -44,3 +49,5 @@ Reviewed guidelines remain the current Illinois / Iowa palette and native dashbo
 On November 19, 2026 at 2:14 AM Central, the published preview returned HTTP 200 with live responses for all seven NWS resources. Point discovery selected ILX grid 95,74; the reported station was KCMI (Willard), observed at 1:15 AM Central. The response contained 14 extended periods, 156 hourly periods, and zero active alerts returned at that check time. The interface displays those actual source times and does not treat an earlier empty result as a continuing all-clear.
 
 The NOAA radar catalog also returned HTTP 200 with 18 actual catalog records, and an exact raster export returned its real extent and dimensions. The WSSI property-point query returned HTTP 200 with no mapped impact polygon at that point; this does not guarantee clear travel conditions. At 2:25 AM Central, the published direct export returned HTTP 200, image/png, 1,661 bytes for the exact NOAA raster ID and the 1200×340 extent. The proxy verifies the PNG signature before returning bytes. A separate NWS recheck at 2:25 AM Central again returned all seven resources live, with a KCMI observation time of 2:00 AM Central.
+
+The subsequent ground-map revision returned HTTP 200 JPEG tiles for all three official USGS datasets at the hotel tile (`12/1548/1043`): Topo 24,972 bytes, ImageryOnly 24,890 bytes and ShadedReliefOnly 5,556 bytes. The decoded published responses were visually inspected: Champaign roads and labels, historical ground imagery and elevation relief respectively. These are actual source tiles, not browser test fixtures. [myradar-reference.md](myradar-reference.md) distinguishes the documented MyRadar behavior from the unviewed recording and records each source's limits.
