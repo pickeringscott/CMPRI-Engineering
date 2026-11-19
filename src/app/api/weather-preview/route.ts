@@ -4,6 +4,8 @@ export const maxDuration = 60;
 
 const API = 'https://api.weather.gov';
 const POINT = '40.138080,-88.251416';
+const OBSERVATION_STATION_ID = 'KCMI';
+const OBSERVATION_SOURCE = API + '/stations/' + OBSERVATION_STATION_ID + '/observations/latest';
 const LOCATION = {
   name: 'Residence Inn Champaign', address: '502 West Marketview Drive, Champaign, IL',
   latitude: 40.138080, longitude: -88.251416, timeZone: 'America/Chicago',
@@ -80,12 +82,12 @@ async function read(source: unknown, signal: AbortSignal): Promise<Resource> {
     return unavailable(url.href, error instanceof Error ? error.message : 'The official NWS request was unavailable.');
   }
 }
-function nearestStation(data: Json | null): Station | null {
+function fixedStationMetadata(data: Json | null): Station | null {
   const features = data && Array.isArray(data.features) ? data.features : [];
   const stations = features.flatMap((value): Station[] => {
     const feature = object(value), properties = object(feature?.properties), geometry = object(feature?.geometry);
     const id = properties?.stationIdentifier;
-    if (typeof id !== 'string' || !/^[A-Z0-9]{3,8}$/.test(id)) return [];
+    if (id !== OBSERVATION_STATION_ID) return [];
     const coordinates = geometry?.type === 'Point' && Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
     const longitude = typeof coordinates[0] === 'number' && Math.abs(coordinates[0]) <= 180 ? coordinates[0] : null;
     const latitude = typeof coordinates[1] === 'number' && Math.abs(coordinates[1]) <= 90 ? coordinates[1] : null;
@@ -97,36 +99,66 @@ function nearestStation(data: Json | null): Station | null {
     }
     return [{ id, name: typeof properties?.name === 'string' ? properties.name : null, latitude, longitude, distanceMeters }];
   });
-  stations.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
   return stations[0] || null;
 }
-async function propertyResources(signal: AbortSignal) {
+async function observationResource(signal: AbortSignal): Promise<Resource> {
+  // KCMI is the verified property observation station. Reading it directly
+  // avoids waiting for point discovery, forecasts, or a station-list request.
+  const observation = dated(await read(OBSERVATION_SOURCE, signal), 'observation');
+  observation.station = fixedStationMetadata({ features: [{
+    properties: { stationIdentifier: OBSERVATION_STATION_ID, name: 'University of Illinois - Willard' },
+    geometry: observation.data?.geometry,
+  }] }) || { id: OBSERVATION_STATION_ID, name: 'University of Illinois - Willard',
+    latitude: null, longitude: null, distanceMeters: null };
+  return observation;
+}
+async function propertyResources(signal: AbortSignal, includeStations: boolean) {
   const points = await read(API + '/points/' + LOOKUP_POINT, signal);
   const properties = object(points.data?.properties);
-  const missing = () => unavailable(null, 'NWS point discovery is unavailable; no forecast or station value was substituted.');
-  if (!properties) return { points, forecast: missing(), hourly: missing(), grid: missing(), stations: missing(), observation: missing() };
+  const missing = () => unavailable(null, 'NWS point discovery is unavailable; no forecast or station-list value was substituted.');
+  if (!properties) return { points, forecast: missing(), hourly: missing(), grid: missing(), ...(includeStations ? { stations: missing() } : {}) };
   const [forecast, hourly, grid, stations] = await Promise.all([
     read(properties.forecast, signal).then(value => dated(value, 'forecast')),
     read(properties.forecastHourly, signal).then(value => dated(value, 'forecast')),
     read(properties.forecastGridData, signal).then(value => dated(value, 'forecast')),
-    read(properties.observationStations, signal),
+    includeStations ? read(properties.observationStations, signal) : Promise.resolve(null),
   ]);
-  const station = nearestStation(stations.data);
-  const observation = station
-    ? dated(await read(API + '/stations/' + station.id + '/observations/latest', signal), 'observation')
-    : unavailable(null, 'No official observation station could be verified from the NWS station list.');
-  if (station) observation.station = station;
-  return { points, forecast, hourly, grid, stations, observation };
+  return { points, forecast, hourly, grid, ...(includeStations ? { stations: stations || missing() } : {}) };
 }
 export async function GET(request: Request) {
   const headers = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' };
   // This check precedes all discovery, network requests and application imports.
   const previewEnabled = process.env.VERCEL_ENV === 'preview' || process.env.NODE_ENV === 'development';
   if (process.env.VERCEL_ENV === 'production' || !previewEnabled) return Response.json({ error: 'Not found.' }, { status: 404, headers });
-  const [property, alerts] = await Promise.all([
-    propertyResources(request.signal),
+  if (request.method !== 'GET') return Response.json({ error: 'Only GET is supported.' }, { status: 405, headers });
+  const query = new URL(request.url).searchParams;
+  const part = query.get('part');
+  // Sharing/connector query metadata is ignored and never forwarded. Only the
+  // recognized partial-response selector affects these fixed official reads.
+  if (query.getAll('part').length > 1 || (part !== null && !['observation', 'alerts', 'forecast'].includes(part))) {
+    return Response.json({ error: 'Choose one supported weather response part.' }, { status: 400, headers });
+  }
+  if (part === 'observation') {
+    const observation = await observationResource(request.signal);
+    return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: { observation } }, { headers });
+  }
+  if (part === 'alerts') {
+    const alerts = await read(API + '/alerts/active?point=' + POINT, request.signal);
+    return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: { alerts } }, { headers });
+  }
+  if (part === 'forecast') {
+    const forecast = await propertyResources(request.signal, false);
+    return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: forecast }, { headers });
+  }
+  const [property, observation, alerts] = await Promise.all([
+    propertyResources(request.signal, true),
+    observationResource(request.signal),
     read(API + '/alerts/active?point=' + POINT, request.signal),
   ]);
+  // Preserve the legacy complete envelope and its more precise station-list
+  // metadata, while fetching the observation exactly once and independently.
+  const station = fixedStationMetadata(property.stations?.data || null);
+  if (station) observation.station = station;
   // Keep the complete point-query collection, including applicable polygonless alerts.
-  return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: { ...property, alerts } }, { headers });
+  return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: { ...property, observation, alerts } }, { headers });
 }

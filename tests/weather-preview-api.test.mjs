@@ -12,7 +12,7 @@ function payloads(overrides={}) {
     '/gridpoints/ILX/95,71/forecast/hourly':{properties:{updateTime:now,periods:[{startTime:now,probabilityOfPrecipitation:{unitCode:'wmoUnit:percent',value:null}}]}},
     '/gridpoints/ILX/95,71':{properties:{updateTime:now,snowfallAmount:{uom:'wmoUnit:mm',values:[{validTime:now+'/PT6H',value:null}]},iceAccumulation:{uom:'wmoUnit:mm',values:[]}}},
     '/gridpoints/ILX/95,71/stations':{features:[{properties:{stationIdentifier:'KFAR',name:'Farther report'},geometry:{type:'Point',coordinates:[-90,41]}},{properties:{stationIdentifier:'KCMI',name:'University of Illinois Willard Airport'},geometry:{type:'Point',coordinates:[-88.278,40.034]}}]},
-    '/stations/KCMI/observations/latest':{properties:{timestamp:now,textDescription:'Cloudy',temperature:{unitCode:'wmoUnit:degC',value:4},windGust:{value:null}}},
+    '/stations/KCMI/observations/latest':{geometry:{type:'Point',coordinates:[-88.28,40.03]},properties:{timestamp:now,textDescription:'Cloudy',temperature:{unitCode:'wmoUnit:degC',value:4},windChill:{unitCode:'wmoUnit:degC',value:0},windGust:{unitCode:'wmoUnit:km_h-1',value:null}}},
     ['/alerts/active?point='+POINT]:{type:'FeatureCollection',features:[{id:'urn:oid:official-alert',geometry:null,properties:{event:'Winter Weather Advisory',effective:now,expires:'2099-01-01T00:00:00Z',description:'Official bulletin text.',areaDesc:'Champaign'}}]},
     ...overrides,
   };
@@ -30,7 +30,8 @@ function fixture(options={}) {
     process:{env:{VERCEL_ENV:options.environment===null?undefined:options.environment||'preview',NODE_ENV:options.nodeEnv||'production'}},
     Request,Response,URL,Error,AbortSignal:options.AbortSignal||AbortSignal,fetch:read,
   });
-  return {route,calls,get:()=>route.GET(new Request('https://branch.example/api/weather-preview?url=https://evil.example&point=0,0'))};
+  return {route,calls,get:(part,init={})=>route.GET(new Request('https://branch.example/api/weather-preview?url=https://evil.example&point=0,0'
+    +(part===undefined?'':'&part='+encodeURIComponent(part)),init))};
 }
 
 test('production returns404 before any NWS request',async()=>{
@@ -69,6 +70,8 @@ test('live property resources preserve official text, times, null amounts and po
   assert.equal(body.resources.grid.data.properties.snowfallAmount.values[0].value,null);
   assert.deepEqual(body.resources.grid.data.properties.iceAccumulation.values,[]);
   assert.equal(body.resources.observation.station.id,'KCMI');
+  assert.equal(body.resources.observation.data.properties.windChill.value,0);
+  assert.equal(body.resources.observation.data.properties.windChill.unitCode,'wmoUnit:degC');
   assert.equal(body.resources.observation.data.properties.windGust.value,null);
   assert.equal(body.resources.alerts.data.features[0].geometry,null);
   assert.equal(body.resources.alerts.data.features[0].properties.description,'Official bulletin text.');
@@ -81,9 +84,9 @@ test('live property resources preserve official text, times, null amounts and po
 test('point discovery failure leaves alerts independent and never fabricates forecasts',async()=>{
   const {get,calls}=fixture({sources:payloads({['/points/'+LOOKUP_POINT]:new Error('NWS temporarily unavailable')})});
   const {resources}=await(await get()).json();
-  assert.equal(calls.length,2);assert.equal(resources.points.status,'unavailable');
+  assert.equal(calls.length,3);assert.equal(resources.points.status,'unavailable');
   assert.equal(resources.forecast.status,'unavailable');assert.equal(resources.forecast.data,null);
-  assert.equal(resources.observation.status,'unavailable');assert.equal(resources.alerts.status,'live');
+  assert.equal(resources.observation.status,'live');assert.equal(resources.observation.station.id,'KCMI');assert.equal(resources.alerts.status,'live');
   assert.equal(resources.alerts.data.features[0].geometry,null);
 });
 
@@ -107,8 +110,9 @@ test('discovered URLs cannot redirect requests to user URLs or unrelated officia
   const points={properties:{forecast:'https://evil.example/forecast',forecastHourly:API+'/alerts',forecastGridData:API+'/gridpoints/ILX/95,71?url=https://evil.example',observationStations:'https://api.weather.gov.evil.example/stations'}};
   const {get,calls}=fixture({sources:payloads({['/points/'+LOOKUP_POINT]:points})});
   const {resources}=await(await get()).json();
-  assert.equal(calls.length,2);
-  for(const key of ['forecast','hourly','grid','stations','observation'])assert.equal(resources[key].status,'unavailable');
+  assert.equal(calls.length,3);
+  for(const key of ['forecast','hourly','grid','stations'])assert.equal(resources[key].status,'unavailable');
+  assert.equal(resources.observation.status,'live');
 });
 
 test('NWS redirects are refused rather than followed',async()=>{
@@ -117,7 +121,7 @@ test('NWS redirects are refused rather than followed',async()=>{
     calls.push({url,init});return new Response(null,{status:302,headers:{Location:'https://evil.example'}});
   }});
   const {resources}=await(await get()).json();
-  assert.equal(calls.length,2);assert.equal(resources.points.status,'unavailable');
+  assert.equal(calls.length,3);assert.equal(resources.points.status,'unavailable');
   assert.match(resources.points.error,/redirects are not followed/);
   assert.equal(resources.alerts.status,'unavailable');
 });
@@ -147,7 +151,101 @@ test('every official read has a12-second deadline and timeout remains unavailabl
   const {get}=fixture({AbortSignal:{any:AbortSignal.any,timeout:(milliseconds)=>{deadlines.push(milliseconds);return AbortSignal.abort(new DOMException('Request timed out','TimeoutError'));}},
     fetch:async(_url,init)=>{init.signal.throwIfAborted();throw new Error('Expected abort');}});
   const {resources}=await(await get()).json();
-  assert.deepEqual(deadlines,[12000,12000]);
+  assert.deepEqual(deadlines,[12000,12000,12000]);
   assert.equal(resources.points.status,'unavailable');assert.equal(resources.alerts.status,'unavailable');
   assert.match(resources.alerts.error,/timed out/);
+});
+
+test('observation part reads fixed KCMI immediately without discovery or any forecast dependency',async()=>{
+  const {get,calls}=fixture({sources:payloads({['/points/'+LOOKUP_POINT]:new Error('Points unavailable'),
+    '/gridpoints/ILX/95,71/forecast':new Error('Slow or failed forecast')})});
+  const response=await get('observation'),body=await response.json();
+  assert.equal(response.status,200);assert.deepEqual(Object.keys(body.resources),['observation']);
+  assert.equal(calls.length,1);assert.equal(calls[0].url,API+'/stations/KCMI/observations/latest');
+  const observation=body.resources.observation;
+  assert.equal(observation.status,'live');assert.equal(observation.station.id,'KCMI');
+  assert.equal(observation.station.name,'University of Illinois - Willard');
+  assert.equal(observation.station.latitude,40.03);assert.equal(observation.station.longitude,-88.28);
+  assert.ok(observation.station.distanceMeters>0);assert.equal(observation.sourceTimestamp,new Date(now).toISOString());
+  assert.equal(observation.data.properties.windChill.value,0,'A reported zero Celsius wind chill is a valid raw value');
+  assert.equal(observation.data.properties.windGust.value,null,'Missing observed gusts must remain null');
+});
+
+test('independent observation response completes while the forecast part is still pending',async()=>{
+  const sources=payloads(),seen=[];
+  let releaseForecast,forecastStarted;
+  const forecastGate=new Promise(resolve=>{releaseForecast=resolve;});
+  const started=new Promise(resolve=>{forecastStarted=resolve;});
+  const {get}=fixture({fetch:async(url)=>{
+    const parsed=new URL(url),key=parsed.pathname+parsed.search;seen.push(key);
+    if(key==='/gridpoints/ILX/95,71/forecast') {forecastStarted();await forecastGate;}
+    if(!(key in sources))throw Error('Unexpected '+key);
+    return Response.json(sources[key]);
+  }});
+  let forecastDone=false;
+  const forecast=get('forecast').then(response=>{forecastDone=true;return response;});
+  await started;
+  try {
+    const observation=await(await get('observation')).json();
+    assert.equal(observation.resources.observation.status,'live');assert.equal(forecastDone,false);
+    assert.equal(seen.filter(key=>key==='/stations/KCMI/observations/latest').length,1);
+    assert.ok(!seen.some(key=>key.endsWith('/stations')),'Forecast part does not discover observation stations');
+    assert.ok(!seen.some(key=>key.startsWith('/alerts')),'Forecast/observation parts do not request alerts');
+  } finally {releaseForecast();}
+  const body=await(await forecast).json();
+  assert.deepEqual(Object.keys(body.resources).sort(),['forecast','grid','hourly','points']);
+  assert.equal(seen.length,5,'Four forecast reads plus exactly one independent KCMI observation');
+});
+
+test('full compatibility endpoint starts KCMI before pending discovery and fetches its observation only once',async()=>{
+  const sources=payloads(),seen=[];
+  let releasePoints,pointsStarted;
+  const pointsGate=new Promise(resolve=>{releasePoints=resolve;});
+  const started=new Promise(resolve=>{pointsStarted=resolve;});
+  const {get}=fixture({fetch:async(url)=>{
+    const parsed=new URL(url),key=parsed.pathname+parsed.search;seen.push(key);
+    if(key==='/points/'+LOOKUP_POINT) {pointsStarted();await pointsGate;}
+    return Response.json(sources[key]);
+  }});
+  const response=get();await started;
+  try {
+    assert.ok(seen.includes('/stations/KCMI/observations/latest'),'KCMI starts before point discovery finishes');
+    assert.ok(seen.includes('/alerts/active?point='+POINT),'Property alerts start before point discovery finishes');
+  } finally {releasePoints();}
+  const body=await(await response).json();
+  assert.deepEqual(Object.keys(body.resources).sort(),['alerts','forecast','grid','hourly','observation','points','stations']);
+  assert.equal(seen.length,7);assert.equal(seen.filter(key=>key==='/stations/KCMI/observations/latest').length,1);
+});
+
+test('alerts part remains an independent point query and retains polygonless alerts',async()=>{
+  const {get,calls}=fixture({sources:payloads({['/points/'+LOOKUP_POINT]:new Error('Points failed')})});
+  const response=await get('alerts'),body=await response.json();
+  assert.equal(response.status,200);assert.deepEqual(Object.keys(body.resources),['alerts']);
+  assert.equal(calls.length,1);assert.equal(calls[0].url,API+'/alerts/active?point='+POINT);
+  assert.equal(body.resources.alerts.status,'live');assert.equal(body.resources.alerts.data.features[0].geometry,null);
+});
+
+test('raw available wind chill, observed gust units, and missing values are preserved in observation part',async()=>{
+  for(const [windChill,windGust] of [
+    [{unitCode:'wmoUnit:degF',value:28.5,qualityControl:'V'},{unitCode:'wmoUnit:m_s-1',value:12.3}],
+    [{unitCode:'wmoUnit:degC',value:null,qualityControl:'V'},{unitCode:'wmoUnit:km_h-1',value:null,qualityControl:'Z'}],
+  ]) {
+    const source={properties:{timestamp:now,temperature:{unitCode:'wmoUnit:degC',value:19},windChill,windGust}};
+    const {get,calls}=fixture({sources:payloads({'/stations/KCMI/observations/latest':source})});
+    const {resources}=await(await get('observation')).json();
+    assert.deepEqual(resources.observation.data,source);assert.deepEqual(resources.observation.data.properties.windChill,windChill);
+    assert.deepEqual(resources.observation.data.properties.windGust,windGust);assert.equal(calls.length,1);
+    assert.equal(resources.observation.station.latitude,null,'Do not invent station coordinates when geometry is missing');
+  }
+});
+
+test('unsupported or duplicate part selectors reject before reads; outer connector metadata is never forwarded',async()=>{
+  const {route,get,calls}=fixture();
+  for(const part of ['', 'anything', '__proto__'])assert.equal((await get(part)).status,400);
+  const duplicate=new Request('https://branch.example/api/weather-preview?part=observation&part=forecast');
+  assert.equal((await route.GET(duplicate)).status,400);
+  assert.equal((await get('observation',{method:'POST'})).status,405);assert.equal(calls.length,0);
+  const shared=new Request('https://branch.example/api/weather-preview?part=observation&previewShareMetadata=review&unknown=a&unknown=b&url=https%3A%2F%2Fevil.example&point=0,0');
+  assert.equal((await route.GET(shared)).status,200);assert.equal(calls.length,1);
+  assert.equal(calls[0].url,API+'/stations/KCMI/observations/latest');
 });

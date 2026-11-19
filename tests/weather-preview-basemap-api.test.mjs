@@ -7,8 +7,64 @@ const jpeg=new Uint8Array([255,216,255,224,0,0,0,0]);
 const request=(query='dataset=topo&z=12&x=1043&y=1548',options={})=>new Request('https://review.example/api/weather-preview/basemap?'+query,options);
 function fixture(fetch,env={VERCEL_ENV:'preview'}) {
   return loadTs('src/app/api/weather-preview/basemap/route.ts',{},
-    {fetch,process:{env},Request,Response,URL,Uint8Array,AbortController,setTimeout,clearTimeout,Buffer});
+    {fetch,process:{env},Request,Response,URL,URLSearchParams,Uint8Array,AbortController,setTimeout,clearTimeout,Buffer,TextDecoder});
 }
+
+test('fixed metadata probes preserve official layer records without forwarding outer URLs',async()=>{
+  for(const [dataset,source] of [
+    ['roads','https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer?f=json'],
+    ['places','https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer?f=json'],
+    ['imagery','https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer?f=json'],
+  ]) {
+    const metadata={layers:[{id:1,name:'Actual official layer'}],copyrightText:'Metadata refresh is not imagery acquisition'};
+    const api=fixture(async(url,options)=>{assert.equal(url,source);assert.equal(options.redirect,'error');return Response.json(metadata);});
+    const response=await api.GET(request(`op=metadata&dataset=${dataset}&url=https://evil.example&previewShare=review`));
+    const body=await response.json();
+    assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'no-store');
+    assert.equal(body.source,source);assert.deepEqual(body.data,metadata);assert.equal(body.error,null);assert.ok(body.receivedAt);
+  }
+});
+
+test('transparent reference exports use only fixed layer selections and exact bounded EPSG3857 extents',async()=>{
+  for(const [dataset,service,layers] of [
+    ['roads','transportation','show:2,3,8,9,16,17,18,29,30'],['places','geonames','show:1,2,3'],
+  ]) {
+    const api=fixture(async(source,options)=>{
+      const url=new URL(source);
+      assert.equal(url.origin,'https://carto.nationalmap.gov');assert.equal(url.pathname,`/arcgis/rest/services/${service}/MapServer/export`);
+      assert.equal(url.searchParams.get('layers'),layers);assert.equal(url.searchParams.get('bbox'),'-10025000,4735000,-9625000,5035000');
+      assert.equal(url.searchParams.get('bboxSR'),'3857');assert.equal(url.searchParams.get('imageSR'),'3857');
+      assert.equal(url.searchParams.get('size'),'800,600');assert.equal(url.searchParams.get('format'),'png32');
+      assert.equal(url.searchParams.get('transparent'),'true');assert.equal(url.searchParams.get('f'),'image');
+      assert.equal(url.searchParams.get('url'),null);assert.equal(options.redirect,'error');
+      return new Response(png,{headers:{'Content-Type':'image/png'}});
+    });
+    const response=await api.GET(request(`op=reference&dataset=${dataset}&bbox=-10025000,4735000,-9625000,5035000&width=800&height=600&format=json&url=https://evil.example`));
+    const body=await response.json();assert.equal(response.status,200);assert.equal(body.contentType,'image/png');
+    assert.deepEqual(new Uint8Array(Buffer.from(body.base64,'base64')),png);assert.match(body.attribution,/USGS/);
+  }
+});
+
+test('metadata and reference probes reject arbitrary or oversized geometry before fetching',async()=>{
+  let calls=0;const api=fixture(async()=>{calls++;throw Error('unexpected fetch');});
+  for(const query of [
+    'op=metadata&dataset=topo','op=metadata&dataset=roads&z=1','op=metadata&dataset=roads&format=image',
+    'op=reference&dataset=imagery&bbox=0,0,1,1&width=100&height=100',
+    'op=reference&dataset=roads&bbox=0,0,1,1&width=1501&height=100',
+    'op=reference&dataset=roads&bbox=0,0,Infinity,1&width=100&height=100',
+    'op=reference&dataset=roads&bbox=0,0,1,1&width=100&height=100&bbox=0,0,1,1',
+    'op=reference&dataset=roads&bbox=0,0,20037510,1&width=100&height=100',
+    'op=reference&dataset=roads&bbox=1,0,0,1&width=100&height=100','op=unknown&dataset=roads',
+  ])assert.equal((await api.GET(request(query))).status,400,query);
+  assert.equal(calls,0);
+});
+
+test('reference exports require PNG and metadata error objects remain unavailable',async()=>{
+  const ref=await fixture(async()=>new Response(jpeg,{headers:{'Content-Type':'image/jpeg'}})).GET(request('op=reference&dataset=roads&bbox=0,0,1,1&width=100&height=100'));
+  assert.equal(ref.status,502);
+  const meta=await fixture(async()=>Response.json({error:{message:'Service unavailable'}})).GET(request('op=metadata&dataset=roads'));
+  assert.equal(meta.status,502);
+});
 
 test('production is404 before any upstream access',async()=>{
   let calls=0;
