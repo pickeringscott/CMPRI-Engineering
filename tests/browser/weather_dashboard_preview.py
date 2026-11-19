@@ -287,12 +287,18 @@ async def run_viewport(browser, base, output, width, height):
         # Native close dispatches this event before React unmounts the iframe.
         # Observe after the content's registered close handler; removed iframes
         # need not deliver pagehide in every Chromium configuration.
-        await frame.evaluate("""() => document.addEventListener('cmpri-modal-cancel-request', () => {
+        await frame.evaluate("""() => {
           const audit = parent.__weatherFrameAudits.at(-1);
-          audit.closed = true;
-          audit.map = window.cmpriWeatherMap.getState();
-          audit.nws = window.nwsLiveView.getState();
-        })""")
+          parent.__weatherDashboardClosingAudit = audit;
+          const capture = () => {
+            audit.closed = true;
+            audit.map = window.cmpriWeatherMap.getState();
+            audit.nws = window.nwsLiveView.getState();
+          };
+          document.addEventListener('cmpri-modal-cancel-request', capture);
+          const original = window.nwsLiveView.close;
+          window.nwsLiveView.close = (...args) => { const result = original(...args); capture(); return result; };
+        }""")
         native = page.locator('[data-cmpri-desktop-window="' + PREVIEW + '"]')
         require(await native.count() == 1, "Weather did not use one native DesktopWindow")
         require(parse_qs(urlparse(frame.url).query).get("embedded") == ["1"], "Weather iframe did not use embedded=1")
@@ -369,8 +375,8 @@ async def run_viewport(browser, base, output, width, height):
         await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="detached")
         require(await native.count() == 0, "Native Weather window remained mounted after its X")
         feed.release()
-        await wait_for(page, "window.__weatherFrameAudits?.at(-1)?.closed === true")
-        closed = await page.evaluate("window.__weatherFrameAudits.at(-1)")
+        await wait_for(page, "window.__weatherDashboardClosingAudit?.closed === true")
+        closed = await page.evaluate("window.__weatherDashboardClosingAudit")
         require(closed["intervalIds"] == [] and not closed["map"]["playing"], "Playback survived native window close")
         require(closed["map"]["pendingRequests"] == 0 and closed["nws"]["pendingRequests"] == 0, "Requests survived native window close")
         require(closed["aborts"] >= 2, "Pending map and NWS fetches were not aborted")
