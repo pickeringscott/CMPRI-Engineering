@@ -46,4 +46,7 @@
 .cmpri-map-alert-details{position:absolute;left:12px;top:45px;z-index:5;box-sizing:border-box;width:310px;max-width:calc(100% - 24px);max-height:calc(100% - 85px);overflow:auto;border:1px solid var(--gold,#ffcd00);border-radius:8px;padding:12px;background:rgb(15 15 15 / .96);color:var(--text,#fff8e6);box-shadow:0 6px 25px #0009;font-size:12px;line-height:1.45}
 .cmpri-map-alert-details h3{font-size:14px;padding-right:22px;margin:0 0 8px}.cmpri-map-alert-details p{margin:6px 0}.cmpri-map-alert-details>a{display:block;margin-top:8px}
 .cmpri-map-alert-details>button{float:right;min-height:28px;min-width:28px;padding:0;font-size:20px;line-height:1;cursor:pointer;border-radius:4px}
+.cmpri-wms-legend{min-width:0;max-width:100%;align-items:flex-start}
+.cmpri-wms-legend img{display:block;max-width:100%;max-height:300px;width:auto;height:auto;object-fit:contain;box-sizing:border-box;background:#fff;border:1px solid #c6c6c6;border-radius:4px;padding:5px}
+.cmpri-wms-legend>span{overflow-wrap:anywhere;max-width:100%}
 @media(max-width:640px){.cmpri-map-menu>summary{min-height:40px;padding:9px 12px}.cmpri-map-menu-panel select,.cmpri-map-playback-options select{min-height:38px}.cmpri-map-playback-options{gap:7px 12px}.cmpri-map-playback-options label{font-size:11px}.cmpri-map-attribution{font-size:9px}.cmpri-map-alert-details{left:8px;max-width:calc(100% - 16px);padding:10px;font-size:11px}.cmpri-map-menu .cmpri-map-layer-controls label{min-height:36px}}

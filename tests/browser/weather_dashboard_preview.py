@@ -19,7 +19,7 @@ import time
 import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 sys.dont_write_bytecode = True
 os.environ.setdefault("CMPRI_UI_OUTPUT", "/tmp/cmpri-weather-dashboard-review")
@@ -48,6 +48,8 @@ PROBE = r"""(() => {
   if (window === window.top || !location.pathname.includes('/previews/cmpri-weather-preview.html')) return;
   const audit = {closed: false, intervalIds: [], aborts: 0, map: null, nws: null,
     forbidden: window.__weatherReviewForbidden};
+  window.__weatherFrameAudit = audit;
+  window.__weatherAuditWrapped = true;
   try { (parent.__weatherFrameAudits ||= []).push(audit); } catch (_) {}
   const set = window.setInterval.bind(window), clear = window.clearInterval.bind(window);
   window.setInterval = (handler, delay, ...args) => {
@@ -98,6 +100,25 @@ async def block_websocket(socket):
     await socket.close(code=1000, reason="Local fixture blocks external connections")
 
 
+async def install_weather_audit(frame):
+    # Iframe init scripts may first execute for about:blank. Attach explicitly
+    # once the actual Weather document exists instead of depending on that race.
+    await frame.evaluate("""() => {
+      if (window.__weatherFrameAudit) return;
+      const audit = window.__weatherFrameAudit = {closed:false,intervalIds:[],aborts:0,map:null,nws:null,
+        forbidden:window.__weatherReviewForbidden || []};
+      (parent.__weatherFrameAudits ||= []).push(audit);
+      if (!window.__weatherAuditWrapped) {
+        window.__weatherAuditWrapped=true;
+        const set=window.setInterval.bind(window), clear=window.clearInterval.bind(window);
+        window.setInterval=(handler,delay,...args) => {const id=set(handler,delay,...args);audit.intervalIds.push(id);return id;};
+        window.clearInterval=id => {audit.intervalIds=audit.intervalIds.filter(value=>value!==id);return clear(id);};
+        const abort=AbortController.prototype.abort;
+        AbortController.prototype.abort=function(...args){audit.aborts++;return abort.apply(this,args);};
+      }
+    }""")
+
+
 class OfficialFeedFixtures:
     """Deterministic official-response shapes; no service is contacted."""
     def __init__(self):
@@ -115,6 +136,13 @@ class OfficialFeedFixtures:
         self.hold_basemap = False
         self.basemap_gate = asyncio.Event()
         self.basemap_pending = asyncio.Event()
+        self.wms_requests = []
+        self.wms_modes = {"velocity": "fresh", "precipitation": "fresh"}
+        self.wms_metadata = {}
+        self.wms_legend_delay = 0
+        self.hold_wms = False
+        self.wms_gate = asyncio.Event()
+        self.wms_pending = asyncio.Event()
         self.hold_forecast = True
         self.hold_map = False
         self.forecast_gate = asyncio.Event()
@@ -186,9 +214,76 @@ class OfficialFeedFixtures:
                 "observation": self.envelope(API + "/stations/KCMI/observations/latest", observation, station),
                 "alerts": self.envelope(API + "/alerts/active?point=" + POINT, alerts)}}
 
+    def wms(self, product):
+        name, style, path = {
+            "velocity": ("kilx_sr_bvel", "radar_velocity", "kilx/ows"),
+            "precipitation": ("conus_pcpn_typ", "radar_precip_type", "conus/conus_pcpn_typ/ows"),
+        }[product]
+        source = "https://opengeo.ncep.noaa.gov/geoserver/" + path
+        age = 180 if self.wms_modes[product] == "stale" else 4
+        times = [iso(self.now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]]
+        return {"product": product, "source": source + "?service=WMS&version=1.3.0&request=GetCapabilities",
+            "checkedAt": iso(self.now), "version": "1.3.0", "mapFormats": ["image/png"],
+            "legendSupported": True, "xml": "<!-- explicit local WMS test fixture -->",
+            "layers": [{"name": name, "title": "TEST FIXTURE official " + product,
+                "crs": ["EPSG:3857", "EPSG:4326", "EPSG:4269", "CRS:84"],
+                "time": {"units": "ISO8601", "default": times[-1], "current": False, "values": ",".join(times)},
+                "styles": [{"name": style, "title": "TEST FIXTURE advertised style",
+                    "legendUrl": source + "?service=WMS&request=GetLegendGraphic&layer=" + name}]}]}
+
     async def route(self, route):
         parsed = urlparse(route.request.url)
         require(route.request.method == "GET", "Weather endpoints must remain read-only")
+        if parsed.path == "/api/weather-preview/wms":
+            params = parse_qs(parsed.query)
+            product, operation = [params.get(key, [""])[0] for key in ["product", "op"]]
+            require(product in self.wms_modes and operation in ["capabilities", "map", "legend"],
+                    "WMS fixture received an unsupported product or operation")
+            self.wms_requests.append({"product": product, "op": operation, "params": params})
+            if self.wms_modes[product] == "unavailable":
+                await route.fulfill(status=502, content_type="application/json",
+                    body=json.dumps({"unavailable": True, "error": {"code": 502, "message": "TEST FIXTURE official WMS unavailable"}}))
+                return
+            if operation == "capabilities":
+                metadata = self.wms(product)
+                self.wms_metadata[product] = metadata
+                await route.fulfill(content_type="application/json", body=json.dumps(metadata))
+                return
+            metadata = self.wms_metadata.get(product)
+            require(metadata is not None, "WMS image requested before advertised metadata was read")
+            layer = metadata["layers"][0]
+            require(params.get("layer") == [layer["name"]] and params.get("style") == [layer["styles"][0]["name"]],
+                    "WMS image did not use an actually advertised layer and style")
+            if operation == "map":
+                provided_time = datetime.fromisoformat(params.get("time", [""])[0].replace("Z", "+00:00"))
+                advertised_times = [datetime.fromisoformat(value.replace("Z", "+00:00"))
+                                    for value in layer["time"]["values"].split(",")]
+                require(provided_time in advertised_times,
+                        "WMS map time was not advertised by its capabilities")
+                width, height = [int(params[key][0]) for key in ["width", "height"]]
+                bbox = list(map(float, params["bbox"][0].split(",")))
+                require(1 <= width <= 1500 and 1 <= height <= 1500 and len(bbox) == 4,
+                        "WMS map dimensions or extent exceeded the bounded fixture contract")
+                if self.hold_wms:
+                    self.wms_pending.set()
+                    await self.wms_gate.wait()
+            else:
+                width, height = 180, 24
+                if self.wms_legend_delay:
+                    await asyncio.sleep(self.wms_legend_delay)
+            color = (180, 65, 205, 150) if product == "velocity" else (85, 205, 225, 170)
+            source_parameters = {
+                "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
+                "LAYERS" if operation == "map" else "LAYER": layer["name"],
+                "STYLES" if operation == "map" else "STYLE": layer["styles"][0]["name"], "FORMAT": "image/png"}
+            if operation == "map":
+                source_parameters.update({"CRS": "EPSG:3857", "BBOX": params["bbox"][0],
+                    "WIDTH": str(width), "HEIGHT": str(height), "TIME": params["time"][0]})
+            source = metadata["source"].split("?")[0] + "?" + urlencode(source_parameters)
+            await route.fulfill(content_type="image/png", body=png_fixture(width, height, color), headers={
+                "X-Weather-Source": source, "X-Weather-Layer": layer["name"],
+                "X-Weather-Time": params.get("time", ["source-default"])[0]})
+            return
         if parsed.path == "/api/weather-preview/basemap":
             params = parse_qs(parsed.query)
             dataset = params.get("dataset", [""])[0]
@@ -290,6 +385,8 @@ class OfficialFeedFixtures:
         self.map_gate.set()
         self.hold_basemap = False
         self.basemap_gate.set()
+        self.hold_wms = False
+        self.wms_gate.set()
 
 
 async def weather_frame(page):
@@ -341,6 +438,7 @@ async def run_viewport(browser, base, output, width, height):
         before_mutations = len(mutations)
         await launcher.click()
         frame = await weather_frame(page)
+        await install_weather_audit(frame)
         # Native close dispatches this event before React unmounts the iframe.
         # Observe after the content's registered close handler; removed iframes
         # need not deliver pagehide in every Chromium configuration.

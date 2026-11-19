@@ -55,11 +55,14 @@ USGS explicitly states that [National Map services and data are free and public 
 
 Ground-map requests must remain bounded to the current viewport and stop with the Weather view. No device GPS, user tracking, MyRadar account, API key, Supabase activity, notification permission, real push delivery, or background scheduler is introduced. Existing live NWS forecasts, observations, applicable point alerts—including alerts without polygons—and their provenance remain in place. Notification and adaptive-check demonstrations remain explicitly simulated.
 
+The existing Local velocity and Precipitation type buttons use verified free NOAA WMS products rather than MyRadar's proprietary products. Both official capabilities documents, exact-time PNG maps and legends succeeded through the published preview transport. These latest observed views retain their actual scan times and geographic extents. Regional reflectivity retains the separate catalog-based observed loop; selecting another product must not imply that NOAA supplied a corresponding loop or MyRadar smoothing.
+
 ## Validation status
 
 - **Verified from primary sources:** MyRadar's map/product distinction and documented controls; its explicitly listed subscription features; USGS service descriptions, tile/projection metadata, public-domain terms, and the `USGSImageryTopo` 404.
 - **Not verified:** playback or exact menu contents of the supplied Drive recording. No video-derived behavior or exact four-option match is claimed.
 - **Verified published source pixels:** all three USGS datasets returned HTTP 200 JPEG tiles for the fixed hotel's tile (`12/1548/1043`). Decoded responses were visually inspected: Topo 24,972 bytes, ImageryOnly 24,890 bytes and ShadedReliefOnly 5,556 bytes. Gray and Roads use different presentations of the same Topo data.
 - **Implementation acceptance:** desktop/mobile browser tests use explicit synthetic geographic and weather fixtures to check composition, selector behavior, shared viewport/pin, gestures, timeline controls, attribution, failures, request bounds and close cancellation. These tests are separate from the actual published source-pixel checks; fixture images are not evidence of feed availability.
+- **Control acceptance:** nine supplemental control groups passed at 1440px desktop and 390px mobile, including fullscreen, grid, opacity, playback, independent overlays, alert-polygon details, official bulletin links, Escape and polygonless-alert retention. Normal repeated mobile taps passed; intentional rapid double-tap zoom behavior is retained.
 
 For the existing live NWS transport, native dashboard entry, and prior published weather-feed checks, see [weather-review.md](weather-review.md). Those weather-feed checks do not establish the new basemap's tile availability.

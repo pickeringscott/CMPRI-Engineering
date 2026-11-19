@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 sys.dont_write_bytecode = True
 from weather_dashboard_preview import (
-    PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, frame_forbidden, install,
+    PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, frame_forbidden, install, install_weather_audit,
     require, wait_for, weather_frame,
 )
 from playwright.async_api import async_playwright
@@ -145,6 +145,7 @@ async def run_viewport(browser, base, output, width, height):
         mutation_start = len(mutations)
         await launcher.click()
         frame = await weather_frame(page)
+        await install_weather_audit(frame)
         await wait_for(frame, "window.cmpriWeatherMap.getState().ground?.visibleLoaded > 0")
         await settled(frame)
         await wait_for(frame, "window.cmpriWeatherMap.getState().status.radar === 'Observed image loaded'")

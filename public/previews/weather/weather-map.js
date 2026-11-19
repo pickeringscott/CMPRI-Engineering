@@ -1,5 +1,5 @@
 /* Review-only embedded map component. No application records, database, GPS or push access.
- * Actual NOAA requests begin when Weather opens; refresh is explicit thereafter.
+ * Actual NOAA requests begin when Weather opens; later reads follow explicit foreground controls.
  * Missing IDOT reports remain unavailable. No fabricated weather geometry. */
 (function () {
   'use strict';
@@ -30,6 +30,8 @@
   let canvas, context, shell, observer, raf = null, loop = null, gesture = null, viewportTimer = null;
   let playbackRunning = false, playbackGeneration = 0, frameSelection = 0;
   let queuedFrame = null;
+  let wmsMetadata = null, wmsRaster = null, wmsLegendUrl = null, wmsLoading = false, wmsQueued = false, wmsSelection = 0, wmsMetadataLoading = false, wmsLegendLoading = false;
+  const wmsControllers = new Set();
   const pointers = new Map();
   let generation = 0, liveBusy = false;
   const controllers = new Set();
@@ -39,14 +41,20 @@
   const verified = new Map();
   const reportCells = new Map();
   const productInfo = {
-    velocity: ['Local velocity · KILX', 'NOAA publishes a KILX WMS. A current velocity layer, scan time, legend and CORS have not been verified. Velocity is radar-relative motion, not surface wind.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows?service=wms&version=1.3.0&request=GetCapabilities'],
-    ptype: ['Precipitation type', 'NOAA publishes a precipitation-type analysis. Current classifications and browser access are unverified. Rain, snow and ice cannot be inferred from reflectivity colors.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows?service=wms&version=1.3.0&request=GetCapabilities'],
+    velocity: ['Local velocity · KILX', 'The latest advertised KILX velocity image and official legend load through the preview transport. Velocity is radar-relative motion, not hotel surface wind.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows?service=wms&version=1.3.0&request=GetCapabilities'],
+    ptype: ['Precipitation type', 'The latest advertised NOAA precipitation-type analysis and official legend load through the preview transport. No rain, snow or ice classification is inferred from reflectivity colors.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows?service=wms&version=1.3.0&request=GetCapabilities'],
     satellite: ['GOES-19 · Great Lakes', 'NOAA GeoColor satellite imagery covers Illinois. This review build does not embed a current satellite image.', 'https://www.star.nesdis.noaa.gov/GOES/sector.php?sat=G19&sector=cgl'],
     lightning: ['GOES-19 · Total lightning', 'NOAA GLM flash-extent density is regional total lightning. Current imagery is not embedded; no ground-strike pins or distance-to-hotel claims are made.', 'https://www.star.nesdis.noaa.gov/GOES/sector.php?sat=G19&sector=cgl']
   };
+  const WMS_PRODUCTS = Object.freeze({
+    velocity: { product: 'velocity', layer: 'kilx_sr_bvel', style: 'radar_velocity', title: 'Local velocity · KILX' },
+    ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', title: 'Precipitation type · NOAA analysis' }
+  });
+  state.wms = { product: null, layer: null, style: null, time: null, status: 'Not selected', source: null,
+    mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null };
   const controls = [
     ['mapBackgroundMenu', 'Map menu', 'CMPRI embedded map', 'USGS ground-map datasets; independent NOAA weather overlays', 'Choose a geographic background separately from weather Layers. This menu never changes radar, WSSI or road report selections.'],
-    ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA radar, NWS/WPC WSSI; IDOT reports unavailable', 'Open the three independent weather-layer controls. Background style is chosen in Map.'],
+    ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA observed products, NWS/WPC WSSI and property alerts; IDOT reports unavailable', 'Open the four independent weather-layer controls. Background style is chosen in Map.'],
     ['mapBackgroundStyle', 'Background style', 'CMPRI renderer over official USGS tiles', 'USGS Topo, historical imagery and shaded relief', 'Gray uses muted USGS Topo; Roads uses original USGS Topo; Aerial uses historical USGS imagery; Terrain uses USGS shaded relief.'],
     ['backgroundGray', 'Gray background', 'CMPRI color treatment', 'USGS Topo', 'Draw actual USGS Topo tiles in muted grayscale beneath weather. It is a geographic reference map, not a weather product.'],
     ['backgroundRoads', 'Roads background', 'CMPRI embedded map', 'USGS Topo', 'Show original topographic roads and labels. Background road lines do not report winter road conditions.'],
@@ -61,14 +69,15 @@
     ['loopLength', 'Observed loop length', 'CMPRI observed-radar player', 'Up to 48 actual NOAA catalog scan times', 'Choose 60, 90 or 120 minutes ending at the latest published scan. Shorter available coverage is reported; no future scans are generated.'],
     ['propertyAlerts', 'Official alerts applying to hotel', 'CMPRI overlay from the existing NWS resource', 'NWS active property-point alert query', 'Draw only actual Polygon / MultiPolygon geometry from alerts applying to the hotel. County or zone alerts without polygons remain in the official alert list; panning does not load other-area alerts.'],
     ['alertDetails', 'Tap official alert area', 'CMPRI embedded map', 'NWS event, validity times and official bulletin link', 'Open details for an actual alert polygon. The popup is separate from Guest Safety and sends no notification.'],
-    ['radar', 'Observed radar layer', 'CMPRI overlay', 'NOAA MRMS time-enabled ImageServer', 'Toggle radar independently. Use actual NOAA catalog raster IDs and valid times; unavailable scans remain unavailable.'],
+    ['radar', 'Selected observed product layer', 'CMPRI overlay', 'Selected NOAA reflectivity, KILX velocity or precipitation-type WMS', 'Hide or show the selected observed product without changing it. Only regional reflectivity has an observed playback loop; WMS products use their latest advertised observation.'],
     ['roads', 'Reported winter roads layer', 'CMPRI overlay', 'IDOT Getting Around Illinois; concrete data feed unverified', 'Select the reported-road layer independently. Reports remain unavailable until an exact official feed and timestamps are verified; no route safety is inferred.'],
     ['impacts', 'Forecast winter travel impacts layer', 'CMPRI overlay', 'NWS/WPC WSSI overall Days 1–3, layer 4', 'Toggle same-map regional forecast impact polygons, independently of radar and road reports. The overlay is off by default; only verified NOAA forecast geometry is rendered.'],
-    ['velocity', 'Local velocity product', 'CMPRI overlay', 'NOAA KILX WMS catalog', 'Show verified source and unavailable notice; no current velocity imagery.'],
-    ['ptype', 'Precipitation type product', 'CMPRI overlay', 'NOAA CONUS precipitation-type WMS catalog', 'Show verified source and unavailable notice; no classification inferred from radar.'],
+    ['velocity', 'Local velocity product', 'CMPRI overlay', 'Official NOAA KILX WMS · advertised kilx_sr_bvel / radar_velocity', 'Display the latest advertised observed velocity image and its actual official PNG legend on the same USGS map. It is radar-relative motion, not hotel surface wind. No velocity loop is fabricated.'],
+    ['ptype', 'Precipitation type product', 'CMPRI overlay', 'Official NOAA CONUS WMS · advertised conus_pcpn_typ / radar_precip_type', 'Display the latest advertised precipitation-type analysis and actual official PNG legend on the same map. Classifications come from NOAA, never reflectivity colors.'],
+    ['wmsLegend', 'Official velocity / precipitation-type legend', 'CMPRI image display', 'NOAA WMS GetLegendGraphic for the selected advertised style', 'Render the actual PNG legend returned by NOAA; missing legends stay unavailable. Units and categories are not invented.'],
     ['satellite', 'Satellite product', 'CMPRI overlay', 'NOAA GOES-19 Great Lakes GeoColor', 'Show verified source and unavailable notice; no current image embedded.'],
     ['lightning', 'Lightning product', 'CMPRI overlay', 'NOAA GOES-19 GLM FED3 + GeoColor', 'Show verified source and unavailable notice; no strike pins or counts.'],
-    ['moreNoaaProducts', 'More NOAA products · expand / collapse', 'CMPRI overlay', 'None · local presentation of official product links', 'Expand or collapse optional velocity, precipitation-type, satellite and lightning choices. This disclosure does not request a feed or change the three independent map layers.'],
+    ['moreNoaaProducts', 'More NOAA products · expand / collapse', 'CMPRI overlay', 'None · local presentation of official product links', 'Expand or collapse optional velocity, precipitation-type, satellite and lightning choices. This disclosure does not request a feed or change the independent map layers.'],
     ['pin', 'Fixed hotel pin', 'Embedded map component · CMPRI-authored', 'Marriott hotel View Map coordinates', 'Plot 40.138080, −88.251416 in the same projection as every selected layer; no GPS.'],
     ['pan', 'Pan · drag / touch / arrow keys', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Move the shared viewport; every visible layer and hotel pin moves together.'],
     ['zoomIn', 'Zoom in', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Increase shared map scale; plus key also works.'],
@@ -81,8 +90,8 @@
     ['playLoop', 'Play / pause', 'Embedded map component · CMPRI-authored', 'Exact NOAA catalog rasters', 'Play only while Weather is visible. Close, hidden tab, and pause stop its local timer. No prediction or future radar.'],
     ['frameRange', 'Scan seek slider', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause and select one exact frame; live timestamps are never synthesized.'],
     ['nextFrame', 'Next scan', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause playback and display the next exact NOAA catalog frame.'],
-    ['showEchoes', 'Show radar echoes', 'Embedded map component · CMPRI-authored', 'Same radar source as selected mode', 'Hide/show radar rendering while preserving independent road and impact overlays.'],
-    ['tryLiveFeeds', 'Refresh NOAA map feeds', 'CMPRI overlay', 'NOAA radar catalog/export; WSSI layer 4 query', 'NOAA loads once when Weather opens; this control explicitly refreshes it. No guessed IDOT feed, recurring refresh, or background scheduler.'],
+    ['showEchoes', 'Show selected observed product', 'Embedded map component · CMPRI-authored', 'Same official NOAA source as selected product', 'Hide/show reflectivity, velocity or precipitation-type rendering without silently switching products; other layers remain independent.'],
+    ['tryLiveFeeds', 'Refresh NOAA map feeds', 'CMPRI overlay', 'NOAA radar catalog/export, WSSI layer 4 and selected KILX or precipitation-type WMS', 'NOAA loads when Weather opens; this control explicitly refreshes the catalog, WSSI and any selected WMS product. No guessed IDOT feed, recurring refresh, or background scheduler.'],
     ['sourceLink', 'Official product link', 'CMPRI overlay', 'Selected official NOAA/NWS product page', 'Open the source page on explicit click. It does not load a third-party app into this map.']
     ,['mapLayerTimes', 'Layer times & limits · expand / collapse', 'CMPRI overlay', 'Actual NOAA issue / scan / forecast times when available', 'Reveal source/report/forecast validity and fetched-extent limits. Disclosure makes no request.']
     ,['mapOfficialRoadSource', 'Official IDOT source link', 'CMPRI overlay', 'IDOT Getting Around Illinois winter conditions', 'Open the verified official map on explicit click; no guessed feed or embedded third-party radar app.']
@@ -118,6 +127,116 @@
     return { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight,
       xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight };
   }
+  function wmsKey(geo) {
+    return [state.activeLayer, state.wms.time, Math.round(geo.center.x), Math.round(geo.center.y), geo.resolution.toFixed(6), Math.round(geo.width), Math.round(geo.height)].join('|');
+  }
+  function stopWms(clear = false) {
+    wmsSelection += 1; wmsControllers.forEach((controller) => controller.abort()); wmsControllers.clear();
+    wmsLoading = false; wmsQueued = false; wmsMetadataLoading = false; wmsLegendLoading = false;
+    if (clear) {
+      wmsMetadata = null; wmsRaster?.bitmap.close?.(); wmsRaster = null;
+      if (wmsLegendUrl) URL.revokeObjectURL(wmsLegendUrl);
+      wmsLegendUrl = null; state.wms.displayedTime = null; state.wms.legendStatus = 'Not loaded';
+    }
+  }
+  function latestAdvertisedTime(dimension) {
+    const candidates = [];
+    if (dimension?.default && dimension.default !== 'current') candidates.push(dimension.default);
+    String(dimension?.values || '').split(',').forEach((entry) => {
+      const parts = entry.trim().split('/');
+      candidates.push(parts.length > 1 ? parts[1] : parts[0]);
+    });
+    return candidates.filter((time) => Number.isFinite(Date.parse(time)) && Date.parse(time) <= Date.now())
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
+  }
+  async function loadWmsView() {
+    if (!state.opened || !state.active || document.hidden || !state.showRadar || !WMS_PRODUCTS[state.activeLayer]
+      || !wmsMetadata || wmsMetadata.key !== state.activeLayer) return;
+    const geo = geometry(); if (!geo.width || !geo.height) return;
+    const key = wmsKey(geo);
+    if (wmsRaster?.key === key) return true;
+    if (wmsLoading) { wmsQueued = true; return false; }
+    wmsLoading = true;
+    const ticket = generation, selection = wmsSelection, product = WMS_PRODUCTS[state.activeLayer];
+    const time = state.wms.time, extent = viewport(geo);
+    const width = Math.max(1, Math.min(1500, Math.round(geo.width))), height = Math.max(1, Math.min(1500, Math.round(geo.height)));
+    state.wms.status = 'Loading observed WMS image · previous image and its time retained when available'; updateUI();
+    try {
+      const image = await wmsRequest({ product: product.product, op: 'map', layer: state.wms.layer, style: state.wms.style,
+        time, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','), width: String(width), height: String(height) }, true, ticket);
+      const bitmap = await createImageBitmap(image.blob);
+      if (ticket !== generation || selection !== wmsSelection || !state.opened || !state.active || key !== wmsKey(geometry())) { bitmap.close?.(); return false; }
+      if (bitmap.width !== width || bitmap.height !== height) { bitmap.close?.(); throw new Error('Official WMS image dimensions do not match its georeferenced request'); }
+      if (image.time && Date.parse(image.time) !== Date.parse(time)) { bitmap.close?.(); throw new Error('Official WMS image time did not match the requested advertised observation'); }
+      wmsRaster?.bitmap.close?.(); wmsRaster = { key, bitmap, extent, time, product: product.product };
+      state.wms.displayedTime = time; state.wms.mapSource = image.source || state.wms.source;
+      state.wms.status = 'Observed WMS image loaded'; mark(state.activeLayer, 'Actual NOAA WMS PNG loaded · advertised layer, style and observed time');
+      updateUI(); queueDraw(); return true;
+    } catch (error) {
+      if (ticket !== generation || selection !== wmsSelection) return false;
+      state.wms.status = 'Unavailable · ' + error.message; mark(state.activeLayer, 'Official WMS image unavailable · no replacement graphic'); updateUI(); return false;
+    } finally {
+      if (selection === wmsSelection && ticket === generation) {
+        wmsLoading = false;
+        if (wmsQueued && state.opened && state.active) { wmsQueued = false; void loadWmsView(); }
+      }
+    }
+  }
+  async function loadWmsLegend(selection, ticket) {
+    if (!wmsMetadata || !WMS_PRODUCTS[state.activeLayer] || wmsLegendLoading) return;
+    wmsLegendLoading = true;
+    const product = WMS_PRODUCTS[state.activeLayer]; state.wms.legendStatus = 'Loading official PNG legend'; updateUI();
+    try {
+      const image = await wmsRequest({ product: product.product, op: 'legend', layer: state.wms.layer, style: state.wms.style }, true, ticket);
+      const bitmap = await createImageBitmap(image.blob); bitmap.close?.();
+      if (selection !== wmsSelection || ticket !== generation || !state.opened || !state.active) return;
+      if (wmsLegendUrl) URL.revokeObjectURL(wmsLegendUrl);
+      wmsLegendUrl = URL.createObjectURL(image.blob); state.wms.legendSource = image.source || state.wms.source;
+      state.wms.legendStatus = 'Official NOAA PNG legend loaded'; mark('wmsLegend', 'Actual official GetLegendGraphic PNG decoded and displayed'); updateUI();
+    } catch (error) {
+      if (selection !== wmsSelection || ticket !== generation) return;
+      state.wms.legendStatus = 'Unavailable · ' + error.message; mark('wmsLegend', 'Official legend unavailable · no invented units or categories'); updateUI();
+    } finally {
+      if (selection === wmsSelection && ticket === generation) wmsLegendLoading = false;
+    }
+  }
+  async function loadWmsProduct(refresh = false) {
+    const name = state.activeLayer, product = WMS_PRODUCTS[name];
+    if (!product || !state.opened || !state.active || !state.showRadar) return;
+    if (!refresh && wmsMetadataLoading) return;
+    if (!refresh && wmsMetadata?.key === name) {
+      await Promise.allSettled([loadWmsView(), wmsLegendUrl ? Promise.resolve() : loadWmsLegend(wmsSelection, generation)]); return;
+    }
+    stopWms(true);
+    wmsMetadataLoading = true;
+    const ticket = generation, selection = wmsSelection;
+    state.wms = { product: product.product, layer: null, style: null, time: null, status: 'Loading official WMS capabilities',
+      source: productInfo[name][2], mapSource: null, legendSource: null, legendStatus: 'Waiting for advertised style', displayedTime: null }; updateUI();
+    try {
+      const metadata = await wmsRequest({ product: product.product, op: 'capabilities' }, false, ticket);
+      if (ticket !== generation || selection !== wmsSelection || name !== state.activeLayer || !state.opened || !state.active) return;
+      const layer = metadata.layers?.find((candidate) => candidate.name === product.layer);
+      const style = layer?.styles?.find((candidate) => candidate.name === product.style);
+      if (!layer || !style || !metadata.mapFormats?.some((format) => format.toLowerCase() === 'image/png')
+        || !layer.crs?.some((crs) => crs.toUpperCase() === 'EPSG:3857')) throw new Error('Required layer, style, PNG or EPSG:3857 was not advertised by NOAA');
+      const time = latestAdvertisedTime(layer.time);
+      if (!time) throw new Error('No concrete past observed scan time was advertised by NOAA');
+      wmsMetadata = { key: name, layer, style, metadata };
+      wmsMetadataLoading = false;
+      state.wms.layer = layer.name; state.wms.style = style.name; state.wms.time = time; state.wms.source = metadata.source || productInfo[name][2];
+      await Promise.allSettled([loadWmsView(), metadata.legendSupported ? loadWmsLegend(selection, ticket) : Promise.resolve().then(() => {
+        state.wms.legendStatus = 'Unavailable · official service did not advertise a legend'; updateUI();
+      })]);
+    } catch (error) {
+      if (ticket !== generation || selection !== wmsSelection) return;
+      state.wms.status = 'Unavailable · ' + error.message; state.wms.legendStatus = 'Unavailable · capabilities not verified'; mark(name, state.wms.status); updateUI();
+    } finally {
+      if (ticket === generation && selection === wmsSelection) wmsMetadataLoading = false;
+    }
+  }
+  function loadSelectedImage() {
+    return WMS_PRODUCTS[state.activeLayer] ? loadWmsProduct() : loadFrame(state.frame);
+  }
   function mark(id, result) {
     if (verified.get(id) === result) return;
     verified.set(id, result);
@@ -132,6 +251,7 @@
     controllers.clear();
     loadingImages.clear();
     queuedFrame = null;
+    wmsSelection += 1; wmsControllers.clear(); wmsLoading = false; wmsQueued = false; wmsMetadataLoading = false; wmsLegendLoading = false;
     liveBusy = false;
     if ($('tryLiveFeeds')) $('tryLiveFeeds').disabled = false;
   }
@@ -141,26 +261,38 @@
     failedImages.clear();
     state.displayedTime = null;
   }
-  async function request(url, asBlob, ticket) {
+  async function foregroundRead(path, asBlob, ticket, wms = false) {
     if (!state.opened || !state.active || ticket !== generation) throw new DOMException('Weather closed', 'AbortError');
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' || parsed.hostname !== 'mapservices.weather.noaa.gov') throw new Error('Unverified feed host');
     const controller = new AbortController();
     controllers.add(controller);
+    if (wms) wmsControllers.add(controller);
     const timeout = setTimeout(() => controller.abort(), 12000);
     state.networkRequests += 1;
     emit();
     try {
-      const response = await fetch('/api/weather-preview/map?url=' + encodeURIComponent(parsed.href), { signal: controller.signal, mode: 'same-origin', credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch(path, { signal: controller.signal, mode: 'same-origin', credentials: 'same-origin', cache: 'no-store' });
       if (!response.ok) throw new Error('HTTP ' + response.status);
-      if (asBlob) return await response.blob();
+      if (asBlob) {
+        const blob = await response.blob();
+        if (wms && !blob.type.toLowerCase().startsWith('image/png')) throw new Error('Official WMS PNG unavailable');
+        return wms ? { blob, source: response.headers.get('X-Weather-Source'), time: response.headers.get('X-Weather-Time') } : blob;
+      }
       const json = await response.json();
       if (json.error) throw new Error('NOAA service error ' + (json.error.code || '') + ': ' + (json.error.message || 'unavailable'));
       return json;
     } finally {
       clearTimeout(timeout);
       controllers.delete(controller);
+      wmsControllers.delete(controller);
     }
+  }
+  function request(url, asBlob, ticket) {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'mapservices.weather.noaa.gov') throw new Error('Unverified feed host');
+    return foregroundRead('/api/weather-preview/map?url=' + encodeURIComponent(parsed.href), asBlob, ticket);
+  }
+  function wmsRequest(parameters, asBlob, ticket) {
+    return foregroundRead('/api/weather-preview/wms?' + new URLSearchParams(parameters), asBlob, ticket, true);
   }
   function endpoint(base, method, params) {
     return base + '/' + method + '?' + new URLSearchParams(params).toString();
@@ -369,7 +501,7 @@
     const ticket = generation;
     mark('tryLiveFeeds', 'NOAA load started · no automatic polling');
     updateUI(); queueDraw();
-    const results = await Promise.allSettled([radarCatalog(ticket), impactForecast(ticket)]);
+    const results = await Promise.allSettled([radarCatalog(ticket), impactForecast(ticket), WMS_PRODUCTS[state.activeLayer] ? loadWmsProduct(true) : Promise.resolve()]);
     if (ticket !== generation || !state.opened || !state.active) return;
     if (results[0].status === 'rejected') {
       state.radarStatus = 'Unavailable · ' + results[0].reason.message;
@@ -494,7 +626,17 @@
     shell.append(panel); mark('alertDetails', 'Exercised · actual NWS property alert polygon and official validity times');
   }
   function drawRadar(geo) {
-    if (!state.showRadar || state.activeLayer !== 'reflectivity') return;
+    if (!state.showRadar) return;
+    if (WMS_PRODUCTS[state.activeLayer]) {
+      if (!wmsRaster || wmsRaster.product !== WMS_PRODUCTS[state.activeLayer].product) return;
+      const extent = wmsRaster.extent;
+      context.save(); context.globalAlpha = state.opacity;
+      context.drawImage(wmsRaster.bitmap, geo.width / 2 + (extent.xmin - geo.center.x) / geo.resolution,
+        geo.height / 2 - (extent.ymax - geo.center.y) / geo.resolution,
+        (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
+      context.restore(); return;
+    }
+    if (state.activeLayer !== 'reflectivity') return;
     const exact = images.get(imageKey(state.frame, geo));
     const targetTime = state.frames[state.frame]?.time;
     const target = exact || Array.from(images.values()).reverse().find((item) => item.time === targetTime);
@@ -549,6 +691,12 @@
   }
   function frameCount() { return state.frames.length; }
   function scanTime() {
+    if (WMS_PRODUCTS[state.activeLayer]) {
+      const product = WMS_PRODUCTS[state.activeLayer], time = state.wms.displayedTime;
+      if (!state.showRadar) return product.title + ' hidden · other layers remain independent';
+      if (!time) return product.title + ' · no observed image displayed · advertised scan ' + formatTime(state.wms.time) + ' · ' + state.wms.status;
+      return (Date.now() - Date.parse(time) > 20 * 60000 ? 'STALE · ' : 'OBSERVED · ') + formatTime(time) + ' · ' + product.title + ' · ' + state.wms.status;
+    }
     if (!state.showRadar || state.activeLayer !== 'reflectivity') return 'Radar off · independent road / forecast overlays remain available';
     if (!state.frames[state.frame]) return 'Observed radar scan time unavailable';
     const time = state.displayedTime;
@@ -565,6 +713,17 @@
   function renderLegend() {
     const host = $('mapLegend'); if (!host) return;
     const fragment = document.createDocumentFragment();
+    if (state.showRadar && WMS_PRODUCTS[state.activeLayer]) {
+      const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
+      const heading = document.createElement('strong'); heading.textContent = WMS_PRODUCTS[state.activeLayer].title + ' · official NOAA legend'; row.append(heading);
+      if (wmsLegendUrl) {
+        const image = document.createElement('img'); image.id = 'mapWmsLegend'; image.src = wmsLegendUrl;
+        image.alt = 'Official NOAA legend for ' + state.wms.layer + ', advertised style ' + state.wms.style; row.append(image);
+      }
+      const status = document.createElement('span'); status.id = 'mapWmsLegendStatus'; status.textContent = state.wms.legendStatus; row.append(status);
+      if (state.wms.legendSource) { const source = document.createElement('a'); source.href = state.wms.legendSource; source.target = '_blank'; source.rel = 'noopener noreferrer'; source.textContent = 'Official legend source ↗'; row.append(source); }
+      fragment.append(row);
+    }
     if (state.showRadar && state.activeLayer === 'reflectivity') {
       const row = document.createElement('div'); row.className = 'cmpri-map-legend-row';
       const heading = document.createElement('strong'); heading.textContent = state.frames.length && images.size ? 'Observed NOAA radar' : 'Observed radar · UNAVAILABLE'; row.append(heading);
@@ -608,11 +767,13 @@
     if (!state.initialized) return;
     refreshForecastFreshness();
     const count = frameCount();
+    const wms = WMS_PRODUCTS[state.activeLayer];
     const radarAvailable = state.showRadar && state.activeLayer === 'reflectivity' && count > 0;
     ['previousFrame', 'playLoop', 'frameRange', 'nextFrame'].forEach((id) => { if ($(id)) $(id).disabled = !radarAvailable; });
+    ['playbackSpeed', 'loopLength'].forEach((id) => { if ($(id)) $(id).disabled = Boolean(wms); });
     if ($('frameRange')) { $('frameRange').max = Math.max(0, count - 1); $('frameRange').value = state.frame; $('frameRange').setAttribute('aria-label', 'Observed NOAA radar scan'); }
     if ($('scanTime')) $('scanTime').textContent = scanTime();
-    if ($('loopLabel')) $('loopLabel').textContent = count
+    if ($('loopLabel')) $('loopLabel').textContent = wms ? 'Latest observed product · playback loop only available for regional reflectivity' : count
       ? 'Observed loop · ' + count + ' actual scans · ' + availableWindowMinutes() + ' min available / ' + state.loopMinutes + ' min requested'
       : 'No observed scans available · ' + state.loopMinutes + ' min requested';
     if ($('playbackSpeed')) $('playbackSpeed').value = state.playbackSpeed;
@@ -624,29 +785,31 @@
     if ($('showEchoes')) {
       $('showEchoes').checked = state.showRadar;
       const last = $('showEchoes').parentElement.lastChild;
-      if (last?.nodeType === Node.TEXT_NODE) last.textContent = 'Show radar echoes';
+      if (last?.nodeType === Node.TEXT_NODE) last.textContent = wms ? 'Show selected observed product' : 'Show radar echoes';
     }
     if ($('mapLayerRadar')) $('mapLayerRadar').checked = state.showRadar;
+    if ($('mapLayerRadar')?.parentElement.lastChild?.nodeType === Node.TEXT_NODE) $('mapLayerRadar').parentElement.lastChild.textContent = wms ? ' ' + wms.title : ' Radar';
     if ($('mapLayerRoads')) $('mapLayerRoads').checked = state.roads;
     if ($('mapLayerImpacts')) $('mapLayerImpacts').checked = state.impacts;
     if ($('mapLayerAlerts')) $('mapLayerAlerts').checked = state.showAlerts;
     const selected = [];
     if (state.showRadar && state.activeLayer === 'reflectivity') selected.push('radar');
+    if (state.showRadar && wms) selected.push(wms.title);
     if (state.roads) selected.push('road reports'); if (state.impacts) selected.push('forecast impacts');
     if (state.showAlerts) selected.push('alerts applying to hotel');
-    if ($('mapStatus')) $('mapStatus').textContent = (liveBusy ? 'LOADING NOAA' : images.size ? 'NOAA OBSERVED RADAR' : 'NOAA MAP · DATA UNAVAILABLE')
+    if ($('mapStatus')) $('mapStatus').textContent = (wms ? (wmsRaster ? 'NOAA OBSERVED PRODUCT' : 'NOAA WMS · ' + state.wms.status) : liveBusy ? 'LOADING NOAA' : images.size ? 'NOAA OBSERVED RADAR' : 'NOAA MAP · DATA UNAVAILABLE')
       + ' · ' + (selected.join(' + ') || 'USGS ground map; weather layers off') + (state.roads ? ' · IDOT reports unavailable' : '');
     if (canvas) {
-      const radar = state.showRadar && state.frames.length && images.size
+      const radar = wms ? wms.title + ': ' + state.wms.status + '. Observed time ' + formatTime(state.wms.displayedTime) + '.' : state.showRadar && state.frames.length && images.size
         ? 'Observed NOAA radar catalog frames; scan freshness is shown beside playback controls.'
         : 'Observed radar unavailable or not selected. Missing data does not mean clear weather.';
       const overlays = ' Road reports: ' + (!state.roads ? 'off.' : 'unavailable; exact IDOT feed unverified.')
         + ' Forecast impacts: ' + (!state.impacts ? 'off.' : state.impactsStatus + '.');
       canvas.setAttribute('aria-label', 'USGS geographic map with weather at verified Residence Inn Champaign coordinates. Background style: ' + state.backgroundStyle + '. ' + radar + overlays + ' Drag or use arrow keys to pan. Wheel, double click or pinch to zoom; plus and minus also work.');
     }
-    if ($('mapModeBadge')) $('mapModeBadge').textContent = images.size ? 'NOAA radar' : 'NOAA status';
+    if ($('mapModeBadge')) $('mapModeBadge').textContent = wms ? (wmsRaster ? 'Observed NOAA product' : 'NOAA WMS status') : images.size ? 'NOAA radar' : 'NOAA status';
     if ($('observedRadarNote')) $('observedRadarNote').textContent = 'USGS supplies geographic context beneath exact observed NOAA radar scans and WSSI forecast areas. Background roads are not reported road conditions; Aerial is historical ground imagery, not weather satellite imagery. Failed products remain unavailable; no future radar is generated.';
-    const unavailable = productInfo[state.activeLayer];
+    const unavailable = wms ? (!wmsRaster && state.wms.status.startsWith('Unavailable') ? [wms.title, state.wms.status, state.wms.source || productInfo[state.activeLayer][2]] : null) : productInfo[state.activeLayer];
     if ($('layerUnavailable')) $('layerUnavailable').hidden = !unavailable;
     if (unavailable) {
       if ($('layerTitle')) $('layerTitle').textContent = unavailable[0];
@@ -659,7 +822,7 @@
     if ($('mapRoadStatus')) $('mapRoadStatus').textContent = state.roadsStatus + '. Report time unavailable. Missing reports do not mean clear roads.';
     if ($('mapImpactStatus')) $('mapImpactStatus').textContent = state.impactsStatus + ' · issued: ' + formatTime(state.forecastIssue) + ' · valid: ' + formatTime(state.forecastStart) + ' → ' + formatTime(state.forecastEnd) + '. Coverage is limited to the extent fetched on the last load; panning does not query new forecast areas.';
     if ($('mapAlertStatus')) $('mapAlertStatus').textContent = state.alertStatus;
-    if ($('mapFeedStatus')) $('mapFeedStatus').textContent = 'Radar: ' + state.radarStatus + ' · WSSI: ' + state.impactsStatus + ' · IDOT reports unavailable.' + (state.fetchedAt ? ' Load completed: ' + formatTime(state.fetchedAt) + '. Fetch time is separate from report time.' : ' NOAA loads when Weather opens.');
+    if ($('mapFeedStatus')) $('mapFeedStatus').textContent = (wms ? wms.title + ': ' + state.wms.status + ' · Legend: ' + state.wms.legendStatus : 'Radar: ' + state.radarStatus) + ' · WSSI: ' + state.impactsStatus + ' · IDOT reports unavailable.' + (state.fetchedAt ? ' Load completed: ' + formatTime(state.fetchedAt) + '. Fetch time is separate from report time.' : ' NOAA loads when Weather opens.');
     updateGroundStatus(); renderLegend(); emit();
   }
   function stopPlayback() {
@@ -698,7 +861,7 @@
     if (viewportTimer !== null) clearTimeout(viewportTimer);
     viewportTimer = setTimeout(() => {
       viewportTimer = null;
-      if (state.opened && state.active && !document.hidden) void loadFrame(state.frame);
+      if (state.opened && state.active && !document.hidden) void loadSelectedImage();
     }, 180);
   }
   function localPoint(clientX, clientY) {
@@ -735,10 +898,16 @@
     init(); stopPlayback();
     if (name === 'roads') { state.roads = enabled === undefined ? !state.roads : Boolean(enabled); mark('roads', state.roads ? 'Selected · IDOT reports unavailable; no route data rendered' : 'Exercised · road layer hidden'); }
     else if (name === 'impacts' || name === 'winter') { state.impacts = enabled === undefined ? !state.impacts : Boolean(enabled); mark('impacts', state.impacts ? 'Selected · ' + state.impactsStatus : 'Exercised · forecast overlay hidden'); }
-    else if (name === 'radar' || name === 'reflectivity') { state.activeLayer = 'reflectivity'; state.showRadar = enabled === undefined ? true : Boolean(enabled); mark('radar', 'Exercised · radar ' + (state.showRadar ? 'shown' : 'hidden')); }
-    else if (productInfo[name]) { state.activeLayer = name; state.showRadar = false; mark(name, 'Exercised · unavailable notice and official source shown'); }
+    else if (name === 'radar' || name === 'reflectivity') {
+      if (name === 'reflectivity' || !WMS_PRODUCTS[state.activeLayer]) { if (WMS_PRODUCTS[state.activeLayer]) stopWms(true); state.activeLayer = 'reflectivity'; }
+      state.showRadar = enabled === undefined ? true : Boolean(enabled);
+      if (!state.showRadar) stopWms();
+      mark('radar', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden'));
+    }
+    else if (WMS_PRODUCTS[name]) { stopWms(true); state.activeLayer = name; state.showRadar = true; mark(name, 'Selected · loading exact advertised NOAA layer, style, observed time and legend'); }
+    else if (productInfo[name]) { stopWms(true); state.activeLayer = name; state.showRadar = false; mark(name, 'Exercised · unavailable notice and official source shown'); }
     updateUI(); queueDraw();
-    if (state.mode === 'live' && state.showRadar) void loadFrame(state.frame);
+    if (state.mode === 'live' && state.showRadar) void loadSelectedImage();
     return getState();
   }
   function renderControls() {
@@ -802,7 +971,7 @@
     on('nextFrame', 'click', () => { stopPlayback(); setFrame(state.frame + 1, 'nextFrame'); });
     on('frameRange', 'input', (event) => { stopPlayback(); setFrame(Number(event.target.value), 'frameRange'); });
     on('mapOpacity', 'input', (event) => { state.opacity = Number(event.target.value) / 100; mark('opacity', 'Exercised · weather-layer opacity ' + Math.round(state.opacity * 100) + '%'); updateUI(); queueDraw(); });
-    on('showEchoes', 'change', (event) => { stopPlayback(); state.showRadar = event.target.checked; if (state.showRadar) state.activeLayer = 'reflectivity'; mark('showEchoes', 'Exercised · radar echoes ' + (state.showRadar ? 'shown' : 'hidden') + '; playback stopped'); updateUI(); queueDraw(); if (state.showRadar && state.mode === 'live') void loadFrame(state.frame); });
+    on('showEchoes', 'change', (event) => { selectLayer('radar', event.target.checked); mark('showEchoes', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden') + '; playback stopped'); });
     on('zoomIn', 'click', () => zoomBy(1.4, 'zoomIn'));
     on('zoomOut', 'click', () => zoomBy(1 / 1.4, 'zoomOut'));
     on('recenter', 'click', () => { stopPlayback(); closeAlertDetails(); state.center = { ...HOTEL }; state.zoom = 4; state.viewportRevision += 1; mark('recenter', 'Exercised · fixed hotel center and initial regional zoom restored'); queueDraw(); scheduleViewportImage(); emit(); });
@@ -900,6 +1069,8 @@
     if (state.mode === 'live') {
       if (/Loading|loading/.test(state.radarStatus)) state.radarStatus = 'Unavailable · request stopped when view became inactive';
       if (/Loading|loading/.test(state.impactsStatus)) state.impactsStatus = 'Unavailable · request stopped when view became inactive';
+      if (/Loading|loading/.test(state.wms.status)) state.wms.status = 'Unavailable · WMS request stopped when view became inactive';
+      if (/Loading|loading/.test(state.wms.legendStatus)) state.wms.legendStatus = 'Unavailable · WMS legend request stopped when view became inactive';
     }
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     emit(); return getState();
@@ -910,6 +1081,7 @@
   }
   function close() {
     pause(); state.opened = false; observer?.disconnect();
+    stopWms(true);
     if (document.fullscreenElement === shell) void document.exitFullscreen().catch(() => {});
     shell?.classList.remove('expanded'); emit(); return getState();
   }
@@ -922,6 +1094,8 @@
       catalogFrameCount: state.catalogFrames.length, availableWindowMinutes: availableWindowMinutes(), loopMinutes: state.loopMinutes, playbackSpeed: state.playbackSpeed,
       backgroundStyle: state.backgroundStyle, grid: state.grid, ground: window.cmpriGroundMap?.getState() || null,
       alerts: { count: state.alerts.length, geometryless: state.alertGeometryless, checkedAt: state.alertCheckedAt, status: state.alertStatus, source: state.alertSource },
+      wms: { ...state.wms, pending: wmsControllers.size, loading: wmsLoading || wmsMetadataLoading, queued: wmsQueued,
+        imageLoaded: Boolean(wmsRaster), legendLoaded: Boolean(wmsLegendUrl), extent: wmsRaster ? { ...wmsRaster.extent } : null },
       center: { ...state.center }, zoom: state.zoom, opacity: state.opacity,
       networkRequests: state.networkRequests, pendingRequests: controllers.size,
       rasterLoads: loadingImages.size, rasterQueue: queuedFrame === null ? 0 : 1, rasterLoadLimit: 2, imageCacheSize: images.size,
