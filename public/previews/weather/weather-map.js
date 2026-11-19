@@ -53,7 +53,7 @@
     ['recenter', 'Recenter', 'Embedded map component · CMPRI-authored', 'Marriott fixed hotel coordinates', 'Restore the hotel-centered initial extent without device location access.'],
     ['fullscreen', 'Fullscreen / exit', 'Embedded map component · CMPRI-authored', 'Browser Fullscreen API; CSS fallback', 'Expand the same map. Escape exits; no separate radar app or iframe.'],
     ['opacity', 'Opacity', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Change weather-layer opacity together. Hotel pin and grid retain contrast.'],
-    ['legend', 'Layer legends', 'Embedded map component · CMPRI-authored', 'NOAA radar dBZ; WSSI renderer; IDOT unavailable', 'Separate observed radar, reported road conditions, and forecast impacts. Unavailable layers are labeled explicitly.'],
+    ['legend', 'Layer legends', 'Embedded map component · CMPRI-authored', 'Official NWS radar legend link; actual WSSI renderer; IDOT unavailable', 'Separate observed radar, reported road conditions, and forecast impacts. Unverified radar colors are not assigned invented dBZ values.'],
     ['previousFrame', 'Previous scan', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause playback and display the previous exact NOAA catalog frame.'],
     ['playLoop', 'Play / pause', 'Embedded map component · CMPRI-authored', 'Exact NOAA catalog rasters', 'Play only while Weather is visible. Close, hidden tab, and pause stop its local timer. No prediction or future radar.'],
     ['frameRange', 'Scan seek slider', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause and select one exact frame; live timestamps are never synthesized.'],
@@ -183,16 +183,28 @@
     const extent = viewport(geo);
     const task = (async () => {
       try {
-        const data = await request(endpoint(RADAR, 'exportImage', {
+        const exportParameters = {
           f: 'json', bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','),
           bboxSR: '3857', imageSR: '3857',
           size: Math.round(Math.min(1200, geo.width)) + ',' + Math.round(Math.min(900, geo.height)),
           format: 'png32', transparent: 'true',
           mosaicRule: JSON.stringify({ mosaicMethod: 'esriMosaicLockRaster', lockRasterIds: raster.ids, mosaicOperation: 'MT_FIRST' })
-        }), false, ticket);
+        };
+        const data = await request(endpoint(RADAR, 'exportImage', exportParameters), false, ticket);
         if (!state.showRadar || state.activeLayer !== 'reflectivity' || ticket !== generation) return;
-        if (!data.href || !data.extent) throw new Error('NOAA image extent / URL unavailable');
-        const blob = await request(data.href, true, ticket);
+        const imageExtent = data.extent;
+        const width = Number(data.width), height = Number(data.height);
+        if (!imageExtent || !['xmin', 'ymin', 'xmax', 'ymax'].every((name) => Number.isFinite(imageExtent[name]))
+          || imageExtent.xmin >= imageExtent.xmax || imageExtent.ymin >= imageExtent.ymax
+          || !Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 1500 || height > 1500) {
+          throw new Error('NOAA authoritative image extent / dimensions unavailable');
+        }
+        // Request the exact raster directly; ephemeral generated-output URLs may fail.
+        const blob = await request(endpoint(RADAR, 'exportImage', {
+          ...exportParameters, f: 'image',
+          bbox: [imageExtent.xmin, imageExtent.ymin, imageExtent.xmax, imageExtent.ymax].join(','),
+          size: width + ',' + height
+        }), true, ticket);
         const bitmap = await createImageBitmap(blob);
         if (ticket !== generation || !state.opened || !state.active) { bitmap.close?.(); return; }
         images.set(key, { bitmap, extent: data.extent, frame: index });
@@ -428,9 +440,10 @@
     const fragment = document.createDocumentFragment();
     if (state.showRadar && state.activeLayer === 'reflectivity') {
       const row = document.createElement('div'); row.className = 'cmpri-map-legend-row';
-      const heading = document.createElement('strong'); heading.textContent = (state.frames.length && images.size ? 'Observed NOAA radar' : 'Observed radar · UNAVAILABLE') + ' · dBZ'; row.append(heading);
-      const colors = [['10', '#58bf6f'], ['25', '#28a153'], ['40', '#dfd956'], ['55', '#ec913f'], ['70', '#ae5297']];
-      colors.forEach(([label, color]) => row.append(legendItem(label, color))); fragment.append(row);
+      const heading = document.createElement('strong'); heading.textContent = state.frames.length && images.size ? 'Observed NOAA radar' : 'Observed radar · UNAVAILABLE'; row.append(heading);
+      const note = document.createElement('span'); note.textContent = 'Radar color legend unavailable in this view; dBZ values are not inferred.';
+      const link = document.createElement('a'); link.href = 'https://radar.weather.gov/'; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Open official NWS radar and legend ↗';
+      row.append(note, link); fragment.append(row);
     }
     if (state.roads) {
       const row = document.createElement('div'); row.className = 'cmpri-map-legend-row';

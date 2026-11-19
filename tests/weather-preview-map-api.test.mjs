@@ -44,7 +44,7 @@ test('only exact official read-only map resources are accepted',async()=>{
 test('JSON metadata, catalog, WSSI and exact-raster exports retain upstream JSON/status',async()=>{
   const urls=[radar+'?f=json',radar+'/query?f=json&geometry=-88.251416,40.138080&resultRecordCount=200',
     wssi+'?f=json',wssi+'/query?f=json&where=1%3D1&resultRecordCount=1000',
-    radar+'/exportImage?f=json&format=png32&bboxSR=3857&imageSR=3857&size=1200,700&mosaicRule='+encodeURIComponent(JSON.stringify({mosaicMethod:'esriMosaicLockRaster',lockRasterIds:[725]}))];
+    radar+'/exportImage?f=json&format=png32&bboxSR=3857&imageSR=3857&size=1200,700&bbox=-10000000,4700000,-9700000,5000000&mosaicRule='+encodeURIComponent(JSON.stringify({mosaicMethod:'esriMosaicLockRaster',lockRasterIds:[725],mosaicOperation:'MT_FIRST'}))];
   const original='{"features":[{"attributes":{"objectid":725,"idp_validtime":1795000000000}}]}';
   for(const url of urls) {
     const api=fixture(async(input,options)=>{
@@ -87,6 +87,31 @@ test('allowlisted generated PNGs pass through while non-images and oversized res
   assert.equal(wrong.status,502);
   const huge=await fixture(async()=>new Response('{}',{headers:{...jsonHeaders,'Content-Length':String(11*1024*1024)}})).GET(request(radar+'?f=json'));
   assert.equal(huge.status,502);
+});
+
+test('direct PNG export accepts only a bounded exact-raster request',async()=>{
+  const parameters=new URLSearchParams({f:'image',format:'png32',bboxSR:'3857',imageSR:'3857',
+    bbox:'-10000000,4700000,-9700000,5000000',size:'900,600',transparent:'true',
+    mosaicRule:JSON.stringify({mosaicMethod:'esriMosaicLockRaster',lockRasterIds:[725],mosaicOperation:'MT_FIRST'})});
+  const png=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,0]);
+  let calls=0;
+  const api=fixture(async(input,options)=>{
+    calls++;assert.equal(input,radar+'/exportImage?'+parameters);assert.equal(options.headers.Accept,'image/png');
+    return new Response(png,{headers:{'Content-Type':'image/png'}});
+  });
+  const response=await api.GET(request(radar+'/exportImage?'+parameters));
+  assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'image/png');
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()),png);
+  for(const change of [
+    {bbox:'-1,2,-3,4'},{mosaicRule:'{}'},
+    {mosaicRule:JSON.stringify({mosaicMethod:'esriMosaicLockRaster',lockRasterIds:[],mosaicOperation:'MT_FIRST'})},
+  ]) {
+    const invalid=new URLSearchParams(parameters);
+    for(const [key,value] of Object.entries(change))invalid.set(key,value);
+    assert.equal((await api.GET(request(radar+'/exportImage?'+invalid))).status,400);
+  }
+  assert.equal((await api.GET(request(radar+'?f=image'))).status,400);
+  assert.equal(calls,1);
 });
 
 test('upstream HTML, network failure and cancellation remain unavailable',async()=>{

@@ -46,7 +46,8 @@ function validateSource(raw: string | null): { url: URL; image: boolean } | null
   const query = url.pathname === RADAR_PATH + "/query" || url.pathname === WSSI_PATH + "/query";
   const rasterExport = url.pathname === RADAR_PATH + "/exportImage";
   if (!metadata && !query && !rasterExport) return null;
-  if (url.searchParams.get("f") !== "json") return null;
+  const outputFormat = url.searchParams.get("f");
+  if (rasterExport ? outputFormat !== "json" && outputFormat !== "image" : outputFormat !== "json") return null;
   const allowed = metadata ? new Set(["f"]) : query ? QUERY_PARAMETERS : EXPORT_PARAMETERS;
   for (const key of url.searchParams.keys()) {
     if (!allowed.has(key) || url.searchParams.getAll(key).length !== 1) return null;
@@ -60,8 +61,18 @@ function validateSource(raw: string | null): { url: URL; image: boolean } | null
       || url.searchParams.get("imageSR") !== "3857") return null;
     const size = (url.searchParams.get("size") || "").split(",").map(Number);
     if (size.length !== 2 || size.some((value) => !Number.isInteger(value) || value < 1 || value > 1500)) return null;
+    const bbox = (url.searchParams.get("bbox") || "").split(",").map(Number);
+    if (bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value) || Math.abs(value) > 30000000)
+      || bbox[0] >= bbox[2] || bbox[1] >= bbox[3]) return null;
+    try {
+      const mosaic = JSON.parse(url.searchParams.get("mosaicRule") || "null");
+      if (!mosaic || mosaic.mosaicMethod !== "esriMosaicLockRaster" || mosaic.mosaicOperation !== "MT_FIRST"
+        || !Array.isArray(mosaic.lockRasterIds) || mosaic.lockRasterIds.length < 1 || mosaic.lockRasterIds.length > 20
+        || mosaic.lockRasterIds.some((id: unknown) => typeof id !== "number" || !Number.isInteger(id) || id < 0)
+        || Object.keys(mosaic).some((key) => !["mosaicMethod", "mosaicOperation", "lockRasterIds"].includes(key))) return null;
+    } catch { return null; }
   }
-  return { url, image: false };
+  return { url, image: rasterExport && outputFormat === "image" };
 }
 
 async function readLimited(response: Response) {

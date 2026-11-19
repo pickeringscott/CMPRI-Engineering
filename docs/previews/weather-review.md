@@ -10,7 +10,7 @@ The property is fixed at 40.138080, -88.251416, from the [Residence Inn Champaig
 
 `GET /api/weather-preview` is a preview-only read transport for `api.weather.gov`. It requests NWS's canonical four-decimal point (`40.1381,-88.2514`, derived from the verified fixed hotel coordinates) to discover the property's forecast, hourly forecast, forecast grid and observation stations from `/points`, then reads the nearest returned station's latest report. The property alert point query runs independently so failed forecast discovery cannot hide alerts. Original NWS response documents, official URLs, source timestamps, retrieval times and independent resource states are retained in the response and shown in the view. Applicable alerts without polygons remain included.
 
-`GET /api/weather-preview/map?url=...` transports only allowlisted read resources on `mapservices.weather.noaa.gov`: the time-enabled MRMS radar catalog / exact raster exports, WSSI overall Days 1–3 layer 4, and generated NOAA PNGs. It rejects arbitrary hosts, credentials, redirects, unsupported operations and oversized responses. Observed scan labels come from actual catalog times and LockRaster IDs. WSSI guidance is separate from reported road surfaces, with issue / valid times, incomplete coverage and stale guidance labeled.
+`GET /api/weather-preview/map?url=...` transports only allowlisted read resources on `mapservices.weather.noaa.gov`: the time-enabled MRMS radar catalog / exact raster exports and WSSI overall Days 1–3 layer 4. Radar reads the authoritative extent/dimensions as JSON, then requests the same LockRaster IDs directly as PNG, avoiding NOAA temporary-file URLs. It rejects arbitrary hosts, credentials, redirects, unsupported operations and oversized responses. Observed scan labels come from actual catalog times and LockRaster IDs. WSSI guidance is separate from reported road surfaces, with issue / valid times, incomplete coverage and stale guidance labeled.
 
 Both endpoints omit upstream credentials and have bounded requests. Neither imports CMPRI authentication, Supabase, notification dispatch, storage or scheduling code. Weather loads once on open or an explicit refresh, aborts pending requests on close, and stops map playback on close, hiding, or leaving the map tab. There is no real adaptive scheduler.
 
@@ -38,3 +38,9 @@ python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3018 -
 ```
 
 Reviewed guidelines remain the current Illinois / Iowa palette and native dashboard / DesktopWindow / profile notification patterns. No applicable root/source `AGENTS.md` is present; the only discovered AGENTS file is in an archived `.bridge` subdirectory.
+
+## Published source check
+
+On November 19, 2026 at 2:14 AM Central, the published preview returned HTTP 200 with live responses for all seven NWS resources. Point discovery selected ILX grid 95,74; the reported station was KCMI (Willard), observed at 1:15 AM Central. The response contained 14 extended periods, 156 hourly periods, and zero active alerts returned at that check time. The interface displays those actual source times and does not treat an earlier empty result as a continuing all-clear.
+
+The NOAA radar catalog also returned HTTP 200 with 18 actual catalog records, and an exact raster export returned its real extent and dimensions. The WSSI property-point query returned HTTP 200 with no mapped impact polygon at that point; this does not guarantee clear travel conditions. Published binary image verification is recorded in the PR after the direct-PNG transport check.

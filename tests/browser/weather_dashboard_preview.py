@@ -73,12 +73,12 @@ def iso(value):
     return value.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def png_fixture():
+def png_fixture(width=16, height=16):
     """A local green raster fixture, not generated weather or a remote image."""
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    rows = b"".join(b"\x00" + bytes([30, 170, 75, 180]) * 16 for _ in range(16))
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    rows = b"".join(b"\x00" + bytes([30, 170, 75, 180]) * width for _ in range(height))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 
 
 async def wait_for(page_or_frame, expression, arg=None, timeout=15000):
@@ -99,6 +99,7 @@ class OfficialFeedFixtures:
         self.forecast_calls = 0
         self.map_urls = []
         self.exports = []
+        self.image_exports = []
         self.hold_forecast = True
         self.hold_map = False
         self.forecast_gate = asyncio.Event()
@@ -202,8 +203,15 @@ class OfficialFeedFixtures:
                 if self.hold_map:
                     self.map_pending.set()
                     await self.map_gate.wait()
+                if query.get("f") == ["image"]:
+                    self.image_exports.append(rule)
+                    width, height = map(int, query["size"][0].split(","))
+                    await route.fulfill(content_type="image/png", body=png_fixture(width, height))
+                    return
                 bbox = list(map(float, query["bbox"][0].split(",")))
+                width, height = map(int, query["size"][0].split(","))
                 data = {"href": "https://mapservices.weather.noaa.gov/TEST-FIXTURE-RADAR.png",
+                        "width": width, "height": height,
                         "extent": dict(zip(["xmin", "ymin", "xmax", "ymax"], bbox))}
             else:
                 data = {"objectIdField": "objectid", "timeInfo": {"startTimeField": "idp_validtime"},
@@ -323,7 +331,9 @@ async def run_viewport(browser, base, output, width, height):
         require(state["mode"] == "live" and state["frameCount"] == 2, "Map used fabricated/default frames")
         require(state["scanTimes"] == feed.scan_times, "Observed scan times differ from exact catalog fixtures")
         require(bool(feed.exports) and feed.exports[0]["lockRasterIds"] == [99002], "Latest radar export did not use its exact catalog raster ID")
-        evidence["mapResponseRendering"] = {"scanTimes": state["scanTimes"], "latestRasterId": 99002, "fixtureBitmapLoaded": True}
+        require(bool(feed.image_exports), "Map did not decode a direct exportImage?f=image response")
+        evidence["mapResponseRendering"] = {"scanTimes": state["scanTimes"], "latestRasterId": 99002,
+            "fixtureBitmapLoaded": True, "directImageExportDecoded": True}
         await page.screenshot(path=str(output / f"weather-dashboard-{width}.png"), full_page=True)
         sizes = await frame.evaluate("({width:innerWidth,document:document.documentElement.scrollWidth,body:document.getElementById('windowBody').clientWidth,content:document.getElementById('windowBody').scrollWidth})")
         require(sizes["document"] <= sizes["width"] + 1 and sizes["content"] <= sizes["body"] + 1, "Embedded Weather horizontal overflow: " + str(sizes))
