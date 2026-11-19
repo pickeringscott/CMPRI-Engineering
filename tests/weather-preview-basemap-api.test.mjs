@@ -66,6 +66,36 @@ test('reference exports require PNG and metadata error objects remain unavailabl
   assert.equal(meta.status,502);
 });
 
+test('incorporated-place labels use one fixed GNIS layer and preserve official names and geometry',async()=>{
+  const data={type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'MultiPoint',coordinates:[[-88.25,40.13],[-88.2,40.1]]},properties:{gaz_name:'City of Champaign',gaz_id:123,OBJECTID:456}}]};
+  const api=fixture(async(source,options)=>{
+    const url=new URL(source);assert.equal(url.origin,'https://carto.nationalmap.gov');
+    assert.equal(url.pathname,'/arcgis/rest/services/geonames/MapServer/1/query');
+    assert.equal(url.searchParams.get('f'),'geojson');assert.equal(url.searchParams.get('where'),'1=1');
+    assert.equal(url.searchParams.get('outFields'),'*');assert.equal(url.searchParams.get('returnGeometry'),'true');
+    assert.equal(url.searchParams.get('inSR'),'3857');assert.equal(url.searchParams.get('outSR'),'4326');
+    assert.equal(url.searchParams.get('resultRecordCount'),'1000');assert.equal(url.searchParams.get('spatialRel'),'esriSpatialRelIntersects');
+    assert.deepEqual(JSON.parse(url.searchParams.get('geometry')),{xmin:-10025000,ymin:4735000,xmax:-9625000,ymax:5035000,spatialReference:{wkid:3857}});
+    assert.equal(url.searchParams.get('layer'),null);assert.equal(url.searchParams.get('url'),null);assert.equal(options.redirect,'error');
+    return Response.json(data);
+  });
+  const response=await api.GET(request('op=place-labels&dataset=places&bbox=-10025000,4735000,-9625000,5035000&where=otherSQL&layer=99&url=https://evil.example'));
+  const body=await response.json();assert.equal(response.status,200);assert.deepEqual(body.data,data);assert.equal(body.error,null);assert.ok(body.receivedAt);
+  assert.match(body.source,/\/geonames\/MapServer\/1\/query/);
+});
+
+test('place-label requests reject unsupported datasets and invalid extents before fetching',async()=>{
+  let calls=0;const api=fixture(async()=>{calls++;throw Error('unexpected fetch');});
+  for(const query of [
+    'op=place-labels&dataset=roads&bbox=0,0,1,1','op=place-labels&dataset=places&bbox=0,0,1,1&width=100',
+    'op=place-labels&dataset=places&bbox=0,0,1,1&format=image','op=place-labels&dataset=places&bbox=0,0,1,1&bbox=0,0,1,1',
+    'op=place-labels&dataset=places&bbox=0,0,Infinity,1','op=place-labels&dataset=places&bbox=0,0,20037510,1','op=place-labels&dataset=places&bbox=1,0,0,1',
+  ])assert.equal((await api.GET(request(query))).status,400,query);
+  assert.equal(calls,0);
+  const incomplete=await fixture(async()=>Response.json({type:'FeatureCollection',features:[],exceededTransferLimit:true})).GET(request('op=place-labels&dataset=places&bbox=0,0,1,1'));
+  assert.equal(incomplete.status,502);
+});
+
 test('production is404 before any upstream access',async()=>{
   let calls=0;
   for(const env of [{VERCEL_ENV:'production'},{VERCEL_ENV:'production',NODE_ENV:'development'},{NODE_ENV:'production'},{}]) {

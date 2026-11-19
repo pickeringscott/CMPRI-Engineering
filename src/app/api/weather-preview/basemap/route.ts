@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   const dataset = url.searchParams.get("dataset");
   const operation = url.searchParams.get("op") || "tile";
   const format = url.searchParams.get("format");
-  if (!dataset || !["tile", "metadata", "reference"].includes(operation)
+  if (!dataset || !["tile", "metadata", "reference", "place-labels"].includes(operation)
     || (format !== null && format !== "json" && format !== "image")) return fail(400, "Unknown USGS dataset, operation or format");
   let source: string, attribution: string;
   if (operation === "metadata") {
@@ -70,6 +70,16 @@ export async function GET(request: Request) {
       const selected = REFERENCES[dataset as keyof typeof REFERENCES];
       source = selected.source + "?f=json"; attribution = selected.attribution;
     } else return fail(400, "Unknown USGS metadata dataset");
+  } else if (operation === "place-labels") {
+    if (dataset !== "places" || ["z", "x", "y", "width", "height"].some((key) => url.searchParams.has(key))
+      || format === "image") return fail(400, "Place labels accept only the fixed GNIS incorporated-place dataset and map extent");
+    const parts = (url.searchParams.get("bbox") || "").split(","), bbox = parts.map(Number);
+    if (bbox.length !== 4 || parts.some((part) => !part.trim()) || bbox.some((value) => !Number.isFinite(value) || Math.abs(value) > 20037509)
+      || bbox[0] >= bbox[2] || bbox[1] >= bbox[3]) return fail(400, "A bounded Web Mercator extent is required");
+    source = REFERENCES.places.source + "/1/query?" + new URLSearchParams({ f: "geojson", where: "1=1", outFields: "*", returnGeometry: "true",
+      geometry: JSON.stringify({ xmin: bbox[0], ymin: bbox[1], xmax: bbox[2], ymax: bbox[3], spatialReference: { wkid: 3857 } }),
+      geometryType: "esriGeometryEnvelope", spatialRel: "esriSpatialRelIntersects", inSR: "3857", outSR: "4326", resultRecordCount: "1000" }).toString();
+    attribution = REFERENCES.places.attribution;
   } else if (operation === "reference") {
     if (!Object.hasOwn(REFERENCES, dataset) || ["z", "x", "y"].some((key) => url.searchParams.has(key))) return fail(400, "Choose a fixed roads or places reference overlay");
     const parts = (url.searchParams.get("bbox") || "").split(",");
@@ -96,12 +106,13 @@ export async function GET(request: Request) {
   const timeout = setTimeout(abort, 12000);
   try {
     const upstream = await fetch(source, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store",
-      signal: controller.signal, headers: { Accept: operation === "metadata" ? "application/json" : operation === "reference" ? "image/png" : "image/png,image/jpeg", "User-Agent": "CMPRI-Weather-Preview/1.0" } });
+      signal: controller.signal, headers: { Accept: operation === "metadata" || operation === "place-labels" ? "application/json" : operation === "reference" ? "image/png" : "image/png,image/jpeg", "User-Agent": "CMPRI-Weather-Preview/1.0" } });
     if (!upstream.ok) { controller.abort(); return fail(upstream.status >= 400 ? upstream.status : 502, "USGS ground tile is unavailable"); }
     const bytes = await limitedBody(upstream);
-    if (operation === "metadata") {
+    if (operation === "metadata" || operation === "place-labels") {
       const data = JSON.parse(new TextDecoder().decode(bytes));
       if (!data || typeof data !== "object" || Array.isArray(data) || data.error) return fail(502, "USGS service metadata is unavailable");
+      if (operation === "place-labels" && (data.type !== "FeatureCollection" || !Array.isArray(data.features) || data.exceededTransferLimit)) return fail(502, "USGS incorporated-place results are unavailable or incomplete");
       return Response.json({ source, receivedAt: new Date().toISOString(), data, error: null }, { headers: ERROR_HEADERS });
     }
     const type = (upstream.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
