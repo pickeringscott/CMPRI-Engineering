@@ -1,4 +1,4 @@
-/** Preview-only, read-only transport for two fixed official NCEP WMS services.
+/** Preview-only, read-only transport for fixed official NCEP WMS services.
  * Layer/style/time choices must come from their actual capabilities documents.
  * No CMPRI session, database, API key, GPS, push, or scheduler is used. */
 export const runtime = "nodejs";
@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 15;
 
 const SOURCES = {
+  reflectivity: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows",
   velocity: "https://opengeo.ncep.noaa.gov/geoserver/kilx/ows",
   precipitation: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows",
 } as const;
@@ -182,7 +183,7 @@ export async function GET(request: Request) {
   // upstream URLs are constructed below from meaningful, validated values only.
   for (const key of ALLOWED_PARAMETERS) if (query.getAll(key).length > 1) return unavailable(400, "Duplicate WMS parameter");
   const productValue = query.get("product"), op = query.get("op");
-  if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose velocity or precipitation and a supported WMS operation");
+  if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose reflectivity, velocity or precipitation and a supported WMS operation");
   const product = productValue as Product;
   const bboxParts = (query.get("bbox") || "").split(",");
   const bbox = bboxParts.map(Number);

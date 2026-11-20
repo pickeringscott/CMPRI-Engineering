@@ -4,6 +4,7 @@ import {loadTs} from './helpers/load-ts.mjs';
 
 const velocity='https://opengeo.ncep.noaa.gov/geoserver/kilx/ows';
 const precipitation='https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows';
+const reflectivity='https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows';
 // Deliberately different from conventional guessed names: only metadata counts.
 const actualLayer='kilx:ACTUAL_SOURCE_VELOCITY';
 const actualStyle='SourceVelocityStyle';
@@ -84,12 +85,14 @@ test('capabilities preserve source XML and exact advertised names, inherited CRS
  assert.ok(Number.isFinite(Date.parse(data.checkedAt)));assert.equal(calls.length,1);
 });
 
-test('precipitation capabilities use their own fixed official service without guessed layer names',async()=>{
- let seen;
- const response=await fixture(async(url)=>{seen=url;return xmlResponse(xml.replaceAll(actualLayer,'conus:SOURCE_PRECIPITATION_TYPE'));})
-  .GET(request({product:'precipitation',op:'capabilities'}));
- assert.equal(response.status,200);assert.equal(new URL(seen).origin+new URL(seen).pathname,precipitation);
- assert.equal((await response.json()).layers[0].name,'conus:SOURCE_PRECIPITATION_TYPE');
+test('other products use their own fixed official services without guessed layer names',async()=>{
+ for(const [product,source,name] of [['precipitation',precipitation,'conus:SOURCE_PRECIPITATION_TYPE'],['reflectivity',reflectivity,'conus:SOURCE_REFLECTIVITY']]) {
+  let seen;
+  const response=await fixture(async(url)=>{seen=url;return xmlResponse(xml.replaceAll(actualLayer,name));})
+   .GET(request({product,op:'capabilities'}));
+  assert.equal(response.status,200);assert.equal(new URL(seen).origin+new URL(seen).pathname,source);
+  assert.equal((await response.json()).layers[0].name,name);
+ }
 });
 
 test('map requests require advertised layer/style/time and fix WMS PNG Web Mercator parameters',async()=>{
