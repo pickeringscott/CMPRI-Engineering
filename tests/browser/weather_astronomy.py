@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 from playwright.async_api import async_playwright
-from weather_current_notices import CurrentFixtures, context_for, refresh
+from weather_current_notices import CurrentFixtures, context_for, refresh, dial_reference_layout
 from weather_dashboard_preview import API, PREVIEW, iso, require, wait_for, weather_frame
 
 
@@ -30,6 +30,10 @@ class AstronomyFixtures(CurrentFixtures):
         observation = result['resources']['observation']['data']['properties']
         observation['textDescription'] = 'Clear' if self.night else 'Sunny'
         observation['icon'] = API+'/icons/land/'+('night' if self.night else 'day')+'/skc'
+        if self.mode=='event':
+            observation['textDescription']='Partly Cloudy with Variable Cloudiness Overnight'
+            observation['icon']=API+'/icons/land/night/few'
+            result['resources']['observation'].update(status='stale',error='TEST FIXTURE retained station observation')
         return result
 
     def astronomy(self):
@@ -44,7 +48,7 @@ class AstronomyFixtures(CurrentFixtures):
             if self.mode == 'expired':
                 start, end = self.now-timedelta(hours=3), self.now-timedelta(hours=1)
             resource['data']['events'] = [{'id':'TEST-FIXTURE-LOCAL-LUNAR','type':'lunar-eclipse',
-                'title':'TEST FIXTURE local lunar eclipse','summary':'Explicit local UI fixture; not an actual announced eclipse.',
+                'title':'TEST FIXTURE local lunar eclipse over Champaign','summary':'Explicit local UI fixture; not an actual announced eclipse.',
                 'start':iso(start),'end':iso(end),'peak':iso(self.now+timedelta(hours=1)),
                 'sourceUrl':'https://science.nasa.gov/eclipses/',
                 'details':['TEST FIXTURE locally validated event details.','TEST FIXTURE event detail time '+iso(start)],'calculated':True}]
@@ -108,6 +112,11 @@ async def run_case(browser, base, output, width, height, role):
     try:
         trigger=frame.locator('[data-weather-astronomy-trigger]')
         await wait_for(frame,"document.querySelector('[data-weather-astronomy-caption]')?.textContent.includes('TEST FIXTURE')")
+        await wait_for(frame,"document.querySelectorAll('#liveTemperature .wv-dial-marker').length===4 && !nwsLiveView.getState().loading")
+        await dial_reference_layout(frame)
+        require('STALE' in await frame.locator('#liveConditionsBadge').inner_text()
+                and await frame.locator('#liveGusts').count()==1,
+                'Dense event layout lost stale-observation status or reported gust')
         await trigger.click()
         dialog=frame.locator('dialog[data-weather-astronomy-dialog]')
         await dialog.wait_for(state='visible')
