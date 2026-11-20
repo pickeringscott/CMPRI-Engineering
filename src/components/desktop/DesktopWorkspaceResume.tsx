@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { CmpriClientSession } from "@/lib/auth/client-session";
+import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { canResumeWorkspaceView } from "@/lib/ui/workspace-route-access";
 import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity, type WorkspaceState, type WorkspaceView } from "@/lib/ui/workspace-resume";
 
@@ -24,6 +24,7 @@ export default function DesktopWorkspaceResume(props: Props) {
   const ready = useRef("");
   const mountedScope = useRef(scope);
   const signedOut = useRef(false);
+  const verifying = useRef(false);
   const warned = useRef(false);
   const [restoredScope, setRestoredScope] = useState("");
   useLayoutEffect(() => { latest.current = props; });
@@ -45,7 +46,7 @@ export default function DesktopWorkspaceResume(props: Props) {
       return routes.has(path) || path === "/notes" || path === "/profile/ai-connection"
         || /^\/work-orders\/[^/]+$/.test(path) || view.key.startsWith("work-order-draft:");
     };
-    ready.current = ""; signedOut.current = false; warned.current = false;
+    ready.current = ""; signedOut.current = false; verifying.current = false; warned.current = false;
     let live = true;
     // The external-storage result and parent window restoration are committed
     // together before persistence is enabled for this freshly verified scope.
@@ -81,7 +82,7 @@ export default function DesktopWorkspaceResume(props: Props) {
   }, [scope]);
 
   useEffect(() => {
-    if (restoredScope !== scope || signedOut.current) return;
+    if (restoredScope !== scope || signedOut.current || verifying.current) return;
     ready.current = scope;
     const current = latest.current;
     try {
@@ -94,8 +95,9 @@ export default function DesktopWorkspaceResume(props: Props) {
   }, [scope, restoredScope, desktopKey]);
 
   useEffect(() => {
+    let live = true;
     const persist = () => {
-      if (ready.current !== scope || signedOut.current) return;
+      if (ready.current !== scope || signedOut.current || verifying.current) return;
       const current = latest.current;
       try {
         const saved = saveWorkspace(window.localStorage, workspaceIdentity(current.session), {
@@ -111,16 +113,30 @@ export default function DesktopWorkspaceResume(props: Props) {
     };
     const visibility = () => { if (document.hidden) persist(); };
     const sessionChanged = (event: Event) => {
-      if ((event as CustomEvent<{ topics?: string[] }>).detail?.topics?.includes("session")) {
-        signedOut.current = true; ready.current = "";
+      if (signedOut.current || verifying.current
+        || !(event as CustomEvent<{ topics?: string[] }>).detail?.topics?.includes("session")) return;
+      verifying.current = true; ready.current = "";
+      void loadCmpriSession().then(session => {
+        if (!live || signedOut.current) return;
+        if (JSON.stringify(workspaceIdentity(session)) !== scope) {
+          signedOut.current = true;
+          latest.current.onSessionChanged();
+          return;
+        }
+        verifying.current = false; ready.current = scope;
+        persist();
+      }).catch(() => {
+        if (!live || signedOut.current) return;
+        signedOut.current = true;
         latest.current.onSessionChanged();
-      }
+      });
     };
     window.addEventListener("pagehide", persist);
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("cmpri-workspace-sign-out", signOut);
     window.addEventListener("cmpri-data-cache-invalidated", sessionChanged);
     return () => {
+      live = false;
       window.removeEventListener("pagehide", persist);
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("cmpri-workspace-sign-out", signOut);

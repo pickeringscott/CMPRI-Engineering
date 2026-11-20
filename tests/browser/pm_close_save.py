@@ -36,7 +36,7 @@ async def launch(p,profile,width,state):
    return await route.fulfill(content_type='application/json',body=json.dumps({'entry':entry}))
   state['reads']+=1
   return await route.fulfill(content_type='application/json',body=json.dumps({'entries':state['entries'],'workbook':{'daily':{},'weekly':{},'monthly':{},'rooms':[],'fetchedAt':'2026-11-20T18:00:00Z'},'can_edit':True,'can_review':True,'actor_id':fixture.UID,'actor_name':'Alex Morgan','locations':[],'review_queue':[],'access_roles':['chief_engineer'],'spreadsheet_sync_enabled':False}))
- await context.route('**/api/preventive-maintenance*',pm_route)
+ await context.route('**/api/preventive-maintenance**',pm_route)
  page=await context.new_page();page.on('pageerror',lambda error:state['errors'].append(str(error)))
  return context,page
 
@@ -47,7 +47,7 @@ async def pm_frame(page):
 async def main():
  results=[]
  async with async_playwright() as p:
-  for width in [1440,390]:
+  for width in [int(value) for value in os.environ.get('CMPRI_UI_WIDTHS','1440,390').split(',')]:
    with tempfile.TemporaryDirectory(prefix='cmpri-pm-queue-') as profile:
     state={'entries':[],'revision':0,'attempts':[],'commits':[],'reads':0,'fail':False,'errors':[]}
     context,page=await launch(p,profile,width,state)
@@ -65,6 +65,11 @@ async def main():
     await expect(frame.get_by_text('2 PM changes queued.',exact=False)).to_be_visible()
     assert state['attempts']==[],state['attempts']
     await page.locator(WINDOW).screenshot(path=str(OUT/f'pm-queued-{width}.png'))
+    # Close documents before the persistent browser exits. Otherwise Chrome may
+    # auto-restore an unguarded CMPRI tab before fixture routes are installed.
+    blank=next((open_page for open_page in context.pages if open_page.url=='about:blank'),None) or await context.new_page()
+    for open_page in list(context.pages):
+     if open_page!=blank:await open_page.close()
     await context.close()  # Actual browser shutdown, not a simulated React unmount.
     context,page=await launch(p,profile,width,state)
     await page.goto(BASE+'/engineering')
@@ -75,7 +80,12 @@ async def main():
     assert not state['attempts']
     state['fail']=True
     await page.locator(WINDOW+' [data-cmpri-window-close]').click()
-    await expect(frame.get_by_text('Fixture PM service unavailable. Your changes are kept.',exact=True)).to_be_visible(timeout=30000)
+    try:
+     await expect(frame.get_by_text('Fixture PM service unavailable. Your changes are kept.',exact=True)).to_be_visible(timeout=15000)
+    except Exception:
+     print('Failed-close diagnostic',width,json.dumps(state),[(f.name,f.url) for f in page.frames],flush=True)
+     await page.screenshot(path=str(OUT/f'pm-close-failure-{width}.png'),full_page=True)
+     raise
     await expect(page.locator(WINDOW)).to_be_visible();assert len(state['attempts'])==1;assert not state['commits']
     state['fail']=False
     await page.locator(WINDOW+' [data-cmpri-window-close]').click()

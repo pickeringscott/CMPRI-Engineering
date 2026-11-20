@@ -29,6 +29,20 @@ LIST = '[data-cmpri-desktop-window="work-order-list"]'
 PROFILE = '[data-cmpri-desktop-window="/profile"]'
 
 
+class ApiFixtureContext:
+    """Reuse API fixtures while this test owns its remembered JWT lifecycle."""
+    def __init__(self, context):
+        self.context = context
+
+    async def add_init_script(self, *_args, **_kwargs):
+        # The shared fixture's non-JWT token is unsuitable for restart/logout
+        # testing, and rerunning it inside an artwork iframe signs back in.
+        return None
+
+    async def route(self, *args, **kwargs):
+        return await self.context.route(*args, **kwargs)
+
+
 def session_payload(role="chief_engineer", user_id=fixture.UID, hotel_id=fixture.HOTEL, capabilities=None):
     return {
         "user": {"id": user_id, "name": "Alex Morgan", "role": role, "email": "fixture@example.invalid"},
@@ -59,7 +73,8 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
         args=["--no-sandbox"], viewport={"width": width, "height": 1000 if width > 640 else 844},
         is_mobile=width < 640, has_touch=width < 640, timezone_id="America/Chicago", service_workers="block",
     )
-    await fixture.install(context, session["user"]["role"], user_id=session["user"]["id"],
+    state.setdefault("startup_pages", []).append([page.url for page in context.pages])
+    await fixture.install(ApiFixtureContext(context), session["user"]["role"], user_id=session["user"]["id"],
                           hotel_id=session["hotelId"], revisions=state["revisions"])
     # A remembered session is synthetic here. Reopening tests the real persistent
     # storage boundary instead of Playwright's serialized storage_state shortcut.
@@ -72,6 +87,7 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
                                                                   "aud": "authenticated", "role": "authenticated", "app_metadata": {}, "user_metadata": {}}}
     await context.add_init_script("""(() => {
       try {
+        if(window!==window.top) return;
         if(location.pathname==='/') {
           localStorage.removeItem('cmpri:auth:v1');
           sessionStorage.removeItem('cmpri:auth:v1');
@@ -93,6 +109,8 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
         if parsed.hostname not in {"localhost", "127.0.0.1"}:
             state["blocked_external"].add(parsed.hostname or "unknown")
             return await route.abort()
+        if parsed.path == "/__cmpri_workspace_fixture__":
+            return await route.fulfill(content_type="text/html", body="<!doctype html><title>Local recovery fixture</title>")
         if parsed.path.startswith("/api/"):
             state["api_requests"].append({"path": parsed.path, "method": request.method})
             if request.method not in {"GET", "HEAD"} and parsed.path != "/api/profile/header-layout":
@@ -106,7 +124,9 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
             return await route.fulfill(json=profile_payload(session))
         if parsed.path == "/api/profile/phone-notifications":
             return await route.fulfill(json={"configured": False, "public_key": "", "subscribed_on_this_device": False,
-                                            "settings": {"timezone": "America/Chicago", "schedule": {}}})
+                                            "settings": {"timezone": "America/Chicago", "schedule": {
+                                                day: {"enabled": False, "start": "08:00", "end": "17:00"}
+                                                for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]}}})
         marker = parse_qs(parsed.query).get("workspaceResume", [None])[0]
         if parsed.path == "/api/rooms" and marker:
             state["cache_hits"][marker] = state["cache_hits"].get(marker, 0) + 1
@@ -118,6 +138,10 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
     page = context.pages[0] if context.pages else await context.new_page()
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    # Read persisted navigation before any application script can hydrate it.
+    # This document is fulfilled locally and contains no application code.
+    await page.goto(BASE + "/__cmpri_workspace_fixture__", wait_until="domcontentloaded")
+    state.setdefault("startup_workspaces", []).append(await workspace(page))
     await page.goto(BASE + "/engineering", wait_until="domcontentloaded", timeout=60000)
     return context, page, requested, errors
 
@@ -173,18 +197,21 @@ async def expire_disk_record(page, marker):
 async def check_tally_anchor(page, width, results):
     iframe = page.locator('iframe[title="Illinois versus Iowa football background"]')
     await expect(iframe).to_have_count(1)
-    child = await (await iframe.element_handle()).content_frame()
+    child = page.frame_locator('iframe[title="Illinois versus Iowa football background"]')
     await child.locator(".sim-tally").wait_for()
-    await child.wait_for_function("window.cmpriTheme?.action && window.cmpriTheme?.game")
+    await page.wait_for_function("""()=>{
+      const frame=document.querySelector('iframe[title="Illinois versus Iowa football background"]');
+      return frame?.contentWindow?.cmpriTheme?.action && frame?.contentWindow?.cmpriTheme?.game;
+    }""")
     await page.locator(".cmpri-desktop-topbar").wait_for(state="visible")
     if width > 640:
-        await child.wait_for_function("document.body.classList.contains('cmpri-tally-header')")
+        await expect(child.locator("body")).to_have_class(re.compile(r"\bcmpri-tally-header\b"))
 
     async def geometry(label):
         await page.wait_for_timeout(100)
         parent = await page.locator(".cmpri-desktop-topbar").bounding_box()
         tally = await child.locator(".sim-tally").bounding_box()
-        anchored = await child.evaluate("document.body.classList.contains('cmpri-tally-header')")
+        anchored = await child.locator("body").evaluate("body=>body.classList.contains('cmpri-tally-header')")
         if width > 640:
             assert anchored and abs(tally["y"] - parent["y"] - parent["height"] - 4) <= 1, (label, parent, tally)
             assert abs((await page.evaluate("innerWidth")) - tally["x"] - tally["width"] - 8) <= 1, (label, tally)
@@ -211,6 +238,28 @@ async def check_width(playwright, width, results):
     marker = f"restart-{width}"
     state = {"revisions": {name: 1 for name in ["orders", "inbox", "pool", "rooms", "feedback", "session", "reference"]},
              "cache_hits": {}, "blocked_external": set(), "unexpected_writes": [], "api_requests": []}
+    close_number = 0
+
+    async def close_context(context):
+        nonlocal close_number
+        close_number += 1
+        pages = []
+        for open_page in context.pages:
+            details = {"url": open_page.url}
+            if urlparse(open_page.url).netloc == urlparse(BASE).netloc:
+                details["workspace"] = await workspace(open_page)
+                details["windows"] = await open_page.locator("[data-cmpri-desktop-window]").evaluate_all("items=>items.map(item=>({key:item.dataset.cmpriDesktopWindow,active:item.dataset.active}))")
+            pages.append(details)
+        (OUT / f"workspace-context-{width}-{close_number}.json").write_text(json.dumps({"pages": pages, "startupPages": state["startup_pages"], "startupWorkspaces": state["startup_workspaces"]}, indent=2))
+        # Close the CMPRI tab through its normal lifecycle before stopping the
+        # browser. Otherwise Chromium may restore and execute the old app tab
+        # before Playwright can install the next context's network guard.
+        blank = next((item for item in context.pages if item.url == "about:blank"), None)
+        blank = blank or await context.new_page()
+        for open_page in list(context.pages):
+            if open_page is not blank:
+                await open_page.close()
+        await context.close()
     with tempfile.TemporaryDirectory(prefix=f"workspace-{width}-", dir=OUT) as directory:
         profile = Path(directory)
         context, page, _, errors = await launch(playwright, profile, width, state)
@@ -242,7 +291,7 @@ async def check_width(playwright, width, results):
             assert not errors, errors
             await page.screenshot(path=str(OUT / f"workspace-before-{width}.png"))
         finally:
-            await context.close()
+            await close_context(context)
 
         # A complete Chromium close/relaunch reuses localStorage and IndexedDB.
         # Hold fresh authorization to prove no restored private screen appears first.
@@ -271,22 +320,30 @@ async def check_width(playwright, width, results):
             await profile_window.locator("[data-cmpri-window-close]").click()
             await expect(profile_window).to_have_count(0)
             await wait_saved(page, ["work-order-list"], "work-order-list")
+            (OUT / f"workspace-closed-{width}.json").write_text(json.dumps(await workspace(page), indent=2))
             assert not errors, errors
         finally:
             gate.set()
-            await context.close()
+            await close_context(context)
 
         context, page, _, errors = await launch(playwright, profile, width, state)
         try:
             await dashboard_ready(page)
             await expect(page.locator(LIST)).to_be_visible()
+            if await page.locator(PROFILE).count():
+                (OUT / f"workspace-resurrection-{width}.json").write_text(json.dumps({
+                    "url": page.url, "workspace": await workspace(page),
+                    "frames": [frame.url for frame in page.frames], "errors": errors,
+                    "storage": await page.evaluate("Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('cmpri:workspace:')))"),
+                }, indent=2))
+                await page.screenshot(path=str(OUT / f"workspace-resurrection-{width}.png"))
             await expect(page.locator(PROFILE)).to_have_count(0)
             expired = await cache_read(page, marker)
             assert expired["hit"] is None and state["cache_hits"][marker] == 2, expired
             results.append({"width": width, "test": "explicitly closed window stays closed after restart; expired disk cache fetches fresh fixture data", "passed": True})
             assert not errors, errors
         finally:
-            await context.close()
+            await close_context(context)
 
         state["revisions"]["rooms"] += 1
         context, page, _, errors = await launch(playwright, profile, width, state)
@@ -297,7 +354,7 @@ async def check_width(playwright, width, results):
             results.append({"width": width, "test": "changed resource revision invalidates durable cache before it can be served", "passed": True})
             assert not errors, errors
         finally:
-            await context.close()
+            await close_context(context)
 
         # Seed only the prior navigation snapshot between variants. The production
         # reader must ignore it after each fresh identity/permission check.
@@ -317,7 +374,7 @@ async def check_width(playwright, width, results):
                 assert not errors, errors
                 results.append({"width": width, "test": f"changed {label} cannot restore the prior private workspace", "passed": True})
             finally:
-                await context.close()
+                await close_context(context)
 
         context, page, _, errors = await launch(playwright, profile, width, state, seed_workspace=original_workspace)
         try:
@@ -332,7 +389,7 @@ async def check_width(playwright, width, results):
             assert not errors, errors
             results.append({"width": width, "test": "actual sign-out forgets navigation without erasing protected editor recovery; late pagehide cannot recreate it", "passed": True})
         finally:
-            await context.close()
+            await close_context(context)
         assert not state["unexpected_writes"], state["unexpected_writes"]
         results.append({"width": width, "test": "network isolation", "passed": True, "productionDataAccessed": False,
                         "apiRequestsIntercepted": len(state["api_requests"]), "blockedExternalHosts": sorted(state["blocked_external"])})
