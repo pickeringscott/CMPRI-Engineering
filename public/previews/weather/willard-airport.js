@@ -46,6 +46,16 @@
       year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
     return parts.year + '-' + parts.month + '-' + parts.day;
   }
+  function boardFreshness(model, refreshing = false) {
+    if (!model) return { status: refreshing ? 'loading' : 'unavailable', reason: '' };
+    if (model.status !== 'live') return { status: model.status, reason: model.error || '' };
+    const retrieved = Date.parse(model.retrievedAt || ''), age = Date.now() - retrieved;
+    const reason = refreshing ? 'Refreshing the last retrieved flight board.'
+      : !Number.isFinite(retrieved) || age < -30000 ? 'The retrieval time cannot be verified.'
+        : model.providerDate !== centralDay() ? 'These rows belong to an earlier Central date.'
+          : age >= CACHE_MS ? 'These rows were retrieved more than one minute ago. Reopen the airport section to check again.' : '';
+    return { status: reason ? 'stale' : 'live', reason };
+  }
   function sourceUrl(kind, value, allowWidget) {
     const fallback = 'https://www.avionio.com/en/airport/cmi/' + kind;
     try {
@@ -215,15 +225,15 @@
       if (!canRun()) return;
       for (const kind of ['arrivals', 'departures']) {
         const view = views[kind], model = snapshot && snapshot[kind];
-        const stale = model && (model.status === 'stale' || (refreshing && Array.isArray(model.flights)));
-        const status = stale ? 'stale' : model?.status || (refreshing ? 'loading' : 'unavailable');
+        const freshness = boardFreshness(model, refreshing);
+        const status = freshness.status;
         models[kind] = model ? { ...model, status } : { status, flights: null };
         view.section.dataset.availability = status;
         view.status.textContent = status === 'loading' ? 'Loading flight data…'
           : status === 'stale' ? 'Last known · unverified'
           : status === 'live' ? publishedDate(model.providerDate) + (publishedDate(model.providerDate) ? ' · ' : '') + 'Central time'
           : 'Flight data unavailable';
-        view.status.title = model?.error || '';
+        view.status.title = freshness.reason || model?.error || '';
         view.body.replaceChildren();
         if (model && Array.isArray(model.flights) && model.flights.length) {
           for (const flight of model.flights) {
@@ -256,6 +266,7 @@
       london.dataset.availability = statuses.every(status => status === 'live') ? 'live'
         : statuses.includes('stale') ? 'stale' : statuses.includes('live') ? 'partial'
         : statuses.includes('loading') ? 'loading' : 'unavailable';
+      if (timer !== null && canRun()) scheduleDisplay();
     }
     renderFlights(null, false);
     function updateClock() {
@@ -263,6 +274,10 @@
       clock.dateTime = now.toISOString();
       clock.textContent = clockFormat.format(now);
       clock.setAttribute('aria-label', 'Current Central time: ' + clock.textContent);
+      if (flightData.value && ['arrivals', 'departures'].some(kind =>
+        models[kind]?.status === 'live' && boardFreshness(flightData.value[kind]).status === 'stale')) {
+        renderFlights(flightData.value, false);
+      }
     }
     function stopClock() {
       if (timer !== null) { clearTimeout(timer); timer = null; }
@@ -271,7 +286,14 @@
       updateClock();
       if (timer !== null || !canRun()) return;
       // Display-only clock: no network request, flight check or notification.
-      timer = setTimeout(() => { timer = null; if (canRun()) startClock(); }, 60000 - Date.now() % 60000 + 25);
+      scheduleDisplay();
+    }
+    function scheduleDisplay() {
+      stopClock();
+      const deadlines = Object.values(flightData.value || {}).filter(model => boardFreshness(model).status === 'live')
+        .map(model => Date.parse(model.retrievedAt) + CACHE_MS - Date.now());
+      const delay = Math.max(25, Math.min(60000 - Date.now() % 60000 + 25, ...deadlines));
+      timer = setTimeout(() => { timer = null; if (canRun()) startClock(); }, delay);
     }
     function mountTracker() {
       if (!canRun()) return;

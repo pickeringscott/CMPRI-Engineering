@@ -69,7 +69,7 @@ export default function DesktopFrame({
       if (!returnsToDesktop && nextPath === frameWindow.location.pathname) return;
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
-      if (returnsToDesktop || nextPath === "/engineering") handlersRef.current.onReturnToDesktop();
+      if (returnsToDesktop || ["/engineering", "/front-desk"].includes(nextPath)) handlersRef.current.onReturnToDesktop();
       else handlersRef.current.onOpen(href, linkTitle(target));
     });
 
@@ -80,7 +80,7 @@ export default function DesktopFrame({
       if (url) {
         const next = new URL(String(url), frameWindow.location.href);
         if (isDesktopRoute(next.href, origin) && next.pathname !== frameWindow.location.pathname) {
-          if (next.pathname === "/engineering") handlersRef.current.onReturnToDesktop();
+          if (["/engineering", "/front-desk"].includes(next.pathname)) handlersRef.current.onReturnToDesktop();
           else handlersRef.current.onOpen(next.href, next.pathname);
           return;
         }

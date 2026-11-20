@@ -47,7 +47,7 @@ def session_payload(role="chief_engineer", user_id=fixture.UID, hotel_id=fixture
     return {
         "user": {"id": user_id, "name": "Alex Morgan", "role": role, "email": "fixture@example.invalid"},
         "hotelId": hotel_id,
-        "landing": "/engineering",
+        "landing": {"technician": "/technician", "housekeeping": "/work-orders", "front_desk": "/front-desk"}.get(role, "/engineering"),
         "capabilities": fixture.CAPS[role] if capabilities is None else capabilities,
     }
 
@@ -65,7 +65,7 @@ def profile_payload(session):
     }
 
 
-async def launch(playwright, profile, width, state, session=None, gate=None, seed_workspace=None):
+async def launch(playwright, profile, width, state, session=None, gate=None, seed_workspace=None, start_path="/engineering"):
     """Install the complete network guard before the first application navigation."""
     session = session or session_payload()
     context = await playwright.chromium.launch_persistent_context(
@@ -99,7 +99,7 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
         %s
       } catch {}
     })();""" % (json.dumps(json.dumps(auth)), json.dumps(json.dumps(auth)),
-                  "if(window===window.top && location.pathname==='/engineering') localStorage.setItem(%s,%s);" % (json.dumps(WORKSPACE_KEY), json.dumps(seed_workspace))
+                  "if(window===window.top && location.pathname===%s) localStorage.setItem(%s,%s);" % (json.dumps(urlparse(start_path).path), json.dumps(WORKSPACE_KEY), json.dumps(seed_workspace))
                   if seed_workspace is not None else ""))
     requested = asyncio.Event()
 
@@ -122,6 +122,8 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
             return await route.fulfill(json=session)
         if parsed.path == "/api/profile":
             return await route.fulfill(json=profile_payload(session))
+        if parsed.path == "/api/notes":
+            return await route.fulfill(json={"notes": [], "note": None})
         if parsed.path == "/api/profile/phone-notifications":
             return await route.fulfill(json={"configured": False, "public_key": "", "subscribed_on_this_device": False,
                                             "settings": {"timezone": "America/Chicago", "schedule": {
@@ -142,7 +144,7 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
     # This document is fulfilled locally and contains no application code.
     await page.goto(BASE + "/__cmpri_workspace_fixture__", wait_until="domcontentloaded")
     state.setdefault("startup_workspaces", []).append(await workspace(page))
-    await page.goto(BASE + "/engineering", wait_until="domcontentloaded", timeout=60000)
+    await page.goto(BASE + start_path, wait_until="domcontentloaded", timeout=60000)
     return context, page, requested, errors
 
 
@@ -167,6 +169,38 @@ async def wait_saved(page, keys, active=None):
         && keys.every(key=>saved.desktop.views.some(view=>view.key===key))
         && (!active || saved.desktop.zOrder.at(-1)===active);
     }""", arg=[WORKSPACE_KEY, keys, active], timeout=15000)
+
+
+async def wait_top_href(page, href):
+    await page.wait_for_function("""([key,href]) => JSON.parse(localStorage.getItem(key)||'null')?.topHref===href""",
+                                 arg=[WORKSPACE_KEY, href], timeout=15000)
+
+
+async def guarded_desktop_return(page, profile_window):
+    frame_handle = await profile_window.locator("iframe").element_handle()
+    frame = await frame_handle.content_frame()
+    await frame.evaluate("""() => {
+      window.fixtureGuardRequests=0;
+      document.addEventListener('cmpri-modal-cancel-request',event=>{
+        window.fixtureGuardRequests++;event.preventDefault();event.stopImmediatePropagation();
+      },true);
+      const button=document.createElement('button');
+      button.textContent='Fixture guarded return';button.dataset.cmpriModalDashboard='true';
+      button.dataset.cmpriModalDashboardHref='/engineering';document.body.prepend(button);
+    }""")
+    await frame.get_by_role("button", name="Fixture guarded return", exact=True).click()
+    await frame.wait_for_function("window.fixtureGuardRequests===1")
+    await expect(profile_window).to_be_visible()
+    await frame.evaluate("""() => parent.postMessage({type:'cmpri-modal-dashboard',
+      modalToken:new URLSearchParams(location.search).get('modalToken')},location.origin)""")
+    await frame.wait_for_function("window.fixtureGuardRequests===2")
+    await frame.evaluate("history.replaceState({},'', '/front-desk')")
+    await frame.wait_for_function("window.fixtureGuardRequests===3")
+    await expect(profile_window).to_be_visible()
+    assert any(view["key"] == "/profile" for view in (await workspace(page))["desktop"]["views"])
+    await frame.evaluate("""() => parent.postMessage({type:'cmpri-modal-close',
+      modalToken:new URLSearchParams(location.search).get('modalToken')},location.origin)""")
+    await expect(profile_window).to_have_count(0)
 
 
 async def cache_read(page, marker):
@@ -317,9 +351,9 @@ async def check_width(playwright, width, results):
             results.append({"width": width, "test": "complete browser restart restores authorized windows, geometry and active window with fresh tokens; valid cached data is reused", "passed": True})
             await page.screenshot(path=str(OUT / f"workspace-restored-{width}.png"))
             assert await expire_disk_record(page, marker) == 1
-            await profile_window.locator("[data-cmpri-window-close]").click()
-            await expect(profile_window).to_have_count(0)
+            await guarded_desktop_return(page, profile_window)
             await wait_saved(page, ["work-order-list"], "work-order-list")
+            results.append({"width": width, "test": "embedded return button, dashboard message and history honor a refused save guard; close acknowledgment dismisses once", "passed": True})
             (OUT / f"workspace-closed-{width}.json").write_text(json.dumps(await workspace(page), indent=2))
             assert not errors, errors
         finally:
@@ -395,12 +429,100 @@ async def check_width(playwright, width, results):
                         "apiRequestsIntercepted": len(state["api_requests"]), "blockedExternalHosts": sorted(state["blocked_external"])})
 
 
+async def check_standalone_roles(playwright, width, results):
+    """Close/relaunch real app tabs; never seed navigation for the restart itself."""
+    async def close_context(context):
+        blank = next((item for item in context.pages if item.url == "about:blank"), None)
+        blank = blank or await context.new_page()
+        for open_page in list(context.pages):
+            if open_page is not blank:
+                await open_page.close()
+        await context.close()
+
+    for role in ["technician", "housekeeping"]:
+        session = session_payload(role=role)
+        landing = session["landing"]
+        state = {"revisions": {name: 1 for name in ["orders", "inbox", "pool", "rooms", "feedback", "session", "reference"]},
+                 "cache_hits": {}, "blocked_external": set(), "unexpected_writes": [], "api_requests": []}
+        top_href = "/notes?tab=journal"
+        with tempfile.TemporaryDirectory(prefix=f"standalone-{role}-{width}-", dir=OUT) as directory:
+            profile = Path(directory)
+            context, page, _, errors = await launch(playwright, profile, width, state, session=session, start_path=landing)
+            try:
+                await wait_top_href(page, landing)
+                await page.goto(BASE + top_href, wait_until="domcontentloaded")
+                await expect(page.get_by_role("heading", name="Notes", exact=True)).to_be_visible()
+                await wait_top_href(page, top_href)
+                original_workspace = json.dumps(await workspace(page))
+                assert not errors, errors
+            finally:
+                await close_context(context)
+
+            gate = asyncio.Event()
+            context, page, requested, errors = await launch(playwright, profile, width, state, session=session, gate=gate, start_path=landing)
+            try:
+                await asyncio.wait_for(requested.wait(), timeout=30)
+                await page.wait_for_timeout(150)
+                assert urlparse(page.url).path == landing
+                assert not any(urlparse(frame.url).path == "/notes" for frame in page.frames)
+                assert (await workspace(page))["topHref"] == top_href, "initial landing cannot clobber the pending restore decision"
+                gate.set()
+                await page.wait_for_url(BASE + top_href, timeout=30000)
+                await expect(page.get_by_role("heading", name="Notes", exact=True)).to_be_visible()
+                await wait_top_href(page, top_href)
+                assert not errors, errors
+                results.append({"width": width, "role": role, "test": "complete browser restart resumes the last standalone view from the authorized landing after fresh verification", "passed": True})
+            finally:
+                gate.set()
+                await close_context(context)
+
+            # Isolated seeds keep these explicit-navigation cases independent
+            # of their preceding case; all HTTP reads remain fixture guarded.
+            for explicit in [landing + "?tab=explicit", "/staff-notes?view=explicit"]:
+                context, page, _, errors = await launch(playwright, profile, width, state, session=session,
+                                                       seed_workspace=original_workspace, start_path=explicit)
+                try:
+                    await wait_top_href(page, explicit)
+                    assert page.url == BASE + explicit
+                    assert not errors, errors
+                finally:
+                    await close_context(context)
+            results.append({"width": width, "role": role, "test": "explicit landing query and direct standalone URL override an earlier saved view without a navigation loop", "passed": True})
+
+            context, page, _, errors = await launch(playwright, profile, width, state, session=session,
+                                                   seed_workspace=original_workspace, start_path=landing + "?tab=signout")
+            try:
+                await wait_top_href(page, landing + "?tab=signout")
+                await page.evaluate("key=>localStorage.setItem(key,'fixture protected unsynced data')", OUTBOX_KEY)
+                if role == "housekeeping":
+                    await page.goto(BASE + "/profile", wait_until="domcontentloaded")
+                    await expect(page.get_by_role("heading", name="Manage Profile", exact=True)).to_be_visible()
+                await activate(page, "Sign Out")
+                await page.wait_for_url(re.compile(r"/$"), timeout=15000)
+                await page.evaluate("""() => {
+                  window.dispatchEvent(new CustomEvent('cmpri-data-cache-invalidated',{detail:{topics:['session']}}));
+                  window.dispatchEvent(new Event('pagehide'));
+                }""")
+                assert await page.evaluate("key=>localStorage.getItem(key)", WORKSPACE_KEY) is None
+                assert await page.evaluate("key=>localStorage.getItem(key)", OUTBOX_KEY) == "fixture protected unsynced data"
+                assert await page.locator('iframe').count() == 0
+                assert not errors, errors
+                results.append({"width": width, "role": role, "test": "actual sign-out forgets navigation; late session invalidation and pagehide cannot recreate it or erase unsynced editor data", "passed": True})
+            finally:
+                await close_context(context)
+        assert not state["unexpected_writes"], state["unexpected_writes"]
+        results.append({"width": width, "role": role, "test": "standalone role network isolation", "passed": True,
+                        "productionDataAccessed": False, "apiRequestsIntercepted": len(state["api_requests"]),
+                        "blockedExternalHosts": sorted(state["blocked_external"])})
+
+
 async def main():
     results = []
     try:
         async with async_playwright() as playwright:
             for width in [int(value) for value in os.environ.get("CMPRI_TEST_WIDTHS", "1440,390").split(",")]:
                 await check_width(playwright, width, results)
+                await check_standalone_roles(playwright, width, results)
     finally:
         (OUT / "workspace-resume.json").write_text(json.dumps(results, indent=2))
     print(json.dumps({"passed": True, "checks": results, "productionDataAccessed": False}, indent=2))

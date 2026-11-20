@@ -11,7 +11,6 @@ type Props = {
   views: WorkspaceView[];
   zOrder: string[];
   onRestore: (desktop: WorkspaceState["desktop"]) => void;
-  onNavigate: (href: string) => void;
   onSessionChanged: () => void;
   onStorageError: () => void;
 };
@@ -61,12 +60,6 @@ export default function DesktopWorkspaceResume(props: Props) {
       }
       try {
         const saved = readWorkspace(window.localStorage, identity, options);
-        const topPath = saved?.topHref ? new URL(saved.topHref, origin).pathname : null;
-        if (saved?.topHref && topPath && !["/engineering", "/front-desk"].includes(topPath)
-          && canRestore({ key: topPath, href: saved.topHref, kind: "frame" })) {
-          current.onNavigate(saved.topHref);
-          return;
-        }
         if (saved) {
           const views = saved.desktop.views.filter(canRestore);
           const keys = new Set(views.map(view => view.key));
@@ -87,7 +80,6 @@ export default function DesktopWorkspaceResume(props: Props) {
     const current = latest.current;
     try {
       const saved = saveWorkspace(window.localStorage, workspaceIdentity(current.session), {
-        topHref: window.location.pathname + window.location.search,
         desktop: { views: current.views, zOrder: current.zOrder },
       }, { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(current.session, view) });
       if (!saved && !warned.current) { warned.current = true; current.onStorageError(); }
@@ -101,7 +93,6 @@ export default function DesktopWorkspaceResume(props: Props) {
       const current = latest.current;
       try {
         const saved = saveWorkspace(window.localStorage, workspaceIdentity(current.session), {
-          topHref: window.location.pathname + window.location.search,
           desktop: { views: current.views, zOrder: current.zOrder },
         }, { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(current.session, view) });
         if (!saved && !warned.current) { warned.current = true; current.onStorageError(); }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WORKSPACE_MAX_AGE_MS, clearWorkspace, normalizeWorkspaceHref, readWorkspace,
-  saveWorkspace, workspaceIdentity, workspaceStorageKey,
+  saveWorkspace, workspaceIdentity, workspaceStorageKey, workspaceResumeHref,
 } from '../src/lib/ui/workspace-resume.ts';
 
 const origin = 'https://cmpri.example';
@@ -11,6 +11,21 @@ const identity = { userId: 'user-a', hotelId: 'hotel-a', role: 'engineer', secon
 const frame = (href, extra = {}) => ({ key: new URL(href, origin).pathname, href, kind: 'frame', ...extra });
 const list = { key: 'work-order-list', kind: 'list' };
 const options = { origin, now, isAllowed: () => true };
+
+test('standalone resume accepts every plain authorized landing and leaves explicit URLs in control', () => {
+  const saved = { topHref: '/notes?tab=journal' };
+  for (const landing of ['/engineering', '/front-desk', '/technician', '/work-orders']) {
+    assert.equal(workspaceResumeHref(saved, origin + landing, landing, options), saved.topHref);
+    assert.equal(workspaceResumeHref(saved, origin + landing + '?draftId=explicit', landing, options), null);
+    assert.equal(workspaceResumeHref(saved, origin + landing + '#explicit', landing, options), null);
+    assert.equal(workspaceResumeHref({ topHref: landing }, origin + landing, landing, options), null);
+  }
+  assert.equal(workspaceResumeHref(saved, origin + '/work-orders', '/engineering', options), null);
+  assert.equal(workspaceResumeHref(saved, origin + '/profile', '/engineering', options), null);
+  assert.equal(workspaceResumeHref(saved, 'https://outside.test/engineering', '/engineering', options), null);
+  assert.equal(workspaceResumeHref(saved, origin + '/engineering', '/engineering', { ...options, isAllowed: () => false }), null);
+  assert.equal(workspaceResumeHref({ topHref: '//outside.test/notes' }, origin + '/engineering', '/engineering', options), null);
+});
 function storage() {
   const values = new Map();
   return { values, getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) };

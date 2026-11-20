@@ -22,7 +22,8 @@ const require = createRequire(import.meta.url);
 const code = ts.transpileModule(readFileSync('src/components/GlobalModalHost.tsx', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
-let pathname = '/notes', nextId = 0, sessionRead, reads = 0;
+let pathname = '/notes', nextId = 0, sessionRead, reads = 0, navigated = [];
+const router = { replace: href => navigated.push(href) };
 const empty = () => null;
 const globals = {
   exports: {}, window, document, URL, URLSearchParams,
@@ -32,7 +33,7 @@ const globals = {
   CSS: { escape: value => value }, crypto: { randomUUID: () => `new-modal-${++nextId}` },
   require(name) {
     if (['react', 'react/jsx-runtime', 'react-dom'].includes(name)) return require(name);
-    if (name === 'next/navigation') return { usePathname: () => pathname };
+    if (name === 'next/navigation') return { usePathname: () => pathname, useRouter: () => router, useSearchParams: () => new URLSearchParams(window.location.search) };
     if (name === '@/lib/open-work-orders') return registry;
     if (name === '@/lib/ui/workspace-resume') return workspace;
     if (name === '@/lib/ui/workspace-route-access') return { canResumeWorkspaceView };
@@ -58,7 +59,7 @@ function seed(patch) { workspace.saveWorkspace(window.localStorage, identity, pa
 function saved() { return workspace.readWorkspace(window.localStorage, identity, options); }
 function route(path) { window.history.replaceState({}, '', path); pathname = window.location.pathname; }
 function reset(path = '/notes') {
-  window.localStorage.clear(); route(path); sessionRead = Promise.resolve(session); reads = 0;
+  window.localStorage.clear(); route(path); sessionRead = Promise.resolve(session); reads = 0; navigated = [];
 }
 async function mount() {
   const root = createRoot(document.getElementById('root'));
@@ -147,14 +148,189 @@ test('sign-out clears only the navigation workspace and disables late pagehide w
   } finally { await unmount(root); }
 });
 
-test('dashboard-host modal writes preserve the independently restored top-level route', async () => {
+test('the shared host decides the standalone route before hydrating or persisting its landing', async () => {
   reset('/engineering'); seed({ topHref: '/notes?tab=journal', modals: { views: [frame('/profile')], activeKey: '/profile' } });
   const root = await mount();
   try {
-    assert.ok(document.querySelector('iframe[title="Manage Profile"]'));
+    assert.deepEqual(navigated, ['/notes?tab=journal']);
+    assert.equal(document.querySelectorAll('iframe').length, 0);
     assert.equal(saved().topHref, '/notes?tab=journal');
     await React.act(async () => window.dispatchEvent(new dom.window.Event('pagehide')));
     assert.equal(saved().topHref, '/notes?tab=journal');
+    route(navigated[0]);
+    await React.act(async () => root.render(React.createElement(Component)));
+    assert.ok(document.querySelector('iframe[title="Manage Profile"]'));
+    assert.deepEqual(navigated, ['/notes?tab=journal'], 'the destination cannot trigger another resume navigation');
+  } finally { await unmount(root); }
+});
+
+test('each role landing resumes its authorized standalone view only after fresh verification and after remount', async () => {
+  for (const [role, landing] of [['engineer', '/engineering'], ['front_desk', '/front-desk'], ['technician', '/technician'], ['housekeeping', '/work-orders']]) {
+    reset(landing);
+    const principal = { ...session, user: { ...session.user, role }, landing };
+    const principalIdentity = workspace.workspaceIdentity(principal);
+    const principalOptions = { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(principal, view) };
+    const topHref = '/notes?tab=journal';
+    workspace.saveWorkspace(window.localStorage, principalIdentity, { topHref }, principalOptions);
+    const before = window.localStorage.getItem(workspace.workspaceStorageKey(principalIdentity));
+    let release; sessionRead = new Promise(resolve => { release = resolve; });
+    let root = await mount();
+    try {
+      assert.deepEqual(navigated, [], role);
+      await React.act(async () => window.dispatchEvent(new dom.window.Event('pagehide')));
+      assert.equal(window.localStorage.getItem(workspace.workspaceStorageKey(principalIdentity)), before, role);
+      await React.act(async () => { release(principal); await sessionRead; });
+      assert.deepEqual(navigated, [topHref], role);
+      assert.equal(workspace.readWorkspace(window.localStorage, principalIdentity, principalOptions).topHref, topHref, role);
+      await unmount(root); root = null;
+      // A fresh mount models reopening the destination after a browser restart.
+      route(topHref); navigated = []; sessionRead = Promise.resolve(principal);
+      root = await mount();
+      assert.deepEqual(navigated, [], role);
+      assert.equal(workspace.readWorkspace(window.localStorage, principalIdentity, principalOptions).topHref, topHref, role);
+    } finally { if (root) await unmount(root); }
+  }
+});
+
+test('explicit query, fragment, direct standalone link, and user navigation beat the last view', async () => {
+  for (const path of ['/engineering?tab=explicit', '/engineering#explicit', '/work-orders?draftId=explicit', '/work-orders', '/profile']) {
+    reset(path); seed({ topHref: '/notes?tab=journal' });
+    const root = await mount();
+    try { assert.deepEqual(navigated, [], path); }
+    finally { await unmount(root); }
+  }
+  reset('/engineering'); seed({ topHref: '/notes?tab=journal' });
+  let release; sessionRead = new Promise(resolve => { release = resolve; });
+  const root = await mount();
+  try {
+    await React.act(async () => window.dispatchEvent(new dom.window.CustomEvent('cmpri-open-modal', { detail: { href: '/profile', title: 'Profile' } })));
+    await React.act(async () => { release(session); await sessionRead; });
+    assert.deepEqual(navigated, []);
+    assert.ok(document.querySelector('iframe[title="Profile"]'));
+    assert.equal(saved().topHref, '/engineering');
+  } finally { await unmount(root); }
+});
+
+test('landing resume rejects another user, property, permission scope, and failed authorization', async () => {
+  for (const principal of [
+    { ...session, user: { ...session.user, id: 'different-user' } },
+    { ...session, hotelId: 'different-property' },
+    { ...session, capabilities: ['submit'] },
+    null,
+  ]) {
+    reset('/engineering'); seed({ topHref: '/profile' });
+    sessionRead = principal ? Promise.resolve(principal) : Promise.reject(Error('Session revoked'));
+    sessionRead.catch(() => {});
+    const root = await mount();
+    try { assert.deepEqual(navigated, []); assert.equal(document.querySelectorAll('iframe').length, 0); }
+    finally { await unmount(root); }
+  }
+});
+
+test('same-path draft-query resume completes without another redirect or losing sibling windows', async () => {
+  reset('/work-orders');
+  const principal = { ...session, user: { ...session.user, role: 'housekeeping' }, landing: '/work-orders' };
+  const principalIdentity = workspace.workspaceIdentity(principal);
+  const principalOptions = { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(principal, view) };
+  const topHref = '/work-orders?draftId=fixture-draft&reviewDraft=1';
+  const modals = { views: [frame('/notes')], activeKey: '/notes' };
+  workspace.saveWorkspace(window.localStorage, principalIdentity, { topHref, modals }, principalOptions);
+  sessionRead = Promise.resolve(principal);
+  const root = await mount();
+  try {
+    assert.deepEqual(navigated, [topHref]);
+    route(topHref); await React.act(async () => root.render(React.createElement(Component)));
+    assert.deepEqual(navigated, [topHref]);
+    assert.ok(document.querySelector('iframe[title="Notes"]'));
+    assert.equal(workspace.readWorkspace(window.localStorage, principalIdentity, principalOptions).topHref, topHref);
+  } finally { await unmount(root); }
+});
+
+test('dashboard message, embedded links, and history return retain the guard until a close acknowledgment', async () => {
+  for (const action of ['message', 'button', 'link', 'history']) {
+    reset(); seed({ modals: { views: [frame('/profile')], activeKey: '/profile' } });
+    const root = await mount();
+    try {
+      const profile = document.querySelector('iframe[title="Manage Profile"]');
+      profile.contentDocument.open();
+      profile.contentDocument.write('<!doctype html><html><body></body></html>');
+      profile.contentDocument.close();
+      await React.act(async () => profile.dispatchEvent(new dom.window.Event('load')));
+      let requests = 0;
+      profile.contentDocument.addEventListener('cmpri-modal-cancel-request', event => { requests++; event.preventDefault(); });
+      const token = new URL(profile.src).searchParams.get('modalToken');
+      if (action === 'message') {
+        await React.act(async () => window.dispatchEvent(new dom.window.MessageEvent('message', {
+          origin: window.location.origin, source: profile.contentWindow, data: { type: 'cmpri-modal-dashboard', modalToken: token },
+        })));
+      } else if (action === 'history') {
+        await React.act(async () => profile.contentWindow.history.pushState({}, '', '/front-desk'));
+      } else {
+        profile.contentDocument.body.innerHTML = action === 'button'
+          ? '<button data-cmpri-modal-dashboard="true" data-cmpri-modal-dashboard-href="/front-desk">Return</button>'
+          : '<a href="/front-desk">Return</a>';
+        await click(profile.contentDocument.body.firstElementChild);
+      }
+      assert.equal(requests, 1, action);
+      assert.equal(document.querySelector('iframe[title="Manage Profile"]'), profile, action);
+      assert.equal(saved().modals.views.length, 1, action);
+      await React.act(async () => window.dispatchEvent(new dom.window.MessageEvent('message', {
+        origin: window.location.origin, source: profile.contentWindow, data: { type: 'cmpri-modal-close', modalToken: token },
+      })));
+      assert.equal(requests, 1, 'the acknowledgment must not run the save guard again');
+      assert.equal(document.querySelectorAll('iframe').length, 0, action);
+      assert.equal(saved().modals.views.length, 0, action);
+    } finally { await unmount(root); }
+  }
+});
+
+test('session cache invalidation rechecks the scope, pauses writes, and ignores all late logout signals', async () => {
+  reset(); seed({ modals: { views: [frame('/profile')], activeKey: '/profile' } });
+  const root = await mount();
+  try {
+    const before = window.localStorage.getItem(workspace.workspaceStorageKey(identity));
+    let release; sessionRead = new Promise(resolve => { release = resolve; });
+    const invalidate = () => window.dispatchEvent(new dom.window.CustomEvent('cmpri-data-cache-invalidated', { detail: { topics: ['session'] } }));
+    await React.act(async () => { invalidate(); invalidate(); });
+    await React.act(async () => window.dispatchEvent(new dom.window.Event('pagehide')));
+    assert.equal(window.localStorage.getItem(workspace.workspaceStorageKey(identity)), before);
+    const readsBeforeLogout = reads;
+    await React.act(async () => window.dispatchEvent(new dom.window.Event('cmpri-workspace-sign-out')));
+    const profile = document.querySelector('iframe[title="Manage Profile"]');
+    assert.equal(profile.closest('[hidden]')?.hasAttribute('inert'), true);
+    await React.act(async () => { release(session); await sessionRead; invalidate(); window.dispatchEvent(new dom.window.Event('pagehide')); });
+    assert.equal(reads, readsBeforeLogout);
+    assert.equal(window.localStorage.getItem(workspace.workspaceStorageKey(identity)), null);
+  } finally { await unmount(root); }
+});
+
+test('a later in-app sign-in verifies again and never exposes retained pre-logout editors', async () => {
+  reset(); seed({ modals: { views: [frame('/profile')], activeKey: '/profile' } });
+  const root = await mount();
+  try {
+    const original = document.querySelector('iframe[title="Manage Profile"]');
+    let requests = 0;
+    original.contentDocument.addEventListener('cmpri-modal-cancel-request', event => { requests++; event.preventDefault(); });
+    await React.act(async () => window.dispatchEvent(new dom.window.Event('cmpri-workspace-sign-out')));
+    route('/'); await React.act(async () => root.render(React.createElement(Component)));
+    assert.equal(original.closest('[hidden]')?.hasAttribute('inert'), true);
+    const principal = { ...session, user: { ...session.user, id: 'new-login-owner' } };
+    let release; sessionRead = new Promise(resolve => { release = resolve; });
+    route('/engineering'); await React.act(async () => root.render(React.createElement(Component)));
+    assert.equal(original.closest('[hidden]')?.hasAttribute('inert'), true);
+    await React.act(async () => { release(principal); await sessionRead; });
+    assert.equal(requests, 1);
+    assert.equal(original.closest('[hidden]')?.hasAttribute('inert'), true);
+    await React.act(async () => window.dispatchEvent(new dom.window.MessageEvent('message', {
+      origin: window.location.origin, source: original.contentWindow,
+      data: { type: 'cmpri-modal-close', modalToken: new URL(original.src).searchParams.get('modalToken') },
+    })));
+    assert.equal(requests, 1);
+    assert.equal(document.querySelectorAll('iframe').length, 0);
+    const next = workspace.readWorkspace(window.localStorage, workspace.workspaceIdentity(principal),
+      { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(principal, view) });
+    assert.equal(next.topHref, '/engineering');
+    assert.deepEqual(next.modals.views, []);
   } finally { await unmount(root); }
 });
 

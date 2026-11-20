@@ -83,6 +83,7 @@ function pageFixture(disk=storage(),overrides={}){
     drafts:[],reviewDraft:null,issue:'',notes:'',locationId:'',staffFirstName:'',draftFields:{...fields},
     currentDraftKey:draftFieldsKey(fields),activeDraftId:'',activeDraftRevision:null,lastSavedDraftKey:'',
     pendingDraftSave:{current:null},draftCreationReceipts:{current:new Map()},autoOpenedDraftRef:{current:''},persistCreationRecoveryRef:{current:()=>{}},
+    restoreCreationAttachments:async()=>{},persistAttachmentsRef:{current:async()=>true},restoringAttachments:{current:0},
     creationSubmissionUncertain:false,submittingRef:{current:false},confirmedCreationKey:{current:''},confirmedDraftRecovery:{current:null},photos:[],createState:'idle',mainWorkOrderCreated:false,
     window:{location:{search:''},addEventListener:(key,fn)=>listeners.set(key,fn),removeEventListener:key=>listeners.delete(key)},
     document:{hidden:false,addEventListener:(key,fn)=>listeners.set(key,fn),removeEventListener:key=>listeners.delete(key)},
@@ -104,7 +105,7 @@ test('actual page hydration waits for verified context and successful initial re
   f.hydrate();await flush();assert.equal(f.state.issue,undefined);
   f.context.draftsLoaded=true;f.hydrate();await flush();
   assert.equal(f.state.issue,fields.issue);assert.equal(f.state.notes,fields.notes);
-  assert.equal(f.state.creationRecoveryReady,f.context.creationScope);assert.match(f.state.message,/photos must be added again/);
+  assert.equal(f.state.creationRecoveryReady,f.context.creationScope);assert.match(f.state.message,/Restoring selected attachments/);
 });
 
 test('actual page does not overwrite a changed saved draft or newly typed form while recovery waits',async()=>{

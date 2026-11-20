@@ -116,12 +116,30 @@ export async function PATCH(request: NextRequest) {
   if (body.preferences !== undefined) update.preferences = preferencesForRole(auth.principal.profile.role, body.preferences);
   if (!Object.keys(update).length) return NextResponse.json({ error: "No profile changes were supplied." }, { status: 400 });
 
-  const { data, error } = await auth.admin.from("profiles")
-    .update(update)
-    .eq("id", auth.principal.identity.id)
-    .select("id, email, full_name, role, secondary_roles, preferences")
-    .single();
-  if (error) {
+  // Optional compare-and-set for recovered editors. The exact stored JSON is
+  // used in the UPDATE filter so a concurrent edit cannot slip past the read.
+  let query = auth.admin.from("profiles").update(update).eq("id", auth.principal.identity.id);
+  if (body.baseline !== undefined) {
+    const baseline = body.baseline && typeof body.baseline === "object" && !Array.isArray(body.baseline)
+      ? body.baseline as Record<string, unknown> : null;
+    if (!baseline || typeof baseline.name !== "string" || baseline.name.length > 200 || !baseline.preferences || typeof baseline.preferences !== "object") {
+      return NextResponse.json({ error: "A valid profile comparison is required." }, { status: 400 });
+    }
+    const current = await auth.admin.from("profiles").select("full_name, preferences").eq("id", auth.principal.identity.id).maybeSingle();
+    if (current.error || !current.data) return NextResponse.json({ error: "Profile could not be compared. Your changes were kept." }, { status: 503 });
+    const canonical = (value: unknown) => JSON.stringify(preferencesForRole(auth.principal.profile.role, value));
+    if ((current.data.full_name || "") !== baseline.name || canonical(current.data.preferences) !== canonical(baseline.preferences)) {
+      return NextResponse.json({ error: "The saved profile changed. Compare it with your recovered changes before saving.", conflict: true }, { status: 409 });
+    }
+    query = current.data.full_name === null ? query.is("full_name", null) : query.eq("full_name", current.data.full_name);
+    query = current.data.preferences === null ? query.is("preferences", null) : query.eq("preferences", JSON.stringify(current.data.preferences));
+  }
+  const { data, error } = await query.select("id, email, full_name, role, secondary_roles, preferences").maybeSingle();
+  if (body.baseline !== undefined && (!data || error)) {
+    // Never enter the legacy unconditional retry after a failed comparison.
+    return NextResponse.json({ error: error ? "Profile could not be saved. Your changes were kept." : "The saved profile changed. Compare it before saving.", conflict: !error }, { status: error ? 503 : 409 });
+  }
+  if (error || !data) {
     const legacyUpdate: Record<string, unknown> = {};
     if (typeof update.full_name === "string") legacyUpdate.full_name = update.full_name;
     if (update.preferences !== undefined) legacyUpdate.preferences = update.preferences;

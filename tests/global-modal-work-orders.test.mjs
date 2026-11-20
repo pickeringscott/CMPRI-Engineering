@@ -8,7 +8,7 @@ import {JSDOM} from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {url:'https://cmpri.test', pretendToBeVisual:true});
+const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {url:'https://cmpri.test/notes', pretendToBeVisual:true});
 dom.window.HTMLDialogElement.prototype.showModal=function(){this.dataset.testModal='true';this.setAttribute('open','');};
 dom.window.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');this.dispatchEvent(new dom.window.Event('close'));};
 Object.assign(globalThis, {window:dom.window, document:dom.window.document, HTMLElement:dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT:true});
@@ -18,20 +18,21 @@ const {createRoot} = await import('react-dom/client');
 const require = createRequire(import.meta.url);
 const code = ts.transpileModule(readFileSync('src/components/GlobalModalHost.tsx','utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 let nextId = 0;
-let pathname = '/';
+let pathname = '/notes';
+const router = {replace() {}};
 const empty = () => null;
 const globals = {exports:{}, window, document, URL, URLSearchParams, HTMLElement:dom.window.HTMLElement, HTMLAnchorElement:dom.window.HTMLAnchorElement,
   Element:dom.window.Element, HTMLDialogElement:dom.window.HTMLDialogElement, Event:dom.window.Event, MutationObserver:dom.window.MutationObserver,
   CSS:{escape:value=>value}, crypto:{randomUUID:()=>`id-${++nextId}`},
   require(name) {
     if (['react','react/jsx-runtime','react-dom'].includes(name)) return require(name);
-    if (name === 'next/navigation') return {usePathname:()=>pathname};
+    if (name === 'next/navigation') return {usePathname:()=>pathname,useRouter:()=>router,useSearchParams:()=>new URLSearchParams(window.location.search)};
     if (name === '@/lib/open-work-orders') return registry;
     if (name === '@/lib/ui/workspace-resume') return workspace;
     if (name === '@/lib/ui/workspace-route-access') return {canResumeWorkspaceView:()=>false};
     if (name === '@/lib/ui/header-palette') return {modalActionForRoute:()=>'',modalThemeStyle:()=>({}),modalTitleStyle:()=>({}),modalDisplayTitle:(_path,title)=>title,hasBonvoyTierHelp:()=>false};
     if (['./WorkOrderTierKey','./RoomRankerKey','./WorkOrderTitleGuest'].includes(name)) return {default:empty};
-    if (name === '@/lib/auth/client-session') return {loadCmpriSession:async()=>({capabilities:['view_work_orders']})};
+    if (name === '@/lib/auth/client-session') return {loadCmpriSession:async()=>({user:{id:'fixture-user',role:'engineer'},hotelId:'fixture-hotel',landing:'/engineering',capabilities:['view_work_orders']})};
     if (name === './desktop/WorkOrderListWindow') return {default:({onOpenWorkOrder})=>React.createElement('div',{},
       React.createElement('button',{onClick:()=>onOpenWorkOrder({id:'one',display_id:'1',room:'101'})},'Open first'),
       React.createElement('button',{onClick:()=>onOpenWorkOrder({id:'two',display_id:'2',room:'102'})},'Open second'),

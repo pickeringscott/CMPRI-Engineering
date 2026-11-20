@@ -89,14 +89,27 @@ export async function POST(request: NextRequest) {
   if (body.action === "schedule") {
     const settings = normalizeNotificationSettings({ timezone: body.timezone, schedule: body.schedule });
     if (!settings) return NextResponse.json({ error: "Supply a valid timezone and Monday-through-Sunday schedule." }, { status: 400 });
-    const { error } = await admin.from("cmpri_user_notification_schedules").upsert({
-      hotel_id: HOTEL_ID,
-      user_id: userId,
-      timezone: settings.timezone,
-      schedule: settings.schedule,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "hotel_id,user_id" });
-    if (error) return NextResponse.json({ error: "Phone notification schedule could not be saved." }, { status: 503 });
+    const update = { hotel_id: HOTEL_ID, user_id: userId, timezone: settings.timezone, schedule: settings.schedule, updated_at: new Date().toISOString() };
+    if (body.baseline !== undefined) {
+      const baseline = body.baseline as { settings?: unknown; configured?: unknown } | null;
+      const before = normalizeNotificationSettings(baseline?.settings);
+      if (!baseline || typeof baseline.configured !== "boolean" || !before) return NextResponse.json({ error: "A valid schedule comparison is required." }, { status: 400 });
+      const current = await admin.from("cmpri_user_notification_schedules").select("timezone, schedule").eq("hotel_id", HOTEL_ID).eq("user_id", userId).maybeSingle();
+      if (current.error) return NextResponse.json({ error: "Notification settings could not be compared. Your edits were kept." }, { status: 503 });
+      const matches = baseline.configured === !!current.data && (!current.data || JSON.stringify(normalizeNotificationSettings(current.data)) === JSON.stringify(before));
+      if (!matches) return NextResponse.json({ error: "The saved notification schedule changed. Compare your recovered settings before saving.", conflict: true }, { status: 409 });
+      if (current.data) {
+        const saved = await admin.from("cmpri_user_notification_schedules").update(update)
+          .eq("hotel_id", HOTEL_ID).eq("user_id", userId).eq("timezone", current.data.timezone).eq("schedule", JSON.stringify(current.data.schedule)).select("user_id").maybeSingle();
+        if (saved.error || !saved.data) return NextResponse.json({ error: saved.error ? "Notification settings could not be saved. Your edits were kept." : "The saved notification schedule changed. Compare it before saving.", conflict: !saved.error }, { status: saved.error ? 503 : 409 });
+      } else {
+        const saved = await admin.from("cmpri_user_notification_schedules").insert(update);
+        if (saved.error) return NextResponse.json({ error: "The schedule could not be saved. Reload to compare your retained settings.", conflict: saved.error.code === "23505" }, { status: saved.error.code === "23505" ? 409 : 503 });
+      }
+    } else {
+      const { error } = await admin.from("cmpri_user_notification_schedules").upsert(update, { onConflict: "hotel_id,user_id" });
+      if (error) return NextResponse.json({ error: "Phone notification schedule could not be saved." }, { status: 503 });
+    }
     return NextResponse.json({ ok: true, settings });
   }
 
