@@ -170,7 +170,7 @@ test('KCMI observation renders before forecast; hourly cards share the palette a
     assert.equal(current.querySelectorAll('.wv-dial-segment').length, 0);
     assert.match(current.querySelector('.wv-temperature-dial').title, /Hourly forecast loading/);
     assert.match(f.window.document.getElementById('liveObservationTime').textContent, /2026-11-20 11:53 CST/);
-    assert.equal(f.window.document.getElementById('liveFeelsLike').textContent, 'Feels -21°');
+    assert.equal(f.window.document.getElementById('liveFeelsLike').textContent, 'Feels Like -21°');
     resolveForecast({ ok: true, json: async () => ({ resources: { forecast, hourly: { status: 'live', data: { properties: { periods: rawHours } } },
       grid: { status: 'live', data: { properties: { windGust: { uom: 'wmoUnit:mi_h-1', values: [{ validTime: '2026-11-20T18:00:00Z/PT3H', value: 20 }] } } } } } }) });
     await opened;

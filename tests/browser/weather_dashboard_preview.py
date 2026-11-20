@@ -369,7 +369,7 @@ class OfficialFeedFixtures:
                 records = []
                 for index, (route_type, number) in enumerate([("INTERSTATE", "74"), ("INTERSTATE", "74"),
                         ("INTERSTATE", "57"), ("INTERSTATE", "57"), ("US_ROUTE", "150"), ("ST_ROUTE", "10"), ("INTERSTATE", "72")]):
-                    fx,fy = [(.80,.55),(.75,.57),(.43,.28),(.43,.68),(.78,.72),(.5,.17),(.22,.72)][index]
+                    fx,fy = [(.80,.55),(.22,.58),(.43,.28),(.43,.68),(.78,.72),(.5,.17),(.22,.72)][index]
                     x=bbox[0]+(bbox[2]-bbox[0])*fx; y=bbox[1]+(bbox[3]-bbox[1])*fy
                     def coordinate(px,py):
                         return [math.degrees(px/6378137),math.degrees(2*math.atan(math.exp(py/6378137))-math.pi/2)]
@@ -579,6 +579,58 @@ async def weather_frame(page):
     return frame
 
 
+async def airport_checks(page, frame, requests, output, width):
+    airport=frame.locator('#willardAirport')
+    initial=await frame.evaluate('weatherPreview.getState().airport')
+    require(not initial['expanded'] and not initial['iframeMounted'] and not initial['clockRunning']
+            and initial['flightRequests']==0 and not requests, 'Collapsed Willard performs network or clock work')
+    await airport.locator(':scope > summary').click()
+    await wait_for(frame, "weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+    require(len(requests)==1 and requests[0]['method']=='GET','Expanding Willard did not make exactly one provider document read')
+    provider=airport.locator('[data-willard-tracker] > iframe')
+    attrs=await provider.evaluate("el=>Object.fromEntries(['src','width','height','title','loading','referrerpolicy'].map(key=>[key,el.getAttribute(key)]))")
+    require(attrs=={'src':'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9','width':'100%','height':'450',
+        'title':'Live flight tracker map by AvioADSB','loading':'lazy','referrerpolicy':'strict-origin-when-cross-origin'},
+        'Provider embed template was changed: '+str(attrs))
+    board=airport.locator('[data-willard-board]')
+    require(await board.get_attribute('data-style')=='london' and await board.get_attribute('data-time-format')=='24h',
+            'Fixed London board or Chief Central clock is incorrect')
+    require(await airport.locator('select,input,[data-flight]').count()==0,
+            'Willard exposes selectors, search, or fictional flight rows')
+    require(await airport.locator('.wa-unavailable').count()==2
+            and all(value=='Flight data unavailable' for value in await airport.locator('.wa-unavailable').all_inner_texts()),
+            'Missing airport board data became sample flights, zero flights, or an all-clear')
+    require(not re.search(r'SAMPLE|DEMO|API key|no.key|token',await airport.inner_text(),re.I),
+            'Airport product UI includes sample data or implementation/key instructions')
+    status=await frame.evaluate('weatherPreview.getState().airport')
+    require(status['arrivals'] is None and status['departures'] is None and status['aircraftCoverageVerified'] is False
+            and status['backgroundPolling'] is False and status['flightRequests']==0 and status['clockRunning'],
+            'Willard claims live board/coverage or performs background flight polling')
+    await page.clock.fast_forward(120010)
+    require(len(requests)==1,'Airport clock performs repeated provider or flight polling')
+    await board.evaluate("el=>el.scrollIntoView({block:'start'})")
+    await page.screenshot(path=str(output/f'weather-willard-open-{width}.png'),full_page=True)
+    await provider.evaluate("el=>el.scrollIntoView({block:'start'})")
+    await page.screenshot(path=str(output/f'weather-willard-tracker-{width}.png'),full_page=True)
+    await airport.locator(':scope > summary').click()
+    await wait_for(frame, '!weatherPreview.getState().airport.iframeMounted && !weatherPreview.getState().airport.clockRunning')
+    require(await airport.locator('iframe').count()==0 and len(requests)==1,'Collapsed airport retained provider browsing context or reloaded it')
+    await airport.locator(':scope > summary').click()
+    await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+    await frame.evaluate("() => {Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});document.dispatchEvent(new Event('visibilitychange'));}")
+    await wait_for(frame,'!weatherPreview.getState().airport.iframeMounted && !weatherPreview.getState().airport.clockRunning')
+    inactive=await frame.evaluate('weatherPreview.getState().airport')
+    require(inactive['iframeUnloads']==2 and len(requests)==2,'Hidden airport failed to unload its provider')
+    await frame.evaluate("() => {Object.defineProperty(document,'hidden',{configurable:true,get:()=>false});Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));}")
+    await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+    await airport.locator(':scope > summary').click()
+    await wait_for(frame,'!weatherPreview.getState().airport.iframeMounted')
+    require(len(requests)==3,'Restoring an expanded airport did not create exactly one fresh provider context')
+    return {'collapsedNoProviderRequests':True,'expandOnlyDocumentRead':True,'londonUnavailableBoards':True,
+        'noFictionalFlightsOrSelectors':True,'providerTemplateIntact':True,'collapseAndHiddenUnload':True,
+        'noFlightPolling':True,'providerRequestsIntercepted':requests,'actualAircraftCoverageVerified':False}
+
+
 async def run_viewport(browser, base, output, width, height):
     context = await browser.new_context(viewport={"width": width, "height": height},
         has_touch=width < 640, is_mobile=width < 640, service_workers="block", reduced_motion="reduce")
@@ -586,12 +638,17 @@ async def run_viewport(browser, base, output, width, height):
     feed = OfficialFeedFixtures()
     context.on("requestfailed", feed.request_failed)
     counts, posts, external, mutations, errors = {}, [], [], [], []
+    airport_requests = []
     await install(context, "chief_engineer", counts=counts, posts=posts)
     await context.route("**/api/weather-preview**", feed.route)
 
     async def protect(route):
         request = route.request
         parsed = urlparse(request.url)
+        if request.url == 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9':
+            airport_requests.append({'url':request.url,'method':request.method})
+            await route.fulfill(status=200,content_type='text/html',body='<!doctype html><html><body><p>Provider iframe lifecycle test fixture. Aircraft coverage is not verified.</p></body></html>')
+            return
         if parsed.hostname not in ["127.0.0.1", "localhost"]:
             external.append({"url": request.url, "method": request.method})
             await route.abort("blockedbyclient")
@@ -605,6 +662,7 @@ async def run_viewport(browser, base, output, width, height):
     await context.route("**/*", protect)
     await context.add_init_script(PROBE)
     page = await context.new_page()
+    await page.clock.install(time=feed.now)
     page.on("pageerror", lambda error: errors.append(str(error)))
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
@@ -618,6 +676,10 @@ async def run_viewport(browser, base, output, width, height):
         before_mutations = len(mutations)
         await launcher.click()
         frame = await weather_frame(page)
+        require(not airport_requests and await frame.locator('#willardAirport iframe').count()==0,
+                'Willard provider requested before the airport accordion opened')
+        require(await frame.locator('#tab-weather,#tab-notifications,#tab-checks').count()==0,
+                'Removed Weather tabs remain in the single-view layout')
         await install_weather_audit(frame)
         # Native close dispatches this event before React unmounts the iframe.
         # Observe after the content's registered close handler; removed iframes
@@ -711,18 +773,17 @@ async def run_viewport(browser, base, output, width, height):
             box = await native.bounding_box()
             desktop = await page.locator(".cmpri-desktop").bounding_box()
             require(abs(box["width"] - (desktop["width"] - 8)) < 2, "Mobile Weather did not match the native 4px desktop insets")
-        await frame.locator("#tab-notifications").click()
-        await frame.locator("#npScenario").select_option("tornado-warning")
-        await frame.locator("#npReceive").click()
+        evidence['willardAirport'] = await airport_checks(page, frame, airport_requests, output, width)
+        # Hidden simulation engines remain a regression seam, not visible UI.
+        await frame.evaluate("() => {const el=document.getElementById('npScenario');el.value='tornado-warning';el.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('npReceive').click();}")
         safety = page.locator("[data-weather-guest-safety-dialog]")
         await safety.wait_for(state="visible")
         instruction = await safety.locator("[data-weather-hotel-instruction]").inner_text()
         require("immediately" in instruction and "first-floor interior hallways" in instruction,
                 "Native Guest Safety is missing the tornado shelter instruction")
         await safety.locator("[data-weather-guest-safety-close]").click()
-        await frame.locator("#npRepeat").click()
+        await frame.evaluate("document.getElementById('npRepeat').click()")
         require(await page.locator("[data-weather-guest-safety-dialog]").is_hidden(), "Unchanged sample reopened Guest Safety")
-        await frame.locator("#tab-weather").click()
         await frame.locator("#playLoop").click()
         await wait_for(frame, "window.cmpriWeatherMap.getState().playing")
         # Hold two real foreground fetches (fulfilled locally) while unmounting:
@@ -738,12 +799,18 @@ async def run_viewport(browser, base, output, width, height):
         await frame.locator("#zoomOut").click()
         await asyncio.wait_for(feed.map_pending.wait(), timeout=5)
         await wait_for(frame, "window.cmpriWeatherMap.getState().pendingRequests > 0 && window.nwsLiveView.getState().pendingRequests > 0")
+        await frame.locator('#willardAirport > summary').click()
+        await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
         calls_before_close = feed.forecast_calls
         nws_before_close = [feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls]
         await frame.evaluate("window.__weatherRetainedMemory = 'same-page-instance'")
         await native.get_by_role("button", name="Close Weather", exact=True).click()
         await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
         require(await native.is_hidden(), "Native Weather window remained visible after its X")
+        airport_closed=await frame.evaluate('weatherPreview.getState().airport')
+        require(not airport_closed['iframeMounted'] and not airport_closed['clockRunning']
+                and await frame.locator('#willardAirport iframe').count()==0,
+                'Native close retained the airport browsing context or display clock')
         require(await page.locator('iframe[src*="' + PREVIEW + '"]').count() == 1,
                 "Closing Weather discarded its cached iframe")
         feed.release()

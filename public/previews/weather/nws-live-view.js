@@ -18,7 +18,7 @@
   const PARTS = { observation: ['observation'], history: ['history'], alerts: ['alerts'], forecast: ['points', 'forecast', 'hourly', 'grid'] };
   const SOURCES = { history: 'https://api.weather.gov/stations/KCMI/observations', observation: 'https://api.weather.gov/stations/KCMI/observations/latest', alerts: 'https://api.weather.gov/alerts/active?point=40.138080,-88.251416', points: 'https://api.weather.gov/points/40.1381,-88.2514' };
   const CACHE_TTL = 5 * 60000;
-  const fetchedParts = new Map(), observedReports = new Map();
+  const fetchedParts = new Map(), observedReports = new Map(), forecastHours = new Map();
   let observedExtremes = null;
   let requests = 0, checkedAt = null, resources = {}, lastError = '', loading = false;
   const byId = (id) => document.getElementById(id);
@@ -84,6 +84,7 @@
       if (unit === 'cm') return value / 2.54;
       if (unit === 'm') return value / .0254;
     }
+    if (kind === 'percent' && ['percent', '%'].includes(unit) && value >= 0 && value <= 100) return value;
     return null;
   }
   function rememberObservations() {
@@ -137,6 +138,96 @@
     const speed = quantity(period.windSpeed, 'wind');
     return speed === null ? null : round(speed) + ' mph';
   }
+  function rememberForecasts() {
+    const envelope = resource('hourly');
+    const periods = envelope.status === 'unavailable' ? [] : envelope.data?.properties?.periods;
+    const start = window.cmpriWeatherVisuals?.observationDay([], Date.now()).start;
+    if (!finite(start)) return;
+    for (const period of Array.isArray(periods) ? periods : []) {
+      const from = date(period.startTime), to = date(period.endTime);
+      if (from !== null && to !== null && to > from && to > start && from < start + 9 * 24 * HOUR) {
+        forecastHours.set(from, { ...period, forecastSourceTimestamp: envelope.sourceTimestamp });
+      }
+    }
+    for (const [key, period] of forecastHours) if (date(period.endTime) <= start || key >= start + 9 * 24 * HOUR) forecastHours.delete(key);
+    while (forecastHours.size > 512) forecastHours.delete(forecastHours.keys().next().value);
+  }
+  function forecastTimelinePeriods() {
+    // Preserve earlier published forecast hours in RAM. The official grid can
+    // supply valid earlier intervals on a first visit; observations never fill
+    // an unknown forecast interval or masquerade as a historical forecast.
+    rememberForecasts();
+    const visuals = window.cmpriWeatherVisuals;
+    if (!visuals) return [];
+    const today = visuals.observationDay([], Date.now());
+    const envelope = resource('grid'), grid = envelope.status === 'unavailable' ? null : envelope.data?.properties;
+    const cached = Array.from(forecastHours.values()).sort((a, b) => date(a.startTime) - date(b.startTime));
+    const boundaries = new Set([today.start, today.end]);
+    for (let at = today.start; at < today.end; at += HOUR) boundaries.add(at);
+    for (const period of cached) {
+      for (const at of [date(period.startTime), date(period.endTime)]) if (at !== null && at > today.start && at < today.end) boundaries.add(at);
+    }
+    for (const series of [grid?.temperature, grid?.probabilityOfPrecipitation]) {
+      for (const row of Array.isArray(series?.values) ? series.values.slice(0, 2000) : []) {
+        const span = interval(row.validTime); if (!span) continue;
+        for (const at of [span.start, span.end]) if (at > today.start && at < today.end) boundaries.add(at);
+      }
+    }
+    const times = Array.from(boundaries).sort((a, b) => a - b), result = [];
+    for (let index = 0; index < times.length - 1; index += 1) {
+      const from = times[index], to = times[index + 1];
+      const published = cached.find((period) => date(period.startTime) <= from && date(period.endTime) >= to);
+      const publishedTemperature = published ? periodTemperatureValue(published) : null;
+      const fahrenheit = publishedTemperature ?? gridAt(grid?.temperature, from, 'temperature');
+      const rawChance = published?.probabilityOfPrecipitation?.value;
+      const publishedChance = finite(rawChance) && rawChance >= 0 && rawChance <= 100 ? rawChance : null;
+      const chance = publishedChance ?? gridAt(grid?.probabilityOfPrecipitation, from, 'percent');
+      if (fahrenheit === null && chance === null) continue;
+      result.push({ ...published, startTime: new Date(from).toISOString(), endTime: new Date(to).toISOString(),
+        fahrenheit, probabilityOfPrecipitation: { value: chance },
+        forecastTemperatureSource: publishedTemperature === null ? 'NWS forecast grid valid interval' : 'NWS hourly forecast retained in memory',
+        forecastPrecipitationSource: publishedChance === null ? 'NWS forecast grid valid interval' : 'NWS hourly forecast retained in memory' });
+    }
+    return result;
+  }
+  function providedHourlyPeriods() {
+    const envelope = resource('hourly');
+    const periods = envelope.status === 'unavailable' ? [] : envelope.data?.properties?.periods;
+    return Array.isArray(periods) ? periods : [];
+  }
+  function renderCurrentGraphs(periods, day) {
+    const host = byId('currentConditionsGraphs'), graphs = window.cmpriWeatherGraphs;
+    if (!host || !graphs) return;
+    host.replaceChildren(graphs.hourly(periods, { start: day.start, end: day.end,
+      width: host.clientWidth || 440, currentTime: Date.now(), height: 116,
+      stale: resource('hourly').status === 'stale' || resource('grid').status === 'stale',
+      title: 'Today’s published NWS forecast in Central time; earlier forecast intervals remain forecast guidance' }));
+  }
+  function renderHourlyGraphs() {
+    const host = byId('hourlyForecastGraphs'), cards = byId('hourlyForecastCards'), graphs = window.cmpriWeatherGraphs;
+    if (!host || !cards || !graphs) return;
+    const first = cards.querySelector('.hourly-forecast-card'), periods = providedHourlyPeriods();
+    const cardWidth = first?.getBoundingClientRect().width || 148;
+    const gap = Number.parseFloat(getComputedStyle(cards).columnGap) || 8;
+    const width = Math.max(cardWidth, periods.length * cardWidth + Math.max(0, periods.length - 1) * gap);
+    host.replaceChildren(graphs.hourly(periods, { layout: 'cards', cardWidth, columnWidth: cardWidth + gap, width,
+      height: 116, labelStep: 1, stale: resource('hourly').status === 'stale', title: 'Hourly precipitation chance and temperature, aligned with the forecast cards above' }));
+  }
+  function renderDailyGraphs(day, host) {
+    const graphs = window.cmpriWeatherGraphs;
+    if (!graphs || !host) return;
+    host.replaceChildren(graphs.hourly(providedHourlyPeriods(), { start: day.start, end: day.end,
+      width: host.clientWidth || 240, height: 104, stale: resource('hourly').status === 'stale',
+      title: day.label + ' hourly precipitation chance and temperature · Central time' }));
+  }
+  function resizeGraphs() {
+    if (!opened) return;
+    const visuals = window.cmpriWeatherVisuals;
+    if (!visuals) return;
+    renderCurrentGraphs(forecastTimelinePeriods(), visuals.observationDay([], Date.now()));
+    renderHourlyGraphs();
+    for (const day of forecastDayModels()) renderDailyGraphs(day, byId('extendedForecast')?.querySelector('[data-day="' + day.key + '"] .daily-forecast-graphs'));
+  }
   function forecastDayModels() {
     const hourly = resource('hourly'), extended = resource('forecast');
     const hours = hourly.status === 'unavailable' ? [] : hourly.data?.properties?.periods;
@@ -158,15 +249,17 @@
     observedExtremes = { key: observedDay.key, high: observedDay.high, low: observedDay.low };
     host.classList.add('current-temperature-dial');
     const today = visuals.dayKey(Date.now());
-    const day = forecastDayModels().find((item) => item.key === today);
+    const timeline = forecastTimelinePeriods();
+    const day = visuals.forecastDays(timeline, resource('forecast').data?.properties?.periods || []).find((item) => item.key === today);
     const wind = available ? quantity(p.windSpeed, 'wind') : null, gust = available ? quantity(p.windGust, 'wind') : null;
     const visibility = available ? quantity(p.visibility, 'visibility') : null;
     const feels = available ? quantity(p.windChill, 'temperature') ?? quantity(p.heatIndex, 'temperature') : null;
     host.replaceChildren(visuals.temperatureDial(day, { current: true, observedTemperature: observed, observedDay,
-      pending: hourly.pending, stale: hourly.status === 'stale',
+      pending: hourly.pending, stale: hourly.status === 'stale' || resource('grid').status === 'stale',
       conditionText: available ? p.textDescription || 'Condition not reported' : observation.pending ? 'Awaiting observation' : 'Conditions unavailable',
       icon: available ? p.icon : null, windSpeed: wind === null ? null : round(wind) + ' MPH', windDirection: p?.windDirection?.value,
       gustText: gust === null ? null : round(gust), visibility: visibility === null ? null : visibility > 0 && visibility < .1 ? '<0.1' : round(visibility, 1), feelsLike: feels }));
+    renderCurrentGraphs(timeline, observedDay);
   }
   function renderForecast(name, hostId, hourly) {
     const host = byId(hostId); if (!host) return;
@@ -208,6 +301,7 @@
         host.append(card);
       });
     }
+    if (hourly) renderHourlyGraphs();
   }
   function renderDailyForecast() {
     const host = byId('extendedForecast'); if (!host) return;
@@ -241,7 +335,9 @@
         detail.append(node('p', finite(chance) ? 'Precipitation chance ' + round(chance) + '%' : 'Precipitation chance unavailable', 'forecast-chance'));
         detail.append(visuals.wind(periodWindSpeed(period), period.windDirection, { forecast: true }));
       }
-      card.append(detail); host.append(card);
+      card.append(detail);
+      const graphs = node('div', undefined, 'daily-forecast-graphs'); card.append(graphs); host.append(card);
+      renderDailyGraphs(day, graphs);
     }
   }
   function accumulation(series, now) {
@@ -340,7 +436,7 @@
     if (!part || part === 'observation') renderObservation();
     if (part === 'history') renderCurrentDial();
     if (!part || part === 'forecast') {
-      renderForecast('hourly', 'hourlyForecast', true);
+      renderForecast('hourly', byId('hourlyForecastCards') ? 'hourlyForecastCards' : 'hourlyForecast', true);
       renderDailyForecast(); renderCurrentDial();
       renderAccumulations();
     }
@@ -350,7 +446,7 @@
     return { initialized, opened, loading, pendingRequests: activeRequests.size, requests, checkedAt, error: lastError,
       resources: Object.fromEntries(Object.keys(RESOURCE_NAMES).map((key) => [key, resource(key).status])),
       observationTimestamp: resource('observation').data?.properties?.timestamp || null,
-      observedExtremes, observedReports: observedReports.size, cachedParts: Array.from(fetchedParts.keys()), cacheTtlMs: CACHE_TTL,
+      observedExtremes, observedReports: observedReports.size, cachedForecastHours: forecastHours.size, cachedParts: Array.from(fetchedParts.keys()), cacheTtlMs: CACHE_TTL,
       activeAlerts: activeAlertFeatures().length, databaseCalls: 0, pushes: 0, scheduler: false };
   }
   function abortReads() {
@@ -411,6 +507,21 @@
   function init() {
     if (initialized) return getState();
     initialized = true;
+    if (typeof ResizeObserver === 'function') {
+      const widths = new WeakMap(); let pending = false;
+      const observer = new ResizeObserver((entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const width = Math.round(entry.contentRect.width);
+          if (widths.get(entry.target) !== width) { widths.set(entry.target, width); changed = true; }
+        }
+        if (changed && opened && !pending) {
+          pending = true;
+          requestAnimationFrame(() => { pending = false; resizeGraphs(); });
+        }
+      });
+      for (const id of ['currentConditionsGraphs', 'hourlyForecast', 'extendedForecast']) if (byId(id)) observer.observe(byId(id));
+    }
     render(); return getState();
   }
   function open() {

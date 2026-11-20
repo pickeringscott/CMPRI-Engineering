@@ -294,7 +294,10 @@
       if (known) value.style.setProperty('--wv-temperature-color', colorAt(observedTemperature));
       const iconHost = node('span', 'wv-dial-condition'); iconHost.id = 'liveConditionIcon'; iconHost.append(condition(conditionText, { icon, isDaytime }));
       const visibilityHost = node('span', 'wv-dial-visibility', visibility === null ? 'Visibility unavailable' : visibility + ' mi visibility'); visibilityHost.id = 'liveVisibility';
-      const temp = node('div', 'wv-dial-current-value'); temp.append(value, visibilityHost);
+      const temp = node('div', 'wv-dial-current-value'); temp.append(value);
+      const feels = node('span', 'wv-dial-feels', 'Feels Like ' + (finite(feelsLike) ? formatNumber.format(feelsLike) + '°' : '—'));
+      feels.id = 'liveFeelsLike'; temp.append(feels);
+      temp.append(visibilityHost);
       center.append(iconHost, temp);
     } else {
       center.append(condition(conditionText, { icon, isDaytime }));
@@ -302,7 +305,6 @@
     const windHost = node('span', 'wv-dial-wind'); if (current) windHost.id = 'liveWind';
     windHost.append(wind(typeof windSpeed === 'string' ? windSpeed.replace(/\bmph\b/gi, 'MPH') : windSpeed, windDirection)); center.append(windHost);
     if (current && gustText) { const gust = node('span', 'wv-dial-gust', 'G ' + gustText + ' MPH'); gust.id = 'liveGusts'; center.append(gust); }
-    if (current && feelsLike !== null) { const feels = node('span', 'wv-dial-feels', 'Feels ' + formatNumber.format(feelsLike) + '°'); feels.id = 'liveFeelsLike'; center.append(feels); }
     const description = node('span', 'wv-dial-description', conditionText); if (current) description.id = 'liveConditionText';
     center.append(description);
     face.append(center, extrema); root.append(face);

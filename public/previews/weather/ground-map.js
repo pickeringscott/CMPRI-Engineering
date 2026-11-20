@@ -185,6 +185,7 @@
       if (low > high) return null;
     }
     return { x: a.x + dx * (low + high) / 2, y: a.y + dy * (low + high) / 2,
+      startX: a.x + dx * low, startY: a.y + dy * low, endX: a.x + dx * high, endY: a.y + dy * high,
       length: Math.hypot(dx, dy) * (high - low) };
   }
   function loadShieldImages() {
@@ -209,10 +210,10 @@
     return candidates;
   }
   function shieldMetrics(route, geo) {
-    const size = geo.width < 420 ? 32 : 36;
+    const size = geo.width < 420 ? 26 : 30;
     const official = route.type === 'interstate' || route.type === 'state' && route.illinois;
-    return { width: official ? (route.number.length > 2 && route.type === 'interstate' ? size * 1.25 : size) : 42,
-      height: official ? size : 23, asset: route.type === 'interstate' ? 'interstate' : route.type === 'state' && route.illinois ? 'illinois' : null };
+    return { width: official ? (route.number.length > 2 && route.type === 'interstate' ? size * 1.25 : size) : 36,
+      height: official ? size : 20, asset: route.type === 'interstate' ? 'interstate' : route.type === 'state' && route.illinois ? 'illinois' : null };
   }
   function paintShield(context, route, point, metrics) {
     const left = point.x - metrics.width / 2, top = point.y - metrics.height / 2;
@@ -225,7 +226,7 @@
     } else {
       context.fillStyle = '#fff'; context.strokeStyle = '#19222a'; context.lineWidth = 1.5;
       context.beginPath(); context.roundRect(left, top, metrics.width, metrics.height, 3); context.fill(); context.stroke();
-      context.font = '700 10px Arial, Helvetica, sans-serif'; context.fillStyle = '#16212a';
+      context.font = '700 9px Arial, Helvetica, sans-serif'; context.fillStyle = '#16212a';
       context.fillText('US ' + route.number, point.x, point.y + .5);
     }
     return true;
@@ -240,8 +241,8 @@
         const x = geo.width / 2 + (point[0] - geo.center.x) / geo.resolution, y = geo.height / 2 - (point[1] - geo.center.y) / geo.resolution;
         if (index) context.lineTo(x, y); else context.moveTo(x, y);
       }));
-      context.strokeStyle = '#1a2029'; context.lineWidth = 3.3; context.stroke();
-      context.strokeStyle = '#f4f0d8'; context.lineWidth = 1.5; context.stroke();
+      context.strokeStyle = '#1a2029'; context.lineWidth = 2.6; context.stroke();
+      context.strokeStyle = '#f4f0d8'; context.lineWidth = 1.1; context.stroke();
     });
     context.restore();
   }
@@ -251,8 +252,8 @@
     const normalBudget = Math.max(1, Math.min(z <= 9 ? 4 : z <= 11 ? 7 : 10, Math.floor(area / (z <= 9 ? 95000 : z <= 11 ? 70000 : 45000))));
     const hotel = screenPoint([HOTEL.longitude, HOTEL.latitude], geo);
     const nearby = z >= 9 && hotel.x > 0 && hotel.x < geo.width && hotel.y > 0 && hotel.y < geo.height;
-    const budget = nearby ? Math.max(4, normalBudget) : normalBudget;
-    const layoutKey = [geo.width, geo.height, geo.resolution, geo.center.x, geo.center.y, shieldStatus.interstate, shieldStatus.illinois].join('|');
+    const budget = nearby ? Math.max(5, normalBudget) : normalBudget;
+    const layoutKey = [geo.width, geo.height, geo.resolution, geo.center.x, geo.center.y, shieldStatus.interstate, shieldStatus.illinois, placeLabels?.key || ''].join('|');
     const cachedLayout = routeFeatures.layoutKey === layoutKey, rendered = [];
     context.save(); context.textAlign = 'center'; context.textBaseline = 'middle';
     if (cachedLayout) {
@@ -271,9 +272,20 @@
       const place = (route, side, filter, target) => {
         if (!route || rendered.length >= budget || route.type === 'state' && !route.illinois) return;
         const metrics = shieldMetrics(route, geo);
-        const points = (candidates.get(route.key) || []).filter(filter || (() => true));
-        points.sort((a, b) => target ? Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y) : b.length - a.length);
-        const point = points.find((candidate) => fits(candidate, metrics));
+        const segments = candidates.get(route.key) || [], eligible = filter || (() => true);
+        const compare = (a, b) => target ? Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y) : b.length - a.length;
+        const points = segments.filter(eligible).sort(compare);
+        let point = points.find((candidate) => fits(candidate, metrics));
+        if (!point) {
+          // A visible source segment can have a blocked midpoint but usable
+          // space nearer an end. Keep every alternative on that same clipped
+          // official polyline; never move a shield away from its road.
+          const alternatives = segments.flatMap((segment) => [0, .1, .25, .75, .9, 1].map((fraction) => ({
+            x: segment.startX + (segment.endX - segment.startX) * fraction,
+            y: segment.startY + (segment.endY - segment.startY) * fraction, length: segment.length
+          }))).filter(eligible).sort(compare);
+          point = alternatives.find((candidate) => fits(candidate, metrics));
+        }
         if (!point || !paintShield(context, route, point, metrics)) return;
         occupied.push({ x: point.x - metrics.width / 2, y: point.y - metrics.height / 2, width: metrics.width, height: metrics.height });
         chosenCounts.set(route.key, (chosenCounts.get(route.key) || 0) + 1);
@@ -291,6 +303,10 @@
         const urbanaPoint = urbana ? screenPoint([urbana.longitude, urbana.latitude], geo) : hotel;
         const east = Math.max(hotel.x + 12000 / geo.resolution, urbanaPoint.x + 5000 / geo.resolution);
         place(i74, 'east', (point) => point.x >= east, { x: Math.min(geo.width - 30, east + 20), y: hotel.y + 30 });
+        const mahomet = placeLabels?.labels.find((label) => label.name.toLowerCase() === 'mahomet');
+        const mahometPoint = mahomet ? screenPoint([mahomet.longitude, mahomet.latitude], geo) : null;
+        const west = Math.min(hotel.x - 12000 / geo.resolution, mahometPoint ? mahometPoint.x + 5000 / geo.resolution : hotel.x - 55);
+        place(i74, 'west', (point) => point.x <= west, mahometPoint || { x: Math.max(30, west - 20), y: hotel.y - 35 });
         const stateRoutes = routeFeatures.routes.filter((route) => route.type === 'state' && route.illinois)
           .sort((a, b) => Math.min(...(candidates.get(a.key) || []).map((point) => Math.hypot(point.x - hotel.x, point.y - hotel.y))) - Math.min(...(candidates.get(b.key) || []).map((point) => Math.hypot(point.x - hotel.x, point.y - hotel.y))));
         for (const route of stateRoutes) { const before = rendered.length; place(route, 'single', null, hotel); if (rendered.length > before) break; }
@@ -505,7 +521,7 @@
     for (const dataset of ['roads']) {
       const image = referenceImages.get(dataset); if (!image) continue;
       const extent = image.extent;
-      context.save(); context.filter = 'drop-shadow(0px 0px 1px white) drop-shadow(0px 0px 1px white)'; context.imageSmoothingEnabled = true;
+      context.save(); context.filter = 'drop-shadow(0px 0px .65px white)'; context.imageSmoothingEnabled = true;
       context.drawImage(image.bitmap, geo.width / 2 + (extent.xmin - geo.center.x) / geo.resolution,
         geo.height / 2 - (extent.ymax - geo.center.y) / geo.resolution,
         (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);

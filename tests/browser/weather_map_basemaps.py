@@ -73,6 +73,7 @@ async def set_range(frame, identity, value):
 
 
 async def legend_layout(frame, row_selector, content_selector):
+    await menu(frame, "mapLegendAccordion", True)
     result = await frame.evaluate("""selectors=>{
       const row=document.querySelector(selectors[0]),content=row.querySelector(selectors[1]);
       const title=row.querySelector('strong,summary,h3'),host=document.getElementById('mapLegend');
@@ -85,6 +86,15 @@ async def legend_layout(frame, row_selector, content_selector):
     require(all(style["border"] == 0 and style["background"] in ["transparent","rgba(0, 0, 0, 0)"] for style in result["styles"]),
             "Legend retains a frame or backdrop: "+str(result))
     return result
+
+
+async def set_visibility(frame, visible):
+    """Dispatch the real foreground lifecycle event without removed tabs."""
+    await frame.evaluate("""visible => {
+      Object.defineProperty(document,'hidden',{configurable:true,get:()=>!visible});
+      Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>visible?'visible':'hidden'});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""", visible)
 
 
 async def wheel_activation(page, frame):
@@ -191,6 +201,17 @@ async def run_viewport(browser, base, output, width, height):
 
     await context.route("**/*", protect)
     await context.add_init_script(PROBE)
+    await context.add_init_script("""(() => {
+      window.__weatherShieldDraws=[];
+      const original=CanvasRenderingContext2D.prototype.drawImage;
+      CanvasRenderingContext2D.prototype.drawImage=function(image,...args){
+        if(/\\/weather\\/signs\\/(interstate|illinois)-route\\.svg$/.test(image?.src||'') && args.length===4){
+          window.__weatherShieldDraws.push({source:image.src,width:args[2],height:args[3]});
+          if(window.__weatherShieldDraws.length>100)window.__weatherShieldDraws.shift();
+        }
+        return original.call(this,image,...args);
+      };
+    })();""")
     page = await context.new_page()
     await page.clock.install()
     page.on("pageerror", lambda error: errors.append(str(error)))
@@ -257,39 +278,63 @@ async def run_viewport(browser, base, output, width, height):
         require(await frame.locator('#previousFrame,#nextFrame').count() == 0,
                 "Removed previous/next scan arrow buttons remain")
         routes = ground["reference"]["routes"]
-        route_limit = 4 if ground["tileZoom"] <= 9 else 7 if ground["tileZoom"] <= 11 else 10
+        # Nearby views reserve room for I57 north/south, I74 east/west and one
+        # source-backed state route. Broad views keep their smaller budget.
+        route_limit = 5 if ground["tileZoom"] <= 9 else 7 if ground["tileZoom"] <= 11 else 10
         require(routes["sourceCount"] >= routes["count"] >= 1 and 0 < routes["renderedCount"] <= routes["budget"] <= route_limit,
                 "Source-backed route shields are missing or exceed the decluttering budget: " + str(routes))
         shield_keys=[(row["key"],row.get("side","single")) for row in routes["rendered"]]
         require(len(set(shield_keys)) == routes["renderedCount"], "The same highway route/side has duplicate shields")
         require(all(sum(row["key"]==key for row in routes["rendered"])<=1
-                    or any(row["key"]==key and row["type"]=="interstate" and row["number"]=="57" for row in routes["rendered"])
-                    for key,_ in shield_keys), "A non-I57 route was labeled repeatedly")
+                    or any(row["key"]==key and row["type"]=="interstate" and row["number"] in ["57","74"] for row in routes["rendered"])
+                    for key,_ in shield_keys), "An unrelated route was labeled repeatedly")
         i57=[row for row in routes['rendered'] if row['type']=='interstate' and row['number']=='57']
         i74=[row for row in routes['rendered'] if row['type']=='interstate' and row['number']=='74']
         require({row['side'] for row in i57}=={'north','south'}
                 and all((row['latitude']>40.138080) is (row['side']=='north') for row in i57)
-                and any(row['side']=='east' and row['longitude']>-88.251416 for row in i74),
-                'Fixture-returned I57 north/south or I74 east geometry lost its contextual shield')
+                and {row['side'] for row in i74}=={'east','west'}
+                and all((row['longitude']>-88.251416) is (row['side']=='east') for row in i74),
+                'Fixture-returned I57 north/south or I74 east/west geometry lost its contextual shield: '+str(routes))
+        shield_draws = await frame.evaluate('window.__weatherShieldDraws')
+        expected_shield_size = 26 if (await frame.locator('#radarCanvas').bounding_box())['width'] < 420 else 30
+        require(shield_draws and all(row['height']==expected_shield_size for row in shield_draws),
+                'Official route artwork did not use the smaller responsive shield size: '+str(shield_draws))
+        evidence['smallerOfficialShieldSize'] = expected_shield_size
         evidence["declutteredOfficialRoutes"] = routes
         evidence["officialShieldArtworkLoaded"] = ground['shields']
+        await frame.locator('.map-panel').scroll_into_view_if_needed()
+        await page.screenshot(path=str(output / f'weather-contextual-shields-{width}.png'),full_page=True)
         for removed in ["tryLiveFeeds", "mapLayerTimes", "mapGrid", "mapStatus", "observedRadarNote", "mapHelp"]:
             require(await frame.locator("#" + removed).count() == 0,
                     "Removed map control or descriptive copy remains: " + removed)
         require(await frame.locator('#mapAttribution a[href*="nationalmap.gov"]').count() == 0,
                 "The generic USGS National Map link remains")
         await wait_for(frame, "() => {const image=document.getElementById('mapReflectivityLegend'); return image?.complete && image.naturalWidth===500 && image.naturalHeight===30;}")
+        accordion = frame.locator('#mapLegendAccordion')
+        require(not await accordion.evaluate('el=>el.open')
+                and not (await frame.evaluate('cmpriWeatherMap.getState().legend.expanded')),
+                'Map legends must initially be collapsed')
+        feed_counts = [len(fixture.map_urls),len(fixture.wms_requests),len(fixture.reference_requests),len(fixture.basemap_requests)]
+        await menu(frame, 'mapLegendAccordion', True)
+        await frame.evaluate("() => {const input=document.getElementById('mapOpacity');input.dispatchEvent(new Event('input',{bubbles:true}));}")
+        require(await accordion.evaluate('el=>el.open')
+                and (await frame.evaluate('cmpriWeatherMap.getState().legend.expanded')),
+                'Map UI refresh discarded the expanded legend')
+        require(feed_counts == [len(fixture.map_urls),len(fixture.wms_requests),len(fixture.reference_requests),len(fixture.basemap_requests)],
+                'Opening or rendering the legend triggered a source request')
         legend = await frame.evaluate("""() => {
-          const host=document.getElementById('mapLegend'),shell=document.getElementById('mapShell');
-          const a=host.getBoundingClientRect(),b=shell.getBoundingClientRect();
-          return {inside:host.parentElement===shell,left:a.left-b.left,bottom:b.bottom-a.bottom,
-            width:a.width,mapWidth:b.width,height:a.height,mapHeight:b.height,text:host.textContent,links:host.querySelectorAll('a').length};
+          const host=document.getElementById('mapLegend'),accordion=document.getElementById('mapLegendAccordion'),shell=document.getElementById('mapShell');
+          const a=accordion.getBoundingClientRect(),b=shell.getBoundingClientRect(),style=getComputedStyle(accordion);
+          return {inside:accordion.parentElement===shell&&host.parentElement.id==='mapLegendContents',left:a.left-b.left,bottom:b.bottom-a.bottom,
+            width:a.width,mapWidth:b.width,height:a.height,mapHeight:b.height,text:host.textContent,links:host.querySelectorAll('a').length,
+            background:style.backgroundColor,keyWidth:host.getBoundingClientRect().width};
         }""")
         legend["reflectivityRowWidth"] = await frame.locator('.cmpri-reflectivity-legend').evaluate("el=>el.getBoundingClientRect().width")
         require(legend["inside"] and 0 <= legend["left"] <= 16 and 0 <= legend["bottom"] <= 45
-                and legend["width"] < legend["mapWidth"] and legend["height"] <= legend["mapHeight"] * .42 + 1,
+                and legend["width"] < legend["mapWidth"] and legend["height"] <= legend["mapHeight"] * .46 + 1,
                 "Official radar legend is not compact in the map's lower-left corner: " + str(legend))
-        require(legend["reflectivityRowWidth"] <= 180.5 and legend["width"] <= 200,
+        require(legend["reflectivityRowWidth"] <= 180.5 and legend["keyWidth"] <= 180.5 and 195 <= legend["width"] <= 197
+                and legend["background"] == 'rgba(8, 12, 14, 0.76)',
                 "Reflectivity key backdrop expands beyond its compact 180px source ramp: " + str(legend))
         require(not re.search(r"legend unavailable", legend["text"], re.I) and legend["links"] == 0,
                 "Removed unavailable message or standalone legend link remains")
@@ -301,7 +346,11 @@ async def run_viewport(browser, base, output, width, height):
                 "Source-verified radar legend ticks are missing or too small to read: " + str(ticks))
         legend["readableVerifiedTicks"] = ticks
         legend["framelessPresentation"] = await legend_layout(frame,'.cmpri-reflectivity-legend','.cmpri-reflectivity-ramp')
+        legend["collapsedByDefault"] = True
+        legend["toggleDoesNotFetch"] = True
+        legend["openStateSurvivesRender"] = True
         evidence["officialRadarLegendInMap"] = legend
+        await menu(frame, 'mapLegendAccordion', False)
         sliders = await frame.evaluate("""() => ['mapOpacity','playbackSpeed','loopLength'].map(id => {
           const element=document.getElementById(id),row=element.closest('.cmpri-map-playback-options');
           return {id,type:element.type,row:row?.className,output:element.closest('label')?.querySelector('output')?.textContent};
@@ -327,7 +376,7 @@ async def run_viewport(browser, base, output, width, height):
         require([fixture.observation_calls,fixture.history_calls,fixture.forecast_calls,fixture.alert_calls] ==
                 [nws_before[0]+1,nws_before[1]+1,nws_before[2],nws_before[3]],
                 "Visible map cadence did not recheck only latest+history exactly once")
-        await frame.locator("#tab-notifications").click()
+        await set_visibility(frame, False)
         require(not await frame.evaluate("cmpriWeatherMap.getState().refresh.scheduled"),
                 "Map refresh stayed scheduled after its view was hidden")
         hidden_count = len(fixture.map_urls)
@@ -336,7 +385,7 @@ async def run_viewport(browser, base, output, width, height):
         await asyncio.sleep(.1)
         require(len(fixture.map_urls) == hidden_count and hidden_nws == [fixture.observation_calls,fixture.history_calls,fixture.forecast_calls,fixture.alert_calls],
                 "A hidden Weather view continued map or observation refresh")
-        await frame.locator("#tab-weather").click()
+        await set_visibility(frame, True)
         await wait_for(frame, "cmpriWeatherMap.getState().refresh.scheduled && cmpriWeatherMap.getState().pendingRequests === 0")
         evidence["foregroundAutomaticRefresh"] = {"intervalMs": cadence["intervalMs"],
             "visibleRefreshReadsScanCatalog": True, "hiddenViewStopsRequests": True,

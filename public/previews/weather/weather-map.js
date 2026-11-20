@@ -807,6 +807,8 @@
     }
     const empty = !fragment.childNodes.length;
     host.replaceChildren(fragment); host.hidden = empty;
+    if ($('mapLegendAccordion')) $('mapLegendAccordion').hidden = empty;
+    if ($('mapLegendSummary')) $('mapLegendSummary').setAttribute('aria-label', 'Legends for selected map layers: ' + host.childElementCount + ' keys');
   }
   function updateGroundStatus() {
     const ground = window.cmpriGroundMap?.getState();
@@ -940,10 +942,10 @@
     init();
     if (name === 'radar') name = 'reflectivity';
     if (name === 'winter') name = 'impacts';
-    if (name === 'roads') { state.roads = enabled === undefined ? !state.roads : Boolean(enabled); if (state.roads) state.impacts = false; }
+    if (name === 'roads') { state.roads = enabled === undefined ? !state.roads : Boolean(enabled); }
     else if (name === 'impacts') {
       state.impacts = enabled === undefined ? !state.impacts : Boolean(enabled);
-      if (state.impacts) { state.roads = false; ensureImpacts(); }
+      if (state.impacts) ensureImpacts();
     }
     else if (name === 'alerts') { state.showAlerts = enabled === undefined ? !state.showAlerts : Boolean(enabled); closeAlertDetails(); }
     else if (name === 'reflectivity') {
@@ -975,7 +977,13 @@
     const attribution = document.createElement('div'); attribution.id = 'mapAttribution'; attribution.className = 'cmpri-map-attribution';
     const source = document.createElement('span'); source.id = 'mapAttributionSource'; source.textContent = 'USGS · NOAA/NWS';
     attribution.append(source); shell.append(attribution);
-    if ($('mapLegend')) shell.append($('mapLegend'));
+    if ($('mapLegend')) {
+      const accordion = document.createElement('details'); accordion.id = 'mapLegendAccordion'; accordion.className = 'cmpri-map-legend-accordion';
+      const summary = document.createElement('summary'); summary.id = 'mapLegendSummary'; summary.textContent = 'Legends';
+      const contents = document.createElement('div'); contents.id = 'mapLegendContents'; contents.append($('mapLegend'));
+      accordion.append(summary, contents); shell.append(accordion);
+      accordion.addEventListener('toggle', () => { mark('legend', 'Legends ' + (accordion.open ? 'expanded' : 'collapsed') + '; no feed request'); emit(); });
+    }
     ['mapHelp', 'mapStatus', 'openMapReference', 'observedRadarNote', 'tryLiveFeeds'].forEach((id) => $(id)?.remove());
     document.querySelectorAll('[data-map-layer]').forEach((button) => button.addEventListener('click', () => selectLayer(button.dataset.mapLayer)));
     $('showEchoes')?.closest('label')?.remove();
@@ -1156,6 +1164,7 @@
       reflectivity: { ...reflectivity, legendLoaded: Boolean(reflectivityLegendUrl) },
       center: { ...state.center }, zoom: state.zoom, opacity: state.opacity, wheelZoomActive: state.wheelZoomActive,
       pinAnchor: { ...HOTEL, x: hotelPoint?.x ?? null, y: hotelPoint?.y ?? null, anchor: 'tip' },
+      legend: { expanded: Boolean($('mapLegendAccordion')?.open), keyCount: $('mapLegend')?.childElementCount || 0 },
       refresh: { intervalMs: REFRESH_INTERVAL, nextAt: refreshTimer !== null ? refreshDueAt : null, scheduled: refreshTimer !== null },
       networkRequests: state.networkRequests, pendingRequests: controllers.size,
       rasterLoads: loadingImages.size, rasterQueue: frameQueue.length + (queuedFrame === null ? 0 : 1), rasterLoadLimit: 2,

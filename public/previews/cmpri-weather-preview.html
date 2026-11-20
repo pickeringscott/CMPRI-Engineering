@@ -4,11 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://mapservices.weather.noaa.gov; connect-src 'self' https://mapservices.weather.noaa.gov; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://mapservices.weather.noaa.gov; connect-src 'self' https://mapservices.weather.noaa.gov; frame-src https://avioadsb.org; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="robots" content="noindex,nofollow">
 <title>CMPRI Engineering · Weather Branch Preview</title>
 <link rel="stylesheet" href="weather/weather-preview.css">
 <link rel="stylesheet" href="weather/weather-visuals.css">
+<link rel="stylesheet" href="weather/weather-graphs.css">
+<link rel="stylesheet" href="weather/willard-airport.css">
 <link rel="stylesheet" href="weather/weather-map.css">
 <link rel="stylesheet" href="weather/notification-preview.css">
 </head>
@@ -20,10 +22,9 @@
  <div class="titlebar"><span class="dot" aria-hidden="true"></span><span id="windowTitle">Weather · Residence Inn Champaign</span><span class="window-caption">CMPRI / review only</span><button class="close" id="closeWeather" aria-label="Close Weather">×</button></div>
  <div class="window-body" id="windowBody">
   <div class="view-head"><div><div class="eyebrow">Property weather</div><h1 style="margin-top:5px">Residence Inn Champaign</h1><p class="location">502 West Marketview Drive · 40.138080, −88.251416 · America/Chicago</p></div><span class="badge neutral"><span class="dot"></span>Branch review only</span></div>
-  <div class="tabs" role="tablist" aria-label="Weather views"><button id="tab-weather" role="tab" aria-selected="true" aria-controls="panel-weather" tabindex="0">Weather</button><button id="tab-notifications" role="tab" aria-selected="false" aria-controls="panel-notifications" tabindex="-1">Notifications</button><button id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1">Shared check</button></div>
-  <div id="panel-weather" role="tabpanel" aria-labelledby="tab-weather">
+  <div id="panel-weather">
    <div class="priority-row">
-    <section class="panel conditions-priority" id="currentConditionsSection"><div class="section-label"><div><h2>Current Conditions</h2><p class="current-as-of" id="liveObservationTime">As of: unavailable · Willard (KCMI)</p></div><span class="badge neutral" id="liveConditionsBadge">KCMI</span></div><div class="conditions-inline"><div id="liveTemperature">—</div></div></section>
+    <section class="panel conditions-priority" id="currentConditionsSection"><div class="section-label"><div><h2>Current Conditions</h2><p class="current-as-of" id="liveObservationTime">As of: unavailable · Willard (KCMI)</p></div><span class="badge neutral" id="liveConditionsBadge">KCMI</span></div><div class="conditions-inline"><div id="liveTemperature">—</div></div><div id="currentConditionsGraphs" class="current-conditions-graphs"></div></section>
     <section class="panel official-priority" id="officialAlertsSection" hidden><div class="section-label"><h2>Official NWS alerts</h2><span class="badge neutral" id="liveAlertsBadge">NWS</span></div><div id="liveAlertsHost"></div></section>
    </div>
    <p class="alert-availability" id="liveAlertAvailability" hidden></p>
@@ -33,12 +34,13 @@
      <div id="mapControlHost"></div>
     </section>
 
-   <section class="panel forecast-panel"><div class="section-label"><div><h2>Hourly forecast</h2><p class="small muted">Published NWS forecast · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="hourlyForecast" data-direction="-1" aria-label="Scroll hourly forecast left">‹</button><button data-scroll-target="hourlyForecast" data-direction="1" aria-label="Scroll hourly forecast right">›</button></div></div><div class="forecast-strip" id="hourlyForecast" tabindex="0" role="region" aria-label="Official hourly forecast; scroll horizontally"></div></section>
+   <section class="panel forecast-panel"><div class="section-label"><div><h2>Hourly forecast</h2><p class="small muted">Published NWS forecast · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="hourlyForecast" data-direction="-1" aria-label="Scroll hourly forecast left">‹</button><button data-scroll-target="hourlyForecast" data-direction="1" aria-label="Scroll hourly forecast right">›</button></div></div><div class="hourly-forecast-scroll" id="hourlyForecast" tabindex="0" role="region" aria-label="Official hourly forecast and aligned graphs; scroll horizontally"><div class="hourly-forecast-content"><div class="forecast-strip hourly-forecast-cards" id="hourlyForecastCards"></div><div id="hourlyForecastGraphs" class="hourly-forecast-graphs"></div></div></div></section>
    <section class="panel forecast-panel"><div class="section-label"><div><h2>Extended forecast</h2><p class="small muted">Daily temperatures · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="extendedForecast" data-direction="-1" aria-label="Scroll extended forecast left">‹</button><button data-scroll-target="extendedForecast" data-direction="1" aria-label="Scroll extended forecast right">›</button></div></div><div class="forecast-strip" id="extendedForecast" tabindex="0" role="region" aria-label="Official extended forecast; scroll horizontally"></div></section>
    <section class="panel accumulation-strip"><div><strong>Snow &amp; ice · next 24h</strong><p class="small muted">NWS forecast grid intervals; unavailable when not supplied</p></div><div><span class="small muted">Snow</span> <strong id="liveSnow">Unavailable</strong></div><div><span class="small muted">Ice</span> <strong id="liveIce">Unavailable</strong></div><a class="small" href="https://www.weather.gov/ilx/wssi" target="_blank" rel="noopener noreferrer">Official winter guidance ↗</a></section>
+   <details class="panel willard-airport" id="willardAirport"><summary>Willard Airport</summary></details>
   </div>
-  <div id="panel-notifications" role="tabpanel" aria-labelledby="tab-notifications" hidden><div id="notificationPreviewHost"></div></div>
-  <div id="panel-checks" role="tabpanel" aria-labelledby="tab-checks" hidden>
+  <div id="panel-notifications" hidden><div id="notificationPreviewHost"></div></div>
+  <div id="panel-checks" hidden>
    <div class="section-label"><div><h2>One shared check for the property</h2><p class="small muted" style="margin-top:4px">Simulation only · the clock advances when you click · no scheduler is running</p></div><span class="badge">Virtual time</span></div>
    <div class="sim-modes"><div class="mode-tile" id="modeClear"><span class="small">No active alert</span><strong>5 min</strong><p>Routine check</p></div><div class="mode-tile" id="modeWatch"><span class="small">Watch / advisory</span><strong>2 min</strong><p>Heightened check</p></div><div class="mode-tile" id="modeWarning"><span class="small">Warning</span><strong>1 min</strong><p>Urgent check</p></div></div>
    <div class="sim-layout"><section class="panel"><div class="eyebrow">Current simulated mode</div><h3 class="current-mode"><span id="simMode">Clear</span> · <span id="simInterval">5 minutes</span></h3><p class="small muted">Next shared check: <span id="simNext"></span></p><div class="sim-stats"><div><strong id="simNws">0</strong><small>NWS requests<br>simulated</small></div><div><strong id="simDb">0</strong><small>Supabase transactions<br>simulated · actual 0</small></div><div><strong id="simPush">0</strong><small>In-app messages<br>simulated</small></div></div><p class="small" id="simStage"></p><div class="row" style="margin-top:12px"><button class="primary" id="simStep">Advance to Watch</button><button id="simUnchanged">Repeat unchanged</button></div><div class="row" style="margin-top:8px"><button id="simChange">Material update</button><button id="simCancel">Cancel most urgent</button><button id="simExpire">Expire most urgent</button><button id="simReset">Reset</button></div><hr class="rule"><p class="small muted">The most urgent active alert sets the interval. Cancel or expire the warning while a watch remains: the mode slows to 2 minutes. Clear the remaining watch: it returns to 5 minutes.</p><p class="footnote">Faster checks create more NWS requests, with no database request for an unchanged comparison. Cache and delivery keys are in local memory here; proposed shared-worker state is not implemented.</p></section><section class="panel"><div class="section-label"><h2>Comparison &amp; activity log</h2><span class="badge">Simulation</span></div><p class="small muted">One hypothetical alert request per property check. A simulated transaction stores the changed alert and any outbox / delivery key together. No per-user polling.</p><ol class="sim-log" id="simLog"></ol></section></div>
@@ -53,7 +55,9 @@
 <script src="weather/ground-map.js" defer></script>
 <script src="weather/weather-map.js" defer></script>
 <script src="weather/weather-visuals.js" defer></script>
+<script src="weather/weather-graphs.js" defer></script>
 <script src="weather/nws-live-view.js" defer></script>
+<script src="weather/willard-airport.js" defer></script>
 <script src="weather/weather-preview.js" defer></script>
 </body>
 </html>

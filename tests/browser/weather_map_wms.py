@@ -65,6 +65,8 @@ async def run_viewport(browser, base, output, width, height):
         await launcher.wait_for(state='visible',timeout=60000);mutation_start=len(mutations)
         await launcher.click();frame=await weather_frame(page);await install_weather_audit(frame)
         await settled(frame);await style(frame,'aerial');await select_product(frame,'reflectivity',False)
+        require(not await frame.locator('#mapLegendAccordion').evaluate('el=>el.open'),
+                'Map legend accordion did not start collapsed')
         for selected,product,name,advertised_style,color,alpha_value in [
             ('velocity','velocity','kilx_sr_bvel','radar_velocity',[180,65,205],150),
             ('ptype','precipitation','conus_pcpn_typ','radar_precip_type',[85,205,225],170)]:
@@ -117,21 +119,33 @@ async def run_viewport(browser, base, output, width, height):
         actual=await pixel(frame)
         require(max(abs(actual[n]-round(expected[n])) for n in range(3))<=5,'Selected reflectivity/ptype/velocity did not visibly stack: '+str(actual))
         await select_product(frame,'roads',True);roads=await frame.evaluate('cmpriWeatherMap.getState()')
-        require(roads['layers']['roads'] and not roads['layers']['impacts']
+        require(roads['layers']['roads'] and roads['layers']['impacts']
                 and all(roads['layers'][name] for name in ['reflectivity','velocity','ptype','alerts']),
-                'Reported roads toggled unrelated layers or failed winter exclusivity')
+                'Reported roads selection disabled forecast impacts or an unrelated layer')
         require('unavailable' in (await frame.locator('#mapFeedStatus').inner_text()).lower(),
                 'Unavailable reported roads look like a live route layer')
+        await select_product(frame,'impacts',False)
+        require(await frame.evaluate('cmpriWeatherMap.getState().layers.roads'),
+                'Disabling forecast impacts disabled reported roads')
         await select_product(frame,'impacts',True);winter=await frame.evaluate('cmpriWeatherMap.getState()')
-        require(winter['layers']['impacts'] and not winter['layers']['roads']
+        require(winter['layers']['impacts'] and winter['layers']['roads']
                 and all(winter['layers'][name] for name in ['reflectivity','velocity','ptype','alerts']),
-                'Forecast impacts toggled unrelated layers or failed winter exclusivity')
+                'Forecast impacts selection disabled reported roads or an unrelated layer')
+        await select_product(frame,'roads',False)
+        require(await frame.evaluate('cmpriWeatherMap.getState().layers.impacts'),
+                'Disabling reported roads disabled forecast impacts')
+        await select_product(frame,'roads',True)
+        full_stack=await frame.evaluate('cmpriWeatherMap.getState()')
+        require(all(full_stack['layers'][name]
+                    for name in ['reflectivity','velocity','ptype','alerts','roads','impacts']),
+                'The six independent weather selections cannot remain enabled together')
         for identity in ['mapLayerSatellite','mapLayerLightning']:
             require(await frame.locator('#'+identity).is_disabled()
                     and 'unavailable' in (await frame.locator('#'+identity).inner_text()).lower(),
                     'Unsupported product is presented as a selectable live layer')
-        evidence['independentStackAndWinterExclusivity']={'compositedPixel':actual,'supportedLayersStack':True,
-            'onlyWinterRoadsAndImpactsExclude':True,'unsupportedClearlyUnavailable':True}
+        evidence['independentLayerStack']={'compositedPixel':actual,'supportedLayersStack':True,
+            'winterLayersRemainSelectedBothOrders':True,'allSixSelectionsIndependent':True,
+            'unavailableReportedRoadsNotFabricated':True,'unsupportedClearlyUnavailable':True}
         await frame.locator('.map-panel').scroll_into_view_if_needed()
         await page.screenshot(path=str(output/f'independent-weather-layer-stack-{width}.png'),full_page=True)
         fixture.wms_modes['precipitation']='unavailable'

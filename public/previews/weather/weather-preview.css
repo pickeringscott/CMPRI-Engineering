@@ -29,3 +29,17 @@
 /* The current wheel uses the available panel; active official alerts stay beside it. */
 .priority-row{grid-template-columns:minmax(0,1fr)}.priority-row.has-active-alerts{grid-template-columns:minmax(0,1.1fr) minmax(260px,.9fr)}
 @media(max-width:800px){.priority-row.has-active-alerts{grid-template-columns:minmax(0,1fr)}}
+
+/* A single Weather surface, with forecast charts sharing the card scroll lane. */
+:root{--current-weather-width:440px}
+#panel-weather{margin-top:12px}
+.current-conditions-graphs{width:100%;max-width:var(--current-weather-width);margin:4px auto 0;min-width:0}
+.hourly-forecast-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#917024 #181612;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scroll-snap-type:x proximity;padding:2px 1px 9px}
+.hourly-forecast-content{width:max-content;min-width:100%}
+.hourly-forecast-cards.forecast-strip{overflow:visible;grid-auto-columns:clamp(148px,16vw,224px);padding:0;scroll-snap-type:none}
+.hourly-forecast-graphs{margin-top:8px;width:100%;min-width:0}
+.hourly-forecast-graphs>.wg-hourly-graph{max-width:none;margin:0}
+.daily-forecast-graphs{margin-top:auto;padding-top:8px;width:100%;min-width:0}
+.daily-forecast-card{display:flex;flex-direction:column}
+@media(max-width:640px){#panel-weather{margin-top:10px}.hourly-forecast-cards.forecast-strip{grid-auto-columns:137px}}
+.willard-airport.panel{padding:0}
