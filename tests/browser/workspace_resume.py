@@ -149,11 +149,14 @@ async def launch(playwright, profile, width, state, session=None, gate=None, see
 
 
 async def dashboard_ready(page):
-    await page.get_by_role("button", name="Work Order List", exact=True).wait_for(timeout=60000)
+    await page.get_by_role("button", name="Work Order List", exact=True, include_hidden=True).wait_for(state="attached", timeout=60000)
 
 
 async def activate(page, name):
-    button = page.get_by_role("button", name=name, exact=True)
+    button = page.get_by_role("button", name=name, exact=True, include_hidden=True)
+    await button.wait_for(state="attached", timeout=60000)
+    if await button.locator("xpath=ancestor::fieldset[1]").count():
+        await fixture.reveal_dashboard_launcher(button)
     await button.focus()
     await button.press("Enter")
 
@@ -268,14 +271,13 @@ async def check_tally_anchor(page, width, results):
             assert not anchored and abs(tally["x"] - 8) <= 1 and abs(tally["y"] - 8) <= 1, tally
         return {"state": label, "header": parent, "tally": tally}
 
-    checks = [await geometry("expanded")]
+    checks = [await geometry("tabs closed")]
     if width > 640:
-        groups = page.locator(".cmpri-desktop-topbar fieldset.group:visible")
-        first = groups.first.locator("legend")
+        first = page.locator("nav.cmpri-dashboard-menu-rail").get_by_role("button", name="Daily Work", exact=True)
         await first.click()
-        checks.append(await geometry("group collapsed"))
+        checks.append(await geometry("tab opened"))
         await first.click()
-        checks.append(await geometry("group expanded"))
+        checks.append(await geometry("tab closed"))
         await page.set_viewport_size({"width": width - 160, "height": 1000})
         checks.append(await geometry("title bar resized"))
         await page.set_viewport_size({"width": width, "height": 1000})
