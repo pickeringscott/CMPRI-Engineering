@@ -7,6 +7,7 @@ import ts from 'typescript';
 import { JSDOM } from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
+import { defaultWindowRect } from '../src/lib/ui/desktop-windows.ts';
 import { canResumeWorkspaceView } from '../src/lib/ui/workspace-route-access.ts';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -36,20 +37,21 @@ const globals = {
     if (name === 'next/navigation') return { usePathname: () => pathname, useRouter: () => router, useSearchParams: () => new URLSearchParams(window.location.search) };
     if (name === '@/lib/open-work-orders') return registry;
     if (name === '@/lib/ui/workspace-resume') return workspace;
+    if (name === '@/lib/ui/desktop-windows') return { defaultWindowRect };
     if (name === '@/lib/ui/workspace-route-access') return { canResumeWorkspaceView };
     if (name === '@/lib/ui/header-palette') return {
       modalActionForRoute: () => '', modalThemeStyle: () => ({}), modalTitleStyle: () => ({}),
       modalDisplayTitle: (_path, title) => title, hasBonvoyTierHelp: () => false,
     };
     if (name === '@/lib/auth/client-session') return { loadCmpriSession: () => { reads++; return sessionRead; } };
-    if (['./WorkOrderTierKey', './RoomRankerKey', './WorkOrderTitleGuest', './desktop/WorkOrderListWindow'].includes(name)) return { default: empty };
+    if (['./WorkOrderTierKey', './RoomRankerKey', './WorkOrderTitleGuest', './desktop/WorkOrderListWindow', './desktop/DesktopWindow', './desktop/WeatherPreviewWindow'].includes(name)) return { default: empty };
     throw Error(`Unexpected import: ${name}`);
   },
 };
 vm.runInNewContext(code, globals);
 const Component = globals.exports.default;
 const session = {
-  user: { id: 'fixture-user', role: 'engineer', secondary_roles: [], email: null, name: null },
+  user: { id: 'fixture-user', role: 'technician', secondary_roles: [], email: null, name: null },
   hotelId: 'fixture-hotel', landing: '/engineering', capabilities: ['view_work_orders', 'view_profiles', 'view_pm', 'submit'],
 };
 const frame = href => ({ kind: 'frame', key: new URL(href, window.location.origin).pathname, href });

@@ -1,6 +1,6 @@
 import asyncio
 
-from cmpri_fixture import BASE, CAPS, async_playwright, expect, install
+from cmpri_fixture import BASE, CAPS, UID, async_playwright, expect, install
 
 
 ROLE_TABS = ["Daily Work", "Rooms & Reports", "Safety & Logs", "Assets & Inventory", "Account", "Admin"]
@@ -397,7 +397,7 @@ async def check_housekeeping_profile(browser):
         if body:
             saved.append(body)
         await route.fulfill(json={
-            "profile": {"id": "fixture", "role": "housekeeping", "full_name": body.get("full_name", "Alex Morgan")},
+            "profile": {"id": UID, "role": "housekeeping", "full_name": body.get("full_name", "Alex Morgan")},
             "preferences": {"appearance": "dark", "language": "en"},
         })
 

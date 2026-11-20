@@ -537,6 +537,14 @@ export default function GlobalModalHost() {
         workspaceRouteDecidedRef.current = false;
         workspaceTouchedRef.current = false;
         for (const entry of stackRef.current.slice()) requestModalClose(entry.id);
+        // Modeless Weather keeps its loaded iframe only within this verified
+        // scope. A closed cache must not masquerade as an editor refusing save.
+        const retained = stackRef.current.filter(entry => !entry.weatherCached);
+        if (retained.length !== stackRef.current.length) {
+          stackRef.current = retained;
+          setStack(retained);
+          setActiveId(current => retained.some(entry => entry.id === current) ? current : retained.at(-1)?.id ?? null);
+        }
         if (stackRef.current.length) { workspaceScopeBlockedRef.current = true; return; }
       }
       workspaceBlockedRef.current = false; setWorkspaceBlocked(false);
@@ -601,7 +609,7 @@ export default function GlobalModalHost() {
     if (!context || workspaceStoppedRef.current || workspaceBlockedRef.current || !workspaceRestoredRef.current || window.parent !== window) return;
     const currentPath = window.location.pathname;
     if (currentPath === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(currentPath)) return;
-    const views = stackRef.current.map(workspaceModalView).filter((view): view is WorkspaceView => Boolean(view));
+    const views = stackRef.current.filter(entry => !entry.weatherCached).map(workspaceModalView).filter((view): view is WorkspaceView => Boolean(view));
     const active = stackRef.current.find(entry => entry.id === activeIdRef.current);
     try {
       saveWorkspace(window.localStorage, context.identity,
@@ -1042,8 +1050,8 @@ export default function GlobalModalHost() {
     return () => background.forEach(({ element, inert }) => { element.inert = inert; });
   }, [stack.length, technicianAnchor]);
 
-  if (technicianDesktop) return workspaceHidden ? null : createPortal(
-    <div ref={modalRootRef} className="pointer-events-none fixed z-[19] [&_.cmpri-desktop-window]:pointer-events-auto"
+  if (technicianDesktop) return createPortal(
+    <div ref={modalRootRef} hidden={workspaceHidden} inert={workspaceHidden} aria-hidden={workspaceHidden || undefined} className="pointer-events-none fixed z-[19] [&_.cmpri-desktop-window]:pointer-events-auto"
       style={{ left: technicianDesktop.left, top: technicianDesktop.top, ...technicianDesktop.bounds }}
       data-cmpri-technician-windows>
       {stack.map((entry, index) => {
@@ -1057,7 +1065,7 @@ export default function GlobalModalHost() {
         if (key === WEATHER_PATH) return (
           <WeatherPreviewWindow
             key={entry.id} windowKey={key} title={entry.title} accentClass="bg-amber-400"
-            src={entry.href} visible={!entry.weatherCached} use24HourTime={false}
+            src={entry.href} visible={!workspaceHidden && !entry.weatherCached} use24HourTime={false}
             bulletinHost={technicianDesktop.bulletinHost} rect={entry.rect} bounds={technicianDesktop.bounds}
             zIndex={zIndex} active={active} onFocus={onFocus} onClose={onClose} onRectCommit={onRectCommit}
             registerFrame={frame => registerFrame(entry.id, frame)}

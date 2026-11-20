@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canResumeWorkspaceView } from '../src/lib/ui/workspace-route-access.ts';
 
-const session = (capabilities, role = 'engineer', extra = {}) => ({
+const session = (capabilities, role = 'technician', extra = {}) => ({
   user: { id: 'fixture-user', role, email: null, name: null, ...extra },
   hotelId: 'fixture-hotel', landing: '/engineering', capabilities,
 });

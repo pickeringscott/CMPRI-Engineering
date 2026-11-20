@@ -60,12 +60,17 @@ async def check_technician_windows(browser, width):
     await expect(detail).to_be_visible()
     detail_query = parse_qs(urlparse(await detail.locator("iframe").get_attribute("src")).query)
     assert detail_query["embedded"] == ["1"] and detail_query.get("modalToken")
+    await expect(detail.frame_locator("iframe").get_by_title("Fixture drain needs repair", exact=True)).to_be_visible(timeout=60000)
     await activate(detail.get_by_role("button", name="Close Work Order", exact=False))
     await expect(detail).to_have_count(0)
     await expect(work_orders).to_be_visible()
     await activate(work_orders.get_by_role("button", name="Close Work Order List", exact=True))
     await activate(weather.get_by_role("button", name="Close Weather", exact=True))
     await expect(cached_weather).to_have_attribute("data-weather-visible", "false")
+    await page.wait_for_function("""() => {
+      const saved = Object.entries(localStorage).find(([key]) => key.startsWith('cmpri:workspace:v1:'));
+      return saved && !JSON.parse(saved[1]).modals.views.some(view => view.href?.startsWith('/previews/cmpri-weather-preview.html'));
+    }""")
     await expect(frame).to_have_attribute("data-retention-check", "initial")
     await activate(safety)
     await activate(rail.get_by_role("button", name="Weather", exact=True))
