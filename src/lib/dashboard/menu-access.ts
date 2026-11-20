@@ -1,4 +1,4 @@
-import { profileHasRole, roleKey, type CmpriRole } from "../server/roles";
+import { profileHasRole, type CmpriRole } from "../server/roles";
 
 type MenuProfile = { role: unknown; secondary_roles?: readonly unknown[] };
 const CHIEF_MENU_ROLES = ["engineer", "senior_management", "system_admin"] as const;
@@ -24,5 +24,5 @@ export function canOpenEnseo(profile: MenuProfile): boolean {
 }
 
 export function canOpenWeather(profile: MenuProfile): boolean {
-  return roleKey(profile.role) !== "unknown";
+  return hasMenuRole(profile, [...CHIEF_MENU_ROLES, "manager", "technician", "front_desk", "housekeeping"]);
 }

@@ -8,7 +8,7 @@ import * as jsxRuntime from 'react/jsx-runtime';
 import {createRoot} from 'react-dom/client';
 import {JSDOM} from 'jsdom';
 import {loadTs} from './helpers/load-ts.mjs';
-const {groupLocations}=loadTs('src/lib/location-management.ts');
+const locationManagement=loadTs('src/lib/location-management.ts');
 
 test('open Manage Locations refreshes on resource changes, retains expansion and ignores stale reads',{timeout:15000},async()=>{
  const dom=new JSDOM('<div id="app"></div>',{url:'https://fixture.test/management/rooms'});
@@ -28,7 +28,7 @@ test('open Manage Locations refreshes on resource changes, retains expansion and
   '@/components/ModalNavigationButton':{default:({children})=>jsxRuntime.jsx('button',{children})},
   '@/components/ModalDashboardLink':{default:()=>null},
   '@/components/use-embedded-modal':{default:()=>true},
-  '@/lib/location-management':{groupLocations},
+  '@/lib/location-management':locationManagement,
   '@/lib/ui/header-palette':{modalTitleStyle:()=>({color:'#00d492'})},
   '@/lib/events/browser':{subscribeResources:(next,load,initial)=>{topics=next;refresh=load;assert.equal(initial,false);return()=>{stopped=true;};}},
   './locations.css':{},

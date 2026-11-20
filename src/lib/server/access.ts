@@ -1,4 +1,4 @@
-import { isSubmitOnlyRole, membershipAllows, profileAllows, profileHasRole, profileIsChiefEngineer, roleKey, type Capability } from "./roles";
+import { isSubmitOnlyRole, membershipAllows, profileAllows, profileHasRole, profileIsChiefEngineer, roleAllows, roleKey, type Capability } from "./roles";
 export type { Capability } from "./roles";
 
 export type AccessIdentity = { id: string; email: string | null };
@@ -103,7 +103,7 @@ export function allows(principal: Principal, capability: Capability): boolean {
     return matchesPropertyMembership(principal);
   }
   if (capability === "view_locations" || capability === "edit_locations") {
-    return matchesPropertyMembership(principal) && profileAllows(principal.profile, capability);
+    return matchesPropertyMembership(principal) && roleAllows(principal.profile.role, capability);
   }
   if (capability === "view_pool_log" || capability === "operate_pool_log") {
     if (!matchesPropertyMembership(principal) || isSubmitOnlyRole(principal.profile.role)) return false;

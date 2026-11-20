@@ -24,15 +24,17 @@ function reader(auth) {
   return capability => requireChiefModuleRead({}, capability);
 }
 
-test("Chief menu grants Senior Management property-scoped reads, without management capabilities", async () => {
-  const actor = principal();
-  const authenticate = reader({ ok: true, principal: actor, mcp: false, admin: {} });
-  assert.equal(policy.canReadChiefModules(actor.profile), true);
-  assert.equal(policy.canReadChiefModules({ role: "manager" }), false);
-  for (const capability of ["manage_assets", "manage_users", "review_feedback"]) {
-    assert.equal(allows(actor, capability), false);
-    assert.equal((await authenticate(capability))?.canManage, false, capability);
+test("Chief menu roles receive property-scoped reads independently of management grants", async () => {
+  for (const role of ["chief_engineer", "engineer", "senior_management", "system_admin"]) {
+    const actor = principal(role);
+    const authenticate = reader({ ok: true, principal: actor, mcp: false, admin: {} });
+    assert.equal(policy.canReadChiefModules(actor.profile), true, role);
+    for (const capability of ["manage_assets", "manage_users", "review_feedback"]) {
+      assert.equal(allows(actor, capability), false, `${role} ${capability}`);
+      assert.equal((await authenticate(capability))?.canManage, false, `${role} ${capability}`);
+    }
   }
+  assert.equal(policy.canReadChiefModules({ role: "manager" }), false);
 });
 
 test("the additional reads require the matching active property and a signed-in browser", async () => {

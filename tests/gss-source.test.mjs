@@ -55,22 +55,32 @@ test('provider fetches only the selected images and fails closed on a changed la
 
 test('source endpoint enforces authorization and hides upstream errors', async () => {
   const route=readFileSync(new URL('../src/app/api/engineering/gss/source/route.ts',import.meta.url),'utf8');
-  let user=null, sourceCalls=0;
+  let auth={ok:false}, sourceCalls=0;
+  const signedIn = (role, membership, mcp=false) => ({
+    ok:true, mcp, principal:{profile:{role,active:true},membership:{role:membership,active:true}},
+  });
   const deps={
     'next/server':{NextResponse:{json:(body,opts)=>({body,...opts})}},
     '@/lib/dashboard/menu-access':loadTs('src/lib/dashboard/menu-access.ts'),
-    '@/lib/server/auth':{requireUser:async()=>user},
+    '@/lib/server/access':loadTs('src/lib/server/access.ts'),
+    '@/lib/server/auth':{requireUserAttempt:async()=>auth},
     '@/lib/integrations/email-provider':{fetchLatestGssSource:async()=>{sourceCalls++;throw new Error('private mailbox data');}},
   };
   const exports={};
   vm.runInNewContext(ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports,require:name=>deps[name]});
   const unauthorized=await exports.GET({}); assert.equal(unauthorized.status,401); assert.equal(sourceCalls,0);
   for (const role of ['front_desk', 'housekeeping', 'unknown']) {
-    user={principal:{profile:{role}}};
+    auth=signedIn(role,'technician');
     const forbidden=await exports.GET({}); assert.equal(forbidden.status,403); assert.equal(sourceCalls,0);
   }
-  user={principal:{profile:{role:'front_desk_manager'}}};
+  auth=signedIn('front_desk_manager','technician',true);
+  assert.equal((await exports.GET({})).status,403);
+  assert.equal(sourceCalls,0);
+  auth=signedIn('front_desk_manager','technician');
   const unavailable=await exports.GET({}); assert.equal(unavailable.status,503); assert.equal(sourceCalls,1);
   assert.equal(unavailable.body.error,'The latest GSS source report is unavailable.');
   assert.equal(unavailable.headers['Cache-Control'],'private, no-store');
+  auth=signedIn('chief_engineer','admin',true);
+  assert.equal((await exports.GET({})).status,503);
+  assert.equal(sourceCalls,2);
 });

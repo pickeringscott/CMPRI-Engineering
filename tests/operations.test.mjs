@@ -60,8 +60,8 @@ test("engineering modules share their role checks between pages and authenticate
     const pageSource = readFileSync(new URL(`../src/app/engineering/${page}/page.tsx`, import.meta.url), "utf8");
     const apiSource = readFileSync(new URL(`../src/app/api/${api}/route.ts`, import.meta.url), "utf8");
     assert.ok(pageSource.includes(`${policy}(${session}.user)`), `${page} must gate its UI`);
-    assert.match(apiSource, /await requireUser\(request\)/, `${api} must authenticate reads`);
-    assert.ok(apiSource.includes(`${policy}(auth.principal.profile)`), `${api} must enforce the same policy`);
+    assert.match(apiSource, /await requireUserAttempt\(request\)/, `${api} must authenticate reads`);
+    assert.match(apiSource, new RegExp(`${policy}\\((?:auth\\.)?principal\\.profile\\)`), `${api} must enforce the same policy`);
   }
   const apiPolicies = [
     ["../src/app/api/engineering/operations/route.ts", /allows\(auth\.principal, "view_engineering_operations"\)/],
@@ -81,8 +81,8 @@ test("menu module access matches the approved role matrix", () => {
     ["senior_management", true, true, true, true, true],
     ["system_admin", true, true, true, true, true],
     ["manager", false, true, true, false, true],
-    ["assistant_manager", false, true, false, false, true],
-    ["front_desk_manager", false, true, false, false, true],
+    ["assistant_manager", false, true, false, false, false],
+    ["front_desk_manager", false, true, false, false, false],
     ["technician", false, true, true, true, true],
     ["front_desk", false, false, false, false, true],
     ["housekeeping", false, false, false, false, true],

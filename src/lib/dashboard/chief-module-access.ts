@@ -1,9 +1,9 @@
-import { profileHasRole } from "../server/roles";
 import type { Principal } from "../server/access";
+import { isChiefMenuRole } from "./menu-access";
 
-/** Senior Management gets the Chief menu's module reads, without edit grants. */
+/** Chief menu roles can view these modules. The existing capabilities still govern edits. */
 export function canReadChiefModules(profile: { role: unknown; secondary_roles?: readonly unknown[] }): boolean {
-  return profileHasRole(profile, "senior_management");
+  return isChiefMenuRole(profile);
 }
 
 export function canReadChiefModuleData(principal: Principal): boolean {

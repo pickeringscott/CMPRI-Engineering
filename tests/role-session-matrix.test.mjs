@@ -162,11 +162,14 @@ test("location and pool policy is narrow and requires the active property member
   for (const capability of ["manage_rooms", "manage_assets", "manage_users", "edit_tickets", "reopen"]) {
     assert.equal(accessModule.allows(senior, capability), false, capability);
   }
-  for (const role of ["Front Desk", "Lead Housekeeper"]) {
+  for (const role of ["General Manager", "Assistant General Manager", "Front Desk Manager", "Maintenance Technician", "Front Desk", "Lead Housekeeper"]) {
     const principal = makePrincipal(role);
     principal.profile.secondary_roles = ["engineer"];
-    assert.equal(accessModule.allows(principal, "view_pool_log"), false, role);
-    assert.equal(accessModule.allows(principal, "operate_pool_log"), false, role);
+    const permitted = !["Front Desk", "Lead Housekeeper"].includes(role);
+    assert.equal(accessModule.allows(principal, "view_locations"), permitted, role);
+    assert.equal(accessModule.allows(principal, "edit_locations"), false, role);
+    assert.equal(accessModule.allows(principal, "view_pool_log"), permitted, role);
+    assert.equal(accessModule.allows(principal, "operate_pool_log"), permitted, role);
   }
 });
 

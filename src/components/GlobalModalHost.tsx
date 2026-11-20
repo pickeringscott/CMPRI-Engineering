@@ -1,18 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import {modalActionForRoute,modalThemeStyle,modalTitleStyle,modalDisplayTitle,hasBonvoyTierHelp} from '@/lib/ui/header-palette';
 import WorkOrderTierKey from './WorkOrderTierKey';
 import RoomRankerKey from './RoomRankerKey';
 import WorkOrderTitleGuest from './WorkOrderTitleGuest';
-import WorkOrderListWindow from './desktop/WorkOrderListWindow';
+import WorkOrderListWindow, { type DesktopWorkOrder } from './desktop/WorkOrderListWindow';
+import DesktopWindow from './desktop/DesktopWindow';
+import WeatherPreviewWindow from './desktop/WeatherPreviewWindow';
 import { loadCmpriSession } from '@/lib/auth/client-session';
 import { claimWorkOrder, releaseWorkOrder } from '@/lib/open-work-orders';
 import { canResumeWorkspaceView } from '@/lib/ui/workspace-route-access';
 import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity,
   type WorkspaceIdentity, type WorkspaceOptions, type WorkspaceView } from '@/lib/ui/workspace-resume';
+import { defaultWindowRect, type DesktopBounds, type WindowRect } from '@/lib/ui/desktop-windows';
 
 type ModalEntry = {
   guest?: Record<string,unknown>;
@@ -22,7 +25,38 @@ type ModalEntry = {
   modalToken?: string;
   returnFocus?: HTMLElement | null;
   kind?: "work-order-list";
+  rect?: WindowRect;
+  openedAt?: number;
+  weatherCached?: boolean;
 };
+
+type TechnicianDesktop = {
+  anchor: HTMLElement;
+  bulletinHost: HTMLElement | null;
+  bounds: DesktopBounds;
+  left: number;
+  top: number;
+};
+
+const WEATHER_PATH = "/previews/cmpri-weather-preview.html";
+const WORK_ORDER_LIST_PATH = "/work-order-list";
+const TECHNICIAN_LAUNCHER_CLOSE_MS = 5_000;
+const EMPTY_WORK_ORDERS: DesktopWorkOrder[] = [];
+
+function EmbeddedModalFrame({ entryId, register, ...props }: ComponentPropsWithoutRef<"iframe"> & {
+  entryId: string;
+  register: (id: string, frame: HTMLIFrameElement | null) => void;
+}) {
+  const ref = useCallback((frame: HTMLIFrameElement | null) => register(entryId, frame), [entryId, register]);
+  return <iframe {...props} ref={ref} />;
+}
+
+function desktopEntryKey(entry: ModalEntry) {
+  if (entry.kind === "work-order-list") return "work-order-list";
+  const url = new URL(entry.href, window.location.origin);
+  const draftId = url.pathname === "/work-orders" && url.searchParams.get("draftId");
+  return draftId ? `work-order-draft:${draftId}` : url.pathname;
+}
 
 type ModalPanelStyle = CSSProperties & {
   "--cmpri-modal-width": string;
@@ -55,6 +89,7 @@ function modalHref(href: string, forceEmbedded = false) {
     "/engineering/enseo-assignments",
     "/engineering/parts",
     "/engineering/import-work-orders",
+    "/previews/cmpri-weather-preview.html",
     "/feedback",
   ]);
   if (!forceEmbedded && !isWorkOrderDetail && !modalRoutes.has(new URL(href, window.location.origin).pathname)) {
@@ -156,6 +191,9 @@ export default function GlobalModalHost() {
   const [shellSuspended, setShellSuspended] = useState(false);
   const [nativeShell, setNativeShell] = useState<HTMLDialogElement | null>(null);
   const [limitMessage, setLimitMessage] = useState("");
+  const [technicianDesktop, setTechnicianDesktop] = useState<TechnicianDesktop | null>(null);
+  const technicianDesktopRef = useRef<TechnicianDesktop | null>(null);
+  const technicianAnchor = technicianDesktop?.anchor;
   const stackRef = useRef<ModalEntry[]>([]);
   const [owner] = useState(() => crypto.randomUUID());
   const nativeShellRef = useRef<HTMLDialogElement | null>(null);
@@ -184,6 +222,50 @@ export default function GlobalModalHost() {
   const [workspacePreferencesScope, setWorkspacePreferencesScope] = useState<string>();
   const [workspaceCheck, setWorkspaceCheck] = useState(0);
 
+  useLayoutEffect(() => {
+    if (pathname !== "/technician" || window.parent !== window) return;
+    const anchor = document.querySelector<HTMLElement>("[data-cmpri-technician-window-anchor]");
+    const header = anchor?.parentElement?.querySelector("header");
+    if (!anchor || !header) return;
+    const menuOverlay = header.querySelector<HTMLElement>(".cmpri-dashboard-menu-overlay");
+    const bulletinHost = anchor.parentElement?.querySelector<HTMLElement>("[data-weather-desktop-bulletin-host]") ?? null;
+    const measure = () => {
+      const rect = anchor.getBoundingClientRect();
+      const rowDepth = parseFloat(getComputedStyle(header).getPropertyValue("--cmpri-menu-open-row-depth")) || 0;
+      const top = Math.max(rect.top, header.getBoundingClientRect().bottom + rowDepth, menuOverlay?.getBoundingClientRect().bottom ?? 0, 0);
+      const bounds = { width: Math.floor(rect.width), height: Math.max(0, Math.floor(window.innerHeight - top)) };
+      const previous = technicianDesktopRef.current;
+      if (previous?.left === rect.left && previous.top === top
+        && previous.bounds.width === bounds.width && previous.bounds.height === bounds.height) return;
+      const desktop = { anchor, bulletinHost, left: rect.left, top, bounds };
+      technicianDesktopRef.current = desktop;
+      setTechnicianDesktop(desktop);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(anchor);
+    observer.observe(header);
+    if (menuOverlay) observer.observe(menuOverlay);
+    if (bulletinHost) observer.observe(bulletinHost);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure);
+      technicianDesktopRef.current = null;
+      setTechnicianDesktop(null);
+      for (const entry of stackRef.current) {
+        const id = workOrderId(entry.href);
+        if (id) releaseWorkOrder(id, owner);
+      }
+      stackRef.current = [];
+      setStack([]);
+      setActiveId(null);
+      setLimitMessage("");
+    };
+  }, [owner, pathname]);
+
   useEffect(() => {
     if (window.parent !== window || new URLSearchParams(window.location.search).get("embedded") === "1") return;
     const id = workOrderId(pathname || "/");
@@ -194,7 +276,7 @@ export default function GlobalModalHost() {
   }, [pathname, owner]);
 
   useEffect(() => {
-    if (window.parent !== window) return;
+    if (window.parent !== window || technicianAnchor) return;
     const update = () => {
       if (stackRef.current.length) return;
       const dialogs = Array.from(document.querySelectorAll<HTMLElement>('dialog:modal, [role="dialog"][aria-modal="true"]'))
@@ -224,20 +306,48 @@ export default function GlobalModalHost() {
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open", "aria-modal", "aria-hidden", "style", "class", "hidden", "inert"] });
     document.addEventListener("close", update, true);
     return () => { observer.disconnect(); document.removeEventListener("close", update, true); };
-  }, [hasOpenModals, dialogTarget]);
+  }, [hasOpenModals, dialogTarget, technicianAnchor]);
 
   useEffect(() => {
-    if (!hasOpenModals && !dialogTarget) return;
+    if (technicianAnchor || (!hasOpenModals && !dialogTarget)) return;
     let live = true;
     void loadCmpriSession().then(session => {
       if (live) setCanViewWorkOrders(session.capabilities.includes("view_work_orders"));
     }).catch(() => { if (live) setCanViewWorkOrders(false); });
     return () => { live = false; };
-  }, [hasOpenModals, dialogTarget]);
+  }, [hasOpenModals, dialogTarget, technicianAnchor]);
 
-  const openEntry = useCallback((entry: ModalEntry) => {
+  const openEntry = useCallback((entry: ModalEntry, clickedAt?: number) => {
     if (workspaceBlockedRef.current) return;
     workspaceTouchedRef.current = true;
+    const desktop = technicianDesktopRef.current;
+    if (desktop) {
+      const key = desktopEntryKey(entry);
+      const existing = stackRef.current.find(item => desktopEntryKey(item) === key);
+      if (existing) {
+        if (clickedAt !== undefined && existing.openedAt !== undefined && !existing.weatherCached
+          && (entry.kind !== "work-order-list" || activeIdRef.current === existing.id)
+          && clickedAt - existing.openedAt <= TECHNICIAN_LAUNCHER_CLOSE_MS) {
+          requestCloseRef.current(existing.id);
+          return;
+        }
+        if (existing.weatherCached) {
+          const reopen = (item: ModalEntry) => item.id === existing.id
+            ? { ...item, weatherCached: false, openedAt: clickedAt ?? Date.now() } : item;
+          stackRef.current = stackRef.current.map(reopen);
+          setStack(current => current.map(reopen));
+        }
+        setActiveId(existing.id);
+        return;
+      }
+      const preferred = key === WEATHER_PATH ? { width: 1280, height: 800 }
+        : entry.kind === "work-order-list" ? { width: 1100, height: 640 } : { width: 900, height: 760 };
+      entry = {
+        ...entry,
+        openedAt: clickedAt ?? Date.now(),
+        rect: defaultWindowRect(desktop.bounds, preferred, stackRef.current.filter(item => !item.weatherCached).length),
+      };
+    }
     const id = workOrderId(entry.href);
     if (id) {
       const existing = stackRef.current.find(item => workOrderId(item.href) === id);
@@ -279,7 +389,7 @@ export default function GlobalModalHost() {
     setLimitMessage("");
     // A separate native top-layer shell keeps this stack independent of the
     // underlying dialog, even if that dialog closes asynchronously.
-    if (!stackRef.current.length && !nativeShellRef.current) {
+    if (!desktop && !stackRef.current.length && !nativeShellRef.current) {
       const shell = document.createElement("dialog");
       shell.setAttribute("aria-label", "Open screens");
       shell.dataset.cmpriGlobalModalShell = "true";
@@ -296,7 +406,7 @@ export default function GlobalModalHost() {
     setActiveId(entry.id);
   }, [owner]);
 
-  const openWorkOrderList = useCallback(() => {
+  const openWorkOrderList = useCallback((clickedAt?: number) => {
     if (workspaceBlockedRef.current) return;
     if (nativeShellRef.current && nativeObscuresStack) {
       nativeShellRef.current.close();
@@ -304,8 +414,8 @@ export default function GlobalModalHost() {
       setNativeObscuresStack(false);
     }
     const existing = stackRef.current.find(item => item.kind === "work-order-list");
-    if (existing) setActiveId(existing.id);
-    else openEntry({ id: crypto.randomUUID(), href: "/__work-order-list", title: "Work Order List", kind: "work-order-list", returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
+    if (existing && !technicianDesktopRef.current) setActiveId(existing.id);
+    else openEntry({ id: crypto.randomUUID(), href: WORK_ORDER_LIST_PATH, title: "Work Order List", kind: "work-order-list", returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null }, clickedAt);
   }, [nativeObscuresStack, openEntry]);
 
   const resumeScreens = useCallback(() => {
@@ -335,7 +445,15 @@ export default function GlobalModalHost() {
 
   const closeModal = useCallback((entryId: string) => {
     setLimitMessage("");
-    const id = workOrderId(stackRef.current.find(entry => entry.id === entryId)?.href || "/");
+    const closing = stackRef.current.find(entry => entry.id === entryId);
+    if (closing?.rect && desktopEntryKey(closing) === WEATHER_PATH) {
+      const hide = (entry: ModalEntry) => entry.id === entryId ? { ...entry, weatherCached: true } : entry;
+      stackRef.current = stackRef.current.map(hide);
+      setStack(current => current.map(hide));
+      setActiveId(current => current === entryId ? stackRef.current.filter(entry => !entry.weatherCached).at(-1)?.id ?? null : current);
+      return;
+    }
+    const id = workOrderId(closing?.href || "/");
     if (id) releaseWorkOrder(id, owner);
     const remaining = stackRef.current.filter(entry => entry.id !== entryId);
     stackRef.current = remaining;
@@ -346,7 +464,7 @@ export default function GlobalModalHost() {
       setNativeShell(null);
     }
     setStack(current => current.filter(entry => entry.id !== entryId));
-    setActiveId(current => current === entryId ? remaining.at(-1)?.id ?? null : current);
+    setActiveId(current => current === entryId ? remaining.filter(entry => !entry.weatherCached).at(-1)?.id ?? null : current);
   }, [owner]);
 
   const requestModalClose = useCallback((entryId: string) => {
@@ -467,6 +585,29 @@ export default function GlobalModalHost() {
       document.removeEventListener("visibilitychange", hidden);
     };
   }, [persistWorkspace]);
+  function openWorkOrder(order: DesktopWorkOrder) {
+    const path = `/work-orders/${encodeURIComponent(order.id)}`;
+    openEntry({
+      id: crypto.randomUUID(), ...modalHref(path),
+      title: `Work Order ${order.display_id || ""}${order.room ? ` · ${order.room}` : ""}`.trim(),
+      guest: order,
+      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    });
+  }
+
+  const registerFrame = useCallback((entryId: string, frame: HTMLIFrameElement | null) => {
+    if (frame) frameRefs.current.set(entryId, frame);
+    else {
+      embeddedCleanupRefs.current.get(entryId)?.();
+      embeddedCleanupRefs.current.delete(entryId);
+      frameRefs.current.delete(entryId);
+    }
+  }, []);
+
+  function commitDesktopRect(entryId: string, rect: WindowRect) {
+    setStack(current => current.map(entry => entry.id === entryId ? { ...entry, rect } : entry));
+  }
+
   useEffect(() => () => {
     for (const entry of stackRef.current) { const id = workOrderId(entry.href); if (id) releaseWorkOrder(id, owner); }
     for (const { element, value, priority } of suspendedCustomRef.current) {
@@ -501,7 +642,7 @@ export default function GlobalModalHost() {
         requestModalClose(entry.id);
         return;
       }
-      if (keyEvent.key !== "Tab") return;
+      if (keyEvent.key !== "Tab" || technicianDesktopRef.current) return;
       const content = document.querySelector("main") || document.body;
       const focusable = Array.from(content.querySelectorAll<HTMLElement>(
         "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
@@ -548,6 +689,15 @@ export default function GlobalModalHost() {
     cleanups.push(() => document.removeEventListener("click", openNestedScreen, true));
     document.addEventListener("keydown", closeOnEscape);
     cleanups.push(() => document.removeEventListener("keydown", closeOnEscape));
+    if (technicianDesktopRef.current) {
+      const raise = () => setActiveId(entry.id);
+      document.addEventListener("focusin", raise);
+      document.addEventListener("pointerdown", raise);
+      cleanups.push(() => {
+        document.removeEventListener("focusin", raise);
+        document.removeEventListener("pointerdown", raise);
+      });
+    }
     if (entry.id === activeId) frame.focus();
 
     const history = frame.contentWindow?.history;
@@ -600,7 +750,7 @@ export default function GlobalModalHost() {
 
   useEffect(() => {
     const openFromEvent = (event: Event) => {
-      const detail = (event as CustomEvent<{ href?: string; title?: string }>).detail;
+      const detail = (event as CustomEvent<{ href?: string; title?: string; clickedAt?: number }>).detail;
       if (!detail?.href || !isSameOriginInternal(detail.href)) return;
       if (window.parent !== window) {
         window.parent.postMessage({
@@ -611,13 +761,19 @@ export default function GlobalModalHost() {
         }, window.location.origin);
         return;
       }
+      const desktop = technicianDesktopRef.current;
+      const clickedAt = Number.isFinite(detail.clickedAt) ? detail.clickedAt : undefined;
+      if (detail.href === WORK_ORDER_LIST_PATH) {
+        if (desktop?.anchor.dataset.canViewWorkOrders === "true") openWorkOrderList(clickedAt);
+        return;
+      }
       const modal = modalHref(detail.href);
       openEntry({
           id: crypto.randomUUID(),
           ...modal,
           title: detail.title?.trim() || "Open screen",
           returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
-      });
+      }, clickedAt);
     };
 
     const handleClick = (event: MouseEvent) => {
@@ -675,7 +831,7 @@ export default function GlobalModalHost() {
 
     const handleKeydown = (event: KeyboardEvent) => {
       if (workspaceBlockedRef.current) return;
-      if (event.key === "Tab" && activeId) {
+      if (event.key === "Tab" && activeId && !technicianDesktopRef.current) {
         const panel = modalRootRef.current?.querySelector<HTMLElement>(`[data-modal-entry="${CSS.escape(activeId)}"]`);
         const focusable = Array.from(panel?.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex='-1'])") || []).filter(element => element.getClientRects().length > 0);
         if (focusable.length) {
@@ -685,7 +841,8 @@ export default function GlobalModalHost() {
         }
       }
       if (event.key === "Escape" && stack.length > 0) {
-        if (event.defaultPrevented) return;
+        if (event.defaultPrevented || (technicianDesktopRef.current
+          && !(event.target instanceof Element && event.target.closest("[data-cmpri-technician-windows]")))) return;
         event.preventDefault();
         const top = stack.find(entry => entry.id === activeId);
         if (top) requestModalClose(top.id);
@@ -709,6 +866,10 @@ export default function GlobalModalHost() {
       if (event.data.type === "cmpri-open-modal" && typeof event.data.href === "string") {
         if (top.modalToken ? event.data.modalToken !== top.modalToken : event.data.modalToken !== "") return;
         if (!isSameOriginInternal(event.data.href)) return;
+        if (event.data.href === WORK_ORDER_LIST_PATH) {
+          if (technicianDesktopRef.current?.anchor.dataset.canViewWorkOrders === "true") openWorkOrderList();
+          return;
+        }
         const modal = modalHref(event.data.href);
         openEntry({
           id: crypto.randomUUID(),
@@ -779,7 +940,7 @@ export default function GlobalModalHost() {
       document.removeEventListener("keydown", handleKeydown);
       window.removeEventListener("message", handleMessage);
     };
-  }, [requestModalClose, closeModal, openEntry, activeId, stack]);
+  }, [requestModalClose, closeModal, openEntry, openWorkOrderList, activeId, stack]);
 
   useEffect(() => () => {
     embeddedCleanupRefs.current.forEach((cleanup) => cleanup());
@@ -793,7 +954,8 @@ export default function GlobalModalHost() {
     if (currentTop?.id !== previousTop?.id) {
       if (currentTop) {
         const frame = frameRefs.current.get(currentTop.id);
-        if (frame) frame.focus();
+        if (frame) frame.focus({ preventScroll: true });
+        else if (technicianDesktopRef.current) modalRootRef.current?.querySelector<HTMLElement>('[data-cmpri-desktop-window][data-active="true"] [data-cmpri-window-close]')?.focus({ preventScroll: true });
         else modalRootRef.current?.querySelector<HTMLElement>(`[data-modal-entry="${CSS.escape(currentTop.id)}"] nav button`)?.focus();
       }
       else previousTop?.returnFocus?.focus();
@@ -803,14 +965,16 @@ export default function GlobalModalHost() {
   }, [stack, activeId]);
 
   useEffect(() => {
+    if (technicianAnchor) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = stack.length > 0 ? "hidden" : previousOverflow;
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [stack.length]);
+  }, [stack.length, technicianAnchor]);
 
   useEffect(() => {
+    if (technicianAnchor) return;
     const modalRoot = modalRootRef.current;
     const parent = modalRoot?.parentElement;
     if (!modalRoot || !parent || stack.length === 0) return;
@@ -819,13 +983,60 @@ export default function GlobalModalHost() {
       .map((element) => ({ element, inert: element.inert }));
     background.forEach(({ element }) => { element.inert = true; });
     return () => background.forEach(({ element, inert }) => { element.inert = inert; });
-  }, [stack.length]);
+  }, [stack.length, technicianAnchor]);
+
+  if (technicianDesktop) return workspaceBlocked ? null : createPortal(
+    <div ref={modalRootRef} className="pointer-events-none fixed z-[19] [&_.cmpri-desktop-window]:pointer-events-auto"
+      style={{ left: technicianDesktop.left, top: technicianDesktop.top, ...technicianDesktop.bounds }}
+      data-cmpri-technician-windows>
+      {stack.map((entry, index) => {
+        if (!entry.rect) return null;
+        const key = desktopEntryKey(entry);
+        const active = entry.id === activeId;
+        const zIndex = active ? stack.length + 10 : index + 10;
+        const onFocus = () => setActiveId(entry.id);
+        const onClose = () => requestModalClose(entry.id);
+        const onRectCommit = (rect: WindowRect) => commitDesktopRect(entry.id, rect);
+        if (key === WEATHER_PATH) return (
+          <WeatherPreviewWindow
+            key={entry.id} windowKey={key} title={entry.title} accentClass="bg-amber-400"
+            src={entry.href} visible={!entry.weatherCached} use24HourTime={false}
+            bulletinHost={technicianDesktop.bulletinHost} rect={entry.rect} bounds={technicianDesktop.bounds}
+            zIndex={zIndex} active={active} onFocus={onFocus} onClose={onClose} onRectCommit={onRectCommit}
+            registerFrame={frame => registerFrame(entry.id, frame)}
+            onOpen={(href, title) => {
+              if (!isSameOriginInternal(href)) return;
+              openEntry({ id: crypto.randomUUID(), ...modalHref(href), title, returnFocus: frameRefs.current.get(entry.id) });
+            }}
+            onReturnToDesktop={onClose}
+          />
+        );
+        return (
+          <DesktopWindow
+            key={entry.id} windowKey={key} title={entry.title} accentClass="bg-slate-400"
+            rect={entry.rect} bounds={technicianDesktop.bounds} zIndex={zIndex} active={active}
+            guest={entry.guest} onFocus={onFocus} onClose={onClose} onRectCommit={onRectCommit}
+          >
+            {entry.kind === "work-order-list"
+              ? <WorkOrderListWindow preferencesScope={workspacePreferencesScope} orders={EMPTY_WORK_ORDERS} loading={false} onOpenWorkOrder={openWorkOrder} />
+              : <EmbeddedModalFrame
+                allow="camera" entryId={entry.id} register={registerFrame} title={entry.title}
+                src={entry.href} onLoad={event => handleEmbeddedLoad(event, entry)}
+                className="block size-full min-h-0 min-w-0 border-0 bg-slate-950"
+              />}
+          </DesktopWindow>
+        );
+      })}
+      {limitMessage && <p role="alert" className="pointer-events-auto absolute bottom-2 left-2 z-[150] max-w-sm rounded-md border border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{limitMessage}</p>}
+    </div>,
+    technicianDesktop.anchor,
+  );
 
   if (stack.length === 0) {
     if (workspaceBlocked) return null;
     if ((!dialogTarget || !canViewWorkOrders) && !limitMessage) return null;
     return createPortal(<>
-      {dialogTarget && canViewWorkOrders && <button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>}
+      {dialogTarget && canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>}
       {limitMessage && <p role="alert" className="fixed bottom-16 left-3 z-[2147483000] max-w-sm rounded-md border border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{limitMessage}</p>}
     </>, dialogTarget?.isConnected ? dialogTarget : document.body);
   }
@@ -876,25 +1087,14 @@ export default function GlobalModalHost() {
                 <button type="button" className="cmpri-desktop-close" aria-label={`Close ${displayTitle}`} onClick={()=>requestModalClose(entry.id)}>×</button>
               </div>
               {isTop && (!isAssets || stack.length > 1) && <nav aria-label="Open screens" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-700 bg-slate-950 p-1">
-                {canViewWorkOrders && <button type="button" onClick={openWorkOrderList} className="min-h-10 shrink-0 rounded-md border border-amber-500/60 px-3 text-xs font-semibold text-amber-200">Work orders</button>}
+                {canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="min-h-10 shrink-0 rounded-md border border-amber-500/60 px-3 text-xs font-semibold text-amber-200">Work orders</button>}
                 {stack.map(item => <button key={item.id} type="button" aria-pressed={item.id === activeId} onClick={() => setActiveId(item.id)} className={`min-h-10 max-w-44 shrink-0 truncate rounded-md px-3 text-xs ${item.id === activeId ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}>{item.title}</button>)}
               </nav>}
               {isTop && limitMessage && <p role="alert" className="shrink-0 border-b border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{limitMessage}</p>}
-              {entry.kind === "work-order-list" ? <WorkOrderListWindow
-                preferencesScope={workspacePreferencesScope}
-                orders={[]} loading={false} onOpenWorkOrder={order => {
-                const path = `/work-orders/${encodeURIComponent(order.id)}`;
-                openEntry({ id: crypto.randomUUID(), ...modalHref(path), title: `Work Order ${order.display_id || ""}${order.room ? ` · ${order.room}` : ""}`.trim(), guest: order, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
-              }} /> : <iframe
+              {entry.kind === "work-order-list" ? <WorkOrderListWindow preferencesScope={workspacePreferencesScope} orders={EMPTY_WORK_ORDERS} loading={false} onOpenWorkOrder={openWorkOrder} /> : <EmbeddedModalFrame
                 allow="camera"
-                ref={(frame) => {
-                  if (frame) frameRefs.current.set(entry.id, frame);
-                  else {
-                    embeddedCleanupRefs.current.get(entry.id)?.();
-                    embeddedCleanupRefs.current.delete(entry.id);
-                    frameRefs.current.delete(entry.id);
-                  }
-                }}
+                entryId={entry.id}
+                register={registerFrame}
                 title={displayTitle}
                 src={entry.href}
                 scrolling="yes"
@@ -910,6 +1110,6 @@ export default function GlobalModalHost() {
   );
   return <>{nativeShell ? createPortal(host, nativeShell) : host}
     {!workspaceBlocked && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
-    {!workspaceBlocked && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
+    {!workspaceBlocked && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
   </>;
 }

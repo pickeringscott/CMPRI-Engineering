@@ -6,7 +6,7 @@ import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { groupLocations } from "@/lib/location-management";
+import { groupLocations, locationTicketMatcher } from "@/lib/location-management";
 import { subscribeResources } from "@/lib/events/browser";
 import { modalTitleStyle } from "@/lib/ui/header-palette";
 import "./locations.css";
@@ -142,20 +142,20 @@ export default function RoomsPage() {
   const groups = useMemo(() => groupLocations(locations), [locations]);
   const areas = useMemo(() => [...new Set(locations.map(location => location.area).filter((area): area is string => !!area?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
   const types = useMemo(() => [...new Set(locations.map(location => location.location_type).filter((type): type is string => !!type?.trim()))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [locations]);
-  const workOrderCounts = useMemo(() => {
-    const byLocation = new Map<string, number>();
-    const byRoom = new Map<string, number>();
+  const workOrdersByLocation = useMemo(() => {
+    const byLocation = new Map<string, WorkOrder[]>();
+    const locationForTicket = locationTicketMatcher(locations);
     for (const order of orders) {
-      if (order.location_id) byLocation.set(order.location_id, (byLocation.get(order.location_id) || 0) + 1);
-      else {
-        const room = order.room?.match(/\b\d{2,4}\b/)?.[0];
-        if (room) byRoom.set(room, (byRoom.get(room) || 0) + 1);
-      }
+      const locationId = locationForTicket(order);
+      if (!locationId) continue;
+      const tickets = byLocation.get(locationId);
+      if (tickets) tickets.push(order);
+      else byLocation.set(locationId, [order]);
     }
-    return { byLocation, byRoom };
-  }, [orders]);
+    return byLocation;
+  }, [locations, orders]);
   const draft = locations.find(location => location.id === selectedId) || null;
-  const roomOrders = useMemo(() => !draft ? [] : orders.filter(order => order.location_id === draft.id || (!order.location_id && draft.room_number && order.room?.match(/\b\d{2,4}\b/)?.[0] === draft.room_number)), [draft, orders]);
+  const roomOrders = workOrdersByLocation.get(selectedId) || [];
   const locationPmPlans = useMemo(() => pmPlans.filter(plan => plan.location_id === selectedId), [pmPlans, selectedId]);
   const locationPmCompletions = useMemo(() => { const ids = new Set(locationPmPlans.map(plan => plan.id)); return pmCompletions.filter(completion => ids.has(completion.pm_plan_id)); }, [locationPmPlans, pmCompletions]);
   function openEditor(location: Location | null) { setEditorError(""); setEditor({ location }); }
@@ -189,7 +189,7 @@ export default function RoomsPage() {
           {group.locations.map(location => {
             const open = selectedId === location.id;
             const plans = pmPlans.filter(plan => plan.location_id === location.id);
-            const ticketCount = (workOrderCounts.byLocation.get(location.id) || 0) + (location.room_number ? workOrderCounts.byRoom.get(location.room_number) || 0 : 0);
+            const ticketCount = workOrdersByLocation.get(location.id)?.length || 0;
             const activePlans = plans.filter(plan => plan.active);
             const nextDue = activePlans.map(plan => plan.next_due_on).filter((date): date is string => !!date).sort()[0];
             const pmLabel = !activePlans.length ? "PM: Not scheduled" : !nextDue ? "PM: Due date not set" : dueState(nextDue).label.startsWith("Overdue") ? "PM: Overdue" : "PM: Scheduled";

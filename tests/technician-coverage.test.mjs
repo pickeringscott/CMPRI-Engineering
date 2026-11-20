@@ -184,7 +184,7 @@ test('mobile technician refresh retains the current work list and keeps its page
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /const hasLoadedWorkRef = useRef\(false\)/);
   assert.match(source, /if \(!hasLoadedWorkRef\.current\) setLoading\(false\)/);
-  assert.match(source, /sticky top-0 z-20/);
+  assert.match(source, /cmpri-dashboard-titlebar sticky top-0/);
   assert.match(source, /min-h-\[100svh\]/);
 });
 

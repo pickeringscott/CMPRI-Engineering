@@ -563,6 +563,10 @@ export default function EngineeringDashboardPage() {
     openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`);
   }, [openRoute]);
 
+  const openWorkOrderList = useCallback(() => {
+    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
+  }, [openWindow]);
+
   const openDraft = useCallback((draftId: string) => {
     const origin = window.location.origin;
     openWindow({
@@ -608,6 +612,12 @@ export default function EngineeringDashboardPage() {
           return;
         }
         case "cmpri-open-modal":
+          if (data.href === "/work-order-list") {
+            const source = windowsRef.current.find(entry => entry.key === key);
+            const token = source?.src && new URL(source.src, window.location.origin).searchParams.get("modalToken");
+            if (key === "/technician" && token && data.modalToken === token && hasCapability(cmpriSession, "view_work_orders")) openWorkOrderList();
+            return;
+          }
           if (typeof data.href === "string") openRoute(data.href, typeof data.title === "string" ? data.title : undefined);
           return;
         case "cmpri-open-related-work-order":
@@ -637,7 +647,7 @@ export default function EngineeringDashboardPage() {
     };
     window.addEventListener("message", handleWindowMessage);
     return () => window.removeEventListener("message", handleWindowMessage);
-  }, [closeWindow, loadDashboard, openRoute, openWorkOrder, refreshChatgptConnection]);
+  }, [closeWindow, cmpriSession, loadDashboard, openRoute, openWorkOrder, openWorkOrderList, refreshChatgptConnection]);
 
   if (!cmpriSession) {
     return (
@@ -657,7 +667,6 @@ export default function EngineeringDashboardPage() {
   const session = cmpriSession;
   const chiefHeaderPresentation = isChiefMenuRole(session.user);
   const canReadChiefOnlyModules = canReadChiefModules(session.user);
-  const systemAdminHeader = roleKey(session.user.role) === "system_admin" || session.user.secondary_roles?.some(role => roleKey(role) === "system_admin");
   const frontDeskLayout = roleKey(session.user.role) === "front_desk";
   const threeTabLayout = usesThreeTabDashboard(session.user.role);
   const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
@@ -671,10 +680,6 @@ export default function EngineeringDashboardPage() {
     window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
     await signOutDevice();
     router.replace("/");
-  }
-
-  function openWorkOrderList() {
-    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
   }
 
   function openApprovals() {
@@ -788,14 +793,14 @@ export default function EngineeringDashboardPage() {
   const createWorkOrderLauncher = availableLaunchers.find(launcher => launcher.key === "/work-orders");
 
   return (
-    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
+    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefHeaderPresentation ? "true" : undefined}>
       <DesktopWorkspaceResume session={session}
         allowedHrefs={availableLaunchers.flatMap(item => item.href ? [item.href] : [])}
         views={windows.filter(entry => !entry.weatherCached).map(entry => ({ key: entry.key, kind: entry.kind, ...(entry.src ? { href: entry.src } : {}) }))}
         zOrder={zOrder} onRestore={restoreWorkspaceDesktop} onNavigate={href => router.replace(href)}
         onSessionChanged={() => window.location.reload()}
         onStorageError={() => setMessage("This device could not save the open workspace. Keep this window open to preserve the current view.")} />
-      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
+      <header className="cmpri-desktop-topbar cmpri-dashboard-titlebar relative flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">
             <p data-dashboard-title data-cmpri-menu-title="" data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
@@ -824,9 +829,13 @@ export default function EngineeringDashboardPage() {
           </div>
         </div>
         <nav aria-label="Open dashboard windows" className="cmpri-dashboard-menu-rail w-full min-w-0">
-          <ApprovedDashboardMenus anchored lockedFrontDesk={threeTabLayout} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <ApprovedDashboardMenus anchored restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
+        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
+      </header>
+
+      <div className="flex shrink-0 flex-col items-start gap-0.5 px-0.5 empty:hidden">
         {hasCapability(session, "view_work_orders") && <WorkOrderWindowSwitcher
           tickets={windows.filter(entry => /^\/work-orders\/[^/]+$/.test(entry.key)).map(entry => {
             const details = windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`);
@@ -838,14 +847,12 @@ export default function EngineeringDashboardPage() {
           onRaise={key => raise(key, true)}
         />}
 
-        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
-
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
-      </header>
+      </div>
 
       <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-[200] w-full shrink-0" />
 
-      <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
+      <div className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
         {openKeys.size === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
         )}
@@ -855,85 +862,87 @@ export default function EngineeringDashboardPage() {
             <button type="button" onClick={() => setMessage("")} aria-label="Dismiss dashboard error" className="text-red-200 hover:text-white">×</button>
           </div>
         )}
-        {windows.map((entry) => {
-          const rect = rects[entry.key];
-          if (!rect) return null;
-          const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
-          if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
-            return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
-              visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
-              rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
-              onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
-              registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}
-              onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => closeWindow(entry.key)} />;
-          }
-          return (
-            <DesktopWindow
-              guest={windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`)}
-              key={entry.key}
-              windowKey={entry.key}
-              title={entry.title}
-              accentClass={entry.accent}
-              rect={rect}
-              bounds={bounds}
-              zIndex={zIndex}
-              active={activeKey === entry.key}
-              onFocus={() => raise(entry.key)}
-              onClose={() => requestCloseWindow(entry.key)}
-              onRectCommit={(next) => commitRect(entry.key, next)}
-            >
-              {entry.kind === "frame" && entry.src && (
-                <DesktopFrame
-                  src={entry.src}
-                  title={entry.title}
-                  registerFrame={(frame) => {
-                    if (frame) frameRefs.current.set(entry.key, frame);
-                  }}
-                  onFocus={() => raise(entry.key)}
-                  onOpen={(href, title) => openRoute(href, title)}
-                  onReturnToDesktop={() => closeWindow(entry.key)}
-                />
-              )}
-              {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
-              {entry.kind === "list" && (
-                <WorkOrderListWindow
-                  preferencesScope={`${session.hotelId}:${session.user.id}`}
-                  frontDeskLayout={frontDeskLayout}
-                  orders={orders}
-                  drafts={drafts.map((draft) => ({
-                    ...draft,
-                    potential_duplicate: orders.some((order) => likelyDuplicate(draft, order)),
-                  }))}
-                  loading={loading}
-                  onOpenWorkOrder={(order) => openWorkOrder(order.id)}
-                  onOpenDraft={openDraft}
-                />
-              )}
-              {entry.kind === "approvals" && (
-                <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1">
-                <WorkOrderApprovalsWindow
-                  user={session.user}
-                  notifications={inbox}
-                  awaitingApproval={awaitingApproval}
-                  canReview={canReviewTickets}
-                  notificationError={notificationError}
-                  soundEnabled={soundEnabled}
-                  onToggleSound={toggleSound}
-                  onOpenWorkOrder={openWorkOrder}
-                  onOpenNotification={openNotification}
-                  onClear={(id) => void clearNotifications([id])}
-                  onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
-                /></div>
-                {canReviewTickets && <nav aria-label="Approval pages" className="flex justify-between gap-2 p-2 text-sm">
-                  <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Previous</button>
-                  <span>Page {approvalPage + 1} · {approvalTotal} awaiting approval</span>
-                  <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Next</button>
-                </nav>}
-                </div>
-              )}
-            </DesktopWindow>
-          );
-        })}
+        <div ref={desktopRef} className="cmpri-dashboard-window-layer">
+          {windows.map((entry) => {
+            const rect = rects[entry.key];
+            if (!rect) return null;
+            const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
+            if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
+              return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
+                visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
+                rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
+                onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
+                registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}
+                onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => closeWindow(entry.key)} />;
+            }
+            return (
+              <DesktopWindow
+                guest={windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`)}
+                key={entry.key}
+                windowKey={entry.key}
+                title={entry.title}
+                accentClass={entry.accent}
+                rect={rect}
+                bounds={bounds}
+                zIndex={zIndex}
+                active={activeKey === entry.key}
+                onFocus={() => raise(entry.key)}
+                onClose={() => requestCloseWindow(entry.key)}
+                onRectCommit={(next) => commitRect(entry.key, next)}
+              >
+                {entry.kind === "frame" && entry.src && (
+                  <DesktopFrame
+                    src={entry.src}
+                    title={entry.title}
+                    registerFrame={(frame) => {
+                      if (frame) frameRefs.current.set(entry.key, frame);
+                    }}
+                    onFocus={() => raise(entry.key)}
+                    onOpen={(href, title) => openRoute(href, title)}
+                    onReturnToDesktop={() => closeWindow(entry.key)}
+                  />
+                )}
+                {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
+                {entry.kind === "list" && (
+                  <WorkOrderListWindow
+                    preferencesScope={`${session.hotelId}:${session.user.id}`}
+                    frontDeskLayout={frontDeskLayout}
+                    orders={orders}
+                    drafts={drafts.map((draft) => ({
+                      ...draft,
+                      potential_duplicate: orders.some((order) => likelyDuplicate(draft, order)),
+                    }))}
+                    loading={loading}
+                    onOpenWorkOrder={(order) => openWorkOrder(order.id)}
+                    onOpenDraft={openDraft}
+                  />
+                )}
+                {entry.kind === "approvals" && (
+                  <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1">
+                  <WorkOrderApprovalsWindow
+                    user={session.user}
+                    notifications={inbox}
+                    awaitingApproval={awaitingApproval}
+                    canReview={canReviewTickets}
+                    notificationError={notificationError}
+                    soundEnabled={soundEnabled}
+                    onToggleSound={toggleSound}
+                    onOpenWorkOrder={openWorkOrder}
+                    onOpenNotification={openNotification}
+                    onClear={(id) => void clearNotifications([id])}
+                    onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
+                  /></div>
+                  {canReviewTickets && <nav aria-label="Approval pages" className="flex justify-between gap-2 p-2 text-sm">
+                    <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Previous</button>
+                    <span>Page {approvalPage + 1} · {approvalTotal} awaiting approval</span>
+                    <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Next</button>
+                  </nav>}
+                  </div>
+                )}
+              </DesktopWindow>
+            );
+          })}
+        </div>
       </div>
     </main>
   );
