@@ -1,4 +1,4 @@
-/** Read-only Weather transport for fixed official NCEP WMS services.
+/** Read-only Weather transport for fixed official NOAA WMS services.
  * Layer/style/time choices must come from their actual capabilities documents.
  * No CMPRI session, database, API key, GPS, push, or scheduler is used. */
 export const runtime = "nodejs";
@@ -9,6 +9,8 @@ const SOURCES = {
   reflectivity: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows",
   velocity: "https://opengeo.ncep.noaa.gov/geoserver/kilx/ows",
   precipitation: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows",
+  satellite: "https://nowcoast.noaa.gov/geoserver/observations/satellite/ows",
+  lightning: "https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows",
 } as const;
 type Product = keyof typeof SOURCES;
 type Dimension = { units: string | null; default: string | null; current: boolean; values: string };
@@ -178,7 +180,7 @@ export async function GET(request: Request) {
   // upstream URLs are constructed below from meaningful, validated values only.
   for (const key of ALLOWED_PARAMETERS) if (query.getAll(key).length > 1) return unavailable(400, "Duplicate WMS parameter");
   const productValue = query.get("product"), op = query.get("op");
-  if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose reflectivity, velocity or precipitation and a supported WMS operation");
+  if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose a fixed NOAA product and a supported WMS operation");
   const format = query.get("format");
   if (format !== null && format !== "json" && format !== "image") return unavailable(400, "Choose image or JSON inspection format");
   const product = productValue as Product;
