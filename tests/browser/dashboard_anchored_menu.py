@@ -243,7 +243,7 @@ async def check_drag_and_save(browser, width):
     context = await browser.new_context(viewport={"width": width, "height": 850}, has_touch=touch,
                                         is_mobile=touch, service_workers="block")
     layouts = {}
-    await install(context, "chief_engineer", layouts=layouts)
+    await install(context, "chief_engineer", layouts=layouts, connected=False)
     page = await context.new_page()
     await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
     daily = group(page, "Daily Work")
@@ -281,7 +281,7 @@ async def check_wake_and_scroll(browser, width):
     touch = width < 640
     context = await browser.new_context(viewport={"width": width, "height": 850}, has_touch=touch,
                                         is_mobile=touch, service_workers="block")
-    await install(context, "chief_engineer")
+    await install(context, "chief_engineer", connected=False)
     page = await context.new_page()
     await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
     daily = group(page, "Daily Work")
@@ -341,7 +341,7 @@ async def check_wake_and_scroll(browser, width):
 async def check_resize_and_retry(browser):
     context = await browser.new_context(viewport={"width": 1440, "height": 850}, service_workers="block")
     layouts = {}
-    await install(context, "chief_engineer", layouts=layouts)
+    await install(context, "chief_engineer", layouts=layouts, connected=False)
     failures = []
 
     async def intercept(route):
@@ -358,9 +358,10 @@ async def check_resize_and_retry(browser):
     await expect(tab).to_be_visible(timeout=60000)
     tab_edge = daily.locator(".tab-resize-edge")
     await expect(tab_edge).to_be_visible()
-    before = await tab.bounding_box()
-    edge = await tab_edge.bounding_box()
-    assert before and edge
+    before, edge = await daily.evaluate("""field => [
+      field.querySelector('legend').getBoundingClientRect().toJSON(),
+      field.querySelector('.tab-resize-edge').getBoundingClientRect().toJSON(),
+    ]""")
     x, y = edge["x"] + edge["width"] / 2, edge["y"] + edge["height"] / 2
     await drag_between(page, context, False, (x, y), (x + 35, y))
     resized = (await tab.bounding_box())["width"]
