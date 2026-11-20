@@ -32,8 +32,6 @@
     { fahrenheit: 110, color: '#e92b95', name: 'hot pink' }
   ].map(Object.freeze));
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
-  const position = (value) => (Math.max(MIN, Math.min(MAX, value)) - MIN) / (MAX - MIN) * 100;
-  const gradient = 'linear-gradient(to right, ' + STOPS.map((stop) => stop.color + ' ' + position(stop.fahrenheit) + '%').join(', ') + ')';
   const formatNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
   const compassPoints = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
@@ -73,28 +71,16 @@
     root.dataset.scaleMin = String(MIN);
     root.dataset.scaleMax = String(MAX);
     root.setAttribute('aria-label', known ? 'Air temperature ' + formatNumber.format(fahrenheit) + ' degrees Fahrenheit' : 'Air temperature unavailable');
-    root.append(node('strong', 'wv-temperature-value', known ? formatNumber.format(fahrenheit) + '°F' : '—'));
-
-    const scale = node('span', 'wv-temperature-scale');
-    scale.setAttribute('aria-hidden', 'true');
-    const track = node('span', 'wv-temperature-track');
-    track.style.background = gradient;
+    root.append(node('strong', 'wv-temperature-value', known ? formatNumber.format(fahrenheit) + '°' : '—'));
     if (known) {
       const color = colorAt(fahrenheit);
       root.dataset.temperatureColor = color;
       root.style.setProperty('--wv-temperature-color', color);
-      const marker = node('span', 'wv-temperature-marker');
-      marker.style.left = position(fahrenheit) + '%';
-      track.append(marker);
       root.title = 'Air temperature ' + formatNumber.format(fahrenheit) + '°F · fixed reference colors, independent of the CMPRI theme';
     } else {
       root.classList.add('wv-unavailable');
       root.title = 'Air temperature unavailable';
     }
-    const limits = node('span', 'wv-temperature-limits');
-    limits.append(node('span', '', '−15'), node('span', '', '110°F'));
-    scale.append(track, limits);
-    root.append(scale);
     return root;
   }
 
@@ -118,8 +104,7 @@
     return parts.year + '-' + parts.month + '-' + parts.day;
   }
   function clockLabel(time) {
-    const parts = clockParts(time);
-    return parts.hour + ':' + parts.minute + ' ' + parts.timeZoneName;
+    return window.cmpriWeatherClock?.time(time) || new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }).format(new Date(time));
   }
   function nextDay(key) {
     const [year, month, day] = key.split('-').map(Number);
@@ -193,66 +178,140 @@
     const a = dialPoint(start, radius), b = dialPoint(end, radius);
     return 'M' + a.x.toFixed(3) + ' ' + a.y.toFixed(3) + 'A' + radius + ' ' + radius + ' 0 ' + (end - start > 864 ? '1' : '0') + ' 1 ' + b.x.toFixed(3) + ' ' + b.y.toFixed(3);
   }
-  function temperatureDial(day, { observedTemperature = null, current = false, pending = false, stale = false } = {}) {
+  function observationDay(samples, now = Date.now(), previous = null) {
+    const key = dayKey(now), start = midnight(key), end = midnight(nextDay(key));
+    const reports = samples.filter((sample) => timeValue(sample.timestamp) !== null)
+      .map((sample) => ({ ...sample, sampleTime: timeValue(sample.timestamp) }))
+      .filter((sample) => sample.sampleTime >= start - 90 * 60000 && sample.sampleTime <= now)
+      .sort((a, b) => a.sampleTime - b.sampleTime)
+      .filter((sample, index, all) => !index || sample.sampleTime !== all[index - 1].sampleTime);
+    const today = reports.filter((sample) => sample.sampleTime >= start && finite(sample.fahrenheit));
+    let high = previous?.key === key ? previous.high : null, low = previous?.key === key ? previous.low : null;
+    for (const sample of today) {
+      if (!high || sample.fahrenheit > high.fahrenheit || sample.fahrenheit === high.fahrenheit && sample.sampleTime < high.sampleTime) high = sample;
+      if (!low || sample.fahrenheit < low.fahrenheit || sample.fahrenheit === low.fahrenheit && sample.sampleTime < low.sampleTime) low = sample;
+    }
+    const segments = [], occurrences = new Map();
+    for (let i = 1; i < reports.length; i += 1) {
+      const a = reports[i - 1], b = reports[i], duration = b.sampleTime - a.sampleTime;
+      if (!finite(a.fahrenheit) || !finite(b.fahrenheit) || duration > 90 * 60000 || duration <= 0 || b.sampleTime < start) continue;
+      let cursor = Math.max(start, a.sampleTime);
+      while (cursor < b.sampleTime) {
+        const p = clockParts(cursor), minute = Number(p.hour) * 60 + Number(p.minute) + Number(p.second) / 60;
+        const untilClockHour = (60 - Number(p.minute)) * 60000 - Number(p.second) * 1000;
+        const next = Math.min(b.sampleTime, cursor + 5 * 60000, cursor + untilClockHour);
+        const firstZone = occurrences.get(p.hour);
+        const repeated = Boolean(firstZone && firstZone !== p.timeZoneName);
+        if (!firstZone) occurrences.set(p.hour, p.timeZoneName);
+        segments.push({ start: cursor, end: next, minute, minuteEnd: Math.min(1440, minute + (next - cursor) / 60000),
+          fahrenheit: a.fahrenheit + (b.fahrenheit - a.fahrenheit) * (cursor - a.sampleTime) / duration,
+          endFahrenheit: a.fahrenheit + (b.fahrenheit - a.fahrenheit) * (next - a.sampleTime) / duration,
+          sampleStart: a.sampleTime, sampleEnd: b.sampleTime, repeated, interpolated: true });
+        cursor = next;
+      }
+    }
+    return { key, start, end, high, low, reports: today, segments };
+  }
+  let nextDial = 0;
+  function temperatureDial(day, { observedTemperature = null, observedDay = null, current = false, pending = false, stale = false, conditionText = '', icon = null, isDaytime, windSpeed = null, windDirection = null, gustText = null, visibility = null, feelsLike = null, officialHigh = null, officialLow = null } = {}) {
     const root = node('div', 'wv-temperature-dial');
+    if (current) root.classList.add('wv-current-dial');
     root.dataset.day = day?.key || '';
     root.dataset.coverage = day?.segments.length ? day.partial ? 'partial' : 'complete' : 'unavailable';
     root.dataset.coverageHours = String(day?.coverageHours || 0);
     root.dataset.expectedHours = String(day?.expectedHours || 24);
-    const svg = document.createElementNS(SVG, 'svg');
+    const svg = document.createElementNS(SVG, 'svg'), id = ++nextDial;
     svg.setAttribute('viewBox', '0 0 200 190');
     svg.setAttribute('class', 'wv-dial-ring');
     svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
+    const defs = shape(svg, 'defs', {});
     shape(svg, 'path', { d: dialArc(0, 1440, 73), class: 'wv-dial-track' });
-    for (const segment of day?.segments || []) {
-      const arc = shape(svg, 'path', { d: dialArc(segment.minute, segment.minuteEnd, segment.repeated ? 62 : 73), class: 'wv-dial-segment', stroke: colorAt(segment.fahrenheit) });
-      arc.dataset.startTime = new Date(segment.start).toISOString(); arc.dataset.clockTime = segment.label;
-      arc.dataset.airTemperature = String(segment.fahrenheit); arc.dataset.repeatedHour = String(segment.repeated);
-      const title = shape(arc, 'title', {}); title.textContent = segment.label + ' · ' + formatNumber.format(segment.fahrenheit) + '°F forecast';
+    if (current) shape(svg, 'path', { d: dialArc(0, 1440, 61), class: 'wv-dial-track wv-dial-observed-track' });
+    function paint(segment, kind, radius, index, following) {
+      const startColor = colorAt(segment.fahrenheit), endValue = segment.endFahrenheit ?? (following && following.start === segment.end ? following.fahrenheit : segment.fahrenheit);
+      const a = dialPoint(segment.minute, radius), b = dialPoint(segment.minuteEnd, radius);
+      const gradientId = 'wv-dial-' + id + '-' + kind + '-' + index;
+      const ramp = shape(defs, 'linearGradient', { id: gradientId, gradientUnits: 'userSpaceOnUse', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+      for (let stop = 0; stop <= 8; stop += 1) shape(ramp, 'stop', { offset: stop / 8, 'stop-color': colorAt(segment.fahrenheit + (endValue - segment.fahrenheit) * stop / 8) });
+      const arc = shape(svg, 'path', { d: dialArc(segment.minute, segment.minuteEnd, radius), class: kind === 'observed' ? 'wv-dial-observed-segment' : 'wv-dial-segment', stroke: 'url(#' + gradientId + ')' });
+      arc.dataset.startTime = new Date(segment.start).toISOString(); arc.dataset.clockTime = clockLabel(segment.start);
+      arc.dataset.airTemperature = String(segment.fahrenheit); arc.dataset.temperatureColor = startColor; arc.dataset.repeatedHour = String(segment.repeated);
+      if (kind === 'observed') {
+        arc.dataset.sampleStart = new Date(segment.sampleStart).toISOString(); arc.dataset.sampleEnd = new Date(segment.sampleEnd).toISOString();
+      }
+      const title = shape(arc, 'title', {});
+      title.textContent = kind === 'observed' ? 'Observed temperature colors interpolated between actual KCMI reports at ' + clockLabel(segment.sampleStart) + ' and ' + clockLabel(segment.sampleEnd) + '; unknown gaps are not filled.' : clockLabel(segment.start) + ' · ' + formatNumber.format(segment.fahrenheit) + '° forecast';
+    }
+    (day?.segments || []).forEach((segment, index, all) => paint(segment, 'forecast', segment.repeated ? 68 : 73, index, all[index + 1]));
+    (observedDay?.segments || []).forEach((segment, index) => paint(segment, 'observed', segment.repeated ? 56 : 61, index));
+    for (const report of observedDay?.reports || []) {
+      const p = clockParts(report.sampleTime), point = dialPoint(Number(p.hour) * 60 + Number(p.minute), 61);
+      const dot = shape(svg, 'circle', { cx: point.x, cy: point.y, r: 1.6, class: 'wv-dial-report', fill: colorAt(report.fahrenheit) });
+      dot.dataset.sampleTime = new Date(report.sampleTime).toISOString();
+      shape(dot, 'title', {}).textContent = clockLabel(report.sampleTime) + ' · ' + formatNumber.format(report.fahrenheit) + '° observed';
     }
     [0, 360, 720, 1080, 1440].forEach((minute) => {
       const point = dialPoint(minute, 91);
       const label = shape(svg, 'text', { x: point.x, y: point.y + 3, 'text-anchor': 'middle', class: 'wv-dial-clock' });
-      label.textContent = String(minute / 60).padStart(2, '0');
+      label.textContent = window.cmpriWeatherClock?.axis(minute / 60) || String(minute / 60 % 12 || 12) + (minute / 60 % 24 < 12 ? ' AM' : ' PM');
     });
     const extrema = node('div', 'wv-dial-extrema');
-    [['H', day?.high], ['L', day?.low]].forEach(([kind, sample]) => {
-      const item = node('span', 'wv-dial-extreme'); item.dataset.extreme = kind;
+    const forecastHigh = day?.high || (finite(officialHigh) ? { fahrenheit: officialHigh, sampleTime: null } : null);
+    const forecastLow = day?.low || (finite(officialLow) ? { fahrenheit: officialLow, sampleTime: null } : null);
+    const extremaItems = [['H', forecastHigh, 'forecast'], ['L', forecastLow, 'forecast']];
+    if (current) extremaItems.push(['H', observedDay?.high, 'observed'], ['L', observedDay?.low, 'observed']);
+    extremaItems.forEach(([kind, sample, source]) => {
+      const item = node('span', 'wv-dial-extreme'); item.dataset.extreme = kind; item.dataset.kind = source;
       const known = sample && finite(sample.fahrenheit);
       if (known) {
-        const time = clockParts(sample.sampleTime), minute = Number(time.hour) * 60 + Number(time.minute);
-        const repeated = day.segments.find((segment) => segment.start === sample.sampleTime)?.repeated;
-        const sameTime = kind === 'L' && day.high?.sampleTime === sample.sampleTime;
-        const point = dialPoint(minute, repeated || sameTime ? 60 : 73);
-        const mark = shape(svg, 'g', { class: 'wv-dial-marker' });
-        mark.dataset.extreme = kind; mark.dataset.sampleTime = new Date(sample.sampleTime).toISOString();
-        shape(mark, 'circle', { cx: point.x, cy: point.y, r: 7.5, fill: colorAt(sample.fahrenheit) });
-        const label = shape(mark, 'text', { x: point.x, y: point.y + 2.7, 'text-anchor': 'middle' }); label.textContent = kind;
-        const markerTitle = shape(mark, 'title', {}); markerTitle.textContent = kind + ' ' + formatNumber.format(sample.fahrenheit) + '°F at ' + clockLabel(sample.sampleTime) + ' · provided hourly forecast';
-        const value = node('strong', 'wv-dial-extreme-value', kind + ' ' + formatNumber.format(sample.fahrenheit) + '°F');
+        const prefix = source === 'forecast' ? 'F' : 'O', hasTime = finite(sample.sampleTime);
+        if (hasTime) {
+          const time = clockParts(sample.sampleTime), minute = Number(time.hour) * 60 + Number(time.minute);
+          const repeated = source === 'forecast' && day?.segments.find((segment) => segment.start === sample.sampleTime)?.repeated;
+          const counterpart = source === 'observed' ? observedDay?.high : forecastHigh;
+          const coincidentLow = kind === 'L' && counterpart?.sampleTime === sample.sampleTime;
+          const point = dialPoint(minute, (source === 'observed' ? 61 : repeated ? 68 : 73) - (coincidentLow ? 14 : 0));
+          const mark = shape(svg, 'g', { class: 'wv-dial-marker' });
+          mark.dataset.extreme = kind; mark.dataset.kind = source; mark.dataset.sampleTime = new Date(sample.sampleTime).toISOString(); mark.dataset.airTemperature = String(sample.fahrenheit);
+          shape(mark, 'circle', { cx: point.x, cy: point.y, r: 6.8, fill: colorAt(sample.fahrenheit) });
+          const label = shape(mark, 'text', { x: point.x, y: point.y + 2.7, 'text-anchor': 'middle' }); label.textContent = prefix + kind;
+          shape(mark, 'title', {}).textContent = source + ' ' + kind + ' ' + formatNumber.format(sample.fahrenheit) + '° at ' + clockLabel(sample.sampleTime);
+        }
+        const value = node('strong', 'wv-dial-extreme-value', prefix + ' ' + kind + ' ' + formatNumber.format(sample.fahrenheit) + '°');
         value.style.setProperty('--wv-temperature-color', colorAt(sample.fahrenheit));
-        item.append(value, node('time', 'wv-dial-extreme-time', clockLabel(sample.sampleTime)));
-        item.querySelector('time').dateTime = new Date(sample.sampleTime).toISOString();
-      } else item.append(node('strong', 'wv-dial-extreme-value', kind + ' —'), node('span', 'wv-dial-extreme-time', 'Time unavailable'));
+        item.append(value);
+        if (hasTime) { const time = node('time', 'wv-dial-extreme-time', clockLabel(sample.sampleTime)); time.dateTime = new Date(sample.sampleTime).toISOString(); item.append(time); }
+        item.title = source === 'observed' ? 'Highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme.' : hasTime ? 'Extrema of supplied forecast hours' : 'Official NWS period value; hourly timing unavailable';
+      } else item.append(node('strong', 'wv-dial-extreme-value', (source === 'forecast' ? 'F' : 'O') + ' ' + kind + ' —'));
       extrema.append(item);
     });
     const face = node('div', 'wv-dial-face'); face.append(svg);
     const center = node('div', 'wv-dial-center');
     if (current) {
       const known = finite(observedTemperature);
-      const value = node('strong', 'wv-temperature-value', known ? formatNumber.format(observedTemperature) + '°F' : '—');
+      const value = node('strong', 'wv-temperature-value', known ? formatNumber.format(observedTemperature) + '°' : '—');
       value.dataset.airTemperature = known ? String(observedTemperature) : 'unknown';
       if (known) value.style.setProperty('--wv-temperature-color', colorAt(observedTemperature));
-      center.append(value, node('span', 'wv-dial-center-label', 'KCMI observed'));
-    } else center.append(node('span', 'wv-dial-center-label', '24-hour'), node('strong', 'wv-dial-center-title', 'forecast'));
-    face.append(center); root.append(face, extrema);
+      const iconHost = node('span', 'wv-dial-condition'); iconHost.id = 'liveConditionIcon'; iconHost.append(condition(conditionText, { icon, isDaytime }));
+      const visibilityHost = node('span', 'wv-dial-visibility', visibility === null ? 'Visibility unavailable' : visibility + ' mi visibility'); visibilityHost.id = 'liveVisibility';
+      const temp = node('div', 'wv-dial-current-value'); temp.append(value, visibilityHost);
+      center.append(iconHost, temp);
+    } else {
+      center.append(condition(conditionText, { icon, isDaytime }));
+    }
+    const windHost = node('span', 'wv-dial-wind'); if (current) windHost.id = 'liveWind';
+    windHost.append(wind(typeof windSpeed === 'string' ? windSpeed.replace(/\bmph\b/gi, 'MPH') : windSpeed, windDirection)); center.append(windHost);
+    if (current && gustText) { const gust = node('span', 'wv-dial-gust', 'G ' + gustText + ' MPH'); gust.id = 'liveGusts'; center.append(gust); }
+    if (current && feelsLike !== null) { const feels = node('span', 'wv-dial-feels', 'Feels ' + formatNumber.format(feelsLike) + '°'); feels.id = 'liveFeelsLike'; center.append(feels); }
+    const description = node('span', 'wv-dial-description', conditionText); if (current) description.id = 'liveConditionText';
+    center.append(description);
+    face.append(center, extrema); root.append(face);
     const hasData = Boolean(day?.segments.length);
     const coverage = pending && !hasData ? 'Hourly forecast loading' : !hasData ? 'Hourly timeline unavailable' : (stale ? 'STALE · ' : '') + (day.partial ? 'Partial · ' : '') + formatNumber.format(day.coverageHours) + '/' + day.expectedHours + ' h supplied';
-    root.append(node('p', 'wv-dial-coverage', coverage));
-    root.append(node('p', 'wv-dial-caption', current ? 'Ring: today’s forecast · Central time' : 'Hourly forecast · Central time'));
-    if (day?.partial && hasData) root.append(node('p', 'wv-dial-limit', 'H/L: supplied hours only · gaps unknown'));
-    if (day?.clockChange) root.append(node('p', 'wv-dial-limit', day.clockChange));
-    root.setAttribute('aria-label', (current ? 'Current observed temperature and today’s' : day?.label || 'Daily') + ' forecast temperature timeline. ' + coverage + '. ' + (day?.clockChange || ''));
+    if (!current && !hasData) center.append(node('span', 'wv-dial-unavailable', pending ? 'Hourly forecast loading' : 'Hourly timeline unavailable'));
+    if (stale) center.append(node('span', 'wv-dial-unavailable', 'STALE forecast'));
+    root.title = coverage + '. Forecast F H/L uses supplied forecast hours. O H/L is the highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme. Inner observed colors interpolate only between actual reports at most 90 minutes apart; gray gaps are unknown. ' + (day?.clockChange || '');
+    root.setAttribute('aria-label', (current ? 'Current observed temperature and today’s' : day?.label || 'Daily') + ' forecast temperature timeline. ' + root.title);
     return root;
   }
 
@@ -396,5 +455,5 @@
     return root;
   }
 
-  window.cmpriWeatherVisuals = Object.freeze({ temperature, condition, wind, forecastDays, temperatureDial, dayKey, stops: STOPS, min: MIN, max: MAX, colorAt });
+  window.cmpriWeatherVisuals = Object.freeze({ temperature, condition, wind, forecastDays, observationDay, temperatureDial, dayKey, stops: STOPS, min: MIN, max: MAX, colorAt });
 })();

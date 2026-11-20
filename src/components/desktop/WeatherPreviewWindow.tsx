@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
@@ -24,14 +24,13 @@ type Props = {
   onFocus: () => void; onClose: () => void; onRectCommit: (rect: WindowRect) => void;
   registerFrame: (frame: HTMLIFrameElement | null) => void;
   onOpen: (href: string, title: string) => void; onReturnToDesktop: () => void;
+  visible: boolean; use24HourTime: boolean; bulletinHost: HTMLElement | null;
 };
 
 const EMPTY: SafetyState = { status: "unavailable", checkedAt: null, source: null, error: "", alerts: [], notifications: [], autoOpenKeys: [] };
 // Preview-only page memory. Closing/reopening a Weather window must not reopen
 // a dismissed, unchanged warning. Nothing is written to browser storage or DB.
 const seenAutoOpens = new Set<string>();
-const central = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
-const stamp = (value: number | null) => value === null ? "Unavailable" : central.format(new Date(value));
 const level = (value: SafetyRecord) => /warning$/i.test(value.event) ? "warning" : /watch$/i.test(value.event) ? "watch" : "advisory";
 function object(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function string(value: unknown, limit = 16000) { return typeof value === "string" ? value.slice(0, limit) : ""; }
@@ -62,6 +61,16 @@ function parseState(input: unknown): SafetyState | null {
 /** Used only for the preview Weather route; every other desktop window keeps
  * its existing frame, titlebar, notification behavior, and permissions. */
 export default function WeatherPreviewWindow(props: Props) {
+  const frameSrc = useMemo(() => {
+    const url = new URL(props.src, "https://cmpri.invalid");
+    url.searchParams.set("clock", props.use24HourTime ? "24" : "12");
+    return url.pathname + url.search + url.hash;
+  }, [props.src, props.use24HourTime]);
+  const central = useMemo(() => new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    hourCycle: props.use24HourTime ? "h23" : "h12", timeZoneName: "short",
+  }), [props.use24HourTime]);
+  const stamp = (value: number | null) => value === null ? "Unavailable" : central.format(new Date(value));
   const [safety, setSafety] = useState<SafetyState>(EMPTY);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const snapshot = useRef<SafetyState>(EMPTY);
@@ -71,6 +80,7 @@ export default function WeatherPreviewWindow(props: Props) {
   const registerRef = useRef(props.registerFrame);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
+  const visibleRef = useRef(props.visible);
   const token = new URL(props.src, "https://cmpri.invalid").searchParams.get("modalToken");
   useEffect(() => { registerRef.current = props.registerFrame; }, [props.registerFrame]);
 
@@ -95,11 +105,19 @@ export default function WeatherPreviewWindow(props: Props) {
     frameCleanup.current?.(); frameCleanup.current = null;
     frameRef.current = frame; registerRef.current(frame);
     if (frame) {
-      const request = () => frame.contentWindow?.postMessage({ type: "cmpri-weather-safety-request-state", modalToken: token }, window.location.origin);
+      const request = () => {
+        frame.contentWindow?.postMessage({ type: "cmpri-weather-view-state", visible: visibleRef.current, modalToken: token }, window.location.origin);
+        frame.contentWindow?.postMessage({ type: "cmpri-weather-safety-request-state", modalToken: token }, window.location.origin);
+      };
       frame.addEventListener("load", request);
       frameCleanup.current = () => frame.removeEventListener("load", request);
     }
   }, [token]);
+
+  useEffect(() => {
+    visibleRef.current = props.visible;
+    send("cmpri-weather-view-state", { visible: props.visible });
+  }, [props.visible, send]);
 
   useEffect(() => {
     function receive(event: MessageEvent) {
@@ -137,15 +155,18 @@ export default function WeatherPreviewWindow(props: Props) {
   const tickerLevel = tickerAlerts.some(item => level(item) === "warning") ? "warning" : "watch";
   const tickerText = tickerAlerts.map(item => (item.simulated ? "SIMULATION · " : item.stale ? "LAST VERIFIED · " : "") + item.event + " · expires " + stamp(item.expires)).join("     •     ");
   const ticker = tickerAlerts.length ? <button type="button" data-weather-alert-ticker data-level={tickerLevel} className={styles.ticker} aria-label={"Open Guest Safety details: " + tickerText} onClick={() => openDetails((tickerAlerts.find(item => level(item) === "warning") || tickerAlerts[0]).key)}>
-    <span className={styles.tickerTrack} style={{ animationDuration: Math.max(20, tickerText.length * .09) + "s" }}>
+    <span className={styles.tickerTrack} style={{ animationDuration: Math.max(16, tickerText.length * .075) + "s" }}>
       {tickerAlerts.map(item => <span key={item.key} data-level={level(item)} className={styles.tickerItem}>{item.simulated ? "SIMULATION · " : item.stale ? "LAST VERIFIED · " : ""}{item.event} · expires {stamp(item.expires)}</span>)}
     </span>
   </button> : undefined;
 
   return <>
-    <DesktopWindow windowKey={props.windowKey} title={props.title} accentClass={props.accentClass} rect={props.rect} bounds={props.bounds} zIndex={props.zIndex} active={props.active} onFocus={props.onFocus} onClose={props.onClose} onRectCommit={props.onRectCommit} belowTitlebar={ticker}>
-      <DesktopFrame src={props.src} title={props.title} registerFrame={attachFrame} onFocus={props.onFocus} onOpen={props.onOpen} onReturnToDesktop={props.onReturnToDesktop} />
+    {props.bulletinHost && ticker ? createPortal(ticker, props.bulletinHost) : null}
+    <div hidden={!props.visible} data-weather-cached-window data-weather-visible={props.visible ? "true" : "false"} style={{ display: props.visible ? "contents" : "none" }}>
+    <DesktopWindow windowKey={props.windowKey} title={props.title} accentClass={props.accentClass} rect={props.rect} bounds={props.bounds} zIndex={props.zIndex} active={props.active} onFocus={props.onFocus} onClose={props.onClose} onRectCommit={props.onRectCommit}>
+      <DesktopFrame src={frameSrc} title={props.title} registerFrame={attachFrame} onFocus={props.onFocus} onOpen={props.onOpen} onReturnToDesktop={props.onReturnToDesktop} />
     </DesktopWindow>
+    </div>
     {typeof document !== "undefined" ? createPortal(<dialog ref={dialogRef} data-weather-guest-safety-dialog data-fullscreen={fullScreen ? "true" : "false"} className={styles.dialog} aria-labelledby="weather-guest-safety-title" aria-describedby="weather-guest-safety-summary" onCancel={event => { event.preventDefault(); closeDetails(); }} onClose={() => { if (selected.current) closeDetails(); }}>
       <header className={styles.dialogHeader}><div><span className={styles.label} data-level={record ? level(record) : "advisory"}>{record?.simulated ? "SIMULATED GUEST SAFETY" : "OFFICIAL NWS · GUEST SAFETY"}</span><h1 id="weather-guest-safety-title">Guest Safety</h1></div><button type="button" data-weather-guest-safety-close className={styles.close} aria-label="Close Guest Safety" onClick={closeDetails}>×</button></header>
       {record ? <main className={styles.dialogContent}>

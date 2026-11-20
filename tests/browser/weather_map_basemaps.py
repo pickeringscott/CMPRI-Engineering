@@ -51,10 +51,10 @@ async def style(frame, value):
 
 
 async def radar(frame, enabled):
-    await menu(frame, "mapLayersMenu", True)
-    await frame.locator("#mapLayerRadar").set_checked(enabled)
-    await menu(frame, "mapLayersMenu", False)
-    await wait_for(frame, "enabled => window.cmpriWeatherMap.getState().layers.radar === enabled", enabled)
+    control = frame.locator("#mapLayerRadar")
+    if (await control.get_attribute("aria-pressed") == "true") != enabled:
+        await control.click()
+    await wait_for(frame, "enabled=>cmpriWeatherMap.getState().layers.radar===enabled",enabled)
 
 
 async def pixel(frame):
@@ -207,7 +207,7 @@ async def run_viewport(browser, base, output, width, height):
         ground = await frame.evaluate("window.cmpriWeatherMap.getState().ground")
         require(ground["dataset"] == "imagery" and ground.get("imageryAcquisitionYear") is None,
                 "Aerial did not use real imagery or invented a hotel-specific capture year")
-        require({row["dataset"] for row in fixture.reference_requests} == {"roads", "places"},
+        require({row["dataset"] for row in fixture.reference_requests} == {"roads", "places", "routes"},
                 "Aerial is missing an actual road or populated-place reference response")
         require(any(row.get("op") == "place-labels" for row in fixture.reference_requests),
                 "Town labels did not use the official GNIS feature response")
@@ -233,8 +233,16 @@ async def run_viewport(browser, base, output, width, height):
                 "Road reference PNG did not compose visibly over the aerial/weather raster")
         evidence["aerialRoadsAndPlaceLabels"] = {"source": ground["reference"], "fixturePixels": annotation,
                                                  "captureYearNotInvented": True}
-        require(await frame.locator("#mapBackgroundMenu").count() == 1 and await frame.locator("#mapLayersMenu").count() == 1,
-                "Separate Map and Layers controls are missing")
+        require(await frame.locator("#mapBackgroundMenu").count() == 1
+                and await frame.locator('.cmpri-map-layer-buttons[aria-label="Independent weather map layers"]').count() == 1,
+                "Map menu or independent layer buttons are missing")
+        routes = ground["reference"]["routes"]
+        route_limit = 4 if ground["tileZoom"] <= 9 else 7 if ground["tileZoom"] <= 11 else 10
+        require(routes["sourceCount"] >= routes["count"] >= 1 and 0 < routes["renderedCount"] <= routes["budget"] <= route_limit,
+                "Source-backed route shields are missing or exceed the decluttering budget: " + str(routes))
+        require(len({row["key"] for row in routes["rendered"]}) == routes["renderedCount"],
+                "The same highway route has duplicate shields")
+        evidence["declutteredOfficialRoutes"] = routes
         for removed in ["tryLiveFeeds", "mapLayerTimes", "mapGrid", "mapStatus", "observedRadarNote", "mapHelp"]:
             require(await frame.locator("#" + removed).count() == 0,
                     "Removed map control or descriptive copy remains: " + removed)
@@ -247,9 +255,12 @@ async def run_viewport(browser, base, output, width, height):
           return {inside:host.parentElement===shell,left:a.left-b.left,bottom:b.bottom-a.bottom,
             width:a.width,mapWidth:b.width,height:a.height,mapHeight:b.height,text:host.textContent,links:host.querySelectorAll('a').length};
         }""")
+        legend["reflectivityRowWidth"] = await frame.locator('.cmpri-reflectivity-legend').evaluate("el=>el.getBoundingClientRect().width")
         require(legend["inside"] and 0 <= legend["left"] <= 16 and 0 <= legend["bottom"] <= 45
                 and legend["width"] < legend["mapWidth"] and legend["height"] <= legend["mapHeight"] * .42 + 1,
                 "Official radar legend is not compact in the map's lower-left corner: " + str(legend))
+        require(legend["reflectivityRowWidth"] <= 180.5 and legend["width"] <= 200,
+                "Reflectivity key backdrop expands beyond its compact 180px source ramp: " + str(legend))
         require(not re.search(r"legend unavailable", legend["text"], re.I) and legend["links"] == 0,
                 "Removed unavailable message or standalone legend link remains")
         ticks = await frame.locator(".cmpri-reflectivity-ticks > span").evaluate_all("""elements=>elements.map(element=>({
@@ -274,27 +285,31 @@ async def run_viewport(browser, base, output, width, height):
         def catalog_reads():
             return len([call for call in fixture.wms_requests if call["product"] == "reflectivity" and call["op"] == "capabilities"])
         catalogs_before = catalog_reads()
-        nws_before = fixture.observation_calls + fixture.forecast_calls + fixture.alert_calls
+        nws_before = [fixture.observation_calls, fixture.history_calls, fixture.forecast_calls, fixture.alert_calls]
         await page.clock.fast_forward(cadence["intervalMs"] + 10)
         deadline = asyncio.get_running_loop().time() + 10
         while catalog_reads() <= catalogs_before:
             require(asyncio.get_running_loop().time() < deadline, "Visible automatic map refresh did not read the actual scan catalog")
             await asyncio.sleep(.05)
         await wait_for(frame, "cmpriWeatherMap.getState().refresh.scheduled && cmpriWeatherMap.getState().pendingRequests === 0")
-        require(fixture.observation_calls + fixture.forecast_calls + fixture.alert_calls == nws_before,
-                "Map refresh unexpectedly polled Current Conditions, forecasts or alerts")
+        await wait_for(frame,"!nwsLiveView.getState().loading")
+        require([fixture.observation_calls,fixture.history_calls,fixture.forecast_calls,fixture.alert_calls] ==
+                [nws_before[0]+1,nws_before[1]+1,nws_before[2],nws_before[3]],
+                "Visible map cadence did not recheck only latest+history exactly once")
         await frame.locator("#tab-notifications").click()
         require(not await frame.evaluate("cmpriWeatherMap.getState().refresh.scheduled"),
                 "Map refresh stayed scheduled after its view was hidden")
         hidden_count = len(fixture.map_urls)
+        hidden_nws = [fixture.observation_calls,fixture.history_calls,fixture.forecast_calls,fixture.alert_calls]
         await page.clock.fast_forward(cadence["intervalMs"] + 10)
         await asyncio.sleep(.1)
-        require(len(fixture.map_urls) == hidden_count, "A hidden Weather view continued map refresh")
+        require(len(fixture.map_urls) == hidden_count and hidden_nws == [fixture.observation_calls,fixture.history_calls,fixture.forecast_calls,fixture.alert_calls],
+                "A hidden Weather view continued map or observation refresh")
         await frame.locator("#tab-weather").click()
         await wait_for(frame, "cmpriWeatherMap.getState().refresh.scheduled && cmpriWeatherMap.getState().pendingRequests === 0")
         evidence["foregroundAutomaticRefresh"] = {"intervalMs": cadence["intervalMs"],
             "visibleRefreshReadsScanCatalog": True, "hiddenViewStopsRequests": True,
-            "resumesAfterReturning": True, "noExtraNwsForecastOrAlertPolling": True}
+            "resumesAfterReturning": True, "onlyLatestAndHistoryForegroundRechecked": True}
         evidence["wheelActivation"] = await wheel_activation(page, frame)
         await frame.locator("#recenter").click()
         await settled(frame)
@@ -365,43 +380,68 @@ async def run_viewport(browser, base, output, width, height):
         await frame.locator("#playLoop").click()
         evidence["actualScanWindows"] = loop_counts
         evidence["loadedScanPlayback"] = True
-        # Slow official-raster fixtures expose request bursts during rapid
-        # scrubbing. Only two image loads and the latest desired scan may wait.
-        await wait_for(frame, "window.cmpriWeatherMap.getState().rasterLoads === 0")
-        fixture.radar_export_delay = .2
-        exports_before_scrub = len(fixture.exports)
-        scrub = await frame.evaluate("""() => {
-          const range=document.getElementById('frameRange'), before=window.cmpriWeatherMap.getState();
-          const target=Math.floor(before.frameCount/2);
-          let peakLoads=0, peakQueue=0;
-          const select=index => { range.value=String(index); range.dispatchEvent(new Event('input'));
-            const state=window.cmpriWeatherMap.getState();
-            peakLoads=Math.max(peakLoads,state.rasterLoads); peakQueue=Math.max(peakQueue,state.rasterQueue); };
-          for(let n=0;n<80;n++) select(n%before.frameCount);
-          select(target);
-          return {target, peakLoads, peakQueue, previousScan:before.displayedScanTime,
-            heldScan:window.cmpriWeatherMap.getState().displayedScanTime,
-            buffering:window.cmpriWeatherMap.getState().buffering,
-            loadingAttribute:document.querySelector('.loop').dataset.loading,
-            playbackOpacity:parseFloat(getComputedStyle(document.querySelector('.loop')).opacity),
-            canvasOpacity:parseFloat(getComputedStyle(document.getElementById('radarCanvas')).opacity),
-            visibleScan:document.getElementById('scanTime').textContent};
-        }""")
-        require(scrub["peakLoads"] <= 2 and scrub["peakQueue"] <= 1, "Rapid seek created an unbounded raster request queue")
-        require(scrub["previousScan"] == scrub["heldScan"], "Seeking relabeled a previous image as an unloaded scan")
-        require(scrub["buffering"] and scrub["loadingAttribute"] == "true",
-                "Pending real radar scans did not mute the playback controls: " + str(scrub))
-        await wait_for(frame, """() => document.querySelector('.loop').dataset.loading === 'true' &&
-          parseFloat(getComputedStyle(document.querySelector('.loop')).opacity) <= .5""", timeout=2000)
-        scrub["mutedOpacityAfterTransition"] = await frame.locator(".loop").evaluate("el=>parseFloat(getComputedStyle(el).opacity)")
-        require(scrub["canvasOpacity"] == 1 and not re.search(r"loading|buffer|stale", scrub["visibleScan"], re.I),
-                "Buffering dimmed the map or replaced its actual displayed scan time with loading/stale text")
-        await wait_for(frame, "target => {const s=window.cmpriWeatherMap.getState(); return s.displayedFrame===target && s.rasterLoads===0 && s.rasterQueue===0;}", scrub["target"])
-        require(len(fixture.exports) - exports_before_scrub <= 6, "Rapid seek requested an export for every slider tick")
-        require((await frame.evaluate("window.cmpriWeatherMap.getState()"))["imageCacheSize"] <= 36, "Radar image cache exceeded its bound")
-        fixture.radar_export_delay = 0
-        evidence["rapidScrub"] = {**scrub, "lastRequestedScanDisplayed": True,
-            "exports": len(fixture.exports) - exports_before_scrub}
+        # New viewport: only latest/oldest images may complete initially. This
+        # proves playback cycles ready scans without waiting for other frames.
+        window_scans = await frame.evaluate("cmpriWeatherMap.getState().scanTimes")
+        await set_range(frame, "frameRange", len(window_scans) - 1)
+        await wait_for(frame,"latest=>cmpriWeatherMap.getState().displayedScanTime===latest",window_scans[-1])
+        fixture.radar_held_times = set(window_scans[1:-1])
+        fixture.radar_held_gate.clear(); fixture.map_pending.clear()
+        await frame.locator("#zoomIn").click()
+        await wait_for(frame,"() => {const s=cmpriWeatherMap.getState();return s.readyFrameCount>=2 && s.rasterLoads===2 && s.rasterQueue>0;}")
+        progress = await frame.evaluate("cmpriWeatherMap.getState()")
+        require(len(progress["frameProgress"]) == progress["frameCount"]
+                and {row["status"] for row in progress["frameProgress"]}.issuperset({"ready","loading","pending"}),
+                "Frame readiness progress does not distinguish ready/loading/pending scans")
+        require(progress["rasterLoads"] <= 2 and progress["rasterQueue"] <= 65,
+                "Background frame loading exceeded its concurrency/queue bound")
+        await asyncio.sleep(.15)
+        require(await frame.locator('.loop').evaluate("el=>parseFloat(getComputedStyle(el).opacity)") == 1,
+                "Pending frames dim the entire playback bar instead of their progress segments")
+        bar = frame.locator("#frameRange")
+        require("scans ready" in await bar.get_attribute("aria-valuetext")
+                and "linear-gradient" in await bar.evaluate("el=>el.style.backgroundImage"),
+                "The playback bar lacks per-frame ready/loading progress")
+        await set_range(frame,"playbackSpeed",2)
+        before_play = progress["displayedScanTime"]
+        await frame.locator("#playLoop").click()
+        await wait_for(frame,"before=>{const s=cmpriWeatherMap.getState();return s.playing && s.displayedScanTime!==before;}",before_play,timeout=4000)
+        playing = await frame.evaluate("cmpriWeatherMap.getState()")
+        ready_times = {row["time"] for row in playing["frameProgress"] if row["status"] == "ready"}
+        require(playing["displayedScanTime"] in ready_times and playing["rasterLoads"] > 0,
+                "Playback waited for unavailable scans or displayed a non-ready frame")
+        await frame.locator("#playLoop").click()
+        paused = await frame.evaluate("cmpriWeatherMap.getState()")
+        fixture.radar_held_gate.set()
+        await wait_for(frame,"cmpriWeatherMap.getState().readyFrameCount===cmpriWeatherMap.getState().frameCount",timeout=15000)
+        await asyncio.sleep(.3)
+        loaded = await frame.evaluate("cmpriWeatherMap.getState()")
+        require(not loaded["playing"] and loaded["frame"] == paused["frame"]
+                and loaded["displayedScanTime"] == paused["displayedScanTime"],
+                "Finishing background loads advanced a paused radar frame")
+        require(loaded["imageCacheSize"] <= loaded["imageCacheLimit"] == 64,
+                "Radar frame cache exceeded its declared bound")
+        require(not re.search(r"loading|buffer|stale",await frame.locator("#scanTime").inner_text(),re.I),
+                "Playback replaced the actual displayed scan time with status text")
+        require(await frame.locator('.loop').evaluate("el=>parseFloat(getComputedStyle(el).opacity)") == 1,
+                "Loading progress still dims the entire playback bar")
+        evidence["readyFramePlaybackAndPause"] = {"readyAtPlay":len(ready_times),"backgroundLoadsAtPlay":playing["rasterLoads"],
+            "pausedFrameStableAfterAllLoads":True,"perFrameProgress":True,"cacheLimit":loaded["imageCacheLimit"]}
+        wanted = loaded["frameCount"] // 2
+        await set_range(frame, "frameRange", wanted)
+        await wait_for(frame,"wanted=>{const s=cmpriWeatherMap.getState();return s.frame===wanted && s.displayedScanTime===s.scanTimes[wanted];}",wanted)
+        evidence["seekSliderUsesRequestedFrame"] = True
+        # Verify all four inputs resolve to the vertical-bar thumb rule.
+        thumbs = await frame.evaluate("""() => ['frameRange','mapOpacity','playbackSpeed','loopLength'].map(id=>{
+          const el=document.getElementById(id),matching=[];
+          function scan(rules){for(const rule of rules){if(rule.cssRules?.length)scan(rule.cssRules);if(rule.selectorText?.includes('::-webkit-slider-thumb')){
+            for(const selector of rule.selectorText.split(',')){try{if(el.matches(selector.replace('::-webkit-slider-thumb','')))matching.push({width:rule.style.width,height:rule.style.height,radius:rule.style.borderRadius});}catch{}}
+          }}}for(const sheet of document.styleSheets){try{scan(sheet.cssRules);}catch{}}
+          return {id,rule:matching.at(-1)};
+        })""")
+        require(all(row.get("rule") and float(row["rule"]["height"].replace("px",""))>float(row["rule"]["width"].replace("px","")) for row in thumbs),
+                "Not every slider has a vertical-bar thumb style: "+str(thumbs))
+        evidence["fourVerticalBarThumbs"] = thumbs
         evidence["gestures"] = [await anchored_zoom(page, frame, "pinch", True)] if width < 640 else [
             await anchored_zoom(page, frame, "wheel"), await anchored_zoom(page, frame, "double-click")]
         # Batch local zoom actions into one frame, avoiding a test-created
@@ -440,11 +480,8 @@ async def run_viewport(browser, base, output, width, height):
         fixture.basemap_pending.clear()
         fixture.hold_map = True
         fixture.map_gate.clear()
-        await frame.evaluate("""() => {
-          const range=document.getElementById('frameRange');
-          for(const index of [0,1,2]) {range.value=String(index);range.dispatchEvent(new Event('input'));}
-        }""")
-        await wait_for(frame, "() => {const s=window.cmpriWeatherMap.getState();return s.rasterLoads===2 && s.rasterQueue===1;}")
+        await frame.locator("#zoomOut").click()
+        await wait_for(frame,"cmpriWeatherMap.getState().rasterLoads>0")
         await menu(frame, "mapBackgroundMenu", True)
         await frame.locator("#mapBackgroundStyle").select_option("aerial")
         await menu(frame, "mapBackgroundMenu", False)
@@ -456,7 +493,7 @@ async def run_viewport(browser, base, output, width, height):
         }""")
         native = page.locator('[data-cmpri-desktop-window="' + PREVIEW + '"]')
         await native.get_by_role("button", name="Close Weather", exact=True).click()
-        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="detached")
+        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
         closed = await page.evaluate("window.__groundClosedState")
         require(closed and closed["ground"]["pending"] == 0 and not closed["ground"]["opened"],
                 "Ground tile requests survived native close")

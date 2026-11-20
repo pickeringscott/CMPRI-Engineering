@@ -128,11 +128,15 @@ class OfficialFeedFixtures:
         self.now = datetime.now(timezone.utc).replace(microsecond=0)
         self.forecast_calls = 0
         self.observation_calls = 0
+        self.history_calls = 0
         self.alert_calls = 0
         self.map_urls = []
         self.exports = []
         self.image_exports = []
         self.radar_export_delay = 0
+        self.radar_held_times = set()
+        self.radar_held_gate = asyncio.Event()
+        self.radar_held_gate.set()
         self.basemap_requests = []
         self.reference_requests = []
         self._basemap_active = set()
@@ -152,14 +156,17 @@ class OfficialFeedFixtures:
         self.hold_forecast = True
         self.hold_observation = True
         self.hold_alerts = True
+        self.hold_history = True
         self.hold_map = False
         self.forecast_gate = asyncio.Event()
         self.observation_gate = asyncio.Event()
         self.alert_gate = asyncio.Event()
+        self.history_gate = asyncio.Event()
         self.map_gate = asyncio.Event()
         self.forecast_pending = asyncio.Event()
         self.observation_pending = asyncio.Event()
         self.alert_pending = asyncio.Event()
+        self.history_pending = asyncio.Event()
         self.map_pending = asyncio.Event()
         self.scan_times = [int((self.now - timedelta(minutes=10)).timestamp() * 1000),
                            int((self.now - timedelta(minutes=5)).timestamp() * 1000)]
@@ -191,6 +198,13 @@ class OfficialFeedFixtures:
             "visibility": {"value": None, "unitCode": "wmoUnit:m"},
             "windChill": {"value": None, "unitCode": "wmoUnit:degC"},
             "heatIndex": {"value": None, "unitCode": "wmoUnit:degC"}}}
+        day_start = self.now.astimezone(ZoneInfo("America/Chicago")).replace(hour=0, minute=0, second=0, microsecond=0)
+        history = {"type": "FeatureCollection", "features": [
+            {"type": "Feature", "id": API + "/stations/KCMI/observations/TEST-FIXTURE-" + str(index),
+             "properties": {"timestamp": iso(stamp), "temperature": {"value": value, "unitCode": "wmoUnit:degF"}}}
+            for index, (stamp, value) in enumerate([(self.now - timedelta(minutes=30), 60),
+                                                    (self.now - timedelta(minutes=6), 64)])
+            if stamp >= day_start - timedelta(minutes=90)]}
         def forecast(hourly):
             return {"type": "Feature", "properties": {"updated": issued, "updateTime": issued,
                 "generatedAt": issued, "periods": [{"number": n + 1,
@@ -217,6 +231,9 @@ class OfficialFeedFixtures:
                 "instruction": "Fixture instructions."}}]}
         return {"location": {"name": "Residence Inn Champaign", "latitude": 40.138080,
                 "longitude": -88.251416, "timeZone": "America/Chicago"}, "checkedAt": iso(self.now),
+            "history": {"dayStart": iso(day_start), "queryStart": iso(day_start - timedelta(minutes=90)),
+                "asOf": iso(self.now), "timeZone": "America/Chicago", "anchorLookbackMinutes": 90,
+                "queryComplete": True, "truncated": False, "returnedCount": len(history["features"])},
             "resources": {
                 "points": self.envelope(API + "/points/" + POINT, point),
                 "forecast": self.envelope(API + "/gridpoints/ILX/95,74/forecast", forecast(False)),
@@ -224,6 +241,8 @@ class OfficialFeedFixtures:
                 "grid": self.envelope(API + "/gridpoints/ILX/95,74", grid),
                 "stations": self.envelope(API + "/gridpoints/ILX/95,74/stations", {"type": "FeatureCollection", "features": []}),
                 "observation": self.envelope(API + "/stations/KCMI/observations/latest", observation, station),
+                "history": self.envelope(API + "/stations/KCMI/observations?start=" + iso(day_start - timedelta(minutes=90))
+                    + "&end=" + iso(self.now) + "&limit=500", history, station),
                 "alerts": self.envelope(API + "/alerts/active?point=" + POINT, alerts)}}
 
     def wms(self, product):
@@ -288,6 +307,9 @@ class OfficialFeedFixtures:
                     if self.hold_map:
                         self.map_pending.set()
                         await self.map_gate.wait()
+                    if export["time"] in self.radar_held_times and not self.radar_held_gate.is_set():
+                        self.map_pending.set()
+                        await self.radar_held_gate.wait()
                 elif self.hold_wms:
                     self.wms_pending.set()
                     await self.wms_gate.wait()
@@ -316,6 +338,32 @@ class OfficialFeedFixtures:
         if parsed.path == "/api/weather-preview/basemap":
             params = parse_qs(parsed.query)
             dataset = params.get("dataset", [""])[0]
+            if params.get("op") == ["route-features"]:
+                require(dataset == "roads", "Unknown official route source")
+                z = int(params.get("z", ["-1"])[0])
+                require(0 <= z <= 16, "Route labels used unsupported ground zoom")
+                bbox = list(map(float, params.get("bbox", [""])[0].split(",")))
+                self.reference_requests.append({"op": "route-features", "dataset": "routes", "bbox": bbox, "z": z})
+                if self.hold_basemap:
+                    self.basemap_pending.set()
+                    await self.basemap_gate.wait()
+                records = []
+                for index, (route_type, number) in enumerate([("INTERSTATE", "74"), ("INTERSTATE", "74"),
+                        ("INTERSTATE", "57"), ("US_ROUTE", "150"), ("ST_ROUTE", "10"), ("INTERSTATE", "72")]):
+                    fx,fy = [(.22,.28),(.78,.24),(.23,.72),(.78,.72),(.5,.17),(.5,.82)][index]
+                    x=bbox[0]+(bbox[2]-bbox[0])*fx; y=bbox[1]+(bbox[3]-bbox[1])*fy
+                    def coordinate(px,py):
+                        return [math.degrees(px/6378137),math.degrees(2*math.atan(math.exp(py/6378137))-math.pi/2)]
+                    start=coordinate(x-1000,y-500); end=coordinate(x+1000,y+500)
+                    fields = {"OBJECTID": index+1, "permanent_identifier": "TEST-ROUTE-"+str(index), route_type: number}
+                    if z >= 10:
+                        fields = {("state_route" if key == "ST_ROUTE" else key.lower()): value for key,value in fields.items()}
+                    records.append({"type":"Feature","properties":fields,"geometry":{"type":"LineString",
+                        "coordinates":[start,end]}})
+                await route.fulfill(content_type="application/json",body=json.dumps({
+                    "source":"https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer/9/query",
+                    "receivedAt":iso(self.now),"data":{"type":"FeatureCollection","features":records},"error":None}))
+                return
             if params.get("op") == ["place-labels"]:
                 require(dataset == "places", "Unknown incorporated-place source")
                 bbox = list(map(float, params.get("bbox", [""])[0].split(",")))
@@ -398,7 +446,7 @@ class OfficialFeedFixtures:
             return
         if parsed.path == "/api/weather-preview":
             part = parse_qs(parsed.query).get("part", [None])[0]
-            require(part in [None, "observation", "alerts", "forecast"], "Unknown partial NWS fixture request")
+            require(part in [None, "observation", "history", "alerts", "forecast"], "Unknown partial NWS fixture request")
             if part == "observation":
                 self.observation_calls += 1
                 self.observation_pending.set()
@@ -409,6 +457,11 @@ class OfficialFeedFixtures:
                 self.alert_pending.set()
                 if self.hold_alerts:
                     await self.alert_gate.wait()
+            elif part == "history":
+                self.history_calls += 1
+                self.history_pending.set()
+                if self.hold_history:
+                    await self.history_gate.wait()
             else:
                 self.forecast_calls += 1
                 self.forecast_pending.set()
@@ -417,11 +470,11 @@ class OfficialFeedFixtures:
             try:
                 data = self.nws()
                 if part:
-                    keys = {"observation": ["observation"], "alerts": ["alerts"], "forecast": ["points", "forecast", "hourly", "grid"]}[part]
+                    keys = {"observation": ["observation"], "history": ["history"], "alerts": ["alerts"], "forecast": ["points", "forecast", "hourly", "grid"]}[part]
                     data["resources"] = {key: value for key, value in data["resources"].items() if key in keys}
                 await route.fulfill(content_type="application/json", body=json.dumps(data))
             except Exception:
-                if not (self.forecast_gate.is_set() and self.observation_gate.is_set() and self.alert_gate.is_set()):
+                if not (self.forecast_gate.is_set() and self.observation_gate.is_set() and self.alert_gate.is_set() and self.history_gate.is_set()):
                     raise
             return
         require(parsed.path == "/api/weather-preview/map", "Unexpected Weather endpoint: " + parsed.path)
@@ -483,11 +536,14 @@ class OfficialFeedFixtures:
         self.hold_forecast = False
         self.hold_observation = False
         self.hold_alerts = False
+        self.hold_history = False
         self.hold_map = False
         self.forecast_gate.set()
         self.observation_gate.set()
         self.alert_gate.set()
+        self.history_gate.set()
         self.map_gate.set()
+        self.radar_held_gate.set()
         self.hold_basemap = False
         self.basemap_gate.set()
         self.hold_wms = False
@@ -572,15 +628,21 @@ async def run_viewport(browser, base, output, width, height):
         require("Jan 15" not in await frame.locator("#panel-weather").inner_text(), "Old weather examples remain in live view")
         evidence["loadingHasNoSampleValues"] = True
         feed.release()
-        await wait_for(frame, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°F'")
+        await wait_for(frame, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°'")
         require("TEST FIXTURE observed conditions" in await frame.locator("#liveConditionText").inner_text(), "Observation response was not rendered")
-        station_source = await frame.locator("#liveConditionSource").inner_text()
-        require("KCMI" in station_source and "station observation" in station_source,
-                "Observation station provenance missing")
-        for element in ["liveFeelsLike", "liveGusts", "liveVisibility", "liveIce"]:
+        station_source = await frame.locator("#liveObservationTime").inner_text()
+        require("KCMI" in station_source, "Current observation does not identify Willard KCMI")
+        for absent in ["liveFeelsLike", "liveGusts"]:
+            require(await frame.locator("#"+absent).count() == 0, "Missing observed "+absent+" became a visible value")
+        for element in ["liveVisibility", "liveIce"]:
             value = await frame.locator("#" + element).inner_text()
-            require(value.startswith(("Unavailable", "Not reported", "—")), "Missing " + element + " became a value")
-        require("10 mph" in await frame.locator("#liveWind").inner_text(), "Observation wind conversion failed")
+            require("unavailable" in value.lower() or value.startswith("—"), "Missing " + element + " became a value")
+        require("10" in await frame.locator("#liveWind").inner_text() and "MPH" in await frame.locator("#liveWind").inner_text(), "Observation wind conversion failed")
+        require("Residence Inn Champaign" in await frame.locator('.view-head').inner_text()
+                and "502 West Marketview Drive" in await frame.locator('.location').inner_text(),
+                "Removing the orange feed box also removed the hotel identity")
+        for removed in [".offline-note", "#tab-sources", "#panel-sources", ".guest-safety-priority"]:
+            require(await frame.locator(removed).count() == 0, "Removed feed/source/Guest Safety review section remains: "+removed)
         require(await frame.locator("#hourlyForecast .forecast-card").count() == 12, "Hourly response periods missing")
         days = set()
         for resource_name in ["hourly", "forecast"]:
@@ -608,7 +670,7 @@ async def run_viewport(browser, base, output, width, height):
         require(await alerts.get_by_role("link", name="Read official bulletin").count() == 1, "Official bulletin link missing")
         require(await page.locator("[data-weather-guest-safety-dialog][data-fullscreen='true']").count() == 0,
                 "A regular advisory unexpectedly opened a fullscreen warning")
-        evidence["nwsResponseRendering"] = {"temperature": "64°F", "hourly": 12, "daily": len(days),
+        evidence["nwsResponseRendering"] = {"temperature": "64°", "hourly": 12, "daily": len(days),
             "missingRemainsUnavailable": True, "polygonlessAlertRetained": True, "removedFooterAndManualRefresh": True}
         await wait_for(frame, "window.cmpriWeatherMap.getState().status.radar === 'Observed image loaded'")
         state = await frame.evaluate("window.cmpriWeatherMap.getState()")
@@ -652,15 +714,19 @@ async def run_viewport(browser, base, output, width, height):
         feed.hold_map = True
         feed.map_gate.clear()
         feed.map_pending.clear()
-        await frame.evaluate("() => { nwsLiveView.close(); void nwsLiveView.open(); }")
+        await frame.evaluate("() => { void nwsLiveView.refresh(); }")
         await asyncio.wait_for(feed.forecast_pending.wait(), timeout=5)
         await frame.locator("#zoomIn").click()
         await asyncio.wait_for(feed.map_pending.wait(), timeout=5)
         await wait_for(frame, "window.cmpriWeatherMap.getState().pendingRequests > 0 && window.nwsLiveView.getState().pendingRequests > 0")
         calls_before_close = feed.forecast_calls
+        nws_before_close = [feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls]
+        await frame.evaluate("window.__weatherRetainedMemory = 'same-page-instance'")
         await native.get_by_role("button", name="Close Weather", exact=True).click()
-        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="detached")
-        require(await native.count() == 0, "Native Weather window remained mounted after its X")
+        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
+        require(await native.is_hidden(), "Native Weather window remained visible after its X")
+        require(await page.locator('iframe[src*="' + PREVIEW + '"]').count() == 1,
+                "Closing Weather discarded its cached iframe")
         feed.release()
         await wait_for(page, "window.__weatherDashboardClosingAudit?.closed === true")
         closed = await page.evaluate("window.__weatherDashboardClosingAudit")
@@ -671,11 +737,14 @@ async def run_viewport(browser, base, output, width, height):
         require(feed.forecast_calls == calls_before_close, "A check ran after Weather closed")
         await launcher.click()
         reopened = await weather_frame(page)
-        await wait_for(reopened, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°F'")
-        require(feed.forecast_calls == calls_before_close + 1, "Reopening did not request a fresh NWS response")
+        await wait_for(reopened, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°'")
+        require([feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls] == nws_before_close,
+                "Instant reopening reloaded NWS data instead of showing the cached view")
+        require(await reopened.evaluate("window.__weatherRetainedMemory") == "same-page-instance",
+                "Instant reopening created a new Weather document")
         require(await native.count() == 1, "Reopening created duplicate native windows")
         evidence["nativeCloseAndReopen"] = {"playbackStopped": True, "pendingFetchesAborted": True,
-            "frameUnmounted": True, "freshNwsRequestOnReopen": True}
+            "iframeRetainedInMemory": True, "noNwsReloadOnInstantReopen": True}
         require(not await frame_forbidden(page), "Weather requested GPS, notification permission, or push registration")
         require(len(mutations) == before_mutations, "Opening Weather caused an application mutation: " + str(mutations[before_mutations:]))
         require(not errors, "JavaScript errors: " + str(errors))

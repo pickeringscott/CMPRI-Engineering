@@ -6,25 +6,32 @@ Open the [branch preview](https://cmpri-engineering-git-codex-weather-branc-c2aa
 
 The property remains fixed at **40.138080, −88.251416**, Residence Inn Champaign, 502 West Marketview Drive, verified from Marriott's property map. No device location is requested.
 
-The view launches three independent foreground reads when Weather opens:
+The view launches four independent foreground reads when Weather opens:
 
 - `/api/weather-preview?part=observation` reads **Willard (KCMI)** directly, without waiting for point discovery, stations, forecasts, alerts or radar.
+- `?part=history` reads raw KCMI reports since Central midnight, including a bounded 90-minute pre-midnight anchor for real report pairs that span midnight. It preserves report timestamps and null temperatures rather than inventing hourly observations.
 - `?part=alerts` reads the official property-point alert collection independently, including applicable county/zone alerts without polygons.
 - `?part=forecast` resolves NWS's canonical four-decimal property point, then reads extended, hourly and grid forecasts. It does not repeat the observation request.
 
 The original no-part response remains compatible with the seven-resource verification response. Transports preserve the raw official payload, units, source and source timestamp. They have fixed NWS sources, deadlines, no upstream credentials or redirects, and production blocking.
 
-Current Conditions renders immediately when its observation arrives. **As of: YYYY-MM-DD HH:mm CST/CDT** appears directly below the heading and uses KCMI's observation timestamp, never the fetch time. Reported wind chill or heat index supplies Feels Like; absent values remain Not reported. Observed gusts are separately labeled from forecast gusts. The published KCMI check at 12:06 PM Central on November 19 returned 19°C with null wind chill, heat index and gust; the view does not turn those missing values into zero or substitute forecast data.
+Current Conditions renders immediately when its observation arrives. **As of** appears directly below the heading and uses KCMI's observation date and Central time, never the fetch time. Clock labels use 24-hour time for the existing verified Chief Engineer identity/layout rule, including its maint mapping; other users, including ordinary administrators, use 12-hour AM/PM. Reported wind chill or heat index supplies Feels Like. The condition icon, wind arrow/speed and reported gusts (G … MPH) sit inside the enlarged wheel; visibility is directly beneath the degree-only Fahrenheit value. The As of line names Willard (KCMI). Forecast gusts and the old notes/source lines are removed from Current Conditions. Missing values do not become zero or forecast substitutes.
 
 Local condition SVGs and a compact wind-from compass remain. Temperature colors are now a **hard-coded, screenshot-based Fahrenheit palette**, independent of CMPRI's seasonal theme: cyan at and below 0°F, periwinkle around 15°F, magenta at 32°F, a reset to deep violet at 34°F, blue at 40–45°F, mint at 55°F, lime at 63°F, yellow at 80°F, orange at 85°F, red at 95°F and pink at 106°F. Intermediate colors interpolate between the fixed stops. This approximates the supplied screenshots; it is not claimed to reconstruct the reference app's undocumented formula. Numeric temperatures retain their actual value, including outside the color ramp, and missing values are not zero.
 
-**Current Conditions and each daily forecast use a 24-hour Central-time temperature timeline.** Position around the dial represents the hour of the local day; color represents that hour's actual NWS forecast air temperature. Current Conditions keeps KCMI's observed reading in the center, separate from the forecast ring. High/low markers and their times come only from supplied hourly forecast samples. Missing hours remain gaps, partial days are labeled, and days beyond hourly coverage remain unknown rather than receiving an invented curve. Central calendar-day handling also accounts for 23/25-hour daylight-saving transitions.
+**Current Conditions and each daily forecast use a 24-hour Central-time temperature timeline.** Position around the dial represents the hour of the local day; color represents temperature. Current Conditions keeps the latest KCMI reading in the center, an outer forecast track and a distinct inner observed-history track. Forecast markers are labeled **F H/F L**; observed extrema are **O H/O L**. Observed colors interpolate only between actual reports no more than 90 minutes apart. A real report pair can bridge midnight using the bounded anchor; null reports and longer gaps remain unknown. No report is fabricated at midnight.
 
-Hourly Forecast keeps its existing card layout and values, with the same screenshot-based colors. Forecast validity, official text and snow/ice interval coverage remain available.
+Observed high/low values use only supplied reports since Central midnight, excluding the pre-midnight anchor. The earliest actual time wins a tied extreme, including when historical reports arrive after the latest observation. A later equal report does not move the marker. These are extrema of the supplied readings; missing reports may hide an earlier extreme. Forecast markers remain independent. Daily forecast high/low times use supplied hourly samples; an official period high/low can appear without an invented time when hourly guidance is unavailable. Missing forecast hours remain gaps and days beyond hourly coverage remain unknown; coverage is described in accessible labels and tooltips without notes below the wheels. Central calendar days account for 23/25-hour daylight-saving transitions.
+
+Hourly Forecast retains horizontally scrolling cards, with a centered main condition icon and matching colored temperature dot/text beneath it. The separate temperature key and text below the section are removed; phone flick-scrolling uses native momentum. Daily cards use the same inside-wheel presentation, with forecast high/low values inside and the existing NWS Forecast Details accordion retained. Forecast validity, official text and snow/ice interval coverage remain available.
+
+Closing Weather keeps its iframe mounted but hidden/inactive, preserving its decoded map images, view, layer choices, controls and rendered forecasts. Reopening uses the same document and RAM cache; reload/navigation or closing the browser discards it. No browser storage or database is added. All four response caches are memory-only, with a five-minute freshness window. Reopening Weather renders cached data immediately and refreshes only parts that are due. Failed reads preserve last-known data with stale/unknown status. The existing visible-map refresh can request due observation/history data; it adds no separate background timer, database call or scheduler.
 
 ## Map and observed playback
 
-The regional default is actual **USGS/USDA aerial imagery**, overlaid with official USGS National Transportation Dataset roads and GNIS town names. Route shields are reduced to keep the view compact. Place labels use official incorporated-place features and source coordinates, choose one point for a repeated name and omit colliding labels. Background road lines are geographic reference data, not reported winter road conditions.
+The regional default is actual **USGS/USDA aerial imagery**, overlaid with official USGS National Transportation Dataset roads and GNIS town names. Road-line PNGs omit provider-rendered shields. CMPRI places route shields on actual visible official route polylines, deduplicates route class/number and scales the shield budget to zoom and visible map area. Major routes take priority at wide views; local highways appear where space permits. Labels avoid the hotel pin, towns, controls and one another. Place labels use official incorporated-place features and source coordinates, choose one point for a repeated name and omit colliding labels. Background road lines are geographic reference data, not reported winter road conditions.
+
+The fixed `route-features` transport uses USGS transportation layer 8 (10M-scale) at tile zoom 7 or below, layer 9 (1M-scale) at zoom 8–9, and separate Interstate/US/State route layers 16/17/18 at zoom 10 or above. Very wide requests prioritize Interstates; zoom 8 adds US routes and zoom 9 adds state routes. Route numbers and WGS84 geometry remain official source attributes, including concurrent-route splits; no road coordinates or names are handwritten. Viewport bounds, a shared deadline, a combined response-size cap and incomplete-result rejection keep queries bounded.
 
 USGS ImageryOnly, Topo and ShadedReliefOnly supply the Map choices. The aerial service's refresh date does not establish capture year at the hotel; capture year is labeled unavailable. The obsolete ImageryTopo endpoint is not used. Compact USGS/USDA credits remain visible. The hotel pin remains, without a permanent text label. Reference requests share the four-request USGS budget, are tied to the map extent and stop on close; tile caches are bounded and native tiles stop at zoom 16. Closer zoom explicitly enlarges existing detail.
 
@@ -32,13 +39,13 @@ The default observed radar is now **NOAA NCEP MRMS BREF QCD WMS**, using adverti
 
 The compact in-map legend uses NOAA's actual 500×30 PNG legend. Only its original top 10-pixel color band is displayed; source-verified printed dBZ ticks are reflowed for narrow screens. Their positions remain tied to the official image, including the inset first tick. The labels are not inferred from generic NWS colors, and −20 dBZ is not relabeled as the ramp's left-edge minimum.
 
-While playing, the next actual scan preloads and the current image remains visible until the next is ready. The playback controls mute while buffering; no radar loading or stale label is added. The visible timestamp belongs to the displayed image and uses Central time. There is no predicted radar, proprietary smoothing or invented scan time.
+Available observed scans can play while remaining frames load in the background; newly ready scans join automatically. The current image and actual scan time remain visible until a ready replacement is selected. Pause freezes the displayed scan and timestamp even when another download finishes. Per-frame scan-bar segments show ready, loading, pending and failed status without a radar loading/stale label or muting the entire control bar. Controls stay in place, and the scan-seek, opacity, speed and loop-length bars use vertical-bar thumbs. The visible timestamp belongs to the displayed image and uses Central time. There is no predicted radar, proprietary smoothing or invented scan time.
 
 Wheel input scrolls the Weather view until the map is clicked. A click activates cursor-anchored wheel zoom; pointer leave resets activation. Pinch, double click, buttons, recenter and fullscreen remain. Opacity, playback speed and observation-loop duration are colocated sliders. Gridlines, manual-refresh controls, redundant map help and the old footer are removed.
 
 A **five-minute foreground map refresh** updates published map products only while Weather's map is open and visible. Hiding the document, switching away from the map or closing Weather stops its timer and pending requests. This is separate from the simulated adaptive checker: it is not a server or background alert scheduler, and it causes no database work.
 
-KILX velocity and precipitation type retain their verified advertised WMS layers/styles, exact observation times and official PNG legends. These latest observed products disable reflectivity-only playback controls. WSSI is separate forecast impact guidance, with its issue/validity information. Official hotel-alert polygons remain optional; polygonless alerts remain listed. IDOT reported winter road conditions, embedded satellite and embedded lightning remain unavailable and link to their official sources. Missing data never becomes a clear-road or all-clear claim.
+Verified observed layers, WSSI and property-alert geometry can be toggled independently and stacked on the same viewport. Only reported winter roads and forecast winter impacts are mutually exclusive. Reflectivity playback applies to its actual observed sequence; KILX velocity and precipitation type retain their own latest advertised WMS layers/styles, exact observation times and official PNG legends. WSSI is separate forecast impact guidance, with its issue/validity information. Official hotel-alert polygons remain optional; polygonless alerts remain listed. IDOT reported winter road conditions, embedded satellite and embedded lightning remain explicitly unavailable. Missing data never becomes a clear-road or all-clear claim.
 
 ## Guest Safety and ticker
 
@@ -46,9 +53,9 @@ All applicable official NWS alert categories create **in-app Guest Safety notifi
 
 Applicable warnings and the agreed simulated forecast-freeze example automatically open the full-screen native Guest Safety dialog on desktop/mobile. Watches and advisories remain standard in-app notifications; opening their details uses the compact dialog. A dismissed unchanged warning batch does not reopen on a repeated result. Material changes have a new identity.
 
-Active watches/warnings appear in a clickable ticker directly after the native Weather titlebar, flush to its lower edge and following its width during resize. It moves left to right, yellow for watches and red for warnings, and shows the hazard and official expiration. Closing Guest Safety leaves the ticker and inbox intact; clicking reopens details. Cancellations, expirations and earlier official end times remove inactive entries. Earlier ends control cleanup without rewriting official expires. Failed alert reads retain last-known notices with an unverified label; they cannot imply all-clear. The official alert section itself appears only while applicable alerts are active, with unknown status reported separately.
+Active watches/warnings appear in a clickable bulletin ticker outside Weather, directly below the desktop header across its full available width. It scrolls right to left at the revised faster pace, with yellow watches and red warnings, and shows the hazard and official expiration. Closing Guest Safety or the cached Weather window leaves the bulletin and inbox intact; clicking reopens details. Cancellations, expirations and earlier official end times remove inactive entries. Earlier ends control cleanup without rewriting official expires. Failed alert reads retain last-known notices with an unverified label; they cannot imply all-clear. The official alert section itself appears only while applicable alerts are active, with unknown status reported separately.
 
-The preview bridge validates origin, source iframe and modal token. The optional titlebar slot is unused by other windows. All notification state is in memory. Display-only expiration timers remove expired UI; they never poll NWS or call a backend.
+The preview bridge validates origin, source iframe and modal token. A portal places the bulletin in the desktop header host without moving other window content. All notification state is in memory. Display-only expiration timers remove expired UI; they never poll NWS or call a backend. The Weather iframe omits the Sources tab, orange review box and Guest Safety test control; inherited official in-app delivery remains active in the preview host.
 
 ## Simulations and checks
 
@@ -58,22 +65,22 @@ Applicable dashboard, DesktopWindow, notification and seasonal-theme patterns we
 
 ## Verification
 
-The preview-mode production build, TypeScript, targeted ESLint and all **68 focused Weather tests** passed. All five browser suites passed at **1440×1000 desktop and 390×844 mobile** (10 cases). The actual downloaded NOAA legend PNG was also rendered and inspected at both sizes, separately from the synthetic weather and geographic fixtures.
+The preview-mode production build, TypeScript, targeted ESLint and 86 focused Weather tests pass. All 12 browser cases pass at desktop 1440×1000 and mobile 390×844, including Chief Engineer and ordinary administrator clock formats. Published source checks are separate from browser fixtures: actual KCMI history and USGS route geometry were verified at local, regional and widest extents. The draft PR records the final published commit and feed checks.
 
-Published source checks and browser acceptance are separate. The source checks verify independent KCMI/property-alert/forecast responses, NOAA's advertised reflectivity instants/style and matching legend, and actual USGS transportation/GNIS responses. Browser acceptance uses the actual Engineering dashboard with synthetic accounts and explicit NWS/USGS fixtures, with application API and WebSocket traffic intercepted. It covers observation-first rendering, Central-time daily coverage/gaps, fixed temperature colors with unchanged Hourly layout, exact-time buffered playback, compact legend, click-activated wheel behavior, foreground refresh cleanup, and inherited Guest Safety/ticker behavior.
+Published source checks and browser acceptance are separate. The source checks verify independent KCMI/property-alert/forecast responses, NOAA's advertised reflectivity instants/style and matching legend, and actual USGS transportation/GNIS responses. Browser acceptance uses the actual Engineering dashboard with synthetic accounts and explicit NWS/USGS fixtures, with application API and WebSocket traffic intercepted. It covers observation-first rendering, Central-time daily coverage/gaps, fixed temperature colors and revised Hourly layout, exact-time buffered playback, compact legend, click-activated wheel behavior, foreground refresh cleanup, and inherited Guest Safety/ticker behavior.
 
 ```sh
 node --experimental-strip-types --test tests/weather*.test.mjs
 VERCEL_ENV=preview NEXT_PUBLIC_SUPABASE_URL=https://ci-placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=ci-build-placeholder npm run build
 ```
 
-Browser checks ran against a fresh local preview server at `http://127.0.0.1:3030`:
+Browser checks ran against a fresh local preview server at `http://127.0.0.1:3031`:
 
 ```sh
-python tests/browser/weather_current_notices.py --base http://127.0.0.1:3030
-python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3030
-python tests/browser/weather_map_basemaps.py --base http://127.0.0.1:3030
-python tests/browser/weather_map_wms.py --base http://127.0.0.1:3030
+python tests/browser/weather_current_notices.py --base http://127.0.0.1:3031
+python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3031
+python tests/browser/weather_map_basemaps.py --base http://127.0.0.1:3031
+python tests/browser/weather_map_wms.py --base http://127.0.0.1:3031
 ```
 
 The current/notices command exercises two suites. Published deployment checks are recorded in the draft PR. No device GPS, paid feed, API key, database write, notification permission or external push is introduced.

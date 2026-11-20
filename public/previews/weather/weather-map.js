@@ -9,10 +9,11 @@
   const WSSI = 'https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/wpc_wssi/MapServer';
   const CENTRAL = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short', hour12: new URLSearchParams(location.search).get('clock') !== '24'
   });
   const RADIUS = 6378137;
   const REFRESH_INTERVAL = 5 * 60 * 1000;
+  const IMAGE_CACHE_LIMIT = 64;
   const PLAYBACK_SPEEDS = Object.freeze(['slow', 'normal', 'fast']);
   // Fixed official exports verified as georeferenced PNGs on the branch preview.
   const GEOGRAPHIC_REFERENCE_ENABLED = true;
@@ -24,17 +25,19 @@
     catalogFrames: [], displayedTime: null,
     showAlerts: true, alerts: [], alertStatus: 'Unknown · waiting for the NWS property alert response',
     alertSource: null, alertCheckedAt: null, alertGeometryless: 0,
+    enabled: { velocity: false, ptype: false },
     center: { ...HOTEL }, opacity: 0.65, showRadar: true, roads: false, impacts: false,
     frames: [], radarStatus: 'Waiting for Weather to open', roadsStatus: 'Unavailable · exact IDOT feed / report timestamps unverified',
     impactsStatus: 'Waiting for Weather to open', openAttempted: false, networkRequests: 0, fetchedAt: null,
-    reportTime: null, forecastIssue: null, forecastStart: null, forecastEnd: null,
+    reportTime: null, catalogFetchedAt: null, forecastIssue: null, forecastStart: null, forecastEnd: null,
     forecastFeatures: [], forecastRenderer: [], forecastExtent: null,
     forecastCoverage: { returned: 0, valid: 0, stale: 0, invalid: 0 }, error: '', viewportRevision: 0
   };
   let canvas, context, shell, observer, raf = null, loop = null, gesture = null, viewportTimer = null;
   let playbackRunning = false, playbackGeneration = 0, frameSelection = 0;
   let queuedFrame = null;
-  let wmsMetadata = null, wmsRaster = null, wmsLegendUrl = null, wmsLoading = false, wmsQueued = false, wmsSelection = 0, wmsMetadataLoading = false, wmsLegendLoading = false;
+  let frameQueue = [];
+  let frameViewport = '';
   let reflectivityLegendUrl = null, reflectivityLegendLoading = false;
   const reflectivity = { ...REFLECTIVITY, legendSource: null, legendStatus: 'Not loaded' };
   const wmsControllers = new Set();
@@ -57,8 +60,12 @@
     velocity: { product: 'velocity', layer: 'kilx_sr_bvel', style: 'radar_velocity', title: 'Local velocity · KILX' },
     ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', title: 'Precipitation type · NOAA analysis' }
   });
-  state.wms = { product: null, layer: null, style: null, time: null, status: 'Not selected', source: null,
-    mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null };
+  const wmsLayers = Object.fromEntries(Object.entries(WMS_PRODUCTS).map(([name, product]) => [name, {
+    metadata: null, raster: null, legendUrl: null, loading: false, queued: false,
+    metadataLoading: false, legendLoading: false, selection: 0, controllers: new Set(),
+    state: { product: product.product, layer: null, style: null, time: null, status: 'Not selected', source: productInfo[name][2],
+      mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null }
+  }]));
   const controls = [
     ['mapBackgroundMenu', 'Map menu', 'CMPRI embedded map', 'USGS ground-map datasets; independent NOAA weather overlays', 'Choose a geographic background separately from weather Layers. This menu never changes radar, WSSI or road report selections.'],
     ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA observed products, NWS/WPC WSSI and property alerts; IDOT reports unavailable', 'Open the four independent weather-layer controls. Background style is chosen in Map.'],
@@ -103,6 +110,7 @@
   ];
   function formatTime(value) {
     if (value === null || value === undefined || value === '') return 'Unavailable';
+    if (window.cmpriWeatherClock) return window.cmpriWeatherClock.stamp(value);
     const date = new Date(value);
     return Number.isFinite(date.getTime()) ? CENTRAL.format(date) : 'Unavailable';
   }
@@ -131,117 +139,102 @@
     return { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight,
       xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight };
   }
-  function wmsKey(geo) {
-    return [state.activeLayer, state.wms.time, Math.round(geo.center.x), Math.round(geo.center.y), geo.resolution.toFixed(6), Math.round(geo.width), Math.round(geo.height)].join('|');
+  function wmsKey(name, geo) {
+    return [name, wmsLayers[name].state.time, Math.round(geo.center.x), Math.round(geo.center.y), geo.resolution.toFixed(6), Math.round(geo.width), Math.round(geo.height)].join('|');
   }
-  function stopWms(clear = false) {
-    wmsSelection += 1; wmsControllers.forEach((controller) => controller.abort()); wmsControllers.clear();
-    wmsLoading = false; wmsQueued = false; wmsMetadataLoading = false; wmsLegendLoading = false;
-    if (clear) {
-      wmsMetadata = null; wmsRaster?.bitmap.close?.(); wmsRaster = null;
-      if (wmsLegendUrl) URL.revokeObjectURL(wmsLegendUrl);
-      wmsLegendUrl = null; state.wms.displayedTime = null; state.wms.legendStatus = 'Not loaded';
-    }
+  function stopWms(name) {
+    const names = name ? [name] : Object.keys(wmsLayers);
+    names.forEach((key) => {
+      const record = wmsLayers[key]; record.selection += 1;
+      record.controllers.forEach((controller) => controller.abort()); record.controllers.clear();
+      record.loading = false; record.queued = false; record.metadataLoading = false; record.legendLoading = false;
+    });
   }
   function latestAdvertisedTime(dimension) {
     const candidates = [];
     if (dimension?.default && dimension.default !== 'current') candidates.push(dimension.default);
     String(dimension?.values || '').split(',').forEach((entry) => {
-      const parts = entry.trim().split('/');
-      candidates.push(parts.length > 1 ? parts[1] : parts[0]);
+      const parts = entry.trim().split('/'); candidates.push(parts.length > 1 ? parts[1] : parts[0]);
     });
     return candidates.filter((time) => Number.isFinite(Date.parse(time)) && Date.parse(time) <= Date.now())
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
   }
-  async function loadWmsView() {
-    if (!state.opened || !state.active || document.hidden || !state.showRadar || !WMS_PRODUCTS[state.activeLayer]
-      || !wmsMetadata || wmsMetadata.key !== state.activeLayer) return;
+  async function loadWmsView(name) {
+    const record = wmsLayers[name], product = WMS_PRODUCTS[name];
+    if (!record || !state.opened || !state.active || document.hidden || !state.enabled[name] || !record.metadata) return;
     const geo = geometry(); if (!geo.width || !geo.height) return;
-    const key = wmsKey(geo);
-    if (wmsRaster?.key === key) { state.wms.status = 'Observed WMS image loaded'; return true; }
-    if (wmsLoading) { wmsQueued = true; return false; }
-    wmsLoading = true;
-    const ticket = generation, selection = wmsSelection, product = WMS_PRODUCTS[state.activeLayer];
-    const time = state.wms.time, extent = viewport(geo);
+    const key = wmsKey(name, geo);
+    if (record.raster?.key === key) { record.state.status = 'Observed WMS image loaded'; return true; }
+    if (record.loading) { record.queued = true; return false; }
+    record.loading = true;
+    const ticket = generation, selection = record.selection, time = record.state.time, extent = viewport(geo);
     const width = Math.max(1, Math.min(1500, Math.round(geo.width))), height = Math.max(1, Math.min(1500, Math.round(geo.height)));
-    state.wms.status = 'Loading observed WMS image · previous image and its time retained when available'; updateUI();
+    record.state.status = 'Loading observed WMS image'; updateUI();
     try {
-      const image = await wmsRequest({ product: product.product, op: 'map', layer: state.wms.layer, style: state.wms.style,
-        time, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','), width: String(width), height: String(height) }, true, ticket);
+      const image = await wmsRequest({ product: product.product, op: 'map', layer: record.state.layer, style: record.state.style,
+        time, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','), width: String(width), height: String(height) }, true, ticket, record);
       const bitmap = await createImageBitmap(image.blob);
-      if (ticket !== generation || selection !== wmsSelection || !state.opened || !state.active || key !== wmsKey(geometry())) { bitmap.close?.(); return false; }
-      if (bitmap.width !== width || bitmap.height !== height) { bitmap.close?.(); throw new Error('Official WMS image dimensions do not match its georeferenced request'); }
-      if (image.time && Date.parse(image.time) !== Date.parse(time)) { bitmap.close?.(); throw new Error('Official WMS image time did not match the requested advertised observation'); }
-      wmsRaster?.bitmap.close?.(); wmsRaster = { key, bitmap, extent, time, product: product.product };
-      state.wms.displayedTime = time; state.wms.mapSource = image.source || state.wms.source;
-      state.wms.status = 'Observed WMS image loaded'; mark(state.activeLayer, 'Actual NOAA WMS PNG loaded · advertised layer, style and observed time');
+      if (ticket !== generation || selection !== record.selection || !state.opened || !state.active || !state.enabled[name] || key !== wmsKey(name, geometry())) { bitmap.close?.(); return false; }
+      if (bitmap.width !== width || bitmap.height !== height) { bitmap.close?.(); throw new Error('Official WMS image dimensions do not match the georeferenced request'); }
+      if (image.time && Date.parse(image.time) !== Date.parse(time)) { bitmap.close?.(); throw new Error('Official WMS image time did not match the requested observation'); }
+      record.raster?.bitmap.close?.(); record.raster = { key, bitmap, extent, time, product: product.product };
+      record.state.displayedTime = time; record.state.mapSource = image.source || record.state.source;
+      record.state.status = 'Observed WMS image loaded'; mark(name, 'Actual independent NOAA WMS layer rendered at its advertised time');
       updateUI(); queueDraw(); return true;
     } catch (error) {
-      if (ticket !== generation || selection !== wmsSelection) return false;
-      state.wms.status = 'Unavailable · ' + error.message; mark(state.activeLayer, 'Official WMS image unavailable · no replacement graphic'); updateUI(); return false;
+      if (ticket !== generation || selection !== record.selection) return false;
+      record.state.status = 'Unavailable · ' + error.message; mark(name, record.state.status); updateUI(); return false;
     } finally {
-      if (selection === wmsSelection && ticket === generation) {
-        wmsLoading = false;
-        if (wmsQueued && state.opened && state.active) { wmsQueued = false; void loadWmsView(); }
+      if (selection === record.selection && ticket === generation) {
+        record.loading = false;
+        if (record.queued && state.opened && state.active) { record.queued = false; void loadWmsView(name); }
+        updateUI();
       }
     }
   }
-  async function loadWmsLegend(selection, ticket) {
-    if (!wmsMetadata || !WMS_PRODUCTS[state.activeLayer] || wmsLegendLoading) return;
-    wmsLegendLoading = true;
-    const product = WMS_PRODUCTS[state.activeLayer]; state.wms.legendStatus = 'Loading official PNG legend'; updateUI();
+  async function loadWmsLegend(name, selection, ticket) {
+    const record = wmsLayers[name], product = WMS_PRODUCTS[name];
+    if (!record.metadata || record.legendLoading) return;
+    record.legendLoading = true; record.state.legendStatus = 'Loading official PNG legend';
     try {
-      const image = await wmsRequest({ product: product.product, op: 'legend', layer: state.wms.layer, style: state.wms.style }, true, ticket);
+      const image = await wmsRequest({ product: product.product, op: 'legend', layer: record.state.layer, style: record.state.style }, true, ticket, record);
       const bitmap = await createImageBitmap(image.blob); bitmap.close?.();
-      if (selection !== wmsSelection || ticket !== generation || !state.opened || !state.active) return;
-      if (wmsLegendUrl) URL.revokeObjectURL(wmsLegendUrl);
-      wmsLegendUrl = URL.createObjectURL(image.blob); state.wms.legendSource = image.source || state.wms.source;
-      state.wms.legendStatus = 'Official NOAA PNG legend loaded'; mark('wmsLegend', 'Actual official GetLegendGraphic PNG decoded and displayed'); updateUI();
+      if (selection !== record.selection || ticket !== generation || !state.opened || !state.active) return;
+      if (record.legendUrl) URL.revokeObjectURL(record.legendUrl);
+      record.legendUrl = URL.createObjectURL(image.blob); record.state.legendSource = image.source || record.state.source;
+      record.state.legendStatus = 'Official NOAA PNG legend loaded'; mark('wmsLegend', 'Actual official GetLegendGraphic PNG decoded'); updateUI();
     } catch (error) {
-      if (selection !== wmsSelection || ticket !== generation) return;
-      state.wms.legendStatus = 'Unavailable · ' + error.message; mark('wmsLegend', 'Official legend unavailable · no invented units or categories'); updateUI();
-    } finally {
-      if (selection === wmsSelection && ticket === generation) wmsLegendLoading = false;
-    }
+      if (selection === record.selection && ticket === generation) record.state.legendStatus = 'Unavailable · ' + error.message;
+    } finally { if (selection === record.selection && ticket === generation) record.legendLoading = false; }
   }
-  async function loadWmsProduct(refresh = false) {
-    const name = state.activeLayer, product = WMS_PRODUCTS[name];
-    if (!product || !state.opened || !state.active || !state.showRadar) return;
-    if (!refresh && wmsMetadataLoading) return;
-    if (!refresh && wmsMetadata?.key === name) {
-      await Promise.allSettled([loadWmsView(), wmsLegendUrl ? Promise.resolve() : loadWmsLegend(wmsSelection, generation)]); return;
+  async function loadWmsProduct(name, refresh = false) {
+    const record = wmsLayers[name], product = WMS_PRODUCTS[name];
+    if (!record || !state.opened || !state.active || !state.enabled[name]) return;
+    if (record.metadataLoading) return;
+    if (!refresh && record.metadata) {
+      await Promise.allSettled([loadWmsView(name), record.legendUrl ? Promise.resolve() : loadWmsLegend(name, record.selection, generation)]); return;
     }
-    const retained = refresh && wmsRaster?.product === product.product;
-    const previous = state.wms;
-    stopWms(!retained);
-    wmsMetadataLoading = true;
-    const ticket = generation, selection = wmsSelection;
-    state.wms = retained ? { ...previous, status: 'Loading official WMS capabilities' } : { product: product.product, layer: null, style: null, time: null, status: 'Loading official WMS capabilities',
-      source: productInfo[name][2], mapSource: null, legendSource: null, legendStatus: 'Waiting for advertised style', displayedTime: null }; updateUI();
+    stopWms(name); record.metadataLoading = true;
+    const ticket = generation, selection = record.selection;
+    record.state.status = 'Loading official WMS capabilities'; updateUI();
     try {
-      const metadata = await wmsRequest({ product: product.product, op: 'capabilities' }, false, ticket);
-      if (ticket !== generation || selection !== wmsSelection || name !== state.activeLayer || !state.opened || !state.active) return;
+      const metadata = await wmsRequest({ product: product.product, op: 'capabilities' }, false, ticket, record);
+      if (ticket !== generation || selection !== record.selection || !state.opened || !state.active || !state.enabled[name]) return;
       const layer = metadata.layers?.find((candidate) => candidate.name === product.layer);
       const style = layer?.styles?.find((candidate) => candidate.name === product.style);
       if (!layer || !style || !metadata.mapFormats?.some((format) => format.toLowerCase() === 'image/png')
-        || !layer.crs?.some((crs) => crs.toUpperCase() === 'EPSG:3857')) throw new Error('Required layer, style, PNG or EPSG:3857 was not advertised by NOAA');
-      const time = latestAdvertisedTime(layer.time);
-      if (!time) throw new Error('No concrete past observed scan time was advertised by NOAA');
-      wmsMetadata = { key: name, layer, style, metadata };
-      wmsMetadataLoading = false;
-      state.wms.layer = layer.name; state.wms.style = style.name; state.wms.time = time; state.wms.source = metadata.source || productInfo[name][2];
-      await Promise.allSettled([loadWmsView(), metadata.legendSupported ? (wmsLegendUrl ? Promise.resolve() : loadWmsLegend(selection, ticket)) : Promise.resolve().then(() => {
-        state.wms.legendStatus = 'Unavailable · official service did not advertise a legend'; updateUI();
-      })]);
+        || !layer.crs?.some((crs) => crs.toUpperCase() === 'EPSG:3857')) throw new Error('Required official layer, style, PNG or EPSG:3857 was not advertised');
+      const time = latestAdvertisedTime(layer.time); if (!time) throw new Error('No concrete past observation time was advertised');
+      record.metadata = { layer, style, metadata }; record.metadataLoading = false;
+      Object.assign(record.state, { layer: layer.name, style: style.name, time, source: metadata.source || productInfo[name][2] });
+      await Promise.allSettled([loadWmsView(name), metadata.legendSupported && !record.legendUrl ? loadWmsLegend(name, selection, ticket) : Promise.resolve()]);
     } catch (error) {
-      if (ticket !== generation || selection !== wmsSelection) return;
-      state.wms.status = 'Unavailable · ' + error.message; state.wms.legendStatus = 'Unavailable · capabilities not verified'; mark(name, state.wms.status); updateUI();
-    } finally {
-      if (ticket === generation && selection === wmsSelection) wmsMetadataLoading = false;
-    }
+      if (ticket === generation && selection === record.selection) { record.state.status = 'Unavailable · ' + error.message; mark(name, record.state.status); updateUI(); }
+    } finally { if (ticket === generation && selection === record.selection) record.metadataLoading = false; }
   }
   function loadSelectedImage() {
-    return WMS_PRODUCTS[state.activeLayer] ? loadWmsProduct() : loadFrame(state.frame);
+    primeFrames();
+    return Promise.allSettled(Object.keys(wmsLayers).filter((name) => state.enabled[name]).map((name) => loadWmsProduct(name)));
   }
   function mark(id, result) {
     if (verified.get(id) === result) return;
@@ -258,14 +251,14 @@
     loadingImages.clear();
     queuedFrame = null;
     reflectivityLegendLoading = false;
-    wmsSelection += 1; wmsControllers.clear(); wmsLoading = false; wmsQueued = false; wmsMetadataLoading = false; wmsLegendLoading = false;
+    frameQueue = []; stopWms(); wmsControllers.clear();
     liveBusy = false;
   }
   async function foregroundRead(path, asBlob, ticket, wms = false) {
     if (!state.opened || !state.active || ticket !== generation) throw new DOMException('Weather closed', 'AbortError');
     const controller = new AbortController();
     controllers.add(controller);
-    if (wms === true) wmsControllers.add(controller);
+    if (wms && typeof wms === 'object') { wmsControllers.add(controller); wms.controllers.add(controller); }
     const timeout = setTimeout(() => controller.abort(), 12000);
     state.networkRequests += 1;
     emit();
@@ -284,6 +277,7 @@
       clearTimeout(timeout);
       controllers.delete(controller);
       wmsControllers.delete(controller);
+      if (wms && typeof wms === 'object') wms.controllers.delete(controller);
     }
   }
   function request(url, asBlob, ticket) {
@@ -291,8 +285,8 @@
     if (parsed.protocol !== 'https:' || parsed.hostname !== 'mapservices.weather.noaa.gov') throw new Error('Unverified feed host');
     return foregroundRead('/api/weather-preview/map?url=' + encodeURIComponent(parsed.href), asBlob, ticket);
   }
-  function wmsRequest(parameters, asBlob, ticket) {
-    return foregroundRead('/api/weather-preview/wms?' + new URLSearchParams(parameters), asBlob, ticket, true);
+  function wmsRequest(parameters, asBlob, ticket, record) {
+    return foregroundRead('/api/weather-preview/wms?' + new URLSearchParams(parameters), asBlob, ticket, record);
   }
   function endpoint(base, method, params) {
     return base + '/' + method + '?' + new URLSearchParams(params).toString();
@@ -341,9 +335,41 @@
     if (state.frames.length < 2) return 0;
     return Math.round((state.frames[state.frames.length - 1].time - state.frames[0].time) / 6000) / 10;
   }
+  function frameProgress() {
+    if (!canvas) return [];
+    const geo = geometry();
+    return state.frames.map((frame, index) => {
+      const key = imageKey(index, geo);
+      return { time: frame.time, status: images.has(key) ? 'ready' : loadingImages.has(key) ? 'loading' : failedImages.has(key) ? 'failed' : 'pending' };
+    });
+  }
+  function pumpFrames() {
+    if (!state.opened || !state.active || document.hidden || !state.showRadar) return;
+    while (loadingImages.size < 2 && frameQueue.length) {
+      const time = frameQueue.shift(), index = state.frames.findIndex((frame) => frame.time === time);
+      if (index < 0) continue;
+      const key = imageKey(index, geometry());
+      if (!images.has(key) && !loadingImages.has(key) && !failedImages.has(key)) void loadFrame(index);
+    }
+  }
+  function primeFrames() {
+    if (!state.opened || !state.active || document.hidden || !state.showRadar || !state.frames.length) return;
+    const geo = geometry(); if (!geo.width || !geo.height) return;
+    const viewportKey = [Math.round(geo.center.x), Math.round(geo.center.y), state.zoom, geo.width, geo.height].join('|');
+    if (viewportKey !== frameViewport) { frameQueue = []; queuedFrame = null; frameViewport = viewportKey; }
+    const order = [state.frames[state.frame], ...state.frames].filter(Boolean);
+    const pending = new Set(frameQueue);
+    order.forEach((frame) => {
+      const index = state.frames.findIndex((entry) => entry.time === frame.time), key = imageKey(index, geo);
+      if (!pending.has(frame.time) && !images.has(key) && !loadingImages.has(key) && !failedImages.has(key)) {
+        frameQueue.push(frame.time); pending.add(frame.time);
+      }
+    });
+    pumpFrames(); updateUI();
+  }
   async function loadFrame(index) {
     if (state.mode !== 'live' || !state.opened || !state.active || !state.showRadar
-      || state.activeLayer !== 'reflectivity' || !state.frames[index]) return;
+      || !state.frames[index]) return;
     const geo = geometry();
     if (!geo.width || !geo.height) return;
     const key = imageKey(index, geo);
@@ -376,7 +402,7 @@
         if (ticket !== generation || !state.opened || !state.active) { bitmap.close?.(); return; }
         if (bitmap.width !== width || bitmap.height !== height) { bitmap.close?.(); throw new Error('NOAA image dimensions did not match the georeferenced request'); }
         images.set(key, { bitmap, extent, time: raster.time });
-        if (images.size > 36) { const first = images.keys().next().value; images.get(first).bitmap.close?.(); images.delete(first); }
+        if (images.size > IMAGE_CACHE_LIMIT) { const first = images.keys().next().value; images.get(first).bitmap.close?.(); images.delete(first); }
         state.radarStatus = 'Observed image loaded';
         mark('radar', 'Actual NOAA BREFQCD PNG loaded · explicit advertised scan time and matching map extent');
         updateUI(); queueDraw();
@@ -395,7 +421,7 @@
           const next = state.frames.findIndex((frame) => frame.time === desired);
           if (next >= 0) void loadFrame(next);
         }
-        if (ticket === generation && state.opened && state.active) updateUI();
+        if (ticket === generation && state.opened && state.active) { pumpFrames(); updateUI(); }
       }
     })();
     loadingImages.set(key, task);
@@ -441,13 +467,14 @@
       const time = Date.parse(advertisedTime);
       if (Number.isFinite(time) && time > 0 && time <= Date.now()) scans.set(time, { time, advertisedTime });
     });
-    state.catalogFrames = Array.from(scans.values()).sort((a, b) => a.time - b.time).slice(-96);
+    state.catalogFrames = Array.from(scans.values()).sort((a, b) => a.time - b.time).slice(-64);
     applyLoopWindow();
     if (!state.frames.length) throw new Error('No explicit observed NOAA scan times were advertised');
-    if (!playbackRunning) state.frame = state.frames.length - 1;
+    state.catalogFetchedAt = Date.now();
     state.radarStatus = 'Catalog verified · loading exact observed scan';
     mark('radar', 'NOAA BREFQCD verified · ' + state.frames.length + ' explicit advertised scan times');
     updateUI();
+    primeFrames();
     await Promise.allSettled([loadFrame(state.frame), metadata.legendSupported ? loadReflectivityLegend(ticket) : Promise.resolve()]);
   }
   async function impactForecast(ticket) {
@@ -498,6 +525,7 @@
     if (!state.opened || !state.active || document.hidden || liveBusy) return;
     stopRefreshTimer();
     liveBusy = true; state.openAttempted = true;
+    void window.nwsLiveView?.refreshObservations?.();
     state.mode = 'live'; failedImages.clear();
     state.radarStatus = 'Loading'; state.impactsStatus = 'Loading';
     state.roadsStatus = 'Unavailable · exact IDOT feed / report timestamps unverified';
@@ -506,7 +534,7 @@
     const ticket = generation;
     mark('automaticRefresh', 'Loading published map products · visible map only; current observed frame retained');
     updateUI(); queueDraw();
-    const results = await Promise.allSettled([radarCatalog(ticket), impactForecast(ticket), WMS_PRODUCTS[state.activeLayer] ? loadWmsProduct(true) : Promise.resolve()]);
+    const results = await Promise.allSettled([radarCatalog(ticket), impactForecast(ticket), Promise.allSettled(Object.keys(wmsLayers).filter((name) => state.enabled[name]).map((name) => loadWmsProduct(name, true)))]);
     if (ticket !== generation || !state.opened || !state.active) return;
     if (results[0].status === 'rejected') {
       state.radarStatus = 'Unavailable · ' + results[0].reason.message;
@@ -529,7 +557,7 @@
   function scheduleRefresh() {
     stopRefreshTimer();
     if (!state.opened || !state.active || document.hidden || liveBusy) return;
-    refreshDueAt = (state.fetchedAt || Date.now()) + REFRESH_INTERVAL;
+    refreshDueAt = (state.fetchedAt || state.catalogFetchedAt || Date.now()) + REFRESH_INTERVAL;
     refreshTimer = setTimeout(() => {
       refreshTimer = null;
       if (state.opened && state.active && !document.hidden) void tryLive();
@@ -627,31 +655,25 @@
     else { const note = document.createElement('p'); note.textContent = 'Bulletin link unavailable; read the official alert list above.'; panel.append(note); }
     shell.append(panel); mark('alertDetails', 'Exercised · actual NWS property alert polygon and official validity times');
   }
-  function drawRadar(geo) {
-    if (!state.showRadar) return;
-    if (WMS_PRODUCTS[state.activeLayer]) {
-      if (!wmsRaster || wmsRaster.product !== WMS_PRODUCTS[state.activeLayer].product) return;
-      const extent = wmsRaster.extent;
-      context.save(); context.globalAlpha = state.opacity;
-      context.drawImage(wmsRaster.bitmap, geo.width / 2 + (extent.xmin - geo.center.x) / geo.resolution,
-        geo.height / 2 - (extent.ymax - geo.center.y) / geo.resolution,
-        (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
-      context.restore(); return;
-    }
-    if (state.activeLayer !== 'reflectivity') return;
-    const exact = images.get(imageKey(state.frame, geo));
-    const targetTime = state.frames[state.frame]?.time;
-    const target = exact || Array.from(images.values()).reverse().find((item) => item.time === targetTime);
-    const image = target || Array.from(images.values()).reverse().find((item) => item.time === state.displayedTime);
-    if (!image) return;
-    const changed = state.displayedTime !== image.time;
-    state.displayedTime = image.time;
-    context.save(); context.globalAlpha = state.opacity;
+  function drawRaster(image, geo) {
     const extent = image.extent;
-    const x = geo.width / 2 + (extent.xmin - geo.center.x) / geo.resolution;
-    const y = geo.height / 2 - (extent.ymax - geo.center.y) / geo.resolution;
-    context.drawImage(image.bitmap, x, y, (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
+    context.save(); context.globalAlpha = state.opacity;
+    context.drawImage(image.bitmap, geo.width / 2 + (extent.xmin - geo.center.x) / geo.resolution,
+      geo.height / 2 - (extent.ymax - geo.center.y) / geo.resolution,
+      (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
     context.restore();
+  }
+  function drawRadar(geo) {
+    let changed = false;
+    if (state.showRadar) {
+      const exact = images.get(imageKey(state.frame, geo)), targetTime = state.frames[state.frame]?.time;
+      const target = exact || Array.from(images.values()).reverse().find((item) => item.time === targetTime);
+      const image = target || Array.from(images.values()).reverse().find((item) => item.time === state.displayedTime);
+      if (image) { changed = state.displayedTime !== image.time; state.displayedTime = image.time; drawRaster(image, geo); }
+    }
+    // These independent observations share the same geographic viewport. Their
+    // times remain distinct; velocity is never presented as hotel surface wind.
+    ['ptype', 'velocity'].forEach((name) => { if (state.enabled[name] && wmsLayers[name].raster) drawRaster(wmsLayers[name].raster, geo); });
     if (changed) updateUI();
   }
   function drawPin(geo) {
@@ -688,17 +710,15 @@
   }
   function frameCount() { return state.frames.length; }
   function scanTime() {
-    if (WMS_PRODUCTS[state.activeLayer]) {
-      const time = state.wms.displayedTime;
-      if (!state.showRadar) return '';
-      if (!time) return state.wms.status.startsWith('Unavailable') ? 'Observed image unavailable' : '';
-      return formatTime(time);
+    const times = [];
+    if (state.showRadar) {
+      if (state.displayedTime !== null) times.push('Reflectivity: ' + formatTime(state.displayedTime));
+      else if (state.radarStatus.startsWith('Unavailable')) times.push('Observed reflectivity unavailable');
     }
-    if (!state.showRadar || state.activeLayer !== 'reflectivity') return '';
-    if (!state.frames[state.frame]) return state.radarStatus.startsWith('Unavailable') ? 'Observed radar unavailable' : '';
-    const time = state.displayedTime;
-    if (time === null) return state.radarStatus.startsWith('Unavailable') ? 'Observed radar unavailable' : '';
-    return formatTime(time);
+    Object.keys(wmsLayers).forEach((name) => {
+      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(WMS_PRODUCTS[name].title + ': ' + formatTime(wmsLayers[name].state.displayedTime));
+    });
+    return times.join(' · ');
   }
   function legendItem(label, color) {
     const item = document.createElement('span'); item.className = 'cmpri-map-legend-item';
@@ -707,17 +727,18 @@
   }
   function renderLegend() {
     const host = $('mapLegend'); if (!host) return;
+    const expanded = new Set(Array.from(host.querySelectorAll('details[open]')).map((details) => details.dataset.legend));
     const fragment = document.createDocumentFragment();
-    if (state.showRadar && WMS_PRODUCTS[state.activeLayer]) {
-      const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
-      const heading = document.createElement('strong'); heading.textContent = WMS_PRODUCTS[state.activeLayer].title + ' · official NOAA legend'; row.append(heading);
-      if (wmsLegendUrl) {
-        const image = document.createElement('img'); image.id = 'mapWmsLegend'; image.src = wmsLegendUrl;
-        image.alt = 'Official NOAA legend for ' + state.wms.layer + ', advertised style ' + state.wms.style; row.append(image);
-      }
-      if (wmsLegendUrl) fragment.append(row);
-    }
-    if (state.showRadar && state.activeLayer === 'reflectivity') {
+    Object.entries(wmsLayers).forEach(([name, record]) => {
+      if (!state.enabled[name] || !record.legendUrl) return;
+      const row = document.createElement('details'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
+      row.dataset.legend = name; row.open = expanded.has(name);
+      const heading = document.createElement('summary'); heading.textContent = WMS_PRODUCTS[name].title + ' legend';
+      const image = document.createElement('img'); image.id = 'mapWmsLegend-' + name; image.src = record.legendUrl;
+      image.alt = 'Official NOAA legend for ' + record.state.layer + ', advertised style ' + record.state.style;
+      row.append(heading, image); fragment.append(row);
+    });
+    if (state.showRadar) {
       if (reflectivityLegendUrl) {
         const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-reflectivity-legend';
         const heading = document.createElement('strong'); heading.textContent = 'NOAA reflectivity · dBZ';
@@ -735,7 +756,7 @@
           const tick = document.createElement('span'); tick.textContent = String(value).replace('-', '−');
           tick.style.left = (x / 5) + '%'; ticks.append(tick);
         });
-        scale.append(ramp, ticks); row.append(heading, scale); fragment.append(row);
+        scale.append(ramp, ticks); row.append(heading, scale); fragment.prepend(row);
       }
     }
     if (state.roads) {
@@ -763,7 +784,7 @@
     if ($('mapGroundStatus')) $('mapGroundStatus').textContent = ground
       ? (ground.visibleFailed ? (ground.visibleLoaded ? 'Geographic map incomplete. ' : 'Geographic map unavailable. ') : '')
         + (state.backgroundStyle === 'aerial' ? (ground.imageryAcquisitionYear ? 'Aerial capture year: ' + ground.imageryAcquisitionYear + '.' : 'Aerial capture year unavailable.') : '')
-        + (state.backgroundStyle === 'aerial' && ground.reference?.enabled && [ground.reference.roads?.status, ground.reference.places?.status].some((status) => /unavailable/i.test(status || '')) ? ' Some geographic roads or town labels are unavailable.' : '')
+        + (state.backgroundStyle === 'aerial' && ground.reference?.enabled && [ground.reference.roads?.status, ground.reference.places?.status, ground.reference.routes?.status].some((status) => /unavailable/i.test(status || '')) ? ' Some roads, highway labels, or town labels are unavailable.' : '')
         + (overzoom ? ' Source imagery is enlarged; no extra ground detail is added.' : '')
       : 'Geographic map unavailable.';
     if (ground) {
@@ -777,73 +798,45 @@
   function updateUI() {
     if (!state.initialized) return;
     refreshForecastFreshness();
-    const count = frameCount();
-    const wms = WMS_PRODUCTS[state.activeLayer];
-    const buffering = state.opened && state.active && state.showRadar && (wms ? wmsLoading || wmsMetadataLoading
-      : state.activeLayer === 'reflectivity' && (loadingImages.size > 0 || state.openAttempted && !count && !state.radarStatus.startsWith('Unavailable')));
-    document.querySelectorAll('.loop,.cmpri-map-playback-options').forEach((bar) => {
-      bar.dataset.loading = String(Boolean(buffering)); bar.setAttribute('aria-busy', String(Boolean(buffering)));
-    });
-    const radarAvailable = state.showRadar && state.activeLayer === 'reflectivity' && count > 0;
-    ['previousFrame', 'playLoop', 'frameRange', 'nextFrame'].forEach((id) => { if ($(id)) $(id).disabled = !radarAvailable; });
-    ['playbackSpeed', 'loopLength'].forEach((id) => { if ($(id)) $(id).disabled = Boolean(wms); });
-    if ($('frameRange')) { $('frameRange').max = Math.max(0, count - 1); $('frameRange').value = state.frame; $('frameRange').setAttribute('aria-label', 'Observed NOAA radar scan'); }
+    const count = frameCount(), progress = frameProgress();
+    const ready = progress.filter((frame) => frame.status === 'ready').length;
+    const buffering = state.opened && state.active && state.showRadar && (loadingImages.size > 0 || state.openAttempted && !count && !state.radarStatus.startsWith('Unavailable'));
+    document.querySelectorAll('.loop').forEach((bar) => { bar.dataset.loading = String(Boolean(buffering)); bar.setAttribute('aria-busy', String(Boolean(buffering))); });
+    ['previousFrame', 'playLoop', 'frameRange', 'nextFrame', 'playbackSpeed', 'loopLength'].forEach((id) => { if ($(id)) $(id).disabled = !state.showRadar || count === 0; });
+    if ($('frameRange')) {
+      const input = $('frameRange'); input.max = Math.max(0, count - 1); input.value = state.frame;
+      input.setAttribute('aria-valuetext', 'Scan ' + (state.frame + 1) + ' of ' + count + '; ' + ready + ' scans ready. ' + scanTime());
+      input.title = ready + ' of ' + count + ' observed scans ready; gray segments are loading or pending';
+      const colors = { ready: '#d9b740', loading: '#8b846e', pending: '#37372f', failed: '#874e42' };
+      input.style.backgroundImage = count ? 'linear-gradient(to right,' + progress.map((frame, index) => colors[frame.status] + ' ' + index / count * 100 + '%,' + colors[frame.status] + ' ' + (index + 1) / count * 100 + '%').join(',') + ')' : '';
+    }
     if ($('scanTime')) $('scanTime').textContent = scanTime();
-    if ($('loopLabel')) $('loopLabel').textContent = buffering && !count ? '' : wms ? 'Latest observed product · playback loop only available for regional reflectivity' : count
-      ? 'Observed loop · ' + count + ' actual scans · ' + availableWindowMinutes() + ' min available / ' + state.loopMinutes + ' min requested'
-      : 'No observed scans available · ' + state.loopMinutes + ' min requested';
+    if ($('loopLabel')) $('loopLabel').textContent = count ? 'Observed loop · ' + availableWindowMinutes() + ' min available / ' + state.loopMinutes + ' min requested' : '';
     if ($('playbackSpeed')) { $('playbackSpeed').value = String(PLAYBACK_SPEEDS.indexOf(state.playbackSpeed)); $('playbackSpeed').setAttribute('aria-valuetext', state.playbackSpeed); }
     if ($('playbackSpeedValue')) $('playbackSpeedValue').textContent = state.playbackSpeed[0].toUpperCase() + state.playbackSpeed.slice(1);
-    if ($('loopLength')) $('loopLength').value = String(state.loopMinutes);
-    if ($('loopLength')) $('loopLength').setAttribute('aria-valuetext', state.loopMinutes + ' minutes');
+    if ($('loopLength')) { $('loopLength').value = String(state.loopMinutes); $('loopLength').setAttribute('aria-valuetext', state.loopMinutes + ' minutes'); }
     if ($('loopLengthValue')) $('loopLengthValue').textContent = state.loopMinutes + ' min';
     if ($('mapBackgroundStyle')) $('mapBackgroundStyle').value = state.backgroundStyle;
     if ($('mapOpacity')) $('mapOpacity').value = Math.round(state.opacity * 100);
     if ($('opacityValue')) $('opacityValue').textContent = Math.round(state.opacity * 100) + '%';
-    if ($('showEchoes')) {
-      $('showEchoes').checked = state.showRadar;
-      const last = $('showEchoes').parentElement.lastChild;
-      if (last?.nodeType === Node.TEXT_NODE) last.textContent = wms ? 'Show selected observed product' : 'Show radar echoes';
-    }
-    if ($('mapLayerRadar')) $('mapLayerRadar').checked = state.showRadar;
-    if ($('mapLayerRadar')?.parentElement.lastChild?.nodeType === Node.TEXT_NODE) $('mapLayerRadar').parentElement.lastChild.textContent = wms ? ' ' + wms.title : ' Radar';
-    if ($('mapLayerRoads')) $('mapLayerRoads').checked = state.roads;
-    if ($('mapLayerImpacts')) $('mapLayerImpacts').checked = state.impacts;
-    if ($('mapLayerAlerts')) $('mapLayerAlerts').checked = state.showAlerts;
-    if (canvas) {
-      const radar = wms ? wms.title + ': ' + state.wms.status + '. Observed time ' + formatTime(state.wms.displayedTime) + '.' : state.showRadar && state.frames.length && images.size
-        ? 'Observed NOAA radar catalog frames; the displayed scan time is shown beside playback controls.'
-        : 'Observed radar unavailable or not selected. Missing data does not mean clear weather.';
-      const overlays = ' Road reports: ' + (!state.roads ? 'off.' : 'unavailable; exact IDOT feed unverified.')
-        + ' Forecast impacts: ' + (!state.impacts ? 'off.' : state.impactsStatus + '.');
-      canvas.setAttribute('aria-label', 'USGS geographic map with weather at verified Residence Inn Champaign coordinates. Background style: ' + state.backgroundStyle + '. ' + radar + overlays + ' Drag or use arrow keys to pan. Click the map to activate wheel zoom; leaving resets it. Double click, pinch, plus and minus also zoom.');
-    }
-    if ($('mapModeBadge')) $('mapModeBadge').textContent = wms ? 'Observed NOAA product' : 'NOAA radar';
-    const unavailable = wms ? (!wmsRaster && state.wms.status.startsWith('Unavailable') ? [wms.title, state.wms.status, state.wms.source || productInfo[state.activeLayer][2]] : null) : productInfo[state.activeLayer];
-    if ($('layerUnavailable')) $('layerUnavailable').hidden = !unavailable;
-    if (unavailable) {
-      if ($('layerTitle')) $('layerTitle').textContent = unavailable[0];
-      if ($('layerDescription')) $('layerDescription').textContent = unavailable[1];
-      if ($('layerSource')) $('layerSource').href = unavailable[2];
-    }
-    document.querySelectorAll('#productTabs [data-layer]').forEach((button) => {
-      const name = button.dataset.layer; button.setAttribute('aria-pressed', String(name === state.activeLayer || (name === 'winter' && state.impacts)));
-    });
-    if ($('mapRoadStatus')) $('mapRoadStatus').textContent = state.roadsStatus + '. Report time unavailable. Missing reports do not mean clear roads.';
-    if ($('mapImpactStatus')) $('mapImpactStatus').textContent = state.impactsStatus + ' · issued: ' + formatTime(state.forecastIssue) + ' · valid: ' + formatTime(state.forecastStart) + ' → ' + formatTime(state.forecastEnd) + '. Coverage is limited to the extent fetched on the last load; panning does not query new forecast areas.';
-    if ($('mapAlertStatus')) $('mapAlertStatus').textContent = state.alertStatus;
-    if ($('mapFeedStatus')) $('mapFeedStatus').textContent = [
-      (wms ? state.wms.status : state.radarStatus).startsWith('Unavailable') ? 'Selected NOAA image unavailable.' : '',
-      state.impacts && state.impactsStatus.startsWith('Unavailable') ? 'Winter impact guidance unavailable.' : '',
-      state.roads ? 'IDOT road reports unavailable.' : ''
-    ].filter(Boolean).join(' ');
+    const selected = { reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts };
+    document.querySelectorAll('[data-map-layer]').forEach((button) => button.setAttribute('aria-pressed', String(Boolean(selected[button.dataset.mapLayer]))));
+    if (canvas) canvas.setAttribute('aria-label', 'USGS geographic map at fixed hotel coordinates. Selected layers: ' + Object.entries(selected).filter(([, on]) => on).map(([name]) => name).join(', ') + '. ' + scanTime() + '. Click the map to enable wheel zoom; leaving resets it. Drag, arrow keys, pinch and zoom buttons also work.');
+    if ($('layerUnavailable')) $('layerUnavailable').hidden = true;
+    const unavailable = Object.keys(wmsLayers).filter((name) => state.enabled[name] && wmsLayers[name].state.status.startsWith('Unavailable')).map((name) => WMS_PRODUCTS[name].title + ' unavailable.');
+    if (state.showRadar && state.radarStatus.startsWith('Unavailable')) unavailable.push('Observed reflectivity unavailable.');
+    if (state.impacts && state.impactsStatus.startsWith('Unavailable')) unavailable.push('Forecast winter impacts unavailable.');
+    if (state.roads) unavailable.push('Reported Illinois winter roads unavailable; exact IDOT report feed unverified.');
+    if ($('mapFeedStatus')) $('mapFeedStatus').textContent = unavailable.join(' ');
     updateGroundStatus(); renderLegend(); emit();
   }
   function stopPlayback() {
+    const displayed = state.frames.findIndex((frame) => frame.time === state.displayedTime);
+    if (playbackRunning && displayed >= 0) state.frame = displayed;
     playbackRunning = false; playbackGeneration += 1;
     if (loop !== null) { clearTimeout(loop); loop = null; }
     if ($('playLoop')) { $('playLoop').textContent = '▶ Play'; $('playLoop').setAttribute('aria-label', 'Play observed NOAA radar loop'); }
-    emit();
+    if (state.initialized) updateUI(); else emit();
   }
   async function setFrame(index, source) {
     const count = frameCount(); if (!count) return;
@@ -856,29 +849,24 @@
     return loaded;
   }
   function play() {
-    if (playbackRunning) { stopPlayback(); mark('playLoop', 'Exercised · playback paused'); return; }
-    if (!state.opened || !state.active || document.hidden || !state.showRadar || state.activeLayer !== 'reflectivity' || !frameCount()) return;
-    playbackRunning = true;
+    if (playbackRunning) { stopPlayback(); mark('playLoop', 'Paused at displayed scan; remaining frame loads continue'); return; }
+    if (!state.opened || !state.active || document.hidden || !state.showRadar || !frameCount()) return;
+    playbackRunning = true; primeFrames();
     const ticket = ++playbackGeneration;
     const delay = () => ({ slow: 1500, normal: 850, fast: 350 })[state.playbackSpeed];
-    const advance = async () => {
+    const advance = () => {
       loop = null;
       if (!playbackRunning || ticket !== playbackGeneration || !state.opened || !state.active || document.hidden) return;
-      const next = (state.frame + 1) % frameCount();
-      const nextTime = state.frames[next]?.time;
-      const loaded = await loadFrame(next);
-      if (!playbackRunning || ticket !== playbackGeneration || !state.opened || !state.active) return;
-      if (!loaded) { stopPlayback(); return; }
-      const retained = state.frames.findIndex((frame) => frame.time === nextTime);
-      if (retained >= 0) state.frame = retained;
-      updateUI(); queueDraw();
-      void loadFrame((state.frame + 1) % frameCount());
-      loop = setTimeout(advance, delay());
+      const progress = frameProgress();
+      for (let offset = 1; offset <= frameCount(); offset += 1) {
+        const next = (state.frame + offset) % frameCount();
+        if (progress[next]?.status === 'ready') { state.frame = next; break; }
+      }
+      updateUI(); queueDraw(); loop = setTimeout(advance, delay());
     };
-    void loadFrame((state.frame + 1) % frameCount());
     loop = setTimeout(advance, delay());
     if ($('playLoop')) { $('playLoop').textContent = 'Ⅱ Pause'; $('playLoop').setAttribute('aria-label', 'Pause radar loop'); }
-    mark('playLoop', 'Exercised · observed scans only; last real image held until next PNG is ready'); emit();
+    mark('playLoop', 'Cycles ready observed scans while remaining frames load; new ready scans join automatically'); emit();
   }
   function scheduleViewportImage() {
     if (viewportTimer !== null) clearTimeout(viewportTimer);
@@ -918,25 +906,30 @@
     else gesture = null;
   }
   function selectLayer(name, enabled) {
-    init(); stopPlayback();
-    if (name === 'roads') { state.roads = enabled === undefined ? !state.roads : Boolean(enabled); mark('roads', state.roads ? 'Selected · IDOT reports unavailable; no route data rendered' : 'Exercised · road layer hidden'); }
-    else if (name === 'impacts' || name === 'winter') { state.impacts = enabled === undefined ? !state.impacts : Boolean(enabled); mark('impacts', state.impacts ? 'Selected · ' + state.impactsStatus : 'Exercised · forecast overlay hidden'); }
-    else if (name === 'radar' || name === 'reflectivity') {
-      if (name === 'reflectivity' || !WMS_PRODUCTS[state.activeLayer]) { if (WMS_PRODUCTS[state.activeLayer]) stopWms(true); state.activeLayer = 'reflectivity'; }
-      state.showRadar = enabled === undefined ? true : Boolean(enabled);
-      if (!state.showRadar) stopWms();
-      mark('radar', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden'));
+    init();
+    if (name === 'radar') name = 'reflectivity';
+    if (name === 'winter') name = 'impacts';
+    if (name === 'roads') { state.roads = enabled === undefined ? !state.roads : Boolean(enabled); if (state.roads) state.impacts = false; }
+    else if (name === 'impacts') {
+      state.impacts = enabled === undefined ? !state.impacts : Boolean(enabled);
+      if (state.impacts) { state.roads = false; ensureImpacts(); }
     }
-    else if (WMS_PRODUCTS[name]) { stopWms(true); state.activeLayer = name; state.showRadar = true; mark(name, 'Selected · loading exact advertised NOAA layer, style, observed time and legend'); }
-    else if (productInfo[name]) { stopWms(true); state.activeLayer = name; state.showRadar = false; mark(name, 'Exercised · unavailable notice and official source shown'); }
-    updateUI(); queueDraw();
-    if (state.mode === 'live' && state.showRadar) void loadSelectedImage();
-    return getState();
+    else if (name === 'alerts') { state.showAlerts = enabled === undefined ? !state.showAlerts : Boolean(enabled); closeAlertDetails(); }
+    else if (name === 'reflectivity') {
+      state.showRadar = enabled === undefined ? !state.showRadar : Boolean(enabled);
+      if (!state.showRadar) { stopPlayback(); frameQueue = []; queuedFrame = null; }
+      else primeFrames();
+    } else if (WMS_PRODUCTS[name]) {
+      state.enabled[name] = enabled === undefined ? !state.enabled[name] : Boolean(enabled);
+      if (state.enabled[name]) void loadWmsProduct(name); else stopWms(name);
+    } else { mark(name, 'Unavailable · no verified embedded source'); return getState(); }
+    state.activeLayer = name; mark(name, 'Independent layer ' + (name === 'reflectivity' ? state.showRadar : name in state.enabled ? state.enabled[name] : name === 'roads' ? state.roads : name === 'impacts' ? state.impacts : state.showAlerts));
+    updateUI(); queueDraw(); return getState();
   }
   function renderControls() {
     const host = $('mapControlHost'); if (!host) return;
     const opacity = $('mapOpacity')?.closest('.opacity');
-    host.innerHTML = `<div class="cmpri-map-menu-bar"><details class="cmpri-map-menu" id="mapBackgroundMenu"><summary>Map</summary><div class="cmpri-map-menu-panel"><label for="mapBackgroundStyle">Geographic background</label><select id="mapBackgroundStyle"><option value="gray">Gray · USGS Topo</option><option value="roads">Roads · USGS Topo</option><option value="aerial">Aerial · USGS historical imagery</option><option value="terrain">Terrain · USGS shaded relief</option></select></div></details><details class="cmpri-map-menu" id="mapLayersMenu"><summary>Layers</summary><fieldset class="cmpri-map-layer-controls"><legend>Weather layers · select independently</legend><label><input type="checkbox" id="mapLayerRadar" checked> Radar</label><label><input type="checkbox" id="mapLayerRoads"> Reported Illinois winter roads</label><label><input type="checkbox" id="mapLayerImpacts"> Forecast winter travel impacts</label><label><input type="checkbox" id="mapLayerAlerts" checked> Official alerts applying to hotel</label></fieldset></details></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
+    host.innerHTML = `<div class="cmpri-map-menu-bar"><details class="cmpri-map-menu" id="mapBackgroundMenu"><summary>Map</summary><div class="cmpri-map-menu-panel"><label for="mapBackgroundStyle">Geographic background</label><select id="mapBackgroundStyle"><option value="gray">Gray · USGS Topo</option><option value="roads">Roads · USGS Topo</option><option value="aerial">Aerial · USGS historical imagery</option><option value="terrain">Terrain · USGS shaded relief</option></select></div></details><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerSatellite" data-map-layer="satellite" aria-pressed="false" disabled>Satellite · unavailable</button><button id="mapLayerLightning" data-map-layer="lightning" aria-pressed="false" disabled>Lightning · unavailable</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
     const sliders = host.querySelector('.cmpri-map-playback-options');
     if (opacity) {
       const label = document.createElement('span');
@@ -953,13 +946,11 @@
     attribution.append(source); shell.append(attribution);
     if ($('mapLegend')) shell.append($('mapLegend'));
     ['mapHelp', 'mapStatus', 'openMapReference', 'observedRadarNote', 'tryLiveFeeds'].forEach((id) => $(id)?.remove());
-    $('mapLayerRadar').addEventListener('change', (event) => selectLayer('radar', event.target.checked));
-    $('mapLayerRoads').addEventListener('change', (event) => selectLayer('roads', event.target.checked));
-    $('mapLayerImpacts').addEventListener('change', (event) => selectLayer('impacts', event.target.checked));
-    $('mapLayerAlerts').addEventListener('change', (event) => { state.showAlerts = event.target.checked; closeAlertDetails(); mark('propertyAlerts', 'Selected · ' + (state.showAlerts ? state.alertStatus : 'property alert areas hidden')); updateUI(); queueDraw(); });
+    document.querySelectorAll('[data-map-layer]').forEach((button) => button.addEventListener('click', () => selectLayer(button.dataset.mapLayer)));
+    $('showEchoes')?.closest('label')?.remove();
     $('mapBackgroundStyle').addEventListener('change', (event) => { state.backgroundStyle = event.target.value; mark('mapBackgroundStyle', 'Selected · ' + event.target.selectedOptions[0].textContent + '; weather selections unchanged'); updateUI(); queueDraw(); });
     $('playbackSpeed').addEventListener('input', (event) => { state.playbackSpeed = PLAYBACK_SPEEDS[Number(event.target.value)] || 'normal'; mark('playbackSpeed', 'Selected · ' + state.playbackSpeed + '; actual scan times unchanged'); updateUI(); });
-    $('loopLength').addEventListener('input', (event) => { stopPlayback(); state.loopMinutes = Number(event.target.value); applyLoopWindow(); mark('loopLength', 'Selected · ' + state.loopMinutes + ' min requested / ' + availableWindowMinutes() + ' min published coverage'); updateUI(); queueDraw(); if (state.opened && state.active) void loadFrame(state.frame); });
+    $('loopLength').addEventListener('input', (event) => { const requested = Number(event.target.value); stopPlayback(); state.loopMinutes = requested; applyLoopWindow(); mark('loopLength', 'Selected · ' + state.loopMinutes + ' min requested / ' + availableWindowMinutes() + ' min published coverage'); updateUI(); queueDraw(); primeFrames(); });
   }
   function renderReport() {
     const host = $('mapControlReport'); if (!host) return;
@@ -993,7 +984,7 @@
     on('playLoop', 'click', play);
     on('previousFrame', 'click', () => { stopPlayback(); setFrame(state.frame - 1, 'previousFrame'); });
     on('nextFrame', 'click', () => { stopPlayback(); setFrame(state.frame + 1, 'nextFrame'); });
-    on('frameRange', 'input', (event) => { stopPlayback(); setFrame(Number(event.target.value), 'frameRange'); });
+    on('frameRange', 'input', (event) => { const requested = Number(event.target.value); stopPlayback(); setFrame(requested, 'frameRange'); });
     on('mapOpacity', 'input', (event) => { state.opacity = Number(event.target.value) / 100; mark('opacity', 'Exercised · weather-layer opacity ' + Math.round(state.opacity * 100) + '%'); updateUI(); queueDraw(); });
     on('showEchoes', 'change', (event) => { selectLayer('radar', event.target.checked); mark('showEchoes', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden') + '; playback stopped'); });
     on('zoomIn', 'click', () => zoomBy(1.4, 'zoomIn'));
@@ -1078,68 +1069,74 @@
     updateUI(); return window.cmpriWeatherMap;
   }
   function beginOpenAttempt() {
-    if (state.opened && state.active && !document.hidden && (!state.openAttempted || !state.fetchedAt)) {
+    if (state.opened && state.active && !document.hidden && (!state.openAttempted || !state.catalogFrames.length)) {
       state.openAttempted = true;
       void tryLive();
     }
   }
+  function ensureImpacts() {
+    if (!state.impacts || state.forecastExtent || liveBusy || !state.opened || !state.active) return;
+    const ticket = generation;
+    void impactForecast(ticket).catch((error) => {
+      if (ticket === generation && state.opened && state.active) { state.impactsStatus = 'Unavailable · ' + error.message; updateUI(); }
+    });
+  }
   function open() {
     init(); if (!state.initialized) return getState();
-    if (!state.opened) state.openAttempted = false;
     state.opened = true; state.active = true;
     window.cmpriGroundMap?.open();
     if (!state.mapReady) { context = canvas.getContext('2d'); observer = new ResizeObserver(queueDraw); state.mapReady = true; }
-    observer.observe(canvas); updateUI(); queueDraw(); beginOpenAttempt(); scheduleRefresh(); emit(); return getState();
+    observer.observe(canvas); updateUI(); queueDraw(); beginOpenAttempt(); if (state.catalogFrames.length) void loadSelectedImage(); ensureImpacts(); scheduleRefresh(); emit(); return getState();
   }
   function pause() {
     state.active = false; state.wheelZoomActive = false; stopRefreshTimer(); stopPlayback(); cancelRequests();
     window.cmpriGroundMap?.close(); pointers.clear(); gesture = null;
     canvas?.classList.remove('dragging'); closeAlertDetails();
     if (viewportTimer !== null) { clearTimeout(viewportTimer); viewportTimer = null; }
-    if (state.mode === 'live') {
-      if (/Loading|loading/.test(state.radarStatus)) state.radarStatus = 'Unavailable · request stopped when view became inactive';
-      if (/Loading|loading/.test(state.impactsStatus)) state.impactsStatus = 'Unavailable · request stopped when view became inactive';
-      if (/Loading|loading/.test(state.wms.status)) state.wms.status = 'Unavailable · WMS request stopped when view became inactive';
-      if (/Loading|loading/.test(state.wms.legendStatus)) state.wms.legendStatus = 'Unavailable · WMS legend request stopped when view became inactive';
-    }
+    if (images.size) state.radarStatus = 'Observed image loaded';
+    Object.values(wmsLayers).forEach((record) => { if (record.raster) record.state.status = 'Observed WMS image loaded'; });
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     emit(); return getState();
   }
   function resume() {
     if (!state.opened || document.hidden) return getState();
-    state.active = true; window.cmpriGroundMap?.open(); queueDraw(); updateUI(); beginOpenAttempt(); scheduleRefresh(); return getState();
+    state.active = true; window.cmpriGroundMap?.open(); queueDraw(); updateUI(); beginOpenAttempt(); if (state.catalogFrames.length) void loadSelectedImage(); ensureImpacts(); scheduleRefresh(); return getState();
   }
   function close() {
     pause(); state.opened = false; observer?.disconnect();
-    stopWms(true);
     if (document.fullscreenElement === shell) void document.exitFullscreen().catch(() => {});
     shell?.classList.remove('expanded'); emit(); return getState();
   }
+  function wmsSnapshot(name) {
+    const record = wmsLayers[name];
+    return { ...record.state, pending: record.controllers.size, loading: record.loading || record.metadataLoading,
+      queued: record.queued, imageLoaded: Boolean(record.raster), legendLoaded: Boolean(record.legendUrl),
+      extent: record.raster ? { ...record.raster.extent } : null };
+  }
   function getState() {
+    const progress = frameProgress();
+    const currentWms = WMS_PRODUCTS[state.activeLayer] ? state.activeLayer : Object.keys(wmsLayers).find((name) => state.enabled[name]) || 'velocity';
     return { initialized: state.initialized, opened: state.opened, active: state.active,
       mapReady: state.mapReady, mode: state.mode, activeLayer: state.activeLayer,
-      layers: { radar: state.showRadar, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts },
+      layers: { radar: state.showRadar, reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts, satellite: false, lightning: false },
       frame: state.frame, frameCount: frameCount(), playing: playbackRunning,
       displayedFrame: state.frames.findIndex((frame) => frame.time === state.displayedTime), displayedScanTime: state.displayedTime,
       catalogFrameCount: state.catalogFrames.length, availableWindowMinutes: availableWindowMinutes(), loopMinutes: state.loopMinutes, playbackSpeed: state.playbackSpeed,
       backgroundStyle: state.backgroundStyle, grid: state.grid, ground: window.cmpriGroundMap?.getState() || null,
       alerts: { count: state.alerts.length, geometryless: state.alertGeometryless, checkedAt: state.alertCheckedAt, status: state.alertStatus, source: state.alertSource },
-      wms: { ...state.wms, pending: wmsControllers.size, loading: wmsLoading || wmsMetadataLoading, queued: wmsQueued,
-        imageLoaded: Boolean(wmsRaster), legendLoaded: Boolean(wmsLegendUrl), extent: wmsRaster ? { ...wmsRaster.extent } : null },
+      wms: wmsSnapshot(currentWms), wmsLayers: Object.fromEntries(Object.keys(wmsLayers).map((name) => [name, wmsSnapshot(name)])),
       reflectivity: { ...reflectivity, legendLoaded: Boolean(reflectivityLegendUrl) },
-      center: { ...state.center }, zoom: state.zoom, opacity: state.opacity,
-      wheelZoomActive: state.wheelZoomActive,
+      center: { ...state.center }, zoom: state.zoom, opacity: state.opacity, wheelZoomActive: state.wheelZoomActive,
       refresh: { intervalMs: REFRESH_INTERVAL, nextAt: refreshTimer !== null ? refreshDueAt : null, scheduled: refreshTimer !== null },
       networkRequests: state.networkRequests, pendingRequests: controllers.size,
-      rasterLoads: loadingImages.size, rasterQueue: queuedFrame === null ? 0 : 1, rasterLoadLimit: 2, imageCacheSize: images.size,
-      buffering: document.querySelector('.loop')?.dataset.loading === 'true',
-      databaseCalls: 0, pushes: 0,
+      rasterLoads: loadingImages.size, rasterQueue: frameQueue.length + (queuedFrame === null ? 0 : 1), rasterLoadLimit: 2,
+      imageCacheSize: images.size, imageCacheLimit: IMAGE_CACHE_LIMIT, frameProgress: progress,
+      readyFrameCount: progress.filter((frame) => frame.status === 'ready').length,
+      buffering: document.querySelector('.loop')?.dataset.loading === 'true', databaseCalls: 0, pushes: 0,
       status: { radar: state.radarStatus, roads: state.roadsStatus, impacts: state.impactsStatus },
-      fetchedAt: state.fetchedAt, forecastIssue: state.forecastIssue,
-      forecastStart: state.forecastStart, forecastEnd: state.forecastEnd,
+      fetchedAt: state.fetchedAt, forecastIssue: state.forecastIssue, forecastStart: state.forecastStart, forecastEnd: state.forecastEnd,
       forecastCoverage: { ...state.forecastCoverage }, forecastExtent: state.forecastExtent ? { ...state.forecastExtent } : null,
-      scanTimes: state.frames.map((frame) => frame.time),
-      verified: Object.fromEntries(verified) };
+      scanTimes: state.frames.map((frame) => frame.time), verified: Object.fromEntries(verified) };
   }
   window.cmpriWeatherMap = { init, open, close, pause, resume, getState, selectLayer, setAlerts };
 }());

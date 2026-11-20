@@ -8,7 +8,7 @@
     const byId = (id) => document.getElementById(id);
     const central = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Chicago', month: 'short', day: 'numeric',
-      hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+      hour: 'numeric', minute: '2-digit', hourCycle: new URLSearchParams(location.search).get('clock') === '24' ? 'h23' : 'h12', timeZoneName: 'short'
     });
     const MINUTE = 60000;
     const start = Math.floor(Date.now() / MINUTE) * MINUTE;

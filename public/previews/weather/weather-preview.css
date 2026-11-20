@@ -25,3 +25,7 @@
 @media(max-width:640px){.priority-row,.priority-row.has-active-alerts{grid-template-columns:1fr}.current-as-of{font-size:10px}.conditions-inline>#liveTemperature{min-width:80px}.compact-temperature .wv-temperature{min-width:80px}.compact-temperature .wv-temperature-value{font-size:27px}.current-condition-copy>strong{font-size:12px}.compact-metrics{font-size:10px;gap:7px 12px}.forecast-card .wv-temperature-value{font-size:22px}.conditions-inline>#liveConditionIcon .wv-condition{width:34px;height:34px}}
 
 .forecast-card .forecast-card-heading{display:grid;grid-template-columns:minmax(0,1fr) 28px;gap:5px;min-height:29px}.forecast-card .forecast-card-heading>h3{white-space:normal;overflow-wrap:anywhere;line-height:1.25}.forecast-card .forecast-card-heading>.wv-condition{width:28px;height:28px}
+
+/* The current wheel uses the available panel; active official alerts stay beside it. */
+.priority-row{grid-template-columns:minmax(0,1fr)}.priority-row.has-active-alerts{grid-template-columns:minmax(0,1.1fr) minmax(260px,.9fr)}
+@media(max-width:800px){.priority-row.has-active-alerts{grid-template-columns:minmax(0,1fr)}}

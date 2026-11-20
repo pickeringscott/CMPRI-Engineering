@@ -1,12 +1,7 @@
 /* Local data colors are intentionally hard-coded and independent of CMPRI's theme. */
 .wv-temperature{display:inline-flex;flex-direction:column;align-items:flex-start;gap:5px;max-width:100%;vertical-align:middle;line-height:1.1}
-.wv-temperature-value{display:block;color:#f8f5ee;font-size:inherit;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 1px 2px #000}
+.wv-temperature-value{display:block;color:var(--wv-temperature-color,#f8f5ee);font-size:inherit;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 1px #ffffff80,0 1px 2px #000}
 .wv-temperature:not(.wv-unavailable)>.wv-temperature-value::before{content:"";display:inline-block;width:8px;height:8px;margin-right:5px;border-radius:50%;background:var(--wv-temperature-color);box-shadow:0 0 0 1px #ffffff40;vertical-align:middle}
-.wv-temperature-scale{display:block;width:88px;max-width:100%;font-size:8px;font-weight:400;line-height:1.2}
-.wv-temperature-track{display:block;position:relative;height:6px;margin:0 4px;border:1px solid #ffffff40;border-radius:5px;box-shadow:0 1px 2px #0009}
-.wv-temperature-marker{position:absolute;top:50%;width:8px;height:12px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:3px;background:var(--wv-temperature-color);box-shadow:0 0 0 1px #111,0 1px 3px #000}
-.wv-temperature-limits{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:#bdb8ad;letter-spacing:0;white-space:nowrap}
-.wv-temperature.wv-unavailable .wv-temperature-track{opacity:.3}
 .wv-condition{display:inline-block;width:45px;height:36px;max-width:100%;flex-shrink:0;vertical-align:middle;overflow:visible}
 .wv-condition path,.wv-condition circle{stroke-linecap:round;stroke-linejoin:round}
 .wv-sun{fill:#f4ce68;stroke:#f9df9b;stroke-width:1.6}
@@ -35,38 +30,61 @@
 .forecast-card .wv-temperature{font-size:20px}
 .forecast-card .wv-wind{font-size:10px}
 .compact-temperature>.wv-temperature{font-size:inherit}
-.wv-temperature-dial{display:block;width:100%;max-width:208px;line-height:1.25;color:#f8f5ee;font-size:11px;font-weight:400;white-space:normal;font-variant-numeric:tabular-nums}
+.wv-temperature-dial{display:block;width:100%;max-width:360px;margin:auto;line-height:1.25;color:#f8f5ee;font-size:11px;font-weight:400;white-space:normal;font-variant-numeric:tabular-nums}
 .wv-dial-face{position:relative;width:100%;aspect-ratio:200/190}
 .wv-dial-ring{display:block;width:100%;height:100%;overflow:visible}
-.wv-dial-track{fill:none;stroke:#373b40;stroke-width:12;stroke-linecap:round}
-.wv-dial-segment{fill:none;stroke-width:12;stroke-linecap:butt}
+.wv-dial-track{fill:none;stroke:#373b40;stroke-width:10;stroke-linecap:round}
+.wv-dial-observed-track{stroke:#272c32;stroke-width:7}
+.wv-dial-segment{fill:none;stroke-width:10;stroke-linecap:butt}
+.wv-dial-observed-segment{fill:none;stroke-width:7;stroke-linecap:butt}
+.wv-dial-report{stroke:#171717;stroke-width:.5}
 .wv-dial-clock{fill:#dededb;font:11px Arial,sans-serif}
 .wv-dial-marker circle{stroke:#101010;stroke-width:2}
 .wv-dial-marker text{fill:#ffffff;stroke:#000000;stroke-width:1.8;paint-order:stroke fill;font:700 8px Arial,sans-serif}
-.wv-dial-center{position:absolute;inset:35% 20% 25%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;text-align:center;pointer-events:none}
-.wv-dial-center .wv-temperature-value{font-size:29px!important;line-height:1.15;border-bottom:3px solid var(--wv-temperature-color,#6b7075);padding-bottom:4px}
+.wv-dial-center{position:absolute;inset:27% 25% 29%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;text-align:center;pointer-events:none;min-width:0}
+.wv-dial-center .wv-temperature-value{color:#f8f5ee;font-size:38px!important;line-height:1.05;padding-bottom:1px}
+.wv-dial-condition .wv-condition{width:53px;height:40px}
+.wv-dial-current-value{display:flex;flex-direction:column;align-items:center}
+.wv-dial-visibility{font-size:10px;color:#d7dbde;white-space:nowrap}
+.wv-dial-wind{font-size:11px;white-space:nowrap}
+.wv-dial-wind .wv-wind{gap:2px;font-size:11px;margin:0}
+.wv-dial-wind .wv-wind-arrow{stroke:#f0ece2}
+.wv-dial-wind .wv-wind-compass{width:26px;height:26px;flex-basis:26px}
+.wv-dial-wind .wv-wind-value{font-size:11px;white-space:nowrap}
+.wv-dial-gust,.wv-dial-feels{font-size:10px;white-space:nowrap;color:#d7dbde}
+.wv-dial-description{font-size:9px;line-height:1.2;color:#d7dbde;max-width:100%;overflow-wrap:anywhere}
 .wv-dial-center-label{color:#c8cbce;font-size:10px;line-height:1.2;white-space:nowrap}
 .wv-dial-center-title{color:#f8f5ee;font-size:13px;font-weight:600}
-.wv-dial-extrema{display:flex;justify-content:space-between;gap:6px;margin:-6px 3px 0}
+.wv-dial-extrema{position:absolute;inset:auto 29% 23%;display:grid;grid-template-columns:1fr 1fr;gap:5px 7px;text-align:center}
 .wv-dial-extreme{display:flex;flex-direction:column;min-width:0;gap:2px}
-.wv-dial-extreme:last-child{text-align:right}
-.wv-dial-extreme-value{color:#f8f5ee;font-size:12px;white-space:nowrap}
+.wv-dial-extreme-value{color:#f8f5ee;font-size:10px;white-space:nowrap}
 .wv-dial-extreme-value::before{content:"";display:inline-block;width:7px;height:7px;margin-right:4px;border-radius:50%;background:var(--wv-temperature-color,#777);box-shadow:0 0 0 1px #ffffff40}
-.wv-dial-extreme-time{color:#dededb;font-size:10px;white-space:nowrap}
-.wv-dial-coverage{font-size:10px;color:#d9d9d6;margin:7px 0 0;text-align:center;white-space:normal}
-.wv-dial-caption{font-size:9px;color:#bfc3c6;margin:3px 0 0;text-align:center;white-space:normal}
-.wv-dial-limit{font-size:9px;color:#c9c5ba;margin:3px 0 0;text-align:center;white-space:normal}
-.conditions-inline>#liveTemperature.current-temperature-dial{display:block;flex:0 0 166px;width:166px;min-width:0;white-space:normal}
-.daily-forecast-strip{grid-auto-columns:clamp(190px,19vw,224px)}
+.wv-dial-extreme-time{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.wv-dial-unavailable{font-size:9px;color:#d9cba8;text-align:center}
+.conditions-inline>#liveTemperature.current-temperature-dial{display:block;flex:1 1 auto;width:100%;min-width:0;white-space:normal}
+.daily-forecast-strip{grid-auto-columns:clamp(230px,24vw,280px)}
 .daily-forecast-card{min-height:0;padding:10px}
 .daily-forecast-card .wv-temperature-dial{margin:0 auto}
 .daily-forecast-card .forecast-card-heading{min-height:28px}
-.wv-official-day-values{display:flex;gap:8px;justify-content:space-between;margin-top:9px;padding-top:7px;border-top:1px solid #ffffff20}
-.wv-official-day-value{display:flex;flex-direction:column;gap:3px;font-size:9px;color:#c8cbce}
-.forecast-card .wv-official-day-value .wv-temperature{width:auto;margin:0;font-size:14px}
-.forecast-card .wv-official-day-value .wv-temperature-value{font-size:14px}
-.wv-official-day-value .wv-temperature-scale{display:none}
+.daily-forecast-card .wv-dial-extrema{bottom:23%}
+.daily-forecast-card .wv-dial-extreme-value{font-size:9px}
+.daily-forecast-card .wv-dial-center{inset:28% 23% 34%}
+.daily-forecast-card .wv-dial-center>.wv-condition{width:54px;height:42px}
+.wv-current-dial .wv-dial-center{inset:27% 27% 37%;display:grid;grid-template-columns:35% 65%;gap:3px 2px;align-content:center;justify-items:center}
+.wv-current-dial .wv-dial-condition{grid-column:1;grid-row:1}
+.wv-current-dial .wv-dial-current-value{grid-column:2;grid-row:1}
+.wv-current-dial .wv-dial-wind{grid-column:1/-1;grid-row:2}
+.wv-current-dial .wv-dial-gust{grid-column:1;grid-row:3;font-size:9px}
+.wv-current-dial .wv-dial-feels{grid-column:2;grid-row:3;font-size:9px}
+.wv-current-dial .wv-dial-description{grid-column:1/-1;grid-row:4}
+.wv-current-dial .wv-dial-extrema{left:31%;right:31%;bottom:23%}
+.hourly-forecast-card{text-align:center;touch-action:pan-x pan-y}
+.hourly-forecast-card .forecast-card-heading{display:block;text-align:center;min-height:18px}
+.hourly-condition-main{display:flex;justify-content:center;align-items:center;min-height:68px;margin:4px 0}
+.hourly-condition-main>.wv-condition{width:70px;height:56px}
+.forecast-card.hourly-forecast-card>.wv-temperature{align-items:center;width:100%;margin:2px 0 4px}
+.hourly-forecast-card>.wv-wind{justify-content:center}
+.forecast-strip{-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;scroll-behavior:auto;touch-action:pan-x pan-y;overscroll-behavior-x:contain}
 .daily-forecast-card details>strong{display:block;margin-top:8px;font-size:10px}
 .daily-forecast-card details>.wv-wind{margin:4px 0}
-@media(max-width:640px){.conditions-inline>#liveTemperature.current-temperature-dial{flex-basis:154px;width:154px}.daily-forecast-strip{grid-auto-columns:190px}.wv-dial-center .wv-temperature-value{font-size:27px!important}.daily-forecast-card .wv-dial-center-title{font-size:13px}.daily-forecast-card .wv-dial-clock{font-size:11px}}
-@media(max-width:640px){.wv-temperature-scale{width:80px}.wv-condition{width:42px;height:33px}.wv-wind{gap:4px}.wv-wind-compass{width:27px;height:27px;flex-basis:27px}.forecast-card .wv-condition{width:40px;height:31px}}
+@media(max-width:640px){.daily-forecast-strip{grid-auto-columns:245px}.wv-temperature-dial{max-width:330px}.wv-dial-center .wv-temperature-value{font-size:36px!important}.daily-forecast-card .wv-dial-clock{font-size:10px}.wv-dial-extreme-value{font-size:10px}.wv-dial-center .wv-condition{width:46px;height:35px}.hourly-condition-main>.wv-condition{width:62px;height:52px}}

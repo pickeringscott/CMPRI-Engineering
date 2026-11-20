@@ -28,9 +28,9 @@
     const badge = byId('mapModeBadge');
     if (badge) badge.textContent = state.mode === 'live' ? 'NOAA feed status below' : 'Unavailable';
   }
-  function setTab(name, focus = false) {
+  function setTab(name, focus = false, resetScroll = true) {
     activeTab = name;
-    ['weather', 'notifications', 'checks', 'sources'].forEach((id) => {
+    ['weather', 'notifications', 'checks'].forEach((id) => {
       const selected = id === name;
       const button = byId('tab-' + id);
       button.setAttribute('aria-selected', String(selected));
@@ -40,7 +40,7 @@
     if (opened && name === 'weather') map.resume();
     else map.pause();
     if (focus) byId('tab-' + name).focus();
-    byId('windowBody').scrollTop = 0;
+    if (resetScroll) byId('windowBody').scrollTop = 0;
     lifecycle();
   }
   function open() {
@@ -53,7 +53,7 @@
     byId('weatherLauncher').dataset.open = 'true';
     map.open();
     window.nwsLiveView.open();
-    setTab('weather');
+    setTab(activeTab, false, false);
     if (!embedded) byId('closeWeather').focus();
   }
   function close(notifyParent = true) {
@@ -89,10 +89,11 @@
       && !document.querySelector('dialog[open]') && !document.fullscreenElement
       && !byId('mapShell').classList.contains('expanded')) close();
   });
-  byId('openMapReference')?.addEventListener('click', (event) => {
-    event.preventDefault();
-    setTab('sources');
-    byId('map-control-reference').scrollIntoView({ block: 'start' });
+  window.addEventListener('message', (event) => {
+    if (!embedded || event.origin !== location.origin || event.source !== window.parent
+      || event.data?.modalToken !== query.get('modalToken') || event.data?.type !== 'cmpri-weather-view-state') return;
+    if (event.data.visible === true) open();
+    else close(false);
   });
   window.addEventListener('cmpri-weather-map-state', lifecycle);
   document.addEventListener('visibilitychange', () => {

@@ -16,15 +16,17 @@
   const inflight = new Map();
   const failures = new Map();
   const referenceImages = new Map();
-  let placeLabels = null;
+  let placeLabels = null, routeFeatures = null;
   const HOTEL = Object.freeze({ latitude: 40.138080, longitude: -88.251416 });
   const referenceSources = Object.freeze({
     roads: 'https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer',
-    places: 'https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer'
+    places: 'https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer',
+    routes: 'https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer'
   });
   const referenceStatus = {
     roads: { status: 'Not requested', source: referenceSources.roads },
-    places: { status: 'Not requested', source: referenceSources.places }
+    places: { status: 'Not requested', source: referenceSources.places },
+    routes: { status: 'Not requested', source: referenceSources.routes }
   };
   const state = {
     initialized: false, opened: false, style: 'aerial', dataset: 'imagery', referenceEnabled: false,
@@ -53,7 +55,9 @@
       reference: {
         enabled: state.referenceEnabled && state.style === 'aerial',
         pending: Array.from(inflight.values()).filter((record) => record.kind === 'reference' && !record.controller.signal.aborted).length,
-        queued: referenceQueue.length, cacheSize: referenceImages.size + (placeLabels ? 1 : 0),
+        queued: referenceQueue.length, cacheSize: referenceImages.size + (placeLabels ? 1 : 0) + (routeFeatures ? 1 : 0),
+        routes: { ...referenceStatus.routes, loaded: Boolean(routeFeatures), sourceCount: routeFeatures?.data.features.length || 0,
+          count: routeFeatures?.routes.length || 0, renderedCount: routeFeatures?.rendered.length || 0, rendered: routeFeatures?.rendered || [], budget: routeFeatures?.budget || 0 },
         roads: { ...referenceStatus.roads, loaded: referenceImages.has('roads') },
         places: { ...referenceStatus.places, loaded: Boolean(placeLabels), sourceCount: placeLabels?.data.features.length || 0,
           uniqueCount: placeLabels?.labels.length || 0, count: placeLabels?.labels.length || 0,
@@ -128,8 +132,91 @@
     }
     return Array.from(labels.values()).sort((a, b) => a.distance - b.distance || String(a.id).localeCompare(String(b.id), 'en-US', { numeric: true }) || a.name.localeCompare(b.name, 'en-US'));
   }
+  function officialRoutes(data) {
+    const routes = new Map();
+    const classes = [['interstate', ['INTERSTATE', 'interstate', 'interstate_a', 'interstate_b', 'interstate_c']],
+      ['us', ['US_ROUTE', 'us_route', 'us_route_a', 'us_route_b', 'us_route_c']],
+      ['state', ['ST_ROUTE', 'state_route', 'state_route_a', 'state_route_b', 'state_route_c']]];
+    data.features.forEach((feature) => {
+      const geometry = feature.geometry;
+      const lines = geometry?.type === 'LineString' ? [geometry.coordinates] : geometry?.type === 'MultiLineString' ? geometry.coordinates : [];
+      const valid = lines.filter(Array.isArray).map((line) => line.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]) && Math.abs(point[0]) <= 180 && Math.abs(point[1]) < 85.051129)).filter((line) => line.length > 1);
+      if (!valid.length) return;
+      const projected = valid.map((line) => line.map((point) => [point[0] * ORIGIN / 180, Math.log(Math.tan((90 + point[1]) * Math.PI / 360)) * ORIGIN / Math.PI]));
+      classes.forEach(([type, fields]) => {
+        const numbers = new Set();
+        fields.forEach((field) => String(property(feature.properties, field) || '').split(/[;,/|]+/).forEach((part) => {
+          const match = /^\s*(?:(?:I|US|IL|SR)[- ]*)?(0*\d{1,6}[A-Z]?)\s*$/i.exec(part);
+          if (match) numbers.add(match[1].replace(/^0+(?=\d)/, '').toUpperCase());
+        }));
+        numbers.forEach((number) => {
+          const key = type + ':' + number;
+          if (!routes.has(key)) routes.set(key, { type, number, key, lines: [], sourceIds: [] });
+          const route = routes.get(key); route.lines.push(...projected);
+          const id = property(feature.properties, 'permanent_identifier') || property(feature.properties, 'OBJECTID') || feature.id;
+          if (id !== undefined && id !== null && !route.sourceIds.includes(id)) route.sourceIds.push(id);
+        });
+      });
+    });
+    return Array.from(routes.values()).sort((a, b) => ['interstate', 'us', 'state'].indexOf(a.type) - ['interstate', 'us', 'state'].indexOf(b.type) || a.number.localeCompare(b.number, 'en-US', { numeric: true }));
+  }
+  function screenPoint(point, geo) {
+    const x = point[0] * ORIGIN / 180, y = Math.log(Math.tan((90 + point[1]) * Math.PI / 360)) * ORIGIN / Math.PI;
+    return { x: geo.width / 2 + (x - geo.center.x) / geo.resolution, y: geo.height / 2 - (y - geo.center.y) / geo.resolution };
+  }
+  function clippedSegment(a, b, width, height) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    let low = 0, high = 1;
+    const p = [-dx, dx, -dy, dy], q = [a.x - 20, width - 20 - a.x, a.y - 20, height - 20 - a.y];
+    for (let i = 0; i < 4; i += 1) {
+      if (!p[i] && q[i] < 0) return null;
+      if (!p[i]) continue;
+      const value = q[i] / p[i];
+      if (p[i] < 0) low = Math.max(low, value); else high = Math.min(high, value);
+      if (low > high) return null;
+    }
+    return { x: a.x + dx * (low + high) / 2, y: a.y + dy * (low + high) / 2,
+      length: Math.hypot(dx, dy) * (high - low) };
+  }
+  function drawRouteShields(context, geo, occupied) {
+    if (!routeFeatures) return;
+    const z = Math.log2(BASE_RESOLUTION / geo.resolution), area = geo.width * geo.height;
+    const budget = Math.max(1, Math.min(z <= 9 ? 4 : z <= 11 ? 7 : 10, Math.floor(area / (z <= 9 ? 95000 : z <= 11 ? 70000 : 45000))));
+    const layoutKey = [geo.width, geo.height, geo.resolution, geo.center.x, geo.center.y].join('|');
+    const cachedLayout = routeFeatures.layoutKey === layoutKey;
+    const rendered = [];
+    context.save(); context.font = '700 10px Arial, Helvetica, sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.lineWidth = 1.5;
+    for (const route of cachedLayout ? routeFeatures.rendered : routeFeatures.routes) {
+      if (rendered.length >= budget) break;
+      const text = (route.type === 'interstate' ? 'I ' : route.type === 'us' ? 'US ' : 'SR ') + route.number;
+      const width = Math.ceil(context.measureText(text).width) + 10, height = 21;
+      const candidates = [];
+      if (!cachedLayout) route.lines.forEach((line) => {
+        for (let i = 1; i < line.length; i += 1) {
+          const screen = (point) => ({ x: geo.width / 2 + (point[0] - geo.center.x) / geo.resolution, y: geo.height / 2 - (point[1] - geo.center.y) / geo.resolution });
+          const segment = clippedSegment(screen(line[i - 1]), screen(line[i]), geo.width, geo.height);
+          if (segment) candidates.push(segment);
+        }
+      });
+      candidates.sort((a, b) => b.length - a.length || Math.hypot(a.x - geo.width / 2, a.y - geo.height / 2) - Math.hypot(b.x - geo.width / 2, b.y - geo.height / 2));
+      const chosen = cachedLayout ? route : candidates.find((point) => {
+        const box = { x: point.x - width / 2, y: point.y - height / 2, width, height };
+        return box.x >= 4 && box.y >= 4 && box.x + width <= geo.width - 4 && box.y + height <= geo.height - 4
+          && !occupied.some((other) => box.x < other.x + other.width + 10 && box.x + width + 10 > other.x && box.y < other.y + other.height + 10 && box.y + height + 10 > other.y);
+      });
+      if (!chosen) continue;
+      const box = { x: chosen.x - width / 2, y: chosen.y - height / 2, width, height }; occupied.push(box);
+      context.fillStyle = route.type === 'interstate' ? '#173b70' : '#fafafa'; context.strokeStyle = route.type === 'interstate' ? '#fafafa' : '#18242b';
+      context.beginPath(); context.roundRect(box.x, box.y, width, height, route.type === 'interstate' ? [3, 3, 8, 8] : 3); context.fill(); context.stroke();
+      context.fillStyle = route.type === 'interstate' ? '#fff' : '#17212a'; context.fillText(text, chosen.x, chosen.y + .5);
+      rendered.push({ type: route.type, number: route.number, key: route.key, x: chosen.x, y: chosen.y, sourceIds: route.sourceIds.slice(0, 3) });
+    }
+    context.restore();
+    const previous = routeFeatures.rendered.length; routeFeatures.rendered = rendered; routeFeatures.budget = budget; routeFeatures.layoutKey = layoutKey;
+    if (previous !== rendered.length) notify();
+  }
   function cachedReferenceKey(dataset) {
-    return dataset === 'places' ? placeLabels?.key : referenceImages.get(dataset)?.key;
+    return dataset === 'places' ? placeLabels?.key : dataset === 'routes' ? routeFeatures?.key : referenceImages.get(dataset)?.key;
   }
   function pump() {
     if (!state.opened || document.hidden) return;
@@ -148,17 +235,23 @@
           const bbox = tile.kind === 'reference' ? [tile.extent.xmin, tile.extent.ymin, tile.extent.xmax, tile.extent.ymax].join(',') : null;
           const query = tile.kind === 'reference'
             ? tile.dataset === 'places' ? new URLSearchParams({ op: 'place-labels', dataset: 'places', bbox })
+              : tile.dataset === 'routes' ? new URLSearchParams({ op: 'route-features', dataset: 'roads', bbox, z: String(tile.z) })
               : new URLSearchParams({ op: 'reference', dataset: tile.dataset, bbox, width: String(tile.width), height: String(tile.height) })
             : new URLSearchParams({ dataset: tile.dataset, z: String(tile.z), x: String(tile.x), y: String(tile.y) });
           const response = await fetch('/api/weather-preview/basemap?' + query, {
             method: 'GET', signal: controller.signal, credentials: 'same-origin', cache: 'default'
           });
           if (!response.ok) throw new Error('USGS ' + (tile.kind === 'reference' ? 'reference' : 'tile') + ' request failed (HTTP ' + response.status + ')');
-          if (tile.kind === 'reference' && tile.dataset === 'places') {
+          if (tile.kind === 'reference' && ['places', 'routes'].includes(tile.dataset)) {
             const payload = await response.json();
-            if (payload.error || payload.data?.type !== 'FeatureCollection' || !Array.isArray(payload.data.features)) throw new Error('Official GNIS point labels are unavailable');
+            if (payload.error || payload.data?.type !== 'FeatureCollection' || !Array.isArray(payload.data.features)) throw new Error('Official geographic feature labels are unavailable');
             if (!state.opened || record.generation !== generation || controller.signal.aborted || !state.referenceEnabled
               || state.style !== 'aerial' || tile.viewportKey !== referenceTarget?.key) return;
+            if (tile.dataset === 'routes') {
+              routeFeatures = { data: payload.data, routes: officialRoutes(payload.data), extent: tile.extent, key: tile.viewportKey, rendered: [], budget: 0 };
+              referenceStatus.routes = { status: 'Official route geometry available', source: payload.source || referenceSources.routes };
+              return;
+            }
             placeLabels = { data: payload.data, labels: officialPlaces(payload.data), extent: tile.extent, key: tile.viewportKey,
               renderedCount: 0, renderedLabels: [] };
             referenceStatus.places = { status: 'Official incorporated-place labels available', source: payload.source || referenceSources.places };
@@ -201,15 +294,15 @@
     const key = [geo.center.x.toFixed(3), geo.center.y.toFixed(3), geo.resolution.toFixed(6), geo.width.toFixed(2), geo.height.toFixed(2)].join('|');
     if (referenceTarget?.key === key) return;
     const halfWidth = geo.width * geo.resolution / 2, halfHeight = geo.height * geo.resolution / 2;
-    const target = { key, width, height, extent: { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight, xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight } };
+    const target = { key, width, height, z: state.tileZoom ?? Math.max(0, Math.min(16, Math.round(Math.log2(BASE_RESOLUTION / geo.resolution)))), extent: { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight, xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight } };
     referenceTarget = target; referenceQueue = []; queue = queue.filter((job) => job.kind !== 'reference');
     inflight.forEach((record) => { if (record.kind === 'reference') record.controller.abort(); });
     if (referenceTimer !== null) clearTimeout(referenceTimer);
-    for (const dataset of ['roads', 'places']) referenceStatus[dataset].status = cachedReferenceKey(dataset) === key ? 'Official reference available' : 'Waiting for settled map extent';
+    for (const dataset of ['roads', 'places', 'routes']) referenceStatus[dataset].status = cachedReferenceKey(dataset) === key ? 'Official reference available' : 'Waiting for settled map extent';
     referenceTimer = setTimeout(() => {
       referenceTimer = null;
       if (!state.opened || document.hidden || state.style !== 'aerial' || !state.referenceEnabled || referenceTarget?.key !== key) return;
-      referenceQueue = ['roads', 'places'].filter((dataset) => cachedReferenceKey(dataset) !== key).map((dataset) => ({ ...target, viewportKey: key, kind: 'reference', dataset, key: 'reference/' + dataset + '/' + key }));
+      referenceQueue = ['roads', 'places', 'routes'].filter((dataset) => cachedReferenceKey(dataset) !== key).map((dataset) => ({ ...target, viewportKey: key, kind: 'reference', dataset, key: 'reference/' + dataset + '/' + key }));
       for (const job of referenceQueue) referenceStatus[job.dataset].status = 'Requesting official reference';
       rebuildQueue(); notify(); pump();
     }, 120);
@@ -271,7 +364,7 @@
   }
   function close() {
     state.opened = false; abortRequests();
-    for (const dataset of ['roads', 'places']) referenceStatus[dataset].status = 'Closed · reference requests stopped';
+    for (const dataset of ['roads', 'places', 'routes']) referenceStatus[dataset].status = 'Closed · reference requests stopped';
     notify();
     return getState();
   }
@@ -312,8 +405,12 @@
         (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
       context.restore();
     }
+    const hotel = screenPoint([HOTEL.longitude, HOTEL.latitude], geo);
+    const occupied = [{ x: hotel.x - 22, y: hotel.y - 22, width: 44, height: 44 },
+      { x: geo.width - 55, y: 0, width: 55, height: 190 }, { x: 0, y: geo.height - 65, width: 240, height: 65 }];
+    drawRouteShields(context, geo, occupied);
     if (!placeLabels) return;
-    const occupied = [], rendered = [];
+    const rendered = [];
     context.save(); context.filter = 'none'; context.font = '600 12px Arial, Helvetica, sans-serif';
     context.textAlign = 'center'; context.textBaseline = 'bottom'; context.lineJoin = 'round';
     for (const label of placeLabels.labels) {

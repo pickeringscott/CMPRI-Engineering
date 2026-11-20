@@ -12,7 +12,7 @@
     const baseTime = Math.floor(Date.now() / MINUTE) * MINUTE;
     const token = new URLSearchParams(location.search).get('modalToken');
     const embedded = window.parent !== window && Boolean(token);
-    const central = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    const central = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hourCycle: new URLSearchParams(location.search).get('clock') === '24' ? 'h23' : 'h12', timeZoneName: 'short' });
     const instructions = {
       tornado: 'Staff and guests go immediately to the first-floor interior hallways, away from windows and exterior doors.',
       severe: 'Staff and guests stay indoors and away from windows.',

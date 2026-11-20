@@ -9,20 +9,17 @@
   const RESOURCE_NAMES = {
     points: 'Property point', forecast: 'Extended forecast', hourly: 'Hourly forecast',
     grid: 'Forecast grid / accumulations',
-    observation: 'Current station observation', alerts: 'Official property alerts'
+    observation: 'Current station observation', history: 'Observed temperatures since local midnight', alerts: 'Official property alerts'
   };
-  const central = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
-  });
-  const hourTime = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago', weekday: 'short', hour: 'numeric', timeZoneName: 'short'
-  });
+  const clock = window.cmpriWeatherClock;
+  const hourTime = { format: (value) => clock ? clock.time(value.valueOf(), { weekday: true }) : new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(value) };
   let initialized = false, opened = false, generation = 0, alertExpiryTimer = null;
   const activeRequests = new Map(), pendingResources = new Set();
-  const PARTS = { observation: ['observation'], alerts: ['alerts'], forecast: ['points', 'forecast', 'hourly', 'grid'] };
-  const SOURCES = { observation: 'https://api.weather.gov/stations/KCMI/observations/latest', alerts: 'https://api.weather.gov/alerts/active?point=40.138080,-88.251416', points: 'https://api.weather.gov/points/40.1381,-88.2514' };
-  const observationClock = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' });
+  const PARTS = { observation: ['observation'], history: ['history'], alerts: ['alerts'], forecast: ['points', 'forecast', 'hourly', 'grid'] };
+  const SOURCES = { history: 'https://api.weather.gov/stations/KCMI/observations', observation: 'https://api.weather.gov/stations/KCMI/observations/latest', alerts: 'https://api.weather.gov/alerts/active?point=40.138080,-88.251416', points: 'https://api.weather.gov/points/40.1381,-88.2514' };
+  const CACHE_TTL = 5 * 60000;
+  const fetchedParts = new Map(), observedReports = new Map();
+  let observedExtremes = null;
   let requests = 0, checkedAt = null, resources = {}, lastError = '', loading = false;
   const byId = (id) => document.getElementById(id);
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
@@ -38,12 +35,7 @@
     const result = typeof value === 'number' ? value : Date.parse(value);
     return Number.isFinite(result) ? result : null;
   }
-  function stamp(value) { const time = date(value); return time === null ? 'Unavailable' : central.format(new Date(time)); }
-  function observationStamp(value) {
-    const time = date(value); if (time === null) return 'unavailable';
-    const parts = Object.fromEntries(observationClock.formatToParts(new Date(time)).map((part) => [part.type, part.value]));
-    return parts.year + '-' + parts.month + '-' + parts.day + ' ' + parts.hour + ':' + parts.minute + ' ' + parts.timeZoneName;
-  }
+  function stamp(value) { const time = date(value); return time === null ? 'Unavailable' : clock ? clock.stamp(time) : new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }).format(new Date(time)); }
   function round(value, digits = 0) { return Number(value.toFixed(digits)).toLocaleString('en-US', { maximumFractionDigits: digits }); }
   function sourceUrl(value) {
     try {
@@ -63,7 +55,9 @@
     if (!value || !value.data) return { status: 'unavailable', source: value?.source || null,
       receivedAt: value?.receivedAt || null, sourceTimestamp: value?.sourceTimestamp || null,
       data: null, pending: pendingResources.has(name), error: value?.error || (pendingResources.has(name) ? 'Awaiting official NWS data' : 'No usable NWS data') };
-    return { ...value, pending: pendingResources.has(name), status: ['live', 'stale'].includes(value.status) ? value.status : 'unavailable' };
+    const sourceTime = date(value.sourceTimestamp), maxAge = ['observation', 'history', 'alerts'].includes(name) ? 90 * 60000 : 6 * HOUR;
+    const aged = sourceTime !== null && Date.now() - sourceTime > maxAge;
+    return { ...value, pending: pendingResources.has(name), status: ['live', 'stale'].includes(value.status) ? aged ? 'stale' : value.status : 'unavailable' };
   }
   function quantity(input, kind) {
     if (!input || !finite(input.value)) return null;
@@ -92,50 +86,29 @@
     }
     return null;
   }
-  function compass(value) {
-    if (!finite(value)) return '';
-    return ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'][Math.round(((value % 360) + 360) % 360 / 22.5) % 16];
+  function rememberObservations() {
+    const features = resource('history').data?.features;
+    const latest = resource('observation').data;
+    const all = [...(Array.isArray(features) ? features : []), ...(latest ? [latest] : [])];
+    const today = window.cmpriWeatherVisuals?.dayKey(Date.now());
+    for (const feature of all) {
+      const p = feature?.properties || {}, timestamp = date(p.timestamp);
+      if (timestamp === null || timestamp > Date.now()) continue;
+      const value = quantity(p.temperature, 'temperature');
+      const prior = observedReports.get(timestamp);
+      if (!prior || prior.fahrenheit === null && value !== null) observedReports.set(timestamp, { timestamp, fahrenheit: value });
+    }
+    // The cache is memory-only, retaining today's reports and one bounded pre-midnight anchor.
+    const rows = Array.from(observedReports.values()).sort((a, b) => a.timestamp - b.timestamp);
+    const anchor = rows.filter((row) => window.cmpriWeatherVisuals?.dayKey(row.timestamp) !== today).at(-1);
+    for (const row of rows) if (window.cmpriWeatherVisuals?.dayKey(row.timestamp) !== today && row !== anchor) observedReports.delete(row.timestamp);
   }
   function renderObservation() {
     const envelope = resource('observation'), p = envelope.data?.properties;
     const available = envelope.status !== 'unavailable' && p;
-    const windChill = available ? quantity(p.windChill, 'temperature') : null;
-    const heatIndex = available ? quantity(p.heatIndex, 'temperature') : null;
-    const feelsLike = windChill ?? heatIndex;
-    const wind = available ? quantity(p.windSpeed, 'wind') : null;
-    const gust = available ? quantity(p.windGust, 'wind') : null;
-    const visibility = available ? quantity(p.visibility, 'visibility') : null;
-    const visuals = window.cmpriWeatherVisuals;
     renderCurrentDial();
-    const condition = available ? (p.textDescription || 'Condition not reported') : envelope.pending ? 'Waiting for Willard observation' : 'Current conditions unavailable';
-    byId('liveConditionIcon')?.replaceChildren(...(visuals ? [visuals.condition(condition, { icon: available ? p.icon : null })] : []));
-    text('liveFeelsLike', feelsLike === null ? 'Not reported' : round(feelsLike) + '°F');
-    if (byId('liveFeelsLike')) byId('liveFeelsLike').title = windChill !== null ? 'Reported KCMI wind chill' : heatIndex !== null ? 'Reported KCMI heat index' : 'KCMI did not report wind chill or heat index; no forecast is substituted.';
-    const windHost = byId('liveWind');
-    if (windHost) windHost.replaceChildren(visuals ? visuals.wind(wind === null ? null : round(wind) + ' mph', p?.windDirection?.value) : node('strong', wind === null ? 'Unavailable' : [compass(p.windDirection?.value), round(wind) + ' mph'].filter(Boolean).join(' ')));
-    text('liveGusts', gust === null ? 'Not reported' : round(gust) + ' mph');
-    text('liveVisibility', visibility === null ? 'Unavailable' : (visibility > 0 && visibility < .1 ? '<0.1' : round(visibility, 1)) + ' mi');
-    text('liveConditionText', condition);
-    text('liveObservationTime', 'As of: ' + observationStamp(p?.timestamp));
+    text('liveObservationTime', 'As of: ' + stamp(p?.timestamp) + ' · Willard (KCMI)');
     text('liveConditionsBadge', envelope.status === 'stale' ? 'STALE KCMI' : available ? 'KCMI' : envelope.pending ? 'Awaiting KCMI' : 'Unavailable');
-    const host = byId('liveConditionSource');
-    if (host) {
-      host.replaceChildren(node('span', 'Willard (KCMI) · station observation · '), sourceLink(envelope.source || SOURCES.observation));
-      if (envelope.error && !envelope.pending) host.append(document.createTextNode(' · ' + envelope.error));
-    }
-  }
-  function renderCurrentForecastGust() {
-    const host = byId('liveForecastGusts'); if (!host) return;
-    const gridEnvelope = resource('grid'), hourly = resource('hourly');
-    const grid = gridEnvelope.status === 'unavailable' ? null : gridEnvelope.data?.properties;
-    let when = Date.now(), gust = gridAt(grid?.windGust, when, 'wind');
-    if (gust === null) {
-      const next = hourly.data?.properties?.periods?.find((period) => date(period.startTime) >= when && date(period.startTime) <= when + HOUR);
-      if (next) { when = date(next.startTime); gust = gridAt(grid?.windGust, when, 'wind'); }
-    }
-    host.hidden = gust === null;
-    host.textContent = gust === null ? '' : (gridEnvelope.status === 'stale' ? 'STALE · ' : '') + 'Forecast gusts ' + round(gust) + ' mph';
-    host.title = gust === null ? '' : 'NWS forecast valid at ' + stamp(when) + '; separate from reported KCMI gusts.';
   }
   function interval(value) {
     if (typeof value !== 'string') return null;
@@ -175,14 +148,25 @@
   }
   function renderCurrentDial() {
     const host = byId('liveTemperature'); if (!host) return;
-    const observation = resource('observation'), hourly = resource('hourly');
-    const observed = observation.status === 'unavailable' ? null : quantity(observation.data?.properties?.temperature, 'temperature');
+    const observation = resource('observation'), hourly = resource('hourly'), p = observation.data?.properties;
+    const available = observation.status !== 'unavailable' && p;
+    const observed = available ? quantity(p.temperature, 'temperature') : null;
     const visuals = window.cmpriWeatherVisuals;
-    if (!visuals) { host.replaceChildren(node('strong', observed === null ? '—' : round(observed) + '°F')); return; }
+    if (!visuals) { host.replaceChildren(node('strong', observed === null ? '—' : round(observed) + '°')); return; }
+    rememberObservations();
+    const observedDay = visuals.observationDay(Array.from(observedReports.values()), Date.now(), observedExtremes);
+    observedExtremes = { key: observedDay.key, high: observedDay.high, low: observedDay.low };
     host.classList.add('current-temperature-dial');
     const today = visuals.dayKey(Date.now());
     const day = forecastDayModels().find((item) => item.key === today);
-    host.replaceChildren(visuals.temperatureDial(day, { current: true, observedTemperature: observed, pending: hourly.pending, stale: hourly.status === 'stale' }));
+    const wind = available ? quantity(p.windSpeed, 'wind') : null, gust = available ? quantity(p.windGust, 'wind') : null;
+    const visibility = available ? quantity(p.visibility, 'visibility') : null;
+    const feels = available ? quantity(p.windChill, 'temperature') ?? quantity(p.heatIndex, 'temperature') : null;
+    host.replaceChildren(visuals.temperatureDial(day, { current: true, observedTemperature: observed, observedDay,
+      pending: hourly.pending, stale: hourly.status === 'stale',
+      conditionText: available ? p.textDescription || 'Condition not reported' : observation.pending ? 'Awaiting observation' : 'Conditions unavailable',
+      icon: available ? p.icon : null, windSpeed: wind === null ? null : round(wind) + ' MPH', windDirection: p?.windDirection?.value,
+      gustText: gust === null ? null : round(gust), visibility: visibility === null ? null : visibility > 0 && visibility < .1 ? '<0.1' : round(visibility, 1), feelsLike: feels }));
   }
   function renderForecast(name, hostId, hourly) {
     const host = byId(hostId); if (!host) return;
@@ -195,15 +179,15 @@
       const gridEnvelope = resource('grid');
       const grid = gridEnvelope.status === 'unavailable' ? null : gridEnvelope.data?.properties;
       periods.forEach((period) => {
-        const card = node('article', undefined, 'forecast-card');
+        const card = node('article', undefined, 'forecast-card hourly-forecast-card');
         const start = date(period.startTime), end = date(period.endTime);
         const visuals = window.cmpriWeatherVisuals;
         const heading = node('div', undefined, 'forecast-card-heading');
         heading.append(node('h3', hourly && start !== null ? hourTime.format(new Date(start)) : period.name || 'NWS forecast period'));
-        if (visuals) heading.append(visuals.condition(period.shortForecast || 'Condition not provided', { icon: period.icon, isDaytime: period.isDaytime }));
         card.append(heading);
+        if (visuals) { const main = node('div', undefined, 'hourly-condition-main'); main.append(visuals.condition(period.shortForecast || 'Condition not provided', { icon: period.icon, isDaytime: period.isDaytime })); card.append(main); }
         const temperature = periodTemperatureValue(period);
-        card.append(visuals ? visuals.temperature(temperature) : node('strong', temperature === null ? '—' : round(temperature) + '°F', 'forecast-temperature'));
+        card.append(visuals ? visuals.temperature(temperature) : node('strong', temperature === null ? '—' : round(temperature) + '°', 'forecast-temperature'));
         card.append(node('p', period.shortForecast || 'Forecast description unavailable', 'forecast-detail'));
         const chance = period.probabilityOfPrecipitation?.value;
         const chanceText = node('p', finite(chance) ? '☂ ' + round(chance) + '%' : 'Precipitation unavailable', 'forecast-chance');
@@ -213,7 +197,7 @@
         else card.append(node('p', [period.windDirection, periodWindSpeed(period) || 'Wind unavailable'].filter(Boolean).join(' '), 'forecast-wind'));
         if (hourly) {
           const feels = gridAt(grid?.apparentTemperature, start, 'temperature');
-          if (feels !== null) card.append(node('p', 'Feels ' + round(feels) + '°F' + (gridEnvelope.status === 'stale' ? ' · STALE grid' : ''), 'forecast-wind'));
+          if (feels !== null) card.append(node('p', 'Feels ' + round(feels) + '°' + (gridEnvelope.status === 'stale' ? ' · STALE grid' : ''), 'forecast-wind'));
         }
         const valid = node('p', hourly ? (start === null ? 'Time unavailable' : hourTime.format(new Date(start))) : 'Valid ' + stamp(start), 'forecast-validity');
         valid.title = 'Forecast valid ' + stamp(start) + ' → ' + stamp(end); card.append(valid);
@@ -224,18 +208,6 @@
         if (envelope.status === 'stale') card.prepend(node('span', 'STALE FORECAST', 'badge warning'));
         host.append(card);
       });
-    }
-    if (hourly) {
-      let timing = byId('nwsPrecipTiming');
-      if (!timing) { timing = node('p', '', 'timing small muted'); timing.id = 'nwsPrecipTiming'; host.insertAdjacentElement('afterend', timing); }
-      if (timing) {
-        const future = periods.filter((p) => date(p.endTime) !== null && date(p.endTime) > Date.now());
-        const next = future.find((p) => finite(p.probabilityOfPrecipitation?.value) && p.probabilityOfPrecipitation.value > 0);
-        timing.textContent = envelope.status === 'unavailable' || !future.length ? 'Precipitation timing unavailable.' : next
-          ? (envelope.status === 'stale' ? 'STALE forecast · ' : 'Forecast · ') + 'first provided hour with a precipitation chance: ' + stamp(next.startTime) + ' · ' + round(next.probabilityOfPrecipitation.value) + '% · ' + (next.shortForecast || 'Type not specified') + '. Hourly chance is guidance, not a precise arrival time.'
-          : future.every((p) => finite(p.probabilityOfPrecipitation?.value)) ? 'Forecast · available hourly periods report 0% precipitation chance; this is not an official alert status or a guarantee of dry conditions.'
-            : 'Precipitation timing unavailable for periods with missing precipitation chance.';
-      }
     }
   }
   function renderDailyForecast() {
@@ -254,20 +226,12 @@
       const night = day.extended.find((period) => period.isDaytime === false && visuals.dayKey(period.startTime) === day.key);
       const representative = daytime || day.hourly.find((period) => period.isDaytime === true) || night || day.hourly[0] || day.extended[0];
       const heading = node('div', undefined, 'forecast-card-heading');
-      heading.append(node('h3', day.label), visuals.condition(representative?.shortForecast || 'Conditions unavailable', { icon: representative?.icon, isDaytime: representative?.isDaytime }));
-      card.append(heading, visuals.temperatureDial(day, { stale: hourly.status === 'stale', pending: hourly.pending }));
+      heading.append(node('h3', day.label));
+      card.append(heading, visuals.temperatureDial(day, { stale: hourly.status === 'stale', pending: hourly.pending,
+        conditionText: representative?.shortForecast || 'Conditions unavailable', icon: representative?.icon, isDaytime: representative?.isDaytime,
+        windSpeed: periodWindSpeed(representative || {}), windDirection: representative?.windDirection,
+        officialHigh: daytime ? periodTemperatureValue(daytime) : null, officialLow: night ? periodTemperatureValue(night) : null }));
       if (envelope.status === 'stale') card.prepend(node('span', 'STALE DAILY FORECAST', 'badge warning'));
-      if (representative) card.append(node('p', representative.shortForecast || 'Forecast description unavailable', 'forecast-detail'));
-      // Only source-provided day/night values are called highs/lows. Timeline extrema come from the supplied hourly values above.
-      if (daytime || night) {
-        const values = node('div', undefined, 'wv-official-day-values');
-        [[daytime, 'NWS day high'], [night, 'NWS night low']].forEach(([period, label]) => {
-          if (!period) return;
-          const row = node('span', undefined, 'wv-official-day-value'); row.append(node('span', label));
-          row.append(visuals.temperature(periodTemperatureValue(period))); values.append(row);
-        });
-        card.append(values);
-      }
       const detail = node('details'); detail.append(node('summary', 'NWS forecast details'));
       if (!day.extended.length) detail.append(node('p', 'Extended forecast text unavailable for this date.', 'small muted'));
       const periods = day.extended.filter((period, index, all) => all.indexOf(period) === index);
@@ -356,8 +320,9 @@
     }
     const availability = byId('liveAlertAvailability');
     if (availability) {
-      availability.hidden = !opened || envelope.pending || envelope.status !== 'unavailable';
-      availability.textContent = availability.hidden ? '' : 'Official NWS alert status is unavailable. No all-clear is implied; check the official NWS bulletin source.';
+      const failedCheck = envelope.status === 'unavailable' || envelope.status === 'stale' && Boolean(envelope.error);
+      availability.hidden = !opened || envelope.pending || !failedCheck;
+      availability.textContent = availability.hidden ? '' : 'Official NWS alert status is unavailable.' + (envelope.status === 'stale' ? ' Cached alert data is stale after the latest check failed.' : '') + ' No all-clear is implied; check the official NWS bulletin source.';
     }
     if (alertExpiryTimer !== null) clearTimeout(alertExpiryTimer);
     alertExpiryTimer = null;
@@ -374,10 +339,11 @@
   }
   function render(part) {
     if (!part || part === 'observation') renderObservation();
+    if (part === 'history') renderCurrentDial();
     if (!part || part === 'forecast') {
       renderForecast('hourly', 'hourlyForecast', true);
       renderDailyForecast(); renderCurrentDial();
-      renderAccumulations(); renderCurrentForecastGust();
+      renderAccumulations();
     }
     if (!part || part === 'alerts') renderAlerts();
   }
@@ -385,6 +351,7 @@
     return { initialized, opened, loading, pendingRequests: activeRequests.size, requests, checkedAt, error: lastError,
       resources: Object.fromEntries(Object.keys(RESOURCE_NAMES).map((key) => [key, resource(key).status])),
       observationTimestamp: resource('observation').data?.properties?.timestamp || null,
+      observedExtremes, observedReports: observedReports.size, cachedParts: Array.from(fetchedParts.keys()), cacheTtlMs: CACHE_TTL,
       activeAlerts: activeAlertFeatures().length, databaseCalls: 0, pushes: 0, scheduler: false };
   }
   function abortReads() {
@@ -401,13 +368,17 @@
       const result = await response.json();
       if (ticket !== generation || !opened) return;
       if (!result.resources || typeof result.resources !== 'object') throw new Error('Official NWS resources unavailable');
-      for (const name of names) resources[name] = result.resources[name] || { status: 'unavailable', source: SOURCES[name] || null, data: null, error: 'Expected NWS resource was not returned.' };
+      for (const name of names) {
+        const next = result.resources[name] || { status: 'unavailable', source: SOURCES[name] || null, data: null, error: 'Expected NWS resource was not returned.' };
+        resources[name] = next.data ? next : resources[name]?.data ? { ...resources[name], status: 'stale', error: next.error || 'Latest read unavailable; displaying cached data.' } : next;
+      }
+      fetchedParts.set(part, Date.now());
       checkedAt = result.checkedAt || checkedAt;
     } catch (error) {
       if (ticket !== generation || !opened) return;
       const message = error.name === 'AbortError' ? 'NWS read timed out; reopen Weather to retry.' : error.message;
       lastError = message;
-      for (const name of names) resources[name] = { status: 'unavailable', source: SOURCES[name] || null, data: null, error: message };
+      for (const name of names) resources[name] = resources[name]?.data ? { ...resources[name], status: 'stale', error: message } : { status: 'unavailable', source: SOURCES[name] || null, data: null, error: message };
     } finally {
       clearTimeout(record.timeout);
       if (activeRequests.get(part) === record) activeRequests.delete(part);
@@ -418,12 +389,24 @@
       }
     }
   }
-  async function refresh() {
+  async function refresh(force = true) {
     if (!opened) return getState();
+    const parts = Object.keys(PARTS).filter((part) => force || !fetchedParts.has(part) || Date.now() - fetchedParts.get(part) >= CACHE_TTL || PARTS[part].every((name) => !resources[name]?.data));
+    if (!parts.length) return getState();
     const ticket = ++generation; abortReads();
-    Object.keys(RESOURCE_NAMES).forEach((name) => pendingResources.add(name));
+    parts.forEach((part) => PARTS[part].forEach((name) => pendingResources.add(name)));
     loading = true; lastError = ''; render();
-    await Promise.allSettled(Object.keys(PARTS).map((part) => readPart(part, ticket)));
+    await Promise.allSettled(parts.map((part) => readPart(part, ticket)));
+    return getState();
+  }
+  async function refreshObservations() {
+    if (!opened || document.hidden) return getState();
+    const parts = ['observation', 'history'].filter((part) => !activeRequests.has(part) &&
+      (!fetchedParts.has(part) || Date.now() - fetchedParts.get(part) >= CACHE_TTL));
+    if (!parts.length) return getState();
+    parts.forEach((part) => PARTS[part].forEach((name) => pendingResources.add(name)));
+    loading = true;
+    await Promise.allSettled(parts.map((part) => readPart(part, generation)));
     return getState();
   }
   function init() {
@@ -433,7 +416,7 @@
   }
   function open() {
     init(); if (opened) return Promise.resolve(getState());
-    opened = true; return refresh();
+    opened = true; render(); publishAlerts(); return refresh(false);
   }
   function close() {
     opened = false; generation += 1; abortReads(); loading = false;
@@ -442,5 +425,5 @@
     return getState();
   }
   window.addEventListener('pagehide', close);
-  window.nwsLiveView = { init, open, close, getState };
+  window.nwsLiveView = { init, open, close, refresh, refreshObservations, getState };
 }());

@@ -67,6 +67,8 @@ type DesktopWindowEntry = {
   src?: string;
   accent: string;
   preferred: WindowSize;
+  // Weather keeps its iframe and loaded data in page memory while closed.
+  weatherCached?: boolean;
 };
 
 type Launcher = {
@@ -160,6 +162,7 @@ export default function EngineeringDashboardPage() {
   const [bounds, setBounds] = useState<DesktopBounds>({ width: 0, height: 0 });
   const boundsRef = useRef<DesktopBounds>({ width: 0, height: 0 });
   const [windows, setWindows] = useState<DesktopWindowEntry[]>([]);
+  const [weatherBulletinHost, setWeatherBulletinHost] = useState<HTMLDivElement | null>(null);
   const [windowGuests, setWindowGuests] = useState<Record<string, Record<string, unknown>>>({});
   const windowsRef = useRef<DesktopWindowEntry[]>([]);
   const workOrderRegistryOwner = useRef("");
@@ -450,7 +453,13 @@ export default function EngineeringDashboardPage() {
   }, [zOrder, windows]);
 
   const openWindow = useCallback((entry: DesktopWindowEntry) => {
-    if (windowsRef.current.some((existing) => existing.key === entry.key)) {
+    const existing = windowsRef.current.find((item) => item.key === entry.key);
+    if (existing) {
+      if (entry.key === WEATHER_PREVIEW_PATH && existing.weatherCached) {
+        windowsRef.current = windowsRef.current.map(item => item.key === entry.key ? { ...item, weatherCached: false } : item);
+        windowOpenedAtRef.current.set(entry.key, Date.now());
+        setWindows(windowsRef.current);
+      }
       raise(entry.key, true);
       return;
     }
@@ -472,6 +481,13 @@ export default function EngineeringDashboardPage() {
   }, [raise]);
 
   const closeWindow = useCallback((key: string) => {
+    if (key === WEATHER_PREVIEW_PATH) {
+      windowsRef.current = windowsRef.current.map(entry => entry.key === key ? { ...entry, weatherCached: true } : entry);
+      windowOpenedAtRef.current.delete(key);
+      setWindows(windowsRef.current);
+      setZOrder(current => current.filter(entry => entry !== key));
+      return;
+    }
     const workOrderMatch = /^\/work-orders\/([^/]+)$/.exec(key);
     if (workOrderMatch && workOrderRegistryOwner.current) {
       releaseWorkOrder(decodeURIComponent(workOrderMatch[1]), workOrderRegistryOwner.current);
@@ -732,7 +748,7 @@ export default function EngineeringDashboardPage() {
       return;
     }
     const openedAt = windowOpenedAtRef.current.get(key);
-    if (windowsRef.current.some((entry) => entry.key === key) && openedAt !== undefined && clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS) {
+    if (windowsRef.current.some((entry) => entry.key === key && !entry.weatherCached) && openedAt !== undefined && clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS) {
       requestCloseWindow(key);
       return;
     }
@@ -793,7 +809,7 @@ export default function EngineeringDashboardPage() {
       items: group.items.filter((item): item is Launcher => Boolean(item && item.key !== "pool-status" && item.key !== "/work-orders")),
     }))
     .filter((group) => group.items.length > 0);
-  const openKeys = new Set(windows.map((entry) => entry.key));
+  const openKeys = new Set(windows.filter(entry => !entry.weatherCached).map((entry) => entry.key));
   const activeKey = zOrder.at(-1) || "";
   const canReviewTickets = hasCapability(session, "review_tickets");
   const unreadCount = unreadWorkOrderNotificationCount(inbox);
@@ -855,8 +871,10 @@ export default function EngineeringDashboardPage() {
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
       </header>
 
+      <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-[200] w-full shrink-0" />
+
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
-        {windows.length === 0 && (
+        {openKeys.size === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
         )}
         {message && (
@@ -871,6 +889,7 @@ export default function EngineeringDashboardPage() {
           const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
           if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
             return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
+              visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
               rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
               onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
               registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}

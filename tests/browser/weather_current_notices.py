@@ -11,7 +11,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -28,6 +28,12 @@ from playwright.async_api import async_playwright
 class CurrentFixtures(OfficialFeedFixtures):
     def __init__(self):
         super().__init__()
+        local = self.now.astimezone(ZoneInfo("America/Chicago"))
+        self.now = local.replace(hour=15, minute=40, second=0, microsecond=0)
+        if self.now > local:
+            self.now -= timedelta(days=1)
+        self.now = self.now.astimezone(timezone.utc)
+        self.scan_times = [int((self.now - timedelta(minutes=minutes)).timestamp() * 1000) for minutes in [10, 5]]
         self.hold_observation = False
         self.hold_alerts = False
         self.observation_gate.set()
@@ -38,6 +44,8 @@ class CurrentFixtures(OfficialFeedFixtures):
         self.alert_features = []
         self.alert_failure = False
         self.observation_failure = False
+        self.history_failure = False
+        self.history_extra = []
 
     def alert(self, identity, event, *, action="Alert", expired=False):
         bulletin = API + "/alerts/urn:oid:TEST-FIXTURE-" + identity
@@ -64,6 +72,22 @@ class CurrentFixtures(OfficialFeedFixtures):
             "windDirection": {"value": 315, "unitCode": "wmoUnit:degree_(angle)"},
             "visibility": {"value": 9656.064, "unitCode": "wmoUnit:m"},
             "textDescription": "Mostly Cloudy"})
+        day_start = self.now.astimezone(ZoneInfo("America/Chicago")).replace(hour=0, minute=0)
+        self.history_samples = [(day_start - timedelta(minutes=30), 99),
+            (day_start + timedelta(minutes=30), -12),
+            (day_start + timedelta(minutes=60), 5),
+            (day_start + timedelta(hours=4), 45),
+            (day_start + timedelta(hours=4, minutes=30), 45),
+            (day_start + timedelta(hours=5), -12),
+            (self.now - timedelta(minutes=36), 20), (self.now - timedelta(minutes=6), 10)] + self.history_extra
+        history = result["resources"]["history"]
+        history["data"] = {"type": "FeatureCollection", "features": [
+            {"type": "Feature", "id": API + "/stations/KCMI/observations/TEST-HISTORY-" + str(index),
+             "properties": {"timestamp": iso(stamp), "temperature": {"value": value, "unitCode": "wmoUnit:degF"}}}
+            for index, (stamp, value) in enumerate(self.history_samples)]}
+        result["history"]["returnedCount"] = len(self.history_samples)
+        if self.history_failure:
+            history.update(status="unavailable", data=None, error="TEST FIXTURE observation history unavailable")
         if self.observation_failure:
             observation.update(status="unavailable", data=None, error="TEST FIXTURE current station unavailable")
         temperatures = [-15, 0, 15, 32, 50, 70, 90, 110, 10, 10, 42, 75]
@@ -80,12 +104,12 @@ class CurrentFixtures(OfficialFeedFixtures):
         return result
 
 
-async def context_for(browser, width, height, feed):
+async def context_for(browser, width, height, feed, role="chief_engineer"):
     context = await browser.new_context(viewport={"width": width, "height": height},
         is_mobile=width < 640, has_touch=width < 640, service_workers="block", reduced_motion="reduce")
     await context.route_web_socket("**/*", block_websocket)
     errors, external, mutations = [], [], []
-    await install(context, "chief_engineer")
+    await install(context, role)
     await context.route("**/api/weather-preview**", feed.route)
     context.on("requestfailed", feed.request_failed)
     async def protect(route):
@@ -100,198 +124,168 @@ async def context_for(browser, width, height, feed):
     await context.route("**/*", protect)
     await context.add_init_script(PROBE)
     page = await context.new_page()
+    await page.clock.install(time=feed.now)
     page.on("pageerror", lambda error: errors.append(str(error)))
     return context, page, errors, external, mutations
 
 
 async def refresh(frame):
     await wait_for(frame, "!window.nwsLiveView.getState().loading")
-    await frame.evaluate("() => { nwsLiveView.close(); void nwsLiveView.open(); }")
+    await frame.evaluate("() => { void nwsLiveView.refresh(); }")
     await wait_for(frame, "!window.nwsLiveView.getState().loading")
 
 
-async def observation_and_visuals(browser, base, output, width, height):
+async def observed_extremes(frame):
+    return await frame.locator('#liveTemperature .wv-dial-marker[data-kind="observed"]').evaluate_all("""elements=>Object.fromEntries(elements.map(el=>[el.dataset.extreme,{time:el.dataset.sampleTime,value:Number(el.dataset.airTemperature)}]))""")
+
+
+async def observation_and_visuals(browser, base, output, width, height, role="chief_engineer"):
     feed = CurrentFixtures()
-    context, page, errors, external, mutations = await context_for(browser, width, height, feed)
-    evidence = {"viewport": [width, height], "fixtureOnly": True}
+    context, page, errors, external, mutations = await context_for(browser, width, height, feed, role)
+    evidence = {"viewport": [width, height], "fixtureOnly": True, "role": role}
+    suffix = role + "-" + str(width)
+    chief = role == "chief_engineer"
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
         launcher = page.get_by_role("button", name="Weather", exact=True)
         await launcher.wait_for(state="visible", timeout=60000)
-        require(feed.observation_calls == 0 and feed.forecast_calls == 0, "NWS requested before Weather opened")
+        require(feed.observation_calls == 0 and feed.history_calls == 0 and feed.forecast_calls == 0,
+                "NWS requested before Weather opened")
         await launcher.click()
         frame = await weather_frame(page)
-        await wait_for(frame, "document.getElementById('liveTemperature').textContent.includes('10°F')")
-        require(feed.observation_calls == 1, "KCMI current observation was requested more than once on open")
-        require(feed.hold_forecast and not feed.forecast_gate.is_set(), "Forecast gate unexpectedly released")
-        require(await frame.locator("#hourlyForecast .forecast-card").count() == 0,
-                "Forecast fixtures leaked into the fast observation response")
-        require((await frame.evaluate("cmpriWeatherMap.getState().status.radar")) != "Observed image loaded",
+        await wait_for(frame, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '10°'")
+        require(feed.observation_calls == 1, "KCMI latest observation duplicated on first open")
+        require(feed.hold_forecast and feed.hold_history and not feed.forecast_gate.is_set() and not feed.history_gate.is_set(),
+                "Independent history/forecast gates unexpectedly released")
+        require(await frame.locator('#hourlyForecast .forecast-card').count() == 0,
+                "Forecast fixtures leaked into the fast latest-observation response")
+        require((await frame.evaluate('cmpriWeatherMap.getState().status.radar')) != 'Observed image loaded',
                 "Radar unexpectedly completed while deliberately held")
-        require("KCMI" in await frame.locator("#liveConditionSource").inner_text(), "Current conditions lack explicit KCMI provenance")
-        require("-5°F" in await frame.locator("#liveFeelsLike").inner_text(), "Observed negative wind chill missing")
-        require("28 mph" in await frame.locator("#liveGusts").inner_text(), "Observed gust was omitted")
-        require("18 mph" in await frame.locator("#liveWind").inner_text() and "NW" in await frame.locator("#liveWind").inner_text(),
-                "Actual station wind units or FROM direction missing")
-        observed = feed.now - timedelta(minutes=6)
-        expected_clock = observed.astimezone(ZoneInfo("America/Chicago")).strftime("%H:%M")
-        as_of = await frame.locator("#liveObservationTime").inner_text()
-        require("As of" in as_of and expected_clock in as_of and not re.search(r"\b(?:AM|PM)\b", as_of),
-                "As of does not use the actual observation timestamp in 24-hour Central time: " + as_of)
-        heading = await frame.locator(".conditions-priority h2").bounding_box()
-        clock = await frame.locator("#liveObservationTime").bounding_box()
-        require(heading and clock and heading["y"] + heading["height"] - 1 <= clock["y"] <= heading["y"] + heading["height"] + 45,
-                "As of is not immediately below the Current conditions heading")
-        require(await frame.locator(".conditions-priority svg.wv-condition[role='img']").count() == 1,
-                "Current condition has no accessible local weather symbol")
-        require(await frame.locator("#liveTemperature .wv-temperature-dial").count() == 1,
-                "Current observed temperature has no 24-hour dial while the forecast loads")
-        require(await frame.locator("#liveTemperature .wv-dial-segment").count() == 0,
-                "Current dial invented hourly colors before the held forecast arrived")
-        require("forecast loading" in (await frame.locator("#liveTemperature .wv-dial-coverage").inner_text()).lower(),
-                "The pending Current Conditions dial does not explain missing forecast hours")
-        require(await frame.locator("#officialAlertsSection").is_hidden(), "Empty official-alert response left an empty alert section")
-        await page.screenshot(path=str(output / f"current-before-forecasts-{width}.png"), full_page=True)
-        evidence["observationBeforeHeldForecastAndRadar"] = {"station": "KCMI", "temperature": "10°F", "windChill": "-5°F", "gust": "28 mph", "asOf": as_of}
+        clock = await frame.evaluate('cmpriWeatherClock.getState()')
+        require(clock['hour12'] is (not chief), "Chief/non-Chief clock preference was not propagated by the authenticated host")
+        as_of = await frame.locator('#liveObservationTime').inner_text()
+        expected_clock = '15:34' if chief else '3:34'
+        require('As of' in as_of and 'KCMI' in as_of and expected_clock in as_of
+                and (bool(re.search(r'\bPM\b', as_of)) is (not chief)),
+                'Observation As of does not use actual role-appropriate Central time: ' + as_of)
+        for identity in ['liveConditionIcon', 'liveWind', 'liveVisibility', 'liveConditionText', 'liveFeelsLike', 'liveGusts']:
+            require(await frame.locator('#' + identity).count() == 1, 'Missing or duplicate current wheel metric: ' + identity)
+            require(await frame.locator('#' + identity).evaluate("el=>Boolean(el.closest('.wv-dial-face'))"),
+                    'Current metric is outside the wheel: ' + identity)
+        require('-5°' in await frame.locator('#liveFeelsLike').inner_text(), 'Observed wind chill missing')
+        require('28' in await frame.locator('#liveGusts').inner_text(), 'Observed gust omitted')
+        require('18' in await frame.locator('#liveWind').inner_text() and 'NW' in await frame.locator('#liveWind').inner_text(),
+                'Observed wind value or FROM direction missing')
+        require('6 mi' in await frame.locator('#liveVisibility').inner_text(), 'Observed visibility missing from wheel')
+        require(await frame.locator('#liveTemperature .wv-dial-observed-segment').count() == 0,
+                'Current wheel invented history while the actual history request was held')
+        await page.screenshot(path=str(output / ('current-latest-before-history-' + suffix + '.png')), full_page=True)
+        evidence['independentLatestObservation'] = {'asOf': as_of, 'roleClock': clock, 'forecastAndHistoryHeld': True}
+        feed.hold_history = False
+        feed.history_gate.set()
+        await wait_for(frame, "document.querySelectorAll('#liveTemperature .wv-dial-observed-segment').length > 0")
+        require(await frame.locator('#hourlyForecast .forecast-card').count() == 0,
+                'Observed history incorrectly waited for or released the forecast')
+        extrema = await observed_extremes(frame)
+        expected_high = feed.now.astimezone(ZoneInfo('America/Chicago')).replace(hour=4, minute=0)
+        expected_low = expected_high.replace(hour=0, minute=30)
+        require(extrema['H']['value'] == 45 and extrema['L']['value'] == -12,
+                'Observed extrema used the 99-degree pre-midnight anchor or missed actual same-day extremes')
+        require(datetime.fromisoformat(extrema['H']['time'].replace('Z','+00:00')) == expected_high
+                and datetime.fromisoformat(extrema['L']['time'].replace('Z','+00:00')) == expected_low,
+                'Observed extrema do not carry their actual report timestamps')
+        spans = await frame.locator('#liveTemperature .wv-dial-observed-segment').evaluate_all("""elements=>elements.map(el=>({a:el.dataset.sampleStart,b:el.dataset.sampleEnd,start:el.dataset.startTime}))""")
+        for span in spans:
+            a,b = [datetime.fromisoformat(span[key].replace('Z','+00:00')) for key in ['a','b']]
+            require(timedelta(0) < b-a <= timedelta(minutes=90), 'Observed timeline bridged an unsupported reporting gap')
+            require(any(a == stamp for stamp,_ in feed.history_samples) and any(b == stamp for stamp,_ in feed.history_samples),
+                    'Observed ring invented report endpoints')
+        require(not any(datetime.fromisoformat(span['a'].replace('Z','+00:00')) == expected_high.replace(hour=1,minute=0)
+                        and datetime.fromisoformat(span['b'].replace('Z','+00:00')) == expected_high for span in spans),
+                'The 01:00–04:00 observation gap was filled')
+        evidence['observedHistory'] = {'extrema': extrema, 'preMidnightAnchorExcludedFromExtrema': True,
+            'unknownReportingGapsPreserved': True, 'independentOfForecast': True}
         feed.release()
-        await wait_for(frame, "document.querySelectorAll('#hourlyForecast .forecast-card').length === 12")
-        await wait_for(frame, "!nwsLiveView.getState().loading")
-        records = await frame.evaluate("""() => Array.from(document.querySelectorAll('#hourlyForecast .wv-temperature')).map(el => ({
-          value:el.dataset.airTemperature,min:el.dataset.scaleMin,max:el.dataset.scaleMax,color:el.dataset.temperatureColor,
-          label:el.querySelector('.wv-temperature-value')?.textContent,
-          gradient:getComputedStyle(el.querySelector('.wv-temperature-track')).backgroundImage,
-          font:parseFloat(getComputedStyle(el.querySelector('.wv-temperature-value')).fontSize),
-          markers:el.querySelectorAll('.wv-temperature-marker').length
+        await wait_for(frame, "document.querySelectorAll('#hourlyForecast .forecast-card').length === 12 && !nwsLiveView.getState().loading")
+        require(await frame.locator('#liveTemperature .wv-dial-marker[data-kind="forecast"]').count() == 2,
+                'Current wheel does not distinguish forecast markers from observed markers')
+        daily = frame.locator('#extendedForecast .daily-forecast-card')
+        require(await daily.count() > 0 and await daily.locator('.wv-temperature-dial').count() == await daily.count(),
+                'Every daily card needs its own dial')
+        faces = await frame.locator('.wv-temperature-dial').evaluate_all("""elements=>elements.map(el=>({
+          summariesInside:Array.from(el.querySelectorAll('.wv-dial-extreme')).every(item=>Boolean(item.closest('.wv-dial-face'))),
+          labels:Array.from(el.querySelectorAll('.wv-dial-clock')).map(item=>item.textContent),
+          belowFace:Array.from(el.children).filter(item=>!item.matches('.wv-dial-face')).length,
+          title:el.title,coverage:el.dataset.coverage
         }))""")
-        require(len(records) == 12, "Hourly forecast lost its existing temperature-card layout")
-        require(all(row["min"] == "-15" and row["max"] == "110" for row in records), "Temperature scale changes between surfaces")
-        known = [row for row in records if row["value"] != "unknown"]
-        require(all("°F" in row["label"] and row["markers"] == 1 and row["font"] >= 16 for row in known),
-                "Temperature numbers are missing, too small, or conveyed only by color")
-        require(len({row["gradient"] for row in records}) == 1, "Temperature gradient differs between views")
-        matching = [row for row in known if row["value"] == "10"]
-        require(len(matching) >= 2 and len({row["color"] for row in matching}) == 1,
-                "The same Fahrenheit temperature has different colors")
-        stops = await frame.evaluate("cmpriWeatherVisuals.stops.map(stop => [stop.fahrenheit,stop.color])")
-        expected_reference = {0: "#00e7e5", 15: "#7784fa", 25: "#c336ef", 32: "#e000ee",
-            40: "#1700f5", 45: "#0065fb", 63: "#9bff54", 80: "#ffcc00", 85: "#ff8900", 106: "#e92b95"}
-        require(all(dict(stops).get(value) == color for value, color in expected_reference.items()),
-                "Temperature colors do not follow the fixed screenshot-reference palette")
-        icons = await frame.locator("#hourlyForecast svg.wv-condition").evaluate_all("els=>els.map(el=>el.dataset.condition)")
-        require(set(["sun", "cloud", "rain", "snow", "thunder", "fog", "wind"]).issubset(icons),
-                "Actual forecast descriptions did not produce varied condition symbols")
-        daily = frame.locator("#extendedForecast .daily-forecast-card")
-        daily_count = await daily.count()
-        require(daily_count >= 1 and await daily.locator(".wv-temperature-dial").count() == daily_count,
-                "Every daily forecast must have its own 24-hour temperature dial")
-        hourly_periods = feed.nws()["resources"]["hourly"]["data"]["properties"]["periods"]
-        samples = {iso_value["startTime"]: iso_value for iso_value in hourly_periods}
-        dials = await frame.locator(".wv-temperature-dial").evaluate_all("""elements => elements.map(element=>({
-          day:element.dataset.day,coverage:element.dataset.coverage,hours:Number(element.dataset.coverageHours),
-          expectedHours:Number(element.dataset.expectedHours),text:element.textContent,
-          clockLabels:Array.from(element.querySelectorAll('.wv-dial-clock')).map(item=>item.textContent),
-          segments:Array.from(element.querySelectorAll('.wv-dial-segment')).map(item=>({
-            start:item.dataset.startTime,time:item.dataset.clockTime,value:Number(item.dataset.airTemperature),
-            color:item.getAttribute('stroke'),actualColor:getComputedStyle(item).stroke})),
-          extrema:Array.from(element.querySelectorAll('.wv-dial-extreme time')).map(item=>({
-            kind:item.closest('.wv-dial-extreme').dataset.extreme,start:item.dateTime,label:item.textContent})),
-          markers:element.querySelectorAll('.wv-dial-marker').length
-        }))""")
-        require(all(row["clockLabels"] == ["00", "06", "12", "18", "24"] for row in dials),
-                "A dial does not retain its 24-hour chronological clock positions")
-        require(any(row["coverage"] == "partial" for row in dials)
-                and any(row["coverage"] == "unavailable" for row in dials),
-                "Limited hourly guidance was stretched into complete daily timelines")
-        for dial in dials:
-            if dial["coverage"] == "unavailable":
-                require(not dial["segments"] and not dial["markers"] and not dial["extrema"],
-                        "An unavailable day invented temperature colors or high/low times")
-                continue
-            require(dial["hours"] < dial["expectedHours"] and "Partial" in dial["text"],
-                    "A partly supplied day is missing its partial-coverage label")
-            day_samples = [period for period in hourly_periods
-                if datetime.fromisoformat(period["startTime"].replace("Z", "+00:00"))
-                    .astimezone(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d") == dial["day"]]
-            for extreme in dial["extrema"]:
-                stamp = datetime.fromisoformat(extreme["start"].replace("Z", "+00:00"))
-                normalized = stamp.isoformat(timespec="seconds").replace("+00:00", "Z")
-                require(normalized in samples, "A dial high/low marker uses an invented forecast time")
-                expected = max(day_samples, key=lambda period: period["temperature"]) if extreme["kind"] == "H" else min(day_samples, key=lambda period: period["temperature"])
-                require(normalized == expected["startTime"], "A dial high/low marker does not match actual supplied hourly extrema")
-                expected_clock = stamp.astimezone(ZoneInfo("America/Chicago")).strftime("%H:%M")
-                require(expected_clock in extreme["label"] and not re.search(r"\b(?:AM|PM)\b", extreme["label"]),
-                        "Dial high/low time is not actual 24-hour Central time")
-            for segment in dial["segments"]:
-                segment_time = datetime.fromisoformat(segment["start"].replace("Z", "+00:00"))
-                supplied = [period for period in hourly_periods
-                    if datetime.fromisoformat(period["startTime"].replace("Z", "+00:00")) <= segment_time
-                    < datetime.fromisoformat(period["endTime"].replace("Z", "+00:00"))]
-                require(supplied and segment["value"] == supplied[0]["temperature"],
-                        "A dial segment invented temperatures in an unsupported forecast hour")
-                require(re.match(r"^\d{2}:\d{2} (?:CST|CDT)$", segment["time"]), "Dial segment lacks a 24-hour Central time")
-                color = await frame.evaluate("value=>cmpriWeatherVisuals.colorAt(value)", segment["value"])
-                require(segment["color"] == color, "Dial and hourly temperature colors disagree")
-                rgb = "rgb(" + ", ".join(str(int(color[offset:offset + 2], 16)) for offset in [1, 3, 5]) + ")"
-                require(segment["actualColor"] == rgb, "The CMPRI theme overrode a hard-coded weather temperature color")
-        theme_independent = await frame.evaluate("""() => {
-          const signature=()=>Array.from(document.querySelectorAll('.wv-dial-segment')).map(el=>getComputedStyle(el).stroke).join('|');
-          const before=signature(),root=document.documentElement;
-          root.style.setProperty('--gold','#f0f'); root.style.setProperty('--brand','#fff'); root.style.setProperty('--muted','#000');
-          const same=signature()===before;
-          ['--gold','--brand','--muted'].forEach(name=>root.style.removeProperty(name)); return same;
-        }""")
-        require(theme_independent, "Theme palette variables change fixed weather temperatures")
-        evidence["sharedTemperatureVisuals"] = {"hourlyCards": len(records), "dailyDials": daily_count,
-            "referenceStops": stops, "numericValuesPreserved": True, "symbols": sorted(set(icons)),
-            "hardCodedColorsIndependentOfTheme": theme_independent,
-            "actualHourlyExtremaAndCentralTimes": True, "coverage": [{key: row[key] for key in ["day", "coverage", "hours", "expectedHours"]} for row in dials]}
-        await frame.locator("#extendedForecast").scroll_into_view_if_needed()
-        await page.screenshot(path=str(output / f"daily-temperature-dials-{width}.png"), full_page=True)
-        await frame.locator("#hourlyForecast").scroll_into_view_if_needed()
-        await page.screenshot(path=str(output / f"hourly-reference-palette-{width}.png"), full_page=True)
+        expected_axis = ['00','06','12','18','24'] if chief else ['12 AM','6 AM','12 PM','6 PM','12 AM']
+        require(all(face['summariesInside'] and face['belowFace'] == 0 and face['labels'] == expected_axis for face in faces),
+                'A dial has misplaced H/L, below-wheel notes, or an incorrect role clock')
+        require(any(face['coverage'] == 'unavailable' for face in faces), 'Missing daily hourly guidance became a colored full day')
+        hourly = await frame.locator('#hourlyForecast .forecast-card').evaluate_all("""elements=>elements.map(el=>{
+          const icon=el.querySelector('.hourly-condition-main .wv-condition'),v=el.querySelector('.wv-temperature-value');
+          const box=el.getBoundingClientRect(),image=icon?.getBoundingClientRect(),temperature=el.querySelector('.wv-temperature');
+          return {value:temperature?.dataset.airTemperature,color:temperature?.dataset.temperatureColor,
+            numeric:v?.textContent,actualColor:v?getComputedStyle(v).color:null,
+            centered:Boolean(image)&&Math.abs((image.left+image.width/2)-(box.left+box.width/2))<3,
+            oldKey:el.querySelectorAll('.wv-temperature-scale,.wv-temperature-track,.wv-temperature-limits').length};
+        })""")
+        require(len(hourly) == 12 and all(row['centered'] and row['oldKey'] == 0 and '°' in row['numeric'] and 'F' not in row['numeric'] for row in hourly),
+                'Hourly icons are not centered or old temperature keys/F labels remain')
+        require(await frame.locator('.wv-temperature-scale,.wv-temperature-limits,.wv-dial-coverage,.wv-dial-caption,.wv-dial-limit').count() == 0,
+                'Removed temperature keys or below-wheel labels remain')
+        for row in hourly:
+            color = row['color']
+            rgb = 'rgb(' + ', '.join(str(int(color[offset:offset+2],16)) for offset in [1,3,5]) + ')'
+            require(row['actualColor'] == rgb, 'Hourly temperature color was replaced by the site theme')
+        stops = dict(await frame.evaluate('cmpriWeatherVisuals.stops.map(stop=>[stop.fahrenheit,stop.color])'))
+        require(stops[0] == '#00e7e5' and stops[32] == '#e000ee' and stops[45] == '#0065fb'
+                and stops[63] == '#9bff54' and stops[85] == '#ff8900' and stops[106] == '#e92b95',
+                'The fixed reference palette changed')
+        await frame.locator('#extendedForecast').scroll_into_view_if_needed()
+        await page.screenshot(path=str(output / ('daily-inside-wheel-' + suffix + '.png')), full_page=True)
+        await frame.locator('#hourlyForecast').scroll_into_view_if_needed()
+        await page.screenshot(path=str(output / ('hourly-centered-color-' + suffix + '.png')), full_page=True)
         await frame.evaluate("document.getElementById('windowBody').scrollTo(0,0)")
-        feed.wind_chill = 0
-        feed.gust = None
+        await page.screenshot(path=str(output / ('current-observed-and-forecast-' + suffix + '.png')), full_page=True)
+        initial = await observed_extremes(frame)
+        feed.history_extra.append((feed.now-timedelta(minutes=5),45))
         await refresh(frame)
-        require("0°F" in await frame.locator("#liveFeelsLike").inner_text(), "A valid zero-degree wind chill became unavailable")
-        require(not re.search(r"\b0\s*mph\b", await frame.locator("#liveGusts").inner_text()), "Missing observed gust became zero")
-        evidence["nullableObservationFields"] = {"zeroWindChillPreserved": True, "missingGustNotZero": True}
+        require(await observed_extremes(frame) == initial, 'Equal high report changed an already established observed extreme timestamp')
+        feed.history_extra.append((feed.now-timedelta(minutes=4),46))
+        await refresh(frame)
+        higher = await observed_extremes(frame)
+        require(higher['H']['value'] == 46 and datetime.fromisoformat(higher['H']['time'].replace('Z','+00:00')) == feed.now-timedelta(minutes=4)
+                and higher['L'] == initial['L'], 'New observed high did not update only the appropriate extreme')
+        feed.history_extra.append((feed.now-timedelta(minutes=3),-12))
+        await refresh(frame)
+        require((await observed_extremes(frame))['L'] == initial['L'], 'Equal low report moved the observed low timestamp')
+        feed.history_extra.append((feed.now-timedelta(minutes=2),-13))
+        await refresh(frame)
+        require((await observed_extremes(frame))['L']['value'] == -13, 'A newly lower observed report did not update the low')
+        evidence['observedExtremaStableUntilNewExtreme'] = True
+        feed.wind_chill = 0; feed.gust = None
+        await refresh(frame)
+        require('0°' in await frame.locator('#liveFeelsLike').inner_text(), 'Valid zero wind chill became unavailable')
+        require(await frame.locator('#liveGusts').count() == 0, 'Missing observed gust became zero or retained an old gust')
         feed.observation_failure = True
         await refresh(frame)
-        require(await frame.locator("#liveTemperature .wv-temperature-value").get_attribute("data-air-temperature") == "unknown",
-                "An unavailable station report retained an observed temperature")
-        require(await frame.locator(".conditions-priority svg.wv-condition:not([data-condition='unknown'])").count() == 0,
-                "An unavailable station report retained an observed weather-condition picture")
-        require(not re.search(r"\b0\s*mph\b", await frame.locator("#liveWind").inner_text()),
-                "Unavailable station wind became zero")
-        feed.observation_failure = False
-        evidence["missingObservationDoesNotUseForecastOrPicture"] = True
+        require('STALE' in await frame.locator('#liveConditionsBadge').inner_text()
+                and await frame.locator('#liveTemperature .wv-temperature-value').inner_text() == '10°',
+                'Unavailable read discarded cached observation or silently treated it as fresh')
         feed.alert_failure = True
         await refresh(frame)
-        require(await frame.locator("#officialAlertsSection").is_hidden(), "Failed alert request created an empty alert section")
-        unavailable = await frame.locator("#liveAlertAvailability").inner_text()
-        require(any(word in unavailable.lower() for word in ["unknown", "unavailable", "failed"]), "Failed alerts lack visible unknown status")
-        require(not re.search(r"^\s*(?:all[ -]clear|no active)\b", unavailable, re.I),
-                "Failure was presented as an affirmative all-clear")
-        evidence["emptyOrFailedAlerts"] = {"emptySectionHidden": True, "failureUnknown": unavailable}
-        feed.alert_failure = False
-        cap_cancel = feed.alert("CAP-CANCEL", "Tornado Warning", action="Cancel")
-        cap_cancel["properties"]["references"] = (
-            "w-nws.webmaster@noaa.gov,urn:oid:TEST-FIXTURE-CAP-OLD," + iso(feed.now - timedelta(minutes=5)))
-        feed.alert_features = [cap_cancel, feed.alert("CAP-OLD", "Tornado Warning"),
-                               feed.alert("EXPIRED", "Winter Storm Watch", expired=True)]
-        await refresh(frame)
-        require(await frame.locator("#officialAlertsSection").is_hidden(), "Canceled or expired alerts remain active in the official section")
-        evidence["capStringCancelBeforeOldFeature"] = True
-        await frame.evaluate("document.getElementById('windowBody').scrollTo(0,0)")
-        await page.screenshot(path=str(output / f"current-visuals-{width}.png"), full_page=True)
-        evidence.update(passed=True, errors=errors, externalRequests=external, applicationMutations=mutations)
-        require(not errors and not external and not mutations, "Unexpected script error, external request or mutation")
-        require(await frame.evaluate("window.__weatherReviewForbidden.length === 0"), "GPS / push / permission API invoked")
+        require(await frame.locator('#officialAlertsSection').is_hidden(), 'Failed empty alert request created an alert section')
+        availability = await frame.locator('#liveAlertAvailability').inner_text()
+        require(re.search(r'unknown|unavailable|failed',availability,re.I) and not re.search(r'^\s*(?:all.clear|no active)',availability,re.I),
+                'Unavailable alert data became an all-clear')
+        evidence['cachedFailureLabeledStaleAndMissingNotZero'] = True
+        require(not errors and not external and not mutations, 'Unexpected script error, external request or application mutation')
+        require(await frame.evaluate('window.__weatherReviewForbidden.length===0'), 'GPS/push/permission API invoked')
+        evidence.update(passed=True,errors=errors,externalRequests=external,applicationMutations=mutations)
         return evidence
     finally:
-        feed.release()
-        await context.close()
+        feed.release(); await context.close()
 
 
 async def native_notices(browser, base, output, width, height):
@@ -334,7 +328,7 @@ async def native_notices(browser, base, output, width, height):
         await page.screenshot(path=str(output / f"native-warning-{width}.png"), full_page=True)
         await dialog.locator("[data-weather-guest-safety-close]").click()
         await dialog.wait_for(state="hidden")
-        ticker = native.locator("[data-weather-alert-ticker]")
+        ticker = page.locator("[data-weather-alert-ticker]")
         await ticker.wait_for(state="visible")
         require(await ticker.get_attribute("data-level") == "warning", "Ticker did not use the most urgent active level")
         advisory = next(row for row in official_history if row["event"] == "Winter Weather Advisory")
@@ -348,13 +342,18 @@ async def native_notices(browser, base, output, width, height):
         await page.screenshot(path=str(output / f"native-ticker-{width}.png"), full_page=True)
 
         async def ticker_geometry():
-            result = await native.evaluate("""element => {
-              const title=element.querySelector('.cmpri-desktop-titlebar'),ticker=element.querySelector('[data-weather-alert-ticker]');
-              const a=title.getBoundingClientRect(),b=ticker.getBoundingClientRect(),n=element.getBoundingClientRect();
-              return {direct:title.nextElementSibling===ticker,gap:b.top-a.bottom,left:b.left-n.left,right:n.right-b.right,width:b.width};
+            result = await page.evaluate("""() => {
+              const title=document.querySelector('.cmpri-desktop-topbar:not([hidden])');
+              const host=document.querySelector('[data-weather-desktop-bulletin-host]');
+              const ticker=host?.querySelector('[data-weather-alert-ticker]');
+              const a=title.getBoundingClientRect(),b=ticker.getBoundingClientRect();
+              return {direct:title.nextElementSibling===host,gap:b.top-a.bottom,left:b.left-a.left,
+                right:a.right-b.right,width:b.width,outsideModal:!ticker.closest('.cmpri-desktop-window')};
             }""")
-            require(result["direct"] and abs(result["gap"]) <= 1.5, "Ticker is not flush immediately under the native titlebar")
-            require(result["left"] <= 2 and result["right"] <= 2, "Ticker no longer spans its native window")
+            require(result["direct"] and abs(result["gap"]) <= 1.5,
+                    "Ticker is not directly beneath the desktop application title bar")
+            require(result["outsideModal"] and abs(result["left"]) <= 2 and abs(result["right"]) <= 2,
+                    "Ticker is inside a modal or no longer spans the desktop application title bar")
             return result
 
         first_ticker = await ticker_geometry()
@@ -364,9 +363,12 @@ async def native_notices(browser, base, output, width, height):
         x_before = (await track.bounding_box())["x"]
         await asyncio.sleep(.3)
         x_after = (await track.bounding_box())["x"]
+        duration = await track.evaluate("el=>parseFloat(getComputedStyle(el).animationDuration)")
+        old_duration = max(20, len((await track.text_content()).strip()) * .09)
+        require(duration < old_duration, "Ticker did not become faster than its prior pacing")
         await page.emulate_media(reduced_motion="reduce")
-        require(x_after > x_before + 1, "The actual alert ticker does not move left to right")
-        evidence["tickerLeftToRight"] = {"beforeX": x_before, "afterX": x_after}
+        require(x_after < x_before - 1, "The actual alert ticker does not move right to left")
+        evidence["tickerRightToLeft"] = {"beforeX": x_before, "afterX": x_after}
         if width >= 640:
             edge = native.locator(".cmpri-desktop-resize-se")
             point = await edge.bounding_box()
@@ -397,13 +399,23 @@ async def native_notices(browser, base, output, width, height):
         evidence["officialInAppAndTicker"] = {"messages": count_before, "unknownDoesNotClear": True,
             "noDuplicateOrReopen": True, "flushGeometry": first_ticker}
         await native.get_by_role("button", name="Close Weather", exact=True).click()
-        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="detached")
+        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
+        require(await ticker.is_visible(), "Closing Weather hid an active desktop alert ticker")
+        await ticker_geometry()
+        calls_while_closed = [feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls]
+        await ticker.click()
+        await dialog.wait_for(state="visible")
+        require(await native.is_hidden(), "Opening ticker details unexpectedly reopened the Weather map")
+        await dialog.locator("[data-weather-guest-safety-close]").click()
+        require([feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls] == calls_while_closed,
+                "Opening ticker details while Weather was closed fetched NWS data")
+        await page.screenshot(path=str(output / f"desktop-ticker-weather-closed-{width}.png"), full_page=True)
         await launcher.click()
         frame = await weather_frame(page)
         await wait_for(frame, "!nwsLiveView.getState().loading")
         native = page.locator(native_selector)
         dialog = page.locator("[data-weather-guest-safety-dialog]")
-        ticker = native.locator("[data-weather-alert-ticker]")
+        ticker = page.locator("[data-weather-alert-ticker]")
         await ticker.wait_for(state="visible")
         require(await dialog.is_hidden(), "Closing/reopening Weather forgot warning dismissal")
         await ticker_geometry()
@@ -427,7 +439,8 @@ async def native_notices(browser, base, output, width, height):
         ending_watch["properties"]["ends"] = iso(feed.now - timedelta(minutes=1))
         feed.alert_features = [ending_watch]
         await refresh(frame)
-        require(await native.locator("[data-weather-alert-ticker]").count() == 0,
+        await wait_for(page,"!document.querySelector('[data-weather-alert-ticker]')")
+        require(await page.locator("[data-weather-alert-ticker]").count() == 0,
                 "Official early end time did not remove a watch before bulletin expiration")
         ended = [row for row in (await frame.evaluate("notificationPreview.snapshot()"))["inbox"]
                  if row["status"] == "ended"]
@@ -435,11 +448,26 @@ async def native_notices(browser, base, output, width, height):
                 "Early end cleanup overwrote the official future expiration time")
         feed.alert_features = [feed.alert("WATCH", "Severe Thunderstorm Watch", expired=True)]
         await refresh(frame)
-        require(await native.locator("[data-weather-alert-ticker]").count() == 0, "Expired watch remained in the ticker")
+        require(await page.locator("[data-weather-alert-ticker]").count() == 0, "Expired watch remained in the ticker")
         require(await dialog.is_hidden(), "Expired official alert left details open")
         require(len((await frame.evaluate("notificationPreview.snapshot()"))["alerts"]) == 0, "Canceled/expired alerts remained active")
         evidence["cancelAndExpire"] = {"warningToWatch": True, "watchUsesStandardDialog": True,
             "earlyEndsPreservesOfficialExpires": True, "expiredRemoved": True}
+        soon = feed.alert("CLOSED-EXPIRY", "Winter Storm Watch")
+        soon["properties"]["expires"] = iso(feed.now + timedelta(seconds=60))
+        feed.alert_features = [soon]
+        await refresh(frame)
+        await page.locator("[data-weather-alert-ticker]").wait_for(state="visible")
+        await native.get_by_role("button", name="Close Weather", exact=True).click()
+        await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
+        closed_calls = [feed.observation_calls,feed.history_calls,feed.forecast_calls,feed.alert_calls]
+        await page.clock.fast_forward(61000)
+        await wait_for(page,"!document.querySelector('[data-weather-alert-ticker]')")
+        require(closed_calls == [feed.observation_calls,feed.history_calls,feed.forecast_calls,feed.alert_calls],
+                "Closed ticker expiration checked an NWS feed")
+        evidence["tickerExpiresWhileWeatherClosedWithoutRequests"] = True
+        await launcher.click()
+        frame = await weather_frame(page)
         await frame.locator("#tab-notifications").click()
         require(await frame.locator("#npDelivery").count() == 0, "Phone/email delivery control returned to the in-app-only preview")
         await frame.locator("#npWinterPrep").check()
@@ -462,7 +490,7 @@ async def native_notices(browser, base, output, width, height):
         await dialog.wait_for(state="visible")
         await frame.evaluate("notificationPreview.advanceSimulation(61)")
         await dialog.wait_for(state="hidden")
-        require(await native.locator("[data-weather-alert-ticker]").count() == 0, "Expired warning sample retained its ticker")
+        require(await page.locator("[data-weather-alert-ticker]").count() == 0, "Expired warning sample retained its ticker")
         evidence["freezeAndSampleExpiry"] = {"fullScreenClearlySimulated": True, "correctSuppliesAndStaff": True,
                                              "repeatDismissed": True, "cancelAndExpiryClose": True}
         await frame.locator("#npReset").click()
@@ -501,14 +529,16 @@ async def main():
             for name, action in suites:
                 if args.suite not in ["all", name]:
                     continue
-                try:
-                    result = await action(browser, args.base, output, width, height)
-                    print(f"PASS {name} {width}×{height}", flush=True)
-                except Exception as error:
-                    result = {"viewport": [width, height], "passed": False, "error": str(error)}
-                    print(f"FAIL {name} {width}×{height}: {error}", flush=True)
-                result["suite"] = name
-                results.append(result)
+                roles = ["chief_engineer", "system_admin"] if name == "current" else ["chief_engineer"]
+                for role in roles:
+                    try:
+                        result = await action(browser, args.base, output, width, height, role) if name == "current" else await action(browser, args.base, output, width, height)
+                        print(f"PASS {name} {role} {width}×{height}", flush=True)
+                    except Exception as error:
+                        result = {"viewport": [width, height], "role": role, "passed": False, "error": str(error)}
+                        print(f"FAIL {name} {role} {width}×{height}: {error}", flush=True)
+                    result["suite"] = name
+                    results.append(result)
         await browser.close()
     (output / "report.json").write_text(json.dumps(results, indent=2))
     if any(not result.get("passed") for result in results):
