@@ -35,11 +35,11 @@ __SITE_PALETTE_CSS__
 #cmpriScorebug #sbQuarter{text-transform:lowercase}#cmpriScorebug #sbClock{font-size:16px;font-weight:900;letter-spacing:-.4px;color:var(--cmpri-palette-white);min-width:44px;text-align:center}#cmpriScorebug #sbPlayClock{font-size:9px;min-width:10px}
 #cmpriScorebug .sb-ticker{height:12px;display:flex;align-items:center;padding:0 5px;border:1px solid color-mix(in srgb,var(--cmpri-palette-white) 60.39%,var(--ink));border-top:0;background:linear-gradient(color-mix(in srgb,var(--cmpri-palette-white) 73.46%,var(--ink)),color-mix(in srgb,var(--cmpri-palette-white) 58.04%,var(--ink)) 58%,color-mix(in srgb,var(--cmpri-palette-white) 72.81%,var(--ink)));border-radius:0 0 2px 2px;overflow:hidden;color:var(--cmpri-palette-desktop-tone-2);text-transform:uppercase;font-size:8px;font-weight:700;line-height:10px;text-align:center}
 #cmpriScorebug .sb-ticker-viewport{width:100%;min-width:0;overflow:hidden}#cmpriScorebug #sbTicker{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:none;transform:none;padding:0}
-.sim-tally{position:absolute;z-index:4;left:24px;top:49px;display:flex;align-items:center;gap:10px;padding:5px 8px;border:1px solid color-mix(in srgb,var(--edge) 50.2%,transparent);border-radius:2px;background:color-mix(in srgb,var(--surface) 89.02%,transparent);color:var(--text);font-size:8px;font-weight:700;line-height:12px;letter-spacing:.2px;white-space:nowrap}
+.sim-tally{position:absolute;z-index:4;left:24px;top:49px;display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:5px 8px;border:1px solid color-mix(in srgb,var(--edge) 50.2%,transparent);border-radius:2px;background:color-mix(in srgb,var(--surface) 89.02%,transparent);color:var(--text);font-size:8px;font-weight:700;line-height:12px;letter-spacing:.2px;white-space:nowrap}
+.sim-tally-record,.sim-betting-line{display:flex;align-items:center;gap:10px}.sim-betting-line{display:none;justify-content:space-between;font-variant-numeric:tabular-nums}body.cmpri-embedded.cmpri-tally-header .sim-betting-line{display:flex}
 .sim-tally .sb-tally-ill{color:var(--orange-light)}.sim-tally .sb-tally-iowa{color:var(--gold)}.sim-tally b{color:var(--cmpri-palette-white);font-weight:800}.sim-tally .sb-tally-label{color:var(--muted);font-size:7px}
-/* Desktop game scores and the record follow the dashboard, not the field. */
-body.cmpri-embedded.cmpri-tally-header .stage #cmpriScorebug{position:fixed;left:auto;right:var(--cmpri-tally-right,8px);top:var(--cmpri-tally-top);bottom:auto;transform:none;width:min(440px,calc(100vw - 16px))}
-body.cmpri-embedded.cmpri-tally-header .sim-tally{position:fixed;left:auto;right:var(--cmpri-tally-right,8px);top:calc(var(--cmpri-tally-top) + var(--cmpri-score-height) + 4px);max-width:calc(100vw - 16px)}
+/* Only the compact record and published betting line follow the dashboard. */
+body.cmpri-embedded.cmpri-tally-header .sim-tally{position:fixed;left:auto;right:var(--cmpri-tally-right,8px);top:var(--cmpri-tally-top);max-width:calc(100vw - 16px)}
 @media(max-width:650px){.stage-wrap{padding-bottom:80px}.stage #cmpriScorebug,body.ambient .stage #cmpriScorebug{bottom:-72px;width:calc(100% - 20px)}#cmpriScorebug .sb-graphic{height:45px}#cmpriScorebug .sb-team-name{font-size:8px;line-height:9px}#cmpriScorebug .sb-rank{font-size:7px}#cmpriScorebug .sb-down{height:19px;line-height:17px;width:110px;font-size:12px}#cmpriScorebug .sb-side{top:12px;bottom:3px}#cmpriScorebug .sb-score{font-size:24px;line-height:28px;min-width:30px;top:0}#cmpriScorebug .sb-team-logo{height:24px;width:36px}#cmpriScorebug .sb-ill .sb-team-logo{height:26px;width:19px;left:10px}#cmpriScorebug .sb-iowa .sb-team-logo{right:7px}#cmpriScorebug .sb-center{top:23px;bottom:3px;left:35%;right:35%}#cmpriScorebug .sb-game-time{gap:3px;font-size:8px}#cmpriScorebug #sbClock{font-size:15px;min-width:40px}#cmpriScorebug #sbPlayClock{font-size:8px;min-width:8px}#cmpriScorebug .sb-ticker{height:11px;font-size:7.5px;line-height:9px}.sim-tally{left:10px;top:28px;gap:7px;padding:3px 5px;font-size:7px;line-height:9px}.sim-tally .sb-tally-label{font-size:6px}}
 
 .field-surface{position:absolute;inset:0;width:100%;height:100%}.game-break{position:absolute;z-index:6;left:50%;top:42%;transform:translate(-50%,-50%);width:min(390px,calc(100% - 32px));padding:18px 22px;text-align:center;border:1px solid var(--gold);border-radius:4px;background:color-mix(in srgb,var(--surface) 93.73%,transparent);color:var(--text);box-shadow:0 4px 16px color-mix(in srgb,var(--ink) 53.33%,transparent)}.game-break[hidden]{display:none}.game-break strong{display:block;font-size:19px;letter-spacing:1.3px}.game-break p{margin:9px 0 0;color:var(--soft);font-size:12px;line-height:1.5}body.cmpri-embedded #exitAmbient{display:none!important}
@@ -73,7 +73,7 @@ body.cmpri-embedded.cmpri-tally-header .sim-tally{position:fixed;left:auto;right
   <span id="sbAccessibleSummary" class="screen-reader" aria-live="polite">Simulated score: Illinois 0, Iowa 0. First quarter.</span>
 </div>
 
-  <div class="sim-tally" aria-label="Persistent simulation win and loss tally"><span class="sb-tally-label">SIMULATIONS W–L</span><span class="sb-tally-ill">ILLINOIS <b id="tallyIllWins">0</b>–<b id="tallyIllLosses">0</b></span><span class="sb-tally-iowa">IOWA <b id="tallyIowaWins">0</b>–<b id="tallyIowaLosses">0</b></span><span><b id="tallyTotal">0</b> GAMES</span></div>
+  <div class="sim-tally" aria-label="Simulation win and loss record and real betting line"><div class="sim-tally-record"><span class="sb-tally-label">SIMULATIONS W–L</span><span class="sb-tally-ill">ILLINOIS <b id="tallyIllWins">0</b>–<b id="tallyIllLosses">0</b></span><span class="sb-tally-iowa">IOWA <b id="tallyIowaWins">0</b>–<b id="tallyIowaLosses">0</b></span><span><b id="tallyTotal">0</b> GAMES</span></div><div class="sim-betting-line" data-state="unavailable" aria-label="Real betting point spread from ESPN"><span class="sb-tally-label">BETTING LINE</span><span id="liveBettingLine">Checking…</span></div></div>
 
 <div class="game-break" id="gameBreak" hidden role="status" aria-live="polite"><strong id="gameBreakTitle"></strong><p id="gameBreakMessage"></p></div>
   <div class="frame-corners"></div><div class="camera-label">STADIUM CAM 01 <span>ILLINI / HAWKEYES</span></div>
@@ -101,21 +101,68 @@ const s=still.getContext('2d',{alpha:false}),c=motion.getContext('2d'),ambience=
 const $=id=>document.getElementById(id), photo=new Image();
 const reduced=matchMedia('(prefers-reduced-motion: reduce)');
 let artworkReady=false,gameReady=false,generating=false,sceneInView=true,hostSuspended=false;const breakSeen=new Set();const EMBEDDED_THEME=new URLSearchParams(location.search).get('theme')==='1';if(EMBEDDED_THEME){hostSuspended=true;document.body.classList.add('ambient','cmpri-embedded')}const visibleWaiters=[];let paused=reduced.matches,ready=false,raf=0,last=0,time=0,playNo=0,statusKey='',ambient=false;
-// Keep the game scoreboard and record below the dashboard title/menu bar.
-// Header reflow must not move either with the centered/scaled stadium stage.
+// Keep only the compact record/betting strip below the dashboard title bar.
 if(EMBEDDED_THEME&&parent!==window){
  const compactTally=matchMedia('(max-width:767px),(max-width:1024px) and (pointer:coarse)');
  let tallyHeader=null,tallyResize=null,tallyAttributes=null,tallyTree=null,tallyDocument=null,tallyFrame=0;
+ const bettingNode=$('liveBettingLine'),bettingRow=bettingNode.parentElement;
+ let bettingTimer=0,bettingController=null,bettingSnapshot=null,bettingAttempt=0,bettingSuspended=true,bettingDisposed=false;
+ function paintBettingLine(){
+  const data=bettingSnapshot,at=Date.parse(data?.retrievedAt||''),age=Date.now()-at;
+  const known=data&&typeof data.line==='string'&&data.line.trim()&&data.line.length<=100&&Number.isFinite(at)&&age>=-60000&&age<=300000;
+  const current=known&&data.status==='available'&&age<120000;
+  bettingRow.dataset.state=current?'available':known?'stale':'unavailable';
+  bettingNode.textContent=current?data.line:known?'Last Line: '+data.line:'Unavailable';
+  let title='Real Betting Point Spread · ESPN';
+  if(known){
+   const chief=/chief engineer/i.test(tallyDocument?.querySelector('[data-dashboard-role]')?.textContent||'');
+   const stamp=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:!chief,timeZoneName:'short'}).format(new Date(at));
+   title+=' · '+(typeof data.provider==='string'?data.provider:'Published Line')+' · Checked: '+stamp;
+   if(!current)title+=' · Last Known Line; Refresh Unavailable';
+  }else title+=' · Current Line Unavailable';
+  bettingRow.title=title;
+ }
+ function syncBettingLine(){
+  clearTimeout(bettingTimer);bettingTimer=0;
+  const active=!bettingDisposed&&!bettingSuspended&&!document.hidden&&document.body.classList.contains('cmpri-tally-header');
+  if(!active){if(bettingController){bettingController.abort();bettingAttempt=0}return}
+  if(bettingSnapshot)paintBettingLine();
+  if(bettingController)return;
+  const remaining=bettingAttempt+60000-Date.now();
+  if(remaining>0){bettingTimer=setTimeout(syncBettingLine,remaining);return}
+  const controller=new AbortController();bettingController=controller;bettingAttempt=Date.now();
+  const deadline=setTimeout(()=>controller.abort(),12000);
+  bettingRow.dataset.state=bettingSnapshot?bettingRow.dataset.state:'loading';
+  fetch('/api/football-betting-line',{cache:'no-store',credentials:'same-origin',redirect:'error',signal:controller.signal})
+   .then(response=>{if(!response.ok)throw Error('Betting Line Unavailable');return response.json()})
+   .then(data=>{
+    if(controller.signal.aborted||bettingDisposed||bettingSuspended)return;
+    if(!data||!['available','stale','unavailable'].includes(data.status))throw Error('Betting Line Unavailable');
+    bettingSnapshot=data;paintBettingLine();
+   })
+   .catch(()=>{
+    if(bettingDisposed||bettingSuspended||document.hidden)return;
+    if(bettingSnapshot)bettingSnapshot={...bettingSnapshot,status:'stale'};
+    paintBettingLine();
+   })
+   .finally(()=>{clearTimeout(deadline);if(bettingController===controller)bettingController=null;syncBettingLine()});
+ }
+ function bettingHostControl(event){
+  if(event.source!==parent||event.origin!==location.origin||event.data?.type!=='cmpri-football-control'||event.data.action!=='suspend'||typeof event.data.suspended!=='boolean')return;
+  bettingSuspended=event.data.suspended;syncBettingLine();
+ }
+ addEventListener('message',bettingHostControl);document.addEventListener('visibilitychange',syncBettingLine);
+ addEventListener('pagehide',()=>{bettingDisposed=true;clearTimeout(bettingTimer);bettingController?.abort();removeEventListener('message',bettingHostControl);document.removeEventListener('visibilitychange',syncBettingLine)},{once:true});
  function positionDesktopTally(){
   tallyFrame=0;
   const header=tallyHeader?.getBoundingClientRect(),frame=window.frameElement?.getBoundingClientRect();
   const anchored=!compactTally.matches&&header&&frame&&header.width>0&&header.height>0&&frame.width>0&&frame.height>0;
   document.body.classList.toggle('cmpri-tally-header',Boolean(anchored));
-  if(!anchored)return;
+  if(!anchored){syncBettingLine();return}
   const scaleX=frame.width/innerWidth,scaleY=frame.height/innerHeight;
   document.body.style.setProperty('--cmpri-tally-top',Math.max(0,(header.bottom-frame.top+4)/scaleY)+'px');
   document.body.style.setProperty('--cmpri-tally-right',Math.max(8,(frame.right-header.right+8)/scaleX)+'px');
-  document.body.style.setProperty('--cmpri-score-height',$('cmpriScorebug').getBoundingClientRect().height+'px');
+  syncBettingLine();
  }
  function scheduleTallyPosition(){if(!tallyFrame)tallyFrame=requestAnimationFrame(positionDesktopTally)}
  function findTallyHeader(){
@@ -123,7 +170,7 @@ if(EMBEDDED_THEME&&parent!==window){
   if(next!==tallyHeader){
    tallyResize?.disconnect();tallyAttributes?.disconnect();tallyHeader=next;
    if(next){
-    tallyResize=new ResizeObserver(scheduleTallyPosition);tallyResize.observe(next);tallyResize.observe($('cmpriScorebug'));
+    tallyResize=new ResizeObserver(scheduleTallyPosition);tallyResize.observe(next);
     tallyAttributes=new MutationObserver(scheduleTallyPosition);tallyAttributes.observe(next,{attributes:true,attributeFilter:['style','class','hidden']});
    }
   }

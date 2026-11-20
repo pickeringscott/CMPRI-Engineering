@@ -78,12 +78,19 @@ opening receiver, and clock-stopped two-minute warnings appear in quarters two
 and four. The scorebug displays the simulated score and completed-play ticker.
 Iowa is AP No. 15; Illinois has no rank label.
 
-On the desktop dashboard, the game scoreboard follows the title bar at its
-lower-right edge, with a four-pixel gap and eight-pixel right margin. The local
-win/loss tally sits four pixels below the measured scoreboard and aligns with
-its right edge. Both follow header reflow and resizing independently of the
-stadium. Sign-in, standalone previews and compact/mobile layouts retain their
-existing placement.
+On the desktop dashboard, only the compact win/loss strip follows the title
+bar, with a four-pixel gap and eight-pixel right margin. Its second row shows
+the real published Iowa/Illinois betting point spread from ESPN. The animated
+game's broadcast scoreboard keeps its original position in the stadium.
+Sign-in, standalone previews and compact/mobile layouts retain their existing
+placement and do not request betting data.
+
+Betting reads occur only while the anchored desktop strip is visible, at most
+once per minute. Hiding the document/desktop or switching to a compact layout
+aborts reads and stops refreshes. Quotes are kept only in memory. Missing
+markets remain unavailable, and a failed refresh labels a retained quote as a
+last-known line. This adds no database activity, background scheduler, betting
+action, paid feed or API key.
 
 Low CPU mode is the default at up to 15 fps; Smooth mode uses up to 24 fps.
 The static crowd and stationary sideline figures are baked into the scene.
@@ -145,9 +152,9 @@ regressions exercise real game controls and the shared sign-in/desktop host at
 desktop and phone sizes, using only loopback files and synthetic API responses.
 
 In a browser, verify standalone and embedded layouts at desktop and mobile
-sizes; full stadium coverage; the dashboard scoreboard anchored below the
-title bar, bottom-center placement on sign-in/standalone/mobile, and play
-ticker; local tally after a completed game; Pause/Resume and keyboard controls;
+sizes; full stadium coverage; only the W-L/betting strip anchored below the
+desktop title bar, original broadcast scoreboard placement, and play ticker;
+local tally after a completed game; Pause/Resume and keyboard controls;
 reduced motion; route/tab/offscreen suspension; and an offline revisit after
 the hosted service worker has cached the entry. Inspect `window.cmpriTheme`
 for current attendance, sideline roles, game state, cache status, and rendering
