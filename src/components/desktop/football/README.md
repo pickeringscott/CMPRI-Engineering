@@ -78,6 +78,13 @@ opening receiver, and clock-stopped two-minute warnings appear in quarters two
 and four. The scorebug displays the simulated score and completed-play ticker.
 Iowa is AP No. 15; Illinois has no rank label.
 
+On the desktop dashboard, the game scoreboard follows the title bar at its
+lower-right edge, with a four-pixel gap and eight-pixel right margin. The local
+win/loss tally sits four pixels below the measured scoreboard and aligns with
+its right edge. Both follow header reflow and resizing independently of the
+stadium. Sign-in, standalone previews and compact/mobile layouts retain their
+existing placement.
+
 Low CPU mode is the default at up to 15 fps; Smooth mode uses up to 24 fps.
 The static crowd and stationary sideline figures are baked into the scene.
 Motion uses cached sprites, display-sized canvases, changed-area redraws, and
@@ -138,7 +145,8 @@ regressions exercise real game controls and the shared sign-in/desktop host at
 desktop and phone sizes, using only loopback files and synthetic API responses.
 
 In a browser, verify standalone and embedded layouts at desktop and mobile
-sizes; full stadium coverage; the smaller bottom-center scorebug and play
+sizes; full stadium coverage; the dashboard scoreboard anchored below the
+title bar, bottom-center placement on sign-in/standalone/mobile, and play
 ticker; local tally after a completed game; Pause/Resume and keyboard controls;
 reduced motion; route/tab/offscreen suspension; and an offline revisit after
 the hosted service worker has cached the entry. Inspect `window.cmpriTheme`

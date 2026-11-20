@@ -33,7 +33,67 @@ GEOMETRY = """() => {
    sidelines:window.cmpriTheme.sidelinePeople};
 }"""
 
-async def verify_case(browser, authenticated, width, height, reduced_motion=False):
+
+async def verify_score_anchor(page, child, role, width, height):
+    """Measure the game scoreboard itself in the host viewport, including reflow."""
+    measurements = []
+
+    async def measure(state):
+        for _ in range(40):
+            header = await page.locator('.cmpri-desktop-topbar:visible').first.bounding_box()
+            score = await child.locator('#cmpriScorebug').bounding_box()
+            tally = await child.locator('.sim-tally').bounding_box()
+            assert header and score and tally, (state, header, score, tally)
+            gaps = {
+                'scoreGap': score['y'] - header['y'] - header['height'],
+                'scoreRightMargin': header['x'] + header['width'] - score['x'] - score['width'],
+                'tallyGap': tally['y'] - score['y'] - score['height'],
+                'tallyRightMargin': header['x'] + header['width'] - tally['x'] - tally['width'],
+            }
+            if all(abs(gaps[key] - target) <= 1 for key, target in (
+                ('scoreGap', 4), ('scoreRightMargin', 8), ('tallyGap', 4), ('tallyRightMargin', 8),
+            )):
+                break
+            await page.wait_for_timeout(50)
+        assert abs(gaps['scoreGap'] - 4) <= 1, (state, header, score, gaps)
+        assert abs(gaps['scoreRightMargin'] - 8) <= 1, (state, header, score, gaps)
+        assert abs(gaps['tallyGap'] - 4) <= 1, (state, score, tally, gaps)
+        assert abs(gaps['tallyRightMargin'] - 8) <= 1, (state, header, tally, gaps)
+        assert score['x'] >= 0 and tally['x'] >= 0, (state, score, tally)
+        assert score['y'] + score['height'] <= tally['y'], (state, score, tally)
+        screenshot = OUT / f'engineering-{role}-{width}-{state}.png'
+        await page.screenshot(path=str(screenshot), full_page=True)
+        measurement = {'state': state, 'role': role, 'viewport': page.viewport_size,
+                       'header': header, 'scorebug': score, 'tally': tally,
+                       **gaps, 'screenshot': str(screenshot)}
+        measurements.append(measurement)
+        return measurement
+
+    initial = await measure('expanded')
+    groups = page.locator('.cmpri-desktop-topbar fieldset.group:visible')
+    if await groups.count():
+        toggle = groups.first.locator('legend')
+        await toggle.click()
+        collapsed = await measure('group-collapsed')
+        assert collapsed['header']['height'] < initial['header']['height'], (initial, collapsed)
+        await toggle.click()
+        await measure('group-expanded')
+    else:
+        # The separate menu PR uses anchored tabs instead of fieldset legends.
+        # Exercise its actual overlay without assuming it changes header height.
+        toggle = page.locator('nav.cmpri-dashboard-menu-rail').get_by_role('button', name='Daily Work', exact=True)
+        await toggle.click()
+        await measure('tab-opened')
+        await toggle.click()
+        await measure('tab-closed')
+    await page.set_viewport_size({'width': width - 160, 'height': height})
+    await measure('resized')
+    await page.set_viewport_size({'width': width, 'height': height})
+    await measure('restored')
+    return measurements
+
+
+async def verify_case(browser, authenticated, width, height, reduced_motion=False, role='chief_engineer'):
     errors, failures, external = [], [], []
     context = await browser.new_context(
         viewport={'width': width, 'height': height},
@@ -41,7 +101,7 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
         reduced_motion='reduce' if reduced_motion else 'no-preference',
     )
     if authenticated:
-        await install(context, 'chief_engineer')
+        await install(context, role)
     else:
         async def route(request):
             if urlparse(request.request.url).hostname not in ('localhost', '127.0.0.1'):
@@ -82,12 +142,16 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
         assert abs(height - geometry['scorebug']['bottom'] - 6) <= 1, geometry
         assert geometry['scoreBottom'] == '6px', geometry
         assert geometry['scoreTransform'].startswith('matrix(1, 0, 0, 1,'), geometry
+        assert abs((geometry['scorebug']['left'] + geometry['scorebug']['right']) / 2 - width / 2) <= 1, geometry
         control_box = await control.bounding_box()
         assert control_box['y'] + control_box['height'] < geometry['scorebug']['top'], (control_box, geometry)
     else:
         assert geometry['fieldTransform'] == 'none', geometry
+        if not authenticated:
+            assert abs(geometry['stage']['bottom'] - geometry['scorebug']['bottom'] - 10) <= 1, geometry
     assert geometry['scorebug']['left'] >= -1 and geometry['scorebug']['right'] <= width + 1
-    screenshot = OUT / f'{"engineering" if authenticated else "sign-in"}-{width}{"-reduced" if reduced_motion else ""}.png'
+    anchors = await verify_score_anchor(page, child, role, width, height) if authenticated and width >= 768 else []
+    screenshot = OUT / f'{"engineering-" + role if authenticated else "sign-in"}-{width}{"-reduced" if reduced_motion else ""}.png'
     await page.screenshot(path=str(screenshot), full_page=True)
 
     # Use the actual parent control and prove it changes the child's game clock.
@@ -122,7 +186,8 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
     await child.wait_for_function('(time) => window.cmpriTheme.action.time !== time', arg=suspended_time, timeout=5000)
     assert not errors, errors
     assert not failures, failures
-    result = {'route': path, 'width': width, 'height': height, 'reducedMotion': reduced_motion,
+    result = {'route': path, 'role': role if authenticated else None,
+              'width': width, 'height': height, 'reducedMotion': reduced_motion, 'scoreAnchorStates': anchors,
               'passed': True, 'geometry': geometry, 'pageErrors': errors,
               'localHttpErrors': failures, 'blockedExternalRequests': external, 'screenshot': str(screenshot)}
     print(json.dumps(result), flush=True)
@@ -136,6 +201,8 @@ async def main():
         for authenticated in (False, True):
             for width, height in ((1440, 1000), (390, 844), (320, 700)):
                 results.append(await verify_case(browser, authenticated, width, height))
+        for width, height in ((1440, 1000), (390, 844)):
+            results.append(await verify_case(browser, True, width, height, role='system_admin'))
         results.append(await verify_case(browser, False, 390, 844, reduced_motion=True))
         await browser.close()
     (OUT / 'results.json').write_text(json.dumps(results, indent=2))
