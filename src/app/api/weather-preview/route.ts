@@ -6,6 +6,9 @@ const API = 'https://api.weather.gov';
 const POINT = '40.138080,-88.251416';
 const OBSERVATION_STATION_ID = 'KCMI';
 const OBSERVATION_SOURCE = API + '/stations/' + OBSERVATION_STATION_ID + '/observations/latest';
+const HISTORY_PATH = '/stations/' + OBSERVATION_STATION_ID + '/observations';
+const HISTORY_LIMIT = 500;
+const HISTORY_ANCHOR_MINUTES = 90;
 const LOCATION = {
   name: 'Residence Inn Champaign', address: '502 West Marketview Drive, Champaign, IL',
   latitude: 40.138080, longitude: -88.251416, timeZone: 'America/Chicago',
@@ -22,6 +25,29 @@ type Resource = {
 function object(value: unknown): Json | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Json : null;
 }
+const centralClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: LOCATION.timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+function centralParts(value: Date) {
+  return Object.fromEntries(centralClock.formatToParts(value).filter(part => part.type !== 'literal')
+    .map(part => [part.type, Number(part.value)]));
+}
+function centralMidnight(value: Date): string {
+  const local = centralParts(value);
+  const wallMidnight = Date.UTC(local.year, local.month - 1, local.day);
+  let candidate = wallMidnight;
+  // Resolve this wall-clock midnight's own offset. The offset at the current
+  // observation can differ on the spring/fall DST transition dates.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const part = centralParts(new Date(candidate));
+    const represented = Date.UTC(part.year, part.month - 1, part.day, part.hour, part.minute, part.second);
+    const difference = wallMidnight - represented;
+    candidate += difference;
+    if (difference === 0) return new Date(candidate).toISOString();
+  }
+  throw new Error('The Central local-day boundary is unavailable.');
+}
 function officialUrl(value: unknown): URL | null {
   if (typeof value !== 'string') return null;
   try {
@@ -29,6 +55,17 @@ function officialUrl(value: unknown): URL | null {
     if (url.origin !== API || url.username || url.password || url.hash) return null;
     if (url.pathname === '/alerts/active') {
       return url.searchParams.get('point') === POINT && Array.from(url.searchParams.keys()).length === 1 ? url : null;
+    }
+    if (url.pathname === HISTORY_PATH) {
+      const keys = Array.from(url.searchParams.keys());
+      if (keys.length !== 3 || keys.some(key => !['start', 'end', 'limit'].includes(key))
+        || keys.some(key => url.searchParams.getAll(key).length !== 1) || url.searchParams.get('limit') !== String(HISTORY_LIMIT)) return null;
+      const start = timestamp(url.searchParams.get('start')), end = timestamp(url.searchParams.get('end'));
+      if (!start || !end || start !== url.searchParams.get('start') || end !== url.searchParams.get('end')) return null;
+      const expectedStart = Date.parse(centralMidnight(new Date(end))) - HISTORY_ANCHOR_MINUTES * 60000;
+      const interval = Date.parse(end) - Date.parse(start);
+      return Date.parse(start) === expectedStart && interval >= 0 && interval <= (25 * 60 + HISTORY_ANCHOR_MINUTES) * 60000
+        && Date.parse(end) <= Date.now() + 5000 ? url : null;
     }
     if (url.search) return null;
     return url.pathname === '/points/' + LOOKUP_POINT
@@ -70,7 +107,9 @@ async function read(source: unknown, signal: AbortSignal): Promise<Resource> {
     if (response.url && !officialUrl(response.url)) throw new Error('NWS returned an unverified response URL.');
     const data = object(await response.json());
     if (!data) throw new Error('NWS returned an invalid JSON document.');
-    if (url.pathname === '/alerts/active' || url.pathname.endsWith('/stations')) {
+    if (url.pathname === HISTORY_PATH) {
+      if (data.type !== 'FeatureCollection' || !Array.isArray(data.features) || data.features.length > HISTORY_LIMIT) throw new Error('NWS returned no bounded observation feature collection.');
+    } else if (url.pathname === '/alerts/active' || url.pathname.endsWith('/stations')) {
       if (!Array.isArray(data.features)) throw new Error('NWS returned no verifiable feature collection.');
     } else {
       const properties = object(data.properties);
@@ -112,6 +151,32 @@ async function observationResource(signal: AbortSignal): Promise<Resource> {
     latitude: null, longitude: null, distanceMeters: null };
   return observation;
 }
+async function historyResource(signal: AbortSignal) {
+  const asOf = new Date().toISOString(), dayStart = centralMidnight(new Date(asOf));
+  const queryStart = new Date(Date.parse(dayStart) - HISTORY_ANCHOR_MINUTES * 60000).toISOString();
+  const source = API + HISTORY_PATH + '?' + new URLSearchParams({ start: queryStart, end: asOf, limit: String(HISTORY_LIMIT) });
+  const history = await read(source, signal);
+  const features = history.data && Array.isArray(history.data.features) ? history.data.features : null;
+  const times = (features || []).flatMap(value => {
+    const feature = object(value), report = object(feature?.properties), time = timestamp(report?.timestamp);
+    return time && Date.parse(time) >= Date.parse(queryStart) && Date.parse(time) <= Date.parse(asOf) ? [time] : [];
+  }).sort();
+  history.sourceTimestamp = times.at(-1) || null;
+  if (history.data && !history.sourceTimestamp) {
+    history.status = 'unavailable'; history.error = 'No verifiable timestamped KCMI reports were returned for this history interval.';
+  } else if (history.sourceTimestamp && Date.now() - Date.parse(history.sourceTimestamp) > 90 * 60000) {
+    history.status = 'stale'; history.error = 'The newest returned KCMI history report is more than 90 minutes old.';
+  }
+  const pagination = object(history.data?.pagination);
+  const truncated = features ? features.length >= HISTORY_LIMIT || Boolean(pagination?.next) : null;
+  return { resource: history, metadata: {
+    dayStart, queryStart, asOf, timeZone: LOCATION.timeZone, anchorLookbackMinutes: HISTORY_ANCHOR_MINUTES,
+    // This is response completeness only. Samples and gaps do not establish
+    // continuous coverage or an observation at midnight; raw reports stay raw.
+    queryComplete: features !== null && !truncated, truncated, returnedCount: features?.length ?? null,
+    oldestSourceTimestamp: times[0] || null, newestSourceTimestamp: history.sourceTimestamp,
+  } };
+}
 async function propertyResources(signal: AbortSignal, includeStations: boolean) {
   const points = await read(API + '/points/' + LOOKUP_POINT, signal);
   const properties = object(points.data?.properties);
@@ -135,12 +200,17 @@ export async function GET(request: Request) {
   const part = query.get('part');
   // Sharing/connector query metadata is ignored and never forwarded. Only the
   // recognized partial-response selector affects these fixed official reads.
-  if (query.getAll('part').length > 1 || (part !== null && !['observation', 'alerts', 'forecast'].includes(part))) {
+  if (query.getAll('part').length > 1 || (part !== null && !['observation', 'history', 'alerts', 'forecast'].includes(part))) {
     return Response.json({ error: 'Choose one supported weather response part.' }, { status: 400, headers });
   }
   if (part === 'observation') {
     const observation = await observationResource(request.signal);
     return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: { observation } }, { headers });
+  }
+  if (part === 'history') {
+    const history = await historyResource(request.signal);
+    return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), history: history.metadata,
+      resources: { history: history.resource } }, { headers });
   }
   if (part === 'alerts') {
     const alerts = await read(API + '/alerts/active?point=' + POINT, request.signal);

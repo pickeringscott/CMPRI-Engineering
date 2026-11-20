@@ -28,7 +28,11 @@ function fixture(options={}) {
   });
   const route=loadTs('src/app/api/weather-preview/route.ts',{}, {
     process:{env:{VERCEL_ENV:options.environment===null?undefined:options.environment||'preview',NODE_ENV:options.nodeEnv||'production'}},
-    Request,Response,URL,Error,AbortSignal:options.AbortSignal||AbortSignal,fetch:read,
+    Request,Response,URL,URLSearchParams,Error,AbortSignal:options.AbortSignal||AbortSignal,fetch:read,
+    Date:options.now?class extends Date {
+      constructor(value) {super(arguments.length?value:options.now);}
+      static now() {return Date.parse(options.now);}
+    }:Date,
   });
   return {route,calls,get:(part,init={})=>route.GET(new Request('https://branch.example/api/weather-preview?url=https://evil.example&point=0,0'
     +(part===undefined?'':'&part='+encodeURIComponent(part)),init))};
@@ -39,6 +43,7 @@ test('production returns404 before any NWS request',async()=>{
   const response=await get();
   assert.equal(response.status,404);assert.equal(calls.length,0);
   assert.equal(response.headers.get('Cache-Control'),'no-store');
+  assert.equal((await get('history')).status,404);assert.equal(calls.length,0);
 });
 
 test('only explicit branch previews and local development enable NWS reads',async()=>{
@@ -248,4 +253,104 @@ test('unsupported or duplicate part selectors reject before reads; outer connect
   const shared=new Request('https://branch.example/api/weather-preview?part=observation&previewShareMetadata=review&unknown=a&unknown=b&url=https%3A%2F%2Fevil.example&point=0,0');
   assert.equal((await route.GET(shared)).status,200);assert.equal(calls.length,1);
   assert.equal(calls[0].url,API+'/stations/KCMI/observations/latest');
+});
+
+test('history preserves actual reports and null temperatures with a fixed independent Central-day query',async()=>{
+  const asOf='2026-11-20T03:48:00.000Z';
+  const data={type:'FeatureCollection',features:[
+    {properties:{timestamp:'2026-11-20T03:45:27+00:00',temperature:{unitCode:'wmoUnit:degC',value:null}}},
+    {properties:{timestamp:'2026-11-19T05:53:00+00:00',temperature:{unitCode:'wmoUnit:degC',value:7.3}}},
+  ]};
+  const calls=[];
+  const {route}=fixture({now:asOf,fetch:async(source,init)=>{
+    calls.push(source);const url=new URL(source);
+    assert.equal(url.origin+url.pathname,API+'/stations/KCMI/observations');
+    assert.deepEqual([...url.searchParams.keys()].sort(),['end','limit','start']);
+    assert.equal(url.searchParams.get('start'),'2026-11-19T04:30:00.000Z');
+    assert.equal(url.searchParams.get('end'),asOf);assert.equal(url.searchParams.get('limit'),'500');
+    assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');assert.equal(init.cache,'no-store');
+    return Response.json(data);
+  }});
+  const response=await route.GET(new Request('https://branch.example/api/weather-preview?part=history&station=OTHER&start=2000-01-01&end=2099-01-01&limit=1&url=https://evil.example'));
+  const body=await response.json();assert.equal(response.status,200);assert.equal(calls.length,1);
+  assert.deepEqual(Object.keys(body.resources),['history']);assert.deepEqual(body.resources.history.data,data);
+  assert.equal(body.resources.history.sourceTimestamp,'2026-11-20T03:45:27.000Z');
+  assert.equal(body.resources.history.status,'live');assert.equal(body.history.dayStart,'2026-11-19T06:00:00.000Z');
+  assert.equal(body.history.queryStart,'2026-11-19T04:30:00.000Z');assert.equal(body.history.anchorLookbackMinutes,90);
+  assert.equal(body.history.asOf,asOf);assert.equal(body.history.timeZone,'America/Chicago');
+  assert.equal(body.history.returnedCount,2);assert.equal(body.history.queryComplete,true);assert.equal(body.history.truncated,false);
+});
+
+test('history resolves midnight using its own Central offset across 23-hour and 25-hour DST days',async()=>{
+  for(const [asOf,dayStart,queryStart] of [
+    ['2026-03-09T04:59:59.000Z','2026-03-08T06:00:00.000Z','2026-03-08T04:30:00.000Z'],
+    ['2026-11-02T05:59:59.000Z','2026-11-01T05:00:00.000Z','2026-11-01T03:30:00.000Z'],
+    ['2026-07-20T03:48:00.000Z','2026-07-19T05:00:00.000Z','2026-07-19T03:30:00.000Z'],
+    ['2026-11-20T06:00:00.000Z','2026-11-20T06:00:00.000Z','2026-11-20T04:30:00.000Z'],
+  ]) {
+    const {get}=fixture({now:asOf,fetch:async(source)=>{
+      const url=new URL(source);assert.equal(url.searchParams.get('start'),queryStart);assert.equal(url.searchParams.get('end'),asOf);
+      assert.ok(Date.parse(asOf)-Date.parse(queryStart)<=26.5*3600000);
+      return Response.json({type:'FeatureCollection',features:[{properties:{timestamp:asOf,temperature:{value:2}}}]});
+    }});
+    const body=await(await get('history')).json();assert.equal(body.history.dayStart,dayStart,asOf);
+    assert.equal(body.resources.history.status,'live');
+  }
+});
+
+test('history exposes truncation without following pagination or claiming continuous coverage',async()=>{
+  const asOf='2026-11-20T03:48:00.000Z',report={properties:{timestamp:asOf,temperature:{value:4}}};
+  for(const data of [
+    {type:'FeatureCollection',features:[report],pagination:{next:'https://evil.example/next'}},
+    {type:'FeatureCollection',features:Array.from({length:500},()=>report)},
+  ]) {
+    let calls=0;const {get}=fixture({now:asOf,fetch:async()=>{calls++;return Response.json(data);}});
+    const body=await(await get('history')).json();assert.equal(calls,1);assert.deepEqual(body.resources.history.data,data);
+    assert.equal(body.history.queryComplete,false);assert.equal(body.history.truncated,true);
+    assert.equal(body.history.returnedCount,data.features.length);assert.equal(body.history.coverage,undefined);
+  }
+});
+
+test('empty, malformed, future-only and stale history never become an invented temperature',async()=>{
+  const asOf='2026-11-20T03:48:00.000Z';
+  for(const [data,status,retainsRaw] of [
+    [{type:'FeatureCollection',features:[]},'unavailable',true],
+    [{type:'FeatureCollection',features:[{properties:{timestamp:'2026-11-20T04:00:00Z',temperature:{value:9}}}]},'unavailable',true],
+    [{type:'FeatureCollection',features:[{properties:{timestamp:'2026-11-20T01:00:00Z',temperature:{value:null}}}]},'stale',true],
+    [{type:'FeatureCollection',features:null},'unavailable',false],
+    [{type:'FeatureCollection',features:Array.from({length:501},()=>({}))},'unavailable',false],
+  ]) {
+    const {get}=fixture({now:asOf,fetch:async()=>Response.json(data)});
+    const body=await(await get('history')).json();assert.equal(body.resources.history.status,status);
+    assert.ok(body.resources.history.error);assert.deepEqual(body.resources.history.data,retainsRaw?data:null);
+  }
+});
+
+test('returned history URLs must retain the exact fixed station and server-derived bounded query',async()=>{
+  const asOf='2026-11-20T03:48:00.000Z';
+  for(const change of [url=>{url.pathname='/stations/OTHER/observations';},url=>{url.searchParams.set('limit','499');},
+    url=>{url.searchParams.set('start','2026-11-19T04:31:00.000Z');},url=>{url.searchParams.set('end','2026-11-21T03:48:00.000Z');},
+    url=>{url.searchParams.set('cursor','external');},url=>{url.searchParams.append('limit','500');}]) {
+    const {get}=fixture({now:asOf,fetch:async(source)=>{
+      const url=new URL(source);change(url);const response=Response.json({type:'FeatureCollection',features:[]});
+      Object.defineProperty(response,'url',{value:url.href});return response;
+    }});
+    const body=await(await get('history')).json();assert.equal(body.resources.history.status,'unavailable');
+    assert.match(body.resources.history.error,/unverified response URL/);
+  }
+});
+
+test('latest KCMI observation completes while history remains pending and history failure stays independent',async()=>{
+  const sources=payloads();let releaseHistory,historyStarted;
+  const gate=new Promise(resolve=>{releaseHistory=resolve;});const started=new Promise(resolve=>{historyStarted=resolve;});
+  const {get}=fixture({fetch:async(source)=>{
+    const url=new URL(source);
+    if(url.pathname==='/stations/KCMI/observations') {historyStarted();await gate;throw Error('History unavailable');}
+    return Response.json(sources[url.pathname+url.search]);
+  }});
+  let historyDone=false;const pending=get('history').then(response=>{historyDone=true;return response;});await started;
+  try {assert.equal((await(await get('observation')).json()).resources.observation.status,'live');assert.equal(historyDone,false);}
+  finally {releaseHistory();}
+  const body=await(await pending).json();assert.equal(body.resources.history.status,'unavailable');
+  assert.equal(body.history.queryComplete,false);assert.equal(body.history.returnedCount,null);
 });

@@ -9,9 +9,9 @@ const DATASETS = {
   relief: { service: "USGSShadedReliefOnly", attribution: "USGS The National Map · 3DEP / GMTED2010 shaded relief" },
 } as const;
 const REFERENCES = {
-  // Published feature layers 8/9 and 29/30 keep major-road linework. Keep only
-  // Interstate labels (16), omitting small-scale, US Route and State Route labels.
-  roads: { source: "https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer", layers: "8,9,16,29,30", attribution: "USGS The National Map · National Transportation Dataset" },
+  // Route shields are positioned locally from official route geometry. Export
+  // linework only, so provider-rendered shields cannot repeat underneath them.
+  roads: { source: "https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer", layers: "8,9,29,30", attribution: "USGS The National Map · National Transportation Dataset" },
   places: { source: "https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer", layers: "1,2", attribution: "USGS The National Map · Geographic Names Information System" },
 } as const;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -26,7 +26,7 @@ function integer(value: string | null) {
   return value !== null && /^(0|[1-9]\d*)$/.test(value) && value.length <= 8 ? Number(value) : null;
 }
 
-async function limitedBody(response: Response) {
+async function limitedBody(response: Response, account?: (bytes: number) => void) {
   if (Number(response.headers.get("content-length")) > MAX_BYTES) throw new Error("Tile exceeds preview size limit");
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
@@ -38,6 +38,7 @@ async function limitedBody(response: Response) {
       if (part.done) break;
       length += part.value.byteLength;
       if (length > MAX_BYTES) { await reader.cancel(); throw new Error("Tile exceeds preview size limit"); }
+      account?.(part.value.byteLength);
       chunks.push(part.value);
     }
   } finally { reader.releaseLock(); }
@@ -59,9 +60,10 @@ export async function GET(request: Request) {
   const dataset = url.searchParams.get("dataset");
   const operation = url.searchParams.get("op") || "tile";
   const format = url.searchParams.get("format");
-  if (!dataset || !["tile", "metadata", "reference", "place-labels"].includes(operation)
+  if (!dataset || !["tile", "metadata", "reference", "place-labels", "route-features"].includes(operation)
     || (format !== null && format !== "json" && format !== "image")) return fail(400, "Unknown USGS dataset, operation or format");
   let source: string, attribution: string;
+  let routeSources: string[] | null = null;
   if (operation === "metadata") {
     if (["z", "x", "y", "bbox", "width", "height"].some((key) => url.searchParams.has(key))
       || (format !== null && format !== "json")) return fail(400, "Metadata accepts only a fixed dataset");
@@ -72,6 +74,34 @@ export async function GET(request: Request) {
       const selected = REFERENCES[dataset as keyof typeof REFERENCES];
       source = selected.source + "?f=json"; attribution = selected.attribution;
     } else return fail(400, "Unknown USGS metadata dataset");
+  } else if (operation === "route-features") {
+    const z = integer(url.searchParams.get("z"));
+    if (dataset !== "roads" || z === null || z > 16
+      || ["x", "y", "width", "height"].some((key) => url.searchParams.has(key))
+      || format === "image") return fail(400, "Route features accept only the fixed roads dataset, zoom and map extent");
+    const parts = (url.searchParams.get("bbox") || "").split(","), bbox = parts.map(Number);
+    if (bbox.length !== 4 || parts.some((part) => !part.trim()) || bbox.some((value) => !Number.isFinite(value) || Math.abs(value) > 20037509)
+      || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] || bbox[2] - bbox[0] > 4000000 || bbox[3] - bbox[1] > 4000000) return fail(400, "A bounded Web Mercator route extent no wider than 4000 km is required");
+    // The official 1M-scale route layer supplies generalized wide-view geometry.
+    // Detailed Interstate, US and State layers are separate sources; querying
+    // all three avoids assuming an Interstate label layer contains local routes.
+    const layers = z <= 9 ? [9] : [16, 17, 18];
+    const fields = z <= 9 ? "OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME"
+      : "OBJECTID,permanent_identifier,interstate,us_route,state_route,interstate_a,interstate_b,interstate_c,us_route_a,us_route_b,us_route_c,state_route_a,state_route_b,state_route_c,name";
+    routeSources = layers.map((layer) => {
+      const routeFields = layer === 9 ? ["INTERSTATE", "US_ROUTE", "ST_ROUTE"]
+        : layer === 16 ? ["interstate", "interstate_a", "interstate_b", "interstate_c"]
+          : layer === 17 ? ["us_route", "us_route_a", "us_route_b", "us_route_c"]
+            : ["state_route", "state_route_a", "state_route_b", "state_route_c"];
+      return REFERENCES.roads.source + "/" + layer + "/query?" + new URLSearchParams({
+        f: "geojson", where: routeFields.map((field) => "(" + field + " IS NOT NULL AND " + field + " <> '')").join(" OR "),
+        outFields: fields, returnGeometry: "true", returnM: "false", geometryPrecision: "6",
+        maxAllowableOffset: String(Math.max(0.000001, Math.min(0.01, 156543.033928 / 2 ** z / 111319.490793 / 2))),
+        geometry: JSON.stringify({ xmin: bbox[0], ymin: bbox[1], xmax: bbox[2], ymax: bbox[3], spatialReference: { wkid: 3857 } }),
+        geometryType: "esriGeometryEnvelope", spatialRel: "esriSpatialRelIntersects", inSR: "3857", outSR: "4326", resultRecordCount: "2000"
+      }).toString();
+    });
+    source = routeSources[0]; attribution = REFERENCES.roads.attribution;
   } else if (operation === "place-labels") {
     if (dataset !== "places" || ["z", "x", "y", "width", "height"].some((key) => url.searchParams.has(key))
       || format === "image") return fail(400, "Place labels accept only the fixed GNIS incorporated-place dataset and map extent");
@@ -107,6 +137,26 @@ export async function GET(request: Request) {
   if (request.signal.aborted) controller.abort();
   const timeout = setTimeout(abort, 12000);
   try {
+    if (routeSources) {
+      let bytesRead = 0;
+      const results = await Promise.all(routeSources.map(async (routeSource) => {
+        const upstream = await fetch(routeSource, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store",
+          signal: controller.signal, headers: { Accept: "application/geo+json,application/json", "User-Agent": "CMPRI-Weather-Preview/1.0" } });
+        if (!upstream.ok) throw new Error("USGS route features are unavailable");
+        const bytes = await limitedBody(upstream, (count) => {
+          bytesRead += count;
+          if (bytesRead > MAX_BYTES) throw new Error("Combined route features exceed preview size limit");
+        });
+        const data = JSON.parse(new TextDecoder().decode(bytes));
+        if (!data || data.error || data.type !== "FeatureCollection" || !Array.isArray(data.features)
+          || data.features.length > 2000 || data.exceededTransferLimit
+          || data.features.some((feature: { type?: string; geometry?: { type?: string }; properties?: unknown }) => feature?.type !== "Feature"
+            || !["LineString", "MultiLineString"].includes(feature.geometry?.type || "") || !feature.properties || typeof feature.properties !== "object")) throw new Error("USGS route features are invalid or incomplete");
+        return data.features;
+      }));
+      return Response.json({ source, sources: routeSources, attribution, receivedAt: new Date().toISOString(),
+        data: { type: "FeatureCollection", features: results.flat() }, error: null }, { headers: ERROR_HEADERS });
+    }
     const upstream = await fetch(source, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store",
       signal: controller.signal, headers: { Accept: operation === "metadata" || operation === "place-labels" ? "application/json" : operation === "reference" ? "image/png" : "image/png,image/jpeg", "User-Agent": "CMPRI-Weather-Preview/1.0" } });
     if (!upstream.ok) { controller.abort(); return fail(upstream.status >= 400 ? upstream.status : 502, "USGS ground tile is unavailable"); }

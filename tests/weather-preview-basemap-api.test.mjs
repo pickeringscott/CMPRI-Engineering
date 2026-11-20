@@ -27,7 +27,7 @@ test('fixed metadata probes preserve official layer records without forwarding o
 
 test('transparent reference exports use only fixed layer selections and exact bounded EPSG3857 extents',async()=>{
   for(const [dataset,service,layers] of [
-    ['roads','transportation','show:8,9,16,29,30'],['places','geonames','show:1,2'],
+    ['roads','transportation','show:8,9,29,30'],['places','geonames','show:1,2'],
   ]) {
     const api=fixture(async(source,options)=>{
       const url=new URL(source);
@@ -94,6 +94,74 @@ test('place-label requests reject unsupported datasets and invalid extents befor
   assert.equal(calls,0);
   const incomplete=await fixture(async()=>Response.json({type:'FeatureCollection',features:[],exceededTransferLimit:true})).GET(request('op=place-labels&dataset=places&bbox=0,0,1,1'));
   assert.equal(incomplete.status,502);
+});
+
+test('wide-view shields use actual generalized route attributes and WGS84 polylines from one fixed USGS layer',async()=>{
+  const data={type:'FeatureCollection',features:[{type:'Feature',id:4,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:4,INTERSTATE:'57',US_ROUTE:null,ST_ROUTE:null,NAME:'Official source name'}}]};
+  const api=fixture(async(source,options)=>{
+    const url=new URL(source);
+    assert.equal(url.origin,'https://carto.nationalmap.gov');assert.equal(url.pathname,'/arcgis/rest/services/transportation/MapServer/9/query');
+    assert.equal(url.searchParams.get('f'),'geojson');assert.equal(url.searchParams.get('outSR'),'4326');assert.equal(url.searchParams.get('inSR'),'3857');
+    assert.equal(url.searchParams.get('returnGeometry'),'true');assert.equal(url.searchParams.get('returnM'),'false');assert.equal(url.searchParams.get('resultRecordCount'),'2000');
+    assert.equal(url.searchParams.get('outFields'),'OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME');
+    assert.equal(url.searchParams.get('where'),"(INTERSTATE IS NOT NULL AND INTERSTATE <> '') OR (US_ROUTE IS NOT NULL AND US_ROUTE <> '') OR (ST_ROUTE IS NOT NULL AND ST_ROUTE <> '')");
+    assert.deepEqual(JSON.parse(url.searchParams.get('geometry')),{xmin:-10025000,ymin:4735000,xmax:-9625000,ymax:5035000,spatialReference:{wkid:3857}});
+    assert.equal(url.searchParams.get('layer'),null);assert.equal(url.searchParams.get('url'),null);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+    return Response.json(data);
+  });
+  const response=await api.GET(request('op=route-features&dataset=roads&z=9&bbox=-10025000,4735000,-9625000,5035000&where=otherSQL&layer=99&url=https://evil.example'));
+  const body=await response.json();assert.equal(response.status,200);assert.deepEqual(body.data,data);assert.equal(body.error,null);
+  assert.deepEqual(body.sources,[body.source]);assert.ok(body.receivedAt);assert.match(body.attribution,/National Transportation Dataset/);
+  assert.equal(response.headers.get('Cache-Control'),'no-store');
+});
+
+test('detailed shields query separate fixed Interstate, US and State route sources without inventing or merging attributes',async()=>{
+  const seen=[];
+  const features=[
+    {type:'Feature',id:1,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:1,permanent_identifier:'official-a',interstate:'57',interstate_a:'57',us_route:null,state_route:null}},
+    {type:'Feature',id:2,geometry:{type:'MultiLineString',coordinates:[[[-88.3,40.1],[-88.2,40.2]]]},properties:{OBJECTID:2,permanent_identifier:'official-b',interstate:null,us_route:'150',us_route_a:'150',state_route:null}},
+    {type:'Feature',id:3,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:3,permanent_identifier:'official-c',interstate:null,us_route:null,state_route:'10',state_route_a:'10'}},
+  ];
+  const api=fixture(async(source,options)=>{
+    const url=new URL(source),layer=Number(url.pathname.split('/').at(-2));seen.push(layer);
+    assert.equal(url.origin,'https://carto.nationalmap.gov');assert.ok([16,17,18].includes(layer));
+    const field={16:'interstate',17:'us_route',18:'state_route'}[layer];
+    assert.equal(url.searchParams.get('where'),[field,field+'_a',field+'_b',field+'_c'].map(key=>`(${key} IS NOT NULL AND ${key} <> '')`).join(' OR '));
+    assert.match(url.searchParams.get('outFields'),/permanent_identifier,interstate,us_route,state_route/);
+    assert.match(url.searchParams.get('outFields'),/state_route_a,state_route_b,state_route_c,name$/);
+    assert.equal(url.searchParams.get('outSR'),'4326');assert.equal(options.cache,'no-store');
+    return Response.json({type:'FeatureCollection',features:[features[layer-16]]});
+  });
+  const response=await api.GET(request('op=route-features&dataset=roads&z=10&bbox=-10025000,4735000,-9625000,5035000'));
+  const body=await response.json();assert.equal(response.status,200);assert.deepEqual(seen.sort(),[16,17,18]);
+  assert.equal(body.sources.length,3);assert.equal(body.source,body.sources[0]);assert.deepEqual(body.data,{type:'FeatureCollection',features});
+});
+
+test('route-feature requests reject arbitrary, duplicate, oversized or noncanonical viewport parameters before fetching',async()=>{
+  let calls=0;const api=fixture(async()=>{calls++;throw Error('unexpected fetch');});
+  for(const query of [
+    'op=route-features&dataset=places&z=9&bbox=0,0,1,1','op=route-features&dataset=roads&bbox=0,0,1,1',
+    'op=route-features&dataset=roads&z=17&bbox=0,0,1,1','op=route-features&dataset=roads&z=09&bbox=0,0,1,1',
+    'op=route-features&dataset=roads&z=9&z=9&bbox=0,0,1,1','op=route-features&dataset=roads&z=9&bbox=0,0,1,1&bbox=0,0,1,1',
+    'op=route-features&dataset=roads&z=9&bbox=0,0,1,1&format=image','op=route-features&dataset=roads&z=9&bbox=0,0,1,1&width=100',
+    'op=route-features&dataset=roads&z=9&bbox=0,0,1,1&x=1','op=route-features&dataset=roads&z=9&bbox=0,0,Infinity,1',
+    'op=route-features&dataset=roads&z=9&bbox=0,0,20037510,1','op=route-features&dataset=roads&z=9&bbox=1,0,0,1',
+    'op=route-features&dataset=roads&z=9&bbox=0,0,4000001,1','op=route-features&dataset=roads&z=9&bbox=0,0,1,4000001',
+  ])assert.equal((await api.GET(request(query))).status,400,query);
+  assert.equal(calls,0);
+});
+
+test('route-feature errors, truncated results, unsupported geometry and a combined oversized response remain unavailable',async()=>{
+  const query='op=route-features&dataset=roads&z=10&bbox=0,0,1,1';
+  for(const data of [
+    {error:{message:'Unavailable'}},{type:'FeatureCollection',features:[],exceededTransferLimit:true},
+    {type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[0,0]},properties:{interstate:'1'}}]},
+  ])assert.equal((await fixture(async()=>Response.json(data)).GET(request(query))).status,502);
+  const oversized={type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'LineString',coordinates:[[0,0],[1,1]]},properties:{interstate:'1',sourceDescription:'a'.repeat(800000)}}]};
+  assert.equal((await fixture(async()=>Response.json(oversized)).GET(request(query))).status,502);
+  const canceled=new AbortController();canceled.abort();
+  const response=await fixture(async(_url,options)=>{options.signal.throwIfAborted();}).GET(request(query,{signal:canceled.signal}));
+  assert.equal(response.status,504);
 });
 
 test('production is404 before any upstream access',async()=>{
