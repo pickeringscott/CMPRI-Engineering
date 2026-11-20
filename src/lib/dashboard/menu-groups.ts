@@ -35,8 +35,10 @@ export function dashboardMenuGroups<T extends MenuAction>(
   const tabs = DASHBOARD_TAB_LABELS.filter(tab =>
     limited ? Object.hasOwn(limitedActions, tab) : tab !== "Admin" || (key !== "manager" && key !== "technician"));
   return tabs.map(label => {
-    const keys = limited ? limitedActions[label] ?? [] : menuActions[label];
-    const items = keys.flatMap(href => actions.filter(action => action.key === href));
+    const housekeepingAccount = key === "housekeeping" && label === "Account";
+    const keys = housekeepingAccount ? ["/profile", "sign-out"] : limited ? limitedActions[label] ?? [] : menuActions[label];
+    const items = keys.flatMap(href => actions.filter(action => action.key === href
+      && (!housekeepingAccount || href !== "/profile" || action.label === "Manage Profile")));
     if (chiefMenu && label === "Account") {
       const profileIndex = items.findIndex(action => action.label === "Manage Profile");
       const hoursIndex = items.findIndex(action => action.key === "/engineering/hours-tracker");

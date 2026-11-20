@@ -4,6 +4,8 @@ import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { roleKey } from "@/lib/server/roles";
 import { loadCurrentRoomStatuses, currentRoomStatus } from "@/lib/server/room-availability";
+import { fetchAllPages } from "@/lib/server/paginated-query";
+import { locationTicketMatcher } from "@/lib/location-management";
 
 async function bodyObject(request: NextRequest): Promise<Record<string, unknown> | null> {
   try {
@@ -46,45 +48,22 @@ export async function GET(request: NextRequest) {
   if (!allows(principal, "view_locations")) {
     return NextResponse.json({ error: "Manage Locations access is required." }, { status: 403 });
   }
-  const isTechnician = roleKey(principal.profile.role) === "technician";
   const canViewPm = allows(principal, "view_pm");
-
-  const orderResult = isTechnician
-    ? await (async () => {
-      const technicianName = principal.profile.full_name?.trim();
-      const workOrderQuery = () => admin.from("work_orders")
-        .select("id, location_id, room, issue, status, created_at, technician_name")
-        .eq("hotel_id", HOTEL_ID)
-        .in("status", ["Open", "In Progress"])
-        .order("created_at", { ascending: false })
-        .limit(1000);
-      const unassignedQuery = workOrderQuery().or("technician_name.is.null,technician_name.eq.");
-      const assignedQuery = technicianName ? workOrderQuery().eq("technician_name", technicianName) : null;
-      const [unassigned, assigned] = await Promise.all([
-        unassignedQuery,
-        assignedQuery ?? Promise.resolve({ data: [], error: null }),
-      ]);
-      if (unassigned.error || assigned.error) return { data: null, error: unassigned.error || assigned.error };
-      return {
-        data: Array.from(new Map(
-          [...(assigned.data || []), ...(unassigned.data || [])].map((order) => [order.id, order]),
-        ).values()),
-        error: null,
-      };
-    })()
-    : admin.from("work_orders")
-      .select("id, location_id, room, issue, status, created_at")
-      .eq("hotel_id", HOTEL_ID)
-      .order("created_at", { ascending: false })
-      .limit(1000);
   const [locationResult, loadedOrders, pmPlanResult, pmCompletionResult] = await Promise.all([
-    admin.from("locations")
+    fetchAllPages((from, to) => admin.from("locations")
       .select("id, area, name, room_number, location_type, active")
-      .eq("hotel_id", HOTEL_ID)
+      .eq("hotel_id", principal.hotelId)
       .eq("active", true)
       .order("area", { ascending: true })
-      .order("room_number", { ascending: true }),
-    orderResult,
+      .order("room_number", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)),
+    fetchAllPages((from, to) => admin.from("work_orders")
+      .select("id, location_id, room, issue, status, created_at")
+      .eq("hotel_id", principal.hotelId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to)),
     canViewPm ? admin.from("pm_plans")
       .select("id, location_id, asset_id, title, description, checklist, frequency_value, frequency_unit, last_completed_on, next_due_on, active")
       .eq("hotel_id", HOTEL_ID)
@@ -102,11 +81,8 @@ export async function GET(request: NextRequest) {
   }
 
   const locations = locationResult.data || [];
-  const locationIds = new Set(locations.map(location => location.id));
-  const roomNumbers = new Set(locations.map(location => location.room_number).filter(Boolean));
-  const workOrders = (loadedOrders.data || []).filter(order => order.location_id
-    ? locationIds.has(order.location_id)
-    : roomNumbers.has(order.room?.match(/\b\d{2,4}\b/)?.[0]));
+  const locationForTicket = locationTicketMatcher(locations);
+  const workOrders = (loadedOrders.data || []).filter(locationForTicket);
   return NextResponse.json({
     locations,
     work_orders: workOrders,

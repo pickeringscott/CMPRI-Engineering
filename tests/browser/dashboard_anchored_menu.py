@@ -54,6 +54,55 @@ async def check_header_rail(page):
         assert abs(pool_center - create_center) <= 1, bounds
 
 
+async def check_menu_overlay(page, touch):
+    rail = page.locator(".cmpri-dashboard-menu-rail")
+    tab = rail.get_by_role("button", name="Safety & Logs", exact=True)
+    snapshot = """tab => {
+      const rail = tab.closest('.cmpri-dashboard-menu-rail');
+      const header = rail.parentElement;
+      const row = tab.closest('fieldset');
+      const rect = node => node.getBoundingClientRect().toJSON();
+      const headerStyle = getComputedStyle(header);
+      const closestRow = (x, y) => document.elementFromPoint(x, y)?.closest('fieldset.group');
+      const bounds = {
+        header: rect(header), rail: rect(rail), shelf: rect(header.firstElementChild),
+        title: rect(header.querySelector('[data-cmpri-menu-title]')),
+        content: rect(document.querySelector('.cmpri-desktop, [data-cmpri-technician-window-anchor]')),
+        border: parseFloat(headerStyle.borderBottomWidth),
+        color: headerStyle.borderBottomColor,
+      };
+      const rowRect = rect(row);
+      const gapX = [bounds.rail.left + 1, bounds.rail.right - 1]
+        .find(x => x < rowRect.left || x > rowRect.right);
+      const rowY = rowRect.top + rowRect.height / 2;
+      return {
+        bounds, tab: rect(tab), row: rowRect,
+        rowHit: closestRow(rowRect.left + rowRect.width / 2, rowY) === row,
+        gapHit: gapX != null && Boolean(document.elementFromPoint(gapX, rowY)
+          ?.closest('.cmpri-dashboard-menu-overlay')),
+      };
+    }"""
+    before = await tab.evaluate(snapshot)
+    bounds = before["bounds"]
+    assert bounds["rail"]["height"] == 14
+    assert bounds["border"] == 1 and bounds["color"] != "rgba(0, 0, 0, 0)", bounds
+    assert abs(bounds["rail"]["bottom"] + bounds["border"] - bounds["header"]["bottom"]) <= 1, bounds
+    assert abs(before["tab"]["bottom"] - bounds["header"]["bottom"]) <= 1, before
+
+    toggle = tab.tap if touch else tab.click
+    await toggle()
+    await expect(tab).to_have_attribute("aria-expanded", "true")
+    opened = await tab.evaluate(snapshot)
+    assert opened["bounds"] == bounds, opened
+    assert abs(opened["tab"]["bottom"] - bounds["header"]["bottom"]) <= 1, opened
+    assert opened["row"]["top"] >= bounds["header"]["bottom"] - 0.5, opened
+    assert opened["rowHit"] and not opened["gapHit"], opened
+
+    await toggle()
+    await expect(tab).to_have_attribute("aria-expanded", "false")
+    assert (await tab.evaluate(snapshot))["bounds"] == bounds
+
+
 async def inspect_role(browser, role, width):
     context = await browser.new_context(viewport={"width": width, "height": 850},
                                         has_touch=width < 640, is_mobile=width < 640,
@@ -70,6 +119,7 @@ async def inspect_role(browser, role, width):
     safety = group(page, "Safety & Logs").locator("legend")
     await expect(safety).to_be_visible(timeout=60000)
     await check_header_rail(page)
+    await check_menu_overlay(page, width < 640)
 
     if role in LIMITED_ROLES:
         tabs = ["Rooms & Reports", "Safety & Logs", "Account"]
@@ -83,11 +133,13 @@ async def inspect_role(browser, role, width):
     if role in LIMITED_ROLES:
         assert rooms == ["Work Order List", "Room Ranker"]
         assert pool == ["Weather", "Notes", "Staff Notes"]
-        assert await actions(page, "Account") == ["Sign Out"]
+        assert await actions(page, "Account") == (["Manage Profile", "Sign Out"] if role == "housekeeping" else ["Sign Out"])
     else:
         assert {"GSS Reports", "Manage Locations"}.issubset(rooms)
-        assert {"Pool Log", "Weather"}.issubset(pool)
+        assert "Pool Log" in pool
+        assert ("Weather" in pool) == (role not in {"assistant_manager", "front_desk_manager"})
     if role == "technician":
+        assert (await actions(page, "Daily Work"))[:2] == ["Work Order List", "Technician Dashboard"]
         assert {"Daily Room Ops", "Enseo Assignments"}.issubset(rooms)
         assert "Winter Preparedness 2026" in pool
     if role in CHIEF_MENU_ROLES:
@@ -98,14 +150,15 @@ async def inspect_role(browser, role, width):
     await (safety.tap() if width < 640 else safety.click())
     await expect(safety).to_have_attribute("aria-expanded", "true")
     assert await title.bounding_box() == before
-    await expect(group(page, "Safety & Logs").get_by_role("button", name="Weather", exact=True)).to_be_visible()
+    await expect(group(page, "Safety & Logs").get_by_role("button", name="Weather" if "Weather" in pool else "Pool Log", exact=True)).to_be_visible()
     if role in LIMITED_ROLES:
         account = group(page, "Account").locator("legend")
         await (account.tap() if width < 640 else account.click())
         row = group(page, "Account")
-        button = await row.get_by_role("button", name="Sign Out").bounding_box()
-        buttons = await row.locator(".buttons").bounding_box()
-        assert abs(button["x"] + button["width"] / 2 - buttons["x"] - buttons["width"] / 2) < 1
+        if role == "front_desk":
+            button = await row.get_by_role("button", name="Sign Out").bounding_box()
+            buttons = await row.locator(".buttons").bounding_box()
+            assert abs(button["x"] + button["width"] / 2 - buttons["x"] - buttons["width"] / 2) < 1
         assert await title.bounding_box() == before
         await expect(safety).to_have_attribute("aria-expanded", "true")
         assert "blur(" in await group(page, "Safety & Logs").locator(".buttons").evaluate("element => getComputedStyle(element).filter")
@@ -162,7 +215,7 @@ async def check_tab_endpoints(page, context, layouts, touch):
 
         positions = await daily.evaluate("""field => ({
           x: parseFloat(field.style.left),
-          maximum: field.parentElement.clientWidth - field.minimumWidth,
+          maximum: field.parentElement.clientWidth - field.tabWidth - 26,
         })""")
         expected = positions["maximum"] if edge == "right" else 0
         assert abs(positions["x"] - expected) <= 1, (edge, positions)
@@ -224,6 +277,137 @@ async def check_drag_and_save(browser, width):
     print(f"cross-tab drag, rail endpoints and reload at {width}px verified", flush=True)
 
 
+async def check_wake_and_scroll(browser, width):
+    touch = width < 640
+    context = await browser.new_context(viewport={"width": width, "height": 850}, has_touch=touch,
+                                        is_mobile=touch, service_workers="block")
+    await install(context, "chief_engineer")
+    page = await context.new_page()
+    await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
+    daily = group(page, "Daily Work")
+    rooms = group(page, "Rooms & Reports")
+    daily_tab, rooms_tab = daily.locator("legend"), rooms.locator("legend")
+    await expect(daily_tab).to_be_visible(timeout=60000)
+    await (daily_tab.tap() if touch else daily_tab.click())
+    await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms).to_have_attribute("data-active", "true")
+    assert await daily.locator(".buttons").evaluate("node => getComputedStyle(node).filter") != "none"
+    work = daily.get_by_role("button", name="Work Order List", exact=True)
+    await (work.tap() if touch else work.click())
+    await expect(daily).to_have_attribute("data-active", "true")
+    assert await page.locator('[data-cmpri-desktop-window="work-order-list"]').count() == 0
+    assert int(await daily.evaluate("node => node.style.zIndex")) > int(await rooms.evaluate("node => node.style.zIndex"))
+
+    await (rooms_tab.tap() if touch else rooms_tab.click())
+    row = rooms.locator(".buttons")
+    if not touch:
+        edge = rooms.locator(".resize-edge")
+        bounds = await edge.bounding_box()
+        x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+        await drag_between(page, context, False, (x, y), (x - 350, y))
+    scrollbar = rooms.get_by_role("slider", name="Scroll Rooms & Reports buttons")
+    await expect(scrollbar).to_be_visible()
+    if touch:
+        bounds = await row.bounding_box()
+        y, right = bounds["y"] + bounds["height"] / 2, min(width - 5, bounds["x"] + bounds["width"] - 8)
+        pointer = await context.new_cdp_session(page)
+        await pointer.send("Input.dispatchTouchEvent", {
+            "type": "touchStart", "touchPoints": [{"x": right, "y": y, "id": 1}],
+        })
+        await pointer.send("Input.dispatchTouchEvent", {
+            "type": "touchMove", "touchPoints": [{"x": bounds["x"] + 10, "y": y, "id": 1}],
+        })
+        await pointer.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        await pointer.detach()
+        assert await row.evaluate("node => node.scrollLeft") > 0
+    await scrollbar.press("End")
+    last = rooms.get_by_role("button", name="Enseo Assignments", exact=True)
+    assert await last.evaluate("""node => {
+        const box = node.getBoundingClientRect();
+        const row = node.parentElement.getBoundingClientRect();
+        return box.right <= row.right + 1 && document.elementFromPoint(
+          box.right - 4, box.y + box.height / 2)?.closest('button') === node;
+    }""")
+    await context.close()
+    print(f"blurred row wake and last button reachable at {width}px verified", flush=True)
+
+
+async def check_resize_and_retry(browser):
+    context = await browser.new_context(viewport={"width": 1440, "height": 850}, service_workers="block")
+    layouts = {}
+    await install(context, "chief_engineer", layouts=layouts)
+    failures = []
+
+    async def intercept(route):
+        if route.request.method != "PUT":
+            return await route.fallback()
+        failures.append(route.request.post_data_json["layout"])
+        await route.fulfill(status=503)
+
+    await context.route("**/api/profile/header-layout", intercept)
+    page = await context.new_page()
+    await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
+    daily = group(page, "Daily Work")
+    tab = daily.locator("legend")
+    await expect(tab).to_be_visible(timeout=60000)
+    before = await tab.bounding_box()
+    edge = await daily.locator(".tab-resize-edge").bounding_box()
+    x, y = edge["x"] + edge["width"] / 2, edge["y"] + edge["height"] / 2
+    await drag_between(page, context, False, (x, y), (x + 35, y))
+    resized = (await tab.bounding_box())["width"]
+    assert resized > before["width"] + 20
+    await expect(tab).to_have_attribute("aria-expanded", "false")
+    await expect(page.get_by_text("Layout sync failed.", exact=False)).to_be_visible()
+    assert failures[-1]["tabWidths"]["Daily Work"] == resized
+    await page.reload(wait_until="domcontentloaded")
+    await expect(tab).to_be_visible(timeout=60000)
+    assert (await tab.bounding_box())["width"] == resized
+    await expect(page.get_by_text("Layout sync failed.", exact=False)).to_be_visible()
+    await context.unroute("**/api/profile/header-layout", intercept)
+    await page.reload(wait_until="domcontentloaded")
+    await expect(tab).to_be_visible(timeout=60000)
+    for _ in range(30):
+        if layouts.get("chief_engineer", {}).get("tabWidths", {}).get("Daily Work") == resized:
+            break
+        await page.wait_for_timeout(50)
+    else:
+        raise AssertionError("Resized tab never synchronized after the failed save.")
+    await context.close()
+    print("closed tab resizing and rejected save retry verified", flush=True)
+
+
+async def check_housekeeping_profile(browser):
+    context = await browser.new_context(viewport={"width": 390, "height": 850}, has_touch=True,
+                                        is_mobile=True, service_workers="block")
+    await install(context, "housekeeping", connected=False)
+    saved = []
+
+    async def profile(route):
+        body = route.request.post_data_json if route.request.method == "PATCH" else {}
+        if body:
+            saved.append(body)
+        await route.fulfill(json={
+            "profile": {"id": "fixture", "role": "housekeeping", "full_name": body.get("full_name", "Alex Morgan")},
+            "preferences": {"appearance": "dark", "language": "en"},
+        })
+
+    await context.route("**/api/profile", profile)
+    page = await context.new_page()
+    await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
+    account = group(page, "Account")
+    await expect(account.locator("legend")).to_be_visible(timeout=60000)
+    await account.locator("legend").tap()
+    await account.get_by_role("button", name="Manage Profile", exact=True).tap()
+    frame = page.frame_locator('[data-cmpri-desktop-window="/profile"] iframe')
+    await expect(frame.get_by_role("heading", name="Manage Profile")).to_be_visible()
+    await frame.get_by_label("Display name").fill("Alex Housekeeping")
+    await frame.get_by_role("button", name="Save Profile").click()
+    await expect(frame.get_by_text("Profile and preferences saved.", exact=True)).to_be_visible()
+    assert saved[-1]["full_name"] == "Alex Housekeeping"
+    await context.close()
+    print("Housekeeping profile launcher and own-account save verified", flush=True)
+
+
 async def main():
     CAPS["engineer"] = CAPS["chief_engineer"].copy()
     async with async_playwright() as playwright:
@@ -232,8 +416,12 @@ async def main():
             await inspect_role(browser, role, 1440)
         for role in ("front_desk", "housekeeping", "front_desk_manager", "technician"):
             await inspect_role(browser, role, 390)
+        await inspect_role(browser, "technician", 320)
         for width in (1440, 390):
             await check_drag_and_save(browser, width)
+            await check_wake_and_scroll(browser, width)
+        await check_resize_and_retry(browser)
+        await check_housekeeping_profile(browser)
         await browser.close()
 
 

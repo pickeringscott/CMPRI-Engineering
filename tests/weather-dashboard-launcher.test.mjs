@@ -19,6 +19,7 @@ function declaration(name) {
 }
 const roles=loadTs('src/lib/server/roles.ts');
 const menu=loadTs('src/lib/dashboard/menu-groups.ts',{'../server/roles':roles});
+const {canOpenWeather}=loadTs('src/lib/dashboard/menu-access.ts');
 const path=vm.runInNewContext(declaration('WEATHER_PREVIEW_PATH').getText(file),{WEATHER_MENU_PATH:menu.WEATHER_MENU_PATH});
 const weather=declaration('launchers').elements.find(item=>item.getText(file).includes('label: "Weather"'));
 assert.ok(weather,'Missing native Weather launcher');
@@ -27,7 +28,7 @@ function launcher(flag,role) {
     WEATHER_PREVIEW_PATH:path,
     process:{env:{NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW:flag}},
     session:{user:{role}},
-    canOpenWeather:profile=>roles.roleKey(profile.role)!=='unknown',
+    canOpenWeather,
   });
 }
 
@@ -45,6 +46,7 @@ test('the compiled Weather launcher is enabled in production, previews and local
 test('Weather stays in Safety & Logs for Front Desk and Lead Housekeeper',()=>{
   for(const flag of ['0',undefined])assert.equal(launcher(flag,'chief_engineer'),false);
   assert.equal(launcher('1','unknown'),false);
+  for(const role of ['assistant_manager','front_desk_manager'])assert.equal(launcher('1',role),false);
   const action=launcher('1','chief_engineer');
   assert.equal(action.label,'Weather');
   assert.equal(action.key,path);

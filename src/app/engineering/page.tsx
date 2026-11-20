@@ -561,6 +561,10 @@ export default function EngineeringDashboardPage() {
     openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`);
   }, [openRoute]);
 
+  const openWorkOrderList = useCallback(() => {
+    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
+  }, [openWindow]);
+
   const openDraft = useCallback((draftId: string) => {
     const origin = window.location.origin;
     openWindow({
@@ -606,6 +610,12 @@ export default function EngineeringDashboardPage() {
           return;
         }
         case "cmpri-open-modal":
+          if (data.href === "/work-order-list") {
+            const source = windowsRef.current.find(entry => entry.key === key);
+            const token = source?.src && new URL(source.src, window.location.origin).searchParams.get("modalToken");
+            if (key === "/technician" && token && data.modalToken === token && hasCapability(cmpriSession, "view_work_orders")) openWorkOrderList();
+            return;
+          }
           if (typeof data.href === "string") openRoute(data.href, typeof data.title === "string" ? data.title : undefined);
           return;
         case "cmpri-open-related-work-order":
@@ -634,7 +644,7 @@ export default function EngineeringDashboardPage() {
     };
     window.addEventListener("message", handleWindowMessage);
     return () => window.removeEventListener("message", handleWindowMessage);
-  }, [closeWindow, loadDashboard, openRoute, openWorkOrder, refreshChatgptConnection]);
+  }, [closeWindow, cmpriSession, loadDashboard, openRoute, openWorkOrder, openWorkOrderList, refreshChatgptConnection]);
 
   if (!cmpriSession) {
     return (
@@ -654,7 +664,6 @@ export default function EngineeringDashboardPage() {
   const session = cmpriSession;
   const chiefHeaderPresentation = isChiefMenuRole(session.user);
   const canReadChiefOnlyModules = canReadChiefModules(session.user);
-  const systemAdminHeader = roleKey(session.user.role) === "system_admin" || session.user.secondary_roles?.some(role => roleKey(role) === "system_admin");
   const frontDeskLayout = roleKey(session.user.role) === "front_desk";
   const threeTabLayout = usesThreeTabDashboard(session.user.role);
   const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
@@ -667,10 +676,6 @@ export default function EngineeringDashboardPage() {
   async function signOut() {
     await signOutDevice();
     router.replace("/");
-  }
-
-  function openWorkOrderList() {
-    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
   }
 
   function openApprovals() {
@@ -764,8 +769,8 @@ export default function EngineeringDashboardPage() {
   const createWorkOrderLauncher = availableLaunchers.find(launcher => launcher.key === "/work-orders");
 
   return (
-    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
-      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
+    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefHeaderPresentation ? "true" : undefined}>
+      <header className="cmpri-desktop-topbar cmpri-dashboard-titlebar relative flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">
             <p data-dashboard-title data-cmpri-menu-title="" data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
@@ -794,9 +799,13 @@ export default function EngineeringDashboardPage() {
           </div>
         </div>
         <nav aria-label="Open dashboard windows" className="cmpri-dashboard-menu-rail w-full min-w-0">
-          <ApprovedDashboardMenus anchored lockedFrontDesk={threeTabLayout} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <ApprovedDashboardMenus anchored restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
+        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
+      </header>
+
+      <div className="flex shrink-0 flex-col items-start gap-0.5 px-0.5 empty:hidden">
         {hasCapability(session, "view_work_orders") && <WorkOrderWindowSwitcher
           tickets={windows.filter(entry => /^\/work-orders\/[^/]+$/.test(entry.key)).map(entry => {
             const details = windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`);
@@ -808,10 +817,8 @@ export default function EngineeringDashboardPage() {
           onRaise={key => raise(key, true)}
         />}
 
-        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
-
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
-      </header>
+      </div>
 
       <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-[200] w-full shrink-0" />
 

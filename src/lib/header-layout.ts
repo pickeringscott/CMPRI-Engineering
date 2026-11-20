@@ -2,6 +2,7 @@ export type HeaderLayout = {
   groups: string[];
   buttons: Record<string, string[]>;
   widths: Record<string, number>;
+  tabWidths?: Record<string, number>;
   collapsed: string[];
   positions?: Record<string, number>;
   active?: string | null;
@@ -13,14 +14,21 @@ function entries(value: unknown): [string, unknown][] {
     : [];
 }
 
+function normalizeWidths(value: unknown): Record<string, number> {
+  return Object.fromEntries(entries(value).flatMap(([key, width]) =>
+    typeof width === "number" && Number.isFinite(width) ? [[key, Math.max(40, Math.min(4000, width))]] : []
+  ));
+}
+
 export function normalizeHeaderLayout(value: unknown): HeaderLayout {
   const row = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const names = (items: unknown) => Array.isArray(items) ? [...new Set(items.filter((item): item is string => typeof item === 'string' && item.length > 0 && item.length <= 200))].slice(0, 100) : [];
   const buttons = Object.fromEntries(entries(row.buttons).map(([key, items]) => [key, names(items)]));
-  const widths = Object.fromEntries(entries(row.widths).flatMap(([key, width]) =>
-    typeof width === "number" && Number.isFinite(width) ? [[key, Math.max(40, Math.min(4000, width))]] : []
-  ));
+  const widths = normalizeWidths(row.widths);
   const result: HeaderLayout = { groups: names(row.groups).slice(0, 20), buttons, widths, collapsed: names(row.collapsed).slice(0, 20) };
+  if (row.tabWidths && typeof row.tabWidths === "object" && !Array.isArray(row.tabWidths)) {
+    result.tabWidths = normalizeWidths(row.tabWidths);
+  }
   if (row.positions && typeof row.positions === "object" && !Array.isArray(row.positions)) {
     result.positions = Object.fromEntries(entries(row.positions).flatMap(([key, position]) =>
       typeof position === "number" && Number.isFinite(position) ? [[key, Math.max(0, Math.min(4000, position))]] : []
@@ -40,19 +48,21 @@ export function headerLayoutForGroups(value: unknown, labels: readonly string[])
    return ["Assets and Inventory","Assets & Inventory","Assets & Supply"].find(title=>titles.has(title)) || name;
  };
  const remap=<T>(values:Record<string,T>)=>Object.fromEntries(Object.entries(values).sort(([a],[b])=>Number(a===alias(a))-Number(b===alias(b))).map(([key,value])=>[alias(key),value]));
- return normalizeHeaderLayout({...layout,groups:layout.groups.map(alias),buttons:remap(layout.buttons),widths:remap(layout.widths),collapsed:layout.collapsed.map(alias),positions:layout.positions&&remap(layout.positions),active:layout.active?alias(layout.active):layout.active});
+ return normalizeHeaderLayout({...layout,groups:layout.groups.map(alias),buttons:remap(layout.buttons),widths:remap(layout.widths),tabWidths:layout.tabWidths&&remap(layout.tabWidths),collapsed:layout.collapsed.map(alias),positions:layout.positions&&remap(layout.positions),active:layout.active?alias(layout.active):layout.active});
 }
 
 type HeaderAction = { key: string; label: string };
 type HeaderGroup<T> = { label: string; items: T[]; centered?: boolean };
+export type AnchoredMenuRestriction = "front_desk" | "housekeeping" | null;
 
 function actionLayoutKey(action: HeaderAction) {
   return action.key + "::" + action.label.replace(/ \(\d+\)$/, "");
 }
 
-export function allowsAnchoredHeaderPlacement(restricted: boolean, key: string, label: string) {
-  if (!restricted) return true;
+export function allowsAnchoredHeaderPlacement(restriction: AnchoredMenuRestriction, key: string, label: string) {
+  if (!restriction) return true;
   if (key === "/previews/cmpri-weather-preview.html") return label === "Safety & Logs";
+  if (key === "/profile") return restriction === "housekeeping" && label === "Account";
   return (key === "sign-out") === (label === "Account");
 }
 
@@ -60,7 +70,7 @@ export function allowsAnchoredHeaderPlacement(restricted: boolean, key: string, 
 export function anchoredHeaderLayoutForGroups<T extends HeaderAction>(
   value: unknown,
   authorizedGroups: HeaderGroup<T>[],
-  restricted: boolean,
+  restriction: AnchoredMenuRestriction,
 ): { layout: HeaderLayout; groups: HeaderGroup<T>[] } {
   const labels = authorizedGroups.map(group => group.label);
   const source = headerLayoutForGroups(value, labels);
@@ -70,7 +80,7 @@ export function anchoredHeaderLayoutForGroups<T extends HeaderAction>(
     group.items.map(action => [actionLayoutKey(action), action] as const)
   ));
   const place = (group: HeaderGroup<T>, key: string, action: T) => {
-    if (seen.has(key) || !allowsAnchoredHeaderPlacement(restricted, action.key, group.label)) return;
+    if (seen.has(key) || !allowsAnchoredHeaderPlacement(restriction, action.key, group.label)) return;
     seen.add(key);
     group.items.push(action);
   };
@@ -106,5 +116,6 @@ export function anchoredHeaderLayoutForGroups<T extends HeaderAction>(
     Object.hasOwn(source.widths, label) ? [[label, source.widths[label]]] : []
   ));
   const buttons = Object.fromEntries(groups.map(group => [group.label, group.items.map(actionLayoutKey)]));
-  return { groups, layout: { groups: labels, buttons, widths, collapsed, positions, active } };
+  const tabWidths = source.tabWidths && Object.fromEntries(Object.entries(source.tabWidths).filter(([label]) => labels.includes(label)));
+  return { groups, layout: { groups: labels, buttons, widths, collapsed, positions, active, ...(tabWidths && { tabWidths }) } };
 }

@@ -26,6 +26,7 @@ import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 
 const SOUND_PREF_KEY = "cmpri:technician-work-sound:v1";
+const WORK_ORDER_LIST_PATH = "/work-order-list";
 
 type AssignedWorkOrder = {
   id: string;
@@ -236,8 +237,10 @@ export default function TechnicianDashboard() {
     );
   }
 
+  const canViewWorkOrders = hasCapability(menuSession, "view_work_orders");
   const menuActions = account ? [
-    {key:"/engineering", label:"All Work Orders"},
+    ...(canViewWorkOrders ? [{key:"work-order-list", label:"Work Order List"}] : []),
+    {key:"/technician", label:"Technician Dashboard"},
     {key:"/staff-notes", label:"Staff Notes"},
     {key:"/notes", label:"Notes"},
     {key:"/engineering/room-ranking", label:"Room Ranker"},
@@ -253,10 +256,30 @@ export default function TechnicianDashboard() {
     {key:"sign-out", label:"Sign Out"},
   ] : [];
 
+  function launchMenuAction(action: { key: string; label: string }, clickedAt: number) {
+    if (action.key === "sign-out") {
+      void signOut();
+      return;
+    }
+    if (action.key === "/technician") {
+      const heading = document.getElementById("technician-assigned-work");
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView({ block: "center" });
+      return;
+    }
+    let href = action.key;
+    if (href === "work-order-list") href = WORK_ORDER_LIST_PATH;
+    if (href === WEATHER_MENU_PATH) {
+      void armWeatherWarningSound();
+      href = `${WEATHER_MENU_PATH}?weather=open`;
+    }
+    window.dispatchEvent(new CustomEvent("cmpri-open-modal", { detail: { href, title: action.label, clickedAt } }));
+  }
+
   return (
     <main className="min-h-[100svh] bg-slate-950 text-white">
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
-        <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-slate-800 bg-slate-950/95 py-2">
+        <header className="cmpri-dashboard-titlebar sticky top-0 flex flex-col gap-2 border-b border-slate-800 bg-slate-950/95 pt-2">
           <div className="cmpri-header-shelf">
             <div className="cmpri-header-identity">
               <h1 data-cmpri-menu-title="" className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">CMPRI Engineering <DashboardNotificationBell count={unreadCount} label={`${unreadCount} unread notifications`} title="Open notifications" onClick={()=>void toggleInbox()}/></h1>
@@ -266,16 +289,11 @@ export default function TechnicianDashboard() {
             <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool'}}))}/><button type="button" className="cmpri-header-create" onClick={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order'}}))}>+ Work Order</button></div>
           </div>
           <nav aria-label="Open dashboard windows" className="cmpri-dashboard-menu-rail w-full min-w-0">
-            <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={action=>{
-              if(action.key==="sign-out"){void signOut();return;}
-              if(action.key==="/engineering"){router.push(action.key);return;}
-              if(action.key===WEATHER_MENU_PATH)void armWeatherWarningSound();
-              const href=action.key===WEATHER_MENU_PATH?`${WEATHER_MENU_PATH}?weather=open`:action.key;
-              window.dispatchEvent(new CustomEvent("cmpri-open-modal",{detail:{href,title:action.label}}));
-            }}/>
+            <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
           </nav>
         </header>
-
+        <div data-weather-desktop-bulletin-host className="relative z-20 w-full" />
+        <div data-cmpri-technician-window-anchor data-can-view-work-orders={canViewWorkOrders} />
 
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
         {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
@@ -335,7 +353,7 @@ export default function TechnicianDashboard() {
 
         <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-            <h2 className="text-xl font-bold">Assigned Work</h2>
+            <h2 id="technician-assigned-work" tabIndex={-1} className="text-xl font-bold">Assigned Work</h2>
             <span className="text-sm text-slate-400">{assignedOrders.length} active</span>
           </div>
           {loading ? <p className="p-5 text-slate-400">Loading assigned work…</p> : assignedOrders.length === 0 ? (

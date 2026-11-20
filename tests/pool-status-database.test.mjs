@@ -181,4 +181,51 @@ const history=(await db.query('select snapshot from cmpri_pool_log_history where
 assert.ok(history.some(row=>row.snapshot.chemical_uses?.length===2 && row.snapshot.remarks===second.remarks));
 assert.equal(Number(second.revision),Number(initial.revision)+2);
 console.log('PASS pool chemical usage with real operator restrictions, saved Remarks prefix, stamp revision and complete audit snapshot');
+
+// Exercise the same actor stamp used by the Pool Log API's service-role writes.
+const seniorLabels = ['senior_management', 'Upper Management', 'VP Facilities', 'Regional Director Operations', 'District Manager'];
+const seniorActors = seniorLabels.map((role, index) => ({role, actor:id(950 + index), facility:id(960 + index), log:id(970 + index)}));
+for (const {role, actor, facility} of seniorActors) {
+ await db.query('insert into profiles values($1,$2,$3,true)',[actor,role,[]]);
+ await db.query('insert into hotel_members values($1,$2,true)',[actor,h]);
+ await db.query('insert into pool_facilities values($1,$2,true)',[facility,h]);
+}
+const saveNewPoolTest = ({actor, facility, log}) => db.query(
+ `insert into pool_daily_logs(id,hotel_id,pool_facility_id,log_date,ph_am,sanitizer_am,main_drain_visible,filter_backwashed,temperature_f,flow_rate_gpm,updated_by,created_by,closure_condition,manual_closure)
+  values($1,$2,$3,'2026-10-23',7.4,4,true,false,80,50,$4,$4,false,false) returning latest_test`,
+ [log,h,facility,actor],
+);
+await assert.rejects(saveNewPoolTest(seniorActors[0]),/active CMPRI engineering account/);
+const statusActionBefore = (await db.query(
+ "select pg_get_functiondef('public.cmpri_pool_action(uuid,uuid,uuid,uuid,text,text,bigint)'::regprocedure) as definition",
+)).rows[0].definition;
+await db.exec(readFileSync('supabase/migrations/20261120205602_pool_log_senior_management_submission.sql','utf8'));
+for (const account of seniorActors) {
+ const created = (await saveNewPoolTest(account)).rows[0];
+ assert.equal(created.latest_test.period,'am',account.role);
+}
+const senior = seniorActors[0];
+const addedPm = (await db.query(
+ "update pool_daily_logs set ph_pm=7.3,sanitizer_band_pm='2-4',updated_by=$1 where id=$2 returning latest_test",
+ [senior.actor,senior.log],
+)).rows[0];
+assert.equal(addedPm.latest_test.period,'pm');
+const retest = (await db.query(
+ 'update pool_daily_logs set retest_submission=$1,updated_by=$2 where id=$3 returning latest_test',
+ [{id:id(975),ph:7.4,sanitizer_band:'2-4'},senior.actor,senior.log],
+)).rows[0];
+assert.equal(retest.latest_test.period,'retest');
+await assert.rejects(
+ db.query('update pool_daily_logs set ph_am=7.5,updated_by=$1 where id=$2',[senior.actor,senior.log]),
+ /change saved pool readings/,
+);
+await assert.rejects(act(senior.actor,976,'open'),/Engineering/);
+await assert.rejects(saveNewPoolTest({actor:fd,facility:senior.facility,log:id(977)}),/active CMPRI engineering account/);
+await assert.rejects(saveNewPoolTest({actor:id(103),facility:senior.facility,log:id(978)}),/active CMPRI engineering account/);
+await db.query('update hotel_members set active=false where user_id=$1 and hotel_id=$2',[senior.actor,h]);
+await assert.rejects(saveNewPoolTest({...senior,log:id(979)}),/active CMPRI engineering account/);
+assert.equal((await db.query(
+ "select pg_get_functiondef('public.cmpri_pool_action(uuid,uuid,uuid,uuid,text,text,bigint)'::regprocedure) as definition",
+)).rows[0].definition,statusActionBefore);
+console.log('PASS PostgreSQL: Senior Management can submit new pool readings and retests without correcting saved readings or reopening the pool');
 await db.close();

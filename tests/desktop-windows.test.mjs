@@ -161,10 +161,12 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   const workOrderDetail = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
   const modalHost = readFileSync(new URL('../src/components/GlobalModalHost.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  const headerStyles = readFileSync(new URL('../src/app/anchored-dashboard-menu.css', import.meta.url), 'utf8');
   assert.doesNotMatch(windowFrame, /minimi[sz]e|maximi[sz]e/i);
   assert.match(windowFrame, /data-cmpri-window-close="true"/);
   assert.equal((windowFrame.match(/<button\b/g) || []).length, 1, 'close is the only window control');
-  assert.match(dashboard, /cmpri-desktop-topbar relative z-\[200\]/);
+  assert.match(dashboard, /cmpri-desktop-topbar cmpri-dashboard-titlebar relative/);
+  assert.match(headerStyles, /header\.cmpri-dashboard-titlebar[^{]*\{[^}]*z-index:\s*201/);
   assert.match(dashboard, /<ApprovedDashboardMenus anchored[^>]*groups=\{visibleLauncherGroups\}/);
   assert.match(dashboard, /title=\{launcher\.label\}/);
   assert.match(dashboard, /shrink-0 whitespace-nowrap rounded border px-[12] py-0\.5/);

@@ -797,15 +797,13 @@ test("room availability bubbles normalize room identifiers and mark only vacant-
   assert.match(roomAvailability, /loadEffectiveRoomOperationsSnapshot\(admin, date\)/);
 });
 
-test("technician room data is scoped to assigned and unassigned active work", () => {
+test("technicians can view room tickets without gaining location editing", () => {
   const api = readFileSync(new URL("../src/app/api/rooms/route.ts", import.meta.url), "utf8");
   const dashboard = readFileSync(new URL("../src/app/technician/page.tsx", import.meta.url), "utf8");
-  assert.match(api, /roleKey\(principal\.profile\.role\) === "technician"/);
   assert.match(api, /!allows\(principal, "view_locations"\)/);
   assert.match(api, /can_edit: allows\(principal, "edit_locations"\)/);
-  assert.match(api, /\.in\("status", \["Open", "In Progress"\]\)/);
-  assert.match(api, /\.or\("technician_name\.is\.null,technician_name\.eq\."\)/);
-  assert.match(api, /\.eq\("technician_name", technicianName\)/);
+  assert.match(api, /fetchAllPages\(\(from, to\) => admin\.from\("work_orders"\)[\s\S]+\.eq\("hotel_id", principal\.hotelId\)/);
+  assert.doesNotMatch(api, /technician_name/);
   assert.match(dashboard, /key:\s*"\/engineering\/preventive-maintenance",\s*label:\s*"Preventive Maintenance"/);
 });
 

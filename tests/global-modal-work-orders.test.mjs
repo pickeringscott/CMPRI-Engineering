@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {JSDOM} from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
+import {defaultWindowRect} from '../src/lib/ui/desktop-windows.ts';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {url:'https://cmpri.test', pretendToBeVisual:true});
 dom.window.HTMLDialogElement.prototype.showModal=function(){this.dataset.testModal='true';this.setAttribute('open','');};
@@ -26,6 +27,8 @@ const globals = {exports:{}, window, document, URL, URLSearchParams, HTMLElement
     if (['react','react/jsx-runtime','react-dom'].includes(name)) return require(name);
     if (name === 'next/navigation') return {usePathname:()=>pathname};
     if (name === '@/lib/open-work-orders') return registry;
+    if (name === '@/lib/ui/desktop-windows') return {defaultWindowRect};
+    if (['./desktop/DesktopWindow','./desktop/WeatherPreviewWindow'].includes(name)) return {default:empty};
     if (name === '@/lib/ui/header-palette') return {modalActionForRoute:()=>'',modalThemeStyle:()=>({}),modalTitleStyle:()=>({}),modalDisplayTitle:(_path,title)=>title,hasBonvoyTierHelp:()=>false};
     if (['./WorkOrderTierKey','./RoomRankerKey','./WorkOrderTitleGuest'].includes(name)) return {default:empty};
     if (name === '@/lib/auth/client-session') return {loadCmpriSession:async()=>({capabilities:['view_work_orders']})};

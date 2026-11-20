@@ -11,7 +11,7 @@
 export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { canDrop = () => true } = {}) {
   const PRESS_MS = 320, SLIDE_MS = 240, MOUSE_DRAG_PX = 12, TOUCH_DRAG_PX = 8;
   const TAB_INSET = 15, TAB_GAP = 5, TAB_HEIGHT = 14;
-  let observer, suppressedClick, cancelGesture, active = null, zIndex = 1;
+  let observer, suppressedClick, cancelGesture, active = null, zIndex = 1, suppressRailClickUntil = 0;
   const ghosts = new Set(), cleanups = [], itemWidths = new WeakMap();
   root.replaceChildren();
   const preview = document.createElement('div');
@@ -23,6 +23,14 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   header.append(bar);
   preview.append(header);
   root.append(preview);
+  const railScroll = document.createElement('input');
+  railScroll.type = 'range';
+  railScroll.min = '0';
+  railScroll.className = 'cmpri-menu-rail-scroll';
+  railScroll.setAttribute('aria-label', 'Scroll menu tabs');
+  railScroll.hidden = true;
+  railScroll.oninput = () => { root.scrollLeft = railScroll.valueAsNumber; };
+  root.after(railScroll);
   const label = group => group.querySelector('legend').textContent;
   const fields = () => Array.from(bar.children);
   const isOpen = field => !field.classList.contains('collapsed');
@@ -30,6 +38,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     groups: fields().map(label),
     buttons: Object.fromEntries(fields().map(g => [label(g), [...g.querySelectorAll('.buttons>.action')].map(b => b.dataset.layoutKey)])),
     widths: Object.fromEntries(fields().filter(g => Number.isFinite(g.requestedWidth)).map(g => [label(g), g.requestedWidth])),
+    tabWidths: Object.fromEntries(fields().filter(g => Number.isFinite(g.requestedTabWidth)).map(g => [label(g), g.requestedTabWidth])),
     collapsed: fields().filter(g => !isOpen(g)).map(label),
     positions: Object.fromEntries(fields().filter(g => Number.isFinite(g.requestedX)).map(g => [label(g), g.requestedX])),
     active: active ? label(active) : null,
@@ -44,12 +53,31 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       active.style.zIndex = String(++zIndex);
     }
   };
+  const syncRailScroll = () => {
+    const maximum = Math.max(0, root.scrollWidth - root.clientWidth);
+    railScroll.max = String(maximum);
+    railScroll.hidden = maximum === 0;
+    railScroll.value = String(root.scrollLeft);
+  };
   const stageHeight = () => {
     const open = fields().filter(isOpen);
-    const height = open.length ? Math.max(...open.map(field => TAB_HEIGHT + field.offsetHeight + (field.querySelector('.group-scroll').hidden ? 1 : 12))) : TAB_HEIGHT;
+    const height = open.length ? Math.max(...open.map(field => field.offsetTop + field.offsetHeight + (field.querySelector('.group-scroll').hidden ? 1 : 13))) : TAB_HEIGHT + 2;
     bar.style.height = height + 'px';
+    syncRailScroll();
   };
   const listen = (name, fn, options) => { document.addEventListener(name, fn, options); return () => document.removeEventListener(name, fn, options); };
+  const clearRailClick = () => { suppressRailClickUntil = 0; };
+  const consumeRailClick = event => {
+    if (event.detail === 0 || performance.now() > suppressRailClickUntil) return;
+    clearRailClick();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  // A touch tap can scroll the tab underneath the subsequent synthetic click.
+  root.addEventListener('pointerdown', clearRailClick, true);
+  root.addEventListener('click', consumeRailClick, true);
+  cleanups.push(() => root.removeEventListener('pointerdown', clearRailClick, true),
+    () => root.removeEventListener('click', consumeRailClick, true));
   const suppressFor = target => { suppressedClick = { target, until: performance.now() + 400 }; };
   const shouldSuppress = (target, event) => {
     if (!suppressedClick)
@@ -302,6 +330,18 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.minimumWidth = Math.max(field.tabWidth + 26, Math.ceil(Math.max(0, ...widths)) + 6);
     field.fittedWidth = Math.max(field.minimumWidth, Math.ceil(widths.reduce((sum, w) => sum + w, 0) + Math.max(0, widths.length - 1) * (parseFloat(getComputedStyle(buttons).columnGap) || 0) + 14));
   }
+  function fitTab(field) {
+    const title = field.querySelector('legend');
+    const max = Math.max(field.minimumTabWidth, root.clientWidth - TAB_INSET - 12);
+    const requested = field.requestedTabWidth;
+    title.style.width = requested === undefined ? 'max-content' : `${Math.min(max, Math.max(field.minimumTabWidth, requested))}px`;
+    const width = title.offsetWidth;
+    if (width !== field.tabWidth) {
+      field.tabWidth = width;
+      refitButtonRow(field);
+    }
+    field.querySelector('.tab-resize-edge').style.left = `${title.offsetLeft + width - 3}px`;
+  }
   const widthLimit = field => {
     const available = root.scrollLeft + root.clientWidth - field.positionX - 3;
     return Math.max(1, Math.min(field.fittedWidth, root.clientWidth - 3, bar.clientWidth - field.positionX, Math.max(field.minimumWidth, available)));
@@ -315,14 +355,13 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.drawOutline();
   };
   const setPosition = (field, x) => {
-    field.positionX = Math.round(Math.max(0, Math.min(x, bar.clientWidth - field.minimumWidth)));
+    field.positionX = Math.round(Math.max(0, Math.min(x, bar.clientWidth - field.tabWidth - 26)));
     field.style.left = field.positionX + 'px';
     fitWidth(field);
   };
   const place = () => {
-    if (cancelGesture)
-      return;
     const items = fields();
+    items.forEach(fitTab);
     const fittedTabs = items.reduce((size, field) => size + field.tabWidth + TAB_GAP, 0);
     bar.style.minWidth = Math.max(root.clientWidth, fittedTabs + TAB_INSET + 9) + 'px';
     let x = 0;
@@ -332,6 +371,55 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     }
     stageHeight();
   };
+  function resizeHandle(className, title, measure, setSize, snapshot, restore) {
+    const edge = document.createElement('span');
+    edge.className = className;
+    edge.tabIndex = 0;
+    edge.setAttribute('role', 'separator');
+    edge.setAttribute('aria-orientation', 'vertical');
+    edge.setAttribute('aria-label', title);
+    edge.title = title;
+    edge.onkeydown = event => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      setSize(measure() + (event.key === 'ArrowRight' ? 10 : -10));
+      emit();
+    };
+    edge.oncontextmenu = event => event.preventDefault();
+    edge.onpointerdown = event => {
+      if (event.button !== 0 || event.isPrimary === false || cancelGesture) return;
+      event.preventDefault();
+      const previous = snapshot(), x = event.clientX, width = measure();
+      document.body.classList.add('drag-active');
+      window.getSelection()?.removeAllRanges();
+      edge.setPointerCapture(event.pointerId);
+      const finish = (move, cancel = false) => {
+        if (move.pointerId !== event.pointerId) return;
+        if (cancel) restore(previous);
+        else emit();
+        if (edge.hasPointerCapture(event.pointerId)) edge.releasePointerCapture(event.pointerId);
+        off.forEach(remove => remove());
+        document.body.classList.remove('drag-active');
+        cancelGesture = undefined;
+      };
+      const off = [
+        listen('pointermove', move => {
+          if (move.pointerId !== event.pointerId) return;
+          move.preventDefault();
+          setSize(width + move.clientX - x);
+        }, {passive: false}),
+        listen('pointerup', finish),
+        listen('pointercancel', move => finish(move, true)),
+        listen('keydown', move => {
+          if (move.key !== 'Escape') return;
+          move.preventDefault();
+          finish(event, true);
+        }),
+      ];
+      cancelGesture = () => finish(event, true);
+    };
+    return edge;
+  }
   function activate(field) {
     if (isOpen(field) && active === field) {
       field.classList.add('collapsed');
@@ -418,7 +506,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       window.clearTimeout(timer);
       cancelAnimationFrame(frame);
       if (dragging) {
-        suppressFor(title);
+        suppressRailClickUntil = performance.now() + 400;
         if (cancel || !within()) {
           root.scrollLeft = initialScroll;
           setPosition(field, initialX);
@@ -434,7 +522,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         field.style.zIndex = initialZ;
       }
       else if (touch) {
-        suppressFor(title);
+        suppressRailClickUntil = performance.now() + 400;
         if (!cancel && !moved && within())
           activate(field);
       }
@@ -501,9 +589,11 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     bar.append(field);
     title.style.maxWidth = 'none';
     title.style.width = 'max-content';
-    field.tabWidth = title.offsetWidth;
+    title.style.boxSizing = 'border-box';
+    field.minimumTabWidth = field.tabWidth = title.offsetWidth;
     refitButtonRow(field);
     field.requestedWidth = layout.widths[group.label];
+    field.requestedTabWidth = layout.tabWidths?.[group.label];
     field.requestedX = layout.positions?.[group.label];
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.classList.add('group-outline');
@@ -547,7 +637,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         activate(field);
       }
     };
-    const needsWake = e => !title.contains(e.target) && active !== field && isOpen(field);
+    const needsWake = e => !title.contains(e.target) && e.target !== tabEdge && active !== field && isOpen(field);
     field.addEventListener('pointerdown', e => {
       if (needsWake(e)) {
         suppressedClick = undefined;
@@ -565,48 +655,28 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       setActive(field);
       emit();
     }, true);
-    const edge = document.createElement('span');
-    edge.className = 'resize-edge';
-    edge.tabIndex = 0;
-    edge.setAttribute('role', 'separator');
-    edge.setAttribute('aria-orientation', 'vertical');
-    edge.setAttribute('aria-label', 'Resize ' + group.label);
-    edge.title = 'Drag horizontally to resize';
-    field.append(edge);
-    const resize = w => { field.requestedWidth = Math.max(field.minimumWidth, Math.min(w, widthLimit(field))); fitWidth(field); stageHeight(); };
-    edge.onkeydown = e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      e.preventDefault();
-      resize(field.offsetWidth + (e.key === 'ArrowRight' ? 10 : -10));
-      emit();
-    } };
-    edge.oncontextmenu = e => e.preventDefault();
-    edge.onpointerdown = e => {
-      if (e.button !== 0 || e.isPrimary === false || cancelGesture)
-        return;
-      e.preventDefault();
-      const width = field.requestedWidth, x = e.clientX, w = field.offsetWidth;
-      document.body.classList.add('drag-active');
-      window.getSelection()?.removeAllRanges();
-      edge.setPointerCapture(e.pointerId);
-      const move = m => { if (m.pointerId === e.pointerId) {
-        m.preventDefault();
-        resize(w + m.clientX - x);
-      } };
-      const finish = (m, cancel = false) => { if (m.pointerId !== e.pointerId)
-        return; if (cancel) {
-        field.requestedWidth = width;
+    const tabEdge = resizeHandle('tab-resize-edge', 'Resize ' + group.label + ' tab',
+      () => title.offsetWidth,
+      width => {
+        const limit = Math.max(field.minimumTabWidth, root.clientWidth - TAB_INSET - 12);
+        field.requestedTabWidth = Math.round(Math.min(limit, Math.max(field.minimumTabWidth, width)));
+        place();
+      },
+      () => field.requestedTabWidth,
+      width => { field.requestedTabWidth = width; place(); },
+    );
+    const rowEdge = resizeHandle('resize-edge', 'Resize ' + group.label + ' button row',
+      () => field.offsetWidth,
+      width => {
+        const limit = widthLimit(field);
+        field.requestedWidth = Math.max(Math.min(field.minimumWidth, limit), Math.min(width, limit));
         fitWidth(field);
         stageHeight();
-      }
-      else
-        emit(); if (edge.hasPointerCapture(e.pointerId))
-        edge.releasePointerCapture(e.pointerId); off.forEach(fn => fn()); document.body.classList.remove('drag-active'); cancelGesture = undefined; };
-      const off = [listen('pointermove', move, { passive: false }), listen('pointerup', m => finish(m)), listen('pointercancel', m => finish(m, true)), listen('keydown', m => { if (m.key === 'Escape') {
-          m.preventDefault();
-          finish(e, true);
-        } })];
-      cancelGesture = () => finish(e, true);
-    };
+      },
+      () => field.requestedWidth,
+      width => { field.requestedWidth = width; fitWidth(field); stageHeight(); },
+    );
+    field.append(tabEdge, rowEdge);
     if (layout.collapsed.includes(group.label)) {
       field.classList.add('collapsed');
       title.setAttribute('aria-expanded', 'false');
@@ -617,26 +687,29 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   const preferred = fields().find(field => isOpen(field) && label(field) === layout.active);
   if (preferred || layout.active === null)
     setActive(preferred || null);
-  observer = new ResizeObserver(place);
+  observer = new ResizeObserver(() => { if (!cancelGesture) place(); });
   observer.observe(root);
   place();
-  const adjustToScroll = () => { if (!cancelGesture) {
-    fields().forEach(fitWidth);
-    stageHeight();
-  } };
+  const adjustToScroll = () => {
+    if (cancelGesture) syncRailScroll();
+    else {
+      fields().forEach(fitWidth);
+      stageHeight();
+    }
+  };
   root.addEventListener('scroll', adjustToScroll, { passive: true });
   cleanups.push(() => root.removeEventListener('scroll', adjustToScroll));
   const blur = () => cancelGesture?.();
   window.addEventListener('blur', blur);
   cleanups.push(() => window.removeEventListener('blur', blur));
   const leave = e => {
-    if (!active || cancelGesture || root.contains(e.target))
+    if (!active || cancelGesture || root.contains(e.target) || railScroll.contains(e.target))
       return;
     setActive(null);
     emit();
   };
   cleanups.push(listen('pointerdown', leave, true), listen('focusin', leave));
   const unmount = () => { cancelGesture?.(); observer.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
-    ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); };
+    ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); railScroll.remove(); };
   return unmount;
 }
