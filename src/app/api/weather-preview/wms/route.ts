@@ -218,6 +218,9 @@ export async function GET(request: Request) {
       SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetMap", LAYERS: layer.name, STYLES: style,
       CRS: "EPSG:3857", BBOX: bbox.join(","), WIDTH: String(width), HEIGHT: String(height), FORMAT: "image/png", TRANSPARENT: "TRUE",
     } : { SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetLegendGraphic", LAYER: layer.name, STYLE: style, FORMAT: "image/png" };
+    // Let NOAA render the compact reflectivity legend at its native text size.
+    // These fixed presentation dimensions never change its palette or values.
+    if (op === "legend" && product === "reflectivity") { parameters.WIDTH = "300"; parameters.HEIGHT = "30"; }
     if (time) parameters.TIME = time;
     const source = sourceUrl(product, parameters);
     const image = await fetchSource(source, true, controller.signal);
