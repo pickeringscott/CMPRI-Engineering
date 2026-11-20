@@ -1,0 +1,60 @@
+/*
+ * London board palette/layout adapted from Flight Board Card v1.4.0.
+ * https://github.com/pmnilsson/flight-board-card
+ * Source: 09ba0438bb6af800478033c8cab556962955627b.
+ *
+ * MIT License
+ *
+ * Copyright (c) 2026 P-M Nilsson
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+.wa-airport { margin-top: 14px; min-width: 0; }
+.wa-airport > summary { padding: 13px 14px; cursor: pointer; font-size: 14px; font-weight: 700; }
+.wa-airport > summary:focus-visible { outline: 2px solid #ffcc00; outline-offset: -3px; }
+.wa-content { padding: 0 12px 12px; min-width: 0; }
+.wa-board { --wa-yellow: #ffcc00; background: #000; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 12px; font-family: "Gill Sans", "Gill Sans MT", "Johnston", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
+.wa-board-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.wa-airport-code { color: var(--wa-yellow); font-size: 15px; letter-spacing: .08em; white-space: nowrap; }
+.wa-clock-group { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.wa-clock-label { color: #aaa; font: 10px/1.3 Arial, sans-serif; }
+.wa-clock { color: var(--wa-yellow); font-size: 16px; font-weight: 600; white-space: nowrap; }
+.wa-boards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.wa-flight-panel { min-width: 0; overflow: hidden; border: 1px solid #333; border-radius: 4px; }
+.wa-flight-heading { margin: 0; padding: 8px 10px; background: #2b2b2b; color: var(--wa-yellow); font-size: 15px; font-weight: 700; letter-spacing: .025em; }
+.wa-flight-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.wa-flight-table th { padding: 7px 8px; text-align: left; color: #bfbfbf; font: 600 10px/1.3 Arial, sans-serif; border-bottom: 1px solid #333; }
+.wa-flight-table td { padding: 13px 8px; border-bottom: 0; }
+.wa-flight-table .wa-unavailable { color: #b8b8b8; font: 12px/1.5 Arial, sans-serif; text-align: center; }
+.wa-tracker { margin-top: 12px; min-width: 0; }
+.wa-tracker:empty { margin-top: 0; }
+.wa-tracker > iframe { display: block; }
+@media (max-width: 700px) {
+  .wa-content { padding: 0 8px 8px; }
+  .wa-board { padding: 10px; }
+  .wa-boards { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  .wa-board-header { gap: 8px; }
+  .wa-airport-code { font-size: 13px; letter-spacing: .05em; }
+  .wa-clock-group { gap: 3px 6px; }
+  .wa-clock-label { font-size: 9px; }
+  .wa-clock { font-size: 14px; }
+  .wa-flight-heading { font-size: 14px; padding: 7px 9px; }
+  .wa-flight-table th { padding: 6px 8px; }
+  .wa-flight-table td { padding: 10px 8px; }
+}

@@ -1,0 +1,88 @@
+# MyRadar reference and CMPRI ground maps
+
+Reference review began November 19, 2026; implementation notes below reflect the current revision. This revision uses MyRadar as an interaction reference for the existing CMPRI preview branch. It does not embed MyRadar or use its API, map tiles, proprietary radar processing, or paid features.
+
+## What was reviewed
+
+The user supplied a MyRadar screen recording. Its metadata was readable, but the approximately 45 MB Drive download was blocked. The uploaded MP4 also exceeds the workspace's 32 MiB transfer limit. **The recording has not been watched.** The descriptions below come from primary MyRadar documentation, not observations of that recording.
+
+MyRadar distinguishes a **Map Type**, the ground background, from **Radar Type** and other weather overlays. Its [current FAQ](https://acmeaom.freshdesk.com/support/solutions/articles/44002780015-frequently-asked-questions) lists seven map types: Gray, Roads, Aerial, Topography, Pro Dark, Pro Light, and Daylight. The older [Map Type guide](https://acmeaom.freshdesk.com/support/solutions/articles/44001261773-map-type) describes Gray as the default, with Roads and Aerial alternatives. These pages reflect different app versions; they do not establish exactly which options appear in the user's recording.
+
+The separate [Radar Type guide](https://acmeaom.freshdesk.com/support/solutions/articles/44001261737-radar-type) documents Classic, Hi-Def, Heat/Temperature, and Per-Station products. Another [official article refers to four radar thumbnails](https://acmeaom.freshdesk.com/support/solutions/articles/44001822597-what-s-the-difference-between-the-radar-types-). Consequently, the user's recollection of four choices must not be presented as verified evidence of four MyRadar basemaps.
+
+## Verified reference behavior and limits
+
+The [main toolbar guide](https://acmeaom.freshdesk.com/support/solutions/articles/44001261763-main-toolbar) separates the background-map selector from the Layers menu. The radar guide documents opacity, playback speed, scan interval, and loop duration controls. The [warnings guide](https://acmeaom.freshdesk.com/support/solutions/articles/44001261738-warnings-and-watches) describes selectable alert shapes and separate watch/warning visibility and opacity. The [forecast guide](https://acmeaom.freshdesk.com/support/solutions/articles/44001261753-forecast) describes a compact forecast bar that expands to current conditions, hourly details, and an extended forecast.
+
+These are useful behavior references for CMPRI's map selector, independent weather overlays, shared pan/zoom viewport, legend, timeline, and forecast panels. MyRadar's forecast can follow the map's center, whereas this CMPRI preview retains the verified hotel as its forecast and alert location when the map is panned. Recenter returns to the hotel; it does not locate the device.
+
+The [official upgrade list](https://acmeaom.freshdesk.com/support/solutions/articles/44001261755-upgrades-available-for-ios) identifies Per-Station Radar, Historical Radar, hurricanes, the CONUS-wide Road Weather toggle, and RouteCast as Premium Features; aviation charts use a separate subscription. The current documentation does not establish a complete free/paid entitlement table for every basemap style. In particular, a name containing “Pro” alone is not sufficient evidence of its subscription requirement.
+
+The [MyRadar embedding documentation](https://myradar.com/apidocs/embed-a-weather-map/) requires a MyRadar API key. CMPRI does not use that embed. MyRadar's Hi-Def smoothing/morphing and precipitation models are not equivalent to a direct NOAA observed composite. CMPRI's default observed radar uses NOAA NCEP MRMS BREF QCD WMS, layer `conus_bref_qcd` and advertised style `radar_reflectivity`, with explicit observed instants and the actual displayed Central scan time retained. Its matching official legend is described below. Ready scans play while remaining frames load in the background, and new ready scans join automatically. Pause freezes the displayed scan and time. Per-frame scan-bar colors indicate loading without a radar loading/stale label or muting the whole control bar; all four range controls retain visible thumbs. The cache protects the displayed bitmap and current loop coverage from FIFO eviction, preserving actual georeferencing while a replacement loads. No proprietary HD, predicted radar, storm tracking, or paid road-weather capability is implied by adopting similar controls.
+
+## CMPRI geographic background
+
+CMPRI uses **USGS/USDA historical aerial imagery only**. Gray, Roads and Terrain background choices were removed; highway lines, route signs and town names remain independent geographic overlays.
+
+| Background | Ground data | Official service |
+| --- | --- | --- |
+| Aerial | USGS/USDA historical orthoimagery | [USGSImageryOnly](https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer) |
+
+The current CMPRI default is **Aerial at regional zoom**, with official USGS transportation roads and GNIS incorporated-place town labels above it. Route shields are drawn locally from actual official route polylines and designators, with a budget based on zoom and visible map area. Major routes take priority at wide views, repeated labels are limited and local highways appear where space permits. The property view prioritizes actual visible I-57 segments north/south and I-74 to the east without inventing route positions. Collision checks protect towns, the pin and controls. Provider-rendered shield layers are omitted from the road-line PNG to prevent duplicates. GNIS labels use actual source names and one actual Point/MultiPoint coordinate per town, with deduplication and collision decluttering. This geographic reference overlay is separate from reported winter road conditions. Its source can refresh without establishing the aerial imagery's acquisition year; capture year at the hotel remains unavailable. Credits are compact, and the hotel pin has no permanent text label.
+
+The fixed route transport queries [official transportation layers](https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer): 10M-scale layer 8 at tile zoom 7 or below, 1M-scale layer 9 at zoom 8–9, and separate detailed Interstate/US/State layers 16/17/18 at zoom 10 or above. The broadest views request Interstate designators; zoom 8 adds US routes and zoom 9 adds state routes. The API preserves actual route fields and WGS84 polylines, including concurrent routes. It excludes the official generalized source's single-space blank values and rejects oversized or incomplete collections; it never substitutes handwritten route positions.
+
+The local blank signs follow [FHWA M1-1](https://mutcd.fhwa.dot.gov/kno-shs_2024-release-status/index.htm) and [IDOT M1-I100](https://public.powerdms.com/IDOT/documents/2608579). M1-1 is the red/white/blue cutout Interstate shield. Illinois uses a white square, black inset rounded border and ILLINOIS header, with the route number below; it is not a geographic state outline or a generic SR label. Sanitized public-domain [Interstate](https://commons.wikimedia.org/wiki/File:I-blank.svg) and [Illinois](https://commons.wikimedia.org/wiki/File:Illinois_blank.svg) visual templates were cross-checked against those standards and bundled locally. They are map artwork, not claimed verbatim official fabrication files. Numbers and positions still come from actual USGS routes. Illinois artwork requires official `STFIPS`/`STATE` or `stco_fipscode` jurisdiction, with unknown and out-of-state routes kept separate.
+
+The [USGS basemap overview](https://www.usgs.gov/faqs/what-are-base-map-services-or-urls-used-national-map) describes the underlying products. The [current service directory](https://basemap.nationalmap.gov/arcgis/rest/services?f=pjson) and individual service metadata were checked. They expose cached, 256×256-pixel Web Mercator tiles using:
+
+```text
+https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}
+```
+
+Tile addressing is row before column (`y/x`), unlike some other tile URL conventions. The fixed aerial background shares the viewport with the anchored hotel pin and independently selected weather overlays. Geographic imagery does not report precipitation or road safety.
+
+Use native tile levels through **zoom 16**, consistent with the services' documented maximum display scale of approximately 1:9,028. Their metadata also contains higher LOD entries; the presence of those entries is not proof of additional native detail. If the interface permits closer zoom, overzoom already available tiles instead of claiming greater source resolution or requesting unsupported native levels. Show unavailable coverage honestly. USGS sources cover the United States and territories with product-specific detail; worldwide display does not imply uniform local road or aerial coverage.
+
+The aerial metadata describes historical NAIP imagery, including CONUS source years 2017–2021, and a service refresh credit of June 2024. A service refresh is not the capture date of every image. **Aerial is historical ground imagery, not live weather satellite imagery.** GOES cloud imagery, when supported, remains a separate NOAA weather overlay.
+
+### Source catalog correction
+
+Some older USGS help/catalog pages still list `USGSImageryTopo`. Its REST metadata returned a service-not-found **404** during this review, and the current service directory omits it. Do not use that obsolete endpoint or describe it as a verified working alternative. The selected aerial endpoint is `USGSImageryOnly`.
+
+## Cost, attribution, and retained constraints
+
+USGS explicitly states that [National Map services and data are free and public domain](https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map). These public services require no paid feed or API key. Keep visible attribution with the map, including USGS National Map and USDA where aerial imagery is used, and preserve applicable service credits. USGS requests this acknowledgment:
+
+> Map services and data available from U.S. Geological Survey, National Geospatial Program.
+
+Ground-map requests remain bounded to the current viewport and stop with the Weather view. Map click activates wheel zoom and pointer leave resets it; three sliders group opacity, playback speed and loop duration. Gridlines, manual-refresh controls, redundant help and the old footer are removed. A five-minute refresh runs only while the map is open and visible, stopping on hide/tab change/close; it is a foreground display refresh, not the adaptive background scheduler. No device GPS, user tracking, MyRadar account, API key, Supabase activity, notification permission, real push delivery, or background scheduler is introduced. Existing live NWS forecasts, observations, applicable point alerts—including alerts without polygons—and their provenance remain in place. Weather Prep and adaptive-check demonstrations remain explicitly simulated. Actual official point alerts now create local in-app Guest Safety notices; no device push or database work is added.
+
+The existing Local velocity and Precipitation type buttons use verified free NOAA WMS products rather than MyRadar's proprietary products. Earlier published checks obtained official capabilities, exact-time PNG maps and legends; current availability is checked separately and failed feeds remain unavailable. Available observed views retain their actual scan times and geographic extents and can stack with other independently toggled layers. Only reported winter roads and forecast winter impacts are a mutually exclusive pair. Regional reflectivity uses the observed time dimension of the verified NCEP BREF QCD WMS; selecting another product must not imply that NOAA supplied a corresponding loop or MyRadar smoothing.
+
+The watch/warning bulletin is a native portal beneath the desktop header, outside Weather and spanning the available desktop width. It scrolls right to left at the revised faster pace and survives closing the cached Weather window while alerts remain active. The Weather iframe no longer shows the Sources tab, orange review box or Guest Safety test control. Official in-app safety delivery and clearly labeled retained simulations keep their existing boundaries.
+
+Warning audio is a local 11.72-second excerpt from the user's uploaded recording, with a soft attack and ending fade; it is not a MyRadar or NWS feed. A genuine Weather-launcher click arms native Web Audio. Only new warning batches play it; unchanged alerts, watches, advisories and reopening details do not retrigger playback. Dismissal, clear, cancellation, downgrade and sample reset cancel/fade it. Clearing the notification inbox preserves active official hazards and their bulletin; shared sample resets clear simulated state across the notification/check demonstrations while preserving official alerts. Same-ID revisions replace prior active versions, and past messages remain labeled history. No device push, permission request, database write, persisted sound preference or scheduler is introduced.
+
+## Screenshot temperature reference and 24-hour timelines
+
+The supplied temperature screenshots are a separate visual reference from the unviewed MyRadar recording. CMPRI's current temperature colors are hard-coded in Fahrenheit and independent of the theme: cyan at/below 0°F, periwinkle around 15°F, magenta at 32°F, a reset to deep violet at 34°F, blue at 40–45°F, mint at 55°F, lime at 63°F, yellow at 80°F, orange at 85°F, red at 95°F and pink at 106°F. These are screenshot-based approximations, not an assertion about the reference app's exact formula. The numeric value is never clamped to the ramp or replaced with zero when unknown.
+
+Current Conditions and every daily forecast use a 24-hour Central-time temperature dial. Hour position is chronological. Current Conditions has a latest KCMI observed value in the center, a separate outer forecast track and an inner observed-history track. Its **F H/F L** identifies forecast extrema and **O H/O L** identifies the highest/lowest supplied reports since Central midnight; daily forecast rings and badges use **H/L**. The observed track interpolates colors only between actual reports at most 90 minutes apart, using a bounded real pre-midnight anchor when a report pair spans midnight. Null reports and larger gaps remain unknown; no midnight report is fabricated. The anchor is excluded from observed extrema, and the earliest real tied-extreme time remains stable. Missing reports may hide an earlier extreme.
+
+Forecast extrema retain their own values and times. Daily official period highs/lows can appear without timing when hourly guidance is unavailable. Missing hours are gaps, partial coverage remains accessible through the wheel, and later days without hourly guidance remain unknown. Daylight-saving clock changes do not silently manufacture or discard forecast hours. Hourly Forecast retains scrolling cards with centered condition icons and matching colored temperature dots/text. Available gusts are labeled Gusts with MPH/mph, and redundant Forecast wording, repeated bottom date/time, key and bottom notes are removed. Daily details remain in the existing accordion. Clock labels follow the existing verified Chief Engineer identity/layout rule: Chief Engineer uses 24-hour time, while other users, including ordinary administrators, use 12-hour AM/PM. Latest observation, history, forecasts and alerts load independently and use five-minute memory caches; cached data can render immediately on reopen while due parts refresh.
+
+## Matching radar legend
+
+The previous processed RGBA ImageServer does not supply a usable authoritative dBZ palette through its generic RGB legend. The default radar therefore moved to the [official NCEP MRMS BREF QCD WMS](https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows), with advertised `conus_bref_qcd` / `radar_reflectivity` imagery and legend. This makes the compact legend refer to the product actually rendered, rather than borrowing unrelated NWS colors.
+
+When NOAA returns the matching legend, the in-map color ramp is its unchanged top 10-pixel band of the actual 500×30 PNG. Printed dBZ tick labels are reflowed at source-verified positions for mobile readability; the first tick remains inset and is not claimed to be the ramp's minimum. No rainfall-rate conversion or precipitation classification is inferred from those colors. Missing current imagery or legend responses are not replaced with fabricated data.
+
+## Validation status
+
+- **Primary reference evidence:** MyRadar's map/product distinction and documented controls, explicitly listed subscription features, USGS service descriptions/projection/terms, and official NCEP MRMS service provenance.
+- **Not verified:** playback or exact menu contents of the supplied Drive recording. No video-derived behavior or exact four-option match is claimed.
+- **Source and acceptance checks are distinct:** actual official capabilities, imagery, legends and geographic responses establish source availability; intercepted browser fixtures establish interaction behavior.
+- **Current revision acceptance:** preview build/TypeScript, targeted lint, 102 focused Weather tests and all 12 desktop/mobile browser cases pass. Official source checks and fixture interaction checks remain distinct; published deployment checks and present NOAA availability are recorded in the draft PR.
+
+For the native dashboard entry, live NWS transports, safety behavior and current verification instructions, see [weather-review.md](weather-review.md).

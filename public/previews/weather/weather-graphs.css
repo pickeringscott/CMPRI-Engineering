@@ -1,0 +1,19 @@
+/* Fixed data-series colors; this graph does not inherit a seasonal palette. */
+.wg-hourly-graph{display:block;width:100%;min-width:0;margin:10px 0 0;font:10px Arial,sans-serif;color:#e6eaed;line-height:1.2}
+.wg-legend{display:flex;align-items:center;gap:10px;min-height:15px;font-size:9px;white-space:nowrap}
+.wg-precipitation-label{color:#20d8ed}.wg-temperature-label{color:#ff991f}
+.wg-precipitation-label::before,.wg-temperature-label::before{content:"";display:inline-block;width:7px;height:2px;background:currentColor;margin:0 4px 2px 0;vertical-align:middle}
+.wg-stale{font-size:8px;color:#e1c273;margin-left:auto}
+.wg-plot{display:block;width:100%;height:112px;overflow:visible}
+.wg-grid{stroke:#ffffff15;stroke-width:1;vector-effect:non-scaling-stroke}
+.wg-series{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.wg-precipitation-area{opacity:.13;stroke:none}
+.wg-freezing-line{stroke-width:1;stroke-dasharray:3 4;opacity:.65;vector-effect:non-scaling-stroke}
+.wg-freezing-label{fill:#a9cce3;font-size:8px}
+.wg-chance-axis{fill:#70deeb;font-size:8px}.wg-temperature-axis{fill:#ffba65;font-size:8px}
+.wg-time{fill:#d0d5d9;font-size:8px}.wg-point{stroke:#101010;stroke-width:.7;vector-effect:non-scaling-stroke}
+.wg-point:focus{outline:none;stroke:#fff;stroke-width:2}
+.wg-now{stroke:#d9dbdd;stroke-width:1;opacity:.55;vector-effect:non-scaling-stroke}
+.wg-empty{font-size:10px;color:#c7c1b1;padding:12px 4px;text-align:center}
+.wg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:640px){.wg-hourly-graph{margin-top:8px}.wg-legend{font-size:8px;gap:8px}.wg-plot{height:100px}}

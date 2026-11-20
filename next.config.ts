@@ -5,6 +5,10 @@ const OCR_RUNTIME = ["node_modules/tesseract.js/**/*", "node_modules/tesseract.j
 const PDF_RUNTIME = ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/pdfjs-dist/package.json", "node_modules/pdfjs-dist/standard_fonts/**/*", "node_modules/pdfjs-dist/cmaps/**/*", "node_modules/pdfjs-dist/wasm/**/*", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"];
 
 const nextConfig: NextConfig = {
+	env: {
+		// Keep the existing launcher flag enabled for the released Weather view.
+		NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW: "1",
+	},
 	// PDF.js uses createRequire(import.meta.url) for its native canvas runtime
 	// and resolves its worker relative to the package. Preserve that boundary.
 	serverExternalPackages: ["pdfjs-dist/legacy", "@napi-rs/canvas", "tesseract.js", "tesseract.js-core"],

@@ -38,6 +38,7 @@ export default function DesktopWindow({
   onRectCommit,
   children,
   guest,
+  belowTitlebar,
 }: {
   windowKey: string;
   title: string;
@@ -51,6 +52,7 @@ export default function DesktopWindow({
   onRectCommit: (rect: WindowRect) => void;
   children: ReactNode;
   guest?: Record<string,unknown>;
+  belowTitlebar?: ReactNode;
 }) {
   const titleId = useId();
   const displayTitle = modalDisplayTitle(windowKey,title);
@@ -129,6 +131,7 @@ export default function DesktopWindow({
           <svg aria-hidden="true" viewBox="0 0 10 10" className="size-2.5"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
         </button>
       </div>
+      {belowTitlebar}
       <div className="cmpri-desktop-window-body">{children}</div>
       {RESIZE_EDGES.map((edge) => (
         <div
