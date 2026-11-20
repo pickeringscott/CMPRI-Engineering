@@ -262,14 +262,17 @@ async def check_tally_anchor(page, width, results):
     async def geometry(label):
         await page.wait_for_timeout(100)
         parent = await page.locator(".cmpri-desktop-topbar").bounding_box()
+        score = await child.locator("#cmpriScorebug").bounding_box()
         tally = await child.locator(".sim-tally").bounding_box()
         anchored = await child.locator("body").evaluate("body=>body.classList.contains('cmpri-tally-header')")
         if width > 640:
-            assert anchored and abs(tally["y"] - parent["y"] - parent["height"] - 4) <= 1, (label, parent, tally)
+            assert anchored and abs(score["y"] - parent["y"] - parent["height"] - 4) <= 1, (label, parent, score)
+            assert abs((await page.evaluate("innerWidth")) - score["x"] - score["width"] - 8) <= 1, (label, score)
+            assert abs(tally["y"] - score["y"] - score["height"] - 4) <= 1, (label, score, tally)
             assert abs((await page.evaluate("innerWidth")) - tally["x"] - tally["width"] - 8) <= 1, (label, tally)
         else:
             assert not anchored and abs(tally["x"] - 8) <= 1 and abs(tally["y"] - 8) <= 1, tally
-        return {"state": label, "header": parent, "tally": tally}
+        return {"state": label, "header": parent, "scoreboard": score, "tally": tally}
 
     checks = [await geometry("tabs closed")]
     if width > 640:
@@ -282,7 +285,7 @@ async def check_tally_anchor(page, width, results):
         checks.append(await geometry("title bar resized"))
         await page.set_viewport_size({"width": width, "height": 1000})
         checks.append(await geometry("title bar restored"))
-    results.append({"width": width, "test": "football tally follows desktop title bar with four-pixel gap and eight-pixel right margin; phone position stays unchanged", "passed": True, "geometry": checks})
+    results.append({"width": width, "test": "game scoreboard follows desktop title bar at four-pixel gap/right eight pixels, record below it without overlap; phone placement unchanged", "passed": True, "geometry": checks})
 
 
 async def check_width(playwright, width, results):
