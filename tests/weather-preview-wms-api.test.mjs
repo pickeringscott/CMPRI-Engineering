@@ -273,3 +273,17 @@ test('unknown outer sharing parameters are ignored and never forwarded to offici
   assert.equal(duplicate.status,400,key);
  }
 });
+
+
+test('unparsed NDFD capabilities remain bounded JSON diagnostics without resolving declarations',async()=>{
+ const raw='<!DOCTYPE WMT_MS_Capabilities SYSTEM "https://untrusted.example/never-fetch.dtd">'+
+  '<WMT_MS_Capabilities version="1.1.1"><Service><Title>Source diagnostic</Title></Service></WMT_MS_Capabilities>';
+ let calls=0;
+ const api=fixture(async(url)=>{ calls++;assert.equal(new URL(url).origin+new URL(url).pathname,cloudCover);return xmlResponse(raw); });
+ const response=await api.GET(request({product:'cloudCover',op:'capabilities'}));
+ assert.equal(response.status,502);assert.match(response.headers.get('Content-Type'),/application\/json/);
+ const data=await response.json();assert.equal(data.unavailable,true);assert.equal(data.diagnostic.xml,raw);
+ assert.equal(data.diagnostic.parsed,false);assert.equal(data.diagnostic.entityResolution,false);
+ assert.equal(calls,1,'Diagnostic XML never follows a DTD or changes the fixed service');
+ assert.match(data.error.message,/unsupported XML declarations/);
+});

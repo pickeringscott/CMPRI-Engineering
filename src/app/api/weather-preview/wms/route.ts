@@ -22,6 +22,11 @@ type Capabilities = {
   layers: Layer[]; mapFormats: string[]; legendSupported: boolean; xml: string;
 };
 type XmlNode = { name: string; attributes: Record<string, string>; text: string; children: XmlNode[] };
+class CloudCapabilitiesDiagnostic extends Error {
+  readonly xml: string;
+  readonly source: string;
+  constructor(message: string, xml: string, source: string) { super(message); this.xml = xml; this.source = source; }
+}
 const metadataCache = new Map<Product, { at: number; value: Capabilities }>();
 const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 12000;
@@ -156,7 +161,16 @@ async function capabilities(product: Product, signal: AbortSignal) {
   if (cached && Date.now() - cached.at < METADATA_TTL_MS) return cached.value;
   const source = sourceUrl(product, { service: "WMS", version: "1.3.0", request: "GetCapabilities" });
   const xml = new TextDecoder().decode(await fetchSource(source, false, signal));
-  const value = parseCapabilities(product, source, xml);
+  let value: Capabilities;
+  try { value = parseCapabilities(product, source, xml); }
+  catch (error) {
+    // NDFD is metadata-only while its contract is under verification. Preserve
+    // a bounded source response as a JSON string for inspection when an older
+    // WMS document cannot be parsed. No DTD, entity or embedded URL is followed.
+    if (product === "cloudCover") throw new CloudCapabilitiesDiagnostic(
+      error instanceof Error ? error.message : "NDFD capabilities could not be parsed", xml, source);
+    throw error;
+  }
   metadataCache.set(product, { at: Date.now(), value }); return value;
 }
 function duration(value: string) {
@@ -239,6 +253,9 @@ export async function GET(request: Request) {
       // default is not proof of the actual image's scan time.
       "X-Weather-Time": time || "source-default" } });
   } catch (error) {
+    if (error instanceof CloudCapabilitiesDiagnostic) return Response.json({ unavailable: true,
+      error: { code: 502, message: error.message }, source: error.source, checkedAt: new Date().toISOString(),
+      diagnostic: { parsed: false, entityResolution: false, xml: error.xml } }, { status: 502, headers: HEADERS });
     return unavailable(controller.signal.aborted ? 504 : 502,
       controller.signal.aborted ? "Official WMS request timed out or was canceled" : error instanceof Error ? error.message : "Official WMS unavailable");
   } finally { clearTimeout(timeout); request.signal.removeEventListener("abort", abort); }
