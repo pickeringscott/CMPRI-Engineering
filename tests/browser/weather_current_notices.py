@@ -175,7 +175,8 @@ async def dial_reference_layout(frame):
         const lines=Math.min(parseInt(style.webkitLineClamp)||Infinity,range.getClientRects().length),needed=lines*parseFloat(style.lineHeight),height=el.getBoundingClientRect().height;
         return style.overflowY==='hidden'&&Number.isFinite(needed)&&height<needed-.6?[{text:el.textContent,height,needed,lines}]:[];
       });
-      const clippedTicks=Array.from(current.querySelectorAll('.wv-dial-clock')).map(el=>({text:el.textContent,...rect(el)})).filter(el=>el.left<face.left-.5||el.right>face.right+.5||el.top<face.top-.5||el.bottom>face.bottom+.5);
+      const clockBounds=getComputedStyle(current.querySelector('.wv-dial-ring')).overflowX==='visible'?current.closest('#currentConditionsSection').getBoundingClientRect():face;
+      const clippedTicks=Array.from(current.querySelectorAll('.wv-dial-clock')).map(el=>({text:el.textContent,...rect(el)})).filter(el=>el.left<clockBounds.left+1||el.right>clockBounds.right-1||el.top<face.top-.5||el.bottom>face.bottom+.5);
       const painted=Array.from(current.querySelectorAll('.wv-moon,.wv-star')),paintCollisions=[];
       for(const track of painted.length?current.querySelectorAll('.wv-dial-track'):[]){
         const length=track.getTotalLength(),half=parseFloat(getComputedStyle(track).strokeWidth)/2;
