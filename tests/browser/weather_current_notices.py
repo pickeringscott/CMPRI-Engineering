@@ -162,7 +162,14 @@ async def forecast_graphs(frame, feed, chief):
       const root=host.querySelector('figure'),cards=Array.from(document.querySelectorAll('#hourlyForecastCards .forecast-card'));
       const svg=root.querySelector('svg'),plot=svg.getBoundingClientRect(),view=svg.viewBox.baseVal;
       const pointValues=name=>Array.from(root.querySelectorAll('.wg-'+name+'-point')).map(el=>({time:el.dataset.time,value:Number(el.dataset.value),x:plot.left+Number(el.getAttribute('cx'))/view.width*plot.width}));
-      const paths=name=>Array.from(root.querySelectorAll('path.wg-'+name)).map(el=>({path:el.getAttribute('d'),stroke:el.getAttribute('stroke'),samples:Number(el.dataset.samples)}));
+      const paths=name=>Array.from(root.querySelectorAll('path.wg-'+name)).map(el=>{
+        const box=el.getBBox(),points=Array.from(root.querySelectorAll('.wg-'+name+'-point')).map(point=>({x:Number(point.getAttribute('cx')),y:Number(point.getAttribute('cy'))})).filter(point=>point.x>=box.x-.1&&point.x<=box.x+box.width+.1);
+        const length=el.getTotalLength(),atX=x=>{let low=0,high=length;for(let i=0;i<36;i++){const middle=(low+high)/2;if(el.getPointAtLength(middle).x<x)low=middle;else high=middle;}return el.getPointAtLength((low+high)/2);};
+        let overshoot=0,sampleError=0;
+        points.forEach(point=>{sampleError=Math.max(sampleError,Math.abs(atX(point.x).y-point.y));});
+        for(let i=1;i<points.length;i++)for(let step=1;step<20;step++){const before=points[i-1],after=points[i],p=atX(before.x+(after.x-before.x)*step/20);overshoot=Math.max(overshoot,Math.min(before.y,after.y)-p.y,p.y-Math.max(before.y,after.y));}
+        return {path:el.getAttribute('d'),stroke:el.getAttribute('stroke'),samples:Number(el.dataset.samples),overshoot,sampleError};
+      });
       const feels=document.getElementById('liveFeelsLike'),temperature=document.querySelector('#liveTemperature .wv-temperature-value'),visibility=document.getElementById('liveVisibility');
       return {layout:root.dataset.layout,temperature:pointValues('temperature'),chance:pointValues('precipitation'),temperaturePaths:paths('temperature'),chancePaths:paths('precipitation'),
         freezing:root.querySelector('.wg-freezing-label')?.textContent,labels:Array.from(root.querySelectorAll('.wg-time')).map(el=>el.textContent),
@@ -183,10 +190,10 @@ async def forecast_graphs(frame, feed, chief):
             'Valid zero precipitation chance or air temperature was removed')
     require(len(actual['temperaturePaths']) >= 2 and len(actual['chancePaths']) >= 2,
             'A graph bridged the deliberately missing temperature or precipitation sample')
-    require(all(not re.search('[CQST]',row['path']) for row in actual['temperaturePaths']+actual['chancePaths'])
+    require(all(('C' in row['path'] if row['samples']>2 else True) and row['overshoot']<.3 and row['sampleError']<.3 for row in actual['temperaturePaths']+actual['chancePaths'])
             and all(row['stroke']=='#ff991f' for row in actual['temperaturePaths'])
             and all(row['stroke']=='#20d8ed' for row in actual['chancePaths']) and actual['freezing']=='32°',
-            'Graphs lost the actual-value line shape, fixed colors, or freezing line')
+            'Graphs lost bounded smooth curves, actual sample positions, fixed colors, or freezing line')
     for point in actual['chance']:
         index=next(i for i,period in enumerate(periods) if datetime.fromisoformat(period['startTime'].replace('Z','+00:00'))==datetime.fromisoformat(point['time'].replace('Z','+00:00')))
         require(abs(point['x']-actual['cardCenters'][index]) < 2, 'Hourly plot point is not aligned under its forecast card')
@@ -200,7 +207,7 @@ async def forecast_graphs(frame, feed, chief):
     require(axes and all(axis['labels'] and all(label['kind']=='domain' and label['time'] for label in axis['labels'])
             and all(axis['labels'][index]['left']>=axis['labels'][index-1]['right']+2 for index in range(1,len(axis['labels']))) for axis in axes),
             'Compact time-layout graph labels overlap or cluster at sparse-data timestamps: '+str(axes))
-    return {'actualHourlyPoints':True,'missingValuesRemainGaps':True,'validZeroRetained':True,'cardCentersAligned':True,
+    return {'actualHourlyPoints':True,'boundedSmoothCurvesThroughSuppliedValues':True,'missingValuesRemainGaps':True,'validZeroRetained':True,'cardCentersAligned':True,
             'dailyGraphsBelowDetails':True,'freezingLine':32,'currentDialWidth':actual['currentWidth'],'roleClock':True,'compactAxisLabelsDoNotOverlap':True}
 
 
@@ -306,11 +313,13 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
             for arc in ring:
                 stamp=datetime.fromisoformat(arc['time'].replace('Z','+00:00'))
                 period=next((p for p in source_hours if datetime.fromisoformat(p['startTime'].replace('Z','+00:00'))<=stamp<datetime.fromisoformat(p['endTime'].replace('Z','+00:00'))),None)
-                expected=period['temperature'] if period else (30 if stamp<day_start+timedelta(hours=12) else 35) if name=='current' and day_start<=stamp<feed.now else None
+                expected=period['temperature'] if period else (30 if stamp<day_start+timedelta(hours=12) else 35) if day_start<=stamp<feed.now else None
                 require(expected is not None and expected==arc['value'] and arc['color']==arc['expectedColor'],
                         'A forecast ring invented a value or replaced its fixed temperature color')
         require(datetime.fromisoformat(rings['current'][0]['time'].replace('Z','+00:00'))==day_start
                 and rings['current'][0]['value']==30, 'Current forecast ring did not use the actual supplied midnight grid interval')
+        require(datetime.fromisoformat(rings['daily'][0]['time'].replace('Z','+00:00'))==day_start
+                and rings['daily'][0]['value']==30, 'Today’s Extended ring did not use the actual supplied midnight grid interval')
         faces = await frame.locator('.wv-temperature-dial').evaluate_all("""elements=>elements.map(el=>({
           summariesInside:Array.from(el.querySelectorAll('.wv-dial-extreme')).every(item=>Boolean(item.closest('.wv-dial-face'))),
           labels:Array.from(el.querySelectorAll('.wv-dial-clock')).map(item=>item.textContent),
@@ -358,6 +367,29 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         starts=await frame.locator('#liveTemperature .wv-dial-segment').evaluate_all("els=>els.map(el=>el.dataset.startTime)")
         require(all(datetime.fromisoformat(value.replace('Z','+00:00'))>=feed.now for value in starts),
                 'Missing earlier forecast guidance was filled with observations or an invented historical forecast')
+        daily_fallback=await frame.locator('#extendedForecast [data-day="'+day_start.date().isoformat()+'"] .wv-dial-historical-observed').evaluate_all("""els=>els.map(el=>({
+          time:el.dataset.startTime,a:el.dataset.sampleStart,b:el.dataset.sampleEnd,value:Number(el.dataset.airTemperature),
+          kind:el.dataset.kind,source:el.dataset.source,title:el.textContent
+        }))""")
+        require(daily_fallback and datetime.fromisoformat(daily_fallback[0]['time'].replace('Z','+00:00'))==day_start,
+                'Today’s Extended ring did not fill its known midnight observation history when forecast history was missing')
+        daily_label=await frame.locator('#extendedForecast [data-day="'+day_start.date().isoformat()+'"] .wv-temperature-dial').get_attribute('aria-label')
+        require(re.search('observed|observation',daily_label or '',re.I),
+                'Today’s mixed historical track lacks accessible observation provenance')
+        samples={stamp.timestamp():value for stamp,value in feed.history_samples}
+        for arc in daily_fallback:
+            a,b,stamp=[datetime.fromisoformat(arc[key].replace('Z','+00:00')) for key in ['a','b','time']]
+            require(a.timestamp() in samples and b.timestamp() in samples and timedelta(0)<b-a<=timedelta(minutes=90),
+                    'Daily historical observation fill invented source endpoints or bridged an unknown reporting gap')
+            expected=samples[a.timestamp()]+(samples[b.timestamp()]-samples[a.timestamp()])*(stamp-a)/(b-a)
+            require(abs(arc['value']-expected)<.01 and arc['kind']=='observed' and 'KCMI' in (arc['source'] or '')
+                    and re.search('observed|observation',arc['title'] or '',re.I),
+                    'Actual historical temperatures were mislabeled as forecast or lost their interpolated source values')
+        require(not any(day_start+timedelta(hours=1)<=datetime.fromisoformat(arc['time'].replace('Z','+00:00'))<day_start+timedelta(hours=4) for arc in daily_fallback),
+                'Daily historical fill painted the unsupported01:00–04:00 reporting gap')
+        evidence['todayDailyPastFill']={'publishedMidnightGridUsed':True,'actualObservedFallbackLabeled':True,'unknownReportingGapsPreserved':True}
+        await frame.locator('#extendedForecast').scroll_into_view_if_needed()
+        await page.screenshot(path=str(output/('daily-observed-fallback-'+suffix+'.png')),full_page=True)
         feed.grid_forecast_history=True
         feed.history_extra.append((feed.now-timedelta(minutes=5),45))
         await refresh(frame)

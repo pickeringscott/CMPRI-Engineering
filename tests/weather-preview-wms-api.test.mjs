@@ -33,13 +33,23 @@ function fixture(fetch,env={VERCEL_ENV:'preview'}) {
  });
 }
 
-test('WMS is unavailable in production before any upstream request',async()=>{
- let calls=0;
+test('released WMS reads retain fixed sources and validation in production and local builds',async()=>{
  for(const env of [{VERCEL_ENV:'production'},{VERCEL_ENV:'production',NODE_ENV:'development'},{NODE_ENV:'production'},{}]) {
-  const response=await fixture(()=>{calls++;throw Error('must not fetch');},env).GET(request({product:'velocity',op:'capabilities'}));
-  assert.equal(response.status,404);assert.equal(response.headers.get('Cache-Control'),'no-store');
+  let calls=0;
+  const api=fixture(async(url,options)=>{
+   calls++;const source=new URL(url);
+   assert.equal(source.origin+source.pathname,velocity);assert.equal(source.searchParams.get('request'),'GetCapabilities');
+   assert.equal(options.method,'GET');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+   assert.equal(options.headers.Authorization,undefined);assert.equal(options.cache,'no-store');
+   return xmlResponse();
+  },env);
+  const response=await api.GET(request({product:'velocity',op:'capabilities'}));
+  assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'no-store');
+  assert.equal((await response.json()).layers[0].name,actualLayer);
+  assert.equal((await api.GET(request({product:'https://evil.example',op:'capabilities'}))).status,400);
+  assert.equal((await api.GET(request({product:'velocity',op:'capabilities'},{method:'POST'}))).status,405);
+  assert.equal(calls,1);
  }
- assert.equal(calls,0);
 });
 
 test('fixed products/operations and bounded map parameters reject arbitrary input before fetch',async()=>{

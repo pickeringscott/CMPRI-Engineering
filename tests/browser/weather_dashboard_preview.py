@@ -149,6 +149,11 @@ class OfficialFeedFixtures:
         self.observation_calls = 0
         self.history_calls = 0
         self.alert_calls = 0
+        self.astronomy_calls = 0
+        self.hold_astronomy = False
+        self.astronomy_gate = asyncio.Event()
+        self.astronomy_gate.set()
+        self.astronomy_pending = asyncio.Event()
         self.map_urls = []
         self.exports = []
         self.image_exports = []
@@ -263,6 +268,14 @@ class OfficialFeedFixtures:
                 "history": self.envelope(API + "/stations/KCMI/observations?start=" + iso(day_start - timedelta(minutes=90))
                     + "&end=" + iso(self.now) + "&limit=500", history, station),
                 "alerts": self.envelope(API + "/alerts/active?point=" + POINT, alerts)}}
+
+    def astronomy(self):
+        return {'location':{'name':'Residence Inn Champaign','latitude':40.138080,'longitude':-88.251416,'timeZone':'America/Chicago'},
+            'checkedAt':iso(self.now),'resources':{'astronomy':{'status':'live','source':'https://github.com/cosinekitty/astronomy',
+                'sourceTimestamp':iso(self.now),'data':{'moonPhase':{'label':'First Quarter','angle':90,'illumination':.5,
+                    'calculatedAt':iso(self.now),'sourceUrl':'https://github.com/cosinekitty/astronomy'},'events':[],
+                    'aurora':{'status':'unavailable','error':'TEST FIXTURE aurora data unavailable','observationTime':None,'forecastTime':None}},
+                'error':None}}}
 
     def wms(self, product):
         name, style, path = {
@@ -463,6 +476,16 @@ class OfficialFeedFixtures:
                 self._basemap_active.discard(route.request)
                 self.basemap_inflight = len(self._basemap_active)
             return
+        if parsed.path == '/api/weather-preview/astronomy':
+            self.astronomy_calls += 1
+            self.astronomy_pending.set()
+            if self.hold_astronomy:
+                await self.astronomy_gate.wait()
+            try:
+                await route.fulfill(content_type='application/json',body=json.dumps(self.astronomy()))
+            except Exception:
+                pass  # Removing/closing the document can abort this held read.
+            return
         if parsed.path == "/api/weather-preview":
             part = parse_qs(parsed.query).get("part", [None])[0]
             require(part in [None, "observation", "history", "alerts", "forecast"], "Unknown partial NWS fixture request")
@@ -552,6 +575,8 @@ class OfficialFeedFixtures:
         self.basemap_inflight = len(self._basemap_active)
 
     def release(self):
+        self.hold_astronomy = False
+        self.astronomy_gate.set()
         self.hold_forecast = False
         self.hold_observation = False
         self.hold_alerts = False
@@ -669,7 +694,7 @@ async def run_viewport(browser, base, output, width, height):
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
         launcher = page.get_by_role("button", name="Weather", exact=True)
         await launcher.wait_for(state="visible", timeout=60000)
-        require(feed.forecast_calls == 0 and not feed.map_urls and not feed.basemap_requests,
+        require(feed.forecast_calls == 0 and feed.astronomy_calls == 0 and not feed.map_urls and not feed.basemap_requests,
                 "Weather or ground-map feeds requested before opening Weather")
         operations = page.locator("fieldset").filter(has=page.locator("legend", has_text="Operations"))
         require(await operations.get_by_role("button", name="Weather", exact=True).count() == 1, "Weather launcher is outside existing Operations")
@@ -713,8 +738,9 @@ async def run_viewport(browser, base, output, width, height):
         require("TEST FIXTURE observed conditions" in await frame.locator("#liveConditionText").inner_text(), "Observation response was not rendered")
         station_source = await frame.locator("#liveObservationTime").inner_text()
         require("KCMI" in station_source, "Current observation does not identify Willard KCMI")
-        for absent in ["liveFeelsLike", "liveGusts"]:
-            require(await frame.locator("#"+absent).count() == 0, "Missing observed "+absent+" became a visible value")
+        require(await frame.locator('#liveGusts').count()==0,'Missing observed gust became a visible value')
+        require((await frame.locator('#liveFeelsLike').inner_text()).strip()=='Feels Like —',
+                'Missing observed Feels Like became zero or a fabricated value')
         for element in ["liveVisibility", "liveIce"]:
             value = await frame.locator("#" + element).inner_text()
             require("unavailable" in value.lower() or value.startswith("—"), "Missing " + element + " became a value")
@@ -803,6 +829,7 @@ async def run_viewport(browser, base, output, width, height):
         await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
         calls_before_close = feed.forecast_calls
         nws_before_close = [feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls]
+        astronomy_before_close = feed.astronomy_calls
         await frame.evaluate("window.__weatherRetainedMemory = 'same-page-instance'")
         await native.get_by_role("button", name="Close Weather", exact=True).click()
         await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
@@ -826,6 +853,7 @@ async def run_viewport(browser, base, output, width, height):
         await wait_for(reopened, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°'")
         require([feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls] == nws_before_close,
                 "Instant reopening reloaded NWS data instead of showing the cached view")
+        require(feed.astronomy_calls == astronomy_before_close, 'Instant reopening reloaded cached astronomy')
         require(await reopened.evaluate("window.__weatherRetainedMemory") == "same-page-instance",
                 "Instant reopening created a new Weather document")
         require(await native.count() == 1, "Reopening created duplicate native windows")

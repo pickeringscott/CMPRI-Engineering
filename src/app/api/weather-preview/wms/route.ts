@@ -1,4 +1,4 @@
-/** Preview-only, read-only transport for fixed official NCEP WMS services.
+/** Read-only Weather transport for fixed official NCEP WMS services.
  * Layer/style/time choices must come from their actual capabilities documents.
  * No CMPRI session, database, API key, GPS, push, or scheduler is used. */
 export const runtime = "nodejs";
@@ -26,10 +26,6 @@ const METADATA_TTL_MS = 5 * 60000;
 const HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
 const ALLOWED_PARAMETERS = new Set(["product", "op", "layer", "style", "time", "bbox", "width", "height", "format"]);
 
-function enabled() {
-  return process.env.VERCEL_ENV !== "production"
-    && (process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV === "development");
-}
 function unavailable(status: number, message: string) {
   return Response.json({ unavailable: true, error: { code: status, message } }, { status, headers: HEADERS });
 }
@@ -175,7 +171,6 @@ function validTime(time: string, dimension: Dimension | null) {
 }
 
 export async function GET(request: Request) {
-  if (!enabled()) return new Response("Not found.", { status: 404, headers: HEADERS });
   if (request.method !== "GET") return unavailable(405, "Only GET is supported");
   const query = new URL(request.url).searchParams;
   if (request.url.length > 8192) return unavailable(400, "WMS request is too long");

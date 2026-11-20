@@ -1,4 +1,4 @@
-/** Fixed public USGS tiles for the isolated preview. No CMPRI data or credentials. */
+/** Fixed public USGS Weather reference data. No CMPRI data or credentials. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -49,10 +49,6 @@ async function limitedBody(response: Response, account?: (bytes: number) => void
 }
 
 export async function GET(request: Request) {
-  if (process.env.VERCEL_ENV === "production"
-    || (process.env.VERCEL_ENV !== "preview" && process.env.NODE_ENV !== "development")) {
-    return new Response("Not found.", { status: 404, headers: ERROR_HEADERS });
-  }
   if (request.method !== "GET") return fail(405, "Only GET is supported");
   const url = new URL(request.url);
   if (request.url.length > 8192 || url.searchParams.getAll("dataset").length !== 1

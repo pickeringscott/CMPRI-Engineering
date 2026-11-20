@@ -1,4 +1,4 @@
-/** Read-only NOAA map transport for the isolated Weather branch preview.
+/** Read-only NOAA map transport for the Weather view.
  * No session, CMPRI API, database, storage, scheduler, or notification access. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +23,6 @@ const QUERY_PARAMETERS = new Set([
 const EXPORT_PARAMETERS = new Set([
   "f", "bbox", "bboxSR", "imageSR", "size", "format", "transparent", "mosaicRule",
 ]);
-
-function previewEnabled() {
-  return process.env.VERCEL_ENV !== "production"
-    && (process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV === "development");
-}
 
 function unavailable(status: number, message: string) {
   return Response.json({ error: { code: status, message }, unavailable: true }, {
@@ -104,7 +99,6 @@ async function readLimited(response: Response) {
 }
 
 export async function GET(request: Request) {
-  if (!previewEnabled()) return new Response("Not found.", { status: 404, headers: HEADERS });
   if (request.method !== "GET") return unavailable(405, "Only GET is supported");
   const requestUrl = new URL(request.url);
   if (request.url.length > MAX_URL_LENGTH * 2

@@ -65,6 +65,55 @@
     if (text !== undefined) node.textContent = text;
     parent.append(node); return node;
   }
+  function smoothPath(points) {
+    const coordinate = (value) => String(Number(value.toFixed(6)));
+    const pair = (point) => coordinate(point.x) + ' ' + coordinate(point.y);
+    if (!points.length) return '';
+    const move = 'M' + pair(points[0]);
+    if (points.length < 3) return move + (points.length === 2 ? 'L' + pair(points[1]) : '');
+    const widths = [], secants = [];
+    for (let index = 0; index < points.length - 1; index += 1) {
+      widths.push(points[index + 1].x - points[index].x);
+      secants.push((points[index + 1].y - points[index].y) / widths[index]);
+    }
+    // Weighted harmonic tangents preserve the shape at unequal hour spacing.
+    // Turning points/plateaus have a horizontal tangent rather than overshoot.
+    function endpoint(h0, h1, d0, d1) {
+      let tangent = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+      if (Math.sign(tangent) !== Math.sign(d0)) tangent = 0;
+      else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(tangent) > Math.abs(3 * d0)) tangent = 3 * d0;
+      return tangent;
+    }
+    const tangents = [endpoint(widths[0], widths[1], secants[0], secants[1])];
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const before = secants[index - 1], after = secants[index];
+      if (!before || !after || Math.sign(before) !== Math.sign(after)) tangents.push(0);
+      else {
+        const first = 2 * widths[index] + widths[index - 1], second = widths[index] + 2 * widths[index - 1];
+        tangents.push((first + second) / (first / before + second / after));
+      }
+    }
+    const last = secants.length - 1;
+    tangents.push(endpoint(widths[last], widths[last - 1], secants[last], secants[last - 1]));
+    // Fritsch–Carlson limiting keeps both Bezier controls inside each pair's
+    // value range. Thus chance cannot exceed its supplied0–100% endpoints.
+    secants.forEach((slope, index) => {
+      if (!slope) { tangents[index] = 0; tangents[index + 1] = 0; return; }
+      const a = tangents[index] / slope, b = tangents[index + 1] / slope;
+      if (a < 0) tangents[index] = 0;
+      if (b < 0) tangents[index + 1] = 0;
+      const length = Math.hypot(Math.max(0, a), Math.max(0, b));
+      if (length > 3) {
+        tangents[index] *= 3 / length;
+        tangents[index + 1] *= 3 / length;
+      }
+    });
+    return move + points.slice(1).map((point, offset) => {
+      const previous = points[offset], third = widths[offset] / 3;
+      return 'C' + pair({ x: previous.x + third, y: previous.y + tangents[offset] * third }) + ' ' +
+        pair({ x: point.x - third, y: point.y - tangents[offset + 1] * third }) + ' ' + pair(point);
+    }).join(' ');
+  }
   function hourly(periods, options = {}) {
     const data = model(periods, options), cards = options.layout === 'cards';
     const columnWidth = finite(options.columnWidth) && options.columnWidth > 0 ? options.columnWidth : 150;
@@ -107,7 +156,7 @@
     for (const name of ['precipitation', 'temperature']) {
       const y = name === 'precipitation' ? yChance : yTemperature;
       for (const run of data.series[name]) {
-        const path = run.map((sample, index) => (index ? 'L' : 'M') + x(sample).toFixed(2) + ' ' + y(sample[name]).toFixed(2)).join(' ');
+        const path = smoothPath(run.map((sample) => ({ x: x(sample), y: y(sample[name]) })));
         if (name === 'precipitation' && run.length > 1) shape(plots, 'path', { d: path + 'L' + x(run.at(-1)).toFixed(2) + ' ' + bottom + 'L' + x(run[0]).toFixed(2) + ' ' + bottom + 'Z', class: 'wg-precipitation-area', fill: COLORS.precipitation });
         const line = shape(plots, 'path', { d: path, class: 'wg-series wg-' + name, stroke: COLORS[name] });
         line.dataset.samples = String(run.length);

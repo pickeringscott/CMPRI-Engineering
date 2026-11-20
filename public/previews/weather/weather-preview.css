@@ -43,3 +43,4 @@
 .daily-forecast-card{display:flex;flex-direction:column}
 @media(max-width:640px){#panel-weather{margin-top:10px}.hourly-forecast-cards.forecast-strip{grid-auto-columns:137px}}
 .willard-airport.panel{padding:0}
+.cmpri-weather-embedded .view-head>.badge{display:none}

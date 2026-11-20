@@ -12,14 +12,22 @@ function fixture(fetch,env={VERCEL_ENV:'preview'}) {
   });
 }
 
-test('production and unflagged production builds return404 before upstream requests',async()=>{
-  let calls=0;
+test('released map reads retain the fixed source and validation in production and local builds',async()=>{
   for(const env of [{VERCEL_ENV:'production'},{VERCEL_ENV:'production',NODE_ENV:'development'},{NODE_ENV:'production'},{}]) {
-    const api=fixture(()=>{calls++;throw Error('must not fetch');},env);
+    let calls=0;
+    const api=fixture(async(url,options)=>{
+      calls++;assert.equal(url,radar+'?f=json');
+      assert.equal(options.method,'GET');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+      assert.equal(options.headers.Authorization,undefined);assert.equal(options.cache,'no-store');
+      return Response.json({name:'Official radar metadata'});
+    },env);
     const response=await api.GET(request(radar+'?f=json'));
-    assert.equal(response.status,404);assert.equal(response.headers.get('Cache-Control'),'no-store');
+    assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'no-store');
+    assert.equal((await response.json()).name,'Official radar metadata');
+    assert.equal((await api.GET(request('https://evil.example/radar?f=json'))).status,400);
+    assert.equal((await api.GET(request(radar+'?f=json',{method:'POST'}))).status,405);
+    assert.equal(calls,1);
   }
-  assert.equal(calls,0);
 });
 
 test('only exact official read-only map resources are accepted',async()=>{

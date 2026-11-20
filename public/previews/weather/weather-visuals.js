@@ -228,19 +228,23 @@
     shape(svg, 'path', { d: dialArc(0, 1440, 73), class: 'wv-dial-track' });
     if (current) shape(svg, 'path', { d: dialArc(0, 1440, 61), class: 'wv-dial-track wv-dial-observed-track' });
     function paint(segment, kind, radius, index, following) {
+      const observed = kind === 'observed' || segment.sourceKind === 'observed';
+      const source = typeof segment.source === 'string' && segment.source.trim() ? segment.source.trim()
+        : observed ? 'KCMI observations' : 'NWS forecast';
       const startColor = colorAt(segment.fahrenheit), endValue = segment.endFahrenheit ?? (following && following.start === segment.end ? following.fahrenheit : segment.fahrenheit);
       const a = dialPoint(segment.minute, radius), b = dialPoint(segment.minuteEnd, radius);
       const gradientId = 'wv-dial-' + id + '-' + kind + '-' + index;
       const ramp = shape(defs, 'linearGradient', { id: gradientId, gradientUnits: 'userSpaceOnUse', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
       for (let stop = 0; stop <= 8; stop += 1) shape(ramp, 'stop', { offset: stop / 8, 'stop-color': colorAt(segment.fahrenheit + (endValue - segment.fahrenheit) * stop / 8) });
-      const arc = shape(svg, 'path', { d: dialArc(segment.minute, segment.minuteEnd, radius), class: kind === 'observed' ? 'wv-dial-observed-segment' : 'wv-dial-segment', stroke: 'url(#' + gradientId + ')' });
+      const arc = shape(svg, 'path', { d: dialArc(segment.minute, segment.minuteEnd, radius), class: kind === 'observed' ? 'wv-dial-observed-segment' : 'wv-dial-segment' + (observed ? ' wv-dial-historical-observed' : ''), stroke: 'url(#' + gradientId + ')' });
       arc.dataset.startTime = new Date(segment.start).toISOString(); arc.dataset.clockTime = clockLabel(segment.start);
       arc.dataset.airTemperature = String(segment.fahrenheit); arc.dataset.temperatureColor = startColor; arc.dataset.repeatedHour = String(segment.repeated);
-      if (kind === 'observed') {
+      arc.dataset.kind = observed ? 'observed' : 'forecast'; arc.dataset.source = source;
+      if (observed) {
         arc.dataset.sampleStart = new Date(segment.sampleStart).toISOString(); arc.dataset.sampleEnd = new Date(segment.sampleEnd).toISOString();
       }
       const title = shape(arc, 'title', {});
-      title.textContent = kind === 'observed' ? 'Observed temperature colors interpolated between actual KCMI reports at ' + clockLabel(segment.sampleStart) + ' and ' + clockLabel(segment.sampleEnd) + '; unknown gaps are not filled.' : clockLabel(segment.start) + ' · ' + formatNumber.format(segment.fahrenheit) + '° forecast';
+      title.textContent = observed ? 'Observed temperature colors interpolated between actual KCMI reports at ' + clockLabel(segment.sampleStart) + ' and ' + clockLabel(segment.sampleEnd) + '; unknown gaps are not filled.' : clockLabel(segment.start) + ' · ' + formatNumber.format(segment.fahrenheit) + '° forecast · ' + source;
     }
     (day?.segments || []).forEach((segment, index, all) => paint(segment, 'forecast', segment.repeated ? 68 : 73, index, all[index + 1]));
     (observedDay?.segments || []).forEach((segment, index) => paint(segment, 'observed', segment.repeated ? 56 : 61, index));
@@ -292,7 +296,7 @@
       const value = node('strong', 'wv-temperature-value', known ? formatNumber.format(observedTemperature) + '°' : '—');
       value.dataset.airTemperature = known ? String(observedTemperature) : 'unknown';
       if (known) value.style.setProperty('--wv-temperature-color', colorAt(observedTemperature));
-      const iconHost = node('span', 'wv-dial-condition'); iconHost.id = 'liveConditionIcon'; iconHost.append(condition(conditionText, { icon, isDaytime }));
+      const iconHost = node('span', 'wv-dial-condition wv-current-icon-slot'); iconHost.id = 'liveConditionIcon'; iconHost.setAttribute('data-current-condition-icon', ''); iconHost.append(condition(conditionText, { icon, isDaytime }));
       const visibilityHost = node('span', 'wv-dial-visibility', visibility === null ? 'Visibility unavailable' : visibility + ' mi visibility'); visibilityHost.id = 'liveVisibility';
       const temp = node('div', 'wv-dial-current-value'); temp.append(value);
       const feels = node('span', 'wv-dial-feels', 'Feels Like ' + (finite(feelsLike) ? formatNumber.format(feelsLike) + '°' : '—'));
@@ -303,8 +307,10 @@
       center.append(condition(conditionText, { icon, isDaytime }));
     }
     const windHost = node('span', 'wv-dial-wind'); if (current) windHost.id = 'liveWind';
-    windHost.append(wind(typeof windSpeed === 'string' ? windSpeed.replace(/\bmph\b/gi, 'MPH') : windSpeed, windDirection)); center.append(windHost);
-    if (current && gustText) { const gust = node('span', 'wv-dial-gust', 'G ' + gustText + ' MPH'); gust.id = 'liveGusts'; center.append(gust); }
+    const windGroup = current ? node('div', 'wv-dial-current-wind') : center;
+    windHost.append(wind(typeof windSpeed === 'string' ? windSpeed.replace(/\bmph\b/gi, 'MPH') : windSpeed, windDirection)); windGroup.append(windHost);
+    if (current && gustText) { const gust = node('span', 'wv-dial-gust', 'G ' + gustText + ' MPH'); gust.id = 'liveGusts'; windGroup.append(gust); }
+    if (current) center.append(windGroup);
     const description = node('span', 'wv-dial-description', conditionText); if (current) description.id = 'liveConditionText';
     center.append(description);
     face.append(center, extrema); root.append(face);
@@ -312,8 +318,9 @@
     const coverage = pending && !hasData ? 'Hourly forecast loading' : !hasData ? 'Hourly timeline unavailable' : (stale ? 'STALE · ' : '') + (day.partial ? 'Partial · ' : '') + formatNumber.format(day.coverageHours) + '/' + day.expectedHours + ' h supplied';
     if (!current && !hasData) center.append(node('span', 'wv-dial-unavailable', pending ? 'Hourly forecast loading' : 'Hourly timeline unavailable'));
     if (stale) center.append(node('span', 'wv-dial-unavailable', 'STALE forecast'));
-    root.title = coverage + (current ? '. Forecast F H/L uses supplied forecast hours. O H/L is the highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme. Inner observed colors interpolate only between actual reports at most 90 minutes apart; gray gaps are unknown. ' : '. Forecast H/L uses supplied forecast hours; gray gaps are unknown. ') + (day?.clockChange || '');
-    root.setAttribute('aria-label', (current ? 'Current observed temperature and today’s' : day?.label || 'Daily') + ' forecast temperature timeline. ' + root.title);
+    const historical = day?.historicalObserved ? 'Outer temperature track includes supplied past KCMI observations and NWS forecast guidance; observed and forecast source intervals remain distinct. ' : '';
+    root.title = coverage + '. ' + historical + (current ? 'Forecast F H/L uses supplied forecast hours. O H/L is the highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme. Inner observed colors interpolate only between actual reports at most 90 minutes apart; gray gaps are unknown. ' : 'Forecast H/L uses supplied forecast hours; gray gaps are unknown. ') + (day?.clockChange || '');
+    root.setAttribute('aria-label', (current ? 'Current observed temperature and today’s' : day?.label || 'Daily') + (day?.historicalObserved ? ' observed and forecast temperature timeline. ' : ' forecast temperature timeline. ') + root.title);
     return root;
   }
 

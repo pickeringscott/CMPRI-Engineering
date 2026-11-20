@@ -34,18 +34,18 @@ function launcher(flag,canViewDashboard) {
   });
 }
 
-test('the compiled Weather flag is enabled only for preview builds or local development',()=>{
+test('the compiled Weather launcher is enabled in production, previews and local builds',()=>{
   for(const [VERCEL_ENV,NODE_ENV,expected] of [
-    ['preview','production','1'],['production','production','0'],
+    ['preview','production','1'],['production','production','1'],
     ['development','development','1'],[undefined,'development','1'],
-    [undefined,'production','0'],['development','production','0'],
+    [undefined,'production','1'],['development','production','1'],
   ]) {
     const config=loadTs('next.config.ts',{}, {process:{env:{VERCEL_ENV,NODE_ENV}}}).default;
     assert.equal(config.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW,expected,`${VERCEL_ENV}/${NODE_ENV}`);
   }
 });
 
-test('native Operations exposes Weather only with the review flag and dashboard permission',()=>{
+test('native Operations retains the Weather flag and dashboard permission checks',()=>{
   for(const flag of ['0',undefined])assert.equal(launcher(flag,true),false);
   assert.equal(launcher('1',false),false);
   const action=launcher('1',true);

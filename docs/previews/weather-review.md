@@ -1,21 +1,21 @@
-# CMPRI Weather branch review
+# CMPRI Weather
 
-Open the [branch preview](https://cmpri-engineering-git-codex-weather-branc-c2aab5-hawkeye-hotels.vercel.app/engineering), sign in normally, and select **Operations → Weather**. The existing native DesktopWindow hosts the Weather iframe. This work stays on draft PR #55; main and production are not changed. The launcher, static review files and read-only weather transports are enabled only for preview/development.
+Sign in to CMPRI and select **Operations → Weather**. The existing native DesktopWindow hosts the Weather iframe. PR #55 enables the approved Weather launcher, its exact runtime assets and fixed read-only weather transports in production. Other standalone preview files remain blocked there; the existing dashboard capability guard is unchanged.
 
 ## Observations and forecasts
 
 The property remains fixed at **40.138080, −88.251416**, Residence Inn Champaign, 502 West Marketview Drive, verified from Marriott's property map. No device location is requested.
 
-The view launches four independent foreground reads when Weather opens:
+The view launches four independent NWS foreground reads when Weather opens. A separate astronomy read never delays the observation:
 
 - `/api/weather-preview?part=observation` reads **Willard (KCMI)** directly, without waiting for point discovery, stations, forecasts, alerts or radar.
 - `?part=history` reads raw KCMI reports since Central midnight, including a bounded 90-minute pre-midnight anchor for real report pairs that span midnight. It preserves report timestamps and null temperatures rather than inventing hourly observations.
 - `?part=alerts` reads the official property-point alert collection independently, including applicable county/zone alerts without polygons.
 - `?part=forecast` resolves NWS's canonical four-decimal property point, then reads extended, hourly and grid forecasts. It does not repeat the observation request.
 
-The original no-part response remains compatible with the seven-resource verification response. Transports preserve the raw official payload, units, source and source timestamp. They have fixed NWS sources, deadlines, no upstream credentials or redirects, and production blocking.
+The original no-part response remains compatible with the seven-resource verification response. Transports preserve the raw official payload, units, source and source timestamp. They have fixed NWS sources, deadlines, no upstream credentials or redirects, and fixed-source validation in every environment.
 
-Current Conditions renders immediately when its observation arrives. **As of** appears directly below the heading and uses KCMI's observation date and Central time, never the fetch time. Clock labels use 24-hour time for the existing verified Chief Engineer identity/layout rule, including its maint mapping; other users, including ordinary administrators, use 12-hour AM/PM. Reported wind chill or heat index supplies Feels Like. The condition icon, wind arrow/speed and reported gusts (G … MPH) sit inside the enlarged wheel; visibility is directly beneath the degree-only Fahrenheit value. The As of line names Willard (KCMI). Forecast gusts and the old notes/source lines are removed from Current Conditions. Missing values do not become zero or forecast substitutes.
+Current Conditions renders immediately when its observation arrives. **As of** appears directly below the heading and uses KCMI's observation date and Central time, never the fetch time. Clock labels use 24-hour time for the existing verified Chief Engineer identity/layout rule, including its maint mapping; other users, including ordinary administrators, use 12-hour AM/PM. Reported wind chill or heat index supplies Feels Like. The condition icon is centered above the inside metrics. The actual temperature, Feels Like and visibility form a vertical column; wind direction/speed and reported gusts (G … MPH) occupy the adjacent column. The As of line names Willard (KCMI). Forecast gusts and the old notes/source lines are removed from Current Conditions. Missing values do not become zero or forecast substitutes.
 
 Local condition SVGs and a compact wind-from compass remain. Temperature colors are now a **hard-coded, screenshot-based Fahrenheit palette**, independent of CMPRI's seasonal theme: cyan at and below 0°F, periwinkle around 15°F, magenta at 32°F, a reset to deep violet at 34°F, blue at 40–45°F, mint at 55°F, lime at 63°F, yellow at 80°F, orange at 85°F, red at 95°F and pink at 106°F. Intermediate colors interpolate between the fixed stops. This approximates the supplied screenshots; it is not claimed to reconstruct the reference app's undocumented formula. Numeric temperatures retain their actual value, including outside the color ramp, and missing values are not zero.
 
@@ -31,9 +31,21 @@ Closing Weather keeps its iframe mounted but hidden/inactive, preserving its dec
 
 Weather opens directly, without the Weather, Notifications or Shared Check tab buttons. The in-memory Guest Safety and simulation engines remain available to their existing native notification flow; no scheduler or delivery backend is added.
 
-Current Conditions uses a larger 440-pixel maximum wheel, smaller edge clocks and larger inside content. **Feels Like** appears immediately beneath the actual temperature, followed by visibility. Forecast and observed marks remain separate. Earlier published hourly forecasts stay in bounded page memory for the current Central day. The official NWS grid supplies earlier valid forecast intervals when available on a first visit, including intervals from local midnight through the present. Each metric prefers a supplied hourly value and otherwise uses a valid grid value; missing values in both sources remain gaps. Historical observations never masquerade as forecast values. The Extended forecast ring continues to use its original supplied hourly periods.
+Current Conditions uses a larger 440-pixel maximum wheel, smaller edge clocks and larger inside content. **Feels Like** appears immediately beneath the actual temperature, followed by visibility. Forecast and observed marks remain separate. Earlier published hourly forecasts stay in bounded page memory for the current Central day. The official NWS grid supplies earlier valid forecast intervals when available on a first visit, including intervals from local midnight through the present. Each metric prefers a supplied hourly value and otherwise uses a valid grid value; missing values in both sources remain gaps. Historical observations never masquerade as forecast values. Today’s Extended ring keeps its supplied future forecast intervals and fills missing past color from retained hourly/grid forecasts, then actual KCMI report pairs only where forecast data is missing. Observed fallback intervals are explicitly identified in arc attributes, tooltips and accessible labels; they never overwrite forecast H/L values or fill future hours. Other dates remain unchanged.
 
-Compact cyan precipitation-chance and orange air-temperature graphs sit beneath the current wheel, at the bottom of each daily card, and in one continuous lane beneath the hourly cards. The hourly cards and graph share one native horizontal scroll container, so the points stay aligned at each card center during phone flick-scrolling and resize. Precipitation is a percentage on a 0–100 scale, not accumulation; the temperature scale always includes a marked **32°** freezing line. Missing or invalid samples remain gaps, and linear connections cannot overshoot the supplied chance values. Daily charts use only that date’s supplied hourly periods. Graph colors are fixed data colors, independent of CMPRI’s theme. Accessible tables retain exact times and values.
+Compact cyan precipitation-chance and orange air-temperature graphs sit beneath the current wheel, at the bottom of each daily card, and in one continuous lane beneath the hourly cards. The hourly cards and graph share one native horizontal scroll container, so the points stay aligned at each card center during phone flick-scrolling and resize. Precipitation is a percentage on a 0–100 scale, not accumulation; the temperature scale always includes a marked **32°** freezing line. Missing or invalid samples remain gaps. Shape-preserving monotone cubic curves pass through the supplied points without exceeding each interval’s source-value bounds, including precipitation’s 0–100% range. Two-point runs remain straight, and the precipitation fill uses exactly the same curve as its line. Daily charts use only that date’s supplied hourly periods. Graph colors are fixed data colors, independent of CMPRI’s theme. Accessible tables retain exact times and values.
+
+## Moon phase and local sky events
+
+A small phase label appears immediately below a Moon-containing Current Conditions icon. A separate foreground GET to `/api/weather-preview/astronomy` supplies an exact calculated phase and locally visible events. It has a five-minute memory cache, no polling interval, and cancels on close/hidden. A mean-synodic-cycle fallback is explicitly identified as an estimate in its tooltip/details when precise data cannot be read.
+
+The server uses pinned **astronomy-engine 2.1.19 (MIT)** for the hotel observer. Solar and lunar eclipse phases are intersected with the Sun/Moon’s geometric-center above-horizon windows, including moonrise/moonset during an eclipse. A global eclipse entry alone cannot produce a local label. The display considers current or upcoming local events within seven days; generic eclipse titles avoid calling a globally total eclipse locally total when only a later partial phase is visible. Details identify calculated circumstances and the standard level horizon, not a live NASA feed.
+
+Potential northern lights use only the fixed [NOAA OVATION JSON](https://services.swpc.noaa.gov/json/ovation_aurora_latest.json) linked by the [Aurora 30-minute forecast product](https://www.swpc.noaa.gov/products/aurora-30-minute-forecast). The transport omits credentials, refuses redirects, has an eight-second deadline and a 3 MiB streaming cap. Source timestamps are interpreted as UTC, freshness is reevaluated on each request, and civil nighttime at the hotel is required. A model value of at least 10 in the hotel cell or a bounded northern region within 500 km is CMPRI’s documented display heuristic, not an official alert threshold. Regional model strength is never labeled as the property’s exact probability. Missing/stale guidance yields no aurora claim; calculated phase/eclipse information remains usable when NOAA transport fails.
+
+A relevant event replaces the phase caption in the same icon slot. Its button opens keyboard-accessible details with source links and Central times; the existing Chief/other-user clock rule also applies to narrative timestamps. Expired events are removed without polling, and dialogs/timers close with Weather. No sky event creates a notification or push.
+
+Sources: [Astronomy Engine documentation/license](https://github.com/cosinekitty/astronomy), [NASA lunar visibility guidance](https://eclipse.gsfc.nasa.gov/LEvis/LEvis.html), [NASA phases](https://science.nasa.gov/moon/moon-phases/). No API key, device location or paid service is used.
 
 ## Willard Airport
 
@@ -95,7 +107,7 @@ Applicable dashboard, DesktopWindow, notification and seasonal-theme patterns we
 
 ## Verification
 
-The preview-mode production build and TypeScript pass, targeted ESLint passes, and **125 focused Weather tests pass**. Browser verification covers the actual Engineering dashboard at **1440×1000** and **390×844**, with separate Chief Engineer and ordinary-user Current Conditions cases. It checks observation-first rendering, midnight forecast-grid coverage, independent observed extrema, role clocks, sparse graph axes, card/graph alignment, winter-layer stacking, legend state, smaller official signs and mobile collision fallback, Guest Safety/audio regressions, cached close/reopen and airport expansion/abort behavior.
+The production-mode build and TypeScript pass, full repository ESLint passes, and **151 focused Weather/astronomy tests pass**. **16 desktop/mobile browser cases pass**. Browser verification covers the actual Engineering dashboard at **1440×1000** and **390×844**, with separate Chief Engineer and ordinary-user Current Conditions and sky-event cases. It checks observation-first rendering, midnight forecast-grid coverage, independent observed extrema, role clocks, bounded smooth curves, sparse graph axes, card/graph alignment, observed-history provenance, centered Moon phases and local-event details, winter-layer stacking, legend state, smaller official signs and mobile collision fallback, Guest Safety/audio regressions, cached close/reopen and airport expansion/abort behavior.
 
 Browser app APIs and WebSockets are intercepted with explicit fixtures. The airport iframe fixture is labeled as a fixture and its aircraft coverage as unverified. Initial collapsed airport state makes no provider request; collapse during a held iframe document request aborts its browsing context, and native close stops the provider and local display clock. Advancing the visible clock does not reload the provider or poll flight data. No real database writes, notification permission, external pushes or device GPS occur in these checks.
 
@@ -103,11 +115,12 @@ Actual provider verification is separate: Avio’s published iframe contract and
 
 ```sh
 node --experimental-strip-types --test tests/weather*.test.mjs
-VERCEL_ENV=preview NEXT_PUBLIC_SUPABASE_URL=https://ci-placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=ci-build-placeholder npm run build
-python tests/browser/weather_current_notices.py --base http://127.0.0.1:3041
-python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3041
-python tests/browser/weather_map_basemaps.py --base http://127.0.0.1:3041
-python tests/browser/weather_map_wms.py --base http://127.0.0.1:3041
+VERCEL_ENV=production NEXT_PUBLIC_SUPABASE_URL=https://ci-placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=ci-build-placeholder npm run build
+python tests/browser/weather_current_notices.py --base http://127.0.0.1:3050
+python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3050
+python tests/browser/weather_map_basemaps.py --base http://127.0.0.1:3050
+python tests/browser/weather_map_wms.py --base http://127.0.0.1:3050
+python tests/browser/weather_astronomy.py --base http://127.0.0.1:3050
 ```
 
-This work remains on draft PR #55 and the existing preview branch. Production gating is retained; merging or enabling the production feature is left for a later review. No database migration, paid service, new credential, scheduler or flight notification is added.
+The approved final changes use the existing PR #55 and branch. Required CI checks gate the requested merge to main. Only Weather’s prior production gate is removed; other preview pages remain blocked. No database migration, paid service, new credential, background scheduler or flight notification is added. Willard’s implementation files and approved behavior are preserved.

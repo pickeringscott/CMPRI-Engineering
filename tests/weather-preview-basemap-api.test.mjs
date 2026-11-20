@@ -193,13 +193,24 @@ test('route-feature errors, truncated results, unsupported geometry and a combin
   assert.equal(response.status,504);
 });
 
-test('production is404 before any upstream access',async()=>{
-  let calls=0;
+test('released imagery reads retain fixed sources and validation in production and local builds',async()=>{
   for(const env of [{VERCEL_ENV:'production'},{VERCEL_ENV:'production',NODE_ENV:'development'},{NODE_ENV:'production'},{}]) {
-    const response=await fixture(()=>{calls++;throw Error('unexpected fetch');},env).GET(request());
-    assert.equal(response.status,404);assert.equal(response.headers.get('Cache-Control'),'no-store');
+    let calls=0;
+    const api=fixture(async(url,options)=>{
+      calls++;assert.equal(url,'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/12/1548/1043');
+      assert.equal(options.method,'GET');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+      assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);
+      return new Response(png,{headers:{'Content-Type':'image/png'}});
+    },env);
+    const query='dataset=imagery&z=12&x=1043&y=1548';
+    const response=await api.GET(request(query));
+    assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'public, max-age=3600, s-maxage=86400');
+    assert.equal(response.headers.get('Content-Type'),'image/png');
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()),png);
+    assert.equal((await api.GET(request('dataset=https://evil.example&z=12&x=1043&y=1548'))).status,400);
+    assert.equal((await api.GET(request(query,{method:'POST'}))).status,405);
+    assert.equal(calls,1);
   }
-  assert.equal(calls,0);
 });
 
 test('only fixed datasets and bounded canonical tile integers are accepted',async()=>{

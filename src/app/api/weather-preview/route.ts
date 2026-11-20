@@ -1,4 +1,4 @@
-/** Foreground branch-review reads from official NWS sources; no application data. */
+/** Foreground Weather reads from fixed official NWS sources; no application data. */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -192,9 +192,6 @@ async function propertyResources(signal: AbortSignal, includeStations: boolean) 
 }
 export async function GET(request: Request) {
   const headers = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' };
-  // This check precedes all discovery, network requests and application imports.
-  const previewEnabled = process.env.VERCEL_ENV === 'preview' || process.env.NODE_ENV === 'development';
-  if (process.env.VERCEL_ENV === 'production' || !previewEnabled) return Response.json({ error: 'Not found.' }, { status: 404, headers });
   if (request.method !== 'GET') return Response.json({ error: 'Only GET is supported.' }, { status: 405, headers });
   const query = new URL(request.url).searchParams;
   const part = query.get('part');

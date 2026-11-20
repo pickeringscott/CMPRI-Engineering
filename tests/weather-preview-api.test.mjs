@@ -38,23 +38,33 @@ function fixture(options={}) {
     +(part===undefined?'':'&part='+encodeURIComponent(part)),init))};
 }
 
-test('production returns404 before any NWS request',async()=>{
+test('production serves only fixed official NWS reads and rejects invalid work before fetching',async()=>{
   const {get,calls}=fixture({environment:'production'});
-  const response=await get();
-  assert.equal(response.status,404);assert.equal(calls.length,0);
+  assert.equal((await get('anything')).status,400);
+  assert.equal((await get('observation',{method:'POST'})).status,405);
+  assert.equal(calls.length,0);
+  const response=await get('observation'),body=await response.json();
+  assert.equal(response.status,200);assert.equal(calls.length,1);
   assert.equal(response.headers.get('Cache-Control'),'no-store');
-  assert.equal((await get('history')).status,404);assert.equal(calls.length,0);
+  assert.equal(body.resources.observation.source,API+'/stations/KCMI/observations/latest');
+  assert.equal(body.resources.observation.station.id,'KCMI');
+  assert.equal(calls[0].url,API+'/stations/KCMI/observations/latest');
+  assert.equal(calls[0].init.credentials,'omit');assert.equal(calls[0].init.redirect,'manual');
+  const alerts=await(await get('alerts')).json();
+  assert.equal(calls.length,2);assert.equal(calls[1].url,API+'/alerts/active?point='+POINT);
+  assert.equal(alerts.resources.alerts.data.features[0].geometry,null);
 });
 
-test('only explicit branch previews and local development enable NWS reads',async()=>{
-  for(const [environment,nodeEnv,expected] of [
-    [null,'production',404],['development','production',404],
-    ['production','development',404],[null,'development',200],['preview','production',200],
+test('released NWS reads work in production, previews and local builds',async()=>{
+  for(const [environment,nodeEnv] of [
+    [null,'production'],['development','production'],['production','production'],
+    ['production','development'],[null,'development'],['preview','production'],
   ]) {
     const {get,calls}=fixture({environment,nodeEnv});
     const response=await get();
-    assert.equal(response.status,expected,`${environment}/${nodeEnv}`);
-    assert.equal(calls.length,expected===404?0:7);
+    assert.equal(response.status,200,`${environment}/${nodeEnv}`);
+    assert.equal(calls.length,7);
+    assert.ok(calls.every(call=>new URL(call.url).origin===API));
   }
 });
 

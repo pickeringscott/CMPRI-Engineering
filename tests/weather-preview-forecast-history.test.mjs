@@ -153,7 +153,7 @@ test('grid precipitation preserves0% but null, out-of-range, and unknown-unit va
   } finally { f.close(); }
 });
 
-test('advancing raw hourly forecasts retains earlier published guidance only for Current, leaving Extended and hourly cards raw', () => {
+test('advancing forecasts retains earlier guidance for Current and today’s Extended ring while hourly cards stay raw', () => {
   const f = fixture();
   try {
     f.setHours([hourly(0, 10, 0), hourly(1, 20, 10), hourly(2, 30, 20)]);
@@ -168,11 +168,11 @@ test('advancing raw hourly forecasts retains earlier published guidance only for
     assert.deepEqual(f.raw().map(period => period.startTime), advanced.map(period => period.startTime));
     const [extended] = f.days();
     assert.deepEqual(extended.hourly.map(period => period.sampleTime), [DAY + 2 * HOUR, DAY + 3 * HOUR]);
-    assert.equal(extended.coverageHours, 2);
+    assert.equal(extended.coverageHours, 4);
     f.current(); f.daily(); f.cards();
     const document = f.window.document;
     assert.equal(document.querySelectorAll('#liveTemperature .wv-dial-segment').length, 4);
-    assert.equal(document.querySelectorAll('#extendedForecast .wv-dial-segment').length, 2, 'daily ring does not inherit retained/grid backfill');
+    assert.equal(document.querySelectorAll('#extendedForecast .wv-dial-segment').length, 4, 'today’s daily ring retains real earlier forecast hours');
     assert.equal(document.querySelectorAll('#hourlyForecastCards .hourly-forecast-card').length, 2);
     for (const selector of ['#hourlyForecastGraphs', '#extendedForecast .daily-forecast-graphs']) {
       assert.deepEqual(Array.from(document.querySelectorAll(selector + ' .wg-temperature-point'), point => point.dataset.time), advanced.map(period => period.startTime));
@@ -221,5 +221,41 @@ test('hourly graph points share raw card slots and timestamps without pulling re
     assert.match(cards[1].querySelector('h3').textContent, /05:00/);
     assert.match(cards[2].querySelector('h3').textContent, /07:00/);
     assert.equal(graph.querySelectorAll('.wg-temperature').length, 2, 'unknown and missing actual hours remain broken series');
+  } finally { f.close(); }
+});
+
+
+test('today’s Extended ring fills only genuine past observation gaps and preserves forecast extrema', () => {
+  const f = fixture();
+  try {
+    f.setHours([hourly(12, 60, 10), hourly(13, 55, 20)]);
+    f.setGrid({});
+    const reports = [[-.1166666667, 30], [.8833333333, 32], [1.8833333333, 34], [5.8833333333, 40], [6.8833333333, 41], [13, 120]];
+    f.set('history', { features: reports.map(([hour, value]) => ({ properties: {
+      timestamp: iso(DAY + hour * HOUR), temperature: { value, unitCode: 'wmoUnit:degF' },
+    } })) });
+    const [day] = f.days();
+    assert.equal(day.historicalObserved, true);
+    const observed = day.segments.filter(segment => segment.sourceKind === 'observed');
+    assert.ok(observed.length > 0);
+    assert.equal(observed[0].start, DAY, 'real pre/post-midnight pair supplies the midnight color');
+    assert.ok(observed.every(segment => segment.end <= NOW && segment.source === 'KCMI observations'));
+    assert.ok(observed.every(segment => segment.sampleEnd - segment.sampleStart <= 90 * 60000));
+    assert.ok(!observed.some(segment => segment.start >= DAY + 2 * HOUR && segment.start < DAY + 5 * HOUR), 'missing reports are never interpolated across a long gap');
+    assert.equal(day.high.fahrenheit, 60);
+    assert.equal(day.low.fahrenheit, 55, 'observed extremes never overwrite forecast H/L');
+    f.daily();
+    const arcs = Array.from(f.window.document.querySelectorAll('#extendedForecast .wv-dial-historical-observed'));
+    assert.ok(arcs.length > 0);
+    assert.ok(arcs.every(arc => arc.dataset.kind === 'observed' && arc.dataset.source === 'KCMI observations'));
+    assert.ok(arcs.every(arc => arc.dataset.sampleStart && arc.dataset.sampleEnd));
+    assert.ok(arcs.every(arc => /observed/i.test(arc.querySelector('title').textContent)));
+    const ring = f.window.document.querySelector('#extendedForecast .wv-temperature-dial');
+    assert.match(ring.getAttribute('aria-label'), /observed/i);
+    const futureObserved = observed.filter(segment => segment.start >= NOW);
+    assert.equal(futureObserved.length, 0);
+    f.setGrid({ temperature: gridSeries('wmoUnit:degF', [valid(0, 25, 'PT3H')]) });
+    const [withGrid] = f.days();
+    assert.ok(withGrid.segments.filter(segment => segment.start < DAY + 3 * HOUR).every(segment => segment.sourceKind === 'forecast'), 'provided forecast intervals take precedence over observation fallback');
   } finally { f.close(); }
 });

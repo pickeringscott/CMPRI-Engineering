@@ -71,22 +71,22 @@
 .daily-forecast-card .wv-dial-extreme-value{font-size:9px}
 .daily-forecast-card .wv-dial-center{inset:28% 23% 34%}
 .daily-forecast-card .wv-dial-center>.wv-condition{width:54px;height:42px}
-.wv-current-dial .wv-dial-center{inset:26% 24% 37%;display:grid;grid-template-columns:37% 63%;gap:4px 2px;align-content:center;justify-items:center}
+.wv-current-dial .wv-dial-center{inset:21% 20% 30%;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 6px;align-content:center;justify-items:center}
 .wv-current-dial .wv-dial-clock{font-size:8px}
-.wv-current-dial .wv-dial-center .wv-temperature-value{font-size:44px!important}
-.wv-current-dial .wv-dial-condition .wv-condition{width:64px;height:49px}
-.wv-current-dial .wv-dial-wind .wv-wind-value{font-size:14px}
-.wv-current-dial .wv-dial-wind .wv-wind-compass{width:31px;height:31px;flex-basis:31px}
+.wv-current-dial .wv-dial-center .wv-temperature-value{font-size:42px!important;grid-column:1;grid-row:1}
+.wv-current-dial .wv-dial-condition .wv-condition{width:60px;height:44px}
+.wv-current-dial .wv-dial-wind .wv-wind-value{font-size:14px;white-space:normal}
+.wv-current-dial .wv-dial-wind .wv-wind-compass{width:28px;height:28px;flex-basis:28px}
 .wv-current-dial .wv-dial-visibility{font-size:11px}
-.wv-current-dial .wv-dial-description{font-size:11px}
+.wv-current-dial .wv-dial-description{font-size:11px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.2;max-height:2.4em}
 .wv-current-dial .wv-dial-extreme-value{font-size:12px}
-.wv-current-dial .wv-dial-condition{grid-column:1;grid-row:1}
-.wv-current-dial .wv-dial-current-value{grid-column:2;grid-row:1}
-.wv-current-dial .wv-dial-wind{grid-column:1/-1;grid-row:2}
-.wv-current-dial .wv-dial-gust{grid-column:1/-1;grid-row:3;font-size:11px}
-.wv-current-dial .wv-dial-feels{font-size:12px;line-height:1.25;margin-top:2px}
-.wv-current-dial .wv-dial-description{grid-column:1/-1;grid-row:4}
-.wv-current-dial .wv-dial-extrema{left:31%;right:31%;bottom:23%}
+.wv-current-dial .wv-dial-condition{grid-column:1/3;grid-row:1;display:flex;justify-content:center;align-items:center;max-width:100%;pointer-events:auto}
+.wv-current-dial .wv-dial-current-value{grid-column:1;grid-row:2;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;width:100%}
+.wv-current-dial .wv-dial-current-wind{grid-column:2;grid-row:2;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;width:100%;min-width:0}
+.wv-current-dial .wv-dial-gust{font-size:11px}
+.wv-current-dial .wv-dial-feels{font-size:12px;line-height:1.25;margin-top:0}
+.wv-current-dial .wv-dial-description{grid-column:1/3;grid-row:3}
+.wv-current-dial .wv-dial-extrema{left:31%;right:31%;bottom:17%}
 .hourly-forecast-card{text-align:center;touch-action:pan-x pan-y}
 .hourly-forecast-card .forecast-card-heading{display:block;text-align:center;min-height:18px}
 .hourly-condition-main{display:flex;justify-content:center;align-items:center;min-height:68px;margin:4px 0}
@@ -97,4 +97,4 @@
 .daily-forecast-card details>strong{display:block;margin-top:8px;font-size:10px}
 .daily-forecast-card details>.wv-wind{margin:4px 0}
 @media(max-width:640px){.daily-forecast-strip{grid-auto-columns:245px}.wv-temperature-dial{max-width:330px}.wv-dial-center .wv-temperature-value{font-size:36px!important}.daily-forecast-card .wv-dial-clock{font-size:10px}.wv-dial-extreme-value{font-size:10px}.wv-dial-center .wv-condition{width:46px;height:35px}.hourly-condition-main>.wv-condition{width:62px;height:52px}}
-@media(max-width:640px){.wv-current-dial .wv-dial-center .wv-temperature-value{font-size:40px!important}.wv-current-dial .wv-dial-condition .wv-condition{width:53px;height:42px}.wv-current-dial .wv-dial-extreme-value{font-size:10px}.wv-current-dial .wv-dial-visibility{font-size:10px}.wv-current-dial .wv-dial-wind .wv-wind-value{font-size:12px}.wv-current-dial .wv-dial-description{font-size:10px}}
+@media(max-width:640px){.wv-current-dial .wv-dial-center .wv-temperature-value{font-size:36px!important}.wv-current-dial .wv-dial-condition .wv-condition{width:50px;height:38px}.wv-current-dial .wv-dial-extreme-value{font-size:10px}.wv-current-dial .wv-dial-visibility{font-size:10px}.wv-current-dial .wv-dial-feels{font-size:11px}.wv-current-dial .wv-dial-wind .wv-wind-value{font-size:12px}.wv-current-dial .wv-dial-wind .wv-wind-compass{width:24px;height:24px;flex-basis:24px}.wv-current-dial .wv-dial-description{font-size:10px}.wv-current-dial .wv-dial-gust{font-size:10px}}

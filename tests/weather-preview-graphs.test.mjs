@@ -16,6 +16,48 @@ function fixture(chief = true) {
 function period(index, temperature, chance) {
   return { startTime: new Date(START + index * HOUR).toISOString(), endTime: new Date(START + (index + 1) * HOUR).toISOString(), temperature, temperatureUnit: 'F', probabilityOfPrecipitation: { value: chance } };
 }
+function pathSegments(path) {
+  const tokens = path.match(/[MCL]|-?\d+(?:\.\d+)?/g) || [];
+  const readPoint = () => ({ x: Number(tokens.shift()), y: Number(tokens.shift()) });
+  let point = null;
+  const segments = [];
+  while (tokens.length) {
+    const command = tokens.shift();
+    if (command === 'M') point = readPoint();
+    else if (command === 'L') { const end = readPoint(); segments.push({ start: point, end }); point = end; }
+    else if (command === 'C') {
+      const first = readPoint(), second = readPoint(), end = readPoint();
+      segments.push({ start: point, first, second, end }); point = end;
+    } else assert.fail(`Unexpected path command: ${command}`);
+  }
+  return segments;
+}
+function verifyCurve(graph, name) {
+  const dots = Array.from(graph.querySelectorAll(`.wg-${name}-point`), (point) => ({ x: Number(point.getAttribute('cx')), y: Number(point.getAttribute('cy')) }));
+  let offset = 0;
+  for (const line of graph.querySelectorAll(`.wg-${name}`)) {
+    const count = Number(line.dataset.samples), segments = pathSegments(line.getAttribute('d'));
+    const expected = dots.slice(offset, offset + count); offset += count;
+    assert.equal(segments.length, count - 1);
+    segments.forEach((segment, index) => {
+      for (const key of ['x', 'y']) {
+        assert.ok(Math.abs(segment.start[key] - expected[index][key]) < 0.000002, 'curve starts at the actual source point');
+        assert.ok(Math.abs(segment.end[key] - expected[index + 1][key]) < 0.000002, 'curve ends at the actual source point');
+      }
+      const low = Math.min(segment.start.y, segment.end.y), high = Math.max(segment.start.y, segment.end.y);
+      let previous = segment.start.x;
+      for (let step = 0; step <= 100; step += 1) {
+        const t = step / 100, u = 1 - t;
+        const at = (key) => segment.first ? u ** 3 * segment.start[key] + 3 * u ** 2 * t * segment.first[key] + 3 * u * t ** 2 * segment.second[key] + t ** 3 * segment.end[key] : u * segment.start[key] + t * segment.end[key];
+        const x = at('x'), y = at('y');
+        assert.ok(x >= previous - 0.000002, 'time stays monotone'); previous = x;
+        assert.ok(y >= low - 0.000002 && y <= high + 0.000002, 'shape-preserving curve stays between neighboring actual values');
+        if (name === 'precipitation') assert.ok(y >= 17 - 0.000002 && y <= 88 + 0.000002, 'chance curve stays within0–100%');
+      }
+    });
+  }
+  assert.equal(offset, dots.length, 'every actual source point is retained');
+}
 
 test('hourly graph preserves valid zero/negative values, converts Celsius, and rejects invalid chance rather than inventing an amount', () => {
   const f = fixture();
@@ -35,7 +77,7 @@ test('hourly graph preserves valid zero/negative values, converts Celsius, and r
   } finally { f.close(); }
 });
 
-test('independent missing samples and missing hours break each series with bounded straight paths and no interpolation overshoot', () => {
+test('independent missing samples and missing hours break each smoothed series without interpolation overshoot', () => {
   const f = fixture();
   try {
     const rows = [period(0, 20, 0), period(1, 35, 100), period(2, null, 50), period(4, 45, 25), period(5, 50, null)];
@@ -43,7 +85,9 @@ test('independent missing samples and missing hours break each series with bound
     assert.deepEqual(Array.from(data.series.temperature, (run) => run.length), [2, 2]);
     assert.deepEqual(Array.from(data.series.precipitation, (run) => run.length), [3, 1]);
     const graph = f.graphs.hourly(rows, { height: 112 });
-    for (const path of graph.querySelectorAll('.wg-series')) assert.doesNotMatch(path.getAttribute('d'), /[CQSTA]/, 'no curved path can overshoot physical values');
+    verifyCurve(graph, 'temperature'); verifyCurve(graph, 'precipitation');
+    assert.match(graph.querySelector('.wg-precipitation').getAttribute('d'), /C/, 'three supplied points use a smooth curve');
+    assert.doesNotMatch(graph.querySelector('.wg-temperature').getAttribute('d'), /C/, 'a two-point run can remain straight');
     for (const point of graph.querySelectorAll('.wg-precipitation-point')) {
       const y = Number(point.getAttribute('cy'));
       assert.ok(y >= 17 && y <= 88, `chance remains within0–100% plot: ${y}`);
@@ -52,6 +96,33 @@ test('independent missing samples and missing hours break each series with bound
     assert.equal(unknown.dataset.status, 'unavailable');
     assert.equal(unknown.querySelector('.wg-series'), null);
     assert.match(unknown.textContent, /unavailable/);
+  } finally { f.close(); }
+});
+
+test('monotone smoothing preserves plateaus, turning points and uneven time spacing with the same curve used for chance fill', () => {
+  const f = fixture();
+  try {
+    const cases = [
+      { values: [0, 0, 100, 100, 0, 0], offsets: [0, 1, 2, 3, 4, 5] },
+      { values: [0, 100, 0, 100, 25, 25, 100], offsets: [0, 1, 2, 3, 4, 5, 6] },
+      { values: [0, 10, 80, 100, 100, 20], offsets: [0, .25, 1.25, 2, 2.25, 3.5] },
+    ];
+    for (const { values, offsets } of cases) {
+      const rows = values.map((chance, index) => ({ ...period(index, chance - 40, chance), startTime: new Date(START + offsets[index] * HOUR).toISOString(), endTime: new Date(START + (offsets[index] + 1.5) * HOUR).toISOString() }));
+      const graph = f.graphs.hourly(rows, { width: 440, height: 112 });
+      verifyCurve(graph, 'precipitation'); verifyCurve(graph, 'temperature');
+      assert.match(graph.querySelector('.wg-precipitation').getAttribute('d'), /C/);
+      const line = graph.querySelector('.wg-precipitation').getAttribute('d'), area = graph.querySelector('.wg-precipitation-area').getAttribute('d');
+      assert.ok(area.startsWith(line + 'L'), 'area follows exactly the same smooth upper boundary');
+      assert.equal(graph.querySelectorAll('.wg-sr-only tr').length, values.length + 1, 'raw source table is retained');
+    }
+    const gaps = f.graphs.hourly([period(0, 10, 0), period(1, 20, 50), period(2, 30, 100), period(3, null, null), period(5, 40, 100), period(6, 20, 50), period(7, 0, 0)]);
+    assert.equal(gaps.querySelectorAll('.wg-temperature').length, 2);
+    assert.equal(gaps.querySelectorAll('.wg-precipitation').length, 2);
+    verifyCurve(gaps, 'temperature'); verifyCurve(gaps, 'precipitation');
+    const cards = f.graphs.hourly([period(0, 20, 0), period(1, 30, 100), period(2, 20, 0), period(3, 35, 100)], { layout: 'cards', columnWidth: 158, cardWidth: 150, width: 624 });
+    verifyCurve(cards, 'temperature'); verifyCurve(cards, 'precipitation');
+    assert.deepEqual(Array.from(cards.querySelectorAll('.wg-temperature-point'), (point) => Number(point.getAttribute('cx'))), [75, 233, 391, 549]);
   } finally { f.close(); }
 });
 

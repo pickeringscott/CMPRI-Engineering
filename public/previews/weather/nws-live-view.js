@@ -20,6 +20,7 @@
   const CACHE_TTL = 5 * 60000;
   const fetchedParts = new Map(), observedReports = new Map(), forecastHours = new Map();
   let observedExtremes = null;
+  let astronomyDecoration = null;
   let requests = 0, checkedAt = null, resources = {}, lastError = '', loading = false;
   const byId = (id) => document.getElementById(id);
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
@@ -232,10 +233,60 @@
     const hourly = resource('hourly'), extended = resource('forecast');
     const hours = hourly.status === 'unavailable' ? [] : hourly.data?.properties?.periods;
     const days = extended.status === 'unavailable' ? [] : extended.data?.properties?.periods;
-    return window.cmpriWeatherVisuals?.forecastDays(
+    const daysWithForecasts = window.cmpriWeatherVisuals?.forecastDays(
       (Array.isArray(hours) ? hours : []).map((period) => ({ ...period, fahrenheit: periodTemperatureValue(period) })),
       Array.isArray(days) ? days : []
     ) || [];
+    return daysWithForecasts.map(fillTodayHistory);
+  }
+  function clipRingSegment(segment, from, to) {
+    const duration = segment.end - segment.start;
+    const last = finite(segment.endFahrenheit) ? segment.endFahrenheit : segment.fahrenheit;
+    const interpolate = (at) => segment.fahrenheit + (last - segment.fahrenheit) * (at - segment.start) / duration;
+    const parts = clock.parts(from), minute = Number(parts.hour) * 60 + Number(parts.minute) + Number(parts.second) / 60;
+    return { ...segment, start: from, end: to, minute, minuteEnd: Math.min(1440, minute + (to - from) / 60000),
+      fahrenheit: interpolate(from), endFahrenheit: interpolate(to) };
+  }
+  function fillTodayHistory(day) {
+    const now = Date.now(), visuals = window.cmpriWeatherVisuals;
+    if (!visuals || day.key !== visuals.dayKey(now)) return day;
+    rememberObservations();
+    const timeline = forecastTimelinePeriods();
+    const forecast = visuals.forecastDays(timeline).find((item) => item.key === day.key);
+    const observed = visuals.observationDay(Array.from(observedReports.values()), now);
+    const segments = day.segments.map((segment) => ({ ...segment, sourceKind: 'forecast', source: 'NWS hourly forecast' }));
+    function addAvailable(candidate) {
+      const start = Math.max(candidate.start, day.start), end = Math.min(candidate.end, now, day.end);
+      if (end <= start) return;
+      let uncovered = [[start, end]];
+      for (const existing of segments) {
+        uncovered = uncovered.flatMap(([from, to]) => existing.end <= from || existing.start >= to ? [[from, to]]
+          : [[from, Math.min(to, existing.start)], [Math.max(from, existing.end), to]].filter(([a, b]) => b > a));
+        if (!uncovered.length) break;
+      }
+      for (const [from, to] of uncovered) segments.push(clipRingSegment(candidate, from, to));
+    }
+    (forecast?.segments || []).forEach((segment, index, all) => {
+      const period = timeline.find((item) => date(item.startTime) <= segment.start && date(item.endTime) >= segment.end);
+      const following = all[index + 1];
+      const endFahrenheit = following?.start === segment.end ? following.fahrenheit : segment.fahrenheit;
+      addAvailable({ ...segment, endFahrenheit, sourceKind: 'forecast', source: period?.forecastTemperatureSource || 'NWS forecast grid valid interval' });
+    });
+    // Reports fill only remaining past gaps, on the outer track with explicit
+    // observed provenance. They never change forecast H/L values or future hours.
+    for (const segment of observed.segments) addAvailable({ ...segment, sourceKind: 'observed', source: 'KCMI observations' });
+    segments.sort((a, b) => a.start - b.start);
+    const coverage = segments.reduce((sum, segment) => sum + segment.end - segment.start, 0);
+    return { ...day, segments, coverageHours: coverage / HOUR, partial: coverage < day.end - day.start - 1000,
+      historicalObserved: segments.some((segment) => segment.sourceKind === 'observed') };
+  }
+  function decorateAstronomy() {
+    const slot = byId('liveConditionIcon');
+    if (!slot || !window.cmpriWeatherAstronomy) return;
+    const sky = window.cmpriWeatherAstronomyFeed?.getData() || {};
+    const options = { now: Date.now(), moonPhase: sky.moonPhase, events: sky.events || [] };
+    if (astronomyDecoration) astronomyDecoration.update(options);
+    else astronomyDecoration = window.cmpriWeatherAstronomy.decorateCurrentIcon(slot, options);
   }
   function renderCurrentDial() {
     const host = byId('liveTemperature'); if (!host) return;
@@ -254,11 +305,13 @@
     const wind = available ? quantity(p.windSpeed, 'wind') : null, gust = available ? quantity(p.windGust, 'wind') : null;
     const visibility = available ? quantity(p.visibility, 'visibility') : null;
     const feels = available ? quantity(p.windChill, 'temperature') ?? quantity(p.heatIndex, 'temperature') : null;
+    astronomyDecoration?.destroy(); astronomyDecoration = null;
     host.replaceChildren(visuals.temperatureDial(day, { current: true, observedTemperature: observed, observedDay,
       pending: hourly.pending, stale: hourly.status === 'stale' || resource('grid').status === 'stale',
       conditionText: available ? p.textDescription || 'Condition not reported' : observation.pending ? 'Awaiting observation' : 'Conditions unavailable',
       icon: available ? p.icon : null, windSpeed: wind === null ? null : round(wind) + ' MPH', windDirection: p?.windDirection?.value,
       gustText: gust === null ? null : round(gust), visibility: visibility === null ? null : visibility > 0 && visibility < .1 ? '<0.1' : round(visibility, 1), feelsLike: feels }));
+    decorateAstronomy();
     renderCurrentGraphs(timeline, observedDay);
   }
   function renderForecast(name, hostId, hourly) {
@@ -532,8 +585,10 @@
     opened = false; generation += 1; abortReads(); loading = false;
     if (alertExpiryTimer !== null) clearTimeout(alertExpiryTimer);
     alertExpiryTimer = null;
+    astronomyDecoration?.close();
     return getState();
   }
+  window.addEventListener('cmpri-weather-astronomy', () => { if (opened) decorateAstronomy(); });
   window.addEventListener('pagehide', close);
   window.nwsLiveView = { init, open, close, refresh, refreshObservations, getState };
 }());

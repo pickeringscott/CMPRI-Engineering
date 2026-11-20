@@ -6,8 +6,8 @@ const PDF_RUNTIME = ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules
 
 const nextConfig: NextConfig = {
 	env: {
-		// Review UI is built into branch previews and local development only.
-		NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW: process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV === "development" ? "1" : "0",
+		// Keep the existing launcher flag enabled for the released Weather view.
+		NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW: "1",
 	},
 	// PDF.js uses createRequire(import.meta.url) for its native canvas runtime
 	// and resolves its worker relative to the package. Preserve that boundary.

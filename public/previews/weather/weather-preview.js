@@ -52,6 +52,7 @@
     byId('weatherLauncher').dataset.open = 'true';
     map.open();
     window.nwsLiveView.open();
+    window.cmpriWeatherAstronomyFeed?.open();
     setTab(activeTab, false, false);
     if (!embedded) byId('closeWeather').focus();
   }
@@ -59,6 +60,7 @@
     window.notificationPreview?.closeSafety?.();
     map.close();
     window.nwsLiveView.close();
+    window.cmpriWeatherAstronomyFeed?.close();
     opened = false;
     airportLifecycle();
     byId('weatherWindow').hidden = true;
@@ -89,6 +91,8 @@
     if (document.hidden || !opened || activeTab !== 'weather') map.pause();
     else map.resume();
     airportLifecycle();
+    if (document.hidden || !opened) window.cmpriWeatherAstronomyFeed?.close();
+    else window.cmpriWeatherAstronomyFeed?.open();
   });
   window.addEventListener('pagehide', () => close(false));
 
@@ -106,6 +110,6 @@
   document.querySelectorAll('#panel-checks button').forEach((button) => button.addEventListener('click', modeTiles));
   modeTiles();
   window.weatherPreview = { open, close, setTab, layer: map.selectLayer,
-    getState: () => ({ ...map.getState(), opened, activeTab, airport: airport?.getState(), databaseCalls: 0, pushes: 0 }) };
+    getState: () => ({ ...map.getState(), opened, activeTab, airport: airport?.getState(), astronomy: window.cmpriWeatherAstronomyFeed?.getState(), databaseCalls: 0, pushes: 0 }) };
   if (embedded || query.get('weather') === 'open') open();
 })();
