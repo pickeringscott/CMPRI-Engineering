@@ -119,20 +119,25 @@ Applicable dashboard, DesktopWindow, notification and seasonal-theme patterns we
 
 ## Verification
 
-For merged PR #55, the production-mode build and TypeScript passed, full repository ESLint passed, and **151 focused Weather/astronomy tests passed**. **16 desktop/mobile browser cases passed**. Browser verification covers the actual Engineering dashboard at **1440×1000** and **390×844**, with separate Chief Engineer and ordinary-user Current Conditions and sky-event cases. It checks observation-first rendering, midnight forecast-grid coverage, independent observed extrema, role clocks, bounded smooth curves, sparse graph axes, card/graph alignment, observed-history provenance, centered Moon phases and local-event details, winter-layer stacking, legend state, smaller official signs and mobile collision fallback, Guest Safety/audio regressions, cached close/reopen and airport expansion/abort behavior.
+PR #57 retains the approved Weather and Willard view while fixing the audited recovery, forecast-history and source-labeling gaps. Main and PR #58 remain unmerged. A separate local combined checkout prepares the two PRs without publishing either merge.
 
-Browser app APIs and WebSockets are intercepted with synthetic fixtures. Native aircraft-map controls, independent ground/layout layers, source labels, board availability aging and lifecycle are checked separately from actual-source availability. A collapsed airport makes no provider request; collapse or native close aborts foreground work. Advancing the local board clock never polls flight data. No real database writes, notification permission, external pushes or device GPS occur in these checks.
+The remediation passed repository ESLint, TypeScript, the full `npm test` command, a production build including PDF/manual/OCR runtime checks, and all **94 isolated HTTP smoke checks**. Desktop **1440×1000** and phone **390×844** browser checks cover the Weather dashboard, independent map products, cloud valid-time labels, decoded-image retention, cancellation on close, and compact official legend bounds. Profile/File recovery checks in the completed production build also cover physical browser restart, failed reads/deletes, acknowledged-ticket recovery, stable upload identity and safe retries.
 
-Actual provider verification is separate from browser fixtures: `/api/willard-tracker` has returned live ADSB.lol positions, `/api/willard-airport-layout` has returned the three USGS runway polygons, and USGS aerial tiles have returned imagery. Taxiway/apron coverage remains unavailable. Fixed official NWS/NOAA sources supply weather; earlier live proofs are dated checks rather than a promise of current availability.
+PM nested-form, Pool cleared-reading and workspace/browser-restart acceptance checks passed on the isolated production checkout of the same recovery implementation. Their fixtures require fresh account/property authorization before restoring data and verify refused-close guards, changed server revisions, scope isolation, cache reuse/expiry and explicit-close behavior. Test evidence records the tested source revisions separately from final deployment/CI results.
+
+Browser app APIs and WebSockets are intercepted with synthetic fixtures. No real database records, notification permissions, external pushes or device GPS are used. Native aircraft-map controls, independent aerial/runway layers, source labels, board availability aging and lifecycle are checked separately from actual provider availability. A collapsed airport makes no provider request; collapse or native close aborts foreground work. Advancing the local board clock never polls flight data.
+
+Actual provider verification is separate from browser fixtures: NWS NDFD cloud cover returned two different advertised forecast rasters on November 20, 2026; `/api/willard-tracker` has returned live ADSB.lol positions; `/api/willard-airport-layout` has returned the three USGS runway polygons; and USGS aerial tiles have returned imagery. Dated source checks do not guarantee future availability. Reported winter-road conditions and airport taxiway/apron coverage remain unavailable, and the cloud source does not advertise an official PNG key. The preview identifies those limits without fabricated data or colors.
 
 ```sh
-node --experimental-strip-types --test tests/weather*.test.mjs
+npm run lint
+npm run typecheck
+npm test
 VERCEL_ENV=production NEXT_PUBLIC_SUPABASE_URL=https://ci-placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=ci-build-placeholder npm run build
-python tests/browser/weather_current_notices.py --base http://127.0.0.1:3050
-python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3050
-python tests/browser/weather_map_basemaps.py --base http://127.0.0.1:3050
-python tests/browser/weather_map_wms.py --base http://127.0.0.1:3050
-python tests/browser/weather_astronomy.py --base http://127.0.0.1:3050
+npm run test:http-smoke
+python tests/browser/weather_dashboard_preview.py --base http://127.0.0.1:3057
+python tests/browser/weather_map_wms.py --base http://127.0.0.1:3057
+CMPRI_UI_BASE=http://127.0.0.1:3057 python tests/browser/profile_attachment_recovery.py
 ```
 
-The approved final changes use the existing PR #55 and branch. Required CI checks gate the requested merge to main. Only Weather’s prior production gate is removed; other preview pages remain blocked. No database migration, paid service, new credential, background scheduler or flight notification is added. Willard’s implementation files and approved behavior are preserved.
+No migration, paid service, new credential, background scheduler or flight notification is added in this remediation. Normal hosted CMPRI previews retain the app's existing database configuration; write-path verification uses only isolated intercepted fixtures.
