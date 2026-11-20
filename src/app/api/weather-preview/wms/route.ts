@@ -24,7 +24,7 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 12000;
 const METADATA_TTL_MS = 5 * 60000;
 const HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
-const ALLOWED_PARAMETERS = new Set(["product", "op", "layer", "style", "time", "bbox", "width", "height"]);
+const ALLOWED_PARAMETERS = new Set(["product", "op", "layer", "style", "time", "bbox", "width", "height", "format"]);
 
 function enabled() {
   return process.env.VERCEL_ENV !== "production"
@@ -184,6 +184,8 @@ export async function GET(request: Request) {
   for (const key of ALLOWED_PARAMETERS) if (query.getAll(key).length > 1) return unavailable(400, "Duplicate WMS parameter");
   const productValue = query.get("product"), op = query.get("op");
   if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose reflectivity, velocity or precipitation and a supported WMS operation");
+  const format = query.get("format");
+  if (format !== null && format !== "json" && format !== "image") return unavailable(400, "Choose image or JSON inspection format");
   const product = productValue as Product;
   const bboxParts = (query.get("bbox") || "").split(",");
   const bbox = bboxParts.map(Number);
@@ -193,6 +195,7 @@ export async function GET(request: Request) {
     || width < 1 || height < 1 || width > 1500 || height > 1500)) return unavailable(400, "A bounded Web Mercator bbox and 1–1500 pixel dimensions are required");
   if (op !== "capabilities" && (!query.get("layer") || query.get("layer")!.length > 240 || /[\u0000-\u001f]/.test(query.get("layer")!))) return unavailable(400, "An advertised layer name is required");
   if (op === "capabilities" && ["layer", "style", "time", "bbox", "width", "height"].some((key) => query.has(key))) return unavailable(400, "Capabilities requests accept only product and operation");
+  if (op === "capabilities" && format !== null) return unavailable(400, "Capabilities are already JSON and accept no inspection format");
   if (op === "legend" && ["bbox", "width", "height", "time"].some((key) => query.has(key))) return unavailable(400, "Legend requests accept only an advertised layer and optional style");
   const controller = new AbortController();
   const abort = () => controller.abort(); request.signal.addEventListener("abort", abort, { once: true });
@@ -218,6 +221,11 @@ export async function GET(request: Request) {
     if (time) parameters.TIME = time;
     const source = sourceUrl(product, parameters);
     const image = await fetchSource(source, true, controller.signal);
+    // Inspection changes only the response envelope, never the fixed upstream
+    // PNG request. The exact validated bytes can be reviewed without corruption
+    // by tools that otherwise decode binary bodies as text.
+    if (format === "json") return Response.json({ source, contentType: "image/png", bytes: image.byteLength,
+      base64: Buffer.from(image).toString("base64"), time: time || "source-default" }, { headers: HEADERS });
     return new Response(image, { headers: { ...HEADERS, "Content-Type": "image/png", "Content-Length": String(image.byteLength),
       "X-Weather-Source": source, "X-Weather-Layer": layer.name,
       // An omitted TIME uses the source's current default. A cached metadata

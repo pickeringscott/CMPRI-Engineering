@@ -29,7 +29,7 @@ const base={product:'velocity',op:'map',layer:actualLayer,bbox:'-10000000,470000
 const xmlResponse=(body=xml,headers={})=>new Response(body,{headers:{'Content-Type':'text/xml; charset=utf-8',...headers}});
 function fixture(fetch,env={VERCEL_ENV:'preview'}) {
  return loadTs('src/app/api/weather-preview/wms/route.ts',{}, {
-  process:{env},fetch,Request,Response,URL,URLSearchParams,Uint8Array,TextDecoder,AbortController,setTimeout,clearTimeout,
+  process:{env},fetch,Request,Response,URL,URLSearchParams,Uint8Array,TextDecoder,AbortController,setTimeout,clearTimeout,Buffer,
  });
 }
 
@@ -47,6 +47,8 @@ test('fixed products/operations and bounded map parameters reject arbitrary inpu
  for(const params of [
   {product:'anything',op:'capabilities'},{product:'velocity',op:'delete'},
   {product:'velocity',op:'capabilities',layer:actualLayer},
+  {product:'reflectivity',op:'capabilities',format:'json'},
+  {...base,format:'text'},{...base,format:'image/png'},
   {...base,bbox:'-1,2,-3,4'},{...base,bbox:'-1,,2,4'},{...base,bbox:'-1,2,30000000,4'},
   {...base,width:'1501'},{...base,height:'0'},{...base,width:'1.5'},
   {...base,layer:''},{product:'velocity',op:'legend',layer:actualLayer,time:latest},
@@ -146,6 +148,29 @@ test('legend uses fixed official endpoint rather than following capabilities URL
  assert.deepEqual(new Uint8Array(await response.arrayBuffer()),png);
 });
 
+test('JSON inspection preserves exact validated PNG bytes and source time without changing upstream parameters',async()=>{
+ for(const operation of ['map','legend']) {
+  const parameters=operation==='map'?{...base,style:actualStyle,time:latest}:{product:'velocity',op:'legend',layer:actualLayer,style:actualStyle};
+  const api=fixture(async(url)=>{
+   const query=new URL(url).searchParams;
+   if(query.get('request')==='GetCapabilities')return xmlResponse();
+   assert.equal(query.get('FORMAT'),'image/png');assert.equal(query.get('format'),null);
+   assert.equal(query.get('REQUEST'),operation==='map'?'GetMap':'GetLegendGraphic');
+   return new Response(png,{headers:{'Content-Type':'image/png'}});
+  });
+  const response=await api.GET(request({...parameters,format:'json'}));
+  const body=await response.json();
+  assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'no-store');
+  assert.equal(body.contentType,'image/png');assert.equal(body.bytes,png.byteLength);
+  assert.deepEqual(new Uint8Array(Buffer.from(body.base64,'base64')),png);
+  assert.equal(body.time,operation==='map'?latest:'source-default');
+  assert.equal(new URL(body.source).origin+new URL(body.source).pathname,velocity);
+ }
+ const invalid=await fixture(async(url)=>new URL(url).searchParams.get('request')==='GetCapabilities'?xmlResponse():new Response('not PNG',{headers:{'Content-Type':'image/png'}}))
+  .GET(request({...base,format:'json'}));
+ assert.equal(invalid.status,502);
+});
+
 test('unsupported projection/format/legend fail without producing an image request',async()=>{
  for(const [change,operation] of [
   [body=>body.replace('<CRS>EPSG:3857</CRS>',''),'map'],
@@ -202,7 +227,7 @@ test('unknown outer sharing parameters are ignored and never forwarded to offici
   +'&REQUEST=delete&FORMAT=text%2Fhtml&unknown=first&unknown=second'));
  assert.equal(response.status,200);assert.equal(calls,1);
  const api=fixture(()=>{throw Error('duplicate meaningful parameter must not fetch');});
- for(const key of ['product','op','layer','style','time','bbox','width','height']) {
+ for(const key of ['product','op','layer','style','time','bbox','width','height','format']) {
   const query=new URLSearchParams({...base});query.append(key,'duplicate');
   if(!new URLSearchParams(base).has(key))query.append(key,'another');
   const duplicate=await api.GET(new Request('https://preview.cmpri.example/api/weather-preview/wms?'+query));
