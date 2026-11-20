@@ -56,6 +56,65 @@ async def tracker_ready(frame):
     await wait_for(frame,"() => {const t=weatherPreview.getState().airport.trackerState;return t&&t.active&&t.pending===0&&t.pendingTiles===0&&t.queuedTiles===0&&t.tileCacheSize>0;}")
 
 
+async def layout_pixel(frame,lat=40.065,lon=-88.22):
+    return await frame.evaluate("""([lat,lon])=>{
+      const t=weatherPreview.getState().airport.trackerState,c=document.querySelector('.wt-canvas');
+      const point=cmpriWillardTracker.project(lat,lon,t.zoom),center=cmpriWillardTracker.project(t.center.lat,t.center.lon,t.zoom);
+      const x=t.width/2+point.x-center.x,y=t.height/2+point.y-center.y,ratio=c.width/t.width;
+      return {x,y,pixel:Array.from(c.getContext('2d').getImageData(Math.round(x*ratio),Math.round(y*ratio),1,1).data)};
+    }""",[lat,lon])
+
+
+async def layout_checks(page,frame,feed):
+    host=frame.locator('[data-willard-tracker]')
+    aerial=host.locator('[data-layer="aerial"]');layout=host.locator('[data-layer="layout"]')
+    await wait_for(frame,"() => {const l=weatherPreview.getState().airport.trackerState.airportLayout;return l&&l.status==='available'&&!l.pending&&l.rendered===3;}")
+    initial=await tracker_state(frame)
+    require(initial['aerialImagery'] and initial['basemap']=='imagery' and initial['airportLayout']['enabled']
+            and await aerial.get_attribute('aria-pressed')=='true' and await layout.get_attribute('aria-pressed')=='true',
+            'Aerial Imagery and verified Airport Layout are not both selected by default')
+    require(initial['imageryCaptureYear'] is None and 'Capture Year Unavailable' in await host.locator('.wt-imagery-year').inner_text(),
+            'Historical aerial imagery invented a capture year')
+    on=await layout_pixel(frame)
+    await layout.click();off_state=await tracker_state(frame);off=await layout_pixel(frame)
+    require(not off_state['airportLayout']['enabled'] and off_state['airportLayout']['rendered']==0
+            and off_state['aerialImagery'] and off_state['markers']==initial['markers'] and off_state['airport']==initial['airport'],
+            'Airport Layout toggle changed imagery, reported aircraft or the fixed CMI pin')
+    require(max(abs(off['pixel'][i]-[173,80,42][i]) for i in range(3))<=2
+            and max(abs(on['pixel'][i]-off['pixel'][i]) for i in range(3))>3,
+            'Verified FAA footprint did not paint over the imagery or did not clear when disabled: '+str([on,off]))
+    calls=feed.layout_calls
+    await layout.click()
+    await wait_for(frame,'weatherPreview.getState().airport.trackerState.airportLayout.rendered===3')
+    require(feed.layout_calls==calls,'Re-enabling cached airport geometry caused another FAA read')
+    await aerial.click();await tracker_ready(frame)
+    topo=await tracker_state(frame);topo_pixel=await layout_pixel(frame,40.08,-88.1)
+    require(topo['basemap']=='topo' and not topo['aerialImagery'] and topo['airportLayout']['enabled']
+            and topo['airportLayout']['rendered']==3 and topo['markers']==initial['markers'],
+            'Aerial toggle did not fall back to Topo independently of FAA layout/aircraft')
+    require(max(abs(topo_pixel['pixel'][i]-[52,101,173][i]) for i in range(3))<=2,
+            'Aerial-off reused the wrong tile dataset')
+    await aerial.click();await tracker_ready(frame)
+    restored=await tracker_state(frame)
+    require(restored['basemap']=='imagery' and restored['airportLayout']['enabled']
+            and restored['airportLayout']['rendered']==3,'Aerial-on lost Airport Layout selection')
+    require('FAA Airport Layout' in await host.locator('.wt-faa').inner_text(), 'FAA source attribution is absent')
+    for status in ['stale','unavailable']:
+        feed.layout_status=status;await refresh_tracker(frame)
+        await wait_for(frame,'status=>{const l=weatherPreview.getState().airport.trackerState.airportLayout;return l.status===status&&!l.pending;}',status)
+        state=await tracker_state(frame);sample=await layout_pixel(frame)
+        require(state['airportLayout']['rendered']==0 and state['aerialImagery'] and state['aircraftCount']==3
+                and max(abs(sample['pixel'][i]-[173,80,42][i]) for i in range(3))<=2,
+                'Stale/unavailable layout retained invented pixels or removed aircraft/imagery: '+str([state['airportLayout'],sample]))
+        require(await host.locator('.wt-layout-status').is_visible()
+                and status in (await host.locator('.wt-layout-status').inner_text()).lower(),
+                'Missing/stale Airport Layout has no visible availability status')
+    feed.layout_status='available';await refresh_tracker(frame)
+    await wait_for(frame,'weatherPreview.getState().airport.trackerState.airportLayout.rendered===3')
+    return {'bothDefaultOn':True,'independentSelectionAndCorrectTiles':True,'faaPixelsClearWhenDisabledOrUnknown':True,
+        'sixHourLayoutCacheReused':True,'historicalImageryYearNotInvented':True,'on':on,'off':off}
+
+
 async def refresh_tracker(frame):
     host=frame.locator('[data-willard-tracker]')
     prior=(await tracker_state(frame))['requests']
@@ -70,7 +129,9 @@ async def native_map_checks(page,frame,feed,width,chief):
     require(initial['active'] and initial['status']=='live' and initial['aircraftCount']==3
             and initial['clockMode']==('24' if chief else '12'),'Native tracker lost fresh source positions or role clock')
     require(initial['tileParallelLimit']==4 and initial['tileCacheSize']>0
-            and any(row['dataset']=='topo' for row in feed.basemap_requests),'Tracker ground map did not decode official USGS topo fixtures')
+            and initial['basemap']=='imagery' and any(row['dataset']=='imagery' for row in feed.basemap_requests),
+            'Tracker ground map did not decode official USGS aerial fixtures')
+    layer_evidence=await layout_checks(page,frame,feed)
     supplied={row['hex']:row for row in feed.tracker()['aircraft']}
     require(len(initial['markers'])==3 and {row['kind'] for row in initial['markers']}=={'arrow','dot'}
             and all(row['lat']==supplied[row['hex']]['lat'] and row['lon']==supplied[row['hex']]['lon']
@@ -79,7 +140,7 @@ async def native_map_checks(page,frame,feed,width,chief):
     source=host.locator('.wt-source')
     require(await source.locator('.wt-provider').get_attribute('href')=='https://adsb.lol/?lat=40.0398&lon=-88.2762&zoom=9&hideSideBar='
             and 'opendatacommons.org/licenses/odbl' in await source.locator('.wt-license').get_attribute('href')
-            and 'USGSTopo' in await source.locator('.wt-usgs').get_attribute('href'), 'Tracker source/license/ground provenance missing')
+            and 'USGSImageryOnly' in await source.locator('.wt-usgs').get_attribute('href'), 'Tracker source/license/ground provenance missing')
     updated=await host.locator('.wt-updated').inner_text()
     require('CST' in updated and (bool(re.search(r'\b(?:AM|PM)\b',updated)) is (not chief)), 'Tracker timestamp ignores role clock')
     await canvas.scroll_into_view_if_needed()
@@ -105,6 +166,9 @@ async def native_map_checks(page,frame,feed,width,chief):
     box=await canvas.bounding_box();x,y=box['x']+box['width']*.55,box['y']+box['height']*.35
     await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+45,y+25,steps=5);await page.mouse.up()
     require((await tracker_state(frame))['center']!=initial['center'],'Native tracker drag does not pan')
+    painted=await layout_pixel(frame)
+    require(max(abs(painted['pixel'][i]-[173,80,42][i]) for i in range(3))>3,
+            'FAA polygons lost their geographic anchor while panning')
     await host.locator('[data-action="recenter"]').click()
     centered=await tracker_state(frame)
     require(abs(centered['center']['lat']-centered['airport']['lat'])<.000001
@@ -138,7 +202,8 @@ async def native_map_checks(page,frame,feed,width,chief):
             'Unavailable source was presented as zero aircraft')
     feed.tracker_status='live';feed.tracker_empty=False;await refresh_tracker(frame)
     return {'nativeCanvas':True,'sourcePositionsAndHeadingPreserved':True,'clickAndTouchDetails':True,
-        'groundZeroAndMissingHeading':True,'zoomPanRecenterFullscreen':True,'staleUnavailableAndEmptyDistinct':True,'roleClock':updated}
+        'groundZeroAndMissingHeading':True,'zoomPanRecenterFullscreen':True,'staleUnavailableAndEmptyDistinct':True,'roleClock':updated,
+        'stackedMapLayers':layer_evidence,'faaGeometryAnchoredDuringPan':True}
 
 
 async def run_case(browser, base, output, width, height, role):
@@ -146,6 +211,7 @@ async def run_case(browser, base, output, width, height, role):
     context, page, errors, external, mutations = await context_for(browser, width, height, feed, role)
     await context.route('**/api/willard-flights**', feed.route)
     await context.route('**/api/willard-tracker**',feed.route)
+    await context.route('**/api/willard-airport-layout**',feed.route)
     evidence = {'viewport':[width,height],'role':role,'fixtureOnly':True}
     chief = role == 'chief_engineer'
     suffix = role + '-' + str(width)
@@ -153,13 +219,13 @@ async def run_case(browser, base, output, width, height, role):
         await page.goto(base+'/engineering',wait_until='domcontentloaded')
         launcher=page.get_by_role('button',name='Weather',exact=True)
         await launcher.wait_for(state='visible',timeout=60000)
-        require(feed.willard_calls==0 and feed.tracker_calls==0,'Airport requested before Weather opened')
+        require(feed.willard_calls==0 and feed.tracker_calls==0 and feed.layout_calls==0,'Airport requested before Weather opened')
         await launcher.click(); frame=await weather_frame(page)
         await frame.evaluate("""() => {
           window.__willardFetchAudit=[];const original=window.fetch;
           window.fetch=function(input,options){
             const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
-            if(['/api/willard-flights','/api/willard-tracker'].includes(path)){
+            if(['/api/willard-flights','/api/willard-tracker','/api/willard-airport-layout'].includes(path)){
               const row={path,method:options?.method||'GET',aborted:false};window.__willardFetchAudit.push(row);
               options?.signal?.addEventListener('abort',()=>{row.aborted=true;});
             }return original.call(this,input,options);
@@ -168,14 +234,22 @@ async def run_case(browser, base, output, width, height, role):
         airport=frame.locator('#willardAirport'); board=airport.locator('[data-willard-board]')
         state=await frame.evaluate('weatherPreview.getState().airport')
         require(not state['expanded'] and not state['trackerMounted'] and not state['clockRunning']
-                and feed.willard_calls==0 and feed.tracker_calls==0,'Collapsed airport performs work')
+                and feed.willard_calls==0 and feed.tracker_calls==0 and feed.layout_calls==0,'Collapsed airport performs work')
         require(await board.get_attribute('data-style')=='london'
                 and await board.get_attribute('data-time-format')==('24h' if chief else '12h'), 'Wrong board style/role clock')
         feed.hold_willard=True;feed.willard_gate.clear();feed.willard_pending.clear()
+        feed.hold_layout=True;feed.layout_gate.clear();feed.layout_pending.clear()
         await expand(frame,True);await asyncio.wait_for(feed.willard_pending.wait(),5)
+        await asyncio.wait_for(feed.layout_pending.wait(),5)
         await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='live'")
         require(await airport.locator('tbody [data-flight]').count()==0,'Held source exposed invented flight rows')
-        feed.hold_willard=False;feed.willard_gate.set();await finished(frame)
+        require((await tracker_state(frame))['airportLayout']['rendered']==0,'Held FAA source exposed fabricated airport polygons')
+        await expand(frame,False)
+        require(await frame.evaluate("window.__willardFetchAudit.filter(row=>row.path==='/api/willard-airport-layout').at(-1)?.aborted"),
+                'Collapsing airport did not abort held FAA layout read')
+        feed.hold_layout=False;feed.layout_gate.set()
+        feed.hold_willard=False;feed.willard_gate.set()
+        await expand(frame,True);await finished(frame)
         arrivals=airport.locator('[data-willard-arrivals]');departures=airport.locator('[data-willard-departures]')
         require(await arrivals.get_attribute('data-availability')=='unavailable'
                 and 'Flight data unavailable' in await arrivals.inner_text()
@@ -256,7 +330,8 @@ async def run_case(browser, base, output, width, height, role):
                     'Lifecycle boundary did not abort underlying board and aircraft reads: '+boundary)
             stopped=await tracker_state(frame)
             require(stopped['pending']==0 and stopped['pendingTiles']==0 and stopped['queuedTiles']==0
-                    and not stopped['refreshTimerActive'] and stopped['tileCacheSize']==0,
+                    and not stopped['refreshTimerActive'] and stopped['tileCacheSize']==0
+                    and not stopped['airportLayout']['pending'],
                     'Inactive tracker retained requests, source timers or tile bitmaps: '+str(stopped))
             calls=[feed.willard_calls,feed.tracker_calls];feed.hold_willard=False;feed.willard_gate.set()
             feed.hold_tracker=False;feed.tracker_gate.set();feed.hold_basemap=False;feed.basemap_gate.set();await asyncio.sleep(.05)
@@ -271,7 +346,7 @@ async def run_case(browser, base, output, width, height, role):
                 'Closed airport retains polling, notifications or tracker activity')
         require(not errors and not external and not mutations,'Unexpected script/external/application activity: '+str([errors,external,mutations]))
         require(await page.evaluate('window.__weatherReviewForbidden.length===0') and await frame.evaluate('window.__weatherReviewForbidden.length===0'),'Airport requested permissions/GPS/push')
-        evidence.update(passed=True,flightReads=feed.willard_calls,trackerSourceReads=feed.tracker_calls,cache60Seconds=True,
+        evidence.update(passed=True,flightReads=feed.willard_calls,trackerSourceReads=feed.tracker_calls,airportLayoutReads=feed.layout_calls,cache60Seconds=True,
             noFlightBoardIntervalPolling=True,noInactiveTrackerPolling=True,abortOnCollapseHiddenClose=True,
             errors=errors,externalRequests=external,applicationMutations=mutations)
         return evidence

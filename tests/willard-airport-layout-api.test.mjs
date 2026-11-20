@@ -22,6 +22,7 @@ test('fixed official CMI queries return original WGS84 geometry, source editions
   assert.equal(b.referenceOnly,true);assert.match(b.operationalStatusNote,/not current/);assert.equal(b.retrievedAt,new Date(START).toISOString());
   assert.equal(b.layers[0].effectivePeriod,'0901Z 7 August 2025–2 October 2025');assert.equal(b.layers[0].sourceDataEditedAt,'2026-10-29');
   assert.match(b.attribution,/FAA/);assert.doesNotMatch(b.license.name,/CC0/);assert.equal(b.cacheSeconds,21600);assert.deepEqual(f.deadlines,[10000]);
+  assert.equal(b.layers[0].sourceCheck.httpStatus,200);assert.equal(b.layers[0].sourceCheck.failureStage,null);assert.equal(b.layers[0].sourceCheck.featureCount,1);
   for(const {url,init} of f.calls){const u=new URL(url);assert.equal(u.origin,'https://services6.arcgis.com');assert.match(u.pathname,/\/AM_(Runway|Taxiway|Apron)\/FeatureServer\/0\/query$/);
     assert.equal(u.searchParams.get('where'),"ICAO_ID='KCMI'");assert.equal(u.searchParams.get('outSR'),'4326');assert.equal(u.searchParams.get('f'),'geojson');
     assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');assert.equal(init.cache,'no-store');assert.equal(init.method,'GET');}
@@ -50,6 +51,23 @@ test('projected or misdeclared reference systems, invalid coordinates and broken
   const multi={type:'MultiPolygon',coordinates:[GEOMETRY.coordinates]};
   const f=fixture({fetch:async()=>Response.json(collection({crs:{type:'name',properties:{name:'urn:ogc:def:crs:OGC:1.3:CRS84'}},features:[{...collection().features[0],geometry:multi}]}))});
   assert.deepEqual((await(await f.get()).json()).collection.features[0].geometry,multi);
+  const uri=fixture({fetch:async()=>Response.json(collection({crs:{type:'name',properties:{name:'http://www.opengis.net/def/crs/OGC/1.3/CRS84'}}}))});
+  assert.equal((await(await uri.get()).json()).status,'available');
+});
+
+test('bounded public-source diagnostics identify query, empty, CRS, geometry and response-format failures',async()=>{
+  const cases=[
+    [()=>Response.json({error:{code:400,message:'Invalid field '+ 'x'.repeat(400)}},{status:400}),'provider',400],
+    [()=>Response.json(collection({features:[]})),'empty',null],
+    [()=>Response.json(collection({crs:{type:'name',properties:{name:'EPSG:3857'}}})),'crs',null],
+    [()=>Response.json(collection({features:[{...collection().features[0],geometry:{type:'Point',coordinates:[-88,40]}}]})),'geometry',null],
+    [()=>new Response('not a source body',{status:403,headers:{'Content-Type':'text/html'}}),'http',null],
+  ];
+  for(const [make,stage,code] of cases){
+    const f=fixture({fetch:async()=>make()}),b=await(await f.get()).json(),check=b.layers[0].sourceCheck;
+    assert.equal(check.failureStage,stage);assert.equal(check.providerErrorCode,code);assert.ok(check.message.length<=200);
+    assert.equal(typeof check.httpStatus,'number');assert.equal(typeof check.contentType,'string');
+  }
 });
 
 test('valid geometry survives an invalid sibling feature but is not called complete',async()=>{

@@ -39,17 +39,28 @@
       const button = element('button', '', glyph); button.type = 'button'; button.dataset.action = action;
       button.title = window.cmpriWeatherTooltips?.titleCase(label) || label; button.setAttribute('aria-label', label); tools.append(button); buttons.set(action, button);
     }
+    buttons.get('refresh').title = 'Refresh Map Data'; buttons.get('refresh').setAttribute('aria-label', 'Refresh Map Data');
+    const layers = element('div', 'wt-layer-buttons'); layers.setAttribute('role', 'group'); layers.setAttribute('aria-label', 'Flight Map Layers');
+    const aerialButton = element('button', '', 'Aerial Imagery'); aerialButton.type = 'button'; aerialButton.dataset.layer = 'aerial'; aerialButton.setAttribute('aria-pressed', 'true'); aerialButton.title = 'Show Historical USGS Aerial Imagery';
+    const layoutButton = element('button', '', 'Airport Layout'); layoutButton.type = 'button'; layoutButton.dataset.layer = 'layout'; layoutButton.setAttribute('aria-pressed', 'true'); layoutButton.title = 'Show FAA Airport Layout Reference';
+    layers.append(aerialButton, layoutButton);
     const banner = element('div', 'wt-source'), provider = element('a', 'wt-provider', 'Aircraft Data: ADSB.lol');
     provider.href = 'https://adsb.lol/?lat=40.0398&lon=-88.2762&zoom=9&hideSideBar='; provider.target = '_blank'; provider.rel = 'noopener noreferrer';
     const license = element('a', 'wt-license', 'ODbL1.0'); license.href = 'https://opendatacommons.org/licenses/odbl/1-0/'; license.target = '_blank'; license.rel = 'noopener noreferrer';
-    const ground = element('a', 'wt-usgs', 'USGS'); ground.href = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer'; ground.target = '_blank'; ground.rel = 'noopener noreferrer';
+    const ground = element('a', 'wt-usgs', 'USGS · USDA/NAIP'); ground.href = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer'; ground.target = '_blank'; ground.rel = 'noopener noreferrer';
+    const imageryYear = element('span', 'wt-imagery-year', 'Historical · Capture Year Unavailable');
+    const faa = element('a', 'wt-faa', 'FAA Airport Layout · Reference'); faa.href = 'https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/'; faa.target = '_blank'; faa.rel = 'noopener noreferrer';
+    const layoutCopy = element('span', 'wt-layout-status', 'Airport Layout Pending');
     const statusCopy = element('span', 'wt-status', 'Unavailable'), updated = element('time', 'wt-updated', 'Updated Unavailable');
-    banner.append(provider, document.createTextNode(' · '), license, document.createTextNode(' · '), ground, document.createTextNode(' · CMI · 50 NM · '), statusCopy, document.createTextNode(' · '), updated);
+    banner.append(provider, license, ground, imageryYear, faa, layoutCopy, element('span', 'wt-scope', 'CMI · 50 NM'), statusCopy, updated);
     const details = element('aside', 'wt-details'); details.hidden = true; details.setAttribute('aria-label', 'Aircraft Details');
-    root.append(canvas, tools, details, banner); host.append(root);
+    root.append(canvas, layers, tools, details, banner); host.append(root);
     const context = canvas.getContext('2d'), cache = new Map(), inflight = new Map(), tileFailures = new Set();
     const start = project(AIRPORT.lat, AIRPORT.lon, 0);
     let center = { ...start }, zoom = 9, width = 640, height = 450, visibleTiles = [], queue = [], markers = [];
+    let basemap = 'imagery';
+    const LAYOUT_TTL = 6 * 3600000;
+    let layoutEnabled = true, layoutStatus = 'unavailable', layoutFeatures = [], layoutLayers = [], layoutReadAt = null, layoutRetrievedAt = null, layoutSource = null, layoutRecord = null, layoutRequests = 0, layoutRendered = 0, layoutError = '';
     let requestedActive = false, running = false, destroyed = false, generation = 0, wheelActive = false, expanded = false;
     let sourceStatus = 'unavailable', aircraft = [], trustedCollection = false, observedAt = null, retrievedAt = null, lastReadAt = null, lastAttemptAt = null, error = '';
     let sourceRecord = null, pollTimer = null, sourceRequests = 0, tileRequests = 0, selected = null, pointer = null, moved = false;
@@ -57,6 +68,7 @@
     function timestamp(value) { return value === null ? 'Unavailable' : clock.format(new Date(value)); }
     function status() { return sourceStatus === 'live' && observedAt !== null && Date.now() - observedAt >= TTL ? 'stale' : sourceStatus; }
     function positionAge(row) { return finite(row.positionAgeSeconds) ? Math.max(0, row.positionAgeSeconds + (observedAt === null ? 0 : Math.max(0, Date.now() - observedAt) / 1000)) : null; }
+    function effectiveLayoutStatus() { return ['available', 'partial'].includes(layoutStatus) && layoutReadAt !== null && Date.now() - layoutReadAt >= LAYOUT_TTL ? 'stale' : layoutStatus; }
     function screen(lat, lon) {
       const point = project(lat, lon, zoom), scale = 2 ** zoom, size = TILE * scale;
       let dx = point.x - center.x * scale; if (dx > size / 2) dx -= size; if (dx < -size / 2) dx += size;
@@ -82,6 +94,14 @@
       if (visibleTiles.some((tile) => tileFailures.has(tile.key))) statusCopy.textContent += ' · Ground Map Unavailable';
       updated.textContent = 'Updated ' + timestamp(observedAt); if (observedAt !== null) updated.dateTime = new Date(observedAt).toISOString(); else updated.removeAttribute('datetime');
       root.dataset.status = state; root.dataset.active = String(running); root.dataset.wheelActive = String(wheelActive);
+      root.dataset.basemap = basemap; aerialButton.setAttribute('aria-pressed', String(basemap === 'imagery'));
+      ground.textContent = basemap === 'imagery' ? 'USGS · USDA/NAIP' : 'USGS'; ground.href = 'https://basemap.nationalmap.gov/arcgis/rest/services/' + (basemap === 'imagery' ? 'USGSImageryOnly' : 'USGSTopo') + '/MapServer';
+      imageryYear.hidden = basemap !== 'imagery';
+      const layoutState = effectiveLayoutStatus(); layoutButton.setAttribute('aria-pressed', String(layoutEnabled));
+      layoutButton.dataset.status = layoutState; faa.hidden = !layoutEnabled;
+      layoutCopy.textContent = layoutRecord ? 'Airport Layout Pending' : layoutState === 'available' ? '' : layoutState === 'partial' ? 'Airport Layout Partial' : layoutState === 'stale' ? 'Airport Layout Stale · Unavailable' : 'Airport Layout Unavailable';
+      layoutCopy.hidden = !layoutEnabled || !layoutCopy.textContent;
+      layoutCopy.title = layoutError || 'Historical Reference Geometry; Not Runway Or Taxiway Operating Status';
       banner.title = error || 'Community Reported Aircraft Positions'; buttons.get('refresh').disabled = !running || sourceRecord !== null;
     }
     function paint() {
@@ -90,6 +110,7 @@
       const ratio = Math.min(2, window.devicePixelRatio || 1); context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, width, height); context.fillStyle = '#1a252d'; context.fillRect(0, 0, width, height);
       for (const tile of visibleTiles) { const image = cache.get(tile.key); if (image) context.drawImage(image, tile.left, tile.top, TILE, TILE); }
+      paintLayout();
       const airport = screen(AIRPORT.lat, AIRPORT.lon);
       context.save(); context.translate(airport.x, airport.y); context.fillStyle = '#ffcf4d'; context.strokeStyle = '#172027'; context.lineWidth = 2;
       context.beginPath(); context.arc(0, 0, 6, 0, Math.PI * 2); context.fill(); context.stroke(); context.font = 'bold 11px Arial'; context.textAlign = 'left'; context.textBaseline = 'middle'; context.strokeText('CMI', 9, 0); context.fillText('CMI', 9, 0); context.restore();
@@ -109,7 +130,54 @@
       const needed = new Set(visibleTiles.map((tile) => tile.key));
       while (cache.size > TILE_LIMIT) { const key = Array.from(cache.keys()).find((item) => !needed.has(item)) || cache.keys().next().value; dispose(cache.get(key)); cache.delete(key); }
     }
-    function tileUrl(tile) { return '/api/weather-preview/basemap?dataset=topo&op=tile&z=' + tile.z + '&x=' + tile.x + '&y=' + tile.y; }
+    function polygonRows(collection) {
+      if (collection?.type !== 'FeatureCollection' || !Array.isArray(collection.features)) return [];
+      return collection.features.slice(0, 1500).flatMap((feature) => {
+        const p = feature?.properties || {}, geometry = feature?.geometry;
+        if (p.airportId !== 'KCMI' || !['runway', 'taxiway', 'apron'].includes(p.kind)) return [];
+        const polygons = geometry?.type === 'Polygon' ? [geometry.coordinates] : geometry?.type === 'MultiPolygon' ? geometry.coordinates : [];
+        if (!Array.isArray(polygons) || !polygons.length || polygons.some((polygon) => !Array.isArray(polygon) || !polygon.length || polygon.some((ring) => !Array.isArray(ring) || ring.length < 4 || ring.length > 20000 || ring.some((point) => !Array.isArray(point) || !finite(point[0]) || !finite(point[1]) || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 85.05112878) || ring[0][0] !== ring.at(-1)[0] || ring[0][1] !== ring.at(-1)[1]))) return [];
+        return [{ kind: p.kind, designator: typeof p.designator === 'string' && !/^(?:UNK|UNKNOWN)$/i.test(p.designator.trim()) ? p.designator.trim() : null, polygons }];
+      });
+    }
+    function paintLayout() {
+      layoutRendered = 0;
+      const state = effectiveLayoutStatus(); if (!context || !layoutEnabled || !['available', 'partial'].includes(state)) return;
+      for (const feature of layoutFeatures) {
+        const layer = layoutLayers.find((item) => item.kind === feature.kind);
+        if (layer?.status !== 'available') continue;
+        for (const polygon of feature.polygons) {
+          const rings = polygon.map((ring) => ring.map(([lon, lat]) => screen(lat, lon)));
+          const points = rings[0], minX = Math.min(...points.map((p) => p.x)), maxX = Math.max(...points.map((p) => p.x)), minY = Math.min(...points.map((p) => p.y)), maxY = Math.max(...points.map((p) => p.y));
+          if (maxX < 0 || minX > width || maxY < 0 || minY > height) continue;
+          context.save(); context.beginPath();
+          for (const ring of rings) { ring.forEach((point, index) => { if (!index) context.moveTo(point.x, point.y); else context.lineTo(point.x, point.y); }); context.closePath(); }
+          context.fillStyle = feature.kind === 'runway' ? '#f2d37745' : feature.kind === 'taxiway' ? '#c3dfe645' : '#d9d6c52e';
+          context.strokeStyle = feature.kind === 'runway' ? '#ffe7a4' : '#d2e5eb'; context.lineWidth = feature.kind === 'runway' ? 1.5 : 1;
+          context.fill('evenodd'); context.stroke(); layoutRendered += 1;
+          if (feature.designator && zoom >= 12 && maxX - minX > 24 && maxY - minY > 8) { context.font = 'bold 10px Arial'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.lineWidth = 3; context.strokeStyle = '#15212a'; context.fillStyle = '#fff7dc'; context.strokeText(feature.designator, (minX + maxX) / 2, (minY + maxY) / 2); context.fillText(feature.designator, (minX + maxX) / 2, (minY + maxY) / 2); }
+          context.restore();
+        }
+      }
+    }
+    async function readLayout(force = false) {
+      if (!running || destroyed || !layoutEnabled || layoutRecord) return;
+      if (!force && layoutReadAt !== null && Date.now() - layoutReadAt < LAYOUT_TTL) { paint(); return; }
+      const ticket = generation, record = { controller: new AbortController(), timeout: null }; layoutRecord = record; layoutRequests += 1; layoutError = '';
+      record.timeout = setTimeout(() => record.controller.abort(), 15000); paint();
+      try {
+        const response = await fetch('/api/willard-airport-layout', { method: 'GET', credentials: 'same-origin', cache: 'no-store', signal: record.controller.signal });
+        if (!response.ok) throw new Error('Airport Layout Unavailable');
+        const body = await response.json(); if (ticket !== generation || !running || !layoutEnabled || layoutRecord !== record || record.controller.signal.aborted) return;
+        const features = polygonRows(body?.collection), state = body?.status;
+        if (!['available', 'partial', 'stale'].includes(state) || !features.length) throw new Error(body?.error || 'Airport Layout Unavailable');
+        layoutFeatures = features; layoutLayers = Array.isArray(body.layers) ? body.layers : []; layoutStatus = state; layoutReadAt = Date.now(); layoutRetrievedAt = instant(body.retrievedAt); layoutSource = typeof body.sourceUrl === 'string' ? body.sourceUrl : null;
+        layoutError = typeof body.operationalStatusNote === 'string' ? body.operationalStatusNote : 'Historical Reference Geometry; Not Runway Or Taxiway Operating Status';
+        if (layoutSource) { try { const url = new URL(layoutSource); if (url.protocol === 'https:' && !url.username && !url.password && (url.hostname === 'faa.gov' || url.hostname.endsWith('.faa.gov') || url.hostname === 'services6.arcgis.com' || url.hostname === 'ais-faa.opendata.arcgis.com')) faa.href = url.href; } catch { /* Keep the fixed FAA source link. */ } }
+      } catch (failure) { if (ticket === generation && running && layoutEnabled && layoutRecord === record) { layoutStatus = 'unavailable'; layoutError = failure.name === 'AbortError' ? 'Airport Layout Read Timed Out' : String(failure.message || 'Airport Layout Unavailable'); } }
+      finally { clearTimeout(record.timeout); if (layoutRecord === record) layoutRecord = null; if (ticket === generation && running) paint(); }
+    }
+    function tileUrl(tile) { return '/api/weather-preview/basemap?dataset=' + tile.dataset + '&op=tile&z=' + tile.z + '&x=' + tile.x + '&y=' + tile.y; }
     function pumpTiles() {
       if (!running || destroyed) return;
       while (inflight.size < PARALLEL && queue.length) {
@@ -134,7 +202,7 @@
       const tiles = [];
       for (let y = Math.max(0, Math.floor(top / TILE)); y <= Math.min(count - 1, Math.floor((top + height) / TILE)); y += 1) {
         for (let rawX = Math.floor(left / TILE); rawX <= Math.floor((left + width) / TILE); rawX += 1) {
-          const x = ((rawX % count) + count) % count; tiles.push({ key: zoom + '/' + x + '/' + y, z: zoom, x, y, left: rawX * TILE - left, top: y * TILE - top });
+          const x = ((rawX % count) + count) % count; tiles.push({ key: basemap + '/' + zoom + '/' + x + '/' + y, dataset: basemap, z: zoom, x, y, left: rawX * TILE - left, top: y * TILE - top });
         }
       }
       visibleTiles = tiles; const needed = new Set(tiles.map((tile) => tile.key));
@@ -194,6 +262,7 @@
       generation += 1; running = false; wheelActive = false; pointer = null;
       if (pollTimer !== null) clearTimeout(pollTimer); pollTimer = null;
       if (sourceRecord) { sourceRecord.controller.abort(); clearTimeout(sourceRecord.timeout); sourceRecord = null; }
+      if (layoutRecord) { layoutRecord.controller.abort(); clearTimeout(layoutRecord.timeout); layoutRecord = null; }
       inflight.forEach((record) => { record.controller.abort(); clearTimeout(record.timeout); }); inflight.clear(); queue = []; visibleTiles = [];
       cache.forEach(dispose); cache.clear(); tileFailures.clear(); paint();
       if (expanded) { expanded = false; root.classList.remove('wt-expanded'); }
@@ -202,7 +271,7 @@
     function reconcile() {
       const shouldRun = requestedActive && !document.hidden && !destroyed;
       if (shouldRun === running) return;
-      if (!shouldRun) stop(); else { running = true; resize(); void refresh(); }
+      if (!shouldRun) stop(); else { running = true; resize(); void refresh(); void readLayout(); }
     }
     function setActive(value) { requestedActive = Boolean(value); reconcile(); return getState(); }
     function changeZoom(next, x = width / 2, y = height / 2) {
@@ -218,7 +287,16 @@
       else if (root.requestFullscreen) void root.requestFullscreen().catch(() => { if (running) { expanded = true; root.classList.add('wt-expanded'); resize(); } });
       else { expanded = true; root.classList.add('wt-expanded'); resize(); }
     }
-    function action(event) { const name = event.target.closest('button[data-action]')?.dataset.action; if (!running) return; if (name === 'zoom-in') changeZoom(zoom + 1); else if (name === 'zoom-out') changeZoom(zoom - 1); else if (name === 'recenter') recenter(); else if (name === 'fullscreen') toggleFullscreen(); else if (name === 'refresh') void refresh(true); }
+    function action(event) { const name = event.target.closest('button[data-action]')?.dataset.action; if (!running) return; if (name === 'zoom-in') changeZoom(zoom + 1); else if (name === 'zoom-out') changeZoom(zoom - 1); else if (name === 'recenter') recenter(); else if (name === 'fullscreen') toggleFullscreen(); else if (name === 'refresh') { void refresh(true); void readLayout(true); } }
+    function layerAction(event) {
+      const name = event.target.closest('button[data-layer]')?.dataset.layer;
+      if (name === 'aerial') { basemap = basemap === 'imagery' ? 'topo' : 'imagery'; if (running) updateTiles(); else paint(); }
+      else if (name === 'layout') {
+        layoutEnabled = !layoutEnabled;
+        if (!layoutEnabled && layoutRecord) { layoutRecord.controller.abort(); clearTimeout(layoutRecord.timeout); layoutRecord = null; }
+        if (layoutEnabled && running) void readLayout(); paint();
+      }
+    }
     function point(event) { const rect = canvas.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; }
     function down(event) { if (!running || event.button !== undefined && event.button !== 0) return; pointer = { id: event.pointerId, ...point(event) }; moved = false; canvas.setPointerCapture?.(event.pointerId); }
     function move(event) { if (!running || !pointer || event.pointerId !== pointer.id) return; const at = point(event), dx = at.x - pointer.x, dy = at.y - pointer.y; moved ||= Math.abs(dx) + Math.abs(dy) > 2; center.x = ((center.x - dx / 2 ** zoom) % TILE + TILE) % TILE; center.y = clamp(center.y - dy / 2 ** zoom, 0, TILE); pointer = { id: pointer.id, ...at }; updateTiles(); }
@@ -234,12 +312,12 @@
         snapshotAgeSeconds: observedAt === null ? null : Math.max(0, (Date.now() - observedAt) / 1000), aircraftCount: current === 'live' && trustedCollection ? aircraft.length : null, retainedAircraftCount: aircraft.length,
         aircraftCoverageVerified: current === 'live' && trustedCollection && aircraft.length > 0 && aircraft.some((row) => positionAge(row) !== null && positionAge(row) <= 180),
         aircraft: aircraft.map((row) => ({ ...row, positionAgeSeconds: positionAge(row) })), markers: markers.map((row) => ({ ...row })), airport: { ...AIRPORT, ...airport }, center: location, zoom, wheelActive,
-        width, height, requests: sourceRequests, pending: sourceRecord ? 1 : 0, pendingRequests: sourceRecord ? 1 : 0, tileRequests, pendingTiles: Array.from(inflight.values()).filter((record) => !record.controller.signal.aborted).length,
+        width, height, basemap, aerialImagery: basemap === 'imagery', imageryCaptureYear: null, airportLayout: { enabled: layoutEnabled, status: effectiveLayoutStatus(), features: layoutFeatures.length, rendered: layoutRendered, requests: layoutRequests, pending: Boolean(layoutRecord), retrievedAt: layoutRetrievedAt === null ? null : new Date(layoutRetrievedAt).toISOString(), layers: layoutLayers.map((row) => ({ ...row })), sourceUrl: layoutSource }, requests: sourceRequests, pending: sourceRecord ? 1 : 0, pendingRequests: sourceRecord ? 1 : 0, tileRequests, pendingTiles: Array.from(inflight.values()).filter((record) => !record.controller.signal.aborted).length,
         queuedTiles: queue.length, tileCacheSize: cache.size, tileCacheLimit: TILE_LIMIT, tileParallelLimit: PARALLEL, refreshTimerActive: pollTimer !== null, clockMode, databaseCalls: 0, backgroundPolling: false };
     }
     function destroy() { if (destroyed) return; requestedActive = false; stop(); destroyed = true; observer?.disconnect(); window.removeEventListener('resize', resize); document.removeEventListener('visibilitychange', reconcile); document.removeEventListener('fullscreenchange', fullscreenChange); document.removeEventListener('keydown', keydown, true); window.removeEventListener('pagehide', pagehide); root.remove(); }
     function pagehide() { setActive(false); }
-    tools.addEventListener('click', action); canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up); canvas.addEventListener('click', click); canvas.addEventListener('pointerleave', leave); canvas.addEventListener('wheel', wheel, { passive: false });
+    tools.addEventListener('click', action); layers.addEventListener('click', layerAction); canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up); canvas.addEventListener('click', click); canvas.addEventListener('pointerleave', leave); canvas.addEventListener('wheel', wheel, { passive: false });
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null; observer?.observe(root);
     window.addEventListener('resize', resize); document.addEventListener('visibilitychange', reconcile); document.addEventListener('fullscreenchange', fullscreenChange); document.addEventListener('keydown', keydown, true); window.addEventListener('pagehide', pagehide);
     resize();

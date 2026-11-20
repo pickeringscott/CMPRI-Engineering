@@ -166,6 +166,11 @@ class OfficialFeedFixtures:
         self.hold_tracker=False
         self.tracker_gate=asyncio.Event();self.tracker_gate.set()
         self.tracker_pending=asyncio.Event()
+        self.layout_calls=0
+        self.layout_status='available'
+        self.hold_layout=False
+        self.layout_gate=asyncio.Event();self.layout_gate.set()
+        self.layout_pending=asyncio.Event()
         self.map_urls = []
         self.exports = []
         self.image_exports = []
@@ -365,9 +370,44 @@ class OfficialFeedFixtures:
             'license':{'name':'ODbL 1.0','url':'https://opendatacommons.org/licenses/odbl/1-0/'},
             'attribution':'ADSB.lol · ODbL 1.0','changes':'Fixed KCMI subset; normalized fields.'}
 
+    def airport_layout(self):
+        source='https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/ArcGIS/rest/services/'
+        stamp=iso(self.now-timedelta(days=1)) if self.layout_status=='stale' else iso(self.now)
+        polygons={
+            'runway':[[-88.23,40.06],[-88.21,40.06],[-88.21,40.07],[-88.23,40.07],[-88.23,40.06]],
+            'taxiway':[[-88.25,40.02],[-88.24,40.02],[-88.24,40.025],[-88.25,40.025],[-88.25,40.02]],
+            'apron':[[-88.29,40.05],[-88.285,40.05],[-88.285,40.055],[-88.29,40.055],[-88.29,40.05]],
+        }
+        available=self.layout_status in ['available','partial','stale']
+        features=[{'type':'Feature','id':'TEST-FIXTURE-FAA-'+kind,
+            'properties':{'kind':kind,'designator':'TEST FIXTURE '+kind,'airportId':'KCMI','faaId':'CMI',
+                          'status':'EXISTING','surface':'TEST FIXTURE','sourceId':index},
+            'geometry':{'type':'Polygon','coordinates':[coordinates]}}
+            for index,(kind,coordinates) in enumerate(polygons.items(),1)]
+        layers=[{'kind':kind,'status':'stale' if self.layout_status=='stale' else 'available' if available else 'unavailable',
+            'featureCount':1 if available else None,'sourceUrl':source+'AM_'+name+'/FeatureServer/0',
+            'retrievedAt':stamp if available else None,'effectivePeriod':'2025 FAA reference geometry',
+            'sourceDataEditedAt':'2026-11-01T00:00:00Z','error':None if self.layout_status=='available' else 'TEST FIXTURE layout source unavailable'}
+            for kind,name in [('runway','Runway'),('taxiway','Taxiway'),('apron','Apron')]]
+        return {'airport':'KCMI','status':self.layout_status,
+            'collection':{'type':'FeatureCollection','features':features} if available else None,
+            'retrievedAt':stamp if available else None,'layers':layers,
+            'attribution':'FAA Airport Mapping · TEST FIXTURE','sourceUrl':source+'AM_Runway/FeatureServer/0',
+            'license':{'name':'U.S. Government Public Domain','url':'https://www.faa.gov/website_policies'},
+            'error':None if self.layout_status=='available' else 'TEST FIXTURE layout source unavailable',
+            'cacheSeconds':21600,'operationalStatusNote':'Reference geometry only; not live runway/taxiway closures.'}
+
     async def route(self, route):
         parsed = urlparse(route.request.url)
         require(route.request.method == "GET", "Weather endpoints must remain read-only")
+        if parsed.path=='/api/willard-airport-layout':
+            require(not parsed.query,'Airport layout scope must stay fixed to KCMI')
+            self.layout_calls+=1;self.layout_pending.set()
+            if self.hold_layout: await self.layout_gate.wait()
+            try: await route.fulfill(content_type='application/json',body=json.dumps(self.airport_layout()))
+            except Exception:
+                if not route.request.failure: raise
+            return
         if parsed.path=='/api/willard-tracker':
             require(not parsed.query,'Tracker scope must stay fixed to KCMI')
             self.tracker_calls+=1;self.tracker_pending.set()
@@ -665,6 +705,7 @@ class OfficialFeedFixtures:
         self.basemap_inflight = len(self._basemap_active)
 
     def release(self):
+        self.hold_layout=False;self.layout_gate.set()
         self.hold_tracker=False;self.tracker_gate.set()
         self.hold_willard=False;self.willard_gate.set()
         self.hold_astronomy = False
@@ -768,6 +809,7 @@ async def run_viewport(browser, base, output, width, height):
     await context.route("**/api/weather-preview**", feed.route)
     await context.route('**/api/willard-flights**',feed.route)
     await context.route('**/api/willard-tracker**',feed.route)
+    await context.route('**/api/willard-airport-layout**',feed.route)
 
     async def protect(route):
         request = route.request

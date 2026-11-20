@@ -10,11 +10,15 @@ const DEFINITIONS = [
 ] as const;
 type Definition = typeof DEFINITIONS[number];
 type Json = Record<string, unknown>;
+type SourceCheck = { httpStatus: number | null; contentType: string | null; featureCount: number | null;
+  invalidFeatureCount: number | null; failureStage: string | null; providerErrorCode: string | number | null;
+  message: string | null; crs: string | null };
 type Layer = {
   kind: Definition['kind']; status: 'available' | 'stale' | 'unavailable'; features: Json[] | null;
   featureCount: number | null; invalidFeatureCount: number | null; sourceUrl: string; metadataUrl: string;
   retrievedAt: string | null; effectivePeriod: string; sourceDataEditedAt: string; error: string | null;
   sourceMetadataReviewedAt: string;
+  sourceCheck: SourceCheck;
 };
 type Batch = { layers: Layer[]; expiresAt: number };
 type Pending = { controller: AbortController; promise: Promise<void>; waiters: number; settled: boolean };
@@ -38,7 +42,9 @@ function wgs84(value: Json): boolean {
   if (value.crs === undefined || value.crs === null) return true;
   const crs = object(value.crs), properties = object(crs?.properties);
   return crs?.type === 'name' && typeof properties?.name === 'string'
-    && ['EPSG:4326', 'urn:ogc:def:crs:EPSG::4326', 'urn:ogc:def:crs:OGC:1.3:CRS84', 'OGC:CRS84', 'CRS84'].includes(properties.name);
+    && ['EPSG:4326', 'urn:ogc:def:crs:EPSG::4326', 'urn:ogc:def:crs:OGC:1.3:CRS84', 'OGC:CRS84', 'CRS84',
+      'http://www.opengis.net/def/crs/OGC/1.3/CRS84', 'https://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      'http://www.opengis.net/def/crs/EPSG/0/4326', 'https://www.opengis.net/def/crs/EPSG/0/4326'].includes(properties.name);
 }
 function position(value: unknown): value is number[] {
   return Array.isArray(value) && value.length >= 2 && value.every(item => typeof item === 'number' && Number.isFinite(item))
@@ -84,6 +90,9 @@ async function boundedJson(response: Response, signal: AbortSignal, budget: { by
 }
 async function layer(definition: Definition, signal: AbortSignal, budget: { bytes: number }, prior: Layer | undefined): Promise<Layer> {
   const urls = source(definition);
+  const boundedText = (value: unknown, limit = 200) => typeof value === 'string' ? value.replace(/[\u0000-\u001F\u007F]/g, ' ').slice(0, limit) : null;
+  const sourceCheck: SourceCheck = { httpStatus: null, contentType: null, featureCount: null, invalidFeatureCount: null,
+    failureStage: 'request', providerErrorCode: null, message: null, crs: null };
   // These are the source's published description/edit metadata, not a claim
   // about today's operating status or the validity of a 2025 effective cycle.
   const metadata = { kind: definition.kind, ...urls, sourceMetadataReviewedAt: '2026-11-20',
@@ -91,19 +100,41 @@ async function layer(definition: Definition, signal: AbortSignal, budget: { byte
   try {
     const response = await fetch(urls.sourceUrl, { method: 'GET', credentials: 'omit', redirect: 'error', cache: 'no-store', signal,
       headers: { Accept: 'application/geo+json, application/json', 'User-Agent': 'CMPRI-Willard-Airport-Reference/1.0' } });
-    if (!response.ok) throw Error('Official airport layout source is unavailable.');
+    sourceCheck.httpStatus = response.status;
+    sourceCheck.contentType = boundedText(response.headers.get('content-type'));
+    sourceCheck.failureStage = response.ok ? 'body' : 'http';
     const raw = object(await boundedJson(response, signal, budget));
     signal.throwIfAborted();
-    if (!raw || raw.type !== 'FeatureCollection' || !Array.isArray(raw.features) || !wgs84(raw)
-      || raw.error || raw.exceededTransferLimit === true || object(raw.properties)?.exceededTransferLimit === true) throw Error('Complete WGS84 airport layout geometry could not be verified.');
+    const providerError = object(raw?.error);
+    if (raw?.error) {
+      sourceCheck.failureStage = 'provider';
+      sourceCheck.providerErrorCode = typeof providerError?.code === 'number' ? providerError.code : boundedText(providerError?.code, 40);
+      sourceCheck.message = boundedText(providerError?.message ?? raw.error);
+      throw Error('Official FAA service returned a query error.');
+    }
+    if (!response.ok) throw Error('Official FAA source returned HTTP ' + response.status + '.');
+    sourceCheck.failureStage = 'collection';
+    if (!raw || raw.type !== 'FeatureCollection' || !Array.isArray(raw.features)) throw Error('Official FAA response is not a GeoJSON FeatureCollection.');
+    sourceCheck.featureCount = raw.features.length;
+    sourceCheck.crs = boundedText(object(object(raw.crs)?.properties)?.name)
+      || (raw.spatialReference ? boundedText(JSON.stringify(raw.spatialReference)) : null);
+    sourceCheck.failureStage = 'crs';
+    if (!wgs84(raw)) throw Error('Official FAA response does not declare a supported WGS84 reference system.');
+    sourceCheck.failureStage = 'transfer-limit';
+    if (raw.exceededTransferLimit === true || object(raw.properties)?.exceededTransferLimit === true) throw Error('Official FAA query exceeded its transfer limit.');
+    sourceCheck.failureStage = raw.features.length ? 'geometry' : 'empty';
     const features = raw.features.map(value => feature(value, definition)).filter((value): value is Json => value !== null);
+    sourceCheck.invalidFeatureCount = raw.features.length - features.length;
     if (!features.length) throw Error('No verified KCMI geometry is available in this airport layout layer.');
+    sourceCheck.failureStage = null;
     return { ...metadata, status: 'available', features, featureCount: features.length,
-      invalidFeatureCount: raw.features.length - features.length, retrievedAt: new Date().toISOString(), error: null };
-  } catch {
-    if (prior?.features?.length) return { ...prior, status: 'stale', error: 'The official layer could not be refreshed; retained geometry is old reference data.' };
+      invalidFeatureCount: raw.features.length - features.length, retrievedAt: new Date().toISOString(), error: null, sourceCheck };
+  } catch (error) {
+    if (!sourceCheck.message) sourceCheck.message = sourceCheck.failureStage === 'request'
+      ? 'The fixed public FAA source request failed or timed out.' : boundedText(error instanceof Error ? error.message : null);
+    if (prior?.features?.length) return { ...prior, status: 'stale', sourceCheck, error: 'The official layer could not be refreshed; retained geometry is old reference data.' };
     return { ...metadata, status: 'unavailable', features: null, featureCount: null, invalidFeatureCount: null,
-      retrievedAt: null, error: 'Verified KCMI geometry is unavailable from this official layer.' };
+      retrievedAt: null, error: 'Verified KCMI geometry is unavailable from this official layer.', sourceCheck };
   }
 }
 function begin(): Pending {
