@@ -15,7 +15,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 from playwright.async_api import async_playwright
 from weather_current_notices import CurrentFixtures, context_for, refresh, dial_reference_layout
-from weather_dashboard_preview import API, PREVIEW, iso, require, wait_for, weather_frame
+from weather_dashboard_preview import API, PREVIEW, dashboard_weather_launcher, iso, require, wait_for, weather_frame
 
 
 class AstronomyFixtures(CurrentFixtures):
@@ -63,7 +63,8 @@ class AstronomyFixtures(CurrentFixtures):
 async def open_fixture(browser, base, width, height, role, feed):
     context,page,errors,external,mutations = await context_for(browser,width,height,feed,role)
     await page.goto(base+'/engineering',wait_until='domcontentloaded')
-    await page.get_by_role('button',name='Weather',exact=True).click()
+    launcher = await dashboard_weather_launcher(page)
+    await launcher.click()
     frame = await weather_frame(page)
     await wait_for(frame,"document.querySelector('#liveTemperature .wv-temperature-value')?.textContent==='10°'")
     return context,page,frame,errors,external,mutations
@@ -141,7 +142,8 @@ async def run_case(browser, base, output, width, height, role):
         await dialog.wait_for(state='visible')
         await page.locator('[data-cmpri-desktop-window="'+PREVIEW+'"]').get_by_role('button',name='Close Weather',exact=True).click()
         await page.locator('iframe[src*="'+PREVIEW+'"]').wait_for(state='hidden')
-        await page.get_by_role('button',name='Weather',exact=True).click()
+        launcher = await dashboard_weather_launcher(page)
+        await launcher.click()
         await weather_frame(page)
         require(await dialog.is_hidden() and feed.astronomy_calls==1,
                 'Closing/reopening Weather retained an open astronomy popup or refetched its fresh cache')

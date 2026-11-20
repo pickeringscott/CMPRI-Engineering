@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True
 from weather_dashboard_preview import (
     PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, frame_forbidden,
-    install, install_weather_audit, require, wait_for, weather_frame,
+    dashboard_weather_launcher, install, install_weather_audit, require, unexpected_application_mutation, wait_for, weather_frame,
 )
 from weather_map_basemaps import legend_layout, pixel, settled, style
 from playwright.async_api import async_playwright
@@ -143,7 +143,7 @@ async def run_viewport(browser, base, output, width, height):
         parsed=urlparse(route.request.url)
         if parsed.hostname not in ['127.0.0.1','localhost']:
             externals.append(route.request.url);await route.abort('blockedbyclient');return
-        if parsed.path.startswith('/api/') and route.request.method not in ['GET','HEAD']:
+        if unexpected_application_mutation(parsed.path, route.request.method):
             mutations.append({'path':parsed.path,'method':route.request.method})
         await route.fallback()
     await context.route('**/*',protect);await context.add_init_script(PROBE)
@@ -154,8 +154,8 @@ async def run_viewport(browser, base, output, width, height):
     evidence={'viewport':[width,height],'fixtureOnly':True,'products':[]}
     try:
         await page.goto(base+'/engineering',wait_until='domcontentloaded')
-        launcher=page.get_by_role('button',name='Weather',exact=True)
-        await launcher.wait_for(state='visible',timeout=60000);mutation_start=len(mutations)
+        launcher = await dashboard_weather_launcher(page)
+        mutation_start = len(mutations)
         await launcher.click();frame=await weather_frame(page);await install_weather_audit(frame)
         await settled(frame);await style(frame,'aerial');await select_product(frame,'reflectivity',False)
         require(not await frame.locator('#mapLegendAccordion').evaluate('el=>el.open'),

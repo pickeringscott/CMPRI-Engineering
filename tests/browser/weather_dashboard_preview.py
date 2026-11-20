@@ -650,6 +650,24 @@ class OfficialFeedFixtures:
         for gate in self.wms_product_gates.values(): gate.set()
 
 
+async def dashboard_weather_launcher(page):
+    """Reveal Weather through the actual dashboard tab before opening its window."""
+    safety = page.locator("fieldset").filter(has=page.get_by_role("button", name="Safety & Logs", exact=True))
+    title = safety.get_by_role("button", name="Safety & Logs", exact=True)
+    await title.wait_for(state="visible", timeout=60000)
+    if await title.get_attribute("aria-expanded") != "true":
+        await title.click()
+    launcher = safety.get_by_role("button", name="Weather", exact=True)
+    await launcher.wait_for(state="visible", timeout=60000)
+    return launcher
+
+
+def unexpected_application_mutation(path, method):
+    # Tab selection saves fixture layout independently of the Weather window.
+    return (path.startswith("/api/") and method not in ("GET", "HEAD")
+            and (path, method) != ("/api/profile/header-layout", "PUT"))
+
+
 async def weather_frame(page):
     locator = page.locator('iframe[src*="' + PREVIEW + '"]')
     await locator.wait_for(state="visible", timeout=30000)
@@ -742,7 +760,7 @@ async def run_viewport(browser, base, output, width, height):
             external.append({"url": request.url, "method": request.method})
             await route.abort("blockedbyclient")
             return
-        if parsed.path.startswith("/api/") and request.method not in ["GET", "HEAD"]:
+        if unexpected_application_mutation(parsed.path, request.method):
             mutations.append({"path": parsed.path, "method": request.method})
         # Existing fixture route fulfills every application API; no API reaches
         # the running server, and no browser request can reach a database host.
@@ -756,13 +774,7 @@ async def run_viewport(browser, base, output, width, height):
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        safety = page.locator("fieldset").filter(has=page.get_by_role("button", name="Safety & Logs", exact=True))
-        title = safety.get_by_role("button", name="Safety & Logs", exact=True)
-        await title.wait_for(state="visible", timeout=60000)
-        if await title.get_attribute("aria-expanded") != "true":
-            await title.click()
-        launcher = safety.get_by_role("button", name="Weather", exact=True)
-        await launcher.wait_for(state="visible", timeout=60000)
+        launcher = await dashboard_weather_launcher(page)
         require(feed.forecast_calls == 0 and feed.astronomy_calls == 0 and not feed.map_urls and not feed.basemap_requests,
                 "Weather or ground-map feeds requested before opening Weather")
         require(await launcher.count() == 1, "Weather launcher is outside Safety & Logs")

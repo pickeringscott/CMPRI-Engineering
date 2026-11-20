@@ -83,8 +83,8 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.match(engineering, /chiefHeaderPresentation && \(hasCapability\(session, "manage_assets"\) \|\| canReadChiefOnlyModules\) && \{ key: "\/engineering\/purchasing", label: "PO"/);
   assert.doesNotMatch(engineering, /key: "\/engineering\/import-work-orders"/);
   assert.match(engineering, /hasCapability\(session, "view_work_orders"\) && \{ key: WORK_ORDER_LIST_KEY/);
-  assert.match(engineering, /hasCapability\(session, "manage_rooms"\) && \{ key: "\/management\/rooms"/);
-  assert.match(engineering, /hasCapability\(session, "manage_users"\) && \{ key: "\/management\/users"/);
+  assert.match(engineering, /hasCapability\(session, "view_locations"\) && \{ key: "\/management\/rooms"/);
+  assert.match(engineering, /\(hasCapability\(session, "manage_users"\) \|\| canReadChiefOnlyModules\) && \{ key: "\/management\/users"/);
   assert.equal(canManageTargetRole('General Manager', 'Front Desk Manager'), true);
   assert.equal(canManageTargetRole('General Manager', 'Assistant General Manager'), true);
   assert.ok(assignableRoleLabels('General Manager').includes('Front Desk Manager'));

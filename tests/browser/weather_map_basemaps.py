@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True
 from weather_dashboard_preview import (
     PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, frame_forbidden, install, install_weather_audit,
-    require, wait_for, weather_frame,
+    dashboard_weather_launcher, require, unexpected_application_mutation, wait_for, weather_frame,
 )
 from playwright.async_api import async_playwright
 
@@ -195,7 +195,7 @@ async def run_viewport(browser, base, output, width, height):
             externals.append(route.request.url)
             await route.abort("blockedbyclient")
             return
-        if parsed.path.startswith("/api/") and route.request.method not in ["GET", "HEAD"]:
+        if unexpected_application_mutation(parsed.path, route.request.method):
             mutations.append({"path": parsed.path, "method": route.request.method})
         await route.fallback()
 
@@ -218,8 +218,7 @@ async def run_viewport(browser, base, output, width, height):
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        launcher = page.get_by_role("button", name="Weather", exact=True)
-        await launcher.wait_for(state="visible", timeout=60000)
+        launcher = await dashboard_weather_launcher(page)
         require(not fixture.basemap_requests and not fixture.map_urls and fixture.forecast_calls == 0,
                 "Ground or weather data loaded before Weather opened")
         mutation_start = len(mutations)

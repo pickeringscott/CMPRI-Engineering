@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 sys.dont_write_bytecode = True
 from weather_dashboard_preview import (
     API, PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, install,
-    iso, require, wait_for, weather_frame,
+    dashboard_weather_launcher, iso, require, unexpected_application_mutation, wait_for, weather_frame,
 )
 from weather_map_basemaps import menu, settled
 from playwright.async_api import async_playwright
@@ -137,7 +137,7 @@ async def context_for(browser, width, height, feed, role="chief_engineer"):
             external.append(route.request.url)
             await route.abort("blockedbyclient")
             return
-        if parsed.path.startswith("/api/") and route.request.method not in ["GET", "HEAD"]:
+        if unexpected_application_mutation(parsed.path, route.request.method):
             mutations.append({"path": parsed.path, "method": route.request.method})
         await route.fallback()
     await context.route("**/*", protect)
@@ -308,8 +308,7 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
     chief = role == "chief_engineer"
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        launcher = page.get_by_role("button", name="Weather", exact=True)
-        await launcher.wait_for(state="visible", timeout=60000)
+        launcher = await dashboard_weather_launcher(page)
         require(feed.observation_calls == 0 and feed.history_calls == 0 and feed.forecast_calls == 0,
                 "NWS requested before Weather opened")
         await launcher.click()
@@ -636,7 +635,9 @@ async def pending_and_blocked_sound(browser,base,width,height):
         try:
             await page.goto(base+'/engineering',wait_until='domcontentloaded')
             await page.evaluate("mode=>{window.__weatherAudioAudit.holdDecode=mode==='pending-cancel';window.__weatherAudioAudit.blockResume=mode==='blocked-retry';}",mode)
-            await page.get_by_role('button',name='Weather',exact=True).click();frame=await weather_frame(page)
+            launcher = await dashboard_weather_launcher(page)
+            await launcher.click()
+            frame = await weather_frame(page)
             await wait_for(frame,'!nwsLiveView.getState().loading')
             feed.alert_features=[feed.alert('AUDIO-'+mode,'Tornado Warning')];await refresh(frame)
             dialog=page.locator('[data-weather-guest-safety-dialog]');await dialog.wait_for(state='visible')
@@ -674,7 +675,7 @@ async def native_notices(browser, base, output, width, height):
     native_selector = '[data-cmpri-desktop-window="' + PREVIEW + '"]'
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        launcher = page.get_by_role("button", name="Weather", exact=True)
+        launcher = await dashboard_weather_launcher(page)
         await launcher.click()
         frame = await weather_frame(page)
         await wait_for(frame, "!nwsLiveView.getState().loading")
