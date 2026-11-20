@@ -158,6 +158,12 @@ async def run(playwright, width):
         await expect(page.get_by_role('checkbox', name='Inspect seal', exact=True)).to_have_css('color', color)
         recovered = await page.evaluate('(key)=>JSON.parse(localStorage.getItem(key))', KEY + ':outbox')
         assert next(row for row in recovered if row['note']['id'] == OLDER)['changeId'] == pending['changeId']
+        await expect(page.get_by_role('button', name='Text and keyboard handwriting', exact=True)).to_be_enabled()
+        await select_text(editor)
+        await page.keyboard.press('Shift+Enter')
+        await expect(editor).to_have_js_property('textContent', '☑ Inspect seal\n• Staff check\n')
+        await page.keyboard.press('Control+z')
+        await expect(editor).to_have_js_property('textContent', '☑ Inspect seal\n• Staff check')
         await page.screenshot(path=str(OUT / f'notes-{width}-after-restart.png'), full_page=True)
         assert not state['errors'], state['errors']
         await context.close()
