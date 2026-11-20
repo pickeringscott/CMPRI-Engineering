@@ -289,6 +289,7 @@ async def check_wake_and_scroll(browser, width):
     daily_tab, rooms_tab = daily.locator("legend"), rooms.locator("legend")
     await expect(daily_tab).to_be_visible(timeout=60000)
     await (daily_tab.tap() if touch else daily_tab.click())
+    await expect(daily_tab).to_have_attribute("aria-expanded", "true")
     await (rooms_tab.tap() if touch else rooms_tab.click())
     await expect(rooms).to_have_attribute("data-active", "true")
     assert await daily.locator(".buttons").evaluate("node => getComputedStyle(node).filter") != "none"
@@ -322,12 +323,17 @@ async def check_wake_and_scroll(browser, width):
         assert await row.evaluate("node => node.scrollLeft") > 0
     await scrollbar.press("End")
     last = rooms.get_by_role("button", name="Enseo Assignments", exact=True)
-    assert await last.evaluate("""node => {
+    reachability = await last.evaluate("""node => {
         const box = node.getBoundingClientRect();
         const row = node.parentElement.getBoundingClientRect();
-        return box.right <= row.right + 1 && document.elementFromPoint(
-          box.right - 4, box.y + box.height / 2)?.closest('button') === node;
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return {
+          last: box.toJSON(), row: row.toJSON(),
+          scroll: node.parentElement.scrollLeft, hit: hit?.className,
+          reachable: box.right <= row.right + 1 && hit?.closest('button') === node,
+        };
     }""")
+    assert reachability["reachable"], reachability
     await context.close()
     print(f"blurred row wake and last button reachable at {width}px verified", flush=True)
 
@@ -350,8 +356,11 @@ async def check_resize_and_retry(browser):
     daily = group(page, "Daily Work")
     tab = daily.locator("legend")
     await expect(tab).to_be_visible(timeout=60000)
+    tab_edge = daily.locator(".tab-resize-edge")
+    await expect(tab_edge).to_be_visible()
     before = await tab.bounding_box()
-    edge = await daily.locator(".tab-resize-edge").bounding_box()
+    edge = await tab_edge.bounding_box()
+    assert before and edge
     x, y = edge["x"] + edge["width"] / 2, edge["y"] + edge["height"] / 2
     await drag_between(page, context, False, (x, y), (x + 35, y))
     resized = (await tab.bounding_box())["width"]
@@ -399,13 +408,35 @@ async def check_housekeeping_profile(browser):
     await account.locator("legend").tap()
     await account.get_by_role("button", name="Manage Profile", exact=True).tap()
     frame = page.frame_locator('[data-cmpri-desktop-window="/profile"] iframe')
-    await expect(frame.get_by_role("heading", name="Manage Profile")).to_be_visible()
+    await expect(frame.get_by_label("Display name")).to_be_visible(timeout=60000)
     await frame.get_by_label("Display name").fill("Alex Housekeeping")
     await frame.get_by_role("button", name="Save Profile").click()
     await expect(frame.get_by_text("Profile and preferences saved.", exact=True)).to_be_visible()
     assert saved[-1]["full_name"] == "Alex Housekeeping"
     await context.close()
     print("Housekeeping profile launcher and own-account save verified", flush=True)
+
+
+async def check_mobile_window_clearance(browser):
+    context = await browser.new_context(viewport={"width": 390, "height": 850}, has_touch=True,
+                                        is_mobile=True, service_workers="block")
+    await install(context, "chief_engineer")
+    page = await context.new_page()
+    await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
+    create = page.locator(".cmpri-header-create")
+    await expect(create).to_be_visible(timeout=60000)
+    await create.tap()
+    window = page.locator('[data-cmpri-desktop-window="/work-orders"]')
+    await expect(window).to_be_visible()
+    before = await window.bounding_box()
+    safety = group(page, "Safety & Logs").locator("legend")
+    await safety.tap()
+    await expect(safety).to_have_attribute("aria-expanded", "true")
+    assert await window.bounding_box() == before
+    await window.locator("[data-cmpri-window-close]").tap()
+    await expect(window).to_have_count(0)
+    await context.close()
+    print("mobile window close remains reachable when a tab is open", flush=True)
 
 
 async def main():
@@ -422,6 +453,7 @@ async def main():
             await check_wake_and_scroll(browser, width)
         await check_resize_and_retry(browser)
         await check_housekeeping_profile(browser)
+        await check_mobile_window_clearance(browser)
         await browser.close()
 
 

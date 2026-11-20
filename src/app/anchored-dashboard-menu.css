@@ -10,13 +10,26 @@
   color: var(--cmpri-palette-white);
 }
 
-header.cmpri-dashboard-titlebar:has(> .cmpri-dashboard-menu-rail) {
+:where(.cmpri-desktop-root, .cmpri-dashboard-titlebar) {
   /* Longest overlay: a 26px row, its 13px slider allowance, and a 9px rail slider. */
   --cmpri-menu-open-row-depth: 48px;
+}
+
+header.cmpri-dashboard-titlebar:has(> .cmpri-dashboard-menu-rail) {
   z-index: 201;
   overflow: visible;
   padding-block-end: 0;
   border-bottom-color: var(--cmpri-palette-desktop-tone-16);
+}
+
+.cmpri-dashboard-window-layer {
+  position: absolute;
+  inset: var(--cmpri-menu-open-row-depth) 0 0;
+  pointer-events: none;
+}
+
+.cmpri-dashboard-window-layer .cmpri-desktop-window {
+  pointer-events: auto;
 }
 
 .cmpri-dashboard-menu-rail {
