@@ -66,6 +66,8 @@
 .cmpri-reflectivity-ticks{position:relative;height:12px;margin-top:3px;color:#fff;font:9px/12px Arial,Helvetica,sans-serif;font-variant-numeric:tabular-nums}
 .cmpri-reflectivity-ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
 .cmpri-velocity-ticks{height:24px}
+.cmpri-velocity-ticks span:first-child{left:0!important;transform:none}
+.cmpri-velocity-ticks span:last-child{left:100%!important;transform:translateX(-100%)}
 .cmpri-source-code-ticks{height:15px;margin-top:1px}
 .cmpri-source-code-tick{width:26px;height:15px;background-size:750px 45px;background-repeat:no-repeat}
 .cmpri-map-layer-buttons{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}

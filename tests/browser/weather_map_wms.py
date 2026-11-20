@@ -115,7 +115,7 @@ async def forecast_cloud(frame, fixture):
     stamp=await frame.evaluate('value=>cmpriWeatherClock.stamp(value)',cloud['displayedTime'])
     require(stamp in await row.inner_text() and stamp in await frame.locator('#scanTime').inner_text(),
             'Cloud UTC valid time is not displayed in Central time')
-    require('official PNG color key is not advertised' in await row.get_attribute('title')
+    require('official png color key is not advertised' in (await row.get_attribute('title')).lower()
             and await row.locator('img,.cmpri-map-swatch').count()==0,
             'Missing official cloud key is not truthful or an invented palette was inserted')
     require(not any(call['product']=='cloudCover' and call['op']=='legend' for call in fixture.wms_requests),
@@ -192,6 +192,15 @@ async def run_viewport(browser, base, output, width, height):
             require([dimensions['width'],dimensions['height']]==[500,30] and dimensions['renderedWidth']<=180.5,
                     'Official source legend is not compact')
             require(await frame.locator('.cmpri-map-source-legend').count()==0, 'A native-size scrollable source legend remains')
+            if selected == 'velocity':
+                bounds = await frame.locator('.cmpri-velocity-ticks').evaluate('''host => {
+                  const box=host.getBoundingClientRect();
+                  return [...host.children].map(tick=>{const key=tick.getBoundingClientRect();
+                    return {text:tick.textContent,left:key.left-box.left,right:key.right-box.left,width:box.width};});
+                }''')
+                require(all(tick['left']>=-.5 and tick['right']<=tick['width']+.5 for tick in bounds),
+                        'Velocity source labels clip outside the compact key: '+str(bounds))
+                presentation['labelsWithinKey'] = bounds
             presentation.update(sourceDimensions=dimensions)
             actual=await pixel(frame);alpha=alpha_value/255*state['opacity']
             expected=[round([173,80,42][n]*(1-alpha)+color[n]*alpha) for n in range(3)]
