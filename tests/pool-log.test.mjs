@@ -605,3 +605,19 @@ test('separate tests retain identical note text as separate audit additions', as
  const result=await f.handlers.POST(f.request);
  assert.equal(result.status,200);assert.equal(f.writes.length,1);assert.equal(f.writes[0].remarks,'Checked walkways\nChecked walkways');
 });
+test('close-save refuses stale web readings even when the operator may correct saved readings', async () => {
+ const existing={...poolLogInput({...input,ph_am:7.8}),id:'saved',revision:3};
+ for(const role of ['system_admin','manager','assistant_manager']) {
+  const f=fixture({role,existing,body:{ph_am:7.4,expected_revision:2}});
+  const result=await f.handlers.POST(f.request);
+  assert.equal(result.status,409,role);assert.equal(f.writes.length,0,role);
+ }
+});
+test('normal close-save lost acknowledgments are unchanged while unversioned callers retain their existing behavior', async () => {
+ const existing={...poolLogInput(input),id:'saved',revision:3};
+ const retry=fixture({existing,body:{expected_revision:2}});
+ const result=await retry.handlers.POST(retry.request);
+ assert.equal(result.status,200);assert.equal(result.body.unchanged,true);assert.equal(retry.writes.length,0);
+ const unversioned=fixture({existing,body:{ph_am:7.8}});
+ assert.equal((await unversioned.handlers.POST(unversioned.request)).status,200);assert.equal(unversioned.writes[0].ph_am,7.8);
+});

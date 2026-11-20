@@ -17,6 +17,7 @@ FACILITY = {"id": "00000000-0000-4000-8000-000000000050", "pool_name": "Fixture 
 
 
 async def check(playwright, width):
+    print(json.dumps({"width": width, "step": "start"}), flush=True)
     profile = tempfile.mkdtemp(prefix=f"cmpri-pool-{width}-")
     state = {"row": None, "posts": [], "fail_next": False, "gate": None, "error": [], "hotel": cmpri_fixture.HOTEL, "pool_version": 1, "gets": 0}
 
@@ -53,6 +54,7 @@ async def check(playwright, width):
         page.on("pageerror", lambda error: state["error"].append(str(error)))
         await page.goto(BASE + "/engineering")
         await expect(page.get_by_role("button", name="Pool Log", exact=True)).to_be_visible(timeout=60000)
+        await page.wait_for_function("Object.keys(localStorage).some(key => key.startsWith('cmpri:workspace:v1:'))")
         return context, page
 
     async def open_pool(page):
@@ -60,7 +62,12 @@ async def check(playwright, width):
         if not await frames.count():
             await page.get_by_role("button", name="Pool Log", exact=True).click()
         frame = page.frame_locator('iframe[src*="/engineering/pool-log"]').first
-        await expect(frame.get_by_label("Notes / actions taken", exact=True)).to_be_visible(timeout=60000)
+        try:
+            await expect(frame.get_by_label("Notes / actions taken", exact=True)).to_be_visible(timeout=60000)
+        except Exception:
+            await page.screenshot(path=str(OUT / f"pool-open-failed-{width}.png"), full_page=True)
+            print(json.dumps({"width": width, "step": "open-failed", "page_errors": state["error"], "frames": [item.url for item in page.frames]}), flush=True)
+            raise
         return frame
 
     context, page = await start()
@@ -99,6 +106,7 @@ async def check(playwright, width):
     state["gate"].set()
     await expect(page.locator('iframe[src*="/engineering/pool-log"]')).to_have_count(0)
     state["gate"] = None
+    print(json.dumps({"width": width, "step": "close-ack-passed"}), flush=True)
 
     frame = await open_pool(page)
     await expect(frame.get_by_label("Notes / actions taken", exact=True)).to_have_value("")
@@ -122,6 +130,7 @@ async def check(playwright, width):
     await page.get_by_role("button", name="Close Pool Log", exact=True).click()
     await expect(page.locator('iframe[src*="/engineering/pool-log"]')).to_have_count(0)
     assert state["posts"][-1] == failed, "Close retry must retain the same test operation and notes"
+    print(json.dumps({"width": width, "step": "notes-and-retry-passed"}), flush=True)
 
     frame = await open_pool(page)
     await frame.locator("#pool-ph_pm").select_option("7.6")
@@ -137,6 +146,7 @@ async def check(playwright, width):
     assert state["gets"] > gets_before_restart, "Retained edits require an authoritative saved-record revision"
     assert len(state["posts"]) == post_count, "Browser shutdown/reopen must not submit an incomplete test"
     await page.screenshot(path=str(OUT / f"pool-reopened-{width}.png"), full_page=True)
+    print(json.dumps({"width": width, "step": "restart-passed"}), flush=True)
 
     # A changed server record must retain, but never silently apply, stale work.
     await context.close()
@@ -165,7 +175,7 @@ async def check(playwright, width):
 
 async def main():
     async with async_playwright() as playwright:
-        results = [await check(playwright, width) for width in [1440, 390]]
+        results = [await check(playwright, int(width)) for width in os.environ.get("CMPRI_UI_WIDTHS", "1440,390").split(",")]
     (OUT / "report.json").write_text(json.dumps(results, indent=2))
     print(json.dumps(results))
 

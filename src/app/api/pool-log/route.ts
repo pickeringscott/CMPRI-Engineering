@@ -181,7 +181,8 @@ export async function POST(request: NextRequest) {
   // A successful save whose response was lost increments the revision. Validate
   // and acknowledge that exact unchanged submission before rejecting stale work.
   // Changed readings or notes still require the revision the editor opened.
-  if ((replace || (body.retest != null && body.expected_revision != null)) && body.expected_revision !== existing?.revision) {
+  const requiresRevision = replace || body.expected_revision != null && (existing != null || body.retest != null);
+  if (requiresRevision && body.expected_revision !== existing?.revision) {
     return NextResponse.json({ error: "This log changed after you opened it. Your entries are still on screen; reload the saved readings before making corrections." }, { status: 409 });
   }
 
