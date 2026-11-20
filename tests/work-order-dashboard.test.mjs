@@ -194,7 +194,7 @@ test("technician landing uses the shared desktop shell with the technician-scope
   const technician = readFileSync(new URL("../src/app/technician/page.tsx", import.meta.url), "utf8");
   assert.match(rolePolicy, /if \(key === "technician"\) return "\/technician"/);
   assert.match(desktop, /roleKey\(session\.user\.role\) === "technician" && \{ key: "\/technician", label: "Technician Dashboard"/);
-  assert.match(technician, /key:"\/engineering\/preventive-maintenance",label:"Preventive Maintenance"/);
+  assert.match(technician, /hasCapability\(menuSession, "view_pm"\).*key:"\/engineering\/preventive-maintenance",\s*label:"Preventive Maintenance"/);
   assert.match(desktop, /const userRoleRef = useRef\(""\)/);
   assert.match(desktop, /filter=pending&page=/);
   assert.match(desktop, /userRoleRef\.current = session\.user\.role/);

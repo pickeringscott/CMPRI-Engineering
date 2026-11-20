@@ -352,7 +352,7 @@ test('technician dashboard excludes CMPRI AI and shows due date beneath ordered 
   const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(layout, /DashboardAssistant/);
   assert.match(dashboard, /Status → \{statusText\}[\s\S]*Category → \{categoryText\}[\s\S]*Severity\/Priority → \{priorityText\}[\s\S]*Due Date → \{dueLabel\}/);
-  assert.match(dashboard, /key:"\/engineering\/pool-log",label:"Pool Log"/);
+  assert.match(dashboard, /hasCapability\(menuSession, "view_pool_log"\).*key:"\/engineering\/pool-log",\s*label:"Pool Log"/);
   assert.match(dashboard, /[+] Work Order<\/button>/);
 });
 
