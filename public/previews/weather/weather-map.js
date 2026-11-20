@@ -46,6 +46,9 @@
   let refreshTimer = null, refreshDueAt = null;
   const controllers = new Set();
   const images = new Map();
+  // The pixels on screen own a reference independently of the bounded cache.
+  // Eviction must never close them before a verified replacement can be drawn.
+  let displayedRaster = null;
   const loadingImages = new Map();
   const failedImages = new Set();
   const verified = new Map();
@@ -67,14 +70,9 @@
       mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null }
   }]));
   const controls = [
-    ['mapBackgroundMenu', 'Map menu', 'CMPRI embedded map', 'USGS ground-map datasets; independent NOAA weather overlays', 'Choose a geographic background separately from weather Layers. This menu never changes radar, WSSI or road report selections.'],
     ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA observed products, NWS/WPC WSSI and property alerts; IDOT reports unavailable', 'Open the four independent weather-layer controls. Background style is chosen in Map.'],
-    ['mapBackgroundStyle', 'Background style', 'CMPRI renderer over official USGS tiles', 'USGS Topo, historical imagery and shaded relief', 'Gray uses muted USGS Topo; Roads uses original USGS Topo; Aerial uses historical USGS imagery; Terrain uses USGS shaded relief.'],
-    ['backgroundGray', 'Gray background', 'CMPRI color treatment', 'USGS Topo', 'Draw actual USGS Topo tiles in muted grayscale beneath weather. It is a geographic reference map, not a weather product.'],
-    ['backgroundRoads', 'Roads background', 'CMPRI embedded map', 'USGS Topo', 'Show original topographic roads and labels. Background road lines do not report winter road conditions.'],
     ['backgroundAerial', 'Aerial background', 'CMPRI embedded map', 'USGS historical imagery', 'Show published USGS ground imagery; acquisition date may be unknown. This is not a current weather satellite image.'],
     ['geographicReference', 'Geographic roads and town names', 'CMPRI display of official USGS geography', 'USGS Transportation PNG and GNIS incorporated-place GeoJSON', 'Draw actual major roads and deduplicated town names at their official point coordinates over aerial imagery. These are geographic reference features, not reported winter road conditions.'],
-    ['backgroundTerrain', 'Terrain background', 'CMPRI embedded map', 'USGS shaded relief', 'Show USGS terrain relief beneath the same weather and property pin. Shading does not establish current travel conditions.'],
     ['mapAttribution', 'Ground-map source attribution', 'CMPRI embedded map', 'USGS National Map', 'Keep the geographic source visible on the map in every background style, including loading and unavailable states.'],
     ['wheelZoom', 'Click-activated wheel zoom', 'CMPRI embedded map', 'None · local viewport interaction', 'The wheel scrolls the Weather view until the map is clicked. Then it zooms around the cursor. Leaving the map resets activation; settled extents request NOAA imagery.'],
     ['doubleClickZoom', 'Cursor-anchored double-click zoom', 'CMPRI embedded map', 'None · local viewport interaction', 'Double click to zoom in around the cursor; Shift-double-click zooms out.'],
@@ -100,10 +98,8 @@
     ['fullscreen', 'Fullscreen / exit', 'Embedded map component · CMPRI-authored', 'Browser Fullscreen API; CSS fallback', 'Expand the same map. Escape exits; no separate radar app or iframe.'],
     ['opacity', 'Opacity', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Change weather-layer opacity together. USGS background and hotel pin retain contrast.'],
     ['legend', 'Layer legends', 'Embedded map component · CMPRI-authored', 'Official NOAA product legends and WSSI renderer; IDOT unavailable', 'Show compact official observed-product and forecast-impact legends in the map’s lower-left corner.'],
-    ['previousFrame', 'Previous scan', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause playback and display the previous exact NOAA catalog frame.'],
     ['playLoop', 'Play / pause', 'Embedded map component · CMPRI-authored', 'Exact NOAA catalog rasters', 'Play only while Weather is visible. Close, hidden tab, and pause stop its local timer. No prediction or future radar.'],
     ['frameRange', 'Scan seek slider', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause and select one exact frame; live timestamps are never synthesized.'],
-    ['nextFrame', 'Next scan', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause playback and display the next exact NOAA catalog frame.'],
     ['showEchoes', 'Show selected observed product', 'Embedded map component · CMPRI-authored', 'Same official NOAA source as selected product', 'Hide/show reflectivity, velocity or precipitation-type rendering without silently switching products; other layers remain independent.'],
     ['automaticRefresh', 'Automatic foreground map refresh', 'CMPRI embedded map', 'NOAA reflectivity WMS capabilities/maps, WSSI layer 4 and selected KILX or precipitation-type WMS', 'Refresh published map products every five minutes while the Weather map is open and visible. Closing, switching tabs or hiding the document stops its timer and aborts requests. No database work or server scheduler.'],
     ['sourceLink', 'Official product link', 'CMPRI overlay', 'Selected official NOAA/NWS product page', 'Open the source page on explicit click. It does not load a third-party app into this map.']
@@ -164,7 +160,7 @@
     if (!record || !state.opened || !state.active || document.hidden || !state.enabled[name] || !record.metadata) return;
     const geo = geometry(); if (!geo.width || !geo.height) return;
     const key = wmsKey(name, geo);
-    if (record.raster?.key === key) { record.state.status = 'Observed WMS image loaded'; return true; }
+    if (record.raster?.key === key) { if (!record.state.status.startsWith('Unavailable')) record.state.status = 'Observed WMS image loaded'; return true; }
     if (record.loading) { record.queued = true; return false; }
     record.loading = true;
     const ticket = generation, selection = record.selection, time = record.state.time, extent = viewport(geo);
@@ -322,6 +318,34 @@
   function imageKey(frame, geo) {
     return [state.frames[frame]?.time, Math.round(geo.center.x), Math.round(geo.center.y), state.zoom.toFixed(4), Math.round(geo.width), Math.round(geo.height)].join('|');
   }
+  function coversViewport(image, geo) {
+    const extent = viewport(geo), tolerance = Math.max(1, geo.resolution);
+    return image.extent.xmin <= extent.xmin + tolerance && image.extent.ymin <= extent.ymin + tolerance
+      && image.extent.xmax >= extent.xmax - tolerance && image.extent.ymax >= extent.ymax - tolerance;
+  }
+  function cachedFrame(index, geo, touch = false) {
+    const time = state.frames[index]?.time;
+    if (!time) return null;
+    const exact = images.get(imageKey(index, geo));
+    let image = exact && coversViewport(exact, geo) ? exact : null;
+    if (!image) {
+      image = Array.from(images.values()).filter((entry) => entry.time === time && coversViewport(entry, geo))
+        .sort((a, b) => (a.extent.xmax - a.extent.xmin) * (a.extent.ymax - a.extent.ymin)
+          - (b.extent.xmax - b.extent.xmin) * (b.extent.ymax - b.extent.ymin))[0] || null;
+    }
+    if (image && touch) { images.delete(image.key); images.set(image.key, image); }
+    return image;
+  }
+  function trimImages(geo) {
+    const times = new Set(state.frames.map((frame) => frame.time));
+    while (images.size > IMAGE_CACHE_LIMIT) {
+      const entries = Array.from(images.entries());
+      const score = (image) => (times.has(image.time) ? 2 : 0) + (coversViewport(image, geo) ? 1 : 0);
+      entries.sort((a, b) => score(a[1]) - score(b[1]));
+      const [key, image] = entries[0]; images.delete(key);
+      if (image !== displayedRaster) image.bitmap.close?.();
+    }
+  }
   function applyLoopWindow() {
     const selectedTime = state.frames[state.frame]?.time;
     const latest = state.catalogFrames[state.catalogFrames.length - 1]?.time;
@@ -340,7 +364,7 @@
     const geo = geometry();
     return state.frames.map((frame, index) => {
       const key = imageKey(index, geo);
-      return { time: frame.time, status: images.has(key) ? 'ready' : loadingImages.has(key) ? 'loading' : failedImages.has(key) ? 'failed' : 'pending' };
+      return { time: frame.time, status: cachedFrame(index, geo) ? 'ready' : loadingImages.has(key) ? 'loading' : failedImages.has(key) ? 'failed' : 'pending' };
     });
   }
   function pumpFrames() {
@@ -349,7 +373,7 @@
       const time = frameQueue.shift(), index = state.frames.findIndex((frame) => frame.time === time);
       if (index < 0) continue;
       const key = imageKey(index, geometry());
-      if (!images.has(key) && !loadingImages.has(key) && !failedImages.has(key)) void loadFrame(index);
+      if (!cachedFrame(index, geometry()) && !loadingImages.has(key) && !failedImages.has(key)) void loadFrame(index);
     }
   }
   function primeFrames() {
@@ -357,11 +381,13 @@
     const geo = geometry(); if (!geo.width || !geo.height) return;
     const viewportKey = [Math.round(geo.center.x), Math.round(geo.center.y), state.zoom, geo.width, geo.height].join('|');
     if (viewportKey !== frameViewport) { frameQueue = []; queuedFrame = null; frameViewport = viewportKey; }
+    const currentTimes = new Set(state.frames.map((frame) => frame.time));
+    frameQueue = frameQueue.filter((time) => currentTimes.has(time));
     const order = [state.frames[state.frame], ...state.frames].filter(Boolean);
     const pending = new Set(frameQueue);
     order.forEach((frame) => {
       const index = state.frames.findIndex((entry) => entry.time === frame.time), key = imageKey(index, geo);
-      if (!pending.has(frame.time) && !images.has(key) && !loadingImages.has(key) && !failedImages.has(key)) {
+      if (!pending.has(frame.time) && !cachedFrame(index, geo) && !loadingImages.has(key) && !failedImages.has(key)) {
         frameQueue.push(frame.time); pending.add(frame.time);
       }
     });
@@ -373,7 +399,7 @@
     const geo = geometry();
     if (!geo.width || !geo.height) return;
     const key = imageKey(index, geo);
-    if (images.has(key)) { state.radarStatus = 'Observed image loaded'; return true; }
+    if (cachedFrame(index, geo, true)) { state.radarStatus = 'Observed image loaded'; return true; }
     if (loadingImages.has(key)) return loadingImages.get(key);
     if (failedImages.has(key)) return false;
     if (loadingImages.size >= 2) {
@@ -401,8 +427,8 @@
         const bitmap = await createImageBitmap(blob);
         if (ticket !== generation || !state.opened || !state.active) { bitmap.close?.(); return; }
         if (bitmap.width !== width || bitmap.height !== height) { bitmap.close?.(); throw new Error('NOAA image dimensions did not match the georeferenced request'); }
-        images.set(key, { bitmap, extent, time: raster.time });
-        if (images.size > IMAGE_CACHE_LIMIT) { const first = images.keys().next().value; images.get(first).bitmap.close?.(); images.delete(first); }
+        images.set(key, { key, bitmap, extent, time: raster.time });
+        trimImages(geometry());
         state.radarStatus = 'Observed image loaded';
         mark('radar', 'Actual NOAA BREFQCD PNG loaded · explicit advertised scan time and matching map extent');
         updateUI(); queueDraw();
@@ -421,7 +447,7 @@
           const next = state.frames.findIndex((frame) => frame.time === desired);
           if (next >= 0) void loadFrame(next);
         }
-        if (ticket === generation && state.opened && state.active) { pumpFrames(); updateUI(); }
+        if (ticket === generation && state.opened && state.active) { primeFrames(); updateUI(); }
       }
     })();
     loadingImages.set(key, task);
@@ -666,10 +692,13 @@
   function drawRadar(geo) {
     let changed = false;
     if (state.showRadar) {
-      const exact = images.get(imageKey(state.frame, geo)), targetTime = state.frames[state.frame]?.time;
-      const target = exact || Array.from(images.values()).reverse().find((item) => item.time === targetTime);
-      const image = target || Array.from(images.values()).reverse().find((item) => item.time === state.displayedTime);
-      if (image) { changed = state.displayedTime !== image.time; state.displayedTime = image.time; drawRaster(image, geo); }
+      const image = cachedFrame(state.frame, geo, true) || displayedRaster;
+      if (image) {
+        const previous = displayedRaster;
+        changed = state.displayedTime !== image.time; displayedRaster = image; state.displayedTime = image.time;
+        drawRaster(image, geo);
+        if (previous && previous !== image && !images.has(previous.key)) previous.bitmap.close?.();
+      }
     }
     // These independent observations share the same geographic viewport. Their
     // times remain distinct; velocity is never presented as hotel surface wind.
@@ -684,8 +713,10 @@
     context.strokeStyle = '#ffcd0045'; context.lineWidth = 1;
     context.beginPath(); context.arc(pin.x, pin.y, 25, 0, Math.PI * 2); context.stroke();
     context.fillStyle = '#ffcd00'; context.strokeStyle = '#111'; context.lineWidth = 2;
-    context.beginPath(); context.arc(pin.x, pin.y, 7, 0, Math.PI * 2); context.fill(); context.stroke();
-    context.beginPath(); context.moveTo(pin.x, pin.y + 14); context.lineTo(pin.x - 5, pin.y + 5); context.lineTo(pin.x + 5, pin.y + 5); context.closePath(); context.fill();
+    // The pin tip, rather than the center of its head, is the hotel coordinate.
+    context.beginPath(); context.moveTo(pin.x, pin.y); context.lineTo(pin.x - 6, pin.y - 10); context.lineTo(pin.x + 6, pin.y - 10); context.closePath(); context.fill(); context.stroke();
+    context.beginPath(); context.arc(pin.x, pin.y - 14, 8, 0, Math.PI * 2); context.fill(); context.stroke();
+    context.fillStyle = '#111'; context.beginPath(); context.arc(pin.x, pin.y - 14, 2.5, 0, Math.PI * 2); context.fill();
     mark('pin', 'Rendered at verified fixed coordinates · no GPS');
   }
   function draw() {
@@ -727,16 +758,17 @@
   }
   function renderLegend() {
     const host = $('mapLegend'); if (!host) return;
-    const expanded = new Set(Array.from(host.querySelectorAll('details[open]')).map((details) => details.dataset.legend));
     const fragment = document.createDocumentFragment();
     Object.entries(wmsLayers).forEach(([name, record]) => {
       if (!state.enabled[name] || !record.legendUrl) return;
-      const row = document.createElement('details'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
-      row.dataset.legend = name; row.open = expanded.has(name);
-      const heading = document.createElement('summary'); heading.textContent = WMS_PRODUCTS[name].title + ' legend';
+      const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
+      row.dataset.legend = name;
+      const heading = document.createElement('strong'); heading.textContent = WMS_PRODUCTS[name].title;
       const image = document.createElement('img'); image.id = 'mapWmsLegend-' + name; image.src = record.legendUrl;
       image.alt = 'Official NOAA legend for ' + record.state.layer + ', advertised style ' + record.state.style;
-      row.append(heading, image); fragment.append(row);
+      const source = document.createElement('div'); source.className = 'cmpri-map-source-legend';
+      source.tabIndex = 0; source.setAttribute('aria-label', 'Official NOAA legend; scroll to view the complete source key'); source.append(image);
+      row.append(heading, source); fragment.append(row);
     });
     if (state.showRadar) {
       if (reflectivityLegendUrl) {
@@ -802,7 +834,7 @@
     const ready = progress.filter((frame) => frame.status === 'ready').length;
     const buffering = state.opened && state.active && state.showRadar && (loadingImages.size > 0 || state.openAttempted && !count && !state.radarStatus.startsWith('Unavailable'));
     document.querySelectorAll('.loop').forEach((bar) => { bar.dataset.loading = String(Boolean(buffering)); bar.setAttribute('aria-busy', String(Boolean(buffering))); });
-    ['previousFrame', 'playLoop', 'frameRange', 'nextFrame', 'playbackSpeed', 'loopLength'].forEach((id) => { if ($(id)) $(id).disabled = !state.showRadar || count === 0; });
+    ['playLoop', 'frameRange', 'playbackSpeed', 'loopLength'].forEach((id) => { if ($(id)) $(id).disabled = !state.showRadar || count === 0; });
     if ($('frameRange')) {
       const input = $('frameRange'); input.max = Math.max(0, count - 1); input.value = state.frame;
       input.setAttribute('aria-valuetext', 'Scan ' + (state.frame + 1) + ' of ' + count + '; ' + ready + ' scans ready. ' + scanTime());
@@ -816,7 +848,6 @@
     if ($('playbackSpeedValue')) $('playbackSpeedValue').textContent = state.playbackSpeed[0].toUpperCase() + state.playbackSpeed.slice(1);
     if ($('loopLength')) { $('loopLength').value = String(state.loopMinutes); $('loopLength').setAttribute('aria-valuetext', state.loopMinutes + ' minutes'); }
     if ($('loopLengthValue')) $('loopLengthValue').textContent = state.loopMinutes + ' min';
-    if ($('mapBackgroundStyle')) $('mapBackgroundStyle').value = state.backgroundStyle;
     if ($('mapOpacity')) $('mapOpacity').value = Math.round(state.opacity * 100);
     if ($('opacityValue')) $('opacityValue').textContent = Math.round(state.opacity * 100) + '%';
     const selected = { reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts };
@@ -929,7 +960,7 @@
   function renderControls() {
     const host = $('mapControlHost'); if (!host) return;
     const opacity = $('mapOpacity')?.closest('.opacity');
-    host.innerHTML = `<div class="cmpri-map-menu-bar"><details class="cmpri-map-menu" id="mapBackgroundMenu"><summary>Map</summary><div class="cmpri-map-menu-panel"><label for="mapBackgroundStyle">Geographic background</label><select id="mapBackgroundStyle"><option value="gray">Gray · USGS Topo</option><option value="roads">Roads · USGS Topo</option><option value="aerial">Aerial · USGS historical imagery</option><option value="terrain">Terrain · USGS shaded relief</option></select></div></details><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerSatellite" data-map-layer="satellite" aria-pressed="false" disabled>Satellite · unavailable</button><button id="mapLayerLightning" data-map-layer="lightning" aria-pressed="false" disabled>Lightning · unavailable</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
+    host.innerHTML = `<div class="cmpri-map-menu-bar"><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerSatellite" data-map-layer="satellite" aria-pressed="false" disabled>Satellite · unavailable</button><button id="mapLayerLightning" data-map-layer="lightning" aria-pressed="false" disabled>Lightning · unavailable</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
     const sliders = host.querySelector('.cmpri-map-playback-options');
     if (opacity) {
       const label = document.createElement('span');
@@ -948,7 +979,6 @@
     ['mapHelp', 'mapStatus', 'openMapReference', 'observedRadarNote', 'tryLiveFeeds'].forEach((id) => $(id)?.remove());
     document.querySelectorAll('[data-map-layer]').forEach((button) => button.addEventListener('click', () => selectLayer(button.dataset.mapLayer)));
     $('showEchoes')?.closest('label')?.remove();
-    $('mapBackgroundStyle').addEventListener('change', (event) => { state.backgroundStyle = event.target.value; mark('mapBackgroundStyle', 'Selected · ' + event.target.selectedOptions[0].textContent + '; weather selections unchanged'); updateUI(); queueDraw(); });
     $('playbackSpeed').addEventListener('input', (event) => { state.playbackSpeed = PLAYBACK_SPEEDS[Number(event.target.value)] || 'normal'; mark('playbackSpeed', 'Selected · ' + state.playbackSpeed + '; actual scan times unchanged'); updateUI(); });
     $('loopLength').addEventListener('input', (event) => { const requested = Number(event.target.value); stopPlayback(); state.loopMinutes = requested; applyLoopWindow(); mark('loopLength', 'Selected · ' + state.loopMinutes + ' min requested / ' + availableWindowMinutes() + ' min published coverage'); updateUI(); queueDraw(); primeFrames(); });
   }
@@ -979,11 +1009,8 @@
     window.cmpriGroundMap?.init({ referenceEnabled: GEOGRAPHIC_REFERENCE_ENABLED, onChange: () => { updateGroundStatus(); queueDraw(); emit(); } });
     const on = (id, event, handler) => { if ($(id)) $(id).addEventListener(event, handler); };
     on('moreNoaaProducts', 'toggle', () => mark('moreNoaaProducts', 'Exercised · optional NOAA product choices ' + ($('moreNoaaProducts').open ? 'expanded' : 'collapsed') + '; no feed request'));
-    on('mapBackgroundMenu', 'toggle', () => mark('mapBackgroundMenu', 'Exercised · Map menu ' + ($('mapBackgroundMenu').open ? 'opened' : 'closed')));
     on('mapLayersMenu', 'toggle', () => mark('mapLayersMenu', 'Exercised · Layers menu ' + ($('mapLayersMenu').open ? 'opened' : 'closed')));
     on('playLoop', 'click', play);
-    on('previousFrame', 'click', () => { stopPlayback(); setFrame(state.frame - 1, 'previousFrame'); });
-    on('nextFrame', 'click', () => { stopPlayback(); setFrame(state.frame + 1, 'nextFrame'); });
     on('frameRange', 'input', (event) => { const requested = Number(event.target.value); stopPlayback(); setFrame(requested, 'frameRange'); });
     on('mapOpacity', 'input', (event) => { state.opacity = Number(event.target.value) / 100; mark('opacity', 'Exercised · weather-layer opacity ' + Math.round(state.opacity * 100) + '%'); updateUI(); queueDraw(); });
     on('showEchoes', 'change', (event) => { selectLayer('radar', event.target.checked); mark('showEchoes', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden') + '; playback stopped'); });
@@ -1093,8 +1120,8 @@
     window.cmpriGroundMap?.close(); pointers.clear(); gesture = null;
     canvas?.classList.remove('dragging'); closeAlertDetails();
     if (viewportTimer !== null) { clearTimeout(viewportTimer); viewportTimer = null; }
-    if (images.size) state.radarStatus = 'Observed image loaded';
-    Object.values(wmsLayers).forEach((record) => { if (record.raster) record.state.status = 'Observed WMS image loaded'; });
+    if (images.size && !state.radarStatus.startsWith('Unavailable')) state.radarStatus = 'Observed image loaded';
+    Object.values(wmsLayers).forEach((record) => { if (record.raster && !record.state.status.startsWith('Unavailable')) record.state.status = 'Observed WMS image loaded'; });
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     emit(); return getState();
   }
@@ -1115,6 +1142,7 @@
   }
   function getState() {
     const progress = frameProgress();
+    const hotelPoint = canvas ? project(HOTEL.lat, HOTEL.lon, geometry()) : null;
     const currentWms = WMS_PRODUCTS[state.activeLayer] ? state.activeLayer : Object.keys(wmsLayers).find((name) => state.enabled[name]) || 'velocity';
     return { initialized: state.initialized, opened: state.opened, active: state.active,
       mapReady: state.mapReady, mode: state.mode, activeLayer: state.activeLayer,
@@ -1127,10 +1155,13 @@
       wms: wmsSnapshot(currentWms), wmsLayers: Object.fromEntries(Object.keys(wmsLayers).map((name) => [name, wmsSnapshot(name)])),
       reflectivity: { ...reflectivity, legendLoaded: Boolean(reflectivityLegendUrl) },
       center: { ...state.center }, zoom: state.zoom, opacity: state.opacity, wheelZoomActive: state.wheelZoomActive,
+      pinAnchor: { ...HOTEL, x: hotelPoint?.x ?? null, y: hotelPoint?.y ?? null, anchor: 'tip' },
       refresh: { intervalMs: REFRESH_INTERVAL, nextAt: refreshTimer !== null ? refreshDueAt : null, scheduled: refreshTimer !== null },
       networkRequests: state.networkRequests, pendingRequests: controllers.size,
       rasterLoads: loadingImages.size, rasterQueue: frameQueue.length + (queuedFrame === null ? 0 : 1), rasterLoadLimit: 2,
       imageCacheSize: images.size, imageCacheLimit: IMAGE_CACHE_LIMIT, frameProgress: progress,
+      displayedRasterLoaded: Boolean(displayedRaster), displayedRasterRetained: Boolean(displayedRaster && !images.has(displayedRaster.key)),
+      displayedRasterExtent: displayedRaster ? { ...displayedRaster.extent } : null,
       readyFrameCount: progress.filter((frame) => frame.status === 'ready').length,
       buffering: document.querySelector('.loop')?.dataset.loading === 'true', databaseCalls: 0, pushes: 0,
       status: { radar: state.radarStatus, roads: state.roadsStatus, impacts: state.impactsStatus },

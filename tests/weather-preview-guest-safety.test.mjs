@@ -196,3 +196,80 @@ test('the agreed forecast freeze stays simulated, uses the exact freeze action, 
     assert.equal(reset.inbox.length, 1);
   } finally { f.cleanup(); }
 });
+
+test('reset removes every active simulated alert even after its notification history aged out', () => {
+  const f = fixture();
+  try {
+    f.receive([f.alert('keep-official', 'Winter Storm Watch')]);
+    for (let index = 0; index < 102; index++) f.api.receive({ ...f.api.sample('tornado-warning'), id: 'SIM-RESET-' + index });
+    assert.equal(f.api.snapshot().alerts.filter(item => item.simulated).length, 102);
+    const reset = f.api.reset();
+    assert.equal(reset.alerts.filter(item => item.simulated).length, 0);
+    assert.equal(reset.alerts.length, 1);assert.equal(reset.alerts[0].id, 'NWS:keep-official');
+    assert.equal(reset.inbox.some(item => item.simulated), false);
+  } finally { f.cleanup(); }
+});
+
+test('shared-check reset clears manual warning samples before a new watch can be shown', () => {
+  const f = fixture();
+  try {
+    f.api.receive(f.api.sample('tornado-warning'));
+    f.window.document.dispatchEvent(new f.window.CustomEvent('cmpri:simulated-alert-reset'));
+    assert.equal(f.api.snapshot().alerts.length, 0);
+    f.api.receive(f.api.sample('winter-watch'));
+    assert.deepEqual(Array.from(f.api.snapshot().alerts, item => item.level), ['watch']);
+    assert.equal(f.window.document.querySelector('#guestSafetyDialog').open, false);
+  } finally { f.cleanup(); }
+});
+
+test('clearing notifications dismisses history without canceling active official alerts or redelivering unchanged notices', () => {
+  const f = fixture();
+  try {
+    const watch = f.alert('clear-watch', 'Tornado Watch'), warning = f.alert('clear-warning', 'Tornado Warning');
+    f.receive([watch, warning]);
+    const cleared = f.api.clearNotifications();
+    assert.equal(cleared.inbox.length, 0);assert.equal(cleared.alerts.length, 2);
+    assert.equal(f.window.document.querySelector('#guestSafetyDialog').open, false);
+    const repeated = f.receive([watch, warning]);
+    assert.equal(repeated.inbox.length, 0);assert.equal(repeated.safetyOpens, 1);
+    assert.equal(f.window.document.querySelector('#guestSafetyDialog').open, false);
+    assert.match(f.window.document.querySelector('#npClearStatus').textContent, /NWS alerts remain/);
+    warning.properties.headline += ' · updated official bulletin';
+    const changed = f.receive([watch, warning]);
+    assert.equal(changed.inbox.length, 1);assert.equal(changed.safetyOpens, 2);
+  } finally { f.cleanup(); }
+});
+
+test('live inbox excludes resolved and superseded history and derives each current notice color from its current hazard', () => {
+  const f = fixture();
+  try {
+    const sameId = f.alert('revision', 'Tornado Warning');
+    f.receive([sameId]);
+    sameId.properties.event = 'Tornado Watch';sameId.properties.headline = 'TEST current watch';
+    f.receive([sameId]);
+    const current = f.window.document.querySelectorAll('#npLiveInbox button');
+    assert.equal(current.length, 1);assert.match(current[0].textContent, /Tornado Watch/);
+    assert.equal(current[0].dataset.level, 'watch');
+    f.receive([]);
+    assert.equal(f.window.document.querySelectorAll('#npLiveInbox button').length, 0);
+    assert.ok(f.api.snapshot().inbox.some(item => item.status === 'superseded' || item.status === 'canceled'));
+    f.api.clearNotifications();assert.equal(f.api.snapshot().inbox.length, 0);
+  } finally { f.cleanup(); }
+});
+
+test('open details follow a same-ID downgrade and canceled historical warnings reopen only as past compact notices', () => {
+  const f = fixture();
+  try {
+    const sameId = f.alert('selected-revision', 'Tornado Warning');f.receive([sameId]);
+    const dialog = f.window.document.querySelector('#guestSafetyDialog');
+    assert.equal(dialog.dataset.fullscreen,'true');assert.equal(dialog.dataset.level,'warning');
+    sameId.properties.event='Tornado Watch';sameId.properties.headline='TEST replacement watch';f.receive([sameId]);
+    assert.equal(dialog.open,true);assert.equal(dialog.dataset.fullscreen,'false');assert.equal(dialog.dataset.level,'watch');
+    assert.equal(f.window.document.querySelector('#npSafetyEvent').textContent,'Tornado Watch');
+    f.receive([]);assert.equal(dialog.open,false);
+    const warning=f.api.snapshot().inbox.find(item=>item.event==='Tornado Warning');f.api.openDetails(warning.key);
+    assert.equal(dialog.dataset.fullscreen,'false');assert.equal(dialog.dataset.level,'history');
+    assert.match(f.window.document.querySelector('#npSafetyDisclaimer').textContent,/Past notification/);
+    f.api.clearNotifications();assert.equal(dialog.open,false);
+  } finally { f.cleanup(); }
+});

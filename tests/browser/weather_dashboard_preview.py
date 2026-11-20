@@ -48,6 +48,25 @@ PROBE = r"""(() => {
   forbid(navigator.geolocation, 'getCurrentPosition');
   forbid(navigator.geolocation, 'watchPosition');
   if (window.PushManager) forbid(PushManager.prototype, 'subscribe');
+  if (window === window.top) {
+    window.__weatherOriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+    const audit=window.__weatherAudioAudit={created:0,resumes:0,decodes:0,starts:[],stops:[],gains:[],holdDecode:false,blockResume:false,pendingDecodes:[]};
+    const buffer=()=>({duration:11.72,numberOfChannels:1,sampleRate:48000,length:562560,getChannelData:()=>new Float32Array(562560)});
+    audit.releaseDecodes=()=>{audit.holdDecode=false;for(const resolve of audit.pendingDecodes.splice(0))resolve(buffer());};
+    class QuietAudioContext {
+      constructor(){audit.created++;this.state='suspended';this.destination={};this.sampleRate=48000;this.listeners=[];}
+      get currentTime(){return Date.now()/1000;}
+      resume(){audit.resumes++;if(audit.blockResume)return Promise.reject(new Error('TEST FIXTURE playback blocked'));this.state='running';this.listeners.forEach(fn=>fn());return Promise.resolve();}
+      suspend(){this.state='suspended';return Promise.resolve();}
+      close(){this.state='closed';return Promise.resolve();}
+      addEventListener(name,fn){if(name==='statechange')this.listeners.push(fn);}
+      removeEventListener(name,fn){this.listeners=this.listeners.filter(value=>value!==fn);}
+      decodeAudioData(){audit.decodes++;return audit.holdDecode?new Promise(resolve=>audit.pendingDecodes.push(resolve)):Promise.resolve(buffer());}
+      createBufferSource(){const id=audit.starts.length+audit.stops.length+1;return {buffer:null,onended:null,connect(target){return target;},disconnect(){},start(when){audit.starts.push({id,when});},stop(when){audit.stops.push({id,when});}};}
+      createGain(){const parameter={value:1};for(const method of ['setValueAtTime','linearRampToValueAtTime','exponentialRampToValueAtTime','setTargetAtTime','cancelScheduledValues'])parameter[method]=(...args)=>{audit.gains.push({method,args});return parameter;};return {gain:parameter,connect(target){return target;},disconnect(){}};}
+    }
+    window.AudioContext=QuietAudioContext;window.webkitAudioContext=QuietAudioContext;
+  }
   if (window === window.top || !location.pathname.includes('/previews/cmpri-weather-preview.html')) return;
   const audit = {closed: false, intervalIds: [], aborts: 0, map: null, nws: null,
     forbidden: window.__weatherReviewForbidden};
@@ -349,13 +368,13 @@ class OfficialFeedFixtures:
                     await self.basemap_gate.wait()
                 records = []
                 for index, (route_type, number) in enumerate([("INTERSTATE", "74"), ("INTERSTATE", "74"),
-                        ("INTERSTATE", "57"), ("US_ROUTE", "150"), ("ST_ROUTE", "10"), ("INTERSTATE", "72")]):
-                    fx,fy = [(.22,.28),(.78,.24),(.23,.72),(.78,.72),(.5,.17),(.5,.82)][index]
+                        ("INTERSTATE", "57"), ("INTERSTATE", "57"), ("US_ROUTE", "150"), ("ST_ROUTE", "10"), ("INTERSTATE", "72")]):
+                    fx,fy = [(.80,.55),(.75,.57),(.43,.28),(.43,.68),(.78,.72),(.5,.17),(.22,.72)][index]
                     x=bbox[0]+(bbox[2]-bbox[0])*fx; y=bbox[1]+(bbox[3]-bbox[1])*fy
                     def coordinate(px,py):
                         return [math.degrees(px/6378137),math.degrees(2*math.atan(math.exp(py/6378137))-math.pi/2)]
                     start=coordinate(x-1000,y-500); end=coordinate(x+1000,y+500)
-                    fields = {"OBJECTID": index+1, "permanent_identifier": "TEST-ROUTE-"+str(index), route_type: number}
+                    fields = {"OBJECTID": index+1, "permanent_identifier": "TEST-ROUTE-"+str(index), route_type: number, "STFIPS":"17", "STATE":"IL"}
                     if z >= 10:
                         fields = {("state_route" if key == "ST_ROUTE" else key.lower()): value for key,value in fields.items()}
                     records.append({"type":"Feature","properties":fields,"geometry":{"type":"LineString",
@@ -716,7 +735,7 @@ async def run_viewport(browser, base, output, width, height):
         feed.map_pending.clear()
         await frame.evaluate("() => { void nwsLiveView.refresh(); }")
         await asyncio.wait_for(feed.forecast_pending.wait(), timeout=5)
-        await frame.locator("#zoomIn").click()
+        await frame.locator("#zoomOut").click()
         await asyncio.wait_for(feed.map_pending.wait(), timeout=5)
         await wait_for(frame, "window.cmpriWeatherMap.getState().pendingRequests > 0 && window.nwsLiveView.getState().pendingRequests > 0")
         calls_before_close = feed.forecast_calls

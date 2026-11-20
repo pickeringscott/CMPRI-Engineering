@@ -97,6 +97,8 @@ class CurrentFixtures(OfficialFeedFixtures):
                 period["temperature"] = temperatures[index % len(temperatures)]
                 period["temperatureUnit"] = "F"
                 period["shortForecast"] = descriptions[index % len(descriptions)]
+        result["resources"]["grid"]["data"]["properties"]["windGust"] = {
+            "uom": "wmoUnit:mi_h-1", "values": [{"validTime": iso(self.now) + "/PT12H", "value": 30}]}
         alerts = result["resources"]["alerts"]
         alerts["data"]["features"] = self.alert_features
         if self.alert_failure:
@@ -209,9 +211,29 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         await wait_for(frame, "document.querySelectorAll('#hourlyForecast .forecast-card').length === 12 && !nwsLiveView.getState().loading")
         require(await frame.locator('#liveTemperature .wv-dial-marker[data-kind="forecast"]').count() == 2,
                 'Current wheel does not distinguish forecast markers from observed markers')
+        require(await frame.locator('#hourlyForecast .forecast-validity').count() == 0,
+                'Hourly cards retain a repeated bottom date/time')
+        gusts = await frame.locator('#hourlyForecast .wv-wind-gust').all_inner_texts()
+        require(len(gusts) == 12 and all(re.fullmatch(r'Gusts\s+30\s+mph', gust, re.I) for gust in gusts),
+                'Hourly gust labels retain Forecast or omit their actual forecast speed: ' + str(gusts))
         daily = frame.locator('#extendedForecast .daily-forecast-card')
         require(await daily.count() > 0 and await daily.locator('.wv-temperature-dial').count() == await daily.count(),
                 'Every daily card needs its own dial')
+        daily_markers = await daily.locator('.wv-dial-marker text').evaluate_all("els=>els.map(el=>el.textContent)")
+        require(daily_markers and set(daily_markers).issubset({'H', 'L'}),
+                'Extended Forecast marker labels still show FH/FL: '+str(daily_markers))
+        daily_values = await daily.locator('.wv-dial-extreme-value').all_inner_texts()
+        require(all(re.match(r'^[HL]\s', value) for value in daily_values),
+                'Extended Forecast inside H/L badges retain forecast prefixes')
+        require(set(await frame.locator('#liveTemperature .wv-dial-marker text').evaluate_all("els=>els.map(el=>el.textContent)")) == {'FH','FL','OH','OL'},
+                'The scoped Extended Forecast label change also changed Current Conditions markers')
+        same_ring = await frame.evaluate("""() => {
+          const current=document.querySelector('#liveTemperature .wv-temperature-dial');
+          const daily=document.querySelector('#extendedForecast [data-day="'+current.dataset.day+'"] .wv-temperature-dial');
+          const values=host=>Array.from(host.querySelectorAll('.wv-dial-segment')).map(el=>[el.dataset.startTime,el.dataset.airTemperature,el.dataset.temperatureColor,el.getAttribute('d')]);
+          return JSON.stringify(values(current))===JSON.stringify(values(daily));
+        }""")
+        require(same_ring, 'Today’s Extended Forecast ring changed its actual forecast fill or colors')
         faces = await frame.locator('.wv-temperature-dial').evaluate_all("""elements=>elements.map(el=>({
           summariesInside:Array.from(el.querySelectorAll('.wv-dial-extreme')).every(item=>Boolean(item.closest('.wv-dial-face'))),
           labels:Array.from(el.querySelectorAll('.wv-dial-clock')).map(item=>item.textContent),
@@ -288,6 +310,117 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         feed.release(); await context.close()
 
 
+async def real_siren_decode(page):
+    result = await page.evaluate("""async()=>{
+      const Constructor=window.__weatherOriginalAudioContext;
+      if(!Constructor)throw new Error('Browser has no original AudioContext for local-file decoding');
+      const context=new Constructor({sampleRate:48000});await context.suspend();
+      const response=await fetch('/previews/weather/warning-siren.mp3');
+      if(!response.ok)throw new Error('Local siren MP3 returned '+response.status);
+      const bytes=await response.arrayBuffer(),byteLength=bytes.byteLength,buffer=await context.decodeAudioData(bytes);
+      const samples=buffer.getChannelData(0),windowSize=Math.round(buffer.sampleRate*.1);
+      let peak=0,total=0,first=0,last=0;
+      for(let i=0;i<samples.length;i++){const square=samples[i]*samples[i];total+=square;peak=Math.max(peak,Math.abs(samples[i]));if(i<windowSize)first+=square;if(i>=samples.length-windowSize)last+=square;}
+      const result={bytes:byteLength,duration:buffer.duration,channels:buffer.numberOfChannels,sampleRate:buffer.sampleRate,
+        peak,rms:Math.sqrt(total/samples.length),first100msRms:Math.sqrt(first/windowSize),last100msRms:Math.sqrt(last/windowSize),
+        suspendedDuringDecode:context.state==='suspended',outputConnected:false,sourcesStarted:0};
+      await context.close();return result;
+    }""")
+    require(11.5 < result['duration'] < 11.9 and result['channels']==1 and result['sampleRate']==48000,
+            'Browser cannot decode the actual local mono11.72-second siren MP3: '+str(result))
+    require(result['peak'] < 1 and result['first100msRms'] < result['rms']*.25 and result['last100msRms'] < result['rms']*.25
+            and result['suspendedDuringDecode'], 'The actual siren does not have a quiet unclipped rise/tail: '+str(result))
+    return result
+
+
+async def severity_clear_sound_sequence(page, frame, feed):
+    dialog=page.locator('[data-weather-guest-safety-dialog]');ticker=page.locator('[data-weather-alert-ticker]')
+    before=await page.evaluate('window.__weatherAudioAudit.starts.length')
+    feed.alert_features=[feed.alert('SEVERITY-REVISION','Winter Storm Watch')]
+    await refresh(frame);await ticker.wait_for(state='visible')
+    require(await ticker.get_attribute('data-level')=='watch' and await dialog.is_hidden(), 'Clear→Watch did not stay yellow/standard')
+    watch_color=await ticker.evaluate("el=>getComputedStyle(el).backgroundColor")
+    require(watch_color=='rgb(48, 38, 0)', 'Current Watch ticker does not use its yellow background: '+watch_color)
+    require(await page.evaluate('window.__weatherAudioAudit.starts.length')==before,'Watch played warning sound')
+    feed.alert_features=[feed.alert('SEVERITY-REVISION','Tornado Warning')]
+    await refresh(frame);await dialog.wait_for(state='visible')
+    await wait_for(page,'before=>window.__weatherAudioAudit.starts.length===before+1',before)
+    require(await ticker.get_attribute('data-level')=='warning' and await dialog.get_attribute('data-level')=='warning',
+            'Watch→Warning did not show current red severity')
+    await wait_for(page,"getComputedStyle(document.querySelector('[data-weather-alert-ticker]')).backgroundColor==='rgb(69, 13, 19)'")
+    warning_color=await ticker.evaluate("el=>getComputedStyle(el).backgroundColor")
+    require(warning_color=='rgb(69, 13, 19)' and warning_color!=watch_color,
+            'Current Warning ticker does not use its red background: '+warning_color)
+    await dialog.locator('[data-weather-guest-safety-close]').click()
+    await frame.locator('#tab-notifications').click();await frame.locator('#npClearNotifications').click()
+    require(not (await frame.evaluate('notificationPreview.snapshot()'))['inbox'], 'Clear notifications left old history')
+    require(await ticker.get_attribute('data-level')=='warning'
+            and await frame.locator('#npLiveInbox [data-level="warning"]').count()==1,
+            'Clearing notifications hid or downgraded the active official warning')
+    require('cleared' in (await frame.locator('#npClearStatus').inner_text()).lower(), 'Clear notifications gave no visible feedback')
+    await refresh(frame)
+    require(await dialog.is_hidden() and await page.evaluate('window.__weatherAudioAudit.starts.length')==before+1,
+            'An unchanged cleared warning reopened or sounded again')
+    await ticker.click();await dialog.wait_for(state='visible')
+    feed.alert_features=[feed.alert('SEVERITY-REVISION','Winter Storm Watch')]
+    await refresh(frame)
+    await wait_for(page,"document.querySelector('[data-weather-guest-safety-dialog]')?.dataset.level==='watch'")
+    require(await ticker.get_attribute('data-level')=='watch' and await dialog.get_attribute('data-fullscreen')=='false',
+            'Same-ID warning→watch revision retained a historical red/full-screen warning')
+    await wait_for(page,"getComputedStyle(document.querySelector('[data-weather-alert-ticker]')).backgroundColor==='rgb(48, 38, 0)'")
+    require(await ticker.evaluate("el=>getComputedStyle(el).backgroundColor")==watch_color,
+            'Downgraded Watch retains the old Warning color')
+    require('Winter Storm Watch' in await dialog.inner_text(), 'Downgrade details still show the previous warning')
+    feed.alert_features=[];await refresh(frame)
+    await wait_for(page,"!document.querySelector('[data-weather-alert-ticker]') && !document.querySelector('[data-weather-guest-safety-dialog][open]')")
+    require(not (await frame.evaluate('notificationPreview.snapshot()'))['alerts'], 'Official Clear left active hazards')
+    require(await page.evaluate('window.__weatherAudioAudit.starts.length')==before+1
+            and await page.evaluate('window.__weatherAudioAudit.stops.length')>0, 'Clear/downgrade did not stop warning sound or played another one')
+    if not await frame.locator('#npClearNotifications').is_disabled(): await frame.locator('#npClearNotifications').click()
+    await frame.locator('#tab-weather').click()
+    return {'sequence':'Clear→Watch→Warning→Watch→Clear','watchYellowWarningRed':True,
+            'clearHistoryPreservesCurrentHazards':True,'sameIdDowngradeReconcilesCurrentDetails':True,
+            'oneSoundForNewWarningNoSoundForWatchUnchangedOrClear':True}
+
+
+async def pending_and_blocked_sound(browser,base,width,height):
+    outcomes=[]
+    for mode in ['pending-cancel','blocked-retry']:
+        feed=CurrentFixtures();feed.release()
+        context,page,errors,external,mutations=await context_for(browser,width,height,feed)
+        try:
+            await page.goto(base+'/engineering',wait_until='domcontentloaded')
+            await page.evaluate("mode=>{window.__weatherAudioAudit.holdDecode=mode==='pending-cancel';window.__weatherAudioAudit.blockResume=mode==='blocked-retry';}",mode)
+            await page.get_by_role('button',name='Weather',exact=True).click();frame=await weather_frame(page)
+            await wait_for(frame,'!nwsLiveView.getState().loading')
+            feed.alert_features=[feed.alert('AUDIO-'+mode,'Tornado Warning')];await refresh(frame)
+            dialog=page.locator('[data-weather-guest-safety-dialog]');await dialog.wait_for(state='visible')
+            if mode=='pending-cancel':
+                await wait_for(page,'window.__weatherAudioAudit.pendingDecodes.length===1')
+                feed.alert_features=[];await refresh(frame);await dialog.wait_for(state='hidden')
+                await page.evaluate('window.__weatherAudioAudit.releaseDecodes()');await asyncio.sleep(.2)
+                require(await page.evaluate('window.__weatherAudioAudit.starts.length')==0,'Canceled warning played after its delayed audio decode completed')
+            else:
+                status=dialog.locator('[data-weather-warning-sound="blocked"]');await status.wait_for(state='visible')
+                require(await page.evaluate('window.__weatherAudioAudit.starts.length')==0,'Blocked audio context played')
+                await dialog.locator('[data-weather-guest-safety-close]').click()
+                await page.locator('[data-weather-alert-ticker]').click()
+                await dialog.wait_for(state='visible')
+                await status.wait_for(state='visible')
+                require(await page.evaluate('window.__weatherAudioAudit.starts.length')==0,
+                        'Reopening a blocked warning automatically replayed audio')
+                await page.evaluate('window.__weatherAudioAudit.blockResume=false')
+                await status.get_by_role('button',name='Enable warning sound',exact=True).click()
+                await wait_for(page,'window.__weatherAudioAudit.starts.length===1')
+                feed.alert_features=[];await refresh(frame);await dialog.wait_for(state='hidden')
+                require(await page.evaluate('window.__weatherAudioAudit.stops.length')>=1,'Clearing retried warning did not stop audio')
+            require(not errors and not external and not mutations,'Audio guard scenario caused script/network/application side effects')
+            outcomes.append({'mode':mode,'passed':True,'audioMockOnly':True})
+        finally:
+            feed.release();await context.close()
+    return outcomes
+
+
 async def native_notices(browser, base, output, width, height):
     feed = CurrentFixtures()
     feed.release()
@@ -303,6 +436,9 @@ async def native_notices(browser, base, output, width, height):
         native = page.locator(native_selector)
         dialog = page.locator("[data-weather-guest-safety-dialog]")
         require(await dialog.is_hidden(), "An empty feed opened Guest Safety")
+        if width == 1440:
+            evidence["actualLocalSirenDecodeWithoutOutput"] = await real_siren_decode(page)
+        evidence["clearSeverityAndSound"] = await severity_clear_sound_sequence(page,frame,feed)
         feed.alert_features = [feed.alert("TORNADO", "Tornado Warning"),
             feed.alert("WATCH", "Severe Thunderstorm Watch"),
             feed.alert("WINTER", "Winter Weather Advisory"), feed.alert("HEAT", "Heat Advisory")]
@@ -428,6 +564,17 @@ async def native_notices(browser, base, output, width, height):
         await refresh(frame)
         await wait_for(page, "document.querySelector('[data-weather-alert-ticker]')?.dataset.level === 'watch'")
         require(await ticker.get_attribute("data-level") == "watch", "Canceling warning did not leave a watch ticker")
+        old_warning=next(row for row in official_history if row['event']=='Tornado Warning')
+        sounds_before_history=await page.evaluate('window.__weatherAudioAudit.starts.length')
+        await frame.evaluate('key=>notificationPreview.openDetails(key)',old_warning['key'])
+        await dialog.wait_for(state='visible')
+        require(await dialog.get_attribute('data-level')=='history' and await dialog.get_attribute('data-fullscreen')=='false'
+                and await ticker.get_attribute('data-level')=='watch',
+                'Opening an archived Warning masks a current Watch or uses active Warning presentation')
+        require(await page.evaluate('window.__weatherAudioAudit.starts.length')==sounds_before_history,
+                'Opening a past Warning replayed warning sound')
+        await page.screenshot(path=str(output/f'archived-warning-current-watch-{width}.png'),full_page=True)
+        await dialog.locator('[data-weather-guest-safety-close]').click()
         await ticker.click()
         await dialog.wait_for(state="visible")
         require(await dialog.get_attribute("data-fullscreen") == "false", "A watch used full-screen warning presentation")
@@ -503,6 +650,45 @@ async def native_notices(browser, base, output, width, height):
         await refresh(frame)
         require(await dialog.is_hidden(), "A second unchanged warning in the batch reopened dismissed details")
         evidence["multipleWarningBatchDedup"] = True
+        feed.alert_features=[]
+        await refresh(frame)
+        await wait_for(page,"!document.querySelector('[data-weather-alert-ticker]')")
+        await frame.locator('#tab-notifications').click()
+        await frame.locator('#npReset').click()
+        sound_before=await page.evaluate('window.__weatherAudioAudit.starts.length')
+        await frame.locator('#npScenario').select_option('tornado-warning')
+        await frame.locator('#npReceive').click()
+        await dialog.wait_for(state='visible')
+        await wait_for(page,'count=>window.__weatherAudioAudit.starts.length===count+1',sound_before)
+        await dialog.locator('[data-weather-guest-safety-close]').click()
+        await frame.locator('#npRepeat').click()
+        require(await page.evaluate('window.__weatherAudioAudit.starts.length')==sound_before+1,'Unchanged simulation repeated warning sound')
+        # Age the warning out of the bounded inbox without expiring its hazard.
+        await frame.evaluate("""() => {const sample=notificationPreview.sample('winter-advisory');for(let n=0;n<105;n++)notificationPreview.receive({...sample,id:'SIM-NP-AGE-'+n});}""")
+        require(any(row['event']=='Tornado Warning' for row in (await frame.evaluate('notificationPreview.snapshot()'))['alerts']),
+                'Fixture warning did not remain active after its history row aged out')
+        await frame.locator('#tab-checks').click()
+        await frame.locator('#simReset').click()
+        await wait_for(page,"!document.querySelector('[data-weather-alert-ticker]')")
+        require(not any(row['simulated'] for row in (await frame.evaluate('notificationPreview.snapshot()'))['alerts']),
+                'Shared Reset missed a simulated hazard whose old history row aged out')
+        await frame.locator('#tab-notifications').click()
+        await frame.locator('#npScenario').select_option('winter-watch')
+        await frame.locator('#npReceive').click()
+        await wait_for(page,"document.querySelector('[data-weather-alert-ticker]')?.dataset.level==='watch'")
+        require(await dialog.is_hidden() and 'SIMULATION' in await page.locator('[data-weather-alert-ticker]').inner_text(),
+                'New simulated Watch was masked by an old Warning or lost its simulation label')
+        await frame.locator('#npReset').click()
+        await frame.locator('#npScenario').select_option('tornado-warning')
+        await frame.locator('#npReceive').click()
+        await dialog.wait_for(state='visible')
+        await wait_for(page,'count=>window.__weatherAudioAudit.starts.length===count+2',sound_before)
+        require(await dialog.get_attribute('data-level')=='warning','Fresh warning after Reset did not use current red severity')
+        await dialog.locator('[data-weather-guest-safety-close]').click()
+        await frame.locator('#npReset').click()
+        await wait_for(page,"!document.querySelector('[data-weather-alert-ticker]')")
+        evidence['simulationResetAndSoundEpoch']={'agedOutHazardCleared':True,'warningClearWatchClearWarningClear':True,'freshWarningSoundsAfterReset':True,'unchangedSilent':True}
+        evidence["audioGuardCases"] = await pending_and_blocked_sound(browser,base,width,height)
         require(not errors and not external and not mutations, "Unexpected native script error, external request or mutation")
         require(await page.evaluate("window.__weatherReviewForbidden.length===0")
                 and await frame.evaluate("window.__weatherReviewForbidden.length===0"), "Native notices invoked GPS / push permissions")

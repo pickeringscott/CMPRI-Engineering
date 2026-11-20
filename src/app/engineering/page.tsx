@@ -44,6 +44,7 @@ import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus"
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import WeatherPreviewWindow from "@/components/desktop/WeatherPreviewWindow";
+import { armWeatherWarningSound } from "@/lib/weather-warning-sound";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
 import WorkOrderListWindow, { isPendingApproval, type DesktopWorkOrder, type DesktopWorkOrderDraft } from "@/components/desktop/WorkOrderListWindow";
@@ -763,6 +764,9 @@ export default function EngineeringDashboardPage() {
     else if (launcher.action === "sign-out") void signOut();
     else if (launcher.href) {
       const href = launcher.href;
+      // Resume the local warning sound during this genuine user gesture so an
+      // asynchronously arriving NWS warning can play on mobile browsers too.
+      if (href.split(/[?#]/)[0] === WEATHER_PREVIEW_PATH) void armWeatherWarningSound();
       const key = desktopWindowKeyForHref(href, window.location.origin);
       launchWindow(key, clickedAt, () => openRoute(href, launcher.label, { ...launcher, label: launcher.label.replace(/ \(\d+\)$/, "") }));
     }

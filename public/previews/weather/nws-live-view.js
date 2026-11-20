@@ -183,6 +183,7 @@
         const start = date(period.startTime), end = date(period.endTime);
         const visuals = window.cmpriWeatherVisuals;
         const heading = node('div', undefined, 'forecast-card-heading');
+        heading.title = 'Forecast valid ' + stamp(start) + ' → ' + stamp(end);
         heading.append(node('h3', hourly && start !== null ? hourTime.format(new Date(start)) : period.name || 'NWS forecast period'));
         card.append(heading);
         if (visuals) { const main = node('div', undefined, 'hourly-condition-main'); main.append(visuals.condition(period.shortForecast || 'Condition not provided', { icon: period.icon, isDaytime: period.isDaytime })); card.append(main); }
@@ -193,14 +194,12 @@
         const chanceText = node('p', finite(chance) ? '☂ ' + round(chance) + '%' : 'Precipitation unavailable', 'forecast-chance');
         chanceText.title = 'Forecast precipitation chance'; card.append(chanceText);
         const gust = gridAt(grid?.windGust, start, 'wind');
-        if (visuals) card.append(visuals.wind(periodWindSpeed(period), period.windDirection, { forecast: true, gustText: gust === null ? null : round(gust) + ' mph' + (gridEnvelope.status === 'stale' ? ' · STALE grid' : '') }));
+        if (visuals) card.append(visuals.wind(periodWindSpeed(period), period.windDirection, { forecast: true, gustLabel: 'Gusts', gustText: gust === null ? null : round(gust) + ' mph' + (gridEnvelope.status === 'stale' ? ' · STALE grid' : '') }));
         else card.append(node('p', [period.windDirection, periodWindSpeed(period) || 'Wind unavailable'].filter(Boolean).join(' '), 'forecast-wind'));
         if (hourly) {
           const feels = gridAt(grid?.apparentTemperature, start, 'temperature');
           if (feels !== null) card.append(node('p', 'Feels ' + round(feels) + '°' + (gridEnvelope.status === 'stale' ? ' · STALE grid' : ''), 'forecast-wind'));
         }
-        const valid = node('p', hourly ? (start === null ? 'Time unavailable' : hourTime.format(new Date(start))) : 'Valid ' + stamp(start), 'forecast-validity');
-        valid.title = 'Forecast valid ' + stamp(start) + ' → ' + stamp(end); card.append(valid);
         if (period.detailedForecast) {
           const detail = node('details'); detail.append(node('summary', 'NWS forecast text'));
           detail.append(node('p', period.detailedForecast, 'small')); card.append(detail);

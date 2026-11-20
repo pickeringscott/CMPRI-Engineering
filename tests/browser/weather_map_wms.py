@@ -18,7 +18,7 @@ from weather_dashboard_preview import (
     PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, frame_forbidden,
     install, install_weather_audit, require, wait_for, weather_frame,
 )
-from weather_map_basemaps import pixel, settled, style
+from weather_map_basemaps import legend_layout, pixel, settled, style
 from playwright.async_api import async_playwright
 
 
@@ -64,7 +64,7 @@ async def run_viewport(browser, base, output, width, height):
         launcher=page.get_by_role('button',name='Weather',exact=True)
         await launcher.wait_for(state='visible',timeout=60000);mutation_start=len(mutations)
         await launcher.click();frame=await weather_frame(page);await install_weather_audit(frame)
-        await settled(frame);await style(frame,'roads');await select_product(frame,'reflectivity',False)
+        await settled(frame);await style(frame,'aerial');await select_product(frame,'reflectivity',False)
         for selected,product,name,advertised_style,color,alpha_value in [
             ('velocity','velocity','kilx_sr_bvel','radar_velocity',[180,65,205],150),
             ('ptype','precipitation','conus_pcpn_typ','radar_precip_type',[85,205,225],170)]:
@@ -85,21 +85,25 @@ async def run_viewport(browser, base, output, width, height):
             require(wms['layer']==name and wms['style']==advertised_style,'WMS did not use its advertised layer/style')
             require(datetime_from_iso(wms['time'])==datetime_from_iso(fixture.wms_metadata[product]['layers'][0]['time']['values'].split(',')[-1]),
                     'WMS time was not the latest concrete advertised scan')
-            for identity in ['previousFrame','playLoop','nextFrame','frameRange','playbackSpeed','loopLength']:
+            for identity in ['playLoop','frameRange','playbackSpeed','loopLength']:
                 require(await frame.locator('#'+identity).is_disabled(),'Reflectivity playback stayed enabled when reflectivity was off')
             stamp=await frame.evaluate('value=>cmpriWeatherClock.stamp(value)',wms['time'])
             require(stamp in await frame.locator('#scanTime').inner_text(),'WMS scan time ignored the Chief Central clock')
             require('opengeo.ncep.noaa.gov' in wms['mapSource'] and 'opengeo.ncep.noaa.gov' in wms['legendSource'],
                     'WMS map/legend lost official source provenance')
+            legend = frame.locator('#mapWmsLegend-'+selected).locator('..')
+            if await legend.evaluate("el=>el.tagName==='DETAILS' && !el.open"):
+                await legend.locator(':scope > summary').click()
+            presentation = await legend_layout(frame,'.cmpri-wms-legend:has(#mapWmsLegend-'+selected+')','img')
             actual=await pixel(frame);alpha=alpha_value/255*state['opacity']
-            expected=[round([52,101,173][n]*(1-alpha)+color[n]*alpha) for n in range(3)]
+            expected=[round([173,80,42][n]*(1-alpha)+color[n]*alpha) for n in range(3)]
             require(max(abs(actual[n]-expected[n]) for n in range(3))<=4,'Independent WMS raster did not compose over USGS: '+str(actual))
             await style(frame,'aerial');changed=await frame.evaluate('cmpriWeatherMap.getState()')
             require(changed['layers'][selected] and changed['wmsLayers'][selected]['time']==wms['time'] and changed['center']==state['center'],
                     'Changing geographic background changed an independent observed layer')
-            await style(frame,'roads')
+            await style(frame,'aerial')
             evidence['products'].append({'product':product,'layer':name,'style':advertised_style,'timeCentral':stamp,
-                'officialShapedPngAndLegendDecoded':True,'separateProductStateAndSource':True})
+                'officialShapedPngAndLegendDecoded':True,'separateProductStateAndSource':True,'legendPresentation':presentation})
         for name in ['reflectivity','velocity','ptype','alerts','impacts']: await select_product(frame,name,True)
         await wms_ready(frame,'velocity');await wms_ready(frame,'precipitation')
         await wait_for(frame,'cmpriWeatherMap.getState().readyFrameCount>0')
@@ -107,7 +111,7 @@ async def run_viewport(browser, base, output, width, height):
         require(all(stack['layers'][name] for name in ['reflectivity','velocity','ptype','alerts','impacts']),
                 'Supported weather layers cannot remain selected together')
         require(not await frame.locator('#playLoop').is_disabled(),'Selecting independent WMS layers disabled active reflectivity playback')
-        expected=[52.,101.,173.]
+        expected=[173.,80.,42.]
         for color,alpha_byte in [([30,170,75],180),([85,205,225],170),([180,65,205],150)]:
             alpha=alpha_byte/255*stack['opacity'];expected=[expected[n]*(1-alpha)+color[n]*alpha for n in range(3)]
         actual=await pixel(frame)

@@ -6,7 +6,7 @@
   const TILE_SIZE = 256;
   const CACHE_LIMIT = 150;
   const PARALLEL_LIMIT = 4;
-  const STYLES = Object.freeze({ gray: 'topo', roads: 'topo', aerial: 'imagery', terrain: 'relief' });
+  const STYLES = Object.freeze({ aerial: 'imagery' });
   const ATTRIBUTION = Object.freeze({
     topo: 'USGS',
     imagery: 'USGS · USDA/NAIP',
@@ -23,6 +23,9 @@
     places: 'https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer',
     routes: 'https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer'
   });
+  const shieldImages = { interstate: null, illinois: null };
+  const shieldSources = Object.freeze({ interstate: '/previews/weather/signs/interstate-route.svg', illinois: '/previews/weather/signs/illinois-route.svg' });
+  const shieldStatus = { interstate: 'Not loaded', illinois: 'Not loaded' };
   const referenceStatus = {
     roads: { status: 'Not requested', source: referenceSources.roads },
     places: { status: 'Not requested', source: referenceSources.places },
@@ -31,7 +34,7 @@
   const state = {
     initialized: false, opened: false, style: 'aerial', dataset: 'imagery', referenceEnabled: false,
     requests: 0, loaded: 0, tileZoom: null, requestedZoom: null,
-    visible: [], status: 'Waiting for the map to open', error: ''
+    visible: [], fallbackVisibleCount: 0, status: 'Waiting for the map to open', error: ''
   };
   let generation = 0;
   let queue = [];
@@ -49,9 +52,10 @@
       queued: queue.length, loaded: state.loaded, failed: failures.size,
       cacheSize: cache.size, cacheLimit: CACHE_LIMIT, parallelLimit: PARALLEL_LIMIT,
       attribution: ATTRIBUTION[state.dataset] + (state.style === 'aerial' && state.referenceEnabled ? ' · GNIS' : ''), error: state.error,
-      visibleLoaded, visibleTotal: state.visible.length, visibleFailed,
+      visibleLoaded, visibleTotal: state.visible.length, visibleFailed, fallbackVisibleCount: state.fallbackVisibleCount,
       tileZoom: state.tileZoom, requestedZoom: state.requestedZoom,
       imageryAcquisitionYear: null,
+      shields: { interstate: { source: shieldSources.interstate, status: shieldStatus.interstate }, illinois: { source: shieldSources.illinois, status: shieldStatus.illinois } },
       reference: {
         enabled: state.referenceEnabled && state.style === 'aerial',
         pending: Array.from(inflight.values()).filter((record) => record.kind === 'reference' && !record.controller.signal.aborted).length,
@@ -142,6 +146,11 @@
       const lines = geometry?.type === 'LineString' ? [geometry.coordinates] : geometry?.type === 'MultiLineString' ? geometry.coordinates : [];
       const valid = lines.filter(Array.isArray).map((line) => line.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]) && Math.abs(point[0]) <= 180 && Math.abs(point[1]) < 85.051129)).filter((line) => line.length > 1);
       if (!valid.length) return;
+      const countyFips = String(property(feature.properties, 'stco_fipscode') || '').trim();
+      const stateFips = String(property(feature.properties, 'STFIPS') || '').trim().padStart(2, '0');
+      const stateAbbreviation = String(property(feature.properties, 'STATE') || '').trim().toUpperCase();
+      const jurisdiction = countyFips ? countyFips.slice(0, 2) : stateFips !== '00' ? stateFips : stateAbbreviation;
+      const illinois = jurisdiction === '17' || stateAbbreviation === 'IL';
       const projected = valid.map((line) => line.map((point) => [point[0] * ORIGIN / 180, Math.log(Math.tan((90 + point[1]) * Math.PI / 360)) * ORIGIN / Math.PI]));
       classes.forEach(([type, fields]) => {
         const numbers = new Set();
@@ -150,8 +159,8 @@
           if (match) numbers.add(match[1].replace(/^0+(?=\d)/, '').toUpperCase());
         }));
         numbers.forEach((number) => {
-          const key = type + ':' + number;
-          if (!routes.has(key)) routes.set(key, { type, number, key, lines: [], sourceIds: [] });
+          const key = type + ':' + (type === 'state' ? (jurisdiction || 'unknown') + ':' : '') + number;
+          if (!routes.has(key)) routes.set(key, { type, number, key, jurisdiction, illinois, lines: [], sourceIds: [] });
           const route = routes.get(key); route.lines.push(...projected);
           const id = property(feature.properties, 'permanent_identifier') || property(feature.properties, 'OBJECTID') || feature.id;
           if (id !== undefined && id !== null && !route.sourceIds.includes(id)) route.sourceIds.push(id);
@@ -178,38 +187,115 @@
     return { x: a.x + dx * (low + high) / 2, y: a.y + dy * (low + high) / 2,
       length: Math.hypot(dx, dy) * (high - low) };
   }
+  function loadShieldImages() {
+    Object.entries(shieldSources).forEach(([name, source]) => {
+      if (shieldImages[name] || shieldStatus[name] === 'Loading') return;
+      shieldStatus[name] = 'Loading';
+      const image = new Image();
+      image.onload = () => { shieldImages[name] = image; shieldStatus[name] = 'Official design loaded'; notify(); };
+      image.onerror = () => { shieldStatus[name] = 'Unavailable'; notify(); };
+      image.src = source;
+    });
+  }
+  function routeCandidates(route, geo) {
+    const candidates = [];
+    route.lines.forEach((line) => {
+      for (let i = 1; i < line.length; i += 1) {
+        const screen = (point) => ({ x: geo.width / 2 + (point[0] - geo.center.x) / geo.resolution, y: geo.height / 2 - (point[1] - geo.center.y) / geo.resolution });
+        const segment = clippedSegment(screen(line[i - 1]), screen(line[i]), geo.width, geo.height);
+        if (segment) candidates.push(segment);
+      }
+    });
+    return candidates;
+  }
+  function shieldMetrics(route, geo) {
+    const size = geo.width < 420 ? 32 : 36;
+    const official = route.type === 'interstate' || route.type === 'state' && route.illinois;
+    return { width: official ? (route.number.length > 2 && route.type === 'interstate' ? size * 1.25 : size) : 42,
+      height: official ? size : 23, asset: route.type === 'interstate' ? 'interstate' : route.type === 'state' && route.illinois ? 'illinois' : null };
+  }
+  function paintShield(context, route, point, metrics) {
+    const left = point.x - metrics.width / 2, top = point.y - metrics.height / 2;
+    if (metrics.asset) {
+      const image = shieldImages[metrics.asset]; if (!image) return false;
+      context.drawImage(image, left, top, metrics.width, metrics.height);
+      context.font = '700 ' + Math.round(metrics.height * .5) + 'px Arial, Helvetica, sans-serif';
+      context.fillStyle = metrics.asset === 'interstate' ? '#fff' : '#000';
+      context.fillText(route.number, point.x, top + metrics.height * (metrics.asset === 'interstate' ? .55 : 245 / 385), metrics.width * .7);
+    } else {
+      context.fillStyle = '#fff'; context.strokeStyle = '#19222a'; context.lineWidth = 1.5;
+      context.beginPath(); context.roundRect(left, top, metrics.width, metrics.height, 3); context.fill(); context.stroke();
+      context.font = '700 10px Arial, Helvetica, sans-serif'; context.fillStyle = '#16212a';
+      context.fillText('US ' + route.number, point.x, point.y + .5);
+    }
+    return true;
+  }
+  function drawStateRouteLines(context, geo) {
+    if (!routeFeatures) return;
+    context.save(); context.beginPath(); context.rect(0, 0, geo.width, geo.height); context.clip();
+    context.lineJoin = 'round'; context.lineCap = 'round';
+    routeFeatures.routes.filter((route) => route.type === 'state').forEach((route) => {
+      context.beginPath();
+      route.lines.forEach((line) => line.forEach((point, index) => {
+        const x = geo.width / 2 + (point[0] - geo.center.x) / geo.resolution, y = geo.height / 2 - (point[1] - geo.center.y) / geo.resolution;
+        if (index) context.lineTo(x, y); else context.moveTo(x, y);
+      }));
+      context.strokeStyle = '#1a2029'; context.lineWidth = 3.3; context.stroke();
+      context.strokeStyle = '#f4f0d8'; context.lineWidth = 1.5; context.stroke();
+    });
+    context.restore();
+  }
   function drawRouteShields(context, geo, occupied) {
     if (!routeFeatures) return;
     const z = Math.log2(BASE_RESOLUTION / geo.resolution), area = geo.width * geo.height;
-    const budget = Math.max(1, Math.min(z <= 9 ? 4 : z <= 11 ? 7 : 10, Math.floor(area / (z <= 9 ? 95000 : z <= 11 ? 70000 : 45000))));
-    const layoutKey = [geo.width, geo.height, geo.resolution, geo.center.x, geo.center.y].join('|');
-    const cachedLayout = routeFeatures.layoutKey === layoutKey;
-    const rendered = [];
-    context.save(); context.font = '700 10px Arial, Helvetica, sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.lineWidth = 1.5;
-    for (const route of cachedLayout ? routeFeatures.rendered : routeFeatures.routes) {
-      if (rendered.length >= budget) break;
-      const text = (route.type === 'interstate' ? 'I ' : route.type === 'us' ? 'US ' : 'SR ') + route.number;
-      const width = Math.ceil(context.measureText(text).width) + 10, height = 21;
-      const candidates = [];
-      if (!cachedLayout) route.lines.forEach((line) => {
-        for (let i = 1; i < line.length; i += 1) {
-          const screen = (point) => ({ x: geo.width / 2 + (point[0] - geo.center.x) / geo.resolution, y: geo.height / 2 - (point[1] - geo.center.y) / geo.resolution });
-          const segment = clippedSegment(screen(line[i - 1]), screen(line[i]), geo.width, geo.height);
-          if (segment) candidates.push(segment);
-        }
+    const normalBudget = Math.max(1, Math.min(z <= 9 ? 4 : z <= 11 ? 7 : 10, Math.floor(area / (z <= 9 ? 95000 : z <= 11 ? 70000 : 45000))));
+    const hotel = screenPoint([HOTEL.longitude, HOTEL.latitude], geo);
+    const nearby = z >= 9 && hotel.x > 0 && hotel.x < geo.width && hotel.y > 0 && hotel.y < geo.height;
+    const budget = nearby ? Math.max(4, normalBudget) : normalBudget;
+    const layoutKey = [geo.width, geo.height, geo.resolution, geo.center.x, geo.center.y, shieldStatus.interstate, shieldStatus.illinois].join('|');
+    const cachedLayout = routeFeatures.layoutKey === layoutKey, rendered = [];
+    context.save(); context.textAlign = 'center'; context.textBaseline = 'middle';
+    if (cachedLayout) {
+      routeFeatures.rendered.forEach((entry) => {
+        const metrics = shieldMetrics(entry, geo);
+        if (paintShield(context, entry, entry, metrics)) { occupied.push({ x: entry.x - metrics.width / 2, y: entry.y - metrics.height / 2, ...metrics }); rendered.push(entry); }
       });
-      candidates.sort((a, b) => b.length - a.length || Math.hypot(a.x - geo.width / 2, a.y - geo.height / 2) - Math.hypot(b.x - geo.width / 2, b.y - geo.height / 2));
-      const chosen = cachedLayout ? route : candidates.find((point) => {
-        const box = { x: point.x - width / 2, y: point.y - height / 2, width, height };
-        return box.x >= 4 && box.y >= 4 && box.x + width <= geo.width - 4 && box.y + height <= geo.height - 4
-          && !occupied.some((other) => box.x < other.x + other.width + 10 && box.x + width + 10 > other.x && box.y < other.y + other.height + 10 && box.y + height + 10 > other.y);
-      });
-      if (!chosen) continue;
-      const box = { x: chosen.x - width / 2, y: chosen.y - height / 2, width, height }; occupied.push(box);
-      context.fillStyle = route.type === 'interstate' ? '#173b70' : '#fafafa'; context.strokeStyle = route.type === 'interstate' ? '#fafafa' : '#18242b';
-      context.beginPath(); context.roundRect(box.x, box.y, width, height, route.type === 'interstate' ? [3, 3, 8, 8] : 3); context.fill(); context.stroke();
-      context.fillStyle = route.type === 'interstate' ? '#fff' : '#17212a'; context.fillText(text, chosen.x, chosen.y + .5);
-      rendered.push({ type: route.type, number: route.number, key: route.key, x: chosen.x, y: chosen.y, sourceIds: route.sourceIds.slice(0, 3) });
+    } else {
+      const candidates = new Map(routeFeatures.routes.map((route) => [route.key, routeCandidates(route, geo)]));
+      const chosenCounts = new Map();
+      const fits = (point, metrics) => {
+        const box = { x: point.x - metrics.width / 2, y: point.y - metrics.height / 2, width: metrics.width, height: metrics.height };
+        return box.x >= 4 && box.y >= 4 && box.x + box.width <= geo.width - 4 && box.y + box.height <= geo.height - 4
+          && !occupied.some((other) => box.x < other.x + other.width + 7 && box.x + box.width + 7 > other.x && box.y < other.y + other.height + 7 && box.y + box.height + 7 > other.y);
+      };
+      const place = (route, side, filter, target) => {
+        if (!route || rendered.length >= budget || route.type === 'state' && !route.illinois) return;
+        const metrics = shieldMetrics(route, geo);
+        const points = (candidates.get(route.key) || []).filter(filter || (() => true));
+        points.sort((a, b) => target ? Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y) : b.length - a.length);
+        const point = points.find((candidate) => fits(candidate, metrics));
+        if (!point || !paintShield(context, route, point, metrics)) return;
+        occupied.push({ x: point.x - metrics.width / 2, y: point.y - metrics.height / 2, width: metrics.width, height: metrics.height });
+        chosenCounts.set(route.key, (chosenCounts.get(route.key) || 0) + 1);
+        const worldX = geo.center.x + (point.x - geo.width / 2) * geo.resolution, worldY = geo.center.y - (point.y - geo.height / 2) * geo.resolution;
+        rendered.push({ type: route.type, number: route.number, key: route.key, jurisdiction: route.jurisdiction, illinois: route.illinois,
+          x: point.x, y: point.y, side: side || 'single', longitude: worldX * 180 / ORIGIN,
+          latitude: Math.atan(Math.sinh(worldY * Math.PI / ORIGIN)) * 180 / Math.PI, sourceIds: route.sourceIds.slice(0, 3) });
+      };
+      if (nearby) {
+        const i57 = routeFeatures.routes.find((route) => route.type === 'interstate' && route.number === '57');
+        const i74 = routeFeatures.routes.find((route) => route.type === 'interstate' && route.number === '74');
+        place(i57, 'north', (point) => point.y < hotel.y - 28, { x: hotel.x, y: geo.height * .2 });
+        place(i57, 'south', (point) => point.y > hotel.y + 28, { x: hotel.x, y: geo.height * .77 });
+        const urbana = placeLabels?.labels.find((label) => label.name.toLowerCase() === 'urbana');
+        const urbanaPoint = urbana ? screenPoint([urbana.longitude, urbana.latitude], geo) : hotel;
+        const east = Math.max(hotel.x + 12000 / geo.resolution, urbanaPoint.x + 5000 / geo.resolution);
+        place(i74, 'east', (point) => point.x >= east, { x: Math.min(geo.width - 30, east + 20), y: hotel.y + 30 });
+        const stateRoutes = routeFeatures.routes.filter((route) => route.type === 'state' && route.illinois)
+          .sort((a, b) => Math.min(...(candidates.get(a.key) || []).map((point) => Math.hypot(point.x - hotel.x, point.y - hotel.y))) - Math.min(...(candidates.get(b.key) || []).map((point) => Math.hypot(point.x - hotel.x, point.y - hotel.y))));
+        for (const route of stateRoutes) { const before = rendered.length; place(route, 'single', null, hotel); if (rendered.length > before) break; }
+      }
+      routeFeatures.routes.forEach((route) => { if (!chosenCounts.has(route.key)) place(route, 'single'); });
     }
     context.restore();
     const previous = routeFeatures.rendered.length; routeFeatures.rendered = rendered; routeFeatures.budget = budget; routeFeatures.layoutKey = layoutKey;
@@ -359,7 +445,7 @@
   function open() {
     init();
     if (!state.opened) { state.opened = true; failures.clear(); }
-    notify();
+    loadShieldImages(); notify();
     return getState();
   }
   function close() {
@@ -379,8 +465,28 @@
     state.visible = tilesFor(geo);
     prepareReferences(geo);
     context.save();
-    context.filter = style === 'gray' ? 'grayscale(1) brightness(0.55) contrast(1.15)' : 'none';
+    context.filter = 'none';
     context.imageSmoothingEnabled = true;
+    // A new native zoom level may still be loading. Keep already loaded,
+    // georeferenced imagery underneath it instead of clearing known geography.
+    const visibleKeys = new Set(state.visible.map((tile) => tile.key));
+    const bounds = { xmin: geo.center.x - geo.width * geo.resolution / 2, xmax: geo.center.x + geo.width * geo.resolution / 2,
+      ymin: geo.center.y - geo.height * geo.resolution / 2, ymax: geo.center.y + geo.height * geo.resolution / 2 };
+    const fallback = [];
+    cache.forEach((bitmap, key) => {
+      if (visibleKeys.has(key)) return;
+      const [dataset, level, column, row] = key.split('/');
+      const z = Number(level), x = Number(column), y = Number(row);
+      if (dataset !== state.dataset || ![z, x, y].every(Number.isInteger)) return;
+      const span = 2 * ORIGIN / 2 ** z, left = -ORIGIN + x * span, top = ORIGIN - y * span;
+      if (left >= bounds.xmax || left + span <= bounds.xmin || top <= bounds.ymin || top - span >= bounds.ymax) return;
+      fallback.push({ bitmap, z, left, top, span });
+    });
+    fallback.sort((a, b) => a.z - b.z).forEach((tile) => {
+      context.drawImage(tile.bitmap, geo.width / 2 + (tile.left - geo.center.x) / geo.resolution,
+        geo.height / 2 - (tile.top - geo.center.y) / geo.resolution, tile.span / geo.resolution, tile.span / geo.resolution);
+    });
+    state.fallbackVisibleCount = fallback.length;
     state.visible.forEach((tile) => {
       const bitmap = cache.get(tile.key);
       if (!bitmap) return;
@@ -405,6 +511,7 @@
         (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
       context.restore();
     }
+    drawStateRouteLines(context, geo);
     const hotel = screenPoint([HOTEL.longitude, HOTEL.latitude], geo);
     const occupied = [{ x: hotel.x - 22, y: hotel.y - 22, width: 44, height: 44 },
       { x: geo.width - 55, y: 0, width: 55, height: 190 }, { x: 0, y: geo.height - 65, width: 240, height: 65 }];

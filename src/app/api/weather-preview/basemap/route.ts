@@ -86,8 +86,10 @@ export async function GET(request: Request) {
     // Detailed Interstate, US and State layers are separate sources; querying
     // all three avoids assuming an Interstate label layer contains local routes.
     const layers = z <= 7 ? [8] : z <= 9 ? [9] : [16, 17, 18];
-    const fields = z <= 9 ? "OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME"
-      : "OBJECTID,permanent_identifier,interstate,us_route,state_route,interstate_a,interstate_b,interstate_c,us_route_a,us_route_b,us_route_c,state_route_a,state_route_b,state_route_c,name";
+    // Preserve official jurisdiction fields so a state-specific sign is never
+    // chosen from a route number or proximity to the hotel.
+    const fields = z <= 9 ? "OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME,STFIPS,STATE"
+      : "OBJECTID,permanent_identifier,interstate,us_route,state_route,interstate_a,interstate_b,interstate_c,us_route_a,us_route_b,us_route_c,state_route_a,state_route_b,state_route_c,name,stco_fipscode";
     routeSources = layers.map((layer) => {
       const routeFields = layer <= 9 ? z <= 7 ? ["INTERSTATE"] : z <= 8 ? ["INTERSTATE", "US_ROUTE"] : ["INTERSTATE", "US_ROUTE", "ST_ROUTE"]
         : layer === 16 ? ["interstate", "interstate_a", "interstate_b", "interstate_c"]

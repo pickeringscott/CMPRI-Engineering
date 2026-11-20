@@ -97,13 +97,13 @@ test('place-label requests reject unsupported datasets and invalid extents befor
 });
 
 test('wide-view shields use actual generalized route attributes and WGS84 polylines from one fixed USGS layer',async()=>{
-  const data={type:'FeatureCollection',features:[{type:'Feature',id:4,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:4,INTERSTATE:'57',US_ROUTE:null,ST_ROUTE:null,NAME:'Official source name'}}]};
+  const data={type:'FeatureCollection',features:[{type:'Feature',id:4,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:4,INTERSTATE:'57',US_ROUTE:null,ST_ROUTE:null,NAME:'Official source name',STFIPS:'17',STATE:'IL'}}]};
   const api=fixture(async(source,options)=>{
     const url=new URL(source);
     assert.equal(url.origin,'https://carto.nationalmap.gov');assert.equal(url.pathname,'/arcgis/rest/services/transportation/MapServer/9/query');
     assert.equal(url.searchParams.get('f'),'geojson');assert.equal(url.searchParams.get('outSR'),'4326');assert.equal(url.searchParams.get('inSR'),'3857');
     assert.equal(url.searchParams.get('returnGeometry'),'true');assert.equal(url.searchParams.get('returnM'),'false');assert.equal(url.searchParams.get('resultRecordCount'),'2000');
-    assert.equal(url.searchParams.get('outFields'),'OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME');
+    assert.equal(url.searchParams.get('outFields'),'OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME,STFIPS,STATE');
     assert.equal(url.searchParams.get('where'),"(INTERSTATE IS NOT NULL AND INTERSTATE NOT IN ('', ' ')) OR (US_ROUTE IS NOT NULL AND US_ROUTE NOT IN ('', ' ')) OR (ST_ROUTE IS NOT NULL AND ST_ROUTE NOT IN ('', ' '))");
     assert.deepEqual(JSON.parse(url.searchParams.get('geometry')),{xmin:-10025000,ymin:4735000,xmax:-9625000,ymax:5035000,spatialReference:{wkid:3857}});
     assert.equal(url.searchParams.get('layer'),null);assert.equal(url.searchParams.get('url'),null);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
@@ -120,7 +120,7 @@ test('detailed shields query separate fixed Interstate, US and State route sourc
   const features=[
     {type:'Feature',id:1,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:1,permanent_identifier:'official-a',interstate:'57',interstate_a:'57',us_route:null,state_route:null}},
     {type:'Feature',id:2,geometry:{type:'MultiLineString',coordinates:[[[-88.3,40.1],[-88.2,40.2]]]},properties:{OBJECTID:2,permanent_identifier:'official-b',interstate:null,us_route:'150',us_route_a:'150',state_route:null}},
-    {type:'Feature',id:3,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:3,permanent_identifier:'official-c',interstate:null,us_route:null,state_route:'10',state_route_a:'10'}},
+    {type:'Feature',id:3,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:{OBJECTID:3,permanent_identifier:'official-c',interstate:null,us_route:null,state_route:'10',state_route_a:'10',stco_fipscode:'17019'}},
   ];
   const api=fixture(async(source,options)=>{
     const url=new URL(source),layer=Number(url.pathname.split('/').at(-2));seen.push(layer);
@@ -128,13 +128,31 @@ test('detailed shields query separate fixed Interstate, US and State route sourc
     const field={16:'interstate',17:'us_route',18:'state_route'}[layer];
     assert.equal(url.searchParams.get('where'),[field,field+'_a',field+'_b',field+'_c'].map(key=>`(${key} IS NOT NULL AND ${key} NOT IN ('', ' '))`).join(' OR '));
     assert.match(url.searchParams.get('outFields'),/permanent_identifier,interstate,us_route,state_route/);
-    assert.match(url.searchParams.get('outFields'),/state_route_a,state_route_b,state_route_c,name$/);
+    assert.match(url.searchParams.get('outFields'),/state_route_a,state_route_b,state_route_c,name,stco_fipscode$/);
     assert.equal(url.searchParams.get('outSR'),'4326');assert.equal(options.cache,'no-store');
     return Response.json({type:'FeatureCollection',features:[features[layer-16]]});
   });
   const response=await api.GET(request('op=route-features&dataset=roads&z=10&bbox=-10025000,4735000,-9625000,5035000'));
   const body=await response.json();assert.equal(response.status,200);assert.deepEqual(seen.sort(),[16,17,18]);
   assert.equal(body.sources.length,3);assert.equal(body.source,body.sources[0]);assert.deepEqual(body.data,{type:'FeatureCollection',features});
+});
+
+test('route jurisdiction remains raw and distinguishes identical state-route numbers across state lines',async()=>{
+  for(const [zoom,properties] of [
+    [9,[{ST_ROUTE:'10',STFIPS:'17',STATE:'IL'},{ST_ROUTE:'10',STFIPS:'18',STATE:'IN'},{ST_ROUTE:'10',STFIPS:null,STATE:null}]],
+    [10,[{state_route:'10',stco_fipscode:'17019'},{state_route:'10',stco_fipscode:'18045'},{state_route:'10',stco_fipscode:null}]],
+  ]) {
+    const features=properties.map((p,index)=>({type:'Feature',id:index,geometry:{type:'LineString',coordinates:[[-88.3,40.1],[-88.2,40.2]]},properties:p}));
+    const api=fixture(async(source)=>{
+      const url=new URL(source),fields=url.searchParams.get('outFields').split(',');
+      if(zoom===9) {assert.ok(fields.includes('STFIPS'));assert.ok(fields.includes('STATE'));}
+      else assert.ok(fields.includes('stco_fipscode'));
+      return Response.json({type:'FeatureCollection',features:url.pathname.includes('/16/')||zoom===9?features:[]});
+    });
+    const response=await api.GET(request(`op=route-features&dataset=roads&z=${zoom}&bbox=-10025000,4735000,-9625000,5035000`));
+    const body=await response.json();assert.equal(response.status,200);assert.deepEqual(body.data.features,features);
+    assert.equal(body.data.features[2].properties[zoom===9?'STFIPS':'stco_fipscode'],null);
+  }
 });
 
 test('broad route extents prioritize actual major-route classes and exclude observed single-space blanks',async()=>{

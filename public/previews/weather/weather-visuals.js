@@ -264,7 +264,7 @@
       const item = node('span', 'wv-dial-extreme'); item.dataset.extreme = kind; item.dataset.kind = source;
       const known = sample && finite(sample.fahrenheit);
       if (known) {
-        const prefix = source === 'forecast' ? 'F' : 'O', hasTime = finite(sample.sampleTime);
+        const prefix = current ? source === 'forecast' ? 'F' : 'O' : '', hasTime = finite(sample.sampleTime);
         if (hasTime) {
           const time = clockParts(sample.sampleTime), minute = Number(time.hour) * 60 + Number(time.minute);
           const repeated = source === 'forecast' && day?.segments.find((segment) => segment.start === sample.sampleTime)?.repeated;
@@ -277,12 +277,12 @@
           const label = shape(mark, 'text', { x: point.x, y: point.y + 2.7, 'text-anchor': 'middle' }); label.textContent = prefix + kind;
           shape(mark, 'title', {}).textContent = source + ' ' + kind + ' ' + formatNumber.format(sample.fahrenheit) + '° at ' + clockLabel(sample.sampleTime);
         }
-        const value = node('strong', 'wv-dial-extreme-value', prefix + ' ' + kind + ' ' + formatNumber.format(sample.fahrenheit) + '°');
+        const value = node('strong', 'wv-dial-extreme-value', [prefix, kind, formatNumber.format(sample.fahrenheit) + '°'].filter(Boolean).join(' '));
         value.style.setProperty('--wv-temperature-color', colorAt(sample.fahrenheit));
         item.append(value);
         if (hasTime) { const time = node('time', 'wv-dial-extreme-time', clockLabel(sample.sampleTime)); time.dateTime = new Date(sample.sampleTime).toISOString(); item.append(time); }
         item.title = source === 'observed' ? 'Highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme.' : hasTime ? 'Extrema of supplied forecast hours' : 'Official NWS period value; hourly timing unavailable';
-      } else item.append(node('strong', 'wv-dial-extreme-value', (source === 'forecast' ? 'F' : 'O') + ' ' + kind + ' —'));
+      } else item.append(node('strong', 'wv-dial-extreme-value', [current ? source === 'forecast' ? 'F' : 'O' : '', kind, '—'].filter(Boolean).join(' ')));
       extrema.append(item);
     });
     const face = node('div', 'wv-dial-face'); face.append(svg);
@@ -310,7 +310,7 @@
     const coverage = pending && !hasData ? 'Hourly forecast loading' : !hasData ? 'Hourly timeline unavailable' : (stale ? 'STALE · ' : '') + (day.partial ? 'Partial · ' : '') + formatNumber.format(day.coverageHours) + '/' + day.expectedHours + ' h supplied';
     if (!current && !hasData) center.append(node('span', 'wv-dial-unavailable', pending ? 'Hourly forecast loading' : 'Hourly timeline unavailable'));
     if (stale) center.append(node('span', 'wv-dial-unavailable', 'STALE forecast'));
-    root.title = coverage + '. Forecast F H/L uses supplied forecast hours. O H/L is the highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme. Inner observed colors interpolate only between actual reports at most 90 minutes apart; gray gaps are unknown. ' + (day?.clockChange || '');
+    root.title = coverage + (current ? '. Forecast F H/L uses supplied forecast hours. O H/L is the highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme. Inner observed colors interpolate only between actual reports at most 90 minutes apart; gray gaps are unknown. ' : '. Forecast H/L uses supplied forecast hours; gray gaps are unknown. ') + (day?.clockChange || '');
     root.setAttribute('aria-label', (current ? 'Current observed temperature and today’s' : day?.label || 'Daily') + ' forecast temperature timeline. ' + root.title);
     return root;
   }
@@ -418,7 +418,7 @@
     return finite(value) ? String(value) : '';
   }
 
-  function wind(speedText, direction, { forecast = false, gustText = null } = {}) {
+  function wind(speedText, direction, { forecast = false, gustText = null, gustLabel = null } = {}) {
     const speed = windText(speedText);
     const bearing = windDirection(direction);
     const calm = /^(?:0(?:\.0+)?\s*(?:mph|kt|knots|km\/h|m\/s)?|calm)$/i.test(speed);
@@ -449,7 +449,11 @@
     value.setAttribute('aria-label', accessible);
     copy.append(value);
     const gust = windText(gustText);
-    if (gust) copy.append(node('span', 'wv-wind-gust', (forecast ? 'Forecast gusts ' : 'Gusts ') + gust));
+    if (gust) {
+      const gustValue = node('span', 'wv-wind-gust', (gustLabel || (forecast ? 'Forecast gusts' : 'Gusts')) + ' ' + gust);
+      gustValue.setAttribute('aria-label', (forecast ? 'Forecast gusts ' : 'Observed gusts ') + gust);
+      copy.append(gustValue);
+    }
     root.title = accessible;
     root.append(compass, copy);
     return root;

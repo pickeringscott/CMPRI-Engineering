@@ -85,6 +85,15 @@ test('a complete Central day maps times around the dial and uses only actual sup
       assert.match(segment.getAttribute('stroke'), /^url\(#wv-dial-/);
       assert.equal(dial.querySelector(segment.getAttribute('stroke').slice(4, -1)).querySelectorAll('stop').length, 9, 'smooth ramp uses local temperature colors');
     }
+    assert.deepEqual(Array.from(dial.querySelectorAll('.wv-dial-marker text'), (label) => label.textContent), ['H', 'L']);
+    const current = f.visuals.temperatureDial(day, { current: true, observedTemperature: -5 });
+    assert.deepEqual(Array.from(current.querySelectorAll('.wv-dial-marker[data-kind="forecast"] text'), (label) => label.textContent), ['FH', 'FL'], 'Current retains forecast/observed distinctions');
+    assert.match(current.querySelector('.wv-dial-extreme-value').textContent, /^F H /);
+    const fill = (wheel) => Array.from(wheel.querySelectorAll('.wv-dial-segment'), (arc) => ({
+      path: arc.getAttribute('d'), temperature: arc.dataset.airTemperature,
+      colors: Array.from(wheel.querySelector(arc.getAttribute('stroke').slice(4, -1)).querySelectorAll('stop'), (stop) => [stop.getAttribute('offset'), stop.getAttribute('stop-color')]),
+    }));
+    assert.deepEqual(fill(dial), fill(current), 'Extended label simplification preserves today’s supplied forecast ring fill');
   } finally { f.close(); }
 });
 
@@ -162,7 +171,8 @@ test('KCMI observation renders before forecast; hourly cards share the palette a
     assert.match(current.querySelector('.wv-temperature-dial').title, /Hourly forecast loading/);
     assert.match(f.window.document.getElementById('liveObservationTime').textContent, /2026-11-20 11:53 CST/);
     assert.equal(f.window.document.getElementById('liveFeelsLike').textContent, 'Feels -21°');
-    resolveForecast({ ok: true, json: async () => ({ resources: { forecast, hourly: { status: 'live', data: { properties: { periods: rawHours } } }, grid: { status: 'unavailable' } } }) });
+    resolveForecast({ ok: true, json: async () => ({ resources: { forecast, hourly: { status: 'live', data: { properties: { periods: rawHours } } },
+      grid: { status: 'live', data: { properties: { windGust: { uom: 'wmoUnit:mi_h-1', values: [{ validTime: '2026-11-20T18:00:00Z/PT3H', value: 20 }] } } } } } }) });
     await opened;
     assert.equal(current.querySelector('.wv-temperature-value').textContent, '-10°', 'forecast never replaces the observed center');
     assert.equal(current.querySelectorAll('.wv-dial-segment').length, 3);
@@ -170,13 +180,16 @@ test('KCMI observation renders before forecast; hourly cards share the palette a
     assert.equal(hourly.className, 'forecast-card hourly-forecast-card');
     assert.ok(hourly.querySelector('.hourly-condition-main>.wv-condition'));
     assert.equal(hourly.querySelector('.wv-temperature-scale'), null);
+    assert.equal(hourly.querySelector('.wv-wind-gust').textContent, 'Gusts 20 mph');
+    assert.equal(hourly.querySelector('.wv-wind-gust').getAttribute('aria-label'), 'Forecast gusts 20 mph', 'compact visible copy preserves forecast semantics');
+    assert.equal(hourly.querySelector('.forecast-validity'), null, 'hourly time is shown once at the top');
     assert.ok(hourly.querySelector('.forecast-card-heading'));
     assert.ok(hourly.querySelector('.wv-temperature'));
     assert.equal(hourly.querySelector('.wv-temperature').dataset.temperatureColor, f.visuals.colorAt(0));
     assert.equal(hourly.querySelector('.wv-temperature-dial'), null, 'hourly layout stays as cards');
     const daily = f.window.document.querySelector('#extendedForecast [data-day="2026-11-22"]');
     assert.equal(daily.querySelector('.wv-temperature-dial').dataset.coverage, 'unavailable');
-    assert.match(daily.querySelector('.wv-dial-face').textContent, /F H 30°/);
+    assert.match(daily.querySelector('.wv-dial-face').textContent, /H 30°/);
     assert.equal(daily.querySelector('.wv-official-day-values'), null);
     assert.equal(daily.querySelectorAll('.wv-dial-marker').length, 0);
     assert.equal(f.window.document.querySelector('#nwsHourlySource, #nwsExtendedSource, #nwsAccumulationSource, #liveFeedStatus'), null);
