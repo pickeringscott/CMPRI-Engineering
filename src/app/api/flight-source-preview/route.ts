@@ -6,6 +6,7 @@ const SOURCES = {
   arrivals: "https://www.avionio.com/widget/en/cmi/arrivals?style=3",
   departures: "https://www.avionio.com/widget/en/cmi/departures?style=3",
   tracker: "https://avioadsb.org/flight-tracker-widget",
+  builder: "https://avioadsb.org/js/widget-builder.js?v=b7f82c07f3",
 } as const;
 export async function GET(request: Request) {
   const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
   try {
     const response = await fetch(source, { credentials: "omit", redirect: "error", cache: "no-store", signal });
-    if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) throw new Error("Provider document unavailable: " + response.status);
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok || !(part === "builder" ? /(?:text|application)\/javascript/i.test(contentType) : contentType.includes("text/html"))) throw new Error("Provider document unavailable: " + response.status);
     if (!response.body) throw new Error("Missing document body");
     const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
     try {
