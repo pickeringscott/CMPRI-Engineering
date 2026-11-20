@@ -13,9 +13,11 @@ Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REAC
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react');
 const {createRoot}=await import('react-dom/client');
+let verifySession, authorizationChecks=0;
 const require=createRequire(import.meta.url), globals={exports:{},window,document,URL,Promise};
 globals.require=name=>{
   if(['react','react/jsx-runtime'].includes(name))return require(name);
+  if(name==='@/lib/auth/client-session')return {loadCmpriSession:()=>{authorizationChecks++;return verifySession();}};
   if(name==='@/lib/ui/workspace-resume')return workspace;
   if(name==='@/lib/ui/workspace-route-access')return {canResumeWorkspaceView};
   throw Error('Unexpected import '+name);
@@ -34,7 +36,7 @@ function Harness({principal=session}){
   return React.createElement(Component,{session:principal,allowedHrefs:['/notes','/profile','/engineering/preventive-maintenance'],views:desktop.views,zOrder:desktop.zOrder,
     onRestore:value=>{restored.push(value);setState(value);},onNavigate:href=>navigated.push(href),onStorageError:()=>failures++,onSessionChanged:()=>sessionChanges++});
 }
-function reset(){window.localStorage.clear();window.history.replaceState({},'','/engineering');restored=[];navigated=[];failures=0;sessionChanges=0;}
+function reset(){window.localStorage.clear();window.history.replaceState({},'','/engineering');restored=[];navigated=[];failures=0;sessionChanges=0;authorizationChecks=0;verifySession=async()=>session;}
 async function settle(){for(let i=0;i<5;i++)await new Promise(resolve=>setImmediate(resolve));}
 async function mount(principal=session){const root=createRoot(document.getElementById('root'));await React.act(async()=>{root.render(React.createElement(Harness,{principal}));await settle();});return root;}
 async function close(root){await React.act(async()=>root.unmount());}
@@ -90,14 +92,46 @@ test('changing the verified principal rebuilds the dashboard without copying its
   }finally{await close(root);}
 });
 
-test('session invalidation stops persistence and requests fresh dashboard authorization',async()=>{
+function invalidate(){window.dispatchEvent(new dom.window.CustomEvent('cmpri-data-cache-invalidated',{detail:{topics:['session']}}));}
+
+test('same-scope cache reconciliation verifies once and resumes pending navigation without a reload',async()=>{
   reset();seed({desktop:{views:[frame('/profile')],zOrder:['/profile']}});const root=await mount();
+  let release;verifySession=()=>new Promise(resolve=>release=resolve);
   try{
-    window.dispatchEvent(new dom.window.CustomEvent('cmpri-data-cache-invalidated',{detail:{topics:['session']}}));
-    await React.act(async()=>{setDesktop({views:[],zOrder:[]});await settle();});
+    await React.act(async()=>{invalidate();invalidate();setDesktop({views:[],zOrder:[]});await settle();});
     window.dispatchEvent(new dom.window.Event('pagehide'));
-    assert.equal(sessionChanges,1);
+    assert.equal(authorizationChecks,1);assert.equal(sessionChanges,0);
     assert.equal(workspace.readWorkspace(window.localStorage,identity,options).desktop.views.length,1);
+    await React.act(async()=>{release(session);await settle();});
+    assert.equal(sessionChanges,0);
+    assert.deepEqual(workspace.readWorkspace(window.localStorage,identity,options).desktop.views,[]);
+  }finally{await close(root);}
+});
+
+test('changed or revoked fresh authorization rebuilds before adopting another principal',async()=>{
+  for(const next of [{...session,capabilities:['view_work_orders']},null]){
+    reset();seed({desktop:{views:[frame('/profile')],zOrder:['/profile']}});const root=await mount();
+    verifySession=async()=>{if(!next)throw Error('Fixture revoked');return next;};
+    try{
+      await React.act(async()=>{invalidate();await settle();});
+      await React.act(async()=>{setDesktop({views:[],zOrder:[]});await settle();});
+      window.dispatchEvent(new dom.window.Event('pagehide'));invalidate();
+      assert.equal(sessionChanges,1);assert.equal(authorizationChecks,1);
+      assert.equal(workspace.readWorkspace(window.localStorage,identity,options).desktop.views.length,1);
+    }finally{await close(root);}
+  }
+});
+
+test('sign-out during fresh authorization cannot resume persistence or reload before revocation finishes',async()=>{
+  reset();seed({desktop:{views:[frame('/profile')],zOrder:['/profile']}});const root=await mount();
+  let release;verifySession=()=>new Promise(resolve=>release=resolve);
+  try{
+    invalidate();
+    await React.act(async()=>window.dispatchEvent(new dom.window.Event('cmpri-workspace-sign-out')));
+    await React.act(async()=>{release(session);await settle();});
+    invalidate();window.dispatchEvent(new dom.window.Event('pagehide'));
+    assert.equal(sessionChanges,0);assert.equal(authorizationChecks,1);
+    assert.equal(window.localStorage.getItem(workspace.workspaceStorageKey(identity)),null);
   }finally{await close(root);}
 });
 
@@ -106,7 +140,9 @@ test('sign-out clears only navigation and late pagehide cannot recreate it or er
   const root=await mount();
   try{
     await React.act(async()=>window.dispatchEvent(new dom.window.Event('cmpri-workspace-sign-out')));
+    invalidate();
     window.dispatchEvent(new dom.window.Event('pagehide'));
+    assert.equal(sessionChanges,0);assert.equal(authorizationChecks,0);
     assert.equal(window.localStorage.getItem(workspace.workspaceStorageKey(identity)),null);
     assert.equal(window.localStorage.getItem('fixture-notes-outbox'),'unsynced text');
   }finally{await close(root);}
