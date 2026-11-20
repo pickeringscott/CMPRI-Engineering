@@ -104,7 +104,7 @@ test('wide-view shields use actual generalized route attributes and WGS84 polyli
     assert.equal(url.searchParams.get('f'),'geojson');assert.equal(url.searchParams.get('outSR'),'4326');assert.equal(url.searchParams.get('inSR'),'3857');
     assert.equal(url.searchParams.get('returnGeometry'),'true');assert.equal(url.searchParams.get('returnM'),'false');assert.equal(url.searchParams.get('resultRecordCount'),'2000');
     assert.equal(url.searchParams.get('outFields'),'OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME');
-    assert.equal(url.searchParams.get('where'),"(INTERSTATE IS NOT NULL AND INTERSTATE <> '') OR (US_ROUTE IS NOT NULL AND US_ROUTE <> '') OR (ST_ROUTE IS NOT NULL AND ST_ROUTE <> '')");
+    assert.equal(url.searchParams.get('where'),"(INTERSTATE IS NOT NULL AND INTERSTATE NOT IN ('', ' ')) OR (US_ROUTE IS NOT NULL AND US_ROUTE NOT IN ('', ' ')) OR (ST_ROUTE IS NOT NULL AND ST_ROUTE NOT IN ('', ' '))");
     assert.deepEqual(JSON.parse(url.searchParams.get('geometry')),{xmin:-10025000,ymin:4735000,xmax:-9625000,ymax:5035000,spatialReference:{wkid:3857}});
     assert.equal(url.searchParams.get('layer'),null);assert.equal(url.searchParams.get('url'),null);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
     return Response.json(data);
@@ -126,7 +126,7 @@ test('detailed shields query separate fixed Interstate, US and State route sourc
     const url=new URL(source),layer=Number(url.pathname.split('/').at(-2));seen.push(layer);
     assert.equal(url.origin,'https://carto.nationalmap.gov');assert.ok([16,17,18].includes(layer));
     const field={16:'interstate',17:'us_route',18:'state_route'}[layer];
-    assert.equal(url.searchParams.get('where'),[field,field+'_a',field+'_b',field+'_c'].map(key=>`(${key} IS NOT NULL AND ${key} <> '')`).join(' OR '));
+    assert.equal(url.searchParams.get('where'),[field,field+'_a',field+'_b',field+'_c'].map(key=>`(${key} IS NOT NULL AND ${key} NOT IN ('', ' '))`).join(' OR '));
     assert.match(url.searchParams.get('outFields'),/permanent_identifier,interstate,us_route,state_route/);
     assert.match(url.searchParams.get('outFields'),/state_route_a,state_route_b,state_route_c,name$/);
     assert.equal(url.searchParams.get('outSR'),'4326');assert.equal(options.cache,'no-store');
@@ -135,6 +135,17 @@ test('detailed shields query separate fixed Interstate, US and State route sourc
   const response=await api.GET(request('op=route-features&dataset=roads&z=10&bbox=-10025000,4735000,-9625000,5035000'));
   const body=await response.json();assert.equal(response.status,200);assert.deepEqual(seen.sort(),[16,17,18]);
   assert.equal(body.sources.length,3);assert.equal(body.source,body.sources[0]);assert.deepEqual(body.data,{type:'FeatureCollection',features});
+});
+
+test('broad route extents prioritize actual major-route classes and exclude observed single-space blanks',async()=>{
+  for(const [zoom,fields] of [[7,['INTERSTATE']],[8,['INTERSTATE','US_ROUTE']],[9,['INTERSTATE','US_ROUTE','ST_ROUTE']]]) {
+    const api=fixture(async(source)=>{
+      const url=new URL(source);assert.equal(url.pathname,'/arcgis/rest/services/transportation/MapServer/9/query');
+      assert.equal(url.searchParams.get('where'),fields.map(field=>`(${field} IS NOT NULL AND ${field} NOT IN ('', ' '))`).join(' OR '));
+      return Response.json({type:'FeatureCollection',features:[]});
+    });
+    assert.equal((await api.GET(request(`op=route-features&dataset=roads&z=${zoom}&bbox=-10025000,4735000,-9625000,5035000`))).status,200);
+  }
 });
 
 test('route-feature requests reject arbitrary, duplicate, oversized or noncanonical viewport parameters before fetching',async()=>{

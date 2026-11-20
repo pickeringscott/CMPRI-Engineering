@@ -89,12 +89,14 @@ export async function GET(request: Request) {
     const fields = z <= 9 ? "OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME"
       : "OBJECTID,permanent_identifier,interstate,us_route,state_route,interstate_a,interstate_b,interstate_c,us_route_a,us_route_b,us_route_c,state_route_a,state_route_b,state_route_c,name";
     routeSources = layers.map((layer) => {
-      const routeFields = layer === 9 ? ["INTERSTATE", "US_ROUTE", "ST_ROUTE"]
+      const routeFields = layer === 9 ? z <= 7 ? ["INTERSTATE"] : z <= 8 ? ["INTERSTATE", "US_ROUTE"] : ["INTERSTATE", "US_ROUTE", "ST_ROUTE"]
         : layer === 16 ? ["interstate", "interstate_a", "interstate_b", "interstate_c"]
           : layer === 17 ? ["us_route", "us_route_a", "us_route_b", "us_route_c"]
             : ["state_route", "state_route_a", "state_route_b", "state_route_c"];
       return REFERENCES.roads.source + "/" + layer + "/query?" + new URLSearchParams({
-        f: "geojson", where: routeFields.map((field) => "(" + field + " IS NOT NULL AND " + field + " <> '')").join(" OR "),
+        // Generalized data uses a single space for an absent route number.
+        // Broad extents prioritize major routes instead of truncating state roads.
+        f: "geojson", where: routeFields.map((field) => "(" + field + " IS NOT NULL AND " + field + " NOT IN ('', ' '))").join(" OR "),
         outFields: fields, returnGeometry: "true", returnM: "false", geometryPrecision: "6",
         maxAllowableOffset: String(Math.max(0.000001, Math.min(0.01, 156543.033928 / 2 ** z / 111319.490793 / 2))),
         geometry: JSON.stringify({ xmin: bbox[0], ymin: bbox[1], xmax: bbox[2], ymax: bbox[3], spatialReference: { wkid: 3857 } }),
