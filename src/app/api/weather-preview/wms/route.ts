@@ -10,7 +10,7 @@ const SOURCES = {
   velocity: "https://opengeo.ncep.noaa.gov/geoserver/kilx/ows",
   precipitation: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows",
   // Official NDFD WMS endpoint documented by digital.weather.gov/staticpages/mapservices.php.
-  // Metadata discovery only until its forecast layer/style/VTIT contract is verified.
+  // Verified forecast raster uses WMS 1.1.1, empty style and an exact advertised VTIT.
   cloudCover: "https://digital.weather.gov/ndfd.conus/wms",
 } as const;
 type Product = keyof typeof SOURCES;
@@ -173,7 +173,7 @@ async function capabilities(product: Product, signal: AbortSignal) {
   let value: Capabilities;
   try { value = parseCapabilities(product, source, xml); }
   catch (error) {
-    // NDFD is metadata-only while its contract is under verification. Preserve
+    // Preserve
     // a bounded source response as a JSON string for inspection when an older
     // WMS document cannot be parsed. No DTD, entity or embedded URL is followed.
     if (product === "cloudCover") throw new CloudCapabilitiesDiagnostic(

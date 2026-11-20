@@ -188,10 +188,10 @@ class OfficialFeedFixtures:
         self.basemap_gate = asyncio.Event()
         self.basemap_pending = asyncio.Event()
         self.wms_requests = []
-        self.wms_modes = {name:'fresh' for name in ['reflectivity','velocity','precipitation','satellite','lightning']}
+        self.wms_modes = {name:'fresh' for name in ['reflectivity','velocity','precipitation','cloudCover']}
         self.wms_now = None
         self.wms_colors = {'reflectivity':(30,170,75,180),'velocity':(180,65,205,150),
-            'precipitation':(85,205,225,170),'satellite':(40,85,130,200),'lightning':(250,215,35,210)}
+            'precipitation':(85,205,225,170),'cloudCover':(40,85,130,200)}
         self.wms_legend_images = {}
         self.wms_held_products = set()
         self.wms_product_gates = {name:asyncio.Event() for name in self.wms_modes}
@@ -326,15 +326,24 @@ class OfficialFeedFixtures:
         return {'airport':'KCMI','iata':'CMI','timeZone':'America/Chicago','checkedAt':iso(self.now),'boards':boards}
 
     def wms(self, product):
+        now = self.wms_now or self.now
+        if product == 'cloudCover':
+            first = now.replace(minute=0, second=0, microsecond=0) + HOUR
+            values = [(first + offset * HOUR).strftime('%Y-%m-%dT%H:%M') for offset in range(3)]
+            return {'product':product,'source':'https://digital.weather.gov/ndfd.conus/wms?service=WMS&version=1.1.1&request=GetCapabilities',
+                'checkedAt':iso(self.now),'version':'1.1.1','mapFormats':['image/png','image/jpeg'],
+                'legendSupported':False,'xml':'<!-- explicit local NDFD 1.1.1 test fixture -->',
+                'layers':[{'name':'ndfd.conus.sky','title':'NDFD Forecast conus.sky',
+                    'abstract':'NDFD forecast opaque-cloud percentage; VTIT selects newest source issuance for an exact UTC valid time.',
+                    'crs':['EPSG:3857','EPSG:900913'],'styles':[],'time':None,
+                    'dimensions':{'vtit':{'units':None,'default':'1970-01-01T00:00','current':False,'values':','.join(values)}}}]}
         name, style, path = {
             "reflectivity": ("conus_bref_qcd", "radar_reflectivity", "conus/conus_bref_qcd/ows"),
             "velocity": ("kilx_sr_bvel", "radar_velocity", "kilx/ows"),
             "precipitation": ("conus_pcpn_typ", "radar_precip_type", "conus/conus_pcpn_typ/ows"),
-            'satellite':('goes_longwave_imagery','goes-lir','observations/satellite/ows'),
-            'lightning':('ldn_lightning_strike_density','lightning_density','observations/lightning_detection/ows'),
         }[product]
-        source = ('https://nowcoast.noaa.gov/geoserver/' if product in ['satellite','lightning'] else 'https://opengeo.ncep.noaa.gov/geoserver/') + path
-        age = 180 if self.wms_modes[product] == 'stale' else {'satellite':9,'lightning':2,'precipitation':6}.get(product,4)
+        source = 'https://opengeo.ncep.noaa.gov/geoserver/' + path
+        age = 180 if self.wms_modes[product] == 'stale' else {'precipitation':6}.get(product,4)
         now = self.wms_now or self.now
         times = ([iso(datetime.fromtimestamp(value / 1000, timezone.utc)) for value in self.scan_times]
                  if product == "reflectivity" else [iso(now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]])
@@ -424,7 +433,7 @@ class OfficialFeedFixtures:
                 if not route.request.failure: raise
             return
         if parsed.path == "/api/weather-preview/wms":
-            params = parse_qs(parsed.query)
+            params = parse_qs(parsed.query, keep_blank_values=True)
             product, operation = [params.get(key, [""])[0] for key in ["product", "op"]]
             require(product in self.wms_modes and operation in ["capabilities", "map", "legend"],
                     "WMS fixture received an unsupported product or operation")
@@ -443,12 +452,21 @@ class OfficialFeedFixtures:
             metadata = self.wms_metadata.get(product)
             require(metadata is not None, "WMS image requested before advertised metadata was read")
             layer = metadata["layers"][0]
-            require(params.get("layer") == [layer["name"]] and params.get("style") == [layer["styles"][0]["name"]],
+            cloud = product == 'cloudCover'
+            advertised_style = '' if cloud else layer['styles'][0]['name']
+            require(not cloud or operation == 'map', 'NDFD does not advertise a PNG legend; no legend request is permitted')
+            require(params.get("layer") == [layer["name"]] and params.get("style") == [advertised_style],
                     "WMS image did not use an actually advertised layer and style")
             if operation == "map":
                 provided_time = datetime.fromisoformat(params.get("time", [""])[0].replace("Z", "+00:00"))
-                advertised_times = [datetime.fromisoformat(value.replace("Z", "+00:00"))
-                                    for value in layer["time"]["values"].split(",")]
+                if cloud:
+                    require(params['time'][0] in layer['dimensions']['vtit']['values'].split(',')
+                            and not params['time'][0].endswith('Z') and params['time'][0] != '1970-01-01T00:00',
+                            'Cloud maps must preserve exact advertised source VTIT instead of a UTC display timestamp or source default')
+                    advertised_values = layer['dimensions']['vtit']['values']
+                else:
+                    advertised_values = layer['time']['values']
+                advertised_times = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in advertised_values.split(',')]
                 require(provided_time in advertised_times,
                         "WMS map time was not advertised by its capabilities")
                 width, height = [int(params[key][0]) for key in ["width", "height"]]
@@ -473,17 +491,18 @@ class OfficialFeedFixtures:
                     self.wms_product_pending[product].set()
                     await self.wms_product_gates[product].wait()
             else:
-                width,height={'satellite':(46,62),'lightning':(292,46)}.get(product,(500,30))
+                width,height=500,30
                 if self.wms_legend_delay:
                     await asyncio.sleep(self.wms_legend_delay)
             color = self.wms_colors[product]
             source_parameters = {
-                "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
+                "SERVICE": "WMS", "VERSION": "1.1.1" if cloud else "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
                 "LAYERS" if operation == "map" else "LAYER": layer["name"],
-                "STYLES" if operation == "map" else "STYLE": layer["styles"][0]["name"], "FORMAT": "image/png"}
+                "STYLES" if operation == "map" else "STYLE": advertised_style, "FORMAT": "image/png"}
             if operation == "map":
-                source_parameters.update({"CRS": "EPSG:3857", "BBOX": params["bbox"][0],
-                    "WIDTH": str(width), "HEIGHT": str(height), "TIME": params["time"][0]})
+                source_parameters.update({'SRS' if cloud else 'CRS': 'EPSG:3857', 'BBOX': params['bbox'][0],
+                    'WIDTH': str(width), 'HEIGHT': str(height), 'VTIT' if cloud else 'TIME': params['time'][0]})
+                if cloud: source_parameters['EXCEPTIONS'] = 'application/vnd.ogc.se_xml'
             source = metadata["source"].split("?")[0] + "?" + urlencode(source_parameters)
             if product == "reflectivity":
                 self.map_urls.append(source)

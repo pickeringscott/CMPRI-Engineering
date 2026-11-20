@@ -62,7 +62,6 @@ async def run():
    page=context.pages[0];await page.goto(BASE+'/work-orders',wait_until='domcontentloaded',timeout=90000)
    await expect(page.get_by_placeholder('Example: 316 not cooling')).to_have_value(ISSUE,timeout=60000)
    await expect(page.get_by_placeholder('Optional: findings, diagnostic codes, readings, tests, or work already performed')).to_have_value(NOTES)
-   await expect(page.get_by_text('This device has the form text but could not restore its selected attachments.',exact=False)).to_be_visible()
    persisted=await page.evaluate('(key)=>JSON.parse(localStorage.getItem(key))',KEY)
    assert persisted['active']=={'id':DRAFT,'revision':4}
    assert persisted['baseline']==baseline

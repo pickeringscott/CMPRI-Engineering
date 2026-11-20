@@ -15,6 +15,7 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
 }) {
   const [files, setFiles] = useState<Pending[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [ready, setReady] = useState(false), [conflict, setConflict] = useState<AttachmentDraft | null>(null);
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const pending = useRef<Pending[]>([]), active = useRef(true), inFlight = useRef(false);
   const owner = useRef<AttachmentDraftScope | null>(null), identity = useRef("");
   const persistence = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -42,10 +43,26 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
     if (active.current) { setFiles(next); callbacks.current.onPendingChange(!!next.length || !!recoveryConflict.current); }
     if (save) void persist();
   }
-  function remove(id: string) {
-    const item = pending.current.find(item => item.id === id);
-    if (item) URL.revokeObjectURL(item.url);
-    replace(pending.current.filter(item => item.id !== id));
+  async function remove(id: string, acknowledged = false) {
+    if (!acknowledged && inFlight.current) return false;
+    const scope = owner.current;
+    const previous = pending.current;
+    const next = previous.filter(item => item.id !== id);
+    const item = previous.find(item => item.id === id);
+    if (!acknowledged) { inFlight.current = true; setBusy(true); onBusyChange(true); }
+    // Lifecycle flushes must see the intended remaining set while the delete
+    // commits, so they cannot resurrect the removed file after that transaction.
+    pending.current = next;
+    try {
+      const retained = await persist();
+      if (!active.current || owner.current !== scope) return false;
+      if (!retained) { pending.current = previous; return false; }
+      if (item) URL.revokeObjectURL(item.url);
+      replace(next, false);
+      return true;
+    } finally {
+      if (!acknowledged) { inFlight.current = false; if (active.current) { setBusy(false); onBusyChange(false); } }
+    }
   }
   function restored(draft: AttachmentDraft) {
     const rows = draft.files.map(item => ({ file: item.file, id: item.uploadId, url: URL.createObjectURL(item.file) }));
@@ -86,14 +103,14 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
       const retained = await readAttachmentDraft(scope);
       const current = await getValidSession();
       if (cancelled || !active.current || !current || current.user.id !== scope.userId) return;
-      hydrated.current = true;
+      hydrated.current = true; setError("");
       if (retained?.files.length) {
         if (retained.draftIdentity !== identity.current) {
           recoveryConflict.current = retained; setConflict(retained); callbacks.current.onPendingChange(true);
         } else { restored(retained); setError("Recovered selected attachments from this device. Submit Note to upload them."); }
       }
       setReady(true);
-    })().catch(cause => { reportFailure(cause); if (owner.current && !cancelled) setReady(true); });
+    })().catch(reportFailure);
     callbacks.current.onRecoveryActions?.({
       flush: async () => { if (recoveryConflict.current) return true; return persist(); },
       discard: async () => {
@@ -119,7 +136,7 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
     };
     // The ticket owns this composer instance; revision changes from acknowledged text saves keep the same selected bytes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workOrderId]);
+  }, [workOrderId, recoveryAttempt]);
   useEffect(() => {
     if (owner.current && !recoveryConflict.current && Number.isSafeInteger(revision)) {
       identity.current = `ticket:${workOrderId}:${revision}`;
@@ -145,13 +162,12 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
           const result = await uploadWorkOrderAttachment(workOrderId, item.file, session.access_token, item.id);
           if (!active.current || owner.current !== scope) return;
           if (!result.ok) throw new Error(result.message);
-          remove(item.id);
-          await persistence.current;
+          if (!await remove(item.id, true)) throw new Error("Attachment saved, but its device recovery could not be cleared. Retry to confirm cleanup before closing.");
         }
         if (active.current) await onUploaded();
       }
       if (active.current && owner.current === scope && hasNote) await onSubmitNote();
-    } catch (cause) { if (active.current) { reportFailure(cause); await onUploaded(); } }
+    } catch (cause) { if (active.current && owner.current === scope) { reportFailure(cause); await onUploaded(); } }
     finally { inFlight.current = false; if (active.current) { setBusy(false); onBusyChange(false); } }
   }
   return <>
@@ -162,11 +178,12 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
       <button type="button" className="ml-3 underline" onClick={() => {
         const scope = owner.current;
         if (!scope || !window.confirm("Discard the recovered attachments from this device?")) return;
-        void clearAttachmentDraft(scope).then(() => { recoveryConflict.current = null; hasStoredWork.current = false; setConflict(null); replace([], false); }, reportFailure);
+        void clearAttachmentDraft(scope).then(() => { if (owner.current !== scope || !active.current) return; recoveryConflict.current = null; hasStoredWork.current = false; setConflict(null); replace([], false); }, reportFailure);
       }}>Discard Recovered Attachments</button>
     </div>}
+    {!ready && error && <button type="button" className="my-1 text-xs underline" onClick={() => setRecoveryAttempt(value => value + 1)}>Retry Attachment Recovery</button>}
     <div className="preview-note-actions"><div className="preview-note-thumbnails">{[...files].reverse().map(item => <span className="preview-note-thumbnail" key={item.id}>{item.file.type.startsWith("video/") ? <video src={item.url} muted preload="metadata" /> : <picture style={{ display: "contents" }}><img src={item.url} alt={item.file.name} /></picture>}<button type="button" disabled={busy || disabled} onClick={() => remove(item.id)} aria-label={"Remove " + item.file.name}>×</button></span>)}</div>
-      <WorkOrderMediaControl disabled={busy || disabled || !ready || !!conflict} onSelect={chosen => { hydrated.current = true; replace([...pending.current, ...chosen.map(file => ({ file, id: crypto.randomUUID(), url: URL.createObjectURL(file) }))]); }} />
+      <WorkOrderMediaControl disabled={busy || disabled || !ready || !!conflict} onSelect={chosen => { if (!owner.current || !ready || disabled || busy || recoveryConflict.current) return; hydrated.current = true; replace([...pending.current, ...chosen.map(file => ({ file, id: crypto.randomUUID(), url: URL.createObjectURL(file) }))]); }} />
       <button type="button" onClick={() => void submit()} disabled={busy || disabled || !ready || !!conflict || (!hasNote && !files.length)} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Saving…" : "Submit Note"}</button>
     </div>{error && <p role="alert" className="text-xs text-amber-200">{error}</p>}
   </>;

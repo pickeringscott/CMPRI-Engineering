@@ -35,6 +35,8 @@ function fixture() {
     wmsLayers.ptype.legendUrl = 'blob:official-ptype-png';
     reflectivityLegendUrl = 'blob:official-reflectivity-png'; updateUI();
   };
+  window.forecastClockProbe = () => { state.enabled.cloudCover = true;
+    wmsLayers.cloudCover.state.displayedTime = '2026-11-20T13:00Z'; updateUI(); };
 ${marker}`));
   const api = window.cmpriWeatherMap;
   api.init();
@@ -95,23 +97,25 @@ for (const order of [['roads', 'impacts'], ['impacts', 'roads']]) {
   });
 }
 
-test('cloud-cover unavailable control never substitutes imagery or changes selected layers', async () => {
+test('verified forecast cloud-cover control remains independent and reads no data before Weather opens', async () => {
   const f = fixture();
   try {
     const { document } = f.window;
     assert.equal(document.getElementById('mapLayerSatellite'), null);
     assert.equal(document.getElementById('mapLayerLightning'), null);
     const control = document.getElementById(buttons.cloudCover);
-    assert.equal(control.textContent.trim(), 'Cloud cover · unavailable');
+    assert.equal(control.textContent.trim(), 'Forecast cloud cover');
+    assert.match(control.title, /forecast percentage.*opaque clouds.*UTC valid time/i);
     f.click('velocity'); f.click('ptype'); f.click('roads'); f.click('impacts');
     const original = { reflectivity: true, velocity: true, ptype: true, alerts: true, roads: true, impacts: true };
     f.selected({ ...original, cloudCover: false });
     f.click('cloudCover'); f.selected({ ...original, cloudCover: true });
-    assert.match(document.getElementById('mapFeedStatus').textContent, /Cloud cover unavailable.*forecast cloud percentage/i);
-    assert.match(document.querySelector('[data-legend=cloudCover]').textContent, /Cloud cover.*UNAVAILABLE.*NWS forecast cloud %/i);
+    assert.doesNotMatch(document.getElementById('mapFeedStatus').textContent, /cloud cover unavailable/i);
+    assert.equal(document.querySelector('[data-legend=cloudCover]').textContent, 'Forecast cloud cover · %');
+    assert.match(document.querySelector('[data-legend=cloudCover]').title, /official PNG color key is not advertised/);
     assert.equal(document.querySelector('[data-legend=cloudCover] img'), null);
     assert.equal(document.querySelector('#mapLegend img'), null,
-      'selecting unavailable cloud cover cannot synthesize imagery or its legend');
+      'selecting forecast cloud cover before opening cannot synthesize imagery or a color key');
     f.click('cloudCover'); f.selected({ ...original, cloudCover: false });
     assert.equal(document.querySelector('[data-legend=cloudCover]'), null);
     assert.equal('satellite' in f.api.getState().layers, false);
@@ -185,5 +189,21 @@ test('official PNG keys share a compact borderless scale with readable units and
       assert.equal(glyph.textContent, '', 'source abbreviations are preserved as source pixels, without guessed expansions');
     }
     assert.equal(document.querySelector('.cmpri-map-source-legend'), null, 'native-size scrolling keys are removed');
+  } finally { await f.cleanup(); }
+});
+
+
+test('cloud forecast key displays source percent and UTC valid time in Central without an invented palette', async () => {
+  const f = fixture();
+  try {
+    const { document } = f.window;
+    f.window.forecastClockProbe();
+    const key = document.querySelector('[data-legend=cloudCover]');
+    assert.equal(key.querySelector('strong').textContent, 'Forecast cloud cover · %');
+    assert.match(key.textContent, /Valid Nov 20, 2026, 07:00 CST/);
+    assert.match(document.getElementById('scanTime').textContent, /Forecast cloud cover valid: Nov 20, 2026, 07:00 CST/);
+    assert.doesNotMatch(key.textContent, /unavailable/i);
+    assert.match(key.title, /official PNG color key is not advertised/);
+    assert.equal(key.querySelector('img,.cmpri-map-swatch'), null);
   } finally { await f.cleanup(); }
 });

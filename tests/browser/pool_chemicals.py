@@ -45,7 +45,9 @@ async def main():
    await expect(retry).to_be_visible()
    await expect(remarks).to_be_disabled();await expect(page.get_by_label('Pool chemical supply',exact=True)).to_be_disabled()
    await retry.click()
-   await expect(page.get_by_text('Pool log saved to the database.',exact=False)).to_be_visible()
+   await expect(page.get_by_text('No new readings to save; the pool log is unchanged.',exact=False)).to_be_visible()
+   await expect(remarks).to_have_value('')
+   assert row['remarks']=='Routine check\nChemical used: 16 OZ Bromine.'
    assert len(writes)==2 and writes[0]['chemical_uses']==writes[1]['chemical_uses'] and len(keys)==1 and item['quantity_on_hand']==9
    await expect(page.get_by_label('Pool chemical supply',exact=True).locator('option').last).to_contain_text('7 LB available')
    assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth'),width

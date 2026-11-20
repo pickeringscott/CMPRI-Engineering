@@ -9,7 +9,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from datetime import timedelta
@@ -40,25 +39,90 @@ async def wms_ready(frame, product):
     name = 'ptype' if product == 'precipitation' else product
     await wait_for(frame,"""name=>{const w=cmpriWeatherMap.getState().wmsLayers[name];
       return w && w.time && w.displayedTime===w.time && w.pending===0 && w.imageLoaded;}""",name)
-    await wait_for(frame,"""name=>{const image=document.getElementById('mapWmsLegend-'+name);
-      return image?.complete && image.naturalWidth>0;}""",name)
+    if product == 'cloudCover':
+        await wait_for(frame,"""()=>{const w=cmpriWeatherMap.getState().wmsLayers.cloudCover;
+          return w.kind==='forecast' && w.units==='%' && w.sourceTime+'Z'===w.displayedTime && !w.legendLoaded;}""")
+    else:
+        await wait_for(frame,"""name=>{const image=document.getElementById('mapWmsLegend-'+name);
+          return image?.complete && image.naturalWidth>0;}""",name)
     await asyncio.sleep(.06)
 
 
-async def unavailable_cloud(frame, fixture):
-    before = await frame.evaluate('cmpriWeatherMap.getState()')
-    calls = len(fixture.wms_requests)
-    require(await frame.locator('#mapLayerSatellite').count() == 0 and await frame.locator('#mapLayerLightning').count() == 0,
+async def cloud_lifecycle(page, frame, fixture, failed):
+    for name in ['velocity','ptype']: await select_product(frame,name,False)
+    await wms_ready(frame,'cloudCover')
+    initial=await frame.evaluate('cmpriWeatherMap.getState()')
+    before_pixel=await pixel(frame)
+    radar=(initial['displayedScanTime'],initial['displayedFrame'])
+    require(not initial['playing'],'Cloud lifecycle requires paused reflectivity')
+    counts=lambda:{name:sum(call['product']==name and call['op']=='capabilities' for call in fixture.wms_requests) for name in fixture.wms_modes}
+    before_counts=counts()
+    fixture.wms_now=fixture.now+timedelta(hours=1)
+    fixture.wms_held_products.add('cloudCover')
+    fixture.wms_product_gates['cloudCover'].clear();fixture.wms_product_pending['cloudCover'].clear()
+    await page.clock.fast_forward(300010)
+    await asyncio.wait_for(fixture.wms_product_pending['cloudCover'].wait(),timeout=5)
+    held=await frame.evaluate('cmpriWeatherMap.getState()')
+    require(held['wmsLayers']['cloudCover']['imageLoaded']
+            and held['wmsLayers']['cloudCover']['displayedTime']==initial['wmsLayers']['cloudCover']['displayedTime']
+            and held['wmsLayers']['cloudCover']['time']!=held['wmsLayers']['cloudCover']['displayedTime'],
+            'Cloud replacement discarded prior pixels or advanced the displayed forecast valid time early')
+    require(max(abs(a-b) for a,b in zip(before_pixel,await pixel(frame)))<=3,
+            'Held cloud replacement changed the retained composite')
+    after_counts=counts()
+    require(all(after_counts[name]==before_counts[name]+1 for name in ['reflectivity','cloudCover'])
+            and all(after_counts[name]==before_counts[name] for name in ['velocity','precipitation']),
+            'Visible refresh did not request only selected weather products: '+str([before_counts,after_counts]))
+    fixture.wms_held_products.discard('cloudCover');fixture.wms_product_gates['cloudCover'].set()
+    await wms_ready(frame,'cloudCover');await wait_for(frame,'cmpriWeatherMap.getState().refresh.scheduled')
+    refreshed=await frame.evaluate('cmpriWeatherMap.getState()')
+    require((refreshed['displayedScanTime'],refreshed['displayedFrame'])==radar and not refreshed['playing'],
+            'Cloud forecast refresh advanced or started the paused radar loop')
+    fixture.wms_held_products.add('cloudCover')
+    fixture.wms_product_gates['cloudCover'].clear();fixture.wms_product_pending['cloudCover'].clear()
+    await frame.locator('#radarCanvas').focus();await page.keyboard.press('ArrowRight')
+    await asyncio.wait_for(fixture.wms_product_pending['cloudCover'].wait(),timeout=5)
+    await select_product(frame,'cloudCover',False)
+    await wait_for(frame,'cmpriWeatherMap.getState().wmsLayers.cloudCover.pending===0')
+    await asyncio.sleep(.1)
+    require(any('product=cloudCover' in row['url'] and row['error']=='net::ERR_ABORTED' for row in failed),
+            'Disabling cloud cover did not abort its pending image read')
+    fixture.wms_held_products.discard('cloudCover');fixture.wms_product_gates['cloudCover'].set()
+    await select_product(frame,'cloudCover',True);await wms_ready(frame,'cloudCover')
+    for name in ['velocity','ptype']: await select_product(frame,name,True)
+    return {'selectedOnlyFiveMinuteRefresh':True,'priorPixelsAndForecastTimeRetained':True,
+            'toggleAbortsPendingRead':True,'pausedRadarUnchanged':True}
+
+
+async def forecast_cloud(frame, fixture):
+    before=await frame.evaluate('cmpriWeatherMap.getState()')
+    require(await frame.locator('#mapLayerSatellite').count()==0 and await frame.locator('#mapLayerLightning').count()==0,
             'Removed satellite/lightning controls remain exposed')
-    await select_product(frame, 'cloudCover', True)
-    after = await frame.evaluate('cmpriWeatherMap.getState()')
-    require(all(after['layers'][name] == enabled for name, enabled in before['layers'].items() if name != 'cloudCover'),
-            'Unavailable cloud control changes another selected layer')
-    require('Cloud cover unavailable' in await frame.locator('#mapFeedStatus').inner_text(),
-            'Unavailable cloud source is not explained')
-    require(await frame.locator('[data-legend=cloudCover] img').count() == 0 and len(fixture.wms_requests) == calls,
-            'Unavailable cloud control requests or substitutes imagery')
-    return {'cloudCoverExplicitlyUnavailable':True,'noSubstituteImagery':True,'otherLayersRetained':True}
+    await select_product(frame,'cloudCover',True);await wms_ready(frame,'cloudCover');await settled(frame)
+    after=await frame.evaluate('cmpriWeatherMap.getState()');cloud=after['wmsLayers']['cloudCover']
+    require(all(after['layers'][name]==enabled for name,enabled in before['layers'].items() if name!='cloudCover'),
+            'Cloud control changed another independent layer')
+    require(cloud['layer']=='ndfd.conus.sky' and cloud['style']=='' and cloud['kind']=='forecast' and cloud['units']=='%',
+            'Cloud state does not reflect the verified NDFD forecast contract')
+    require(cloud['sourceTime'] in fixture.wms_metadata['cloudCover']['layers'][0]['dimensions']['vtit']['values'].split(',')
+            and cloud['sourceTime']+'Z'==cloud['time']==cloud['displayedTime'],
+            'Cloud source VTIT and UTC display valid time differ')
+    require('digital.weather.gov' in cloud['mapSource'] and 'VTIT=' in cloud['mapSource']
+            and 'SRS=' in cloud['mapSource'] and 'CRS=' not in cloud['mapSource'],
+            'Cloud source provenance lost its exact WMS 1.1.1 VTIT/SRS request')
+    row=frame.locator('[data-legend=cloudCover]')
+    require(await row.locator('strong').inner_text()=='Forecast cloud cover · %', 'Cloud key caption lost forecast units')
+    stamp=await frame.evaluate('value=>cmpriWeatherClock.stamp(value)',cloud['displayedTime'])
+    require(stamp in await row.inner_text() and stamp in await frame.locator('#scanTime').inner_text(),
+            'Cloud UTC valid time is not displayed in Central time')
+    require('official PNG color key is not advertised' in await row.get_attribute('title')
+            and await row.locator('img,.cmpri-map-swatch').count()==0,
+            'Missing official cloud key is not truthful or an invented palette was inserted')
+    require(not any(call['product']=='cloudCover' and call['op']=='legend' for call in fixture.wms_requests),
+            'Cloud forecast requested an unadvertised legend')
+    require('unavailable' not in (await row.inner_text()).lower(), 'Missing cloud key leaked diagnostic copy into the compact caption')
+    return {'verifiedForecastContract':True,'exactVtitWithUtcDisplay':True,'validTimeCentral':stamp,
+            'missingKeyTooltipOnly':True,'noUnadvertisedLegendRequest':True,'otherLayersRetained':True}
 
 
 async def run_viewport(browser, base, output, width, height):
@@ -91,8 +155,8 @@ async def run_viewport(browser, base, output, width, height):
         await settled(frame);await style(frame,'aerial');await select_product(frame,'reflectivity',False)
         require(not await frame.locator('#mapLegendAccordion').evaluate('el=>el.open'),
                 'Map legend accordion did not start collapsed')
-        require(not any(row['product'] in ['satellite','lightning'] for row in fixture.wms_requests),
-                'Unselected cloud/lightning products loaded automatically')
+        require(not any(row['product']=='cloudCover' for row in fixture.wms_requests),
+                'Unselected cloud-cover forecast loaded automatically')
         for selected,product,name,advertised_style,color,alpha_value in [
             ('velocity','velocity','kilx_sr_bvel','radar_velocity',[180,65,205],150),
             ('ptype','precipitation','conus_pcpn_typ','radar_precip_type',[85,205,225],170)]:
@@ -138,15 +202,16 @@ async def run_viewport(browser, base, output, width, height):
             await style(frame,'aerial')
             evidence['products'].append({'product':product,'layer':name,'style':advertised_style,'timeCentral':stamp,
                 'officialShapedPngAndLegendDecoded':True,'separateProductStateAndSource':True,'legendPresentation':presentation})
-        for name in ['reflectivity','velocity','ptype','alerts','impacts']: await select_product(frame,name,True)
-        for product in ['velocity','precipitation']: await wms_ready(frame,product)
+        evidence['cloudCover']=await forecast_cloud(frame,fixture)
+        for name in ['reflectivity','velocity','ptype','cloudCover','alerts','impacts']: await select_product(frame,name,True)
+        for product in ['velocity','precipitation','cloudCover']: await wms_ready(frame,product)
         await wait_for(frame,'cmpriWeatherMap.getState().readyFrameCount>0')
         stack=await frame.evaluate('cmpriWeatherMap.getState()')
-        require(all(stack['layers'][name] for name in ['reflectivity','velocity','ptype','alerts','impacts']),
+        require(all(stack['layers'][name] for name in ['reflectivity','velocity','ptype','cloudCover','alerts','impacts']),
                 'Supported weather layers cannot remain selected together')
         require(not await frame.locator('#playLoop').is_disabled(),'Selecting independent WMS layers disabled active reflectivity playback')
         expected=[173.,80.,42.]
-        for color,alpha_byte in [([30,170,75],180),([85,205,225],170),([180,65,205],150)]:
+        for color,alpha_byte in [([40,85,130],200),([30,170,75],180),([85,205,225],170),([180,65,205],150)]:
             alpha=alpha_byte/255*stack['opacity'];expected=[expected[n]*(1-alpha)+color[n]*alpha for n in range(3)]
         actual=await pixel(frame)
         require(max(abs(actual[n]-round(expected[n])) for n in range(3))<=5,'Selected reflectivity/ptype/velocity did not visibly stack: '+str(actual))
@@ -171,13 +236,13 @@ async def run_viewport(browser, base, output, width, height):
         require(all(full_stack['layers'][name]
                     for name in ['reflectivity','velocity','ptype','alerts','roads','impacts']),
                 'The original six independent weather selections cannot remain enabled together')
-        evidence['cloudCover']=await unavailable_cloud(frame,fixture)
         evidence['independentLayerStack']={'compositedPixel':actual,'supportedLayersStack':True,
             'winterLayersRemainSelectedBothOrders':True,'allSixSelectionsIndependent':True,
             'unavailableReportedRoadsNotFabricated':True,
-            'drawOrder':'aerial→WSSI→reflectivity→ptype→velocity→reference labels/alerts/hotel'}
+            'drawOrder':'aerial→forecast cloud cover→WSSI→reflectivity→ptype→velocity→reference labels/alerts/hotel'}
         await frame.locator('.map-panel').scroll_into_view_if_needed()
         await page.screenshot(path=str(output/f'independent-weather-layer-stack-{width}.png'),full_page=True)
+        evidence['cloudCoverLifecycle']=await cloud_lifecycle(page,frame,fixture,failed)
         fixture.wms_modes['precipitation']='unavailable'
         await frame.locator('#radarCanvas').focus();await page.keyboard.press('ArrowRight')
         await wait_for(frame,"/unavailable/i.test(cmpriWeatherMap.getState().wmsLayers.ptype.status)")
@@ -186,7 +251,7 @@ async def run_viewport(browser, base, output, width, height):
                 'One WMS failure hid other selected layers or was not labeled unavailable')
         fixture.wms_modes['precipitation']='fresh';fixture.hold_wms=True;fixture.wms_gate.clear();fixture.wms_pending.clear()
         await page.keyboard.press('ArrowRight');await asyncio.wait_for(fixture.wms_pending.wait(),timeout=5)
-        await wait_for(frame,'cmpriWeatherMap.getState().wmsLayers.velocity.pending>0 && cmpriWeatherMap.getState().wmsLayers.ptype.pending>0')
+        await wait_for(frame,'cmpriWeatherMap.getState().wmsLayers.velocity.pending>0 && cmpriWeatherMap.getState().wmsLayers.ptype.pending>0 && cmpriWeatherMap.getState().wmsLayers.cloudCover.pending>0')
         native=page.locator('[data-cmpri-desktop-window="'+PREVIEW+'"]')
         await native.get_by_role('button',name='Close Weather',exact=True).click()
         await page.locator('iframe[src*="'+PREVIEW+'"]').wait_for(state='hidden')

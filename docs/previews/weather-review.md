@@ -89,9 +89,11 @@ Verified observed layers, WSSI and property-alert geometry can be toggled indepe
 
 ## Cloud cover
 
-Satellite infrared and lightning controls have been removed. Cloud cover is a distinct requested forecast product, measured as predicted opaque-cloud percentage; infrared brightness is not substituted for it. The documented official NDFD CONUS WMS is being validated through the fixed read-only cloudCover capabilities adapter. Its map remains explicitly unavailable until the actual source's layer, style, spatial reference and forecast-valid-time contract have been verified. No guessed cloud imagery, source values or observation time are displayed.
+Satellite infrared and lightning controls have been removed. **Cloud cover** uses the real NOAA/NWS NDFD opaque-cloud percentage forecast, from `https://digital.weather.gov/ndfd.conus/wms`, advertised raster `ndfd.conus.sky`, default empty style and EPSG:3857. The fixed adapter handles this source's WMS 1.1.1 response without resolving its external DTD or entities. Every request requires an exact advertised VTIT valid time; the 1970/default, omitted and unadvertised times are rejected. The next available forecast time is interpreted as UTC and displayed in Central time. No issuance time or observed-cloud measurement is inferred. The translucent cloud raster stacks over USGS aerial imagery and below radar, roads, alerts and the hotel pin; replacements retain the previous georeferenced image and its displayed valid time until ready.
 
-All selected weather keys share compact 180-pixel color bands with their own title above, reflowed readable source labels and no surrounding frames or native-size scrolling. Actual NOAA PNG band colors and source glyphs are preserved. The same lower-left Legends accordion supplies its semi-transparent backing.
+Selected NOAA image keys share compact 180-pixel color bands with their own title above, reflowed readable source labels and no surrounding frames or native-size scrolling. Actual NOAA PNG band colors and source glyphs are preserved. The same lower-left Legends accordion supplies its semi-transparent backing. The cloud source does not advertise an official PNG key, so its compact caption shows forecast cloud-cover percent and valid time, with that limit in a tooltip/accessibility description; no palette is invented.
+
+Actual cloud-source checks on November 20, 2026 returned PNG maps for two distinct advertised VTIT values (2026-11-20T22:00 and 2026-11-21T22:00), with different image bytes. These dated provider checks are separate from browser fixtures and do not guarantee future source availability. Unavailable/expired forecast coverage remains explicit.
 
 ## Guest Safety and ticker
 

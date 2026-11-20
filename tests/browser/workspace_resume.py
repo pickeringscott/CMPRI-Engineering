@@ -179,6 +179,10 @@ async def wait_top_href(page, href):
 async def guarded_desktop_return(page, profile_window):
     frame_handle = await profile_window.locator("iframe").element_handle()
     frame = await frame_handle.content_frame()
+    name_input = frame.get_by_role("textbox", name="Display name", exact=False)
+    await expect(name_input).to_be_visible(timeout=30000)
+    protected_name = f"Fixture retained profile {page.viewport_size['width']}"
+    await name_input.fill(protected_name)
     await frame.evaluate("""() => {
       window.fixtureGuardRequests=0;
       document.addEventListener('cmpri-modal-cancel-request',event=>{
@@ -195,7 +199,18 @@ async def guarded_desktop_return(page, profile_window):
       modalToken:new URLSearchParams(location.search).get('modalToken')},location.origin)""")
     await frame.wait_for_function("window.fixtureGuardRequests===2")
     await frame.evaluate("history.replaceState({},'', '/front-desk')")
-    await frame.wait_for_function("window.fixtureGuardRequests===3")
+    try:
+        # Next's history wrapper can replay the attempted route. Every attempt
+        # must remain guarded; the refused frame must retain its original URL.
+        await frame.wait_for_function("window.fixtureGuardRequests>=3", timeout=5000)
+        assert urlparse(await frame.evaluate("location.href")).path == "/profile"
+        await expect(name_input).to_be_visible()
+        await expect(name_input).to_have_value(protected_name)
+    except Exception:
+        details = await frame.evaluate("""() => ({requests:window.fixtureGuardRequests,href:location.href,
+          replace:String(history.replaceState),push:String(history.pushState)})""")
+        (OUT / f"guarded-return-failure-{page.viewport_size['width']}.json").write_text(json.dumps(details, indent=2))
+        raise
     await expect(profile_window).to_be_visible()
     assert any(view["key"] == "/profile" for view in (await workspace(page))["desktop"]["views"])
     await frame.evaluate("""() => parent.postMessage({type:'cmpri-modal-close',
@@ -505,7 +520,7 @@ async def check_standalone_roles(playwright, width, results):
                 }""")
                 assert await page.evaluate("key=>localStorage.getItem(key)", WORKSPACE_KEY) is None
                 assert await page.evaluate("key=>localStorage.getItem(key)", OUTBOX_KEY) == "fixture protected unsynced data"
-                assert await page.locator('iframe').count() == 0
+                assert await page.locator('[data-modal-entry] iframe, [data-cmpri-desktop-window] iframe').count() == 0
                 assert not errors, errors
                 results.append({"width": width, "role": role, "test": "actual sign-out forgets navigation; late session invalidation and pagehide cannot recreate it or erase unsynced editor data", "passed": True})
             finally:

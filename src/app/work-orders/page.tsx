@@ -573,6 +573,8 @@ export default function WorkOrdersPage() {
   const attachmentDiscarded = useRef(false);
   const [attachmentRecoveryConflict, setAttachmentRecoveryConflict] = useState<AttachmentDraft | null>(null);
   const attachmentPendingUploads = useRef<PendingPhotoUpload[] | null>(null);
+  const acknowledgedCreation = useRef<CreationRecovery["created"]>(undefined);
+  const [attachmentRecoveryFailed, setAttachmentRecoveryFailed] = useState(false);
   const persistAttachmentsRef = useRef<() => Promise<boolean>>(async () => true);
   const restoringAttachments = useRef(0);
   useEffect(() => {
@@ -1177,7 +1179,9 @@ export default function WorkOrdersPage() {
       setUnconfirmedCreationId(snapshot.pending.id);
     }
     autoOpenedDraftRef.current = snapshot.active?.id || "";
-    setCreationSubmissionUncertain(snapshot.submissionUncertain);
+    acknowledgedCreation.current = snapshot.created;
+    if (snapshot.created) { setMainWorkOrderCreated(true); setCreateState("created"); }
+    setCreationSubmissionUncertain(snapshot.submissionUncertain && !snapshot.created);
     setCreationRecoveryConflict(null);
     void restoreCreationAttachments(snapshot);
     setMessage(`Recovered this account's in-progress work from this device.${snapshot.attachmentCount ? " Restoring selected attachments from this device." : ""}${snapshot.submissionUncertain ? " A submission was in progress. Check the work-order list before submitting again." : ""}`);
@@ -1211,7 +1215,17 @@ export default function WorkOrdersPage() {
     const scope = `${cmpriSession.hotelId}:${cmpriSession.user.id}`;
     const request = ++restoringAttachments.current;
     try {
-      const retained = await readAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+      let retained = await readAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+      if (request !== restoringAttachments.current || draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      setAttachmentRecoveryFailed(false); setPhotoUploadError("");
+      if (snapshot?.created) {
+        acknowledgedCreation.current = snapshot.created;
+        setMainWorkOrderCreated(true); setCreateState("created"); setCreationSubmissionUncertain(false);
+        if (retained) {
+          const ids = new Set(snapshot.created.uploads.map(item => item.uploadId));
+          retained = { ...retained, files: retained.files.filter(item => ids.has(item.uploadId)), uploads: snapshot.created.uploads.filter(item => retained!.files.some(file => file.uploadId === item.uploadId)) };
+        }
+      }
       if (request !== restoringAttachments.current || draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
       if (retained?.files.length) {
         if (!retained.uploads?.length && retained.draftIdentity !== attachmentIdentity(snapshot)) {
@@ -1221,8 +1235,14 @@ export default function WorkOrdersPage() {
         }
         applyCreationAttachments(retained);
         if (snapshot?.attachmentCount && !retained.uploads?.length) setPhotoUploadError("Recovered selected attachments from this device. They upload when the work order is submitted.");
+      } else if (snapshot?.created) {
+        attachmentPendingUploads.current = [];
+        setPhotoUploadError("The work order is already saved. Its attachment recovery needs review before starting another ticket.");
       } else if (snapshot?.attachmentCount) setPhotoUploadError("This device has the form text but could not restore its selected attachments. Add the files again before submitting.");
-    } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "This device could not restore selected attachments. Keep this window open until they are uploaded."); }
+    } catch (error) {
+      if (request !== restoringAttachments.current || draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      setAttachmentRecoveryFailed(true); setPhotoUploadError(error instanceof Error ? error.message : "This device could not restore selected attachments. Keep this window open until they are uploaded.");
+    }
     finally { if (request === restoringAttachments.current && draftIdentityScope.current === scope && !creationRecoveryStopped.current) setAttachmentRecoveryReady(scope); }
   }
 
@@ -1264,9 +1284,10 @@ export default function WorkOrdersPage() {
         // Before that point it has not been sent and needs only text recovery.
         baseline: lastSavedDraftKey, pending: pending?.method === "POST" && !pendingReceipt ? null : pending, pendingReceipt,
         attachmentCount: photos.length, submissionUncertain: creationSubmissionUncertain || submittingRef.current,
+        ...(acknowledgedCreation.current ? { created: acknowledgedCreation.current } : {}),
         ...confirmedDraftRecovery.current };
       try {
-        if (!hasCreationRecoveryWork(snapshot) || confirmedCreationKey.current === currentDraftKey || createState === "created" || mainWorkOrderCreated) clearCreationRecovery(localStorage, identity);
+        if (!snapshot.created && (!hasCreationRecoveryWork(snapshot) || confirmedCreationKey.current === currentDraftKey || createState === "created" || mainWorkOrderCreated)) clearCreationRecovery(localStorage, identity);
         else if (!saveCreationRecovery(localStorage, identity, snapshot)) setMessage("This device could not preserve the form. Keep this window open until the work is saved.");
       } catch { setMessage("This device could not preserve the form. Keep this window open until the work is saved."); }
     };
@@ -1288,13 +1309,21 @@ export default function WorkOrdersPage() {
 
   useEffect(() => {
     const persist = async () => {
-      if (!cmpriSession || attachmentRecoveryReady !== creationScope || creationRecoveryStopped.current || creationRecoveryConflict || attachmentRecoveryConflict || attachmentDiscarded.current) return true;
+      if (!cmpriSession || attachmentRecoveryReady !== creationScope || creationRecoveryStopped.current || creationRecoveryConflict || attachmentRecoveryConflict || attachmentRecoveryFailed || attachmentDiscarded.current) return true;
       const scope = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" };
       const pending = attachmentPendingUploads.current;
       const selected = pending === null ? photos : Array.from(new Map(pending.map(item => [item.photo.uploadId, item.photo])).values());
-      if (!selected.length && pending === null) return true;
+      if (!selected.length && pending === null && !acknowledgedCreation.current) return true;
+      if (!selected.length && acknowledgedCreation.current?.uploads.length) return false;
+      if (acknowledgedCreation.current) persistCreationRecoveryRef.current();
       try {
-        if (!selected.length) await clearAttachmentDraft(scope);
+        if (!selected.length) {
+          await clearAttachmentDraft(scope);
+          if (acknowledgedCreation.current && !acknowledgedCreation.current.uploads.length) {
+            acknowledgedCreation.current = undefined;
+            clearCreationRecovery(localStorage, scope);
+          }
+        }
         else await saveAttachmentDraft(scope, { draftIdentity: attachmentIdentity(), files: selected.map(({ file, uploadId }) => ({ file, uploadId })),
           ...(pending !== null ? { uploads: pending.map(item => ({ workOrderId: item.id, displayId: item.display_id, uploadId: item.photo.uploadId })) } : {}) });
         return true;
@@ -1308,7 +1337,7 @@ export default function WorkOrdersPage() {
     return () => { window.removeEventListener("pagehide", flush); document.removeEventListener("visibilitychange", hidden); };
     // Save the selected bytes and upload targets whenever either changes; beforeunload is only an additional flush.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creationScope, attachmentRecoveryReady, creationRecoveryConflict, attachmentRecoveryConflict, photos, pendingPhotoUploads, activeDraftId, activeDraftRevision]);
+  }, [creationScope, attachmentRecoveryReady, creationRecoveryConflict, attachmentRecoveryConflict, attachmentRecoveryFailed, photos, pendingPhotoUploads, activeDraftId, activeDraftRevision]);
 
   async function saveDraft() {
     if (creationRecoveryConflict || creationSubmissionUncertain || draftSaveInFlight.current || submittingRef.current || loading || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
@@ -1438,6 +1467,7 @@ export default function WorkOrdersPage() {
     const generation = draftIdentityGeneration.current;
     setDraftBusy(true);
     try {
+      if (activeDraftId === draft.id && !await discardCreationAttachmentStorage()) return;
       await removeSavedDraft(draft.id);
       if (activeDraftId === draft.id) {
         setActiveDraftId("");
@@ -1468,7 +1498,20 @@ export default function WorkOrdersPage() {
     }
   }
 
-  function resetWorkOrderForm(force = false, preserveRecovery = false) {
+  async function discardCreationAttachmentStorage() {
+    if (!cmpriSession) return !photos.length && !pendingPhotoUploads.length && !attachmentRecoveryConflict;
+    if (!photos.length && !pendingPhotoUploads.length && !attachmentRecoveryConflict && !attachmentRecoveryFailed && !acknowledgedCreation.current) return true;
+    const scope = `${cmpriSession.hotelId}:${cmpriSession.user.id}`;
+    try {
+      await clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+      if (draftIdentityScope.current !== scope || creationRecoveryStopped.current) return false;
+      attachmentDiscarded.current = true;
+      acknowledgedCreation.current = undefined;
+      return true;
+    } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Retained attachments could not be discarded. Your files are still here."); return false; }
+  }
+
+  function resetWorkOrderForm(force = false, preserveRecovery = false, attachmentsCleared = false) {
     if (pendingPhotoUploads.length > 0 && !force) {
       setMessage("Retry the pending photo upload before discarding this created work order.");
       return;
@@ -1476,12 +1519,14 @@ export default function WorkOrdersPage() {
     if (!preserveRecovery && cmpriSession) {
       attachmentDiscarded.current = true;
       attachmentPendingUploads.current = null;
-      void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).catch(error => setPhotoUploadError(error instanceof Error ? error.message : "Retained attachments could not be cleared."));
+      if (!attachmentsCleared) void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).catch(error => setPhotoUploadError(error instanceof Error ? error.message : "Retained attachments could not be cleared."));
       try { clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {}
       setCreationRecoveryConflict(null);
       setCreationSubmissionUncertain(false);
     }
     attachmentPendingUploads.current = null;
+    acknowledgedCreation.current = undefined;
+    setAttachmentRecoveryFailed(false);
     setAttachmentRecoveryConflict(null);
     restoringAttachments.current++;
     confirmedCreationKey.current = "";
@@ -1518,19 +1563,24 @@ export default function WorkOrdersPage() {
     setMainWorkOrderCreated(false);
   }
 
-  function removeSelectedPhoto(uploadId: string) {
-    if (loading || createState !== "idle" || mainWorkOrderCreated || retryingPhotoUpload || pendingPhotoUploads.length > 0) return;
-    const photo = photos.find((selected) => selected.uploadId === uploadId);
+  async function removeSelectedPhoto(uploadId: string) {
+    if (loading || createState !== "idle" || mainWorkOrderCreated || retryingPhotoUpload || pendingPhotoUploads.length > 0 || !cmpriSession) return;
+    const photo = photos.find(selected => selected.uploadId === uploadId);
     if (!photo) return;
-    URL.revokeObjectURL(photo.previewUrl);
-    photoPreviewUrlsRef.current.delete(photo.previewUrl);
     const remaining = photos.filter(selected => selected.uploadId !== uploadId);
-    setPhotos(remaining);
-    if (!remaining.length) attachmentDiscarded.current = true;
-    if (!remaining.length && cmpriSession) void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).catch(error => setPhotoUploadError(error instanceof Error ? error.message : "Retained attachments could not be cleared."));
+    const scope = `${cmpriSession.hotelId}:${cmpriSession.user.id}`;
+    try {
+      const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" };
+      if (remaining.length) await saveAttachmentDraft(identity, { draftIdentity: attachmentIdentity(), files: remaining.map(({ file, uploadId }) => ({ file, uploadId })) });
+      else await clearAttachmentDraft(identity);
+      if (draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      if (!remaining.length) attachmentDiscarded.current = true;
+      URL.revokeObjectURL(photo.previewUrl); photoPreviewUrlsRef.current.delete(photo.previewUrl); setPhotos(remaining);
+    } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Selected attachment could not be removed from this device. It is still retained."); }
   }
 
   function acceptSelectedPhotos(files: FileList | File[] | null, fromCamera = false) {
+    if (!cmpriSession || creationRecoveryStopped.current || attachmentRecoveryReady !== creationScope || attachmentRecoveryFailed || attachmentRecoveryConflict) return;
     const selected = Array.from(files || []).slice(0, fromCamera ? 1 : undefined);
     if (!selected.length) return;
     attachmentDiscarded.current = false;
@@ -1589,9 +1639,10 @@ export default function WorkOrdersPage() {
     return true;
   }
 
-  function finishCancelCreateForm() {
+  async function finishCancelCreateForm() {
     const leavingCreatedTicket = pendingPhotoUploads.length > 0;
-    resetWorkOrderForm(leavingCreatedTicket);
+    if (!await discardCreationAttachmentStorage()) { setShowCancelConfirm(true); return; }
+    resetWorkOrderForm(leavingCreatedTicket, false, true);
     setBatchCreateSuggestions([]);
     setShowBatchCreateDialog(false);
     setShowRelatedWorkOrderDialog(false);
@@ -1959,7 +2010,7 @@ export default function WorkOrdersPage() {
     workOrders: CreatedWorkOrder[];
     photoUploadPending: boolean;
   }> {
-    if (creationRecoveryConflict || attachmentRecoveryConflict || creationSubmissionUncertain) return { error: { message: "Review the recovered work before submitting." }, workOrders: [], photoUploadPending: false };
+    if (creationRecoveryConflict || attachmentRecoveryConflict || acknowledgedCreation.current || creationSubmissionUncertain) return { error: { message: "Review the recovered work before submitting." }, workOrders: [], photoUploadPending: false };
     if (submittingRef.current) return { error: { message: "Submission is already in progress." }, workOrders: [], photoUploadPending: false };
     if (pendingPhotoUploads.length > 0) {
       return {
@@ -2000,11 +2051,16 @@ export default function WorkOrdersPage() {
       }
       if (draftIdentityScope.current !== submissionScope || creationRecoveryStopped.current) return { error: { message: "The account changed during submission. Reopen this account to check the saved work orders." }, workOrders: [], photoUploadPending: false };
       attachmentPendingUploads.current = photos.flatMap(photo => workOrders.map(order => ({ id: order.id, display_id: order.display_id, photo })));
+      acknowledgedCreation.current = { workOrders: workOrders.map(order => ({ id: order.id, displayId: order.display_id })),
+        uploads: attachmentPendingUploads.current.map(item => ({ workOrderId: item.id, displayId: item.display_id, uploadId: item.photo.uploadId })) };
+      // This text-only acknowledgement is durable even when the Blob transaction
+      // cannot update its target metadata. A restart must never create again.
+      persistCreationRecoveryRef.current();
       // Retain the acknowledged ticket IDs before the first upload. Restarting
       // can now retry the same attachments without creating another work order.
       await persistAttachmentsRef.current();
       confirmedCreationKey.current = currentDraftKey;
-      try { if (cmpriSession) clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {}
+      if (!acknowledgedCreation.current) { try { if (cmpriSession) clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {} }
       submittedDisplayIdsRef.current = workOrders.map((order) => formatWorkOrder(order.display_id));
       let photoUploadPending = false;
       if (photos.length && workOrders.length) {
@@ -2015,8 +2071,22 @@ export default function WorkOrdersPage() {
             if (draftIdentityScope.current !== submissionScope || creationRecoveryStopped.current) return { error: null, workOrders, photoUploadPending: true };
             const upload = await uploadWorkOrderAttachment(workOrder.id, selectedPhoto.file, session.access_token, selectedPhoto.uploadId);
             if (upload.ok) {
-              attachmentPendingUploads.current = attachmentPendingUploads.current!.filter(item => item.id !== workOrder.id || item.photo.uploadId !== selectedPhoto.uploadId);
-              await persistAttachmentsRef.current();
+              const previous: PendingPhotoUpload[] = attachmentPendingUploads.current!;
+              const acknowledgement: CreationRecovery["created"] = acknowledgedCreation.current;
+              const previousTargets: NonNullable<CreationRecovery["created"]>["uploads"] | undefined = acknowledgement?.uploads;
+              attachmentPendingUploads.current = previous.filter(item => item.id !== workOrder.id || item.photo.uploadId !== selectedPhoto.uploadId);
+              if (acknowledgement) acknowledgement.uploads = acknowledgement.uploads.filter(item => item.workOrderId !== workOrder.id || item.uploadId !== selectedPhoto.uploadId);
+              if (!await persistAttachmentsRef.current()) {
+                // Retrying this same upload ID is safe even after server success.
+                // Keep it pending until the local acknowledgement also commits.
+                attachmentPendingUploads.current = previous;
+                if (acknowledgement && previousTargets) { acknowledgement.uploads = previousTargets; acknowledgedCreation.current = acknowledgement; }
+                persistCreationRecoveryRef.current();
+                setPendingPhotoUploads(previous);
+                setPhotoUploadError("The upload was saved, but its device recovery could not be cleared. Keep this window open and retry to confirm cleanup.");
+                photoUploadPending = true;
+                break;
+              }
             }
             if (!upload.ok) {
               const failedUploads = photos.slice(photoIndex).flatMap((remainingPhoto, remainingPhotoIndex) =>
@@ -2079,8 +2149,19 @@ export default function WorkOrdersPage() {
         if (creationRecoveryStopped.current || draftIdentityScope.current !== retryScope) return;
         const upload = await uploadWorkOrderAttachment(workOrder.id, workOrder.photo.file, session.access_token, workOrder.photo.uploadId);
         if (upload.ok) {
-          attachmentPendingUploads.current = (attachmentPendingUploads.current || pending).filter(item => item.id !== workOrder.id || item.photo.uploadId !== workOrder.photo.uploadId);
-          await persistAttachmentsRef.current();
+          const previous: PendingPhotoUpload[] = attachmentPendingUploads.current || pending;
+          const acknowledgement: CreationRecovery["created"] = acknowledgedCreation.current;
+          const previousTargets: NonNullable<CreationRecovery["created"]>["uploads"] | undefined = acknowledgement?.uploads;
+          attachmentPendingUploads.current = previous.filter(item => item.id !== workOrder.id || item.photo.uploadId !== workOrder.photo.uploadId);
+          if (acknowledgement) acknowledgement.uploads = acknowledgement.uploads.filter(item => item.workOrderId !== workOrder.id || item.uploadId !== workOrder.photo.uploadId);
+          if (!await persistAttachmentsRef.current()) {
+            attachmentPendingUploads.current = previous;
+            if (acknowledgement && previousTargets) { acknowledgement.uploads = previousTargets; acknowledgedCreation.current = acknowledgement; }
+            persistCreationRecoveryRef.current();
+            failedUploads = pending.slice(index);
+            setPhotoUploadError("The upload was saved, but its device recovery could not be cleared. Keep this window open and retry to confirm cleanup.");
+            break;
+          }
         }
         if (!upload.ok) {
           failedUploads = pending.slice(index);
@@ -2113,9 +2194,10 @@ export default function WorkOrdersPage() {
     photoFileInputRef.current?.click();
   }
 
-  function continueWithoutPhoto() {
+  async function continueWithoutPhoto() {
     if (!canReplacePhoto || retryingPhotoUpload || pendingPhotoUploads.length === 0) return;
     const skippedUploads = pendingPhotoUploads;
+    if (!await discardCreationAttachmentStorage()) return;
     attachmentPendingUploads.current = [];
     void persistAttachmentsRef.current();
     setPendingPhotoUploads([]);
@@ -2376,17 +2458,21 @@ export default function WorkOrdersPage() {
               if (!window.confirm("Replace this form with the recovered text? A changed saved draft still requires comparison before its next save.")) return;
               restoreLocalCreation(creationRecoveryConflict);
             }}>Restore Recovered Form</button>
-            <button type="button" className="underline" onClick={() => {
-              if (!window.confirm("Discard the recovered text from this device and keep the form shown here?")) return;
-              if (cmpriSession) {
-                try { clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {}
+            <button type="button" className="underline" onClick={async () => {
+              if (!cmpriSession || !window.confirm("Discard the recovered text and attachments from this device and keep the form shown here?")) return;
+              try {
+                await clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+                if (draftIdentityScope.current !== creationScope || creationRecoveryStopped.current) return;
+                if (!clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id })) throw new Error("The recovered text could not be discarded. Keep this window open.");
                 attachmentDiscarded.current = true;
-                void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).catch(error => setPhotoUploadError(error instanceof Error ? error.message : "Attachments could not be discarded."));
-                setAttachmentRecoveryReady(creationScope);
-              }
-              setCreationRecoveryConflict(null);
+                setAttachmentRecoveryReady(creationScope); setCreationRecoveryConflict(null);
+              } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Recovered attachments could not be discarded. Your work is still here."); }
             }}>Discard Recovered Copy</button>
           </div>
+        </section>}
+        {attachmentRecoveryFailed && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
+          <p>Saved attachment recovery could not be read. Your previous files have been kept separately.</p>
+          <button type="button" className="mt-2 underline" onClick={() => { if (cmpriSession) void restoreCreationAttachments(readCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id })); }}>Retry Attachment Recovery</button>
         </section>}
         {attachmentRecoveryConflict && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
           <p>Recovered attachments belong to an earlier draft revision. Compare their names before attaching them to this form.</p>
@@ -2394,7 +2480,7 @@ export default function WorkOrdersPage() {
           <button type="button" className="mt-2 underline" onClick={() => applyCreationAttachments(attachmentRecoveryConflict)}>Use Recovered Attachments</button>
           <button type="button" className="ml-3 underline" onClick={() => {
             if (!cmpriSession || !window.confirm("Discard the recovered attachments from this device?")) return;
-            void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).then(() => setAttachmentRecoveryConflict(null), error => setPhotoUploadError(error instanceof Error ? error.message : "Attachments could not be discarded."));
+            void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).then(() => { if (draftIdentityScope.current === creationScope && !creationRecoveryStopped.current) setAttachmentRecoveryConflict(null); }, error => setPhotoUploadError(error instanceof Error ? error.message : "Attachments could not be discarded."));
           }}>Discard Recovered Attachments</button>
         </section>}
         {creationSubmissionUncertain && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
@@ -2454,9 +2540,9 @@ export default function WorkOrdersPage() {
 
               {cmpriSession && !embedded && <><PoolStatus controlOnly/></>}
               <div data-preview-create-actions className="flex flex-wrap items-center justify-end gap-1">
-                <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading || Boolean(attachmentRecoveryConflict) || attachmentRecoveryReady !== creationScope} onSelect={files=>acceptSelectedPhotos(files)} />
+                <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading || Boolean(attachmentRecoveryConflict) || attachmentRecoveryFailed || attachmentRecoveryReady !== creationScope} onSelect={files=>acceptSelectedPhotos(files)} />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
-                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || creationRecoveryReady !== creationScope || attachmentRecoveryReady !== creationScope || Boolean(creationRecoveryConflict) || Boolean(attachmentRecoveryConflict) || creationSubmissionUncertain || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
+                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || creationRecoveryReady !== creationScope || attachmentRecoveryReady !== creationScope || Boolean(creationRecoveryConflict) || Boolean(attachmentRecoveryConflict) || attachmentRecoveryFailed || creationSubmissionUncertain || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>

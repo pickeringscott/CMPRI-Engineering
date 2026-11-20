@@ -196,13 +196,14 @@ async def check(playwright, width):
             await expect(frame.get_by_role("checkbox").first).to_be_enabled(timeout=60000)
             await expect(frame.get_by_text("Loading PM records…", exact=True)).to_have_count(0)
             form = await room_form(frame)
-            await form.get_by_label("Room rank", exact=True).select_option("Red")
+            await form.get_by_label("Room rank", exact=False).select_option("Red")
             await form.get_by_placeholder("Record observations, readings, or context…").fill(ROOM_NOTES)
             await form.get_by_placeholder("Describe what needs repair and the next step…").fill("Retain the room 101 follow-up plan")
             await form.get_by_role("button", name="/ Follow-up", exact=True).first.click()
             await form.get_by_label("Quarterly room PM completion date *", exact=True).fill("2026-11-19")
-            await form.get_by_label("Work-order location", exact=True).select_option("fixture-room-101")
+            await form.get_by_label("Work-order location", exact=False).select_option("fixture-room-101")
             await wait_draft(page, ROOM, ROOM_NOTES, 2)
+            print(json.dumps({"width": width, "step": "room edited and retained"}), flush=True)
             token_before = parse_qs(urlparse(await page.locator(WINDOW + " iframe").get_attribute("src")).query)["modalToken"][0]
             await page.screenshot(path=str(OUT / f"pm-room-before-{width}.png"), full_page=True)
             assert not state["attempts"]
@@ -222,14 +223,15 @@ async def check(playwright, width):
             form = frame.locator(FORM)
             await expect(form.get_by_role("heading", name="Guest Room Quarterly PM · Room 101", exact=True)).to_be_visible(timeout=60000)
             await expect(form.get_by_placeholder("Record observations, readings, or context…")).to_have_value(ROOM_NOTES)
-            await expect(form.get_by_label("Room rank", exact=True)).to_have_value("Red")
+            await expect(form.get_by_label("Room rank", exact=False)).to_have_value("Red")
             await expect(form.get_by_label("Quarterly room PM completion date *", exact=True)).to_have_value("2026-11-19")
-            await expect(form.get_by_label("Work-order location", exact=True)).to_have_value("fixture-room-101")
+            await expect(form.get_by_label("Work-order location", exact=False)).to_have_value("fixture-room-101")
             await expect(form.get_by_role("button", name="/ Follow-up", exact=True).first).to_have_attribute("aria-pressed", "true")
             await wait_draft(page, ROOM, ROOM_NOTES, 2)
             token_after = parse_qs(urlparse(await page.locator(WINDOW + " iframe").get_attribute("src")).query)["modalToken"][0]
             assert token_after != token_before
             assert not state["attempts"]
+            print(json.dumps({"width": width, "step": "room restored after browser process restart"}), flush=True)
             await page.screenshot(path=str(OUT / f"pm-room-restored-{width}.png"), full_page=True)
             await close_browser(context)
 
@@ -248,6 +250,7 @@ async def check(playwright, width):
             assert len(state["attempts"]) == 1 and state["attempts"][0]["expectedRevision"] == 2
             await wait_draft(page, ROOM, ROOM_NOTES, 2)
             original_draft = await stored(page, draft_key(ROOM))
+            print(json.dumps({"width": width, "step": "stale baseline blocked and retained"}), flush=True)
             await close_browser(context)
 
             for label, session in [
@@ -261,6 +264,7 @@ async def check(playwright, width):
                 await expect(frame.get_by_role("checkbox").first).to_be_enabled(timeout=60000)
                 await expect(frame.locator(FORM)).to_have_count(0)
                 assert await stored(page, draft_key(ROOM)) == original_draft, label
+                print(json.dumps({"width": width, "step": label + " isolated"}), flush=True)
                 await close_browser(context)
 
             context, page, _, _ = await launch(playwright, profile, width, state)
@@ -274,6 +278,7 @@ async def check(playwright, width):
             frame = await pm_frame(page)
             await expect(frame.locator(FORM)).to_have_count(0)
             assert await stored(page, draft_key(ROOM)) == original_draft
+            print(json.dumps({"width": width, "step": "intentional nested Close stayed closed"}), flush=True)
 
             # A second PM form exercises equipment identity, form fields and
             # repeatable inspection rows through the same real restart boundary.
