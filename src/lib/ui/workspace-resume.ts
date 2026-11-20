@@ -91,6 +91,24 @@ export function normalizeWorkspaceHref(href: unknown, origin: string): string | 
   } catch { return null; }
 }
 
+/** Resume once from a plain authorized landing; explicit URLs always win. */
+export function workspaceResumeHref(
+  saved: Pick<WorkspaceState, "topHref"> | null,
+  currentHref: string,
+  landing: string,
+  options: WorkspaceOptions,
+): string | null {
+  if (!["/engineering", "/front-desk", "/technician", "/work-orders"].includes(landing)) return null;
+  try {
+    const current = new URL(currentHref, options.origin);
+    if (current.origin !== new URL(options.origin).origin || current.pathname !== landing || current.search || current.hash) return null;
+    const href = normalizeWorkspaceHref(saved?.topHref, options.origin);
+    if (!href || href === current.pathname) return null;
+    const candidate: WorkspaceView = { key: new URL(href, options.origin).pathname, href, kind: "frame" };
+    return allowed(candidate, options) ? href : null;
+  } catch { return null; }
+}
+
 function allowed(view: WorkspaceView, options: WorkspaceOptions) {
   try { return options.isAllowed(view) === true; } catch { return false; }
 }

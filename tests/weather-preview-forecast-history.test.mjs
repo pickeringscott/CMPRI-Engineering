@@ -80,7 +80,7 @@ ${seam}`));
 const at = (periods, hour, start = DAY) => periods.find(period => Date.parse(period.startTime) <= start + hour * HOUR && Date.parse(period.endTime) > start + hour * HOUR);
 
 
-test('Current forecast ring clips actual grid intervals at Central midnight and never substitutes KCMI observations', () => {
+test('Current preserves forecast intervals while past observed gap fill retains separate provenance', () => {
   const f = fixture();
   try {
     f.setHours([]);
@@ -106,9 +106,10 @@ test('Current forecast ring clips actual grid intervals at Central midnight and 
     f.current();
     const dial = f.window.document.querySelector('#liveTemperature .wv-temperature-dial');
     assert.equal(dial.querySelector('.wv-temperature-value').textContent, '99°', 'center retains actual observation');
-    assert.deepEqual(Array.from(dial.querySelectorAll('.wv-dial-segment'), segment => [segment.dataset.startTime, Number(segment.dataset.airTemperature)]), [
+    assert.deepEqual(Array.from(dial.querySelectorAll('.wv-dial-segment:not(.wv-dial-historical-observed)'), segment => [segment.dataset.startTime, Number(segment.dataset.airTemperature)]), [
       [iso(DAY), 23], [iso(DAY + HOUR), 23], [iso(DAY + 2 * HOUR), 32],
     ]);
+    assert.ok(dial.querySelector('.wv-dial-historical-observed'), 'available past reports fill only the outer track gaps with observed styling');
     assert.equal(f.state().observedReports, 3, 'forecast intervals do not manufacture observation reports');
     assert.equal(reports.length, 2);
     const graph = f.window.document.querySelector('#currentConditionsGraphs .wg-hourly-graph');
@@ -257,5 +258,44 @@ test('today’s Extended ring fills only genuine past observation gaps and prese
     f.setGrid({ temperature: gridSeries('wmoUnit:degF', [valid(0, 25, 'PT3H')]) });
     const [withGrid] = f.days();
     assert.ok(withGrid.segments.filter(segment => segment.start < DAY + 3 * HOUR).every(segment => segment.sourceKind === 'forecast'), 'provided forecast intervals take precedence over observation fallback');
+  } finally { f.close(); }
+});
+
+
+test('cold Current opening fills midnight-to-now from supplied observations without changing forecast extrema', () => {
+  const f = fixture();
+  try {
+    f.setHours([hourly(12, 60, 20), hourly(13, 55, 30)]);
+    f.setGrid({});
+    f.set('history', { features: Array.from({ length: 14 }, (_, index) => ({ properties: {
+      timestamp: iso(DAY + (index - 1) * HOUR), temperature: { value: 80 - index, unitCode: 'wmoUnit:degF' },
+    } })) });
+    f.set('observation', { properties: { timestamp: iso(NOW), temperature: { value: 67, unitCode: 'wmoUnit:degF' }, textDescription: 'Clear' } });
+    f.current();
+    const dial = f.window.document.querySelector('#liveTemperature .wv-temperature-dial');
+    const observed = Array.from(dial.querySelectorAll('.wv-dial-historical-observed'));
+    assert.ok(observed.length);
+    assert.equal(observed[0].dataset.startTime, iso(DAY));
+    assert.ok(observed.every(segment => Date.parse(segment.dataset.sampleEnd) <= NOW));
+    assert.match(dial.getAttribute('aria-label'), /observed and forecast/);
+    assert.equal(f.timeline().filter(period => period.fahrenheit === 60).length, 1);
+    assert.ok(!f.timeline().some(period => period.fahrenheit > 60), 'observations never become forecast periods');
+    assert.match(dial.textContent, /F\s*H\s*60°/);
+    assert.match(dial.textContent, /F\s*L\s*55°/);
+  } finally { f.close(); }
+});
+
+test('Current can show available observed history without inventing forecast high or low', () => {
+  const f = fixture();
+  try {
+    f.setHours([]); f.setGrid({});
+    f.set('history', { features: [-.2, .2, 1].map(hour => ({ properties: {
+      timestamp: iso(DAY + hour * HOUR), temperature: { value: 40, unitCode: 'wmoUnit:degF' },
+    } })) });
+    f.current();
+    const dial = f.window.document.querySelector('#liveTemperature .wv-temperature-dial');
+    assert.equal(dial.querySelector('.wv-dial-historical-observed').dataset.startTime, iso(DAY));
+    assert.ok(!dial.querySelector('.wv-dial-high') && !dial.querySelector('.wv-dial-low'));
+    assert.ok(!f.timeline().length);
   } finally { f.close(); }
 });

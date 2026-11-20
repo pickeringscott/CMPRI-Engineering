@@ -629,9 +629,11 @@ export default function EngineeringDashboardPage() {
           void refreshChatgptConnection();
           return;
         case "cmpri-modal-close":
-        case "cmpri-modal-dashboard":
         case "cmpri-work-order-cancelled":
           closeWindow(key);
+          return;
+        case "cmpri-modal-dashboard":
+          requestCloseWindow(key);
           return;
         case "cmpri-work-order-created":
         case "cmpri-work-order-saved":
@@ -647,7 +649,7 @@ export default function EngineeringDashboardPage() {
     };
     window.addEventListener("message", handleWindowMessage);
     return () => window.removeEventListener("message", handleWindowMessage);
-  }, [closeWindow, cmpriSession, loadDashboard, openRoute, openWorkOrder, openWorkOrderList, refreshChatgptConnection]);
+  }, [closeWindow, requestCloseWindow, cmpriSession, loadDashboard, openRoute, openWorkOrder, openWorkOrderList, refreshChatgptConnection]);
 
   if (!cmpriSession) {
     return (
@@ -797,7 +799,7 @@ export default function EngineeringDashboardPage() {
       <DesktopWorkspaceResume session={session}
         allowedHrefs={availableLaunchers.flatMap(item => item.href ? [item.href] : [])}
         views={windows.filter(entry => !entry.weatherCached).map(entry => ({ key: entry.key, kind: entry.kind, ...(entry.src ? { href: entry.src } : {}) }))}
-        zOrder={zOrder} onRestore={restoreWorkspaceDesktop} onNavigate={href => router.replace(href)}
+        zOrder={zOrder} onRestore={restoreWorkspaceDesktop}
         onSessionChanged={() => window.location.reload()}
         onStorageError={() => setMessage("This device could not save the open workspace. Keep this window open to preserve the current view.")} />
       <header className="cmpri-desktop-topbar cmpri-dashboard-titlebar relative flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3">
@@ -873,7 +875,7 @@ export default function EngineeringDashboardPage() {
                 rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
                 onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
                 registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}
-                onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => closeWindow(entry.key)} />;
+                onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => requestCloseWindow(entry.key)} />;
             }
             return (
               <DesktopWindow
@@ -899,7 +901,7 @@ export default function EngineeringDashboardPage() {
                     }}
                     onFocus={() => raise(entry.key)}
                     onOpen={(href, title) => openRoute(href, title)}
-                    onReturnToDesktop={() => closeWindow(entry.key)}
+                    onReturnToDesktop={() => requestCloseWindow(entry.key)}
                   />
                 )}
                 {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}

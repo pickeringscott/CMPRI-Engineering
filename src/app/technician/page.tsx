@@ -109,6 +109,7 @@ export default function TechnicianDashboard() {
   }, [playAlertTone]);
 
   async function signOut() {
+    window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
     await signOutDevice();
     router.replace("/");
   }

@@ -42,8 +42,9 @@
     "build:football": "node scripts/build-football-background.mjs",
     "test:football-theme": "npm run build:football && node --test tests/football-theme.test.mjs tests/football-rules.test.mjs",
     "test:pool-report": "node --experimental-strip-types --test tests/pool-report.test.mjs",
-    "test:workspace-resume": "node --import ./tests/helpers/resolve-ts.mjs --experimental-strip-types --test tests/workspace-resume.test.mjs tests/workspace-route-access.test.mjs tests/global-modal-workspace-resume.test.mjs tests/desktop-workspace-resume.test.mjs",
-    "test:app-recovery": "node --import ./tests/helpers/resolve-ts.mjs --experimental-strip-types --test tests/work-order-room-search.test.mjs tests/work-order-creation-recovery.test.mjs tests/pm-task-api.test.mjs tests/pm-task-queue.test.mjs tests/pm-task-queue-hook.test.mjs tests/pool-log-draft.test.mjs"
+    "test:workspace-resume": "node --import ./tests/helpers/resolve-ts.mjs --experimental-strip-types --test tests/workspace-resume.test.mjs tests/workspace-route-access.test.mjs tests/global-modal-workspace-resume.test.mjs tests/desktop-workspace-resume.test.mjs tests/desktop-frame-close.test.mjs",
+    "test:app-recovery": "node --import ./tests/helpers/resolve-ts.mjs --experimental-strip-types --test tests/work-order-room-search.test.mjs tests/work-order-creation-recovery.test.mjs tests/pm-task-api.test.mjs tests/pm-task-queue.test.mjs tests/pm-task-queue-hook.test.mjs tests/pool-log-draft.test.mjs tests/pm-form-workspace.test.mjs tests/profile-recovery.test.mjs",
+    "test:attachment-draft-ui": "node --test tests/work-order-attachment-draft.test.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

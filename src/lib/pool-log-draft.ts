@@ -64,25 +64,46 @@ export function poolRemarksForSave(previous: unknown, next: unknown) {
   return [typeof previous === "string" ? previous.trim() : "", typeof next === "string" ? next.trim() : ""].filter(Boolean).join("\n");
 }
 
-/** Reconcile a retained submission only when every entered reading and note is confirmed. */
+/** Reconcile only the exact unchanged intent or the next revision of an attempted save. */
 export function poolDraftMatchesSaved(draft: PoolDraft, log: Record<string, unknown> | null, userId: string) {
-  if (!log || log.updated_by !== userId || poolRemarksForSave(draft.savedRemarks, draft.form.remarks) !== String(log.remarks || "")) return false;
+  if (!log || !Number.isSafeInteger(log.revision) || Number(log.revision) < 1) return false;
+  const unchanged = draft.baseRevision !== null && log.revision === draft.baseRevision;
+  if (!unchanged && (!draft.uncertainSave || log.revision !== (draft.baseRevision ?? 0) + 1 || log.updated_by !== userId)) return false;
+  if (poolRemarksForSave(draft.savedRemarks, draft.form.remarks) !== String(log.remarks || "")) return false;
   const form = draft.form;
+  const numericMatches = (input: unknown, saved: unknown) => input === ""
+    ? saved == null
+    : saved != null && saved !== "" && Number.isFinite(Number(input)) && Number(input) === Number(saved);
   for (const key of ["ph_am", "ph_pm", "flow_rate_gpm", "temperature_f"]) {
-    if (form[key] !== "" && (log[key] == null || log[key] === "" || Number(form[key]) !== Number(log[key]))) return false;
+    if (!numericMatches(form[key], log[key])) return false;
   }
   for (const period of ["am", "pm"]) {
     const band = String(form[`sanitizer_band_${period}`] || "");
-    if (band && (band.startsWith("legacy:") ? log[`sanitizer_${period}`] == null || Number(band.slice(7)) !== Number(log[`sanitizer_${period}`]) : band !== log[`sanitizer_band_${period}`])) return false;
+    const legacy = band.startsWith("legacy:");
+    if (!numericMatches(legacy ? band.slice(7) : "", log[`sanitizer_${period}`])
+      || (legacy || !band ? log[`sanitizer_band_${period}`] != null : band !== log[`sanitizer_band_${period}`])) return false;
+    const location = form[`sample_location_${period}`];
+    const savedLocation = log[`sample_location_${period}`];
+    if (form[`ph_${period}`] === "" ? savedLocation != null
+      : location ? location !== savedLocation
+        : draft.baseRevision === null ? savedLocation !== "shared" : savedLocation != null && savedLocation !== "shared") return false;
   }
   for (const key of ["main_drain_visible", "filter_backwashed"]) {
-    if (form[key] !== "" && (form[key] === "true") !== log[key]) return false;
+    if (form[key] === "" ? log[key] != null : (form[key] === "true") !== log[key]) return false;
   }
+  // Closure status is derived from the latest test. Its independent manual
+  // source must still match, including an unclassified legacy closure (null).
+  if (form.manual_closure !== (log.manual_closure ?? (log.closure_condition === true ? null : false))) return false;
   if (form.retest_id) {
     const retest = log.retest_submission as Record<string, unknown> | null;
     if (retest?.id !== form.retest_id || retest?.ph !== Number(form.retest_ph) || retest?.sanitizer_band !== form.retest_band) return false;
   }
-  if (form.requires_attention !== log.requires_attention || form.closure_reason && !String(log.closure_reason || "").includes(String(form.closure_reason))) return false;
+  // Reasons are append-only history; automatic failure reasons may be appended
+  // by the database, but a partial textual match cannot acknowledge an entry.
+  const reason = String(form.closure_reason || "").trim();
+  const savedReason = String(log.closure_reason || "").trim();
+  if ((form.requires_attention === true) !== (log.requires_attention === true)
+    || reason && savedReason !== reason && !savedReason.startsWith(`${reason}\n`)) return false;
   const uses = Array.isArray(log.chemical_uses) ? log.chemical_uses : [];
   if (!draft.chemicalUses.every(use => uses.some(prior => prior.id === use.id && prior.item === use.item && Number(prior.quantity) === use.quantity && prior.unit === use.unit && prior.actor === userId))) return false;
   return true;

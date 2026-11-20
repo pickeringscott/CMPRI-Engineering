@@ -434,7 +434,12 @@ export default function PoolLogPage() {
       if (chemicalUses.length) payload.chemical_uses = chemicalUses;
       payload.expected_revision = saved?.revision ?? null;
       if (saved && editingSavedLog) payload.edit_mode = "replace";
+      const submission: PoolDraft = { version: 1, baseRevision: saved?.revision ?? null, savedRemarks: saved?.remarks || "", form, chemicalUses, editingSavedLog, uncertainSave: true };
       setUncertainChemicalSave(true);
+      if (draftScope) {
+        try { savePoolDraft(window.localStorage, draftScope, submission); }
+        catch { setStorageProblem("This browser could not retain pool readings. Keep this window open until saving succeeds."); }
+      }
       const response = await fetch("/api/pool-log", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
@@ -442,6 +447,7 @@ export default function PoolLogPage() {
       });
       const result = await response.json() as { error?: string; log?: Log; unchanged?: boolean; closure_reasons?: string[]; closure_required?: boolean; warnings?: string[]; notifications_recorded?: boolean };
       if (!response.ok || !result.log) { if (response.status < 500) setUncertainChemicalSave(false); throw new Error(result.error || "Unable to save readings."); }
+      if (!poolDraftMatchesSaved(submission, result.log, session.user.id)) throw new Error("The response did not confirm all submitted pool entries. Your entries are still on screen; retry saving before closing.");
       setChemicalUses([]); setUncertainChemicalSave(false);
       if (chemicalUses.length) void invalidateCachedResources(["pool","reference","orders"]).catch(()=>{});
       const values = formFromLog(result.log);

@@ -27,7 +27,7 @@ async def main():
       data=r.request.post_data_json;writes.append(data)
       sample=data.get('retest')
       latest={'period':'retest' if sample else 'pm','ph':sample['ph'] if sample else data['ph_pm'],'sanitizer':None,'sanitizer_band':sample['sanitizer_band'] if sample else data['sanitizer_band_pm'],'sample_location':'shared'}
-      row={**row,**data,'revision':row['revision']+1,'sample_location_pm':'shared','latest_test':latest,'closure_condition':hold is not False}
+      row={**row,**data,'revision':row['revision']+1,'updated_by':'fixture','sample_location_am':'shallow','sample_location_pm':'shared','latest_test':latest,'closure_condition':hold is not False}
       if sample:
        row['retest_submission']=sample;retests.append({**sample,'recorded_at':'2026-10-12T20:00:00Z','revision':row['revision']})
       body={'log':row,'closure_required':row['closure_condition'],'closure_reasons':[],'warnings':[]}

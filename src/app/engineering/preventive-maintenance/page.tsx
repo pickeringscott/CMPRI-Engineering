@@ -28,6 +28,8 @@ import {
 
 import { taskComplete, taskEditable, taskVisual, type PmTaskState, type PmTaskActor } from "@/lib/pm/task-review";
 import { usePmTaskQueue, pmEntryTaskState } from "@/lib/pm/use-task-queue";
+import { hasPmFormRecovery, pmFormDraftKey, readPmFormDraft, samePmForm, type PmFormIdentity } from "@/lib/pm/form-workspace";
+import { usePmFormWorkspace } from "@/lib/pm/use-form-workspace";
 import "./pm-approved.css";
 
 type PmEntry = {
@@ -75,7 +77,7 @@ type LivePmWorkbook = {
 };
 type PmLocation = { id: string; name: string; room_number: string | null; area: string | null; location_type: string | null };
 type PmTab = "week" | "inspections" | "rooms" | "history";
-type ActiveForm = { templateId: string; periodStart: string; scopeKey: string };
+type ActiveForm = PmFormIdentity;
 type WorkOrderTarget = { form: ActiveForm | null; locationId: string | null; room: string | null; week: string };
 type PendingWorkOrderLink = {
   id: string;
@@ -246,6 +248,8 @@ export default function PreventiveMaintenancePage() {
   const [reviewBusyId, setReviewBusyId] = useState("");
   const [roomSearch, setRoomSearch] = useState("");
   const [activeForm, setActiveForm] = useState<ActiveForm | null>(null);
+  const activeFormRef = useRef<ActiveForm | null>(null);
+  const [formRevision, setFormRevision] = useState(0);
   const [workOrderTarget, setWorkOrderTarget] = useState<WorkOrderTarget | null>(null);
   const openedWorkOrderTarget = useRef(false);
   const [formData, setFormData] = useState<Record<string, string>>({});
@@ -258,6 +262,8 @@ export default function PreventiveMaintenancePage() {
   const [pendingWorkOrderLink, setPendingWorkOrderLink] = useState<PendingWorkOrderLink | null>(null);
   const requestSequence = useRef(0);
   const [queueOwner, setQueueOwner] = useState<{ hotelId: string; userId: string } | null>(null);
+  const verifiedOwner = useRef<{ hotelId: string; userId: string } | null>(null);
+  const [loadedWeek, setLoadedWeek] = useState("");
   const taskQueue = usePmTaskQueue<PmEntry>({
     owner: queueOwner, actor, canEdit, context: { weekStart, frequency, tab, phoneDay },
     onRestoreContext: context => {
@@ -290,11 +296,17 @@ export default function PreventiveMaintenancePage() {
       if (workOrder) query.set("workOrder", workOrder);
       const response = await fetch(`/api/preventive-maintenance?${query}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
+        cache: hasPmFormRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }, week) ? "reload" : "no-store",
       });
       const result = await response.json().catch(() => ({}));
       if (sequence !== requestSequence.current || !isCurrent()) return;
       if (!response.ok || !Array.isArray(result.entries) || !result.workbook) throw new Error(result.error || "Live PM records could not be loaded.");
+      if (result.actor_id !== cmpriSession.user.id) throw new Error("Your account changed while loading PM. Reopen Preventive Maintenance.");
+      if (verifiedOwner.current && (verifiedOwner.current.hotelId !== cmpriSession.hotelId || verifiedOwner.current.userId !== cmpriSession.user.id)) {
+        activeFormRef.current = null;
+        setActiveForm(null);
+      }
+      verifiedOwner.current = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id };
       setQueueOwner({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id });
       setEntries(result.entries as PmEntry[]);
       setLiveWorkbook(result.workbook as LivePmWorkbook);
@@ -315,6 +327,7 @@ export default function PreventiveMaintenancePage() {
       setCanEdit(result.can_edit === true || result.can_review === true);
       setCanReview(result.can_review === true);
       setActor({ id: result.actor_id || "", name: result.actor_name || "", role: result.can_review ? "chief" : result.can_edit ? "technician" : "manager" });
+      setLoadedWeek(week);
     } catch (cause) {
       if (sequence === requestSequence.current && isCurrent()) setError(cause instanceof Error ? cause.message : "PM records could not be loaded.");
     } finally {
@@ -393,6 +406,10 @@ export default function PreventiveMaintenancePage() {
   }
 
   async function saveEntry(payload: Record<string, unknown>) {
+    const verified = await loadCmpriSession();
+    if (!queueOwner || verified.user.id !== queueOwner.userId || verified.hotelId !== queueOwner.hotelId || !verified.capabilities.includes("view_pm")) {
+      throw new Error("Sign in with the same account and property before saving this PM form. Your draft is kept here.");
+    }
     const session = await getValidSession();
     if (!session?.access_token) throw new Error("Sign in again before saving PM.");
     const response = await fetch("/api/preventive-maintenance", {
@@ -447,9 +464,21 @@ export default function PreventiveMaintenancePage() {
     return queued?.desiredState || pmEntryTaskState(entryFor(template, period), template, itemId);
   }
 
+  function locationForScope(scopeKey: string) {
+    const room = scopeKey.match(/^room:(\d{2,4})$/)?.[1];
+    if (room) return locations.find((location) =>
+      String(location.room_number || "").trim() === room || location.name?.match(/\b\d{2,4}\b/)?.[0] === room,
+    ) || null;
+    return null;
+  }
+
   function openForm(template: PmTemplate, periodStart: string, scopeKey = "property") {
+    if (!queueOwner || loading || loadedWeek !== weekStart) return;
     const existing = entryFor(template, periodStart, scopeKey);
-    setActiveForm({ templateId: template.id, periodStart, scopeKey });
+    const identity = { templateId: template.id, periodStart, scopeKey };
+    activeFormRef.current = identity;
+    setActiveForm(identity);
+    setFormRevision(existing?.revision || 0);
     setFormData(Object.fromEntries(Object.entries(existing?.form_data || {}).map(([key, value]) => [key, String(value ?? "")])));
     setChecklist(Object.fromEntries(Object.entries(existing?.responses || {}).filter(([, value]) => typeof value === "string") as Array<[string, ChecklistState]>));
     const priorRows = existing?.form_data?.logEntries;
@@ -460,16 +489,18 @@ export default function PreventiveMaintenancePage() {
     setDeficiencyNotes(existing?.deficiency_notes || "");
     setCompletedOn(existing?.completed_on || "");
     setDeficiencyLocationId(locationForScope(scopeKey)?.id || "");
-    try {
-      const saved = localStorage.getItem(`cmpri-pm-draft:${actor.id}:${entryKey(template.id, periodStart, scopeKey)}`);
-      const draft = saved ? JSON.parse(saved) : null;
-      if (draft && draft.revision === (existing?.revision || 0)) {
-        setFormData(draft.formData); setChecklist(draft.checklist); setRepeatableRows(draft.repeatableRows);
-        setFormNotes(draft.formNotes); setDeficiencyNotes(draft.deficiencyNotes); setCompletedOn(draft.completedOn);
-      }
-    } catch { /* Browser storage can be unavailable; normal CMPRI saving remains available. */ }
     setError("");
     setMessage("");
+    try {
+      const draft = readPmFormDraft(localStorage.getItem(pmFormDraftKey(queueOwner, identity)), queueOwner, identity);
+      if (draft) {
+        setFormData(draft.formData); setChecklist(draft.checklist); setRepeatableRows(draft.repeatableRows);
+        setFormNotes(draft.formNotes); setDeficiencyNotes(draft.deficiencyNotes); setCompletedOn(draft.completedOn);
+        setFormRevision(draft.revision);
+        setDeficiencyLocationId(locations.some(location => location.id === draft.deficiencyLocationId) ? draft.deficiencyLocationId : "");
+        if (draft.revision !== (existing?.revision || 0)) setError("This PM entry changed elsewhere. Your recovered form is kept here with its original revision; saving cannot replace the newer record.");
+      }
+    } catch { /* Browser storage can be unavailable; normal CMPRI saving remains available. */ }
   }
 
   useEffect(() => {
@@ -520,19 +551,25 @@ export default function PreventiveMaintenancePage() {
     setFocusTask(`pm-task-${task.template.id}-${task.period}-${task.item.id}`); setNotificationsOpen(false);
   }
 
-  function locationForScope(scopeKey: string) {
-    const room = scopeKey.match(/^room:(\d{2,4})$/)?.[1];
-    if (room) return locations.find((location) =>
-      String(location.room_number || "").trim() === room || location.name?.match(/\b\d{2,4}\b/)?.[0] === room,
-    ) || null;
-    return null;
-  }
-
   const activeTemplate = activeForm ? findPmTemplate(activeForm.templateId) : null;
   const activeScopeKey = activeForm?.scopeKey || "property";
   const activeScopeEntry = activeForm && activeTemplate ? entryFor(activeTemplate, activeForm.periodStart, activeScopeKey) : null;
   const activeCanEdit = canEdit
     && (!["pending", "processing"].includes(activeScopeEntry?.status || "") || activeScopeEntry?.can_edit_entry === true);
+  const formContents = useMemo(() => ({ revision: formRevision, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn, deficiencyLocationId }),
+    [formRevision, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn, deficiencyLocationId]);
+  const { persist: persistFormWorkspace } = usePmFormWorkspace({
+    owner: queueOwner, loadedWeek: loading ? "" : loadedWeek, weekStart, activeForm, contents: formContents, canEdit: activeCanEdit,
+    preferWorkOrder: Boolean(workOrderTarget || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("workOrder"))),
+    onSelectWeek: setWeekStart,
+    onRestore: identity => {
+      const template = findPmTemplate(identity.templateId);
+      if (!template) return;
+      setTab(template.kind === "room" ? "rooms" : "inspections");
+      openForm(template, identity.periodStart, identity.scopeKey);
+    },
+    onError: setError,
+  });
   const followUpItems = activeTemplate?.checklist.filter((item) => checklist[item.id] === "follow-up") || [];
   const pendingLinkMatchesForm = Boolean(
     pendingWorkOrderLink && activeForm && activeTemplate
@@ -577,7 +614,7 @@ export default function PreventiveMaintenancePage() {
       || (scopeKey !== activeForm.scopeKey ? entryFor(activeTemplate, activeForm.periodStart, activeForm.scopeKey) : undefined);
     const formValues: Record<string, unknown> = { ...formData };
     if (activeTemplate.repeatableFields) formValues.logEntries = repeatableRows;
-    return await saveEntry({
+    const saved = await saveEntry({
       templateId: activeTemplate.id,
       periodStart: activeForm.periodStart,
       scopeKey,
@@ -587,9 +624,28 @@ export default function PreventiveMaintenancePage() {
       deficiencyNotes,
       completedOn: completedOn || null,
       isComplete,
-      expectedRevision: revisionOverride ?? existing?.revision ?? 0,
+      expectedRevision: revisionOverride ?? formRevision,
       workOrderId: workOrderId === undefined ? existing?.work_order_id || null : workOrderId,
     });
+    if (queueOwner) {
+      try {
+        const key = pmFormDraftKey(queueOwner, activeForm);
+        const stored = readPmFormDraft(localStorage.getItem(key), queueOwner, activeForm);
+        // An acknowledged save may finish after the nested form closes. Advance only
+        // the exact saved draft, retaining edits made in this or another window.
+        if (stored && stored.revision === formRevision
+          && JSON.stringify([stored.formData, stored.checklist, stored.repeatableRows, stored.formNotes, stored.deficiencyNotes, stored.completedOn, stored.deficiencyLocationId])
+          === JSON.stringify([formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn, deficiencyLocationId])) {
+          localStorage.setItem(key, JSON.stringify({ ...stored, revision: saved.revision }));
+        }
+      } catch { /* The current form and explicit save remain available. */ }
+    }
+    if (activeFormRef.current && samePmForm(activeFormRef.current, activeForm)) {
+      activeFormRef.current = { ...activeForm, scopeKey: saved.scope_key };
+      setActiveForm(activeFormRef.current);
+      setFormRevision(saved.revision);
+    }
+    return saved;
   }
 
   async function saveActive(isComplete: boolean) {
@@ -598,8 +654,7 @@ export default function PreventiveMaintenancePage() {
     setError("");
     setMessage("");
     try {
-      const saved = await persistActive(isComplete);
-      setActiveForm((current) => current ? { ...current, scopeKey: saved.scope_key } : current);
+      await persistActive(isComplete);
       setMessage(isComplete
         ? `${activeTemplate?.title || "PM form"} saved.`
         : "PM draft saved.");
@@ -610,36 +665,30 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
-  const draftSave = useRef<() => void>(() => {});
   const draftRemoteSave = useRef<() => Promise<unknown>>(async () => {});
   const draftSession = useRef({ key: "", signature: "" });
   const draftFlush = useRef<() => void>(() => {});
   useEffect(() => { draftRemoteSave.current = () => persistActive(false); });
   useEffect(() => {
-    if (!activeForm || !actor.id || !activeCanEdit) { draftSave.current = () => {}; draftFlush.current = () => {}; draftSession.current.key = ""; return; }
-    const key = `cmpri-pm-draft:${actor.id}:${entryKey(activeForm.templateId, activeForm.periodStart, activeForm.scopeKey)}`;
-    const snapshot = { revision: activeScopeEntry?.revision || 0, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn };
-    const save = () => { try { localStorage.setItem(key, JSON.stringify(snapshot)); } catch { /* Explicit save remains available. */ } };
+    if (!activeForm || !queueOwner || !activeCanEdit) { draftFlush.current = () => {}; draftSession.current.key = ""; return; }
+    const key = pmFormDraftKey(queueOwner, activeForm);
     const signature = JSON.stringify({ formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn });
     if (draftSession.current.key !== key) draftSession.current = { key, signature };
     const flush = () => {
-      save();
+      persistFormWorkspace();
       if (draftSession.current.signature === signature) return;
       void draftRemoteSave.current().then(() => { draftSession.current.signature = signature; }).catch(() => {
         // Incomplete equipment drafts may not yet have an identity. Retain them locally.
       });
     };
-    draftSave.current = save;
     draftFlush.current = flush;
-    save();
     let timer: ReturnType<typeof setTimeout>;
     const restart = () => { clearTimeout(timer); timer = setTimeout(flush, 300_000); };
     restart();
     const events = ["pointerdown", "keydown", "input", "scroll"];
     events.forEach(event => window.addEventListener(event, restart, true));
-    window.addEventListener("pagehide", save);
-    return () => { save(); clearTimeout(timer); events.forEach(event => window.removeEventListener(event, restart, true)); window.removeEventListener("pagehide", save); };
-  }, [activeForm, actor.id, activeCanEdit, activeScopeEntry?.revision, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn]);
+    return () => { clearTimeout(timer); events.forEach(event => window.removeEventListener(event, restart, true)); };
+  }, [activeForm, queueOwner, activeCanEdit, formData, checklist, repeatableRows, formNotes, deficiencyNotes, completedOn, persistFormWorkspace]);
 
   async function createWorkOrderFromDeficiency() {
     if (!activeCanEdit) return;
@@ -684,8 +733,7 @@ export default function PreventiveMaintenancePage() {
       };
       setPendingWorkOrderLink(pending);
       try {
-        const linked = await persistActive(false, pending.id, pending.revision);
-        setActiveForm((current) => current ? { ...current, scopeKey: linked.scope_key } : current);
+        await persistActive(false, pending.id, pending.revision);
         setPendingWorkOrderLink(null);
         setMessage(`Work order ${pending.displayId} created and linked to this PM entry.`);
       } catch (linkError) {
@@ -704,8 +752,7 @@ export default function PreventiveMaintenancePage() {
     setSavingKey("work-order");
     setError("");
     try {
-      const linked = await persistActive(false, pendingWorkOrderLink.id, pendingWorkOrderLink.revision);
-      setActiveForm((current) => current ? { ...current, scopeKey: linked.scope_key } : current);
+      await persistActive(false, pendingWorkOrderLink.id, pendingWorkOrderLink.revision);
       setPendingWorkOrderLink(null);
       setMessage(`Work order ${pendingWorkOrderLink.displayId} linked to this PM entry.`);
     } catch (cause) {
@@ -1157,7 +1204,7 @@ export default function PreventiveMaintenancePage() {
           <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="pm-inspection cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 rounded-t-2xl border-b border-slate-800 bg-slate-950/95 p-4 backdrop-blur sm:p-5">
               <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{activeTemplate.cadence} PM form · {periodLabel(activeTemplate, activeForm.periodStart)}</p><h2 id="pm-form-title" className="mt-1 text-xl font-bold">{activeTemplate.title}{activeTemplate.scope === "room" ? ` · Room ${activeScopeKey.slice(5)}` : ""}</h2><SourceNote template={activeTemplate} /></div>
-              <button type="button" onClick={() => { draftSave.current(); draftFlush.current(); setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
+              <button type="button" onClick={() => { persistFormWorkspace(); draftFlush.current(); activeFormRef.current = null; setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
             </header>
             <div className="pm-inspection-body space-y-5 p-4 sm:p-5">
               {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}

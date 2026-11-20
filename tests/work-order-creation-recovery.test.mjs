@@ -63,9 +63,11 @@ test('a requested different server draft needs explicit comparison and partial f
 
 const source=readFileSync(new URL('../src/app/work-orders/page.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('page.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-let hydrate,persist,restore;
+let hydrate,persist,restore,submit,restoreFiles;
 function visit(node){
   if(ts.isFunctionDeclaration(node)&&node.name?.text==='restoreLocalCreation')restore=node.getText(ast);
+  if(ts.isFunctionDeclaration(node)&&node.name?.text==='submitWorkOrders')submit=node.getText(ast);
+  if(ts.isFunctionDeclaration(node)&&node.name?.text==='restoreCreationAttachments')restoreFiles=node.getText(ast);
   if(ts.isCallExpression(node)&&node.expression.getText(ast)==='useEffect'){
     const body=node.arguments[0]?.getText(ast)||'';
     if(body.includes('creationRecoveryScope.current === creationScope'))hydrate=body;
@@ -83,6 +85,7 @@ function pageFixture(disk=storage(),overrides={}){
     drafts:[],reviewDraft:null,issue:'',notes:'',locationId:'',staffFirstName:'',draftFields:{...fields},
     currentDraftKey:draftFieldsKey(fields),activeDraftId:'',activeDraftRevision:null,lastSavedDraftKey:'',
     pendingDraftSave:{current:null},draftCreationReceipts:{current:new Map()},autoOpenedDraftRef:{current:''},persistCreationRecoveryRef:{current:()=>{}},
+    acknowledgedCreation:{current:undefined},restoreCreationAttachments:async()=>{},persistAttachmentsRef:{current:async()=>true},restoringAttachments:{current:0},
     creationSubmissionUncertain:false,submittingRef:{current:false},confirmedCreationKey:{current:''},confirmedDraftRecovery:{current:null},photos:[],createState:'idle',mainWorkOrderCreated:false,
     window:{location:{search:''},addEventListener:(key,fn)=>listeners.set(key,fn),removeEventListener:key=>listeners.delete(key)},
     document:{hidden:false,addEventListener:(key,fn)=>listeners.set(key,fn),removeEventListener:key=>listeners.delete(key)},
@@ -104,7 +107,7 @@ test('actual page hydration waits for verified context and successful initial re
   f.hydrate();await flush();assert.equal(f.state.issue,undefined);
   f.context.draftsLoaded=true;f.hydrate();await flush();
   assert.equal(f.state.issue,fields.issue);assert.equal(f.state.notes,fields.notes);
-  assert.equal(f.state.creationRecoveryReady,f.context.creationScope);assert.match(f.state.message,/photos must be added again/);
+  assert.equal(f.state.creationRecoveryReady,f.context.creationScope);assert.match(f.state.message,/Restoring selected attachments/);
 });
 
 test('actual page does not overwrite a changed saved draft or newly typed form while recovery waits',async()=>{
@@ -146,4 +149,49 @@ test('a prepared POST is recoverable text until its bound receipt is attached im
   f.context.draftCreationReceipts.current.set('prepared-id','signed-original-receipt');
   f.context.persistCreationRecoveryRef.current();
   const sent=recovery.readCreationRecovery(f.disk,identity);assert.equal(sent.pending.id,'prepared-id');assert.equal(sent.pendingReceipt,'signed-original-receipt');
+});
+
+
+test('an acknowledged create survives a failed Blob-target write without losing its authoritative ticket or permitting another create',async()=>{
+  const ticketId='00000000-0000-4000-8000-000000000003',uploadId='00000000-0000-4000-8000-000000000004';
+  const writes=[];
+  const f=pageFixture(storage(),{creationRecoveryReady:'hotel-one:owner-one',issue:fields.issue,
+    photos:[{file:new File(['original bytes'],'retained.png',{type:'image/png',lastModified:123}),uploadId,previewUrl:'blob:in-memory-only'}],
+    attachmentRecoveryConflict:null,pendingPhotoUploads:[],draftIdentityScope:{current:'hotel-one:owner-one'},
+    attachmentPendingUploads:{current:null},submittedDisplayIdsRef:{current:[]},staffFirstName:'Sam',activeDraftId:'',activeDraftRevision:null,
+    getValidSession:async()=>({access_token:'test-token',user:{id:identity.userId}}),
+    persistAttachmentsRef:{current:async()=>false},
+    fetch:async(url,options)=>{writes.push({url,options});return {ok:true,json:async()=>({ok:true,work_orders:[{id:ticketId,display_id:'4218',status:'Open'}]})}},
+    uploadWorkOrderAttachment:async()=>({ok:false,message:'fixture upload offline',canReplace:false}),
+    formatWorkOrder:value=>value,
+  });
+  for(const setter of ['setPendingPhotoUploads','setPhotoUploadError','setCanReplacePhoto','setPhotoToReplaceUploadId'])f.context[setter]=value=>{f.state[setter]=value;};
+  f.persist();
+  vm.runInContext(ts.transpileModule(submit,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,f.context);
+  const result=await f.context.submitWorkOrders({issue:fields.issue});
+  assert.equal(result.photoUploadPending,true);assert.equal(writes.length,1);
+  const reopened=recovery.readCreationRecovery(f.disk,identity);
+  assert.deepEqual(reopened.created,{workOrders:[{id:ticketId,displayId:'4218'}],uploads:[{workOrderId:ticketId,displayId:'4218',uploadId}]});
+  assert.equal(reopened.fields.issue,fields.issue);
+  assert.equal(recovery.canRestoreCreationRecovery(reopened,null),true,'an acknowledged source draft may already have been removed');
+  const again=await f.context.submitWorkOrders({issue:'A second attempted create'});
+  assert.ok(again.error);assert.equal(writes.length,1,'the acknowledged ticket must never create again');
+});
+
+
+test('late attachment recovery success or failure cannot reveal an old account after scope change',async()=>{
+ for(const fails of [false,true]){
+  let complete,fail;
+  const response=new Promise((resolve,reject)=>{complete=resolve;fail=reject});
+  const f=pageFixture(storage(),{readAttachmentDraft:()=>response,draftIdentityScope:{current:'hotel-one:owner-one'}});
+  for(const setter of ['setAttachmentRecoveryFailed','setPhotoUploadError','setAttachmentRecoveryReady','setMainWorkOrderCreated','setCreateState'])f.context[setter]=value=>{f.state[setter]=value};
+  vm.runInContext(ts.transpileModule(restoreFiles,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,f.context);
+  const saved=snapshot({created:{workOrders:[{id:'00000000-0000-4000-8000-000000000003',displayId:'4218'}],uploads:[]}});
+  const read=f.context.restoreCreationAttachments(saved);
+  f.context.draftIdentityScope.current='other-property:other-account';
+  if(fails)fail(Error('fixture late read failure'));else complete({files:[],draftIdentity:''});
+  await read;
+  assert.equal(f.state.setMainWorkOrderCreated,undefined);assert.equal(f.state.setAttachmentRecoveryFailed,undefined);
+  assert.equal(f.state.setAttachmentRecoveryReady,undefined);assert.equal(f.context.acknowledgedCreation.current,undefined);
+ }
 });

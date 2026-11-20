@@ -303,3 +303,74 @@ test('the Central clock follows role preference and the native tracker deactivat
     assert.match(asset,/THE SOFTWARE IS PROVIDED "AS IS"/);
   }
 });
+
+test('visible boards age at the retrieval deadline without polling or discarding rows', async () => {
+  const f = fixture({ fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = new Date(START - 20000).toISOString();
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    const retrieved = f.details.querySelector('.wa-source').textContent;
+    assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(39999); assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(1); assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.equal(rows(f, 'arrivals').length, 3);
+    assert.equal(f.details.querySelector('.wa-source').textContent, retrieved);
+    assert.match(f.details.querySelector('[data-willard-arrivals] .wa-board-status').title, /one minute/);
+    f.advance(10 * MINUTE);
+    assert.equal(f.flightCalls.length, 1, 'aging is local display work, never flight polling');
+    assert.equal(f.api.getState().backgroundPolling, false);
+  } finally { await f.cleanup(); }
+});
+
+test('an open board becomes unverified across Central midnight without a request', async () => {
+  const night = Date.parse('2026-11-21T05:59:40Z');
+  const f = fixture({ now: night, fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = new Date(night).toISOString();
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(20025);
+    assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.match(f.details.querySelector('[data-willard-arrivals] .wa-board-status').title, /earlier Central date/);
+    assert.equal(f.flightCalls.length, 1);
+    assert.equal(rows(f, 'arrivals').length, 3);
+  } finally { await f.cleanup(); }
+});
+
+test('reopening an aged board checks once and accepts newly retrieved data', async () => {
+  const f = fixture({ fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = new f.window.Date().toISOString();
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    f.advance(MINUTE); assert.equal(f.api.getState().boardStatus, 'stale');
+    f.disclose(false); f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length, 2);
+    assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(MINUTE); assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.equal(f.flightCalls.length, 2);
+  } finally { await f.cleanup(); }
+});
+
+test('unverifiable retrieval time cannot keep flight rows labeled live', async () => {
+  const f = fixture({ fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = null;
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.equal(rows(f, 'departures').length, 1);
+    assert.match(f.details.querySelector('[data-willard-departures] .wa-board-status').title, /cannot be verified/);
+    assert.equal(f.flightCalls.length, 1);
+  } finally { await f.cleanup(); }
+});

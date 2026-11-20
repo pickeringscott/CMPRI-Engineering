@@ -12,6 +12,7 @@ export type CreationRecovery = {
   pendingReceipt: string;
   attachmentCount: number;
   submissionUncertain: boolean;
+  created?: { workOrders: { id: string; displayId: string }[]; uploads: { workOrderId: string; displayId: string; uploadId: string }[] };
 };
 const LIMIT = 96 * 1024;
 const fieldLimits = { staff_first_name: 80, location_id: 100, issue: 4000, notes: 20000,
@@ -59,8 +60,28 @@ export function readCreationRecovery(storage: Pick<Storage, "getItem">, identity
       pending = { method: request.method, id: request.id, fields: values, uncertain: true,
         ...(request.method === "PATCH" ? { revision: Number(request.revision) } : {}) };
     }
+    let created: CreationRecovery["created"];
+    if (row.created !== undefined) {
+      const acknowledgement = record(row.created);
+      const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
+      const display = (value: unknown): value is string => typeof value === "string" && /^[a-z\d_-]{1,100}$/i.test(value);
+      if (!acknowledgement || !Array.isArray(acknowledgement.workOrders) || !acknowledgement.workOrders.length || acknowledgement.workOrders.length > 100 || !Array.isArray(acknowledgement.uploads) || acknowledgement.uploads.length > 250) return null;
+      const workOrders: NonNullable<CreationRecovery["created"]>["workOrders"] = [];
+      for (const value of acknowledgement.workOrders) {
+        const item = record(value);
+        if (!item || typeof item.id !== "string" || !uuid.test(item.id) || !display(item.displayId)) return null;
+        workOrders.push({ id: item.id, displayId: item.displayId });
+      }
+      const uploads: NonNullable<CreationRecovery["created"]>["uploads"] = [];
+      for (const value of acknowledgement.uploads) {
+        const item = record(value);
+        if (!item || typeof item.workOrderId !== "string" || !workOrders.some(order => order.id === item.workOrderId) || !display(item.displayId) || typeof item.uploadId !== "string" || !uuid.test(item.uploadId)) return null;
+        uploads.push({ workOrderId: item.workOrderId, displayId: item.displayId, uploadId: item.uploadId });
+      }
+      created = { workOrders, uploads };
+    }
     return { version: 1, ...identity, fields: normalized, active: draft, baseline: row.baseline, pending,
-      pendingReceipt: row.pendingReceipt, attachmentCount: Number(row.attachmentCount), submissionUncertain: row.submissionUncertain };
+      pendingReceipt: row.pendingReceipt, attachmentCount: Number(row.attachmentCount), submissionUncertain: row.submissionUncertain, ...(created ? { created } : {}) };
   } catch { return null; }
 }
 /** Whitelist text/compare metadata only: never serialize files, sessions, HTML or arbitrary properties. */
@@ -68,7 +89,7 @@ export function saveCreationRecovery(storage: Pick<Storage, "getItem" | "setItem
   try {
     const candidate = JSON.stringify({ version: 1, ...identity, fields: snapshot.fields, active: snapshot.active,
       baseline: snapshot.baseline, pending: snapshot.pending, pendingReceipt: snapshot.pendingReceipt,
-      attachmentCount: snapshot.attachmentCount, submissionUncertain: snapshot.submissionUncertain });
+      attachmentCount: snapshot.attachmentCount, submissionUncertain: snapshot.submissionUncertain, ...(snapshot.created ? { created: snapshot.created } : {}) });
     const safe = readCreationRecovery({ getItem: () => candidate }, identity);
     if (!safe) return false;
     storage.setItem(creationRecoveryKey(identity), JSON.stringify(safe));
@@ -80,6 +101,7 @@ export function clearCreationRecovery(storage: Pick<Storage, "removeItem">, iden
 }
 /** A changed/deleted server draft is compared explicitly, never silently rebased. */
 export function canRestoreCreationRecovery(recovery: CreationRecovery, remote: SavedDraft | null, requestedDraftId = ""): boolean {
+  if (recovery.created) return !requestedDraftId || requestedDraftId === recovery.active?.id;
   if (requestedDraftId && requestedDraftId !== recovery.active?.id && requestedDraftId !== recovery.pending?.id) return false;
   if (!recovery.active) return true;
   return !!remote && remote.id === recovery.active.id && remote.revision === recovery.active.revision
@@ -88,5 +110,5 @@ export function canRestoreCreationRecovery(recovery: CreationRecovery, remote: S
 export function hasCreationRecoveryWork(snapshot: CreationRecovery): boolean {
   const { fields } = snapshot;
   return Boolean(fields.staff_first_name || fields.location_id || fields.issue || fields.notes || fields.asset_id
-    || snapshot.active || snapshot.pending || snapshot.attachmentCount || snapshot.submissionUncertain);
+    || snapshot.active || snapshot.pending || snapshot.attachmentCount || snapshot.submissionUncertain || snapshot.created);
 }

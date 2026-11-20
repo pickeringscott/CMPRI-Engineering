@@ -34,7 +34,7 @@ let current, setDesktop, restored, navigated, failures, sessionChanges;
 function Harness({principal=session}){
   const [desktop,setState]=React.useState({views:[],zOrder:[]});setDesktop=setState;current=desktop;
   return React.createElement(Component,{session:principal,allowedHrefs:['/notes','/profile','/engineering/preventive-maintenance'],views:desktop.views,zOrder:desktop.zOrder,
-    onRestore:value=>{restored.push(value);setState(value);},onNavigate:href=>navigated.push(href),onStorageError:()=>failures++,onSessionChanged:()=>sessionChanges++});
+    onRestore:value=>{restored.push(value);setState(value);},onStorageError:()=>failures++,onSessionChanged:()=>sessionChanges++});
 }
 function reset(){window.localStorage.clear();window.history.replaceState({},'','/engineering');restored=[];navigated=[];failures=0;sessionChanges=0;authorizationChecks=0;verifySession=async()=>session;}
 async function settle(){for(let i=0;i<5;i++)await new Promise(resolve=>setImmediate(resolve));}
@@ -54,12 +54,13 @@ test('desktop restoration preserves its windows/order and sibling modals before 
   }finally{await close(root);}
 });
 
-test('last authorized standalone view is resumed without replacing its saved window state',async()=>{
+test('desktop restoration leaves the shared host’s standalone resume decision intact',async()=>{
   reset();const desktop={views:[frame('/profile')],zOrder:['/profile']};seed({topHref:'/notes?tab=journal',desktop});
   const root=await mount();
   try{
-    assert.deepEqual(navigated,['/notes?tab=journal']);assert.equal(restored.length,0);
+    assert.deepEqual(navigated,[]);assert.equal(restored.length,1);
     assert.deepEqual(workspace.readWorkspace(window.localStorage,identity,options).desktop,desktop);
+    assert.equal(workspace.readWorkspace(window.localStorage,identity,options).topHref,'/notes?tab=journal');
   }finally{await close(root);}
 });
 

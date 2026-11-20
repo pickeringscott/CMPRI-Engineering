@@ -214,7 +214,7 @@ test('profile preferences normalize and persist supported values', () => {
 
 test('profile save reports a blank display name instead of retaining stale success', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
-  assert.match(source, /if \(!preferences\) return;\s*if \(!name\.trim\(\)\) \{\s*setMessage\(tx\("Enter a display name before saving\.", "Ingrese un nombre para mostrar antes de guardar\."\)\);\s*return;\s*\}/);
+  assert.match(source, /if \(!preferences \|\| !draft\.current \|\| draft\.current\.stopped \|\| recoveryConflict\) return;\s*if \(!name\.trim\(\)\) \{\s*setMessage\(tx\("Enter a display name before saving\.", "Ingrese un nombre para mostrar antes de guardar\."\)\);\s*return;\s*\}/);
 });
 
 test('profile preferences use the same layout and submit-only users do not see ChatGPT connection controls', () => {

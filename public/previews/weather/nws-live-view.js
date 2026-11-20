@@ -301,7 +301,11 @@
     host.classList.add('current-temperature-dial');
     const today = visuals.dayKey(Date.now());
     const timeline = forecastTimelinePeriods();
-    const day = visuals.forecastDays(timeline, resource('forecast').data?.properties?.periods || []).find((item) => item.key === today);
+    const forecastDay = visuals.forecastDays(timeline, resource('forecast').data?.properties?.periods || []).find((item) => item.key === today);
+    // Preserve every supplied forecast value/mark. A cold opening can use real
+    // KCMI history for uncovered past color intervals, with observed provenance;
+    // it never invents an earlier forecast or fills unknown/future observations.
+    const day = fillTodayHistory(forecastDay || { ...observedDay, label: 'Today', segments: [], high: null, low: null, hourly: [], extended: [] });
     const wind = available ? quantity(p.windSpeed, 'wind') : null, gust = available ? quantity(p.windGust, 'wind') : null;
     const visibility = available ? quantity(p.visibility, 'visibility') : null;
     const feels = available ? quantity(p.windChill, 'temperature') ?? quantity(p.heatIndex, 'temperature') : null;

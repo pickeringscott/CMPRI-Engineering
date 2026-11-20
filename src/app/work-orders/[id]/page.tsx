@@ -1,6 +1,6 @@
 "use client";
 import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
-import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
+import WorkOrderMediaComposer, { type MediaRecoveryActions } from "@/components/WorkOrderMediaComposer";
 import WorkOrderTitleGuest from "@/components/WorkOrderTitleGuest";
 import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import WorkOrderSectionIcon from "@/components/WorkOrderSectionIcon";
@@ -696,6 +696,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [removingPhotoId, setRemovingPhotoId] = useState<string | null>(null);
   const [hasPendingNoteMedia, setHasPendingNoteMedia] = useState(false);
+  const mediaRecoveryActions = useRef<MediaRecoveryActions | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState("");
   const [photoUploadMessage, setPhotoUploadMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1973,15 +1974,17 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     const link = document.createElement("a"); link.href = url; link.download = "cmpri-work-order-draft.json"; link.click();
     URL.revokeObjectURL(url);
   }
-  function closeAndKeepDraft() {
-    if (saving || hasPendingNoteMedia) return;
+  async function closeAndKeepDraft() {
+    if (saving) return;
+    if (hasPendingNoteMedia && !await mediaRecoveryActions.current?.flush()) { setMessage("Selected attachments could not be retained. Keep this window open until they are uploaded."); return; }
     // Persist the current render synchronously: an effect may not have run yet,
     // and storage can fail after an earlier successful write.
     if (!persistLocalDraft()) return;
     closeEmbeddedTicket();
   }
-  function discardLocalDraftAndClose() {
+  async function discardLocalDraftAndClose() {
     if (saving || !cmpriSession || !order) return;
+    if (hasPendingNoteMedia && !await mediaRecoveryActions.current?.discard()) { setMessage("Selected attachments could not be discarded. Your work remains open."); return; }
     try {
       // A storage failure must keep this editing visit open before its journal
       // is finalized. Retain in-memory edits and recovery until exit succeeds.
@@ -2002,7 +2005,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if (!embedded) return;
     const handleModalCancelRequest = (event: Event) => {
       event.preventDefault();
-      if (hasPendingNoteMedia || saving || saveInFlight.current || exitInFlight.current) {
+      if (hasPendingNoteMedia) { setShowCancelConfirm(true); return; }
+      if (saving || saveInFlight.current || exitInFlight.current) {
         setMessage(hasPendingNoteMedia ? "Submit or remove the pending attachments before closing." : "Please wait for the current save to finish.");
         return;
       }
@@ -2532,7 +2536,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <WorkOrderNoteComposer placeholder="Add a note…" label={noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)} disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
                   {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{mentionDirectoryError}</p>}
                 </div>
-                <WorkOrderMediaComposer key={order.id} workOrderId={order.id} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
+                <WorkOrderMediaComposer key={order.id} workOrderId={order.id} revision={order.revision} onRecoveryActions={actions => { mediaRecoveryActions.current = actions; }} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
               </section>
             </details>
 
@@ -2797,7 +2801,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             <h2 className="text-xl font-bold">Leave this ticket view?</h2>
             <p className="mt-2 text-sm text-slate-400">Your changes have not been saved to the work order. You can keep a draft on this device if browser storage is available. Leaving this view does not change the ticket status.</p>
             {localDraftFailed && <p role="alert" className="mt-2 text-sm text-amber-300">The draft could not be saved on this device. Keep editing, save the work order, or download a copy before leaving.</p>}
-            {hasPendingNoteMedia && <p role="alert" className="mt-2 text-sm text-amber-300">Selected attachments are not saved in a device draft. Submit or remove them before closing and keeping your text.</p>}
+            {hasPendingNoteMedia && <p role="alert" className="mt-2 text-sm text-amber-300">Selected attachments can be kept on this device with your draft after browser storage confirms the file bytes. They upload only when you submit.</p>}
             {exitError && <p role="alert" className="mt-2 text-sm text-amber-300">{exitError}</p>}
             {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">Saving checklist activity before leaving…</p>}
             <div className="mt-6 flex justify-end gap-3">
@@ -2815,7 +2819,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               <button
                 type="button"
                 onClick={closeAndKeepDraft}
-                disabled={saving || exitFlushing || hasPendingNoteMedia}
+                disabled={saving || exitFlushing}
                 className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500"
               >
                 Close and keep draft

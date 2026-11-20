@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {modalActionForRoute,modalThemeStyle,modalTitleStyle,modalDisplayTitle,hasBonvoyTierHelp} from '@/lib/ui/header-palette';
 import WorkOrderTierKey from './WorkOrderTierKey';
 import RoomRankerKey from './RoomRankerKey';
@@ -13,7 +13,7 @@ import WeatherPreviewWindow from './desktop/WeatherPreviewWindow';
 import { loadCmpriSession } from '@/lib/auth/client-session';
 import { claimWorkOrder, releaseWorkOrder } from '@/lib/open-work-orders';
 import { canResumeWorkspaceView } from '@/lib/ui/workspace-route-access';
-import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity,
+import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity, workspaceResumeHref,
   type WorkspaceIdentity, type WorkspaceOptions, type WorkspaceView } from '@/lib/ui/workspace-resume';
 import { defaultWindowRect, type DesktopBounds, type WindowRect } from '@/lib/ui/desktop-windows';
 
@@ -183,6 +183,9 @@ function restoredModalTitle(href: string) {
 
 export default function GlobalModalHost() {
   const pathname = usePathname();
+  const router = useRouter();
+  const search = useSearchParams().toString();
+  const publicRoute = !pathname || pathname === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(pathname);
   const [stack, setStack] = useState<ModalEntry[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [canViewWorkOrders, setCanViewWorkOrders] = useState(false);
@@ -214,10 +217,15 @@ export default function GlobalModalHost() {
   const workspaceLatestIdentityRef = useRef<WorkspaceIdentity | null>(null);
   const workspaceRestoredRef = useRef(false);
   const workspaceStoppedRef = useRef(false);
+  const workspaceSignInSeenRef = useRef(false);
+  const workspaceGenerationRef = useRef(0);
+  const workspaceCheckingRef = useRef(false);
+  const workspaceRouteDecidedRef = useRef(false);
   const workspaceTouchedRef = useRef(false);
   const workspaceScopeBlockedRef = useRef(false);
   const workspaceBlockedRef = useRef(false);
   const [workspaceBlocked, setWorkspaceBlocked] = useState(false);
+  const workspaceHidden = workspaceBlocked || publicRoute;
   const [workspaceReady, setWorkspaceReady] = useState(0);
   const [workspacePreferencesScope, setWorkspacePreferencesScope] = useState<string>();
   const [workspaceCheck, setWorkspaceCheck] = useState(0);
@@ -481,37 +489,73 @@ export default function GlobalModalHost() {
   // Navigation identity only. Editors keep ownership of their own saved drafts
   // and cancel guards; no guest, form, auth or iframe-token data enters this store.
   useEffect(() => {
-    if (window.parent !== window || new URLSearchParams(window.location.search).get("embedded") === "1"
-      || !pathname || pathname === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(pathname)) return;
+    if (window.parent !== window || new URLSearchParams(window.location.search).get("embedded") === "1") return;
     workspaceRef.current = null;
+    if (publicRoute) {
+      if (workspaceStoppedRef.current && (pathname === "/" || pathname === "/sign-in")) workspaceSignInSeenRef.current = true;
+      workspaceBlockedRef.current = true;
+      nativeShellRef.current?.close();
+      // Render hides public-route contents immediately. Keep subsequent private
+      // routes blocked until they verify, without synchronously cascading state.
+      let live = true;
+      void Promise.resolve().then(() => {
+        if (!live) return;
+        setWorkspaceBlocked(true);
+        setWorkspacePreferencesScope(undefined);
+      });
+      return () => { live = false; };
+    }
+    const reconnecting = workspaceStoppedRef.current && workspaceSignInSeenRef.current;
+    if (workspaceStoppedRef.current && !reconnecting) return;
+    const generation = workspaceGenerationRef.current;
+    const checkedHref = window.location.href;
+    workspaceCheckingRef.current = true;
     let live = true;
     void loadCmpriSession().then(session => {
       const identity = workspaceIdentity(session);
       // Even if sign-out navigated away while this check was pending, its
       // verified owner can now be cleared without hydrating or setting state.
-      if (workspaceStoppedRef.current) {
-        try { clearWorkspace(window.localStorage, identity); } catch {}
+      if (generation !== workspaceGenerationRef.current || (workspaceStoppedRef.current && !reconnecting)) {
+        if (workspaceStoppedRef.current) try { clearWorkspace(window.localStorage, identity); } catch {}
         return;
       }
       if (!live) return;
+      workspaceCheckingRef.current = false;
       workspaceLatestIdentityRef.current = identity;
       const previousIdentity = workspaceIdentityRef.current;
-      if (previousIdentity && JSON.stringify(previousIdentity) !== JSON.stringify(identity)) {
+      if (reconnecting) {
+        workspaceStoppedRef.current = false;
+        workspaceSignInSeenRef.current = false;
+      }
+      if (reconnecting || (previousIdentity && JSON.stringify(previousIdentity) !== JSON.stringify(identity))) {
         // Never copy another account/property/permission scope's open routes.
         // Existing editors retain first refusal instead of bypassing a save.
         workspaceBlockedRef.current = true; setWorkspaceBlocked(true);
         setWorkspacePreferencesScope(undefined);
         nativeShellRef.current?.close();
+        workspaceRestoredRef.current = false;
+        workspaceRouteDecidedRef.current = false;
+        workspaceTouchedRef.current = false;
         for (const entry of stackRef.current.slice()) requestModalClose(entry.id);
         if (stackRef.current.length) { workspaceScopeBlockedRef.current = true; return; }
-        workspaceRestoredRef.current = false;
-        workspaceTouchedRef.current = false;
       }
       workspaceBlockedRef.current = false; setWorkspaceBlocked(false);
       if (stackRef.current.length && nativeShellRef.current && !nativeShellRef.current.open) nativeShellRef.current.showModal();
       const options: WorkspaceOptions = { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(session, view) };
       const saved = readWorkspace(window.localStorage, identity, options);
       setCanViewWorkOrders(session.capabilities.includes("view_work_orders"));
+      if (!workspaceRouteDecidedRef.current) {
+        workspaceRouteDecidedRef.current = true;
+        const href = !workspaceTouchedRef.current && window.location.href === checkedHref
+          ? workspaceResumeHref(saved, checkedHref, session.landing, options) : null;
+        if (href) {
+          // Pause every host's top-level persistence until the destination has
+          // mounted. Desktop windows patch only their independent section.
+          workspaceIdentityRef.current = identity;
+          router.replace(href);
+          return;
+        }
+      }
       if (!workspaceRestoredRef.current) {
         workspaceRestoredRef.current = true;
         // A user action during the session check takes precedence over an old stack.
@@ -536,14 +580,15 @@ export default function GlobalModalHost() {
     }).catch(() => {
       // loadCmpriSession fails for revoked access as well as failed transport.
       // Retain protected drafts, but hide them until a fresh check succeeds.
-      if (live && workspaceIdentityRef.current) {
+      if (live) {
+        workspaceCheckingRef.current = false;
         workspaceBlockedRef.current = true; setWorkspaceBlocked(true);
         setWorkspacePreferencesScope(undefined);
         nativeShellRef.current?.close();
       }
     });
     return () => { live = false; };
-  }, [pathname, workspaceCheck, openEntry, requestModalClose]);
+  }, [pathname, search, publicRoute, workspaceCheck, openEntry, requestModalClose, router]);
   useEffect(() => {
     if (!stack.length && workspaceScopeBlockedRef.current && !workspaceStoppedRef.current) {
       workspaceScopeBlockedRef.current = false;
@@ -558,28 +603,39 @@ export default function GlobalModalHost() {
     if (currentPath === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(currentPath)) return;
     const views = stackRef.current.map(workspaceModalView).filter((view): view is WorkspaceView => Boolean(view));
     const active = stackRef.current.find(entry => entry.id === activeIdRef.current);
-    // The dashboard's controller owns its topHref restore/write ordering.
-    const top = currentPath === "/engineering" || currentPath === "/front-desk" ? {} : { topHref: window.location.href };
     try {
       saveWorkspace(window.localStorage, context.identity,
-        { ...top, modals: { views, activeKey: active ? workspaceModalView(active)?.key || null : null } }, context.options);
+        { topHref: window.location.href, modals: { views, activeKey: active ? workspaceModalView(active)?.key || null : null } }, context.options);
     } catch { /* Blocked device storage does not interfere with an open editor. */ }
   }, []);
   useEffect(() => { persistWorkspace(); }, [stack, activeId, workspaceReady, pathname, persistWorkspace]);
   useEffect(() => {
     const signOut = () => {
-      workspaceStoppedRef.current = true;
-      setWorkspacePreferencesScope(undefined);
       const identity = workspaceLatestIdentityRef.current || workspaceIdentityRef.current || workspaceRef.current?.identity;
+      workspaceStoppedRef.current = true;
+      workspaceSignInSeenRef.current = false;
+      workspaceGenerationRef.current += 1;
+      workspaceRef.current = null;
+      workspaceBlockedRef.current = true; setWorkspaceBlocked(true);
+      setWorkspacePreferencesScope(undefined);
+      nativeShellRef.current?.close();
       try { if (identity) clearWorkspace(window.localStorage, identity); } catch {}
+    };
+    const sessionChanged = (event: Event) => {
+      if (workspaceStoppedRef.current || workspaceCheckingRef.current
+        || !(event as CustomEvent<{ topics?: string[] }>).detail?.topics?.includes("session")) return;
+      workspaceRef.current = null;
+      setWorkspaceCheck(value => value + 1);
     };
     const hidden = () => { if (document.hidden) persistWorkspace(); };
     window.addEventListener("cmpri-workspace-sign-out", signOut);
+    window.addEventListener("cmpri-data-cache-invalidated", sessionChanged);
     window.addEventListener("pagehide", persistWorkspace);
     window.addEventListener("popstate", persistWorkspace);
     document.addEventListener("visibilitychange", hidden);
     return () => {
       window.removeEventListener("cmpri-workspace-sign-out", signOut);
+      window.removeEventListener("cmpri-data-cache-invalidated", sessionChanged);
       window.removeEventListener("pagehide", persistWorkspace);
       window.removeEventListener("popstate", persistWorkspace);
       document.removeEventListener("visibilitychange", hidden);
@@ -679,7 +735,7 @@ export default function GlobalModalHost() {
       if (!isSameOriginInternal(href)) return;
       navigationEvent.preventDefault();
       navigationEvent.stopPropagation();
-      if (isDashboardAction || new URL(href, window.location.origin).pathname === "/engineering") {
+      if (isDashboardAction || ["/engineering", "/front-desk"].includes(new URL(href, window.location.origin).pathname)) {
         requestModalClose(entry.id);
         return;
       }
@@ -708,7 +764,8 @@ export default function GlobalModalHost() {
         if (url) {
           const nextUrl = new URL(String(url), frame.contentWindow?.location.href || window.location.href);
           if (isSameOriginInternal(nextUrl.href) && nextUrl.pathname !== frame.contentWindow?.location.pathname) {
-            openNestedModal(nextUrl.href, nextUrl.pathname);
+            if (["/engineering", "/front-desk"].includes(nextUrl.pathname)) requestModalClose(entry.id);
+            else openNestedModal(nextUrl.href, nextUrl.pathname);
             return;
           }
         }
@@ -791,7 +848,7 @@ export default function GlobalModalHost() {
         if (!isSameOriginInternal(href) || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
         if (anchor.closest("[data-cmpri-modal-ignore='true']")) return;
         const returnToDashboard = target.closest("[data-cmpri-modal-dashboard='true']")
-          || new URL(href, window.location.origin).pathname === "/engineering";
+          || ["/engineering", "/front-desk"].includes(new URL(href, window.location.origin).pathname);
         if (returnToDashboard) {
           if (stack.length === 0) return;
           event.preventDefault();
@@ -985,7 +1042,7 @@ export default function GlobalModalHost() {
     return () => background.forEach(({ element, inert }) => { element.inert = inert; });
   }, [stack.length, technicianAnchor]);
 
-  if (technicianDesktop) return workspaceBlocked ? null : createPortal(
+  if (technicianDesktop) return workspaceHidden ? null : createPortal(
     <div ref={modalRootRef} className="pointer-events-none fixed z-[19] [&_.cmpri-desktop-window]:pointer-events-auto"
       style={{ left: technicianDesktop.left, top: technicianDesktop.top, ...technicianDesktop.bounds }}
       data-cmpri-technician-windows>
@@ -1033,7 +1090,7 @@ export default function GlobalModalHost() {
   );
 
   if (stack.length === 0) {
-    if (workspaceBlocked) return null;
+    if (workspaceHidden) return null;
     if ((!dialogTarget || !canViewWorkOrders) && !limitMessage) return null;
     return createPortal(<>
       {dialogTarget && canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>}
@@ -1042,7 +1099,7 @@ export default function GlobalModalHost() {
   }
 
   const host = (
-    <div ref={modalRootRef} hidden={workspaceBlocked} inert={workspaceBlocked} aria-hidden={workspaceBlocked || undefined} className="pointer-events-none fixed inset-0 z-[120]">
+    <div ref={modalRootRef} hidden={workspaceHidden} inert={workspaceHidden} aria-hidden={workspaceHidden || undefined} className="pointer-events-none fixed inset-0 z-[120]">
       {stack.map((entry, index) => {
         const isTop = entry.id === activeId;
         const scale = 0.9 ** (Math.min(index, 2) + 1);
@@ -1109,7 +1166,7 @@ export default function GlobalModalHost() {
     </div>
   );
   return <>{nativeShell ? createPortal(host, nativeShell) : host}
-    {!workspaceBlocked && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
-    {!workspaceBlocked && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
+    {!workspaceHidden && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
+    {!workspaceHidden && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
   </>;
 }
