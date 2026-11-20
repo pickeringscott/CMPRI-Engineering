@@ -766,29 +766,24 @@ export default function EngineeringDashboardPage() {
   return (
     <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
-        <div className="cmpri-anchored-title-bar w-full min-w-0">
+        <div className="cmpri-header-shelf">
+          <div className="cmpri-header-identity">
             <p data-dashboard-title data-cmpri-menu-title="" data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
               <span className="text-amber-300">CMPRI</span>{" "}
               <span className="text-amber-300">{frontDeskLayout ? "Front Desk" : isHousekeepingDashboard ? "Housekeeping" : "Engineering"}</span>
-                               <DashboardNotificationBell
-                    count={notificationCount}
-                    label={bellLabel}
-                    aria-label={bellLabel}
-                    title={canReviewTickets
-                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${approvalTotal} awaiting approval`
-                      : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
-                    onClick={openApprovals}
-                  /></p>
-          <nav aria-label="Open dashboard windows" className="w-full min-w-0">
-            <ApprovedDashboardMenus anchored lockedFrontDesk={threeTabLayout} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
-          </nav>
-        </div>
-        <div className="cmpri-header-shelf">
-          <div className="cmpri-header-identity">
+              <DashboardNotificationBell
+                count={notificationCount}
+                label={bellLabel}
+                aria-label={bellLabel}
+                title={canReviewTickets
+                  ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${approvalTotal} awaiting approval`
+                  : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
+                onClick={openApprovals}
+              />
+            </p>
             <div data-dashboard-account className="mt-2 text-left leading-tight">
               <div className="flex min-w-0 items-center gap-2">
                 <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
-
               </div>
               <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
             </div>
@@ -798,6 +793,9 @@ export default function EngineeringDashboardPage() {
             {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-header-create" />}
           </div>
         </div>
+        <nav aria-label="Open dashboard windows" className="cmpri-dashboard-menu-rail w-full min-w-0">
+          <ApprovedDashboardMenus anchored lockedFrontDesk={threeTabLayout} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+        </nav>
 
         {hasCapability(session, "view_work_orders") && <WorkOrderWindowSwitcher
           tickets={windows.filter(entry => /^\/work-orders\/[^/]+$/.test(entry.key)).map(entry => {

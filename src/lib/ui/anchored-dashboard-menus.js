@@ -6,9 +6,9 @@
  * @param {(action:Action, clickedAt:number, button:HTMLButtonElement)=>void} onLaunch
  * @param {import('../header-layout').HeaderLayout} layout
  * @param {(layout:import('../header-layout').HeaderLayout)=>void} onSave
- * @param {{getStartOffset?:()=>number, canDrop?:(key:string, label:string)=>boolean}} [options]
+ * @param {{canDrop?:(key:string, label:string)=>boolean}} [options]
  */
-export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { getStartOffset = () => 0, canDrop = () => true, } = {}) {
+export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { canDrop = () => true } = {}) {
   const PRESS_MS = 320, SLIDE_MS = 240, MOUSE_DRAG_PX = 12, TOUCH_DRAG_PX = 8;
   const TAB_INSET = 15, TAB_GAP = 5, TAB_HEIGHT = 14;
   let observer, suppressedClick, cancelGesture, active = null, zIndex = 1;
@@ -322,11 +322,10 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { get
   const place = () => {
     if (cancelGesture)
       return;
-    const start = Math.max(0, Math.ceil(getStartOffset()) - TAB_INSET);
     const items = fields();
-    const fittedTabs = items.reduce((size, field) => size + field.tabWidth + TAB_GAP, start);
+    const fittedTabs = items.reduce((size, field) => size + field.tabWidth + TAB_GAP, 0);
     bar.style.minWidth = Math.max(root.clientWidth, fittedTabs + TAB_INSET + 9) + 'px';
-    let x = start;
+    let x = 0;
     for (const field of items) {
       setPosition(field, field.requestedX ?? x);
       x += field.tabWidth + TAB_GAP;
@@ -620,9 +619,6 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { get
     setActive(preferred || null);
   observer = new ResizeObserver(place);
   observer.observe(root);
-  const titleLine = root.closest('.cmpri-anchored-title-bar')?.querySelector('[data-cmpri-menu-title]');
-  if (titleLine)
-    observer.observe(titleLine);
   place();
   const adjustToScroll = () => { if (!cancelGesture) {
     fields().forEach(fitWidth);

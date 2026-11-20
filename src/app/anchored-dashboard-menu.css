@@ -1,43 +1,45 @@
-.cmpri-anchored-title-bar {
-  position: relative;
-  min-height: 78px;
+.cmpri-header-shelf:has([data-cmpri-menu-title]) {
+  align-items: start;
 }
 
-.cmpri-anchored-title-bar::after {
+.cmpri-header-shelf [data-dashboard-account] {
+  max-width: 100%;
+}
+
+.cmpri-dashboard-menu-rail {
+  position: relative;
+  isolation: isolate;
+}
+
+.cmpri-dashboard-menu-rail::before {
   content: "";
   position: absolute;
-  inset: 27px 0 auto;
+  inset: 13px 0 auto;
   z-index: 1;
   height: 1px;
   background: var(--cmpri-palette-desktop-tone-16);
   pointer-events: none;
 }
 
-.cmpri-desktop-root .cmpri-desktop-topbar:has(> .cmpri-anchored-title-bar),
-header:has(> .cmpri-anchored-title-bar) {
+.cmpri-desktop-root .cmpri-desktop-topbar:has(> .cmpri-dashboard-menu-rail),
+header:has(> .cmpri-dashboard-menu-rail) {
   border-bottom-color: transparent;
 }
 
-.cmpri-anchored-title-bar [data-cmpri-menu-title] {
+[data-cmpri-menu-title] {
   width: max-content;
   max-width: 100%;
-  height: 28px;
-  white-space: nowrap;
+  min-height: 28px;
 }
 
-.cmpri-anchored-title-bar [data-cmpri-menu-title] .cmpri-approved-bell {
+[data-cmpri-menu-title] .cmpri-approved-bell {
   position: relative;
   z-index: 3;
 }
 
-.cmpri-anchored-title-bar > nav {
-  position: absolute;
-  inset: 14px 0 auto;
-  z-index: 2;
-}
-
 .cmpri-header-v23.anchored-menu {
   position: relative;
+  z-index: 2;
   overflow: auto hidden;
   overscroll-behavior-inline: contain;
   scrollbar-width: thin;
@@ -45,9 +47,10 @@ header:has(> .cmpri-anchored-title-bar) {
     color-mix(in srgb, var(--cmpri-palette-gold-light) 19%, transparent);
 }
 
-.cmpri-anchored-title-bar .cmpri-header-v23.anchored-menu .preview .header .anchored-groups {
+.cmpri-dashboard-menu-rail .cmpri-header-v23.anchored-menu .preview .header .anchored-groups {
   position: relative;
   display: block;
+  /* Keep space for the open button row and its scrollbar. */
   min-height: 52px;
   border-top: 0;
   padding: 0;
@@ -60,7 +63,7 @@ header:has(> .cmpri-anchored-title-bar) {
   max-width: none;
 }
 
-.cmpri-anchored-title-bar .cmpri-header-v23.anchored-menu .preview .header fieldset.group:not(.collapsed) {
+.cmpri-dashboard-menu-rail .cmpri-header-v23.anchored-menu .preview .header fieldset.group:not(.collapsed) {
   height: 26px;
   min-height: 26px;
   margin: 0;
