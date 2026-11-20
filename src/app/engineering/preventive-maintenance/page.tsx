@@ -27,6 +27,7 @@ import {
 } from "@/lib/pm/catalog";
 
 import { taskComplete, taskEditable, taskVisual, type PmTaskState, type PmTaskActor } from "@/lib/pm/task-review";
+import { usePmTaskQueue, pmEntryTaskState } from "@/lib/pm/use-task-queue";
 import "./pm-approved.css";
 
 type PmEntry = {
@@ -256,7 +257,16 @@ export default function PreventiveMaintenancePage() {
   const [deficiencyLocationId, setDeficiencyLocationId] = useState("");
   const [pendingWorkOrderLink, setPendingWorkOrderLink] = useState<PendingWorkOrderLink | null>(null);
   const requestSequence = useRef(0);
-  const busyEntries = useRef(new Set<string>());
+  const [queueOwner, setQueueOwner] = useState<{ hotelId: string; userId: string } | null>(null);
+  const taskQueue = usePmTaskQueue<PmEntry>({
+    owner: queueOwner, actor, canEdit, context: { weekStart, frequency, tab, phoneDay },
+    onRestoreContext: context => {
+      setWeekStart(pmWeekStart(context.weekStart)); setFrequency(context.frequency);
+      setTab(context.tab as PmTab); setPhoneDay(context.phoneDay);
+    },
+    onSaved: saved => setEntries(current => [...current.filter(entry => entryKey(entry.template_id, entry.period_start, entry.scope_key) !== entryKey(saved.template_id, saved.period_start, saved.scope_key)), saved]),
+    onError: setError, onPoolRequired: setPoolRequired,
+  });
   const today = todayIso();
   const weekDates = useMemo(() => pmWeekDates(weekStart), [weekStart]);
   const weekEnd = weekDates[6];
@@ -285,6 +295,7 @@ export default function PreventiveMaintenancePage() {
       const result = await response.json().catch(() => ({}));
       if (sequence !== requestSequence.current || !isCurrent()) return;
       if (!response.ok || !Array.isArray(result.entries) || !result.workbook) throw new Error(result.error || "Live PM records could not be loaded.");
+      setQueueOwner({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id });
       setEntries(result.entries as PmEntry[]);
       setLiveWorkbook(result.workbook as LivePmWorkbook);
       setReviewQueue(Array.isArray(result.review_queue) ? result.review_queue as PmReviewProposal[] : []);
@@ -354,6 +365,8 @@ export default function PreventiveMaintenancePage() {
         const entry = recordsByKey.get(entryKey(template.id, period));
         for (const item of template.checklist) {
           total += 1;
+          const queued = taskQueue.periods.find(pending => pending.templateId === template.id && pending.periodStart === period)?.changes.find(change => change.itemId === item.id);
+          if (queued) { if (taskComplete(queued.desiredState)) complete += 1; continue; }
           const hasSavedResponse = Object.hasOwn(entry?.responses || {}, item.id);
           const useSavedResponse = hasSavedResponse && (entry?.status === "pending" || !spreadsheetSyncEnabled);
           if (useSavedResponse ? entry?.responses?.[item.id] === true : sourceRoutineStatus(template, period, item.id, liveWorkbook)) complete += 1;
@@ -361,7 +374,7 @@ export default function PreventiveMaintenancePage() {
       }
     }
     return { complete, total, percent: total ? Math.round((complete / total) * 100) : 0 };
-  }, [liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart]);
+  }, [liveWorkbook, monthTemplates, recordsByKey, spreadsheetSyncEnabled, weekStart, taskQueue.periods]);
 
   const deficientCount = useMemo(() => entries.reduce((count, entry) =>
     count + Object.values(entry.responses || {}).filter((value) => value === "follow-up").length,
@@ -424,35 +437,14 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
-  async function updateRoutine(template: PmTemplate, periodStart: string, itemId: string) {
-    const key = entryKey(template.id, periodStart);
-    if (!canEdit || busyEntries.current.has(key)) return;
-    busyEntries.current.add(key);
-    setSavingKey(key);
+  function updateRoutine(template: PmTemplate, periodStart: string, itemId: string) {
     setError("");
-    try {
-      const session = await getValidSession();
-      if (!session?.access_token) throw new Error("Sign in again before saving PM.");
-      const existing = entryFor(template, periodStart);
-      const response = await fetch("/api/preventive-maintenance/task", {
-        method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ templateId: template.id, periodStart, itemId, expectedRevision: existing?.status === "pending" ? existing.revision : 0 }),
-      });
-      const result = await response.json();
-      if (result.poolRequired) { setPoolRequired(periodStart); return; }
-      if (!response.ok || !result.entry) throw new Error(result.error || "PM task could not be saved.");
-      const saved = result.entry as PmEntry;
-      setEntries(current => [...current.filter(entry => entryKey(entry.template_id, entry.period_start, entry.scope_key) !== key), saved]);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "PM task could not be saved.");
-    } finally { busyEntries.current.delete(key); setSavingKey(""); }
+    taskQueue.queue(template, periodStart, itemId, entryFor(template, periodStart));
   }
 
   function taskState(template: PmTemplate, period: string, itemId: string): PmTaskState | undefined {
-    const entry = entryFor(template, period);
-    if (entry?.task_states?.[itemId]) return entry.task_states[itemId];
-    if (entry?.responses?.[itemId] === true) return { status: entry.status === "approved" ? "approved" : "needs", workerChecked: true, workerId: entry.submitted_by, workerName: entry.submitted_by_name };
-    return undefined;
+    const queued = taskQueue.periods.find(pending => pending.templateId === template.id && pending.periodStart === period)?.changes.find(change => change.itemId === itemId);
+    return queued?.desiredState || pmEntryTaskState(entryFor(template, period), template, itemId);
   }
 
   function openForm(template: PmTemplate, periodStart: string, scopeKey = "property") {
@@ -878,6 +870,8 @@ export default function PreventiveMaintenancePage() {
   }
 
   function routineStatus(template: PmTemplate, period: string, itemId: string) {
+    const queued = taskQueue.periods.find(pending => pending.templateId === template.id && pending.periodStart === period)?.changes.find(change => change.itemId === itemId);
+    if (queued) return taskComplete(queued.desiredState);
     const proposal = entryFor(template, period);
     if (proposal?.task_states?.[itemId]) return taskComplete(proposal.task_states[itemId]);
     if (proposal?.status === "pending" && Object.hasOwn(proposal.responses || {}, itemId)) {
@@ -890,7 +884,7 @@ export default function PreventiveMaintenancePage() {
   }
 
   function renderRoutineTable(template: PmTemplate, periods: string[], heading: string, linkedReference?: (itemId: string) => string | null, history = false) {
-    const savingFor = (period: string) => savingKey === entryKey(template.id, period);
+    const savingFor = (period: string) => taskQueue.flushing || savingKey === entryKey(template.id, period);
     return (
       <div className="overflow-x-auto rounded-xl border border-slate-800">
         <table data-phone-daily={template.cadence === "daily" || undefined} className="pm-task-table w-full min-w-[760px] border-collapse text-left">
@@ -976,6 +970,12 @@ export default function PreventiveMaintenancePage() {
           </div>
         </section>
 
+        {taskQueue.periods.length > 0 && <div className="my-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-400/40 p-3 text-sm" role="status">
+          <span>{taskQueue.flushing ? "Saving PM changes…" : `${taskQueue.periods.reduce((count, period) => count + period.changes.length, 0)} PM changes queued. They save when this window closes.`}</span>
+          <button type="button" disabled={taskQueue.flushing} className="rounded border border-slate-500 px-3 py-1.5" onClick={() => void taskQueue.flush().catch(cause => setError(cause instanceof Error ? cause.message : "PM changes could not be saved."))}>Save queued changes</button>
+          <button type="button" disabled={taskQueue.flushing} className="rounded border border-slate-500 px-3 py-1.5" onClick={() => taskQueue.discard()}>Discard queued changes</button>
+        </div>}
+
         {canReview && notificationsOpen && <section aria-label="PM approvals" className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-600 p-2">{pendingTasks.length ? pendingTasks.map(task => <button key={`${task.template.id}-${task.period}-${task.item.id}`} type="button" className="block w-full p-2 text-left" onClick={() => focusPendingTask(task)} title={`${task.period} · Completed by ${task.name}`}>Needs Review: {task.item.label} · {dateLabel(task.period)}</button>) : <p>No tasks awaiting review.</p>}</section>}
 
         <nav className="pm-section-tabs" aria-label="PM sections">
@@ -994,7 +994,7 @@ export default function PreventiveMaintenancePage() {
             <section className={frequency !== "daily" ? "pm-phone-hidden" : ""}>
               <div className="pm-legend"><span><i className="legend-red">✓</i> Needs approval</span><span><i className="legend-green">✓</i> Approved</span></div>
               <SectionHeading eyebrow="Workbook · daily checkbox grid" title="Daily maintenance" trailing={<span className="text-xs text-slate-400">{dailyDone} / {dailyCount} complete</span>} />
-              <p className="mb-3 mt-1 text-xs text-slate-500">Each checkbox saves separately for its date. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.</p>
+              <p className="mb-3 mt-1 text-xs text-slate-500">Checkbox changes save together when this window closes. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.</p>
               {renderRoutineTable(dailyTemplate, weekDates, "Routine task")}
             </section>
 

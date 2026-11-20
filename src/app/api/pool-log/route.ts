@@ -166,10 +166,6 @@ export async function POST(request: NextRequest) {
   // An authorized pool-log editor correcting the saved log on the web page replaces it as shown.
   // Every other save (later AM/PM samples, voice logging) is merged into the saved log.
   const replace = !!existing && canEditSaved && body.edit_mode === "replace";
-  if ((replace || (body.retest != null && body.expected_revision != null)) && body.expected_revision !== existing?.revision) {
-    return NextResponse.json({ error: "This log changed after you opened it. Your entries are still on screen; reload the saved readings before making corrections." }, { status: 409 });
-  }
-
   let row: ReturnType<typeof poolLogInput>;
   try {
     const merged = existing && !replace ? mergePoolLogBody(existing, body, canEditSaved) : body;
@@ -181,6 +177,13 @@ export async function POST(request: NextRequest) {
 
   if (existing && !chemicalUses.length && !poolLogChanged(existing, row)) {
     return NextResponse.json({ log: existing, unchanged: true, status: poolLogStatus(existing) });
+  }
+
+  // A successful save whose response was lost increments the revision. Validate
+  // and acknowledge that exact unchanged submission before rejecting stale work.
+  // Changed readings or notes still require the revision the editor opened.
+  if ((replace || (body.retest != null && body.expected_revision != null)) && body.expected_revision !== existing?.revision) {
+    return NextResponse.json({ error: "This log changed after you opened it. Your entries are still on screen; reload the saved readings before making corrections." }, { status: 409 });
   }
 
   const initials = name.split(/\s+/).map((word) => Array.from(word)[0]).join("");

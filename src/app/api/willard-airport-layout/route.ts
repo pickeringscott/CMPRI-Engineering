@@ -1,0 +1,288 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 15;
+
+const ROOT = 'https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/ArcGIS/rest/services/';
+const DEFINITIONS = [
+  { kind: 'runway', service: 'AM_Runway', fields: 'OBJECTID,FAA_ID,ICAO_ID,DESIGNATOR,SURFACE,RWY_OPER,RWY_ID', operational: 'RWY_OPER' },
+  { kind: 'taxiway', service: 'AM_Taxiway', fields: 'OBJECTID,FAA_ID,ICAO_ID,DESIGNATOR,SURFACE,TWY_OPER', operational: 'TWY_OPER' },
+  { kind: 'apron', service: 'AM_Apron', fields: 'OBJECTID,FAA_ID,ICAO_ID,DESIGNATOR,SURFACE,APRON_OPER', operational: 'APRON_OPER' },
+] as const;
+type Definition = typeof DEFINITIONS[number];
+type Json = Record<string, unknown>;
+type SourceCheck = { httpStatus: number | null; contentType: string | null; featureCount: number | null;
+  invalidFeatureCount: number | null; failureStage: string | null; providerErrorCode: string | number | null;
+  message: string | null; crs: string | null };
+type Layer = {
+  kind: Definition['kind']; status: 'available' | 'stale' | 'unavailable'; features: Json[] | null;
+  featureCount: number | null; invalidFeatureCount: number | null; sourceUrl: string; metadataUrl: string;
+  retrievedAt: string | null; effectivePeriod: string | null; sourceDataEditedAt: string | null; error: string | null;
+  sourceMetadataReviewedAt: string;
+  sourceCheck: SourceCheck;
+  sourceName: 'FAA AIS' | 'USGS The National Map';
+};
+type Batch = { layers: Layer[]; expiresAt: number; primarySourceChecks: { kind: string; sourceCheck: SourceCheck }[] | null;
+  fallbackSourceCheck: SourceCheck | null; fallbackSourceUrl: string | null };
+type Pending = { controller: AbortController; promise: Promise<void>; waiters: number; settled: boolean };
+const TTL = 6 * 60 * 60 * 1000, FAILURE_TTL = 5 * 60 * 1000, MAX_BYTES = 2 * 1024 * 1024;
+const HEADERS = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'X-Content-Type-Options': 'nosniff' };
+let cached: Batch | null = null, pending: Pending | null = null;
+
+function object(value: unknown): Json | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Json : null;
+}
+function source(definition: Definition) {
+  const metadataUrl = ROOT + definition.service + '/FeatureServer/0';
+  const query = new URLSearchParams({ where: "(ICAO_ID='KCMI' OR FAA_ID='CMI')", outFields: definition.fields,
+    returnGeometry: 'true', outSR: '4326', f: 'geojson' });
+  return { metadataUrl, sourceUrl: metadataUrl + '/query?' + query.toString() };
+}
+function wgs84(value: Json): boolean {
+  const sr = object(value.spatialReference);
+  if (sr && (![sr.wkid, sr.latestWkid].some(value => value === 4326)
+    || [sr.wkid, sr.latestWkid].some(value => value !== undefined && value !== 4326))) return false;
+  if (value.crs === undefined || value.crs === null) return true;
+  const crs = object(value.crs), properties = object(crs?.properties);
+  return crs?.type === 'name' && typeof properties?.name === 'string'
+    && ['EPSG:4326', 'urn:ogc:def:crs:EPSG::4326', 'urn:ogc:def:crs:OGC:1.3:CRS84', 'OGC:CRS84', 'CRS84',
+      'http://www.opengis.net/def/crs/OGC/1.3/CRS84', 'https://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      'http://www.opengis.net/def/crs/EPSG/0/4326', 'https://www.opengis.net/def/crs/EPSG/0/4326'].includes(properties.name);
+}
+function position(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length >= 2 && value.every(item => typeof item === 'number' && Number.isFinite(item))
+    && Math.abs(value[0]) <= 180 && Math.abs(value[1]) <= 90;
+}
+function ring(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length < 4 || !value.every(position)) return false;
+  const first = value[0], last = value[value.length - 1];
+  return first[0] === last[0] && first[1] === last[1];
+}
+function polygon(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0 && value.every(ring);
+}
+function feature(value: unknown, definition: Definition): Json | null {
+  const raw = object(value), properties = object(raw?.properties), geometry = object(raw?.geometry);
+  if (raw?.type !== 'Feature' || !properties || !geometry || !wgs84(geometry)) return null;
+  const icao = typeof properties.ICAO_ID === 'string' ? properties.ICAO_ID.trim().toUpperCase() : '';
+  const faa = typeof properties.FAA_ID === 'string' ? properties.FAA_ID.trim().toUpperCase() : '';
+  if (!((icao === 'KCMI' && ['', 'CMI'].includes(faa)) || (faa === 'CMI' && ['', 'CMI', 'KCMI'].includes(icao)))) return null;
+  if (!(geometry.type === 'Polygon' && polygon(geometry.coordinates))
+    && !(geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates) && geometry.coordinates.length > 0 && geometry.coordinates.every(polygon))) return null;
+  const scalar = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? value : null;
+  return { type: 'Feature', ...(typeof raw.id === 'string' || typeof raw.id === 'number' ? { id: raw.id } : {}),
+    geometry: { type: geometry.type, coordinates: geometry.coordinates },
+    properties: { kind: definition.kind, designator: typeof properties.DESIGNATOR === 'string' ? properties.DESIGNATOR : null,
+      airportId: 'KCMI', sourceICAOId: typeof properties.ICAO_ID === 'string' ? properties.ICAO_ID : null,
+      faaId: typeof properties.FAA_ID === 'string' ? properties.FAA_ID : null,
+      sourceId: scalar(properties.OBJECTID), status: scalar(properties[definition.operational]), surface: scalar(properties.SURFACE) } };
+}
+async function boundedJson(response: Response, signal: AbortSignal, budget: { bytes: number }): Promise<unknown> {
+  const type = response.headers.get('content-type')?.toLowerCase() || '';
+  if (!(type.startsWith('application/json') || type.startsWith('application/geo+json')) || !response.body) throw Error('Airport layout response format is unavailable.');
+  if (Number(response.headers.get('content-length')) > MAX_BYTES) throw Error('Airport layout response exceeds the read limit.');
+  const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read(); if (done) break;
+      budget.bytes += value.byteLength;
+      if (budget.bytes > MAX_BYTES) { await reader.cancel(); throw Error('Airport layout responses exceed the combined read limit.'); }
+      chunks.push(value);
+    }
+    signal.throwIfAborted();
+  } finally { reader.releaseLock(); }
+  return JSON.parse(new TextDecoder().decode(Buffer.concat(chunks)));
+}
+async function layer(definition: Definition, signal: AbortSignal, budget: { bytes: number }, prior: Layer | undefined): Promise<Layer> {
+  const urls = source(definition);
+  const boundedText = (value: unknown, limit = 200) => typeof value === 'string' ? value.replace(/[\u0000-\u001F\u007F]/g, ' ').slice(0, limit) : null;
+  const sourceCheck: SourceCheck = { httpStatus: null, contentType: null, featureCount: null, invalidFeatureCount: null,
+    failureStage: 'request', providerErrorCode: null, message: null, crs: null };
+  // These are the source's published description/edit metadata, not a claim
+  // about today's operating status or the validity of a 2025 effective cycle.
+  const metadata = { kind: definition.kind, ...urls, sourceName: 'FAA AIS' as const, sourceMetadataReviewedAt: '2026-11-20',
+    effectivePeriod: '0901Z 7 August 2025–2 October 2025', sourceDataEditedAt: '2026-10-29' };
+  try {
+    const response = await fetch(urls.sourceUrl, { method: 'GET', credentials: 'omit', redirect: 'error', cache: 'no-store', signal,
+      headers: { Accept: 'application/geo+json, application/json', 'User-Agent': 'CMPRI-Willard-Airport-Reference/1.0' } });
+    sourceCheck.httpStatus = response.status;
+    sourceCheck.contentType = boundedText(response.headers.get('content-type'));
+    sourceCheck.failureStage = response.ok ? 'body' : 'http';
+    const raw = object(await boundedJson(response, signal, budget));
+    signal.throwIfAborted();
+    const providerError = object(raw?.error);
+    if (raw?.error) {
+      sourceCheck.failureStage = 'provider';
+      sourceCheck.providerErrorCode = typeof providerError?.code === 'number' ? providerError.code : boundedText(providerError?.code, 40);
+      sourceCheck.message = boundedText(providerError?.message ?? raw.error);
+      throw Error('Official FAA service returned a query error.');
+    }
+    if (!response.ok) throw Error('Official FAA source returned HTTP ' + response.status + '.');
+    sourceCheck.failureStage = 'collection';
+    if (!raw || raw.type !== 'FeatureCollection' || !Array.isArray(raw.features)) throw Error('Official FAA response is not a GeoJSON FeatureCollection.');
+    sourceCheck.featureCount = raw.features.length;
+    sourceCheck.crs = boundedText(object(object(raw.crs)?.properties)?.name)
+      || (raw.spatialReference ? boundedText(JSON.stringify(raw.spatialReference)) : null);
+    sourceCheck.failureStage = 'crs';
+    if (!wgs84(raw)) throw Error('Official FAA response does not declare a supported WGS84 reference system.');
+    sourceCheck.failureStage = 'transfer-limit';
+    if (raw.exceededTransferLimit === true || object(raw.properties)?.exceededTransferLimit === true) throw Error('Official FAA query exceeded its transfer limit.');
+    sourceCheck.failureStage = raw.features.length ? 'geometry' : 'empty';
+    const features = raw.features.map(value => feature(value, definition)).filter((value): value is Json => value !== null);
+    sourceCheck.invalidFeatureCount = raw.features.length - features.length;
+    if (!features.length) throw Error('No verified KCMI geometry is available in this airport layout layer.');
+    sourceCheck.failureStage = null;
+    return { ...metadata, status: 'available', features, featureCount: features.length,
+      invalidFeatureCount: raw.features.length - features.length, retrievedAt: new Date().toISOString(), error: null, sourceCheck };
+  } catch (error) {
+    if (!sourceCheck.message) sourceCheck.message = sourceCheck.failureStage === 'request'
+      ? 'The fixed public FAA source request failed or timed out.' : boundedText(error instanceof Error ? error.message : null);
+    if (prior?.features?.length) return { ...prior, status: 'stale', sourceCheck, error: 'The official layer could not be refreshed; retained geometry is old reference data.' };
+    return { ...metadata, status: 'unavailable', features: null, featureCount: null, invalidFeatureCount: null,
+      retrievedAt: null, error: 'Verified KCMI geometry is unavailable from this official layer.', sourceCheck };
+  }
+}
+async function usgsLayers(signal: AbortSignal, budget: { bytes: number }, previous: Layer[] | undefined): Promise<{ layers: Layer[]; sourceCheck: SourceCheck; sourceUrl: string }> {
+  const metadataUrl = 'https://cartowfs.nationalmap.gov/arcgis/rest/services/transportation/MapServer/2';
+  const sourceUrl = metadataUrl + '/query?' + new URLSearchParams({ where: "faa_airport_code IN ('CMI','KCMI')",
+    outFields: 'objectid,fcode,runway_id,faa_airport_code,city,state', returnGeometry: 'true', outSR: '4326', f: 'geojson' }).toString();
+  const check: SourceCheck = { httpStatus: null, contentType: null, featureCount: null, invalidFeatureCount: null,
+    failureStage: 'request', providerErrorCode: null, message: null, crs: null };
+  const bounded = (value: unknown) => typeof value === 'string' ? value.replace(/[\u0000-\u001F\u007F]/g, ' ').slice(0, 200) : null;
+  const grouped = new Map<Definition['kind'], Json[]>(DEFINITIONS.map(value => [value.kind, []]));
+  try {
+    const response = await fetch(sourceUrl, { method: 'GET', credentials: 'omit', redirect: 'error', cache: 'no-store', signal,
+      headers: { Accept: 'application/geo+json, application/json', 'User-Agent': 'CMPRI-Willard-Airport-Reference/1.0' } });
+    check.httpStatus = response.status; check.contentType = bounded(response.headers.get('content-type'));
+    check.failureStage = response.ok ? 'body' : 'http';
+    const raw = object(await boundedJson(response, signal, budget)); signal.throwIfAborted();
+    const error = object(raw?.error);
+    if (raw?.error) {
+      check.failureStage = 'provider'; check.providerErrorCode = typeof error?.code === 'number' ? error.code : bounded(error?.code);
+      check.message = bounded(error?.message ?? raw.error); throw Error('Official USGS service returned a query error.');
+    }
+    if (!response.ok) throw Error('Official USGS source returned HTTP ' + response.status + '.');
+    check.failureStage = 'collection';
+    if (!raw || raw.type !== 'FeatureCollection' || !Array.isArray(raw.features)) throw Error('Official USGS response is not a GeoJSON FeatureCollection.');
+    check.featureCount = raw.features.length;
+    check.crs = bounded(object(object(raw.crs)?.properties)?.name) || (raw.spatialReference ? bounded(JSON.stringify(raw.spatialReference)) : null);
+    check.failureStage = 'crs'; if (!wgs84(raw)) throw Error('Official USGS response does not declare a supported WGS84 reference system.');
+    check.failureStage = 'transfer-limit';
+    if (raw.exceededTransferLimit === true || object(raw.properties)?.exceededTransferLimit === true) throw Error('Official USGS query exceeded its transfer limit.');
+    check.failureStage = raw.features.length ? 'geometry' : 'empty';
+    let invalid = 0;
+    for (const value of raw.features) {
+      const original = object(value), properties = object(original?.properties);
+      const code = properties?.fcode;
+      const kind = code === 20100 ? 'runway' : code === 20101 ? 'taxiway' : code === 20102 ? 'apron' : null;
+      if (!kind) continue; // Other official feature classes are outside this overlay.
+      const airportCode = typeof properties?.faa_airport_code === 'string' ? properties.faa_airport_code.trim().toUpperCase() : '';
+      if (!['CMI', 'KCMI'].includes(airportCode)) { invalid += 1; continue; }
+      const definition = DEFINITIONS.find(value => value.kind === kind)!;
+      const normalized = feature({ ...original, properties: { OBJECTID: properties?.objectid, ICAO_ID: null,
+        FAA_ID: 'CMI', DESIGNATOR: properties?.runway_id } }, definition);
+      if (!normalized) { invalid += 1; continue; }
+      const normalizedProperties = object(normalized.properties)!;
+      normalizedProperties.sourceAirportCode = properties?.faa_airport_code;
+      normalizedProperties.sourceFeatureCode = code;
+      grouped.get(kind)!.push(normalized);
+    }
+    check.invalidFeatureCount = invalid;
+    if (![...grouped.values()].some(value => value.length)) throw Error('No verified CMI runway, taxiway or apron geometry is available from USGS.');
+    check.failureStage = null;
+  } catch (error) {
+    if (!check.message) check.message = check.failureStage === 'request' ? 'The fixed public USGS source request failed or timed out.'
+      : bounded(error instanceof Error ? error.message : null);
+  }
+  const layers: Layer[] = DEFINITIONS.map(definition => {
+    const features = grouped.get(definition.kind)!;
+    const metadata = { kind: definition.kind, sourceName: 'USGS The National Map' as const, metadataUrl, sourceUrl,
+      sourceMetadataReviewedAt: '2026-11-20', effectivePeriod: null, sourceDataEditedAt: null };
+    if (features.length && check.failureStage === null) return { ...metadata, features, status: 'available' as const,
+      retrievedAt: new Date().toISOString(), featureCount: features.length, invalidFeatureCount: check.invalidFeatureCount,
+      sourceCheck: { ...check }, error: null };
+    const prior = previous?.find(value => value.kind === definition.kind && value.sourceName === 'USGS The National Map');
+    const sourceCheck = check.failureStage === null ? { ...check, failureStage: 'empty-kind', message: 'USGS has no verified CMI ' + definition.kind + ' geometry.' } : { ...check };
+    if (prior?.features?.length) return { ...prior, status: 'stale' as const, sourceCheck, error: 'The official USGS layer could not be refreshed; retained geometry is old reference data.' };
+    return { ...metadata, features: null, status: 'unavailable' as const, retrievedAt: null, featureCount: null,
+      invalidFeatureCount: null, sourceCheck, error: 'Verified CMI ' + definition.kind + ' geometry is unavailable from USGS.' };
+  });
+  return { layers, sourceCheck: check, sourceUrl };
+}
+function begin(): Pending {
+  const controller = new AbortController();
+  const entry: Pending = { controller, promise: Promise.resolve(), waiters: 0, settled: false };
+  pending = entry;
+  entry.promise = (async () => {
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), budget = { bytes: 0 };
+    try {
+      const previous = cached?.layers;
+      let layers = await Promise.all(DEFINITIONS.map(definition => layer(definition, signal, budget,
+        previous?.find(value => value.kind === definition.kind && value.sourceName === 'FAA AIS'))));
+      let primarySourceChecks: Batch['primarySourceChecks'] = null;
+      let fallbackSourceCheck: SourceCheck | null = null, fallbackSourceUrl: string | null = null;
+      if (!layers.some(value => value.status === 'available')) {
+        primarySourceChecks = layers.map(value => ({ kind: value.kind, sourceCheck: value.sourceCheck }));
+        const fallback = await usgsLayers(signal, budget, previous);
+        fallbackSourceCheck = fallback.sourceCheck; fallbackSourceUrl = fallback.sourceUrl;
+        if (fallback.layers.some(value => value.features?.length) || !layers.some(value => value.features?.length)) layers = fallback.layers;
+      }
+      controller.signal.throwIfAborted();
+      cached = { layers, primarySourceChecks, fallbackSourceCheck, fallbackSourceUrl,
+        expiresAt: Date.now() + (layers.some(value => value.status === 'available') ? TTL : FAILURE_TTL) };
+    } catch { /* Canceled requests cannot warm or replace the memory cache. */ }
+    finally { entry.settled = true; if (pending === entry) pending = null; }
+  })();
+  return entry;
+}
+async function wait(entry: Pending, signal: AbortSignal) {
+  signal.throwIfAborted(); entry.waiters += 1;
+  let abort: (() => void) | null = null;
+  try {
+    const canceled = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(Error('Request canceled.'));
+      signal.addEventListener('abort', abort, { once: true }); if (signal.aborted) abort();
+    });
+    await Promise.race([entry.promise, canceled]); signal.throwIfAborted();
+  } finally {
+    if (abort) signal.removeEventListener('abort', abort); entry.waiters -= 1;
+    if (!entry.waiters && !entry.settled) { entry.controller.abort(); if (pending === entry) pending = null; }
+  }
+}
+function response() {
+  const layers = cached?.layers || [], features = layers.flatMap(value => value.features || []);
+  const available = layers.filter(value => value.status === 'available');
+  const complete = layers.length === DEFINITIONS.length && available.length === DEFINITIONS.length && layers.every(value => value.invalidFeatureCount === 0);
+  const status = complete ? 'available' : available.length ? 'partial' : features.length ? 'stale' : 'unavailable';
+  const times = layers.map(value => value.retrievedAt).filter((value): value is string => Boolean(value)).sort();
+  const sourceName = layers.find(value => value.features?.length)?.sourceName || layers[0]?.sourceName || 'FAA AIS';
+  const usgs = sourceName === 'USGS The National Map';
+  return Response.json({ airport: 'KCMI', status, collection: features.length ? { type: 'FeatureCollection', features } : null,
+    retrievedAt: times.at(-1) || null, layers: layers.map(value => Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'features'))),
+    sourceName, primarySourceChecks: cached?.primarySourceChecks || null,
+    fallbackSourceCheck: cached?.fallbackSourceCheck || null, fallbackSourceUrl: cached?.fallbackSourceUrl || null,
+    attribution: usgs ? 'Map services and data available from U.S. Geological Survey, National Geospatial Program.' : 'FAA Air Traffic Organization · Aeronautical Information Services',
+    sourceUrl: usgs ? 'https://cartowfs.nationalmap.gov/arcgis/rest/services/transportation/MapServer/2' : 'https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/',
+    license: usgs ? { name: 'USGS public domain data', url: 'https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map' }
+      : { name: 'U.S. Government public data', url: 'https://www.faa.gov/air_traffic/flight_info/aeronav/FAA_DATA_DISCLAIMER/' },
+    referenceOnly: true, operationalStatusNote: 'Airport layout reference geometry. Source-coded operational values are not current runway, taxiway or apron closure information.',
+    error: complete ? null : features.length ? 'Some airport layout geometry is unavailable or old.' : 'Verified airport layout geometry is unavailable.',
+    cacheSeconds: available.length ? TTL / 1000 : FAILURE_TTL / 1000,
+  }, { status: features.length ? 200 : 502, headers: HEADERS });
+}
+export async function GET(request: Request) {
+  if (request.method !== 'GET') return Response.json({ error: 'Only GET is supported.' }, { status: 405, headers: { ...HEADERS, Allow: 'GET' } });
+  if (request.signal.aborted) return Response.json({ error: 'Request canceled.' }, { status: 499, headers: HEADERS });
+  // The property, airport, fields and source URLs are fixed. Caller/sharing
+  // query metadata cannot select another source or change the official query.
+  try {
+    if (!cached || Date.now() >= cached.expiresAt) await wait(pending || begin(), request.signal);
+    request.signal.throwIfAborted(); return response();
+  } catch { return Response.json({ error: 'Request canceled.' }, { status: request.signal.aborted ? 499 : 502, headers: HEADERS }); }
+}
+export const POST = GET;
+export const PUT = GET;
+export const PATCH = GET;
+export const DELETE = GET;
+export const HEAD = GET;
+export const OPTIONS = GET;

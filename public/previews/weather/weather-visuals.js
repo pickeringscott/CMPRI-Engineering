@@ -221,7 +221,7 @@
     root.dataset.coverageHours = String(day?.coverageHours || 0);
     root.dataset.expectedHours = String(day?.expectedHours || 24);
     const svg = document.createElementNS(SVG, 'svg'), id = ++nextDial;
-    svg.setAttribute('viewBox', current ? '6 0 188 190' : '0 0 200 190');
+    svg.setAttribute('viewBox', current ? '10 0 180 190' : '4 0 192 190');
     svg.setAttribute('class', 'wv-dial-ring');
     svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
     const defs = shape(svg, 'defs', {});
@@ -255,7 +255,7 @@
       shape(dot, 'title', {}).textContent = clockLabel(report.sampleTime) + ' · ' + formatNumber.format(report.fahrenheit) + '° observed';
     }
     [0, 360, 720, 1080, 1440].forEach((minute) => {
-      const point = dialPoint(minute, 91);
+      const point = dialPoint(minute, 89);
       const label = shape(svg, 'text', { x: point.x, y: point.y + 3, 'text-anchor': 'middle', class: 'wv-dial-clock' });
       label.textContent = window.cmpriWeatherClock?.axis(minute / 60) || String(minute / 60 % 12 || 12) + (minute / 60 % 24 < 12 ? ' AM' : ' PM');
     });

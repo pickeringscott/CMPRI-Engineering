@@ -6,6 +6,7 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../src/', import.meta.url));
 const page = readFileSync(path.join(root, 'app/engineering/preventive-maintenance/page.tsx'), 'utf8');
+const taskQueue = readFileSync(path.join(root, 'lib/pm/use-task-queue.ts'), 'utf8');
 const dashboard = readFileSync(path.join(root, 'app/engineering/page.tsx'), 'utf8');
 const proposalRoute = readFileSync(path.join(root, 'app/api/preventive-maintenance/route.ts'), 'utf8');
 const reviewRoute = readFileSync(path.join(root, 'app/api/preventive-maintenance/review/route.ts'), 'utf8');
@@ -15,7 +16,7 @@ test('PM workspace loads CMPRI records and stages technician saves', () => {
   assert.match(page, /fetch\("\/api\/preventive-maintenance"/);
   assert.match(page, /\/api\/preventive-maintenance\/review/);
   assert.match(page, /status === "pending"/);
-  assert.match(page, /\/api\/preventive-maintenance\/task/);
+  assert.match(taskQueue, /\/api\/preventive-maintenance\/task/);
   assert.doesNotMatch(page, /Google Sheets sync is temporarily disabled|Google Sheets integration is disconnected/);
   assert.match(proposalRoute, /workbook: emptyPmWorkbook\(week\)/);
   assert.match(proposalRoute, /spreadsheet_sync_enabled: false/);

@@ -173,7 +173,7 @@ test('embedded KPI cards use a shared compact metric size', () => {
 
 test('sign out from an embedded modal clears modal state and redirects the host', () => {
   assert.match(source, /event\.data\.type === "cmpri-modal-sign-out"/);
-  assert.match(source, /event\.data\.type === "cmpri-modal-sign-out"\) \{\s*setStack\(\[\]\);\s*window\.location\.replace\("\/"\);/);
+  assert.match(source, /event\.data\.type === "cmpri-modal-sign-out"\) \{\s*window\.dispatchEvent\(new Event\("cmpri-workspace-sign-out"\)\);\s*setStack\(\[\]\);\s*window\.location\.replace\("\/"\);/);
 });
 
 test('modal navigation accepts same-origin paths but rejects external, API, and asset paths', () => {

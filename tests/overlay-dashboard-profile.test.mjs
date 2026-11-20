@@ -171,7 +171,10 @@ test('all dashboard roles use approved groups with permission-filtered actions',
   assert.match(engineering, /groups=\{visibleLauncherGroups\}/);
   assert.match(engineering, /label: "\+ Work Order"/);
   assert.doesNotMatch(technician, /<details/);
-  assert.doesNotMatch(workOrders, /<details/);
+  // The editor can disclose a retained conflicting draft; dashboard launchers
+  // must still use the approved button groups rather than a details menu.
+  const withoutRecoveryText = workOrders.replace(/<details\b[^>]*><summary\b[^>]*>Recovered Text<\/summary>[\s\S]*?<\/details>/, "");
+  assert.doesNotMatch(withoutRecoveryText, /<details/);
   assert.match(workOrders, /className="flex flex-wrap items-center justify-end gap-1"/);
   assert.match(workOrders, /<WorkOrderMediaControl/);
   assert.match(workOrders, /<WorkOrderMediaControl/);

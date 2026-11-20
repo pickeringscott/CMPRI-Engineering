@@ -600,3 +600,26 @@ test('lost-response chemical retry confirms existing saved log before stale repl
  const conflicting=fixture({existing,body:{chemical_uses:[{...chemicalUse,quantity:3}]}});
  assert.equal((await conflicting.handlers.POST(conflicting.request)).status,409);assert.equal(conflicting.writes.length,0);
 });
+
+test('an exact lost-response retest is acknowledged before its now-stale revision without another write or push', async () => {
+ const saved={...updatePool(closedAutomatic(),{retest:passingRetest,remarks:'Retest clear'}),id:'saved',revision:3};
+ const f=fixture({existing:saved,role:'Engineer'});
+ f.request.json=async()=>({log_date:input.log_date,pool_facility_id:facilityId,retest:passingRetest,remarks:saved.remarks,expected_revision:2});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);assert.equal(result.body.unchanged,true);assert.equal(f.writes.length,0);assert.equal(f.pushes.length,0);
+});
+test('a stale retest retry cannot add different notes or hide a different test behind the previous submission id', async () => {
+ const saved={...updatePool(closedAutomatic(),{retest:passingRetest,remarks:'First test note'}),id:'saved',revision:3};
+ for(const extra of [{remarks:'First test note\nAnother note'},{retest:{...passingRetest,id:'00000000-0000-0000-0000-000000000099'}},{retest:{...passingRetest,ph:7.6}}]) {
+  const f=fixture({existing:saved,role:'Engineer'});
+  f.request.json=async()=>({log_date:input.log_date,pool_facility_id:facilityId,retest:passingRetest,remarks:saved.remarks,expected_revision:2,...extra});
+  assert.ok((await f.handlers.POST(f.request)).status>=400);assert.equal(f.writes.length,0);
+ }
+});
+test('separate tests retain identical note text as separate audit additions', async () => {
+ const saved={...updatePool(closedAutomatic(),{retest:passingRetest,remarks:'Checked walkways'}),id:'saved',revision:3};
+ const f=fixture({existing:saved,role:'Engineer'});
+ f.request.json=async()=>({log_date:input.log_date,pool_facility_id:facilityId,retest:{...passingRetest,id:'00000000-0000-0000-0000-000000000099'},remarks:`${saved.remarks}\nChecked walkways`,expected_revision:3});
+ const result=await f.handlers.POST(f.request);
+ assert.equal(result.status,200);assert.equal(f.writes.length,1);assert.equal(f.writes[0].remarks,'Checked walkways\nChecked walkways');
+});

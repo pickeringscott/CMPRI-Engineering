@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { subscribeResources } from "@/lib/events/browser";
 import { inventoryUnitOptions } from "@/lib/inventory";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
@@ -11,6 +11,7 @@ import PoolDailyHistory, { type PoolDailyEntry } from "./PoolDailyHistory";
 import "./pool-log.css";
 import { getValidSession } from "@/lib/supabase/client";
 import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
+import { clearPoolDraft, poolDraftMatchesSaved, poolRemarksForSave, readPoolDraft, readPoolSelection, savePoolDraft, savePoolSelection, type PoolDraft, type PoolDraftScope } from "@/lib/pool-log-draft";
 import {
   bromineBands,
   CMPRI_POOL,
@@ -93,6 +94,8 @@ function formFromLog(log: Log | null): Record<string, unknown> {
     result[key] = typeof result[key] === "boolean" ? value === true : value == null ? "" : String(value);
   }
   result.manual_closure = log.manual_closure ?? (log.closure_condition === true ? null : false);
+  // Notes belong to the next test. Saved notes remain in the day's history.
+  result.remarks = "";
   return result;
 }
 
@@ -149,8 +152,9 @@ function bromineOutOfRange(value: unknown) {
   return poolClosureReasons({ sanitizer_band_am: band }).length > 0;
 }
 
-function formPayload(form: Record<string, unknown>, date: string, facilityId: string) {
+function formPayload(form: Record<string, unknown>, date: string, facilityId: string, savedRemarks: unknown = "") {
   const payload: Record<string, unknown> = { ...form, log_date: date, pool_facility_id: facilityId };
+  payload.remarks = poolRemarksForSave(savedRemarks, form.remarks);
   for (const key of numericFields) payload[key] = form[key] === "" ? null : Number(form[key]);
   for (const period of periods) {
     const band = String(form[`sanitizer_band_${period}`] ?? "");
@@ -210,6 +214,13 @@ export default function PoolLogPage() {
   const [chemicalUnit, setChemicalUnit] = useState("");
   const [chemicalUses, setChemicalUses] = useState<PoolChemicalUse[]>([]);
   const [uncertainChemicalSave, setUncertainChemicalSave] = useState(false);
+  const [draftScope, setDraftScope] = useState<PoolDraftScope | null>(null);
+  const [retainedDraft, setRetainedDraft] = useState<PoolDraft | null>(null);
+  const [storageProblem, setStorageProblem] = useState("");
+  const savePromise = useRef<Promise<boolean> | null>(null);
+  const saveOnClose = useRef<() => Promise<boolean>>(async () => false);
+  const closing = useRef(false);
+  const latest = useRef({ dirty: false, loading: true, saving: false });
   const selectedChemical = supplies.find(item => item.id === chemicalItem);
   const dirty = chemicalUses.length > 0 || baseline !== "" && JSON.stringify(form) !== baseline;
 
@@ -231,12 +242,30 @@ export default function PoolLogPage() {
       setMessage("");
       setEditingSavedLog(false);
       setChemicalUses([]); setChemicalItem(""); setChemicalQuantity(""); setUncertainChemicalSave(false);
-      const session = await getValidSession();
+      const [session, verified] = await Promise.all([getValidSession(), loadCmpriSession()]);
       if (!session) { window.location.replace("/"); return; }
+      if (!verified.hotelId || verified.user.id !== session.user.id) throw new Error("The account and property could not be verified. Your retained readings have not been changed.");
+      const owner = { hotelId: verified.hotelId, userId: verified.user.id };
+      let selection: ReturnType<typeof readPoolSelection> = null;
+      try { selection = readPoolSelection(window.localStorage, owner, poolLogTodayDate()); } catch {}
+      if (chosenDate === null && !requestedDate) {
+        if (selection && (selection.date !== date || !facilityChoice && selection.facilityId)) {
+          setDate(selection.date);
+          setFacilityChoice(selection.facilityId);
+          return;
+        }
+      }
+      // Retained edits need an authoritative revision before being restored.
+      // Other opens may reuse a still-valid response from the shared cache.
+      let hasRetainedEdits = false;
+      const draftFacility = facilityChoice || selection?.facilityId;
+      if (draftFacility) {
+        try { hasRetainedEdits = !!readPoolDraft(window.localStorage, { ...owner, facilityId: draftFacility, date }); } catch {}
+      }
       const query = new URLSearchParams({ date, ...(facilityChoice ? { facility: facilityChoice } : {}) });
       const response = await fetch(`/api/pool-log?${query}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
+        cache: hasRetainedEdits ? "reload" : "no-store",
         signal: controller.signal,
       });
       const result = await response.json() as { error?: string; facilities?: Facility[]; facility?: Facility; log?: Log | null; retests?: Record<string, unknown>[]; daily_entries?: PoolDailyEntry[] | null; daily_entries_error?: string; can_edit?: boolean; can_edit_saved?: boolean };
@@ -244,11 +273,29 @@ export default function PoolLogPage() {
       if (controller.signal.aborted) return;
       const values = formFromLog(result.log || null);
       const savedValues = JSON.stringify(values);
+      const scope = result.facility?.id ? { ...owner, facilityId: result.facility.id, date } : null;
+      let draft: PoolDraft | null = null;
+      let conflict: PoolDraft | null = null;
+      if (scope) {
+        try {
+          savePoolSelection(window.localStorage, scope);
+          const retained = result.can_edit === true ? readPoolDraft(window.localStorage, scope) : null;
+          if (retained && poolDraftMatchesSaved(retained, result.log || null, owner.userId)) clearPoolDraft(window.localStorage, scope);
+          else if (retained && retained.baseRevision === (result.log?.revision ?? null)) draft = retained;
+          else conflict = retained;
+        } catch { setStorageProblem("This browser could not retain pool readings. Keep this window open until saving succeeds."); }
+      }
       setFacilities(result.facilities || []);
       setFacility(result.facility || null);
       setSaved(result.log || null);
       if (result.facility?.id) setDailyActivity({ date, facilityId: result.facility.id, entries: result.daily_entries || [], error: Array.isArray(result.daily_entries) ? "" : result.daily_entries_error || "Pool activity could not be loaded." });
-      setForm(values);
+      setDraftScope(scope);
+      setRetainedDraft(conflict);
+      setForm(draft?.form || values);
+      setChemicalUses(draft?.chemicalUses || []);
+      setUncertainChemicalSave(draft?.uncertainSave === true);
+      setEditingSavedLog(draft?.editingSavedLog === true && result.can_edit_saved === true);
+      if (draft) setMessage("Unsaved pool readings restored from this device.");
       setBaseline(savedValues);
       setCanEdit(result.can_edit === true);
       setCanEditSavedLog(result.can_edit_saved === true);
@@ -260,7 +307,7 @@ export default function PoolLogPage() {
       }
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [date, facilityChoice, pageAllowed, reload]);
+  }, [date, facilityChoice, pageAllowed, reload, chosenDate, requestedDate]);
 
   useEffect(() => {
     if (!facility?.id) return;
@@ -322,6 +369,33 @@ export default function PoolLogPage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
+  // Write locally while editing, rather than trying to save a network request
+  // during browser shutdown. Only this verified account and pool can read it.
+  useLayoutEffect(() => {
+    latest.current = { dirty, loading, saving };
+    if (!draftScope || loading || !canEdit || retainedDraft) return;
+    try {
+      if (dirty) savePoolDraft(window.localStorage, draftScope, { version: 1, baseRevision: saved?.revision ?? null, savedRemarks: saved?.remarks || "", form, chemicalUses, editingSavedLog, uncertainSave: uncertainChemicalSave });
+      else clearPoolDraft(window.localStorage, draftScope);
+    } catch { queueMicrotask(() => setStorageProblem("This browser could not retain pool readings. Keep this window open until saving succeeds.")); }
+  }, [dirty, loading, saving, draftScope, canEdit, saved?.revision, saved?.remarks, form, chemicalUses, editingSavedLog, uncertainChemicalSave, retainedDraft]);
+
+  useEffect(() => {
+    const requestClose = (event: Event) => {
+      if (!latest.current.dirty && !latest.current.saving) return;
+      event.preventDefault();
+      if (closing.current) return;
+      closing.current = true;
+      void saveOnClose.current().then(confirmed => {
+        if (!confirmed) return;
+        const modalToken = new URLSearchParams(window.location.search).get("modalToken") || "";
+        if (window.parent !== window) window.parent.postMessage({ type: "cmpri-modal-close", modalToken }, window.location.origin);
+      }).finally(() => { closing.current = false; });
+    };
+    document.addEventListener("cmpri-modal-cancel-request", requestClose);
+    return () => document.removeEventListener("cmpri-modal-cancel-request", requestClose);
+  }, []);
+
   function change(key: string, value: unknown) {
     setForm((current) => {
       const updated = { ...current, [key]: value };
@@ -336,25 +410,31 @@ export default function PoolLogPage() {
     setHistoryMessage("");
   }
 
-  async function save(event: FormEvent) {
+  function save(event: FormEvent) {
     event.preventDefault();
-    if (!facility || saving || loading || !canEdit) return;
+    void saveChanges();
+  }
+
+  function saveChanges(): Promise<boolean> {
+    if (savePromise.current) return savePromise.current;
+    if (!dirty) return Promise.resolve(true);
+    if (!facility || loading || !canEdit || retainedDraft) return Promise.resolve(false);
     const stillNeeded = missingFields(form);
     if (stillNeeded.length) {
       setMessage(`Not saved yet. Still needed: ${stillNeeded.map(([, label]) => label).join("; ")}.`);
       document.getElementById(stillNeeded[0][0])?.focus();
-      return;
+      return Promise.resolve(false);
     }
     setSaving(true);
     setMessage("");
-    try {
+    const pending = (async () => { try {
       const session = await getValidSession();
       if (!session) throw new Error("Sign in again before saving. Your readings have not been discarded.");
-      const payload = formPayload(form, date, facility.id);
+      const payload = formPayload(form, date, facility.id, saved?.remarks);
       if (chemicalUses.length) payload.chemical_uses = chemicalUses;
       payload.expected_revision = saved?.revision ?? null;
       if (saved && editingSavedLog) payload.edit_mode = "replace";
-      if (chemicalUses.length) setUncertainChemicalSave(true);
+      setUncertainChemicalSave(true);
       const response = await fetch("/api/pool-log", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
@@ -369,6 +449,9 @@ export default function PoolLogPage() {
       setActivityRefresh(value => value + 1);
       setForm(values);
       setBaseline(JSON.stringify(values));
+      if (draftScope) {
+        try { clearPoolDraft(window.localStorage, draftScope); } catch { setStorageProblem("The saved readings are confirmed, but this browser could not clear its retained copy."); }
+      }
       setEditingSavedLog(false);
       setHistory([]);
       setShowHistory(false);
@@ -379,12 +462,18 @@ export default function PoolLogPage() {
       if (result.warnings?.length) notes.push(`Out of range: ${result.warnings.join("; ")}.`);
       setMessage(notes.join(" "));
       if (payload.retest) setReload((value) => value + 1);
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save readings.");
+      return false;
     } finally {
       setSaving(false);
-    }
+      savePromise.current = null;
+    } })();
+    savePromise.current = pending;
+    return pending;
   }
+  useLayoutEffect(() => { saveOnClose.current = saveChanges; });
 
   async function toggleHistory() {
     if (showHistory) {
@@ -419,12 +508,13 @@ export default function PoolLogPage() {
   const preview = formPayload(form, date, facility?.id ?? "");
   try { applyPoolTestStatus(preview, preview, saved); }
   catch { preview.latest_test = saved?.latest_test; preview.closure_condition = saved?.closure_condition; }
-  const closureReasons = poolCurrentClosureReasons(preview);
-  const readingWarnings = poolReadingWarnings(preview);
-  const canEditForm = canEdit;
-  const closureRequired = closureReasons.length > 0 || preview.closure_condition === true;
-  const locked = (key: string) => !canEditForm || saving || (savedValue(saved, key) && !editingSavedLog);
   const stillNeeded = missingFields(form);
+  const assessed = stillNeeded.length ? saved || {} : preview;
+  const closureReasons = poolCurrentClosureReasons(assessed);
+  const readingWarnings = poolReadingWarnings(assessed);
+  const canEditForm = canEdit;
+  const closureRequired = closureReasons.length > 0 || assessed.closure_condition === true;
+  const locked = (key: string) => !canEditForm || saving || (savedValue(saved, key) && !editingSavedLog);
   const flagClass = "mt-1 text-xs font-bold text-red-300";
   const warnClass = "mt-1 text-xs font-bold text-amber-300";
 
@@ -460,6 +550,15 @@ export default function PoolLogPage() {
             {canEditForm ? <button type="submit" form="pool-log-form" data-cmpri-primary disabled={saving || loading || !facility || !dirty} className="pool-top-save rounded-lg px-3 py-2 font-bold disabled:opacity-50">{saving ? "Saving…" : uncertainChemicalSave ? "Retry Save Pool Log" : "Save Pool Log"}</button> : <span className="text-sm text-slate-300">View-only access</span>}
           </div>
           {message ? <p role="alert" aria-live="assertive" className="my-3 whitespace-pre-wrap rounded-lg border border-amber-400 p-3">{message}</p> : null}
+          {storageProblem ? <p role="alert" className="my-2 rounded-lg border border-amber-400 p-3">{storageProblem}</p> : null}
+          {retainedDraft ? <section className="my-2 rounded-lg border border-amber-400 p-3 text-sm">
+            <p>Saved readings changed while these entries were pending. The retained entries remain on this device and have not replaced the saved log.</p>
+            <details className="mt-2"><summary className="cursor-pointer font-semibold">Review Retained Entries</summary><dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">{Object.entries(retainedDraft.form).filter(([, value]) => value !== "" && value !== false && value !== null).map(([key, value]) => <div key={key} className="contents"><dt>{key.replaceAll("_", " ")}</dt><dd className="whitespace-pre-wrap break-words">{String(value)}</dd></div>)}</dl></details>
+            <button type="button" className="mt-2 underline" onClick={() => {
+              if (!draftScope) return;
+              try { clearPoolDraft(window.localStorage, draftScope); setRetainedDraft(null); } catch { setStorageProblem("This browser could not clear its retained entries."); }
+            }}>Discard Retained Entries And Use Saved Readings</button>
+          </section> : null}
           {loading ? <p className="py-4">Loading saved readings…</p> : facility ? (
             <form id="pool-log-form" onSubmit={save} noValidate className="mt-2 space-y-2">
               <PoolDailyHistory entries={dailyActivity?.date === date && dailyActivity.facilityId === facility.id ? dailyActivity.entries : []} error={dailyActivity?.date === date && dailyActivity.facilityId === facility.id ? dailyActivity.error : undefined} loading={dailyActivity?.date !== date || dailyActivity.facilityId !== facility.id} onRetry={() => setActivityRefresh(value => value + 1)} />
@@ -472,7 +571,7 @@ export default function PoolLogPage() {
                 <h2 className="text-lg font-bold">Out-of-range reading</h2>
                 <ul className="mt-2 list-inside list-disc">{readingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
               </section> : null}
-              <fieldset disabled={!canEditForm || saving || uncertainChemicalSave} className="space-y-2 disabled:opacity-80">
+              <fieldset disabled={!canEditForm || saving || uncertainChemicalSave || !!retainedDraft} className="space-y-2 disabled:opacity-80">
                 <label className="block text-sm">Notes / actions taken<textarea aria-label="Notes / actions taken" disabled={uncertainChemicalSave} value={String(form.remarks ?? "")} maxLength={20000} rows={2} onChange={(event) => change("remarks", event.target.value)} className={fieldClass} /></label>
                 <div className="pool-water-samples">
                   {periods.map((period) => {
@@ -562,7 +661,7 @@ export default function PoolLogPage() {
                       const lines=String(form.remarks || "").split("\n");const index=lines.indexOf(chemicalRemark(use,name));if(index>=0)lines.splice(index,1);change("remarks",lines.join("\n"));
                     }}>Remove</button></div>)}
                     {chemicalUses.length ? <p className="text-xs">{chemicalUses.length} chemical usage(s) pending. Save the pool log to update inventory.</p> : null}
-                    {uncertainChemicalSave ? <p role="status" className="text-xs">Save not yet confirmed. Retry Save Pool Log to confirm the same usage without reducing inventory twice.</p> : null}
+                    {uncertainChemicalSave ? <p role="status" className="text-xs">Save not yet confirmed. Retry Save Pool Log to confirm the same readings and chemical usage.</p> : null}
                     {supplyError ? <p role="status" className="text-xs">{supplyError}</p> : null}
                   </div>
                 </details>

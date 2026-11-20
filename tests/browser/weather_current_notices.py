@@ -158,6 +158,19 @@ async def observed_extremes(frame):
     return await frame.locator('#liveTemperature .wv-dial-marker[data-kind="observed"]').evaluate_all("""elements=>Object.fromEntries(elements.map(el=>[el.dataset.extreme,{time:el.dataset.sampleTime,value:Number(el.dataset.airTemperature)}]))""")
 
 
+async def tooltip_integration(frame):
+    await wait_for(frame,'window.cmpriWeatherTooltips?.getState().observing')
+    await wait_for(frame,"document.getElementById('recenter').title==='Recenter On Hotel'")
+    titles=await frame.locator('#liveTemperature .wv-dial-ring title').all_text_contents()
+    require(titles and any('Forecast' in title for title in titles)
+            and any('Observed' in title and 'KCMI' in title for title in titles),
+            'Dynamic Current SVG titles were not formatted or lost KCMI provenance: '+str(titles[:4]))
+    formatted=await frame.evaluate('values=>values.map(value=>cmpriWeatherTooltips.titleCase(value))',titles)
+    require(titles==formatted,
+            'Dynamic SVG titles bypassed the Weather tooltip formatter')
+    return {'htmlTitle':'Recenter On Hotel','svgTitlesFormatted':len(titles),'sourceIdentifiersPreserved':True}
+
+
 async def dial_reference_layout(frame):
     result=await frame.evaluate("""()=>{
       const current=document.querySelector('#liveTemperature .wv-current-dial'),center=current.querySelector('.wv-dial-center'),face=current.querySelector('.wv-dial-face').getBoundingClientRect();
@@ -166,7 +179,9 @@ async def dial_reference_layout(frame):
       const icon=current.querySelector('.wv-condition'),iconBox=rect(icon),temp=current.querySelector('.wv-temperature-value');
       const badges=Array.from(current.querySelectorAll('.wv-dial-extreme-value')).map(el=>{
         const range=document.createRange();range.selectNodeContents(el);const r=range.getBoundingClientRect(),before=getComputedStyle(el,'::before');
-        return {text:el.textContent,left:r.left-parseFloat(before.width)-parseFloat(before.marginRight),right:r.right,top:r.top,bottom:r.bottom};
+        const item=el.closest('.wv-dial-extreme');
+        return {text:el.textContent,kind:item.dataset.kind,extreme:item.dataset.extreme,
+          left:r.left-parseFloat(before.width)-parseFloat(before.marginRight),right:r.right,top:r.top,bottom:r.bottom};
       });
       const exclusions=Array.from(current.querySelectorAll('.wv-dial-marker,.wv-dial-clock')).map(el=>({label:el.matches('.wv-dial-marker')?el.dataset.kind+':'+el.dataset.extreme:el.textContent,...rect(el)}));
       const collisions=badges.flatMap(badge=>exclusions.filter(other=>badge.left<other.right+1&&badge.right>other.left-1&&badge.top<other.bottom+1&&badge.bottom>other.top-1).map(other=>({badge,other})));
@@ -211,7 +226,13 @@ async def dial_reference_layout(frame):
           }
         }
       }
-      return {currentItems,iconWidth:iconBox.width,tempFont:parseFloat(getComputedStyle(temp).fontSize),
+      const ring=current.querySelector('.wv-dial-ring'),scale=Math.hypot(ring.getScreenCTM().a,ring.getScreenCTM().b);
+      const tracks=Array.from(current.querySelectorAll('.wv-dial-track')).map(el=>({
+        width:el.getBBox().width*scale,relativeWidth:el.getBBox().width*scale/face.width}));
+      const clocks=Array.from(current.querySelectorAll('.wv-dial-clock')).map(el=>({
+        text:el.textContent,font:parseFloat(getComputedStyle(el).fontSize),
+        radius:Math.hypot(Number(el.getAttribute('x'))-100,Number(el.getAttribute('y'))-3-99)}));
+      return {currentItems,iconWidth:iconBox.width,tempFont:parseFloat(getComputedStyle(temp).fontSize),tracks,clocks,
         centerOffset:Math.abs(iconBox.left+iconBox.width/2-face.left-face.width/2),face:rect(current.querySelector('.wv-dial-face')),
         currentBadgeColumns:getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,badges,collisions,conditionMarkerCollisions,metricMarkerCollisions,metricPairCollisions,clippedText,clippedTicks,paintCollisions,
         days:Array.from(document.querySelectorAll('.daily-forecast-card')).map(card=>{
@@ -229,6 +250,23 @@ async def dial_reference_layout(frame):
     require(result['currentBadgeColumns']==2,'Current forecast/observed four badges lost their2×2 layout')
     require(len(result['badges'])==4 and not result['collisions'],
             'Current inner H/L text or color dots overlap a ring marker or lower clock tick: '+str(result['collisions']))
+    badges={(row['kind'],row['extreme']):row for row in result['badges']}
+    fh,fl,oh,ol=[badges[key] for key in [('forecast','H'),('forecast','L'),('observed','H'),('observed','L')]]
+    require(abs(fh['left']-fl['left'])<.6 and abs(oh['left']-ol['left'])<.6
+            and fh['right']<oh['left'] and fl['right']<ol['left']
+            and fh['bottom']<fl['top'] and oh['bottom']<ol['top']
+            and abs(fh['top']-oh['top'])<1 and abs(fl['top']-ol['top'])<1,
+            'Forecast/Observed H/L are not aligned left/right columns with aligned color dots: '+str(result['badges']))
+    # The previous Current face used 188 SVG units across the same rendered
+    # width. Both real tracks must enlarge by the same factor, without changing
+    # their observed/forecast radius ratio or the underlying weather geometry.
+    outer,inner=result['tracks']
+    outer_growth=outer['relativeWidth']/(146/188)
+    inner_growth=inner['relativeWidth']/(122/188)
+    require(outer_growth>1.025 and abs(outer_growth-inner_growth)<.002,
+            'Current Forecast and Observed rings did not enlarge proportionally: '+str(result['tracks']))
+    require(all(row['font']<8 and 86<=row['radius']<91 for row in result['clocks']),
+            'Current edge clocks are not smaller and closer to the tracks: '+str(result['clocks']))
     require(not result['clippedText'],'Current condition/event text is clipped inside a visible line: '+str(result['clippedText']))
     require(not result['clippedTicks'],'Current clock labels leave the dial/card viewport: '+str(result['clippedTicks']))
     require(not result['paintCollisions'],'Painted Current condition icon overlaps a temperature track: '+str(result['paintCollisions']))
@@ -241,7 +279,8 @@ async def dial_reference_layout(frame):
                 and day['values'][1]['top']>=day['values'][0]['bottom']+1,
                 'Extended icon, vertical H/L, or inside content legibility regressed: '+str(day))
     return {'largeCurrentIconAndTemperature':True,'verticalCurrentMetricsNoOverlap':True,'currentBadgesTwoByTwo':True,'markersAndTicksClearOfBadgeTextAndDots':True,
-        'largeDailyIconsAndVerticalHighLow':True,'currentIconWidth':result['iconWidth'],'currentTemperatureFont':result['tempFont']}
+        'largeDailyIconsAndVerticalHighLow':True,'currentIconWidth':result['iconWidth'],'currentTemperatureFont':result['tempFont'],
+        'alignedForecastObservedColumns':result['badges'],'proportionalTrackGrowth':outer_growth,'smallerCloserClocks':result['clocks']}
 
 
 async def forecast_graphs(frame, feed, chief):
@@ -444,6 +483,7 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
                 'The fixed reference palette changed')
         evidence['alignedForecastGraphs'] = await forecast_graphs(frame, feed, chief)
         evidence['referenceDialLayout']=await dial_reference_layout(frame)
+        evidence['tooltipIntegration']=await tooltip_integration(frame)
         await frame.locator('#extendedForecast').scroll_into_view_if_needed()
         await page.screenshot(path=str(output / ('daily-inside-wheel-' + suffix + '.png')), full_page=True)
         await frame.locator('#hourlyForecast').scroll_into_view_if_needed()
@@ -456,6 +496,8 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         await refresh(frame)
         require(await frame.locator('#liveConditionIcon .wv-moon').count()>0,
                 'Long night condition failed to keep its moon icon')
+        require(await frame.locator('#liveConditionText').inner_text()==feed.condition_text,
+                'Tooltip formatting changed the visible official condition description')
         feed.observation_failure=True
         await refresh(frame)
         await dial_reference_layout(frame)

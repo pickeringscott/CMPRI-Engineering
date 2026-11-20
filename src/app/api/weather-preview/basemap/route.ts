@@ -15,6 +15,7 @@ const REFERENCES = {
   places: { source: "https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer", layers: "1,2", attribution: "USGS The National Map · Geographic Names Information System" },
 } as const;
 const MAX_BYTES = 2 * 1024 * 1024;
+const DETAIL_ROAD_EXPORT_DPI = "42";
 const ERROR_HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
 const TILE_HEADERS = { ...ERROR_HEADERS, "Cache-Control": "public, max-age=3600, s-maxage=86400" };
 
@@ -24,6 +25,26 @@ function fail(status: number, message: string) {
 
 function integer(value: string | null) {
   return value !== null && /^(0|[1-9]\d*)$/.test(value) && value.length <= 8 ? Number(value) : null;
+}
+
+function roadDrawing(bbox: number[], width: number, height: number): Record<string, string> {
+  // Preserve the published 96-dpi scale family when reducing detailed-road DPI. Both
+  // dimensions matter because ArcGIS fits a mismatched bbox to the output size.
+  const scale = Math.max((bbox[2] - bbox[0]) / width, (bbox[3] - bbox[1]) / height) * 96 / 0.0254;
+  // Detailed layers explicitly prohibit renderer changes. Their original road
+  // geometry and provider styles remain intact; 42 dpi reduces point-width ink.
+  if (scale < 500000) return { dpi: DETAIL_ROAD_EXPORT_DPI, layers: "show:29,30" };
+  const mapLayerId = scale >= 5000000 ? 8 : 9;
+  // These generalized layers allow renderer changes. Keep their published DPI
+  // and scale visibility: actual exports did not honor dynamic scale overrides.
+  // A single 0.8-point light line is about 1.07 pixels at 96 dpi, with no casing
+  // order dependency or repeated geometry that could obscure its center.
+  const dynamicLayers = [{
+    id: 1000, source: { type: "mapLayer", mapLayerId },
+    drawingInfo: { renderer: { type: "simple", symbol: { type: "esriSLS", style: "esriSLSSolid", width: 0.8, color: [238, 234, 213, 255] } },
+      scaleSymbols: false, showLabels: false },
+  }];
+  return { dpi: "96", layers: "show:1000", dynamicLayers: JSON.stringify(dynamicLayers) };
 }
 
 async function limitedBody(response: Response, account?: (bytes: number) => void) {
@@ -120,7 +141,8 @@ export async function GET(request: Request) {
       || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] || width === null || height === null || width < 1 || height < 1 || width > 1500 || height > 1500) return fail(400, "A bounded Web Mercator extent and 1–1500 pixel dimensions are required");
     const selected = REFERENCES[dataset as keyof typeof REFERENCES];
     source = selected.source + "/export?" + new URLSearchParams({ f: "image", bbox: bbox.join(","), bboxSR: "3857", imageSR: "3857",
-      size: width + "," + height, format: "png32", transparent: "true", layers: "show:" + selected.layers }).toString();
+      size: width + "," + height, format: "png32", transparent: "true",
+      ...(dataset === "roads" ? roadDrawing(bbox, width, height) : { layers: "show:" + selected.layers }) }).toString();
     attribution = selected.attribution;
   } else {
     if (!Object.hasOwn(DATASETS, dataset) || ["bbox", "width", "height"].some((key) => url.searchParams.has(key))) return fail(400, "Unknown USGS tile dataset or parameters");
