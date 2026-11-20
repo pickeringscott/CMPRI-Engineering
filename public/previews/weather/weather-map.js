@@ -25,7 +25,7 @@
     catalogFrames: [], displayedTime: null,
     showAlerts: true, alerts: [], alertStatus: 'Unknown · waiting for the NWS property alert response',
     alertSource: null, alertCheckedAt: null, alertGeometryless: 0,
-    enabled: { velocity: false, ptype: false },
+    enabled: { velocity: false, ptype: false, satellite: false, lightning: false },
     center: { ...HOTEL }, opacity: 0.65, showRadar: true, roads: false, impacts: false,
     frames: [], radarStatus: 'Waiting for Weather to open', roadsStatus: 'Unavailable · exact IDOT feed / report timestamps unverified',
     impactsStatus: 'Waiting for Weather to open', openAttempted: false, networkRequests: 0, fetchedAt: null,
@@ -56,12 +56,18 @@
   const productInfo = {
     velocity: ['Local velocity · KILX', 'The latest advertised KILX velocity image and official legend load through the preview transport. Velocity is radar-relative motion, not hotel surface wind.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows?service=wms&version=1.3.0&request=GetCapabilities'],
     ptype: ['Precipitation type', 'The latest advertised NOAA precipitation-type analysis and official legend load through the preview transport. No rain, snow or ice classification is inferred from reflectivity colors.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows?service=wms&version=1.3.0&request=GetCapabilities'],
-    satellite: ['GOES-19 · Great Lakes', 'NOAA GeoColor satellite imagery covers Illinois. This review build does not embed a current satellite image.', 'https://www.star.nesdis.noaa.gov/GOES/sector.php?sat=G19&sector=cgl'],
-    lightning: ['GOES-19 · Total lightning', 'NOAA GLM flash-extent density is regional total lightning. Current imagery is not embedded; no ground-strike pins or distance-to-hotel claims are made.', 'https://www.star.nesdis.noaa.gov/GOES/sector.php?sat=G19&sector=cgl']
+    satellite: ['Clouds · satellite', 'Observed NOAA GOES longwave infrared cloud imagery works by day and night. Its grayscale is imagery, not percentage cloud cover or surface temperature.', 'https://nowcoast.noaa.gov/geoserver/observations/satellite/ows?service=WMS&version=1.3.0&request=GetCapabilities'],
+    lightning: ['Lightning density', 'Observed NOAA nowCOAST ground-network lightning density: a 15-minute analysis on an 8×8 km grid. These are not individual strike locations. Blank pixels do not establish an all-clear.', 'https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows?service=WMS&version=1.3.0&request=GetCapabilities']
   };
   const WMS_PRODUCTS = Object.freeze({
     velocity: { product: 'velocity', layer: 'kilx_sr_bvel', style: 'radar_velocity', title: 'Local velocity · KILX' },
-    ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', title: 'Precipitation type · NOAA analysis' }
+    ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', title: 'Precipitation type · NOAA analysis' },
+    // CMPRI's display-age thresholds allow source latency; they are not NOAA
+    // update guarantees. Each image retains its own advertised observation time.
+    satellite: { product: 'satellite', layer: 'goes_longwave_imagery', style: 'goes-lir', title: 'Clouds · satellite IR',
+      staleAfterMinutes: 30, note: 'Day/night infrared imagery · not cloud cover %. Grayscale 0–255.' },
+    lightning: { product: 'lightning', layer: 'ldn_lightning_strike_density', style: 'lightning_density', title: 'Lightning density · 15 min',
+      staleAfterMinutes: 45, note: '15-minute analysis · 8×8 km grid. Blank pixels are not an all-clear.' }
   });
   const wmsLayers = Object.fromEntries(Object.entries(WMS_PRODUCTS).map(([name, product]) => [name, {
     metadata: null, raster: null, legendUrl: null, loading: false, queued: false,
@@ -70,7 +76,7 @@
       mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null }
   }]));
   const controls = [
-    ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA observed products, NWS/WPC WSSI and property alerts; IDOT reports unavailable', 'Open the four independent weather-layer controls. Background style is chosen in Map.'],
+    ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA observed products, NWS/WPC WSSI and property alerts; IDOT reports unavailable', 'Toggle independent observed, forecast and official-alert overlays over the same aerial map.'],
     ['backgroundAerial', 'Aerial background', 'CMPRI embedded map', 'USGS historical imagery', 'Show published USGS ground imagery; acquisition date may be unknown. This is not a current weather satellite image.'],
     ['geographicReference', 'Geographic roads and town names', 'CMPRI display of official USGS geography', 'USGS Transportation PNG and GNIS incorporated-place GeoJSON', 'Draw actual major roads and deduplicated town names at their official point coordinates over aerial imagery. These are geographic reference features, not reported winter road conditions.'],
     ['mapAttribution', 'Ground-map source attribution', 'CMPRI embedded map', 'USGS National Map', 'Keep the geographic source visible on the map in every background style, including loading and unavailable states.'],
@@ -86,9 +92,9 @@
     ['impacts', 'Forecast winter travel impacts layer', 'CMPRI overlay', 'NWS/WPC WSSI overall Days 1–3, layer 4', 'Toggle same-map regional forecast impact polygons, independently of radar and road reports. The overlay is off by default; only verified NOAA forecast geometry is rendered.'],
     ['velocity', 'Local velocity product', 'CMPRI overlay', 'Official NOAA KILX WMS · advertised kilx_sr_bvel / radar_velocity', 'Display the latest advertised observed velocity image and its actual official PNG legend on the same USGS map. It is radar-relative motion, not hotel surface wind. No velocity loop is fabricated.'],
     ['ptype', 'Precipitation type product', 'CMPRI overlay', 'Official NOAA CONUS WMS · advertised conus_pcpn_typ / radar_precip_type', 'Display the latest advertised precipitation-type analysis and actual official PNG legend on the same map. Classifications come from NOAA, never reflectivity colors.'],
-    ['wmsLegend', 'Official velocity / precipitation-type legend', 'CMPRI image display', 'NOAA WMS GetLegendGraphic for the selected advertised style', 'Render the actual PNG legend returned by NOAA; missing legends stay unavailable. Units and categories are not invented.'],
-    ['satellite', 'Satellite product', 'CMPRI overlay', 'NOAA GOES-19 Great Lakes GeoColor', 'Show verified source and unavailable notice; no current image embedded.'],
-    ['lightning', 'Lightning product', 'CMPRI overlay', 'NOAA GOES-19 GLM FED3 + GeoColor', 'Show verified source and unavailable notice; no strike pins or counts.'],
+    ['wmsLegend', 'Official observed-product legends', 'CMPRI image display', 'NOAA WMS GetLegendGraphic for each selected advertised style', 'Render the actual PNG legends returned by NOAA; missing legends stay unavailable. Units and categories are not invented.'],
+    ['satellite', 'Clouds · satellite', 'CMPRI overlay', 'NOAA nowCOAST GOES longwave WMS · goes_longwave_imagery / goes-lir', 'Draw observed day/night infrared cloud imagery below radar and the other overlays, with its own advertised scan time and official grayscale key. This is not a forecast cloud percentage.'],
+    ['lightning', 'Lightning density', 'CMPRI overlay', 'NOAA nowCOAST lightning-detection WMS · ldn_lightning_strike_density / lightning_density', 'Draw the observed 15-minute ground-network density analysis on its 8×8 km grid above radar, with its own time and official key. No individual strike pins, proximity claims or all-clear inference.'],
     ['moreNoaaProducts', 'More NOAA products · expand / collapse', 'CMPRI overlay', 'None · local presentation of official product links', 'Expand or collapse optional velocity, precipitation-type, satellite and lightning choices. This disclosure does not request a feed or change the independent map layers.'],
     ['pin', 'Fixed hotel pin', 'Embedded map component · CMPRI-authored', 'Marriott hotel View Map coordinates', 'Plot 40.138080, −88.251416 in the same projection as every selected layer; no GPS.'],
     ['pan', 'Pan · drag / touch / arrow keys', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Move the shared viewport; every visible layer and hotel pin moves together.'],
@@ -101,7 +107,7 @@
     ['playLoop', 'Play / pause', 'Embedded map component · CMPRI-authored', 'Exact NOAA catalog rasters', 'Play only while Weather is visible. Close, hidden tab, and pause stop its local timer. No prediction or future radar.'],
     ['frameRange', 'Scan seek slider', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause and select one exact frame; live timestamps are never synthesized.'],
     ['showEchoes', 'Show selected observed product', 'Embedded map component · CMPRI-authored', 'Same official NOAA source as selected product', 'Hide/show reflectivity, velocity or precipitation-type rendering without silently switching products; other layers remain independent.'],
-    ['automaticRefresh', 'Automatic foreground map refresh', 'CMPRI embedded map', 'NOAA reflectivity WMS capabilities/maps, WSSI layer 4 and selected KILX or precipitation-type WMS', 'Refresh published map products every five minutes while the Weather map is open and visible. Closing, switching tabs or hiding the document stops its timer and aborts requests. No database work or server scheduler.'],
+    ['automaticRefresh', 'Automatic foreground map refresh', 'CMPRI embedded map', 'NOAA reflectivity WMS, WSSI layer 4 and selected velocity, precipitation-type, satellite and lightning WMS', 'Refresh published map products every five minutes while the Weather map is open and visible. Closing, switching tabs or hiding the document stops its timer and aborts requests. No database work or server scheduler.'],
     ['sourceLink', 'Official product link', 'CMPRI overlay', 'Selected official NOAA/NWS product page', 'Open the source page on explicit click. It does not load a third-party app into this map.']
   ];
   function formatTime(value) {
@@ -154,6 +160,12 @@
     });
     return candidates.filter((time) => Number.isFinite(Date.parse(time)) && Date.parse(time) <= Date.now())
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
+  }
+  function wmsFreshness(name) {
+    const product = WMS_PRODUCTS[name], time = wmsLayers[name].state.displayedTime;
+    const ageMinutes = time && Number.isFinite(Date.parse(time)) ? Math.max(0, (Date.now() - Date.parse(time)) / 60000) : null;
+    return { ageMinutes, staleAfterMinutes: product.staleAfterMinutes ?? null,
+      stale: ageMinutes !== null && product.staleAfterMinutes !== undefined && ageMinutes > product.staleAfterMinutes };
   }
   async function loadWmsView(name) {
     const record = wmsLayers[name], product = WMS_PRODUCTS[name];
@@ -689,6 +701,9 @@
       (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);
     context.restore();
   }
+  function drawWms(name, geo) {
+    if (state.enabled[name] && wmsLayers[name].raster) drawRaster(wmsLayers[name].raster, geo);
+  }
   function drawRadar(geo) {
     let changed = false;
     if (state.showRadar) {
@@ -702,7 +717,7 @@
     }
     // These independent observations share the same geographic viewport. Their
     // times remain distinct; velocity is never presented as hotel surface wind.
-    ['ptype', 'velocity'].forEach((name) => { if (state.enabled[name] && wmsLayers[name].raster) drawRaster(wmsLayers[name].raster, geo); });
+    ['ptype', 'velocity', 'lightning'].forEach((name) => drawWms(name, geo));
     if (changed) updateUI();
   }
   function drawPin(geo) {
@@ -730,6 +745,7 @@
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.fillStyle = '#141d20'; context.fillRect(0, 0, geo.width, geo.height);
     window.cmpriGroundMap?.draw(context, geo, state.backgroundStyle);
+    drawWms('satellite', geo);
     drawImpacts(geo); drawRadar(geo);
     window.cmpriGroundMap?.drawReferences?.(context, geo);
     drawAlerts(geo); drawPin(geo);
@@ -747,7 +763,8 @@
       else if (state.radarStatus.startsWith('Unavailable')) times.push('Observed reflectivity unavailable');
     }
     Object.keys(wmsLayers).forEach((name) => {
-      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(WMS_PRODUCTS[name].title + ': ' + formatTime(wmsLayers[name].state.displayedTime));
+      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(WMS_PRODUCTS[name].title + ': ' + formatTime(wmsLayers[name].state.displayedTime)
+        + (wmsFreshness(name).stale ? ' (old observation)' : ''));
     });
     return times.join(' · ');
   }
@@ -768,7 +785,12 @@
       image.alt = 'Official NOAA legend for ' + record.state.layer + ', advertised style ' + record.state.style;
       const source = document.createElement('div'); source.className = 'cmpri-map-source-legend';
       source.tabIndex = 0; source.setAttribute('aria-label', 'Official NOAA legend; scroll to view the complete source key'); source.append(image);
-      row.append(heading, source); fragment.append(row);
+      row.append(heading, source);
+      if (WMS_PRODUCTS[name].note) {
+        const note = document.createElement('span'); note.className = 'cmpri-map-legend-note';
+        note.textContent = WMS_PRODUCTS[name].note; row.append(note);
+      }
+      fragment.append(row);
     });
     if (state.showRadar) {
       if (reflectivityLegendUrl) {
@@ -856,7 +878,13 @@
     document.querySelectorAll('[data-map-layer]').forEach((button) => button.setAttribute('aria-pressed', String(Boolean(selected[button.dataset.mapLayer]))));
     if (canvas) canvas.setAttribute('aria-label', 'USGS geographic map at fixed hotel coordinates. Selected layers: ' + Object.entries(selected).filter(([, on]) => on).map(([name]) => name).join(', ') + '. ' + scanTime() + '. Click the map to enable wheel zoom; leaving resets it. Drag, arrow keys, pinch and zoom buttons also work.');
     if ($('layerUnavailable')) $('layerUnavailable').hidden = true;
-    const unavailable = Object.keys(wmsLayers).filter((name) => state.enabled[name] && wmsLayers[name].state.status.startsWith('Unavailable')).map((name) => WMS_PRODUCTS[name].title + ' unavailable.');
+    const unavailable = [];
+    Object.keys(wmsLayers).filter((name) => state.enabled[name]).forEach((name) => {
+      const record = wmsLayers[name], freshness = wmsFreshness(name), title = WMS_PRODUCTS[name].title;
+      if (record.state.status.startsWith('Unavailable')) unavailable.push(title + ' unavailable.' + (record.raster ? ' Last loaded image retained.' : ''));
+      if (freshness.stale) unavailable.push(title + ' observation is old (' + Math.floor(freshness.ageMinutes) + ' min).');
+      if (WMS_PRODUCTS[name].note && record.state.legendStatus.startsWith('Unavailable')) unavailable.push(title + ' key unavailable.');
+    });
     if (state.showRadar && state.radarStatus.startsWith('Unavailable')) unavailable.push('Observed reflectivity unavailable.');
     if (state.impacts && state.impactsStatus.startsWith('Unavailable')) unavailable.push('Forecast winter impacts unavailable.');
     if (state.roads) unavailable.push('Reported Illinois winter roads unavailable; exact IDOT report feed unverified.');
@@ -962,7 +990,7 @@
   function renderControls() {
     const host = $('mapControlHost'); if (!host) return;
     const opacity = $('mapOpacity')?.closest('.opacity');
-    host.innerHTML = `<div class="cmpri-map-menu-bar"><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerSatellite" data-map-layer="satellite" aria-pressed="false" disabled>Satellite · unavailable</button><button id="mapLayerLightning" data-map-layer="lightning" aria-pressed="false" disabled>Lightning · unavailable</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
+    host.innerHTML = `<div class="cmpri-map-menu-bar"><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerSatellite" data-map-layer="satellite" aria-pressed="false">Clouds · satellite</button><button id="mapLayerLightning" data-map-layer="lightning" aria-pressed="false">Lightning density</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
     const sliders = host.querySelector('.cmpri-map-playback-options');
     if (opacity) {
       const label = document.createElement('span');
@@ -985,7 +1013,10 @@
       accordion.addEventListener('toggle', () => { mark('legend', 'Legends ' + (accordion.open ? 'expanded' : 'collapsed') + '; no feed request'); emit(); });
     }
     ['mapHelp', 'mapStatus', 'openMapReference', 'observedRadarNote', 'tryLiveFeeds'].forEach((id) => $(id)?.remove());
-    document.querySelectorAll('[data-map-layer]').forEach((button) => button.addEventListener('click', () => selectLayer(button.dataset.mapLayer)));
+    document.querySelectorAll('[data-map-layer]').forEach((button) => {
+      if (productInfo[button.dataset.mapLayer]) button.title = productInfo[button.dataset.mapLayer][1];
+      button.addEventListener('click', () => selectLayer(button.dataset.mapLayer));
+    });
     $('showEchoes')?.closest('label')?.remove();
     $('playbackSpeed').addEventListener('input', (event) => { state.playbackSpeed = PLAYBACK_SPEEDS[Number(event.target.value)] || 'normal'; mark('playbackSpeed', 'Selected · ' + state.playbackSpeed + '; actual scan times unchanged'); updateUI(); });
     $('loopLength').addEventListener('input', (event) => { const requested = Number(event.target.value); stopPlayback(); state.loopMinutes = requested; applyLoopWindow(); mark('loopLength', 'Selected · ' + state.loopMinutes + ' min requested / ' + availableWindowMinutes() + ' min published coverage'); updateUI(); queueDraw(); primeFrames(); });
@@ -1144,7 +1175,7 @@
   }
   function wmsSnapshot(name) {
     const record = wmsLayers[name];
-    return { ...record.state, pending: record.controllers.size, loading: record.loading || record.metadataLoading,
+    return { ...record.state, ...wmsFreshness(name), pending: record.controllers.size, loading: record.loading || record.metadataLoading,
       queued: record.queued, imageLoaded: Boolean(record.raster), legendLoaded: Boolean(record.legendUrl),
       extent: record.raster ? { ...record.raster.extent } : null };
   }
@@ -1154,7 +1185,7 @@
     const currentWms = WMS_PRODUCTS[state.activeLayer] ? state.activeLayer : Object.keys(wmsLayers).find((name) => state.enabled[name]) || 'velocity';
     return { initialized: state.initialized, opened: state.opened, active: state.active,
       mapReady: state.mapReady, mode: state.mode, activeLayer: state.activeLayer,
-      layers: { radar: state.showRadar, reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts, satellite: false, lightning: false },
+      layers: { radar: state.showRadar, reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts },
       frame: state.frame, frameCount: frameCount(), playing: playbackRunning,
       displayedFrame: state.frames.findIndex((frame) => frame.time === state.displayedTime), displayedScanTime: state.displayedTime,
       catalogFrameCount: state.catalogFrames.length, availableWindowMinutes: availableWindowMinutes(), loopMinutes: state.loopMinutes, playbackSpeed: state.playbackSpeed,

@@ -171,7 +171,15 @@ class OfficialFeedFixtures:
         self.basemap_gate = asyncio.Event()
         self.basemap_pending = asyncio.Event()
         self.wms_requests = []
-        self.wms_modes = {"reflectivity": "fresh", "velocity": "fresh", "precipitation": "fresh"}
+        self.wms_modes = {name:'fresh' for name in ['reflectivity','velocity','precipitation','satellite','lightning']}
+        self.wms_now = None
+        self.wms_colors = {'reflectivity':(30,170,75,180),'velocity':(180,65,205,150),
+            'precipitation':(85,205,225,170),'satellite':(40,85,130,200),'lightning':(250,215,35,210)}
+        self.wms_legend_images = {}
+        self.wms_held_products = set()
+        self.wms_product_gates = {name:asyncio.Event() for name in self.wms_modes}
+        self.wms_product_pending = {name:asyncio.Event() for name in self.wms_modes}
+        for gate in self.wms_product_gates.values(): gate.set()
         self.wms_metadata = {}
         self.wms_legend_delay = 0
         self.hold_wms = False
@@ -282,11 +290,14 @@ class OfficialFeedFixtures:
             "reflectivity": ("conus_bref_qcd", "radar_reflectivity", "conus/conus_bref_qcd/ows"),
             "velocity": ("kilx_sr_bvel", "radar_velocity", "kilx/ows"),
             "precipitation": ("conus_pcpn_typ", "radar_precip_type", "conus/conus_pcpn_typ/ows"),
+            'satellite':('goes_longwave_imagery','goes-lir','observations/satellite/ows'),
+            'lightning':('ldn_lightning_strike_density','lightning_density','observations/lightning_detection/ows'),
         }[product]
-        source = "https://opengeo.ncep.noaa.gov/geoserver/" + path
-        age = 180 if self.wms_modes[product] == "stale" else 4
+        source = ('https://nowcoast.noaa.gov/geoserver/' if product in ['satellite','lightning'] else 'https://opengeo.ncep.noaa.gov/geoserver/') + path
+        age = 180 if self.wms_modes[product] == 'stale' else {'satellite':9,'lightning':2,'precipitation':6}.get(product,4)
+        now = self.wms_now or self.now
         times = ([iso(datetime.fromtimestamp(value / 1000, timezone.utc)) for value in self.scan_times]
-                 if product == "reflectivity" else [iso(self.now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]])
+                 if product == "reflectivity" else [iso(now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]])
         return {"product": product, "source": source + "?service=WMS&version=1.3.0&request=GetCapabilities",
             "checkedAt": iso(self.now), "version": "1.3.0", "mapFormats": ["image/png"],
             "legendSupported": True, "xml": "<!-- explicit local WMS test fixture -->",
@@ -345,12 +356,14 @@ class OfficialFeedFixtures:
                 elif self.hold_wms:
                     self.wms_pending.set()
                     await self.wms_gate.wait()
+                if product in self.wms_held_products:
+                    self.wms_product_pending[product].set()
+                    await self.wms_product_gates[product].wait()
             else:
-                width, height = (500, 30) if product == "reflectivity" else (180, 24)
+                width,height={'reflectivity':(500,30),'satellite':(46,62),'lightning':(292,46)}.get(product,(180,24))
                 if self.wms_legend_delay:
                     await asyncio.sleep(self.wms_legend_delay)
-            color = {"reflectivity": (30, 170, 75, 180), "velocity": (180, 65, 205, 150),
-                     "precipitation": (85, 205, 225, 170)}[product]
+            color = self.wms_colors[product]
             source_parameters = {
                 "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
                 "LAYERS" if operation == "map" else "LAYER": layer["name"],
@@ -363,9 +376,13 @@ class OfficialFeedFixtures:
                 self.map_urls.append(source)
                 if operation == "map":
                     self.image_exports.append(export)
-            await route.fulfill(content_type="image/png", body=png_fixture(width, height, color), headers={
-                "X-Weather-Source": source, "X-Weather-Layer": layer["name"],
-                "X-Weather-Time": params.get("time", ["source-default"])[0]})
+            body=self.wms_legend_images.get(product) if operation=='legend' else None
+            try:
+                await route.fulfill(content_type="image/png", body=body or png_fixture(width, height, color), headers={
+                    "X-Weather-Source": source, "X-Weather-Layer": layer["name"],
+                    "X-Weather-Time": params.get("time", ["source-default"])[0]})
+            except Exception:
+                if not route.request.failure: raise
             return
         if parsed.path == "/api/weather-preview/basemap":
             params = parse_qs(parsed.query)
@@ -592,6 +609,8 @@ class OfficialFeedFixtures:
         self.basemap_gate.set()
         self.hold_wms = False
         self.wms_gate.set()
+        self.wms_held_products.clear()
+        for gate in self.wms_product_gates.values(): gate.set()
 
 
 async def weather_frame(page):

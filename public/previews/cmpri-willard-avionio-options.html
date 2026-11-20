@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Willard Airport · Avionio board options</title>
+  <style>
+    :root{font-family:Arial,Helvetica,sans-serif;color:#f2ede0;background:#11120f;font-synthesis:none;--gold:#e1c674;--muted:#c4beaf;--border:#655736}
+    *{box-sizing:border-box}
+    body{margin:0;min-width:280px}
+    main{width:min(1440px,100%);margin:auto;padding:24px}
+    header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:20px}
+    h1{margin:5px 0 9px;font-size:clamp(25px,3.1vw,36px);line-height:1.1;letter-spacing:-.025em}
+    p{margin:6px 0;line-height:1.5}
+    .eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.11em;color:var(--gold)}
+    .intro{color:var(--muted);font-size:14px}
+    .airport{flex:none;padding:9px 12px;border:1px solid var(--border);border-radius:8px;color:var(--gold);font-weight:700;font-size:13px;white-space:nowrap}
+    .picker{padding:16px;border:1px solid var(--border);border-radius:12px;background:#1b1c16}
+    .picker h2{margin:0 0 12px;font-size:14px;color:#ddd6c6;font-weight:600}
+    .options{display:flex;flex-wrap:wrap;gap:8px}
+    button{font:inherit;cursor:pointer}
+    .option{flex:1 1 170px;min-height:58px;padding:10px 14px;border:1px solid #70654c;border-radius:8px;background:#25261e;color:#f2ede0;text-align:left}
+    .option strong,.option span{display:block}
+    .option strong{font-size:14px;line-height:1.3}
+    .option span{margin-top:4px;font-size:11px;color:var(--muted)}
+    .option:hover{border-color:var(--gold);background:#2d2d20}
+    .option[aria-pressed="true"]{border-color:var(--gold);background:#3a341e;box-shadow:inset 0 0 0 1px var(--gold)}
+    button:focus-visible,a:focus-visible{outline:3px solid #f4da8a;outline-offset:4px}
+    .status{min-height:21px;margin:12px 1px 0;color:var(--muted);font-size:12px}
+    .comparison[hidden]{display:none}
+    .comparison-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:20px 0 12px}
+    .comparison-header h2{margin:0;font-size:19px;color:#f2ede0}
+    .close{min-height:40px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#202119;color:#ddd6c6;font-size:12px}
+    .boards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+    .board-panel{min-width:0;padding:12px;border:1px solid var(--border);border-radius:10px;background:#1b1c16}
+    .board-panel>h3{margin:0 0 10px;font-size:15px;color:var(--gold)}
+    .provider-host{min-width:0;min-height:0;padding:8px;border-radius:5px;background:#fff;color:#333}
+    .provider-host .avionio-widget{max-width:100%;overflow-wrap:anywhere}
+    .provider-host iframe{display:block;max-width:100%}
+    .note{margin:16px 2px;color:var(--muted);font-size:12px}
+    .source-links{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:18px;padding-top:16px;border-top:1px solid #3e3c2d;font-size:12px}
+    .source-links a{color:var(--gold);text-underline-offset:3px}
+    noscript p{padding:14px;border:1px solid var(--border);border-radius:8px;color:var(--muted)}
+    @media(max-width:700px){main{padding:16px 12px}header{gap:10px;margin-bottom:16px}.airport{padding:7px 8px;font-size:11px}.intro{font-size:13px}.picker{padding:12px}.option{flex-basis:135px;padding:10px}.boards{grid-template-columns:minmax(0,1fr);gap:12px}.board-panel{padding:10px}.comparison-header{gap:8px}.comparison-header h2{font-size:17px}.provider-host{padding:4px}.source-links{gap:12px}}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <div class="eyebrow">Standalone comparison · review only</div>
+        <h1>Willard Airport board options</h1>
+        <p class="intro">Compare the three styles currently offered for CMI arrivals and departures.</p>
+      </div>
+      <div class="airport">CMI / KCMI</div>
+    </header>
+    <section class="picker" aria-labelledby="pickerTitle">
+      <h2 id="pickerTitle">Board style</h2>
+      <div class="options" id="styleOptions" role="group" aria-labelledby="pickerTitle"></div>
+      <p class="status" id="selectionStatus" role="status" aria-live="polite">Select an option to load its boards.</p>
+    </section>
+    <section class="comparison" id="comparison" aria-labelledby="comparisonTitle" hidden>
+      <div class="comparison-header">
+        <h2 id="comparisonTitle"></h2>
+        <button class="close" id="closeBoards" type="button">Close boards</button>
+      </div>
+      <div class="boards">
+        <section class="board-panel" aria-labelledby="arrivalsTitle">
+          <h3 id="arrivalsTitle">Arrivals</h3>
+          <div class="provider-host" id="arrivalsHost" data-avionio-host="arrivals"></div>
+        </section>
+        <section class="board-panel" aria-labelledby="departuresTitle">
+          <h3 id="departuresTitle">Departures</h3>
+          <div class="provider-host" id="departuresHost" data-avionio-host="departures"></div>
+        </section>
+      </div>
+      <p class="note">Flight times and statuses are supplied by Avionio in airport local time. Confirm your flight with the airline. If a board is blank, open its airport link below the board.</p>
+    </section>
+    <noscript><p>JavaScript is needed to choose a board style. The Avionio builders below also provide the CMI boards.</p></noscript>
+    <nav class="source-links" aria-label="Provider sources">
+      <a href="https://www.avionio.com/en/widgets/cmi/arrivals/en" target="_blank" rel="noopener noreferrer">Avionio arrivals builder ↗</a>
+      <a href="https://www.avionio.com/en/widgets/cmi/departures/en" target="_blank" rel="noopener noreferrer">Avionio departures builder ↗</a>
+      <a href="https://www.avionio.com/en/widgets" target="_blank" rel="noopener noreferrer">Widget information ↗</a>
+    </nav>
+  </main>
+  <script>
+    (function () {
+      'use strict';
+      // Provider-generated CMI snippets: the iframe, layout and visible credits
+      // belong to Avionio. No flight data is fetched, copied or parsed here.
+      // The source builder is linked above. Styles are restricted to its verified
+      // choices. Raw generator select#wstyle verified 2026-11-20: values1,2,3;
+      // its marketing text says5themes, but only these3choices are offered.
+      // Frames load only after a user chooses an option.
+      const STYLES = Object.freeze([
+        { value: '1', name: 'Legacy black', description: 'Option 1' },
+        { value: '2', name: 'Modern coral red', description: 'Option 2' },
+        { value: '3', name: 'Modern blue', description: 'Option 3 · provider default' }
+      ]);
+      const options = document.getElementById('styleOptions');
+      const comparison = document.getElementById('comparison');
+      const heading = document.getElementById('comparisonTitle');
+      const status = document.getElementById('selectionStatus');
+      const hosts = { arrivals: document.getElementById('arrivalsHost'), departures: document.getElementById('departuresHost') };
+      let selected = null, pageActive = true;
+
+      function markup(kind, style) {
+        const title = 'CMI • Champaign/Urbana University of Illinois Willard - Live ' + (kind === 'arrivals' ? 'Arrivals' : 'Departures');
+        // Same generated provider wrapper, iframe attributes, board link and
+        // Avionio credit. Unique frame IDs and titles supply host accessibility.
+        return '<div class="avionio-widget"> <iframe id="avionio-' + kind + '" title="' + title + '" height="650px" frameborder="0" style="border:0; width: 100%; margin:0; padding:0; " src="https://www.avionio.com/widget/en/cmi/' + kind + '?style=' + style + '"></iframe> <div style="font-size:12px; width: 100%; text-align: center; "> <a style="text-decoration:none; color:#333;" href="https://www.avionio.com/en/airport/cmi/' + kind + '" title="' + title + '" target="_blank">' + title + '</a> <span style="color: #FD6150;">♥</span> <a style="text-decoration:none; color:#333;" href="https://www.avionio.com/en" target="_blank" title="Airport arrivals and departures worldwide">Avionio.com</a> </div> </div>';
+      }
+      function unload() { for (const host of Object.values(hosts)) host.replaceChildren(); }
+      function sync() {
+        const canShow = selected && pageActive && !document.hidden;
+        for (const button of options.querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.avionioOption === selected?.value));
+        comparison.hidden = !selected;
+        if (!canShow) { unload(); return; }
+        heading.textContent = selected.name;
+        status.textContent = 'Showing ' + selected.name + ' · Avionio CMI arrivals and departures.';
+        for (const [kind, host] of Object.entries(hosts)) {
+          if (host.querySelector('iframe')?.dataset.style === selected.value) continue;
+          const template = document.createElement('template');
+          template.innerHTML = markup(kind, selected.value);
+          const frame = template.content.querySelector('iframe');
+          frame.dataset.style = selected.value;
+          host.replaceChildren(template.content);
+        }
+      }
+      for (const style of STYLES) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'option'; button.dataset.avionioOption = style.value;
+        button.setAttribute('aria-pressed', 'false'); button.setAttribute('aria-controls', 'comparison');
+        const label = document.createElement('strong'); label.textContent = style.name;
+        const detail = document.createElement('span'); detail.textContent = style.description;
+        button.append(label, detail);
+        button.addEventListener('click', () => { selected = style; sync(); });
+        options.append(button);
+      }
+      document.getElementById('closeBoards').addEventListener('click', () => {
+        const value = selected?.value;
+        selected = null; sync(); status.textContent = 'Select an option to load its boards.';
+        options.querySelector('[data-avionio-option="' + value + '"]')?.focus();
+      });
+      document.addEventListener('visibilitychange', sync);
+      window.addEventListener('pagehide', () => { pageActive = false; sync(); });
+      window.addEventListener('pageshow', () => { pageActive = true; sync(); });
+      window.cmpriAvionioOptions = Object.freeze({ getState: () => ({ selectedStyle: selected?.value || null, mountedFrames: document.querySelectorAll('[data-avionio-host] iframe').length, provider: 'Avionio', active: pageActive && !document.hidden, customFlightRequests: 0, backgroundPolling: false }) });
+    }());
+  </script>
+</body>
+</html>
