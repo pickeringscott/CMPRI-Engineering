@@ -98,7 +98,8 @@ async def layout_checks(page,frame,feed):
     restored=await tracker_state(frame)
     require(restored['basemap']=='imagery' and restored['airportLayout']['enabled']
             and restored['airportLayout']['rendered']==3,'Aerial-on lost Airport Layout selection')
-    require('FAA Airport Layout' in await host.locator('.wt-faa').inner_text(), 'FAA source attribution is absent')
+    require(await host.locator('.wt-layout-source').inner_text()=='Airport Layout · Reference · FAA AIS',
+            'FAA fixture lacks the generic, source-aware Airport Layout credit')
     for status in ['stale','unavailable']:
         feed.layout_status=status;await refresh_tracker(frame)
         await wait_for(frame,'status=>{const l=weatherPreview.getState().airport.trackerState.airportLayout;return l.status===status&&!l.pending;}',status)
