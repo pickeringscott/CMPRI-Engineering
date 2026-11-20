@@ -799,6 +799,7 @@ async def native_notices(browser, base, output, width, height):
         require([feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls] == calls_while_closed,
                 "Opening ticker details while Weather was closed fetched NWS data")
         await page.screenshot(path=str(output / f"desktop-ticker-weather-closed-{width}.png"), full_page=True)
+        launcher = await dashboard_weather_launcher(page)
         await launcher.click()
         frame = await weather_frame(page)
         await wait_for(frame, "!nwsLiveView.getState().loading")
@@ -866,6 +867,7 @@ async def native_notices(browser, base, output, width, height):
         require(closed_calls == [feed.observation_calls,feed.history_calls,feed.forecast_calls,feed.alert_calls],
                 "Closed ticker expiration checked an NWS feed")
         evidence["tickerExpiresWhileWeatherClosedWithoutRequests"] = True
+        launcher = await dashboard_weather_launcher(page)
         await launcher.click()
         frame = await weather_frame(page)
         require(await frame.locator("#npDelivery").count() == 0, "Phone/email delivery control returned to the in-app-only preview")

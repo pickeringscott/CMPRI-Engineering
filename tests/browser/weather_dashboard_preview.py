@@ -655,7 +655,7 @@ async def dashboard_weather_launcher(page):
     safety = page.locator("fieldset").filter(has=page.get_by_role("button", name="Safety & Logs", exact=True))
     title = safety.get_by_role("button", name="Safety & Logs", exact=True)
     await title.wait_for(state="visible", timeout=60000)
-    if await title.get_attribute("aria-expanded") != "true":
+    if await title.get_attribute("aria-expanded") != "true" or await safety.get_attribute("data-active") != "true":
         await title.click()
     launcher = safety.get_by_role("button", name="Weather", exact=True)
     await launcher.wait_for(state="visible", timeout=60000)
@@ -928,6 +928,7 @@ async def run_viewport(browser, base, output, width, height):
         require(closed["aborts"] >= 2, "Pending map and NWS fetches were not aborted")
         await asyncio.sleep(.25)
         require(feed.forecast_calls == calls_before_close, "A check ran after Weather closed")
+        launcher = await dashboard_weather_launcher(page)
         await launcher.click()
         reopened = await weather_frame(page)
         await wait_for(reopened, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°'")

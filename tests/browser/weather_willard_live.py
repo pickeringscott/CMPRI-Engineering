@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True
 from playwright.async_api import async_playwright
 from weather_current_notices import CurrentFixtures, context_for
-from weather_dashboard_preview import PREVIEW, require, wait_for, weather_frame
+from weather_dashboard_preview import PREVIEW, dashboard_weather_launcher, require, wait_for, weather_frame
 from weather_map_basemaps import set_visibility
 
 TRACKER = 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1'
@@ -57,7 +57,7 @@ async def run_case(browser, base, output, width, height, role):
     suffix = role + '-' + str(width)
     try:
         await page.goto(base+'/engineering',wait_until='domcontentloaded')
-        launcher=page.get_by_role('button',name='Weather',exact=True)
+        launcher = await dashboard_weather_launcher(page)
         await launcher.wait_for(state='visible',timeout=60000)
         require(feed.willard_calls==0 and not tracker_reads,'Airport requested before Weather opened')
         await launcher.click(); frame=await weather_frame(page)
