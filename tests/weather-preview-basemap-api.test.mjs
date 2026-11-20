@@ -140,7 +140,7 @@ test('detailed shields query separate fixed Interstate, US and State route sourc
 test('broad route extents prioritize actual major-route classes and exclude observed single-space blanks',async()=>{
   for(const [zoom,fields] of [[7,['INTERSTATE']],[8,['INTERSTATE','US_ROUTE']],[9,['INTERSTATE','US_ROUTE','ST_ROUTE']]]) {
     const api=fixture(async(source)=>{
-      const url=new URL(source);assert.equal(url.pathname,'/arcgis/rest/services/transportation/MapServer/9/query');
+      const url=new URL(source);assert.equal(url.pathname,`/arcgis/rest/services/transportation/MapServer/${zoom <= 7 ? 8 : 9}/query`);
       assert.equal(url.searchParams.get('where'),fields.map(field=>`(${field} IS NOT NULL AND ${field} NOT IN ('', ' '))`).join(' OR '));
       return Response.json({type:'FeatureCollection',features:[]});
     });

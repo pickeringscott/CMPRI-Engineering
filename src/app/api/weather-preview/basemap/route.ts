@@ -82,14 +82,14 @@ export async function GET(request: Request) {
     const parts = (url.searchParams.get("bbox") || "").split(","), bbox = parts.map(Number);
     if (bbox.length !== 4 || parts.some((part) => !part.trim()) || bbox.some((value) => !Number.isFinite(value) || Math.abs(value) > 20037509)
       || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] || bbox[2] - bbox[0] > 4000000 || bbox[3] - bbox[1] > 4000000) return fail(400, "A bounded Web Mercator route extent no wider than 4000 km is required");
-    // The official 1M-scale route layer supplies generalized wide-view geometry.
+    // Official 10M/1M-scale route layers supply generalized wide-view geometry.
     // Detailed Interstate, US and State layers are separate sources; querying
     // all three avoids assuming an Interstate label layer contains local routes.
-    const layers = z <= 9 ? [9] : [16, 17, 18];
+    const layers = z <= 7 ? [8] : z <= 9 ? [9] : [16, 17, 18];
     const fields = z <= 9 ? "OBJECTID,INTERSTATE,US_ROUTE,ST_ROUTE,NAME"
       : "OBJECTID,permanent_identifier,interstate,us_route,state_route,interstate_a,interstate_b,interstate_c,us_route_a,us_route_b,us_route_c,state_route_a,state_route_b,state_route_c,name";
     routeSources = layers.map((layer) => {
-      const routeFields = layer === 9 ? z <= 7 ? ["INTERSTATE"] : z <= 8 ? ["INTERSTATE", "US_ROUTE"] : ["INTERSTATE", "US_ROUTE", "ST_ROUTE"]
+      const routeFields = layer <= 9 ? z <= 7 ? ["INTERSTATE"] : z <= 8 ? ["INTERSTATE", "US_ROUTE"] : ["INTERSTATE", "US_ROUTE", "ST_ROUTE"]
         : layer === 16 ? ["interstate", "interstate_a", "interstate_b", "interstate_c"]
           : layer === 17 ? ["us_route", "us_route_a", "us_route_b", "us_route_c"]
             : ["state_route", "state_route_a", "state_route_b", "state_route_c"];
