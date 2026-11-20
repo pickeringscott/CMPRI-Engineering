@@ -27,7 +27,7 @@ test('fixed metadata probes preserve official layer records without forwarding o
 
 test('transparent reference exports use only fixed layer selections and exact bounded EPSG3857 extents',async()=>{
   for(const [dataset,service,layers] of [
-    ['roads','transportation','show:2,3,8,9,16,17,18,29,30'],['places','geonames','show:1,2'],
+    ['roads','transportation','show:8,9,16,29,30'],['places','geonames','show:1,2'],
   ]) {
     const api=fixture(async(source,options)=>{
       const url=new URL(source);

@@ -33,6 +33,7 @@ test('only exact official read-only map resources are accepted',async()=>{
     'https://mapservices.weather.noaa.gov/eventdriven/rest/directories/arcgisoutput/radar/not-image.txt',
     'https://mapservices.weather.noaa.gov/eventdriven/rest/directories/arcgisoutput/radar/map.png?token=anything',
     radar+'/query?f=json&resultRecordCount=100000',
+    radar+'/legend?f=json&renderingRule=anything',radar+'/legend?f=image',wssi+'/legend?f=json',
     radar+'/exportImage?f=json&format=png32&bboxSR=3857&imageSR=3857&size=99999,99999',
   ]) assert.equal((await api.GET(request(url))).status,400,url);
   const double=new Request('https://preview.cmpri.example/api/weather-preview/map?url='+encodeURIComponent(radar+'?f=json')+'&url=duplicate');
@@ -41,8 +42,8 @@ test('only exact official read-only map resources are accepted',async()=>{
   assert.equal(calls,0);
 });
 
-test('JSON metadata, catalog, WSSI and exact-raster exports retain upstream JSON/status',async()=>{
-  const urls=[radar+'?f=json',radar+'/query?f=json&geometry=-88.251416,40.138080&resultRecordCount=200',
+test('JSON metadata, fixed radar legend, catalog, WSSI and exact-raster exports retain upstream JSON/status',async()=>{
+  const urls=[radar+'?f=json',radar+'/legend?f=json',radar+'/query?f=json&geometry=-88.251416,40.138080&resultRecordCount=200',
     wssi+'?f=json',wssi+'/query?f=json&where=1%3D1&resultRecordCount=1000',
     radar+'/exportImage?f=json&format=png32&bboxSR=3857&imageSR=3857&size=1200,700&bbox=-10000000,4700000,-9700000,5000000&mosaicRule='+encodeURIComponent(JSON.stringify({mosaicMethod:'esriMosaicLockRaster',lockRasterIds:[725],mosaicOperation:'MT_FIRST'}))];
   const original='{"features":[{"attributes":{"objectid":725,"idp_validtime":1795000000000}}]}';

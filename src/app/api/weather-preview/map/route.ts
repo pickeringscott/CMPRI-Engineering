@@ -43,12 +43,15 @@ function validateSource(raw: string | null): { url: URL; image: boolean } | null
     || url.pathname.includes("%") || /[\u0000-\u001f]/.test(raw)) return null;
   if (OUTPUT_IMAGE.test(url.pathname)) return url.search ? null : { url, image: true };
   const metadata = url.pathname === RADAR_PATH || url.pathname === WSSI_PATH;
+  // Only the fixed radar service's published legend is readable. Its symbols
+  // must come from NOAA; a generic reflectivity palette is not interchangeable.
+  const legend = url.pathname === RADAR_PATH + "/legend";
   const query = url.pathname === RADAR_PATH + "/query" || url.pathname === WSSI_PATH + "/query";
   const rasterExport = url.pathname === RADAR_PATH + "/exportImage";
-  if (!metadata && !query && !rasterExport) return null;
+  if (!metadata && !legend && !query && !rasterExport) return null;
   const outputFormat = url.searchParams.get("f");
   if (rasterExport ? outputFormat !== "json" && outputFormat !== "image" : outputFormat !== "json") return null;
-  const allowed = metadata ? new Set(["f"]) : query ? QUERY_PARAMETERS : EXPORT_PARAMETERS;
+  const allowed = metadata || legend ? new Set(["f"]) : query ? QUERY_PARAMETERS : EXPORT_PARAMETERS;
   for (const key of url.searchParams.keys()) {
     if (!allowed.has(key) || url.searchParams.getAll(key).length !== 1) return null;
   }

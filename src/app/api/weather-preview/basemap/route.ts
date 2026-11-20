@@ -9,7 +9,9 @@ const DATASETS = {
   relief: { service: "USGSShadedReliefOnly", attribution: "USGS The National Map · 3DEP / GMTED2010 shaded relief" },
 } as const;
 const REFERENCES = {
-  roads: { source: "https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer", layers: "2,3,8,9,16,17,18,29,30", attribution: "USGS The National Map · National Transportation Dataset" },
+  // Published feature layers 8/9 and 29/30 keep major-road linework. Keep only
+  // Interstate labels (16), omitting small-scale, US Route and State Route labels.
+  roads: { source: "https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer", layers: "8,9,16,29,30", attribution: "USGS The National Map · National Transportation Dataset" },
   places: { source: "https://carto.nationalmap.gov/arcgis/rest/services/geonames/MapServer", layers: "1,2", attribution: "USGS The National Map · Geographic Names Information System" },
 } as const;
 const MAX_BYTES = 2 * 1024 * 1024;
