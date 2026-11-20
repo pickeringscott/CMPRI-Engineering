@@ -257,25 +257,23 @@ export default function TechnicianDashboard() {
     <main className="min-h-[100svh] bg-slate-950 text-white">
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
         <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-slate-800 bg-slate-950/95 py-2">
-          <div className="cmpri-anchored-title-bar w-full min-w-0">
-            <h1 data-cmpri-menu-title="" className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">CMPRI Engineering <DashboardNotificationBell count={unreadCount} label={`${unreadCount} unread notifications`} title="Open notifications" onClick={()=>void toggleInbox()}/></h1>
-            <nav aria-label="Open dashboard windows" className="w-full min-w-0">
-              <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={action=>{
-                if(action.key==="sign-out"){void signOut();return;}
-                if(action.key==="/engineering"){router.push(action.key);return;}
-                if(action.key===WEATHER_MENU_PATH)void armWeatherWarningSound();
-                const href=action.key===WEATHER_MENU_PATH?`${WEATHER_MENU_PATH}?weather=open`:action.key;
-                window.dispatchEvent(new CustomEvent("cmpri-open-modal",{detail:{href,title:action.label}}));
-              }}/>
-            </nav>
-          </div>
           <div className="cmpri-header-shelf">
             <div className="cmpri-header-identity">
-              <p className="mt-1 text-sm font-semibold">{account?.name?.trim() || "Maintenance Technician"}</p>
-              <p className="text-xs text-sky-200/90">Maintenance Technician</p>
+              <h1 data-cmpri-menu-title="" className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">CMPRI Engineering <DashboardNotificationBell count={unreadCount} label={`${unreadCount} unread notifications`} title="Open notifications" onClick={()=>void toggleInbox()}/></h1>
+              <p data-dashboard-name className="mt-1 text-sm font-semibold">{account?.name?.trim() || "Maintenance Technician"}</p>
+              <p data-dashboard-role className="text-xs text-sky-200/90">Maintenance Technician</p>
             </div>
             <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool'}}))}/><button type="button" className="cmpri-header-create" onClick={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order'}}))}>+ Work Order</button></div>
           </div>
+          <nav aria-label="Open dashboard windows" className="cmpri-dashboard-menu-rail w-full min-w-0">
+            <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={action=>{
+              if(action.key==="sign-out"){void signOut();return;}
+              if(action.key==="/engineering"){router.push(action.key);return;}
+              if(action.key===WEATHER_MENU_PATH)void armWeatherWarningSound();
+              const href=action.key===WEATHER_MENU_PATH?`${WEATHER_MENU_PATH}?weather=open`:action.key;
+              window.dispatchEvent(new CustomEvent("cmpri-open-modal",{detail:{href,title:action.label}}));
+            }}/>
+          </nav>
         </header>
 
 

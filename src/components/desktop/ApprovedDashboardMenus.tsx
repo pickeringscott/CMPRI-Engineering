@@ -52,9 +52,7 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
     return;
    }
    const projection=anchoredHeaderLayoutForGroups(layout,styledGroups,lockedFrontDesk);
-   const title=element.closest('.cmpri-anchored-title-bar')?.querySelector('[data-cmpri-menu-title]');
    unmount=mountAnchoredMenus(element,projection.groups,launch,projection.layout,save,{
-    getStartOffset:()=>title?title.getBoundingClientRect().right-element.getBoundingClientRect().left+8:0,
     canDrop:(key,label)=>allowsAnchoredHeaderPlacement(lockedFrontDesk,key,label),
    });
   };

@@ -16,6 +16,44 @@ async def actions(page, name):
     return await group(page, name).locator(".action").all_text_contents()
 
 
+async def check_header_rail(page):
+    shelf = page.locator("header > .cmpri-header-shelf:first-child")
+    rail = page.locator("nav.cmpri-dashboard-menu-rail")
+    await expect(shelf.locator("[data-cmpri-menu-title]")).to_be_visible()
+    await expect(shelf.locator("[data-dashboard-name]")).to_be_visible()
+    await expect(shelf.locator("[data-dashboard-role]")).to_be_visible()
+    await expect(rail).to_be_visible()
+    assert await rail.evaluate("rail => rail.previousElementSibling?.classList.contains('cmpri-header-shelf')")
+
+    bounds = await shelf.evaluate("""shelf => {
+      const rect = selector => shelf.querySelector(selector)?.getBoundingClientRect().toJSON();
+      return {
+        shelf: shelf.getBoundingClientRect().toJSON(),
+        title: rect('[data-cmpri-menu-title]'),
+        name: rect('[data-dashboard-name]'),
+        role: rect('[data-dashboard-role]'),
+        pool: rect('.cmpri-header-status-pill'),
+        create: rect('.cmpri-header-create'),
+        rail: shelf.nextElementSibling.getBoundingClientRect().toJSON(),
+      };
+    }""")
+    first_tab = await rail.locator("legend").first.bounding_box()
+    assert first_tab and 0 <= first_tab["x"] - bounds["rail"]["left"] <= 20, first_tab
+    assert abs(bounds["rail"]["left"] - bounds["shelf"]["left"]) <= 1, bounds
+    assert abs(bounds["rail"]["right"] - bounds["shelf"]["right"]) <= 1, bounds
+    assert bounds["rail"]["top"] >= bounds["shelf"]["bottom"] - 1, bounds
+    assert bounds["name"]["top"] >= bounds["title"]["bottom"] - 1, bounds
+    assert bounds["role"]["top"] >= bounds["name"]["bottom"] - 1, bounds
+    assert bounds["rail"]["top"] >= max(bounds["role"]["bottom"], bounds["pool"]["bottom"]) - 1, bounds
+    assert bounds["pool"]["left"] > bounds["role"]["left"], bounds
+    if bounds["create"]:
+        assert bounds["create"]["top"] >= bounds["pool"]["bottom"] - 1, bounds
+        assert bounds["rail"]["top"] >= bounds["create"]["bottom"] - 1, bounds
+        pool_center = (bounds["pool"]["left"] + bounds["pool"]["right"]) / 2
+        create_center = (bounds["create"]["left"] + bounds["create"]["right"]) / 2
+        assert abs(pool_center - create_center) <= 1, bounds
+
+
 async def inspect_role(browser, role, width):
     context = await browser.new_context(viewport={"width": width, "height": 850},
                                         has_touch=width < 640, is_mobile=width < 640,
@@ -31,6 +69,7 @@ async def inspect_role(browser, role, width):
     await page.goto(BASE + path, wait_until="domcontentloaded")
     safety = group(page, "Safety & Logs").locator("legend")
     await expect(safety).to_be_visible(timeout=60000)
+    await check_header_rail(page)
 
     if role in LIMITED_ROLES:
         tabs = ["Rooms & Reports", "Safety & Logs", "Account"]
@@ -75,6 +114,77 @@ async def inspect_role(browser, role, width):
     print(f"{role} {width}px verified", flush=True)
 
 
+async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0):
+    x, y = origin
+    to_x, to_y = destination
+    if touch:
+        pointer = await context.new_cdp_session(page)
+        await pointer.send("Input.dispatchTouchEvent", {
+            "type": "touchStart", "touchPoints": [{"x": x, "y": y, "id": 1}],
+        })
+        await page.wait_for_timeout(370)
+        for step in range(1, 13):
+            await pointer.send("Input.dispatchTouchEvent", {
+                "type": "touchMove",
+                "touchPoints": [{"x": x + (to_x - x) * step / 12, "y": y + (to_y - y) * step / 12, "id": 1}],
+            })
+        if edge_hold_ms:
+            await page.wait_for_timeout(edge_hold_ms)
+        await pointer.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        await pointer.detach()
+    else:
+        await page.mouse.move(x, y)
+        await page.mouse.down()
+        await page.mouse.move(to_x, to_y, steps=14)
+        if edge_hold_ms:
+            await page.wait_for_timeout(edge_hold_ms)
+        await page.mouse.up()
+
+
+async def check_tab_endpoints(page, context, layouts, touch):
+    daily = group(page, "Daily Work")
+    tab = daily.locator("legend")
+    menu = page.locator(".cmpri-dashboard-menu-rail .anchored-menu")
+    identity = page.locator("[data-dashboard-role]")
+    create = page.locator(".cmpri-header-utilities .cmpri-header-create")
+    header_title = page.locator("[data-cmpri-menu-title]")
+    title_position = await header_title.bounding_box()
+    rail_position = await menu.bounding_box()
+    original_tab_y = (await tab.bounding_box())["y"]
+
+    for edge, under in (("right", create), ("left", identity)):
+        await tab.scroll_into_view_if_needed()
+        start = await tab.bounding_box()
+        x, y = start["x"] + start["width"] / 2, start["y"] + start["height"] / 2
+        target = rail_position["x"] + (rail_position["width"] - 5 if edge == "right" else 5)
+        # A held pointer on the phone traverses the outer rail's overflow.
+        await drag_between(page, context, touch, (x, y), (target, y), edge_hold_ms=850)
+
+        positions = await daily.evaluate("""field => ({
+          x: parseFloat(field.style.left),
+          maximum: field.parentElement.clientWidth - field.minimumWidth,
+        })""")
+        expected = positions["maximum"] if edge == "right" else 0
+        assert abs(positions["x"] - expected) <= 1, (edge, positions)
+        end = await tab.bounding_box()
+        referent = await under.bounding_box()
+        assert abs(end["y"] - original_tab_y) <= 1, (edge, start, end)
+        assert end["x"] < referent["x"] + referent["width"] and end["x"] + end["width"] > referent["x"], (edge, end, referent)
+        assert await header_title.bounding_box() == title_position
+        for _ in range(30):
+            saved = layouts.get("chief_engineer", {}).get("positions", {}).get("Daily Work")
+            if saved is not None and abs(saved - expected) <= 1:
+                break
+            await page.wait_for_timeout(50)
+        else:
+            raise AssertionError(f"Daily Work did not save its {edge} position: {positions}")
+
+        await page.reload(wait_until="domcontentloaded")
+        await expect(tab).to_be_visible(timeout=60000)
+        assert abs(await daily.evaluate("field => parseFloat(field.style.left)") - expected) <= 1
+        assert "Work Order List" in await actions(page, "Rooms & Reports")
+
+
 async def check_drag_and_save(browser, width):
     touch = width < 640
     context = await browser.new_context(viewport={"width": width, "height": 850}, has_touch=touch,
@@ -95,23 +205,7 @@ async def check_drag_and_save(browser, width):
     assert origin and destination
     x, y = origin["x"] + origin["width"] / 2, origin["y"] + origin["height"] / 2
     to_x, to_y = destination["x"] + destination["width"] / 2, destination["y"] + destination["height"] / 2
-    if touch:
-        pointer = await context.new_cdp_session(page)
-        await pointer.send("Input.dispatchTouchEvent", {
-            "type": "touchStart", "touchPoints": [{"x": x, "y": y, "id": 1}],
-        })
-        await page.wait_for_timeout(370)
-        for step in range(1, 13):
-            await pointer.send("Input.dispatchTouchEvent", {
-                "type": "touchMove",
-                "touchPoints": [{"x": x + (to_x - x) * step / 12, "y": y + (to_y - y) * step / 12, "id": 1}],
-            })
-        await pointer.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-    else:
-        await page.mouse.move(x, y)
-        await page.mouse.down()
-        await page.mouse.move(to_x, to_y, steps=14)
-        await page.mouse.up()
+    await drag_between(page, context, touch, (x, y), (to_x, to_y))
     assert "Work Order List" not in await actions(page, "Daily Work")
     assert "Work Order List" in await actions(page, "Rooms & Reports")
     assert await page.get_by_role("dialog").count() == 0
@@ -125,8 +219,9 @@ async def check_drag_and_save(browser, width):
     await page.reload(wait_until="domcontentloaded")
     await expect(target).to_be_visible(timeout=60000)
     assert "Work Order List" in await actions(page, "Rooms & Reports")
+    await check_tab_endpoints(page, context, layouts, touch)
     await context.close()
-    print(f"cross-tab drag and reload at {width}px verified", flush=True)
+    print(f"cross-tab drag, rail endpoints and reload at {width}px verified", flush=True)
 
 
 async def main():
