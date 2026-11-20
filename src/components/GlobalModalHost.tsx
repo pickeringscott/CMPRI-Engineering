@@ -150,6 +150,7 @@ export default function GlobalModalHost() {
   const pathname = usePathname();
   const router = useRouter();
   const search = useSearchParams().toString();
+  const publicRoute = !pathname || pathname === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(pathname);
   const [stack, setStack] = useState<ModalEntry[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [canViewWorkOrders, setCanViewWorkOrders] = useState(false);
@@ -186,6 +187,7 @@ export default function GlobalModalHost() {
   const workspaceScopeBlockedRef = useRef(false);
   const workspaceBlockedRef = useRef(false);
   const [workspaceBlocked, setWorkspaceBlocked] = useState(false);
+  const workspaceHidden = workspaceBlocked || publicRoute;
   const [workspaceReady, setWorkspaceReady] = useState(0);
   const [workspacePreferencesScope, setWorkspacePreferencesScope] = useState<string>();
   const [workspaceCheck, setWorkspaceCheck] = useState(0);
@@ -371,12 +373,19 @@ export default function GlobalModalHost() {
   useEffect(() => {
     if (window.parent !== window || new URLSearchParams(window.location.search).get("embedded") === "1") return;
     workspaceRef.current = null;
-    if (!pathname || pathname === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(pathname)) {
+    if (publicRoute) {
       if (workspaceStoppedRef.current && (pathname === "/" || pathname === "/sign-in")) workspaceSignInSeenRef.current = true;
-      workspaceBlockedRef.current = true; setWorkspaceBlocked(true);
-      setWorkspacePreferencesScope(undefined);
+      workspaceBlockedRef.current = true;
       nativeShellRef.current?.close();
-      return;
+      // Render hides public-route contents immediately. Keep subsequent private
+      // routes blocked until they verify, without synchronously cascading state.
+      let live = true;
+      void Promise.resolve().then(() => {
+        if (!live) return;
+        setWorkspaceBlocked(true);
+        setWorkspacePreferencesScope(undefined);
+      });
+      return () => { live = false; };
     }
     const reconnecting = workspaceStoppedRef.current && workspaceSignInSeenRef.current;
     if (workspaceStoppedRef.current && !reconnecting) return;
@@ -461,7 +470,7 @@ export default function GlobalModalHost() {
       }
     });
     return () => { live = false; };
-  }, [pathname, search, workspaceCheck, openEntry, requestModalClose, router]);
+  }, [pathname, search, publicRoute, workspaceCheck, openEntry, requestModalClose, router]);
   useEffect(() => {
     if (!stack.length && workspaceScopeBlockedRef.current && !workspaceStoppedRef.current) {
       workspaceScopeBlockedRef.current = false;
@@ -870,7 +879,7 @@ export default function GlobalModalHost() {
   }, [stack.length]);
 
   if (stack.length === 0) {
-    if (workspaceBlocked) return null;
+    if (workspaceHidden) return null;
     if ((!dialogTarget || !canViewWorkOrders) && !limitMessage) return null;
     return createPortal(<>
       {dialogTarget && canViewWorkOrders && <button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>}
@@ -879,7 +888,7 @@ export default function GlobalModalHost() {
   }
 
   const host = (
-    <div ref={modalRootRef} hidden={workspaceBlocked} inert={workspaceBlocked} aria-hidden={workspaceBlocked || undefined} className="pointer-events-none fixed inset-0 z-[120]">
+    <div ref={modalRootRef} hidden={workspaceHidden} inert={workspaceHidden} aria-hidden={workspaceHidden || undefined} className="pointer-events-none fixed inset-0 z-[120]">
       {stack.map((entry, index) => {
         const isTop = entry.id === activeId;
         const scale = 0.9 ** (Math.min(index, 2) + 1);
@@ -957,7 +966,7 @@ export default function GlobalModalHost() {
     </div>
   );
   return <>{nativeShell ? createPortal(host, nativeShell) : host}
-    {!workspaceBlocked && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
-    {!workspaceBlocked && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
+    {!workspaceHidden && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
+    {!workspaceHidden && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
   </>;
 }
