@@ -83,7 +83,7 @@
 .wv-current-dial .wv-dial-wind .wv-wind-compass{width:clamp(23px,6cqw,30px);height:clamp(23px,6cqw,30px);flex-basis:clamp(23px,6cqw,30px)}
 .wv-current-dial .wv-dial-current-wind{flex-direction:row;gap:6px}
 .wv-current-dial .wv-dial-visibility{font-size:clamp(10px,2.5cqw,13px)}
-.wv-current-dial .wv-dial-description{font-size:clamp(12px,3.2cqw,17px)}
+.wv-current-dial .wv-dial-description{max-width:56cqw;font-size:clamp(12px,3.2cqw,17px)}
 .wv-current-dial .wv-dial-gust{font-size:clamp(10px,2.5cqw,13px)}
 .wv-current-dial .wv-dial-feels{font-size:clamp(11px,2.7cqw,14px)}
 .wv-current-dial .wv-dial-extrema{position:absolute;top:calc(100% + 2cqw);left:50%;transform:translateX(-50%);width:clamp(132px,30cqw,160px);max-width:none;margin:0;gap:4px 10px}

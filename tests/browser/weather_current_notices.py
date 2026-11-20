@@ -168,8 +168,11 @@ async def dial_reference_layout(frame):
         const range=document.createRange();range.selectNodeContents(el);const r=range.getBoundingClientRect(),before=getComputedStyle(el,'::before');
         return {text:el.textContent,left:r.left-parseFloat(before.width)-parseFloat(before.marginRight),right:r.right,top:r.top,bottom:r.bottom};
       });
-      const exclusions=Array.from(current.querySelectorAll('.wv-dial-marker,.wv-dial-clock')).filter(el=>el.matches('.wv-dial-marker')||['00','24','12 AM'].includes(el.textContent)).map(el=>({label:el.matches('.wv-dial-marker')?el.dataset.kind+':'+el.dataset.extreme:el.textContent,...rect(el)}));
+      const exclusions=Array.from(current.querySelectorAll('.wv-dial-marker,.wv-dial-clock')).map(el=>({label:el.matches('.wv-dial-marker')?el.dataset.kind+':'+el.dataset.extreme:el.textContent,...rect(el)}));
       const collisions=badges.flatMap(badge=>exclusions.filter(other=>badge.left<other.right+1&&badge.right>other.left-1&&badge.top<other.bottom+1&&badge.bottom>other.top-1).map(other=>({badge,other})));
+      const description=current.querySelector('.wv-dial-description'),descriptionRange=document.createRange();descriptionRange.selectNodeContents(description);
+      const descriptionLines=Array.from(descriptionRange.getClientRects()).slice(0,parseInt(getComputedStyle(description).webkitLineClamp)||2);
+      const conditionMarkerCollisions=descriptionLines.flatMap(line=>exclusions.filter(other=>line.left<other.right+1&&line.right>other.left-1&&line.top<other.bottom+1&&line.bottom>other.top-1).map(other=>({line:{left:line.left,right:line.right,top:line.top,bottom:line.bottom},other})));
       const clippedText=Array.from(current.querySelectorAll('.wv-dial-description,.wx-caption')).filter(el=>!el.hidden&&el.getBoundingClientRect().height>0).flatMap(el=>{
         const style=getComputedStyle(el),range=document.createRange();range.selectNodeContents(el);
         const lines=Math.min(parseInt(style.webkitLineClamp)||Infinity,range.getClientRects().length),needed=lines*parseFloat(style.lineHeight),height=el.getBoundingClientRect().height;
@@ -177,21 +180,40 @@ async def dial_reference_layout(frame):
       });
       const clockBounds=getComputedStyle(current.querySelector('.wv-dial-ring')).overflowX==='visible'?current.closest('#currentConditionsSection').getBoundingClientRect():face;
       const clippedTicks=Array.from(current.querySelectorAll('.wv-dial-clock')).map(el=>({text:el.textContent,...rect(el)})).filter(el=>el.left<clockBounds.left+1||el.right>clockBounds.right-1||el.top<face.top-.5||el.bottom>face.bottom+.5);
-      const painted=Array.from(current.querySelectorAll('.wv-moon,.wv-star')),paintCollisions=[];
+      const canvas=document.createElement('canvas'),inkContext=canvas.getContext('2d'),ink=[];
+      for(const el of current.querySelectorAll('.wx-caption,.wv-dial-description,.wv-wind-value,.wv-dial-gust,.wv-dial-feels,.wv-dial-visibility,.wv-temperature-value,.wv-dial-extreme-value')){
+        if(el.hidden||!el.getClientRects().length)continue;
+        const style=getComputedStyle(el),groups=[],walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),bounds=el.getBoundingClientRect();let node;
+        while((node=walker.nextNode()))for(let index=0;index<node.data.length;index++){
+          const range=document.createRange();range.setStart(node,index);range.setEnd(node,index+1);const box=range.getBoundingClientRect();
+          if(!box.height||style.overflowY==='hidden'&&(box.top>=bounds.bottom-.5||box.bottom<=bounds.top+.5))continue;
+          let line=groups.find(item=>Math.abs(item.top-box.top)<.5);
+          if(!line){line={text:'',left:box.left,top:box.top};groups.push(line);}line.text+=node.data[index];line.left=Math.min(line.left,box.left);
+        }
+        inkContext.font=style.fontStyle+' '+style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+        if('letterSpacing'in inkContext)inkContext.letterSpacing=style.letterSpacing==='normal'?'0px':style.letterSpacing;
+        for(const line of groups.slice(0,parseInt(style.webkitLineClamp)||Infinity)){
+          if(!line.text.trim())continue;const metric=inkContext.measureText(line.text),baseline=line.top+(metric.fontBoundingBoxAscent||parseFloat(style.fontSize)*.8);
+          ink.push({field:el.id||el.className,text:line.text,left:line.left-metric.actualBoundingBoxLeft,right:line.left+metric.actualBoundingBoxRight,top:baseline-metric.actualBoundingBoxAscent,bottom:baseline+metric.actualBoundingBoxDescent});
+        }
+      }
+      const metricMarkerCollisions=ink.flatMap(line=>exclusions.filter(other=>line.left<other.right+.5&&line.right>other.left-.5&&line.top<other.bottom+.5&&line.bottom>other.top-.5).map(other=>({line,other})));
+      const metricPairCollisions=ink.flatMap((line,index)=>ink.slice(index+1).filter(other=>line.field!==other.field&&line.left<other.right-.25&&line.right>other.left+.25&&line.top<other.bottom-.25&&line.bottom>other.top+.25).map(other=>({line,other})));
+      const painted=Array.from(icon.querySelectorAll('path,circle,ellipse,rect,polygon,line,polyline')),paintCollisions=[];
       for(const track of painted.length?current.querySelectorAll('.wv-dial-track'):[]){
         const length=track.getTotalLength(),half=parseFloat(getComputedStyle(track).strokeWidth)/2;
         for(let at=0;at<=length;at+=.75){
           const p=track.getPointAtLength(at),a=track.getPointAtLength(Math.max(0,at-.1)),b=track.getPointAtLength(Math.min(length,at+.1)),size=Math.hypot(b.x-a.x,b.y-a.y)||1;
           for(const offset of [-half,-half/2,0,half/2,half]){
             const screen=new DOMPoint(p.x-(b.y-a.y)/size*offset,p.y+(b.x-a.x)/size*offset).matrixTransform(track.getScreenCTM());
-            for(const shape of painted){const point=screen.matrixTransform(shape.getScreenCTM().inverse());
-              if((shape.isPointInFill(point)||shape.isPointInStroke(point))&&paintCollisions.length<3)paintCollisions.push({shape:shape.getAttribute('class'),x:screen.x,y:screen.y});}
+            for(const shape of painted){const point=screen.matrixTransform(shape.getScreenCTM().inverse()),style=getComputedStyle(shape);
+              if((style.fill!=='none'&&shape.isPointInFill(point)||style.stroke!=='none'&&shape.isPointInStroke(point))&&paintCollisions.length<3)paintCollisions.push({shape:shape.getAttribute('class'),x:screen.x,y:screen.y});}
           }
         }
       }
       return {currentItems,iconWidth:iconBox.width,tempFont:parseFloat(getComputedStyle(temp).fontSize),
         centerOffset:Math.abs(iconBox.left+iconBox.width/2-face.left-face.width/2),face:rect(current.querySelector('.wv-dial-face')),
-        currentBadgeColumns:getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,badges,collisions,clippedText,clippedTicks,paintCollisions,
+        currentBadgeColumns:getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,badges,collisions,conditionMarkerCollisions,metricMarkerCollisions,metricPairCollisions,clippedText,clippedTicks,paintCollisions,
         days:Array.from(document.querySelectorAll('.daily-forecast-card')).map(card=>{
           const center=card.querySelector('.wv-dial-center'),icon=card.querySelector('.wv-condition'),values=Array.from(card.querySelectorAll('.wv-dial-extreme-value'));
           return {iconWidth:rect(icon).width,columns:getComputedStyle(card.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,
@@ -209,7 +231,10 @@ async def dial_reference_layout(frame):
             'Current inner H/L text or color dots overlap a ring marker or lower clock tick: '+str(result['collisions']))
     require(not result['clippedText'],'Current condition/event text is clipped inside a visible line: '+str(result['clippedText']))
     require(not result['clippedTicks'],'Current clock labels leave the dial/card viewport: '+str(result['clippedTicks']))
-    require(not result['paintCollisions'],'Painted Current moon/star overlaps a temperature track: '+str(result['paintCollisions']))
+    require(not result['paintCollisions'],'Painted Current condition icon overlaps a temperature track: '+str(result['paintCollisions']))
+    require(not result['conditionMarkerCollisions'],'Current condition text overlaps a ring marker: '+str(result['conditionMarkerCollisions']))
+    require(not result['metricMarkerCollisions'],'Painted Current metric text overlaps a marker/clock label: '+str(result['metricMarkerCollisions']))
+    require(not result['metricPairCollisions'],'Painted Current metric text overlaps another metric: '+str(result['metricPairCollisions']))
     for day in result['days']:
         require(day['iconWidth']>=69.5 and day['columns']==1 and all(font>=10.5 for font in day['fonts'])
                 and all(day['items'][index]['top']>=day['items'][index-1]['bottom']-.5 for index in range(1,len(day['items'])))
