@@ -47,6 +47,7 @@ import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
 import { draftFieldsKey, guardedDraftRequest, mergeConfirmedOwnDraft, saveDraftWithRecovery, type DraftFields, type PendingDraftSave, type SavedDraft } from "@/lib/work-orders/draft-save";
+import { canRestoreCreationRecovery, clearCreationRecovery, hasCreationRecoveryWork, readCreationRecovery, saveCreationRecovery, type CreationRecovery } from "@/lib/work-orders/creation-recovery";
 import { guideRulesForIssue } from "@/lib/work-orders/guide-selection";
 import { sourceSemantics } from "@/lib/work-orders/source-semantics";
 
@@ -548,6 +549,7 @@ export default function WorkOrdersPage() {
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
   const [reviewDraft, setReviewDraft] = useState<WorkOrderDraft | null>(null);
+  const [draftsLoaded, setDraftsLoaded] = useState(false);
   const draftRequestRef = useRef(0);
   const [activeDraftId, setActiveDraftId] = useState("");
   const [activeDraftRevision, setActiveDraftRevision] = useState<number | null>(null);
@@ -558,6 +560,14 @@ export default function WorkOrdersPage() {
   const [unconfirmedCreationId, setUnconfirmedCreationId] = useState("");
   const draftIdentityScope = useRef("");
   const draftIdentityGeneration = useRef(0);
+  const creationRecoveryScope = useRef("");
+  const creationRecoveryStopped = useRef(false);
+  const [creationRecoveryReady, setCreationRecoveryReady] = useState("");
+  const [creationRecoveryConflict, setCreationRecoveryConflict] = useState<CreationRecovery | null>(null);
+  const [creationSubmissionUncertain, setCreationSubmissionUncertain] = useState(false);
+  const confirmedCreationKey = useRef("");
+  const confirmedDraftRecovery = useRef<Pick<CreationRecovery, "active" | "baseline"> | null>(null);
+  const persistCreationRecoveryRef = useRef<() => void>(() => {});
   useEffect(() => {
     const scope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
     if (draftIdentityScope.current !== scope) draftIdentityGeneration.current++;
@@ -567,8 +577,11 @@ export default function WorkOrdersPage() {
       draftRequestRef.current++;
       setDrafts([]);
       setReviewDraft(null);
+      setDraftsLoaded(false);
+      setCreationRecoveryConflict(null);
+      setCreationSubmissionUncertain(false);
       setDraftBusy(false);
-      resetWorkOrderForm(true);
+      resetWorkOrderForm(true, true);
       setMessage("The account changed. The previous account's form was closed.");
     }
     draftIdentityScope.current = scope;
@@ -604,7 +617,9 @@ export default function WorkOrdersPage() {
       const reviewId = params.get("reviewDraft") === "1" ? params.get("draftId") : null;
       const response = await fetch(`/api/work-orders/drafts?scope=own${reviewId ? `&review_draft_id=${encodeURIComponent(reviewId)}` : ""}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
+        // Recovery compares the current server revision, never an earlier list
+        // snapshot from CMPRI's device response cache.
+        cache: "reload",
       });
       const payload = await response.json().catch(() => ({}));
       const current = await getValidSession();
@@ -613,6 +628,7 @@ export default function WorkOrdersPage() {
       setDrafts(((payload.drafts || []) as WorkOrderDraft[]).filter(draft => draft.created_by === session.user.id));
       if (reviewId && payload.review_draft?.id === reviewId && payload.review_draft.can_edit) setReviewDraft(payload.review_draft);
       else setReviewDraft(null);
+      setDraftsLoaded(true);
       return true;
     } catch (error) {
       if (reportFailure && requestId === draftRequestRef.current) setMessage(error instanceof Error ? error.message : "Drafts could not be loaded.");
@@ -1098,6 +1114,7 @@ export default function WorkOrdersPage() {
     setActiveDraftId(draft.id);
     setActiveDraftRevision(draft.revision);
     setLastSavedDraftKey(draftFieldsKey(draft));
+    confirmedDraftRecovery.current = { active: { id: draft.id, revision: draft.revision }, baseline: draftFieldsKey(draft) };
     setStaffFirstName(draft.staff_first_name || "");
     setLocationId(draft.location_id || "");
     setAssetId(draft.asset_id || "");
@@ -1131,8 +1148,95 @@ export default function WorkOrdersPage() {
   const draftIdleReceipt = useRef("");
   const draftCreationReceipts = useRef(new Map<string, string>());
 
+  function restoreLocalCreation(snapshot: CreationRecovery) {
+    setStaffFirstName(snapshot.fields.staff_first_name);
+    setLocationId(snapshot.fields.location_id);
+    setIssue(snapshot.fields.issue);
+    setNotes(snapshot.fields.notes);
+    setAssetId(snapshot.fields.asset_id || "");
+    setCategory(snapshot.fields.category);
+    setPriority(snapshot.fields.priority);
+    setManualLocation(Boolean(snapshot.fields.location_id));
+    setManualAsset(Boolean(snapshot.fields.asset_id));
+    setManualCategory(true);
+    setManualPriority(true);
+    setActiveDraftId(snapshot.active?.id || "");
+    setActiveDraftRevision(snapshot.active?.revision ?? null);
+    setLastSavedDraftKey(snapshot.baseline);
+    confirmedDraftRecovery.current = { active: snapshot.active, baseline: snapshot.baseline };
+    pendingDraftSave.current = snapshot.pending;
+    if (snapshot.pending?.method === "POST") {
+      draftCreationReceipts.current.set(snapshot.pending.id, snapshot.pendingReceipt);
+      setUnconfirmedCreationId(snapshot.pending.id);
+    }
+    autoOpenedDraftRef.current = snapshot.active?.id || "";
+    setCreationSubmissionUncertain(snapshot.submissionUncertain);
+    setCreationRecoveryConflict(null);
+    setMessage(`Recovered this account's in-progress work from this device.${snapshot.attachmentCount ? " Selected photos must be added again." : ""}${snapshot.submissionUncertain ? " A submission was in progress. Check the work-order list before submitting again." : ""}`);
+  }
+
+  const creationScope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
+  useEffect(() => {
+    if (!cmpriSession || !draftsLoaded || loadingLocations || loadingAssets || creationRecoveryScope.current === creationScope) return;
+    let live = true;
+    void Promise.resolve().then(() => {
+      if (!live) return;
+      creationRecoveryScope.current = creationScope;
+      creationRecoveryStopped.current = false;
+      const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id };
+      let snapshot: CreationRecovery | null = null;
+      try { snapshot = readCreationRecovery(localStorage, identity); }
+      catch { setMessage("This device could not read the saved form. Keep this window open until your work is saved."); }
+      if (snapshot) {
+        const remote = drafts.find(draft => draft.id === snapshot.active?.id) || (reviewDraft?.id === snapshot.active?.id ? reviewDraft : null);
+        const requested = new URLSearchParams(window.location.search).get("draftId") || "";
+        const formAlreadyEdited = Boolean(issue || notes || locationId || staffFirstName);
+        if (formAlreadyEdited || !canRestoreCreationRecovery(snapshot, remote, requested)) setCreationRecoveryConflict(snapshot);
+        else restoreLocalCreation(snapshot);
+      }
+      setCreationRecoveryReady(creationScope);
+    });
+    return () => { live = false; };
+    // One device recovery after the freshly authorized session and reference/draft reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creationScope, draftsLoaded, loadingLocations, loadingAssets]);
+
+  useEffect(() => {
+    const persist = () => {
+      if (!cmpriSession || creationRecoveryReady !== creationScope || creationRecoveryStopped.current || creationRecoveryConflict) return;
+      const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id };
+      const pending = pendingDraftSave.current;
+      const pendingReceipt = pending?.method === "POST" ? draftCreationReceipts.current.get(pending.id) || "" : "";
+      const snapshot: CreationRecovery = { version: 1, ...identity, fields: { ...draftFields, issue },
+        active: activeDraftId && activeDraftRevision !== null ? { id: activeDraftId, revision: activeDraftRevision } : null,
+        // A POST gets its bound receipt synchronously before fetch is called.
+        // Before that point it has not been sent and needs only text recovery.
+        baseline: lastSavedDraftKey, pending: pending?.method === "POST" && !pendingReceipt ? null : pending, pendingReceipt,
+        attachmentCount: photos.length, submissionUncertain: creationSubmissionUncertain || submittingRef.current,
+        ...confirmedDraftRecovery.current };
+      try {
+        if (!hasCreationRecoveryWork(snapshot) || confirmedCreationKey.current === currentDraftKey || createState === "created" || mainWorkOrderCreated) clearCreationRecovery(localStorage, identity);
+        else if (!saveCreationRecovery(localStorage, identity, snapshot)) setMessage("This device could not preserve the form. Keep this window open until the work is saved.");
+      } catch { setMessage("This device could not preserve the form. Keep this window open until the work is saved."); }
+    };
+    persistCreationRecoveryRef.current = persist;
+    persist();
+    const hidden = () => { if (document.hidden) persist(); };
+    const signOut = () => { persist(); creationRecoveryStopped.current = true; resetWorkOrderForm(true, true); };
+    window.addEventListener("pagehide", persist);
+    window.addEventListener("cmpri-workspace-sign-out", signOut);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", persist);
+      window.removeEventListener("cmpri-workspace-sign-out", signOut);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+    // draftFields covers the form's text; the request snapshot is read from its durable ref at flush time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creationScope, creationRecoveryReady, creationRecoveryConflict, currentDraftKey, issue, activeDraftId, activeDraftRevision, lastSavedDraftKey, photos.length, createState, mainWorkOrderCreated, creationSubmissionUncertain]);
+
   async function saveDraft() {
-    if (draftSaveInFlight.current || submittingRef.current || loading || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
+    if (creationRecoveryConflict || creationSubmissionUncertain || draftSaveInFlight.current || submittingRef.current || loading || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
     const inactivityReceipt = draftIdleReceipt.current;
     if (!locationId || !issue.trim()) {
       setMessage("Select a room/location and enter the issue before saving a draft.");
@@ -1176,6 +1280,7 @@ export default function WorkOrdersPage() {
           }
           const receipt = method === "POST" && typeof body.creation_id === "string"
             ? draftCreationReceipts.current.get(body.creation_id) : inactivityReceipt;
+          persistCreationRecoveryRef.current();
           return fetch("/api/work-orders/drafts", {
             method,
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -1194,6 +1299,10 @@ export default function WorkOrdersPage() {
           try { if (sessionStorage.getItem(`cmpri:unconfirmed-draft:${scope}`) === saved.id) sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
           setUnconfirmedCreationId(current => current === saved.id ? "" : current);
           draftCreationReceipts.current.delete(saved.id);
+          // A browser close between the acknowledgement and React's next
+          // render must retain the confirmed identity/revision, not create anew.
+          confirmedDraftRecovery.current = { active: { id: saved.id, revision: saved.revision }, baseline: draftFieldsKey(saved) };
+          persistCreationRecoveryRef.current();
           setActiveDraftId(saved.id); setActiveDraftRevision(saved.revision);
         },
       });
@@ -1224,6 +1333,7 @@ export default function WorkOrdersPage() {
         draftSaveInFlight.current = null;
         if (draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) setDraftBusy(false);
       }
+      persistCreationRecoveryRef.current();
     }
   }
 
@@ -1274,17 +1384,25 @@ export default function WorkOrdersPage() {
       });
       setActiveDraftId("");
       setActiveDraftRevision(null);
+      confirmedDraftRecovery.current = null;
       await loadDrafts();
     } catch {
       // Submission succeeded; a stale draft can still be removed from the Drafts panel later.
     }
   }
 
-  function resetWorkOrderForm(force = false) {
+  function resetWorkOrderForm(force = false, preserveRecovery = false) {
     if (pendingPhotoUploads.length > 0 && !force) {
       setMessage("Retry the pending photo upload before discarding this created work order.");
       return;
     }
+    if (!preserveRecovery && cmpriSession) {
+      try { clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {}
+      setCreationRecoveryConflict(null);
+      setCreationSubmissionUncertain(false);
+    }
+    confirmedCreationKey.current = "";
+    confirmedDraftRecovery.current = null;
     setActiveDraftId("");
     pendingDraftSave.current = null;
     setLastSavedDraftKey("");
@@ -1752,6 +1870,7 @@ export default function WorkOrdersPage() {
     workOrders: CreatedWorkOrder[];
     photoUploadPending: boolean;
   }> {
+    if (creationRecoveryConflict || creationSubmissionUncertain) return { error: { message: "Review the recovered work before submitting." }, workOrders: [], photoUploadPending: false };
     if (submittingRef.current) return { error: { message: "Submission is already in progress." }, workOrders: [], photoUploadPending: false };
     if (pendingPhotoUploads.length > 0) {
       return {
@@ -1761,6 +1880,7 @@ export default function WorkOrdersPage() {
       };
     }
     submittingRef.current = true;
+    persistCreationRecoveryRef.current();
     try {
       const session = await getValidSession();
       if (!session) {
@@ -1787,6 +1907,8 @@ export default function WorkOrdersPage() {
       if (!workOrders.length || workOrders.some((order) => !order.id)) {
         return { error: { message: "Unable to confirm the saved ticket. Check the list before retrying." }, workOrders: [], photoUploadPending: false };
       }
+      confirmedCreationKey.current = currentDraftKey;
+      try { if (cmpriSession) clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {}
       submittedDisplayIdsRef.current = workOrders.map((order) => formatWorkOrder(order.display_id));
       let photoUploadPending = false;
       if (photos.length && workOrders.length) {
@@ -2133,6 +2255,26 @@ export default function WorkOrdersPage() {
     <main className="min-h-[100svh] bg-slate-950 p-1 text-white">
       {activeDraftId && <p role="status" className="mb-2 font-semibold text-amber-200">Draft — awaiting approval</p>}
       <div data-work-order-form-layout className="mx-auto w-full max-w-none lg:w-[66vw]">
+        {creationRecoveryConflict && <section role="status" className="mb-2 rounded-lg border border-amber-600 p-3 text-sm text-amber-100">
+          <p className="font-semibold">Recovered Work Needs Review</p>
+          <p className="mt-1 text-xs">A saved draft changed, another draft was requested, or this form already has edits. Your recovered text has been kept separately.</p>
+          <details className="mt-2 text-xs"><summary className="cursor-pointer">Recovered Text</summary><p className="mt-2 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.issue}</p><p className="mt-1 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.notes}</p></details>
+          <div className="mt-2 flex flex-wrap gap-3 text-xs">
+            <button type="button" className="underline" onClick={() => {
+              if (!window.confirm("Replace this form with the recovered text? A changed saved draft still requires comparison before its next save.")) return;
+              restoreLocalCreation(creationRecoveryConflict);
+            }}>Restore Recovered Form</button>
+            <button type="button" className="underline" onClick={() => {
+              if (!window.confirm("Discard the recovered text from this device and keep the form shown here?")) return;
+              if (cmpriSession) { try { clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {} }
+              setCreationRecoveryConflict(null);
+            }}>Discard Recovered Copy</button>
+          </div>
+        </section>}
+        {creationSubmissionUncertain && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
+          <p>A submission was in progress when this form closed. Check the work-order list before submitting again.</p>
+          <button type="button" className="mt-2 underline" onClick={() => { if (window.confirm("Have you checked the work-order list and confirmed this work was not submitted?")) setCreationSubmissionUncertain(false); }}>I Checked The List; Keep Editing</button>
+        </section>}
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2188,7 +2330,7 @@ export default function WorkOrdersPage() {
               <div data-preview-create-actions className="flex flex-wrap items-center justify-end gap-1">
                 <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading} onSelect={files=>acceptSelectedPhotos(files)} />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
-                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
+                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || creationRecoveryReady !== creationScope || Boolean(creationRecoveryConflict) || creationSubmissionUncertain || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>

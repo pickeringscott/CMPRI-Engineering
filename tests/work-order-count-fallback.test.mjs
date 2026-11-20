@@ -1,3 +1,4 @@
+import * as workOrderSearch from '../src/lib/work-order-search.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -121,6 +122,7 @@ async function fixture({ role = 'authenticated', readerFilter = null, authorized
   const dependencies={
     '@/lib/server/work-order-parts-status':{attachPartsStatuses:async(_client,orders)=>orders},
     '@/lib/work-order-sort':{sortWorkOrders:orders=>orders},
+    '@/lib/work-order-search':workOrderSearch,
     '@/lib/cmpri-location-groups':{frontDeskCommonArea:()=>null},
     '@/lib/work-order-read-policy':{workOrderReadFilter:()=>readerFilter},
     '@/lib/server/work-order-reader':{workOrderReader:value=>value},
@@ -187,8 +189,10 @@ test('authenticated fallback preserves selected filter, global badges, search an
       assert.deepEqual(JSON.parse(JSON.stringify(result.body.counts)),expected.authenticated,filter);
     }
     const searched=await f.get({filter:'closed',q:'needle'});
-    assert.equal(searched.status,200);assert.equal(searched.body.total,1);assert.equal(searched.body.work_orders[0].id,'a');
+    assert.equal(searched.status,200);assert.equal(searched.body.total,0);assert.equal(searched.body.work_orders.length,0,'search cannot surface an open ticket inside Closed');
     assert.equal(searched.body.counts.all,9,'search does not change global status badges');
+    const matching=await f.get({filter:'open',q:'needle'});
+    assert.equal(matching.status,200);assert.equal(matching.body.total,1);assert.equal(matching.body.work_orders[0].id,'a');
     const page=await f.get({page:'1'});assert.equal(page.status,200);assert.equal(page.body.total,9);assert.equal(page.body.work_orders.length,0);assert.equal(page.body.counts.all,9);
   }finally{await f.close();}
 });

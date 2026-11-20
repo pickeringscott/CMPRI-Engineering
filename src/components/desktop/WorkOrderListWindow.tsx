@@ -1,6 +1,8 @@
 "use client";
 
-import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-reference.js";
+import { formatWorkOrder } from "@/lib/work-order-reference.js";
+import { matchesWorkOrderSearch } from "@/lib/work-order-search";
+import { DEFAULT_WORK_ORDER_LIST_PREFERENCES, readWorkOrderListPreferences, saveWorkOrderListPreferences } from "@/lib/work-order-list-preferences";
 
 import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
 import PartsStatusPill from "@/components/PartsStatusPill";
@@ -13,7 +15,7 @@ import WorkOrderFilters, { type WorkOrderListFilter } from "@/components/WorkOrd
 export type { WorkOrderListFilter } from "@/components/WorkOrderFilters";
 
 import LoyaltyBadge from "@/components/LoyaltyBadge";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type SetStateAction } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { subscribeResources } from "@/lib/events/browser";
 import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
@@ -171,6 +173,7 @@ export default function WorkOrderListWindow({
   loading,
   onOpenWorkOrder,
   onOpenDraft,
+  preferencesScope,
 }: {
   frontDeskLayout?: boolean;
   orders: DesktopWorkOrder[];
@@ -178,16 +181,42 @@ export default function WorkOrderListWindow({
   loading: boolean;
   onOpenWorkOrder: (order: DesktopWorkOrder) => void;
   onOpenDraft?: (draftId: string) => void;
+  preferencesScope?: string;
 }) {
-  const [filter, setFilter] = useState<WorkOrderListFilter>("all");
-  const [query, setQuery] = useState("");
-  const [sort,setSort] = useState<WorkOrderSort>("default");
-  const [page, setPage] = useState(0);
+  const [preferences, setPreferences] = useState(DEFAULT_WORK_ORDER_LIST_PREFERENCES);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const { filter, query, sort, page } = preferences;
+  const setFilter = (value: WorkOrderListFilter) => setPreferences(previous => ({ ...previous, filter: value }));
+  const setQuery = (value: string) => setPreferences(previous => ({ ...previous, query: value.slice(0, 200) }));
+  const setSort = (value: WorkOrderSort) => setPreferences(previous => ({ ...previous, sort: value }));
+  const setPage = (value: SetStateAction<number>) => setPreferences(previous => ({ ...previous, page: typeof value === "function" ? value(previous.page) : value }));
+  const scope = preferencesScope || "";
+  const preferencesReady = loadedScope === scope;
+  useEffect(() => {
+    let active = true;
+    // Read device preferences after mounting; do not request or save the default
+    // list before the verified account/property's selection has been restored.
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      let restored = { ...DEFAULT_WORK_ORDER_LIST_PREFERENCES };
+      try { restored = readWorkOrderListPreferences(window.localStorage, preferencesScope); } catch { /* Device storage can be disabled. */ }
+      setPreferences(restored);
+      setLoadedScope(scope);
+    });
+    return () => { active = false; };
+  }, [preferencesScope, scope]);
+  useEffect(() => {
+    if (!preferencesReady) return;
+    try { saveWorkOrderListPreferences(window.localStorage, preferencesScope, preferences); } catch { /* Keep the list usable without device storage. */ }
+  }, [preferencesReady, preferencesScope, preferences]);
   const [boundaryVersion,setBoundaryVersion]=useState(0);
-  const [remote, setRemote] = useState<{ orders: DesktopWorkOrder[]; total: number; counts: Record<string, number> } | null>(null);
+  const [result, setResult] = useState<{ requestKey: string; orders: DesktopWorkOrder[]; total: number; counts: Record<string, number> } | null>(null);
+  const requestKey = JSON.stringify([scope, page, filter, sort, query]);
+  const remote = result?.requestKey === requestKey ? result : null;
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (!preferencesReady) return;
     let active = true;
     let stop: (() => void) | undefined;
     const controller = new AbortController();
@@ -198,7 +227,14 @@ export default function WorkOrderListWindow({
         const response = await fetch(`/api/work-orders?${params}`, { headers: await authorizationHeaders(), cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Work orders could not be loaded.");
-        if (active) { setRemote({ orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
+        const lastPage = Math.max(0, Math.ceil(data.total / 100) - 1);
+        if (active && Number.isSafeInteger(data.total) && page > lastPage) {
+          // A saved page can disappear while CMPRI is closed. Reopen the last
+          // remaining page rather than stranding the list behind a hidden pager.
+          setPreferences(previous => ({ ...previous, page: lastPage }));
+          return;
+        }
+        if (active) { setResult({ requestKey, orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
       } catch (error) { if (active) setError(error instanceof Error ? error.message : "Work orders could not be loaded."); }
       finally { if (active) setPageLoading(false); }
     };
@@ -208,7 +244,7 @@ export default function WorkOrderListWindow({
       if (active) stop = subscribeResources(["orders", "rooms"], load);
     }, query ? 300 : 0);
     return () => { active = false; window.clearTimeout(timer); controller.abort(); stop?.(); };
-  }, [page, filter, sort, query,boundaryVersion]);
+  }, [page, filter, sort, query, boundaryVersion, preferencesReady, requestKey]);
   useEffect(()=>{
     // A single business-boundary wake-up, not recurring network polling. The
     // subscription visibility gate defers hidden-window reads until reopening.
@@ -220,9 +256,7 @@ export default function WorkOrderListWindow({
   const groups = useMemo(() => groupWorkOrders(remote?.orders || orders, page === 0 ? drafts : []), [remote, orders, drafts, page]);
   const countFor = (key: WorkOrderListFilter) => (remote?.counts[key] ?? groups[key].length) + (remote && ["all", "pending"].includes(key) ? drafts.length : 0);
   const normalizedQuery = query.trim().toLowerCase();
-  const matchingRows = normalizedQuery
-    ? groups.all.filter((order) => (workOrderReferenceMatches(order.display_id, normalizedQuery) || [...Object.values(order), formatWorkOrder(order.display_id)].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery))))
-    : groups[filter];
+  const matchingRows = groups[filter].filter(order => matchesWorkOrderSearch(order, normalizedQuery));
   const rows = remote ? [...matchingRows.filter(row => row.is_draft), ...remote.orders] : sortWorkOrders(matchingRows,sort);
 
   return (
@@ -245,6 +279,7 @@ export default function WorkOrderListWindow({
             </svg>
             <input
               type="search"
+              maxLength={200}
               value={query}
               onChange={(event) => {setQuery(event.target.value); setPage(0);}}
               placeholder="Search rooms, locations, or issues..."
@@ -258,10 +293,10 @@ export default function WorkOrderListWindow({
 
       <WorkOrderFilters
         filter={filter}
-        searching={!!normalizedQuery}
+        searching={false}
         loading={loading}
         countFor={countFor}
-        onChange={key => { setFilter(key); setQuery(""); setPage(0); }}
+        onChange={key => { setFilter(key); setPage(0); }}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">

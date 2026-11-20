@@ -1,3 +1,4 @@
+import * as workOrderSearch from '../src/lib/work-order-search.ts';
 import {partsStatusDependency} from "./helpers/load-ts.mjs";
 import * as workOrderSort from '../src/lib/work-order-sort.ts';
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
@@ -111,6 +112,7 @@ function fixture(role, actorId = "actor") {
   vm.runInNewContext(compiled, {
     exports, Buffer, Date: Clock, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "test-secret" } },
     require(name) { if (name === "node:crypto") return crypto; if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
+      if(name==='@/lib/work-order-search')return workOrderSearch;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;
@@ -190,6 +192,7 @@ function submittedDraftRetryFixture() {
   }).outputText, {
     exports: routeExports,
     require(name) { if (name === "node:crypto") return crypto; if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
+      if(name==='@/lib/work-order-search')return workOrderSearch;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
       if (name === "@/lib/equipment-selection") return equipmentSelection;

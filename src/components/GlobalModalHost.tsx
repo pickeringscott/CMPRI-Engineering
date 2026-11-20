@@ -10,6 +10,9 @@ import WorkOrderTitleGuest from './WorkOrderTitleGuest';
 import WorkOrderListWindow from './desktop/WorkOrderListWindow';
 import { loadCmpriSession } from '@/lib/auth/client-session';
 import { claimWorkOrder, releaseWorkOrder } from '@/lib/open-work-orders';
+import { canResumeWorkspaceView } from '@/lib/ui/workspace-route-access';
+import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity,
+  type WorkspaceIdentity, type WorkspaceOptions, type WorkspaceView } from '@/lib/ui/workspace-resume';
 
 type ModalEntry = {
   guest?: Record<string,unknown>;
@@ -28,7 +31,7 @@ type ModalPanelStyle = CSSProperties & {
   "--cmpri-modal-mobile-height": string;
 };
 
-function modalHref(href: string) {
+function modalHref(href: string, forceEmbedded = false) {
   const isWorkOrderDetail = /^\/work-orders\/[^/?#]+(?:[/?#]|$)/.test(href);
   const modalRoutes = new Set([
     "/staff-notes",
@@ -54,7 +57,7 @@ function modalHref(href: string) {
     "/engineering/import-work-orders",
     "/feedback",
   ]);
-  if (!isWorkOrderDetail && !modalRoutes.has(new URL(href, window.location.origin).pathname)) {
+  if (!forceEmbedded && !isWorkOrderDetail && !modalRoutes.has(new URL(href, window.location.origin).pathname)) {
     return { href, modalToken: undefined };
   }
   const modalToken = crypto.randomUUID();
@@ -118,6 +121,31 @@ function modalBackdrop(element: HTMLElement) {
   return element;
 }
 
+function workspaceModalView(entry: ModalEntry): WorkspaceView | null {
+  if (entry.kind === "work-order-list") return { key: "work-order-list", kind: "list" };
+  const href = normalizeWorkspaceHref(entry.href, window.location.origin);
+  if (!href) return null;
+  const url = new URL(href, window.location.origin), draft = url.searchParams.get("draftId");
+  const key = url.pathname === "/work-orders" && url.searchParams.get("reviewDraft") === "1" && draft
+    ? "work-order-draft:" + draft : url.pathname;
+  return { key, href, kind: "frame" };
+}
+
+function restoredModalTitle(href: string) {
+  const path = new URL(href, window.location.origin).pathname;
+  if (/^\/work-orders\/[^/]+$/.test(path)) return "Work Order";
+  const titles: Record<string, string> = { "/work-orders": "Create Work Order", "/profile": "Manage Profile",
+    "/profile/ai-connection": "ChatGPT Connection", "/staff-notes": "Staff Notes", "/notes": "Notes",
+    "/management/equipment": "Assets", "/management/rooms": "Manage Locations", "/management/users": "Manage Users",
+    "/engineering/preventive-maintenance": "Preventative Maintenance", "/engineering/purchasing": "PO",
+    "/engineering/parts": "Inventory", "/engineering/pool-log": "Pool Log", "/pool": "Pool",
+    "/engineering/room-ranking": "Room Ranker", "/engineering/room-ranker": "Room Ranker",
+    "/engineering/room-operations": "Daily Room Ops", "/engineering/gss": "GSS Reports",
+    "/engineering/enseo-assignments": "Enseo Assignments", "/engineering/hours-tracker": "Hours Tracker",
+    "/engineering/winter-preparedness": "Winter Preparedness 2026", "/feedback": "Feedback" };
+  return titles[path] || "Open screen";
+}
+
 export default function GlobalModalHost() {
   const pathname = usePathname();
   const [stack, setStack] = useState<ModalEntry[]>([]);
@@ -143,6 +171,18 @@ export default function GlobalModalHost() {
   const previousStackRef = useRef<ModalEntry[]>([]);
   const previousActiveRef = useRef<string | null>(null);
   const hasOpenModals = stack.length > 0;
+  const workspaceRef = useRef<{ identity: WorkspaceIdentity; options: WorkspaceOptions } | null>(null);
+  const workspaceIdentityRef = useRef<WorkspaceIdentity | null>(null);
+  const workspaceLatestIdentityRef = useRef<WorkspaceIdentity | null>(null);
+  const workspaceRestoredRef = useRef(false);
+  const workspaceStoppedRef = useRef(false);
+  const workspaceTouchedRef = useRef(false);
+  const workspaceScopeBlockedRef = useRef(false);
+  const workspaceBlockedRef = useRef(false);
+  const [workspaceBlocked, setWorkspaceBlocked] = useState(false);
+  const [workspaceReady, setWorkspaceReady] = useState(0);
+  const [workspacePreferencesScope, setWorkspacePreferencesScope] = useState<string>();
+  const [workspaceCheck, setWorkspaceCheck] = useState(0);
 
   useEffect(() => {
     if (window.parent !== window || new URLSearchParams(window.location.search).get("embedded") === "1") return;
@@ -196,6 +236,8 @@ export default function GlobalModalHost() {
   }, [hasOpenModals, dialogTarget]);
 
   const openEntry = useCallback((entry: ModalEntry) => {
+    if (workspaceBlockedRef.current) return;
+    workspaceTouchedRef.current = true;
     const id = workOrderId(entry.href);
     if (id) {
       const existing = stackRef.current.find(item => workOrderId(item.href) === id);
@@ -255,6 +297,7 @@ export default function GlobalModalHost() {
   }, [owner]);
 
   const openWorkOrderList = useCallback(() => {
+    if (workspaceBlockedRef.current) return;
     if (nativeShellRef.current && nativeObscuresStack) {
       nativeShellRef.current.close();
       nativeShellRef.current.showModal();
@@ -266,6 +309,7 @@ export default function GlobalModalHost() {
   }, [nativeObscuresStack, openEntry]);
 
   const resumeScreens = useCallback(() => {
+    if (workspaceBlockedRef.current) return;
     for (const { element, value, priority } of suspendedCustomRef.current) {
       if (value) element.style.setProperty("visibility", value, priority); else element.style.removeProperty("visibility");
     }
@@ -315,6 +359,114 @@ export default function GlobalModalHost() {
     if (frameDocument.dispatchEvent(cancelRequest)) closeModal(entryId);
   }, [closeModal]);
   useLayoutEffect(() => { activeIdRef.current = activeId; requestCloseRef.current = requestModalClose; }, [activeId, requestModalClose]);
+
+  // Navigation identity only. Editors keep ownership of their own saved drafts
+  // and cancel guards; no guest, form, auth or iframe-token data enters this store.
+  useEffect(() => {
+    if (window.parent !== window || new URLSearchParams(window.location.search).get("embedded") === "1"
+      || !pathname || pathname === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(pathname)) return;
+    workspaceRef.current = null;
+    let live = true;
+    void loadCmpriSession().then(session => {
+      const identity = workspaceIdentity(session);
+      // Even if sign-out navigated away while this check was pending, its
+      // verified owner can now be cleared without hydrating or setting state.
+      if (workspaceStoppedRef.current) {
+        try { clearWorkspace(window.localStorage, identity); } catch {}
+        return;
+      }
+      if (!live) return;
+      workspaceLatestIdentityRef.current = identity;
+      const previousIdentity = workspaceIdentityRef.current;
+      if (previousIdentity && JSON.stringify(previousIdentity) !== JSON.stringify(identity)) {
+        // Never copy another account/property/permission scope's open routes.
+        // Existing editors retain first refusal instead of bypassing a save.
+        workspaceBlockedRef.current = true; setWorkspaceBlocked(true);
+        setWorkspacePreferencesScope(undefined);
+        nativeShellRef.current?.close();
+        for (const entry of stackRef.current.slice()) requestModalClose(entry.id);
+        if (stackRef.current.length) { workspaceScopeBlockedRef.current = true; return; }
+        workspaceRestoredRef.current = false;
+        workspaceTouchedRef.current = false;
+      }
+      workspaceBlockedRef.current = false; setWorkspaceBlocked(false);
+      if (stackRef.current.length && nativeShellRef.current && !nativeShellRef.current.open) nativeShellRef.current.showModal();
+      const options: WorkspaceOptions = { origin: window.location.origin, isAllowed: view => canResumeWorkspaceView(session, view) };
+      const saved = readWorkspace(window.localStorage, identity, options);
+      setCanViewWorkOrders(session.capabilities.includes("view_work_orders"));
+      if (!workspaceRestoredRef.current) {
+        workspaceRestoredRef.current = true;
+        // A user action during the session check takes precedence over an old stack.
+        if (!workspaceTouchedRef.current && !stackRef.current.length && saved?.modals.views.length) {
+          let restoredActive: string | null = null;
+          for (const view of saved.modals.views) {
+            if (view.kind !== "list" && (view.kind !== "frame" || !view.href)) continue;
+            const id = crypto.randomUUID();
+            const entry: ModalEntry = view.kind === "list"
+              ? { id, href: "/__work-order-list", kind: "work-order-list", title: "Work Order List" }
+              : { id, ...modalHref(view.href!, true), title: restoredModalTitle(view.href!) };
+            openEntry(entry);
+            if (view.key === saved.modals.activeKey && stackRef.current.some(item => item.id === id)) restoredActive = id;
+          }
+          if (restoredActive) setActiveId(restoredActive);
+        }
+      }
+      workspaceIdentityRef.current = identity;
+      workspaceRef.current = { identity, options };
+      setWorkspacePreferencesScope(`${identity.hotelId}:${identity.userId}`);
+      setWorkspaceReady(value => value + 1);
+    }).catch(() => {
+      // loadCmpriSession fails for revoked access as well as failed transport.
+      // Retain protected drafts, but hide them until a fresh check succeeds.
+      if (live && workspaceIdentityRef.current) {
+        workspaceBlockedRef.current = true; setWorkspaceBlocked(true);
+        setWorkspacePreferencesScope(undefined);
+        nativeShellRef.current?.close();
+      }
+    });
+    return () => { live = false; };
+  }, [pathname, workspaceCheck, openEntry, requestModalClose]);
+  useEffect(() => {
+    if (!stack.length && workspaceScopeBlockedRef.current && !workspaceStoppedRef.current) {
+      workspaceScopeBlockedRef.current = false;
+      setWorkspaceCheck(value => value + 1);
+    }
+  }, [stack.length]);
+
+  const persistWorkspace = useCallback(() => {
+    const context = workspaceRef.current;
+    if (!context || workspaceStoppedRef.current || workspaceBlockedRef.current || !workspaceRestoredRef.current || window.parent !== window) return;
+    const currentPath = window.location.pathname;
+    if (currentPath === "/" || /^\/(?:auth|oauth|login|logout|sign-in|sign-out|employment)(?:\/|$)/.test(currentPath)) return;
+    const views = stackRef.current.map(workspaceModalView).filter((view): view is WorkspaceView => Boolean(view));
+    const active = stackRef.current.find(entry => entry.id === activeIdRef.current);
+    // The dashboard's controller owns its topHref restore/write ordering.
+    const top = currentPath === "/engineering" || currentPath === "/front-desk" ? {} : { topHref: window.location.href };
+    try {
+      saveWorkspace(window.localStorage, context.identity,
+        { ...top, modals: { views, activeKey: active ? workspaceModalView(active)?.key || null : null } }, context.options);
+    } catch { /* Blocked device storage does not interfere with an open editor. */ }
+  }, []);
+  useEffect(() => { persistWorkspace(); }, [stack, activeId, workspaceReady, pathname, persistWorkspace]);
+  useEffect(() => {
+    const signOut = () => {
+      workspaceStoppedRef.current = true;
+      setWorkspacePreferencesScope(undefined);
+      const identity = workspaceLatestIdentityRef.current || workspaceIdentityRef.current || workspaceRef.current?.identity;
+      try { if (identity) clearWorkspace(window.localStorage, identity); } catch {}
+    };
+    const hidden = () => { if (document.hidden) persistWorkspace(); };
+    window.addEventListener("cmpri-workspace-sign-out", signOut);
+    window.addEventListener("pagehide", persistWorkspace);
+    window.addEventListener("popstate", persistWorkspace);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("cmpri-workspace-sign-out", signOut);
+      window.removeEventListener("pagehide", persistWorkspace);
+      window.removeEventListener("popstate", persistWorkspace);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, [persistWorkspace]);
   useEffect(() => () => {
     for (const entry of stackRef.current) { const id = workOrderId(entry.href); if (id) releaseWorkOrder(id, owner); }
     for (const { element, value, priority } of suspendedCustomRef.current) {
@@ -470,6 +622,7 @@ export default function GlobalModalHost() {
 
     const handleClick = (event: MouseEvent) => {
       if (window.parent !== window) return;
+      if (workspaceBlockedRef.current) return;
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const target = event.target instanceof Element
         ? event.target.closest("a[href], button[data-cmpri-modal-trigger='true'], button[data-cmpri-modal-dashboard='true']")
@@ -521,6 +674,7 @@ export default function GlobalModalHost() {
     };
 
     const handleKeydown = (event: KeyboardEvent) => {
+      if (workspaceBlockedRef.current) return;
       if (event.key === "Tab" && activeId) {
         const panel = modalRootRef.current?.querySelector<HTMLElement>(`[data-modal-entry="${CSS.escape(activeId)}"]`);
         const focusable = Array.from(panel?.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex='-1'])") || []).filter(element => element.getClientRects().length > 0);
@@ -608,6 +762,7 @@ export default function GlobalModalHost() {
         return;
       }
       if (event.data.type === "cmpri-modal-sign-out") {
+        window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
         setStack([]);
         window.location.replace("/");
         return;
@@ -667,6 +822,7 @@ export default function GlobalModalHost() {
   }, [stack.length]);
 
   if (stack.length === 0) {
+    if (workspaceBlocked) return null;
     if ((!dialogTarget || !canViewWorkOrders) && !limitMessage) return null;
     return createPortal(<>
       {dialogTarget && canViewWorkOrders && <button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>}
@@ -675,7 +831,7 @@ export default function GlobalModalHost() {
   }
 
   const host = (
-    <div ref={modalRootRef} className="pointer-events-none fixed inset-0 z-[120]">
+    <div ref={modalRootRef} hidden={workspaceBlocked} inert={workspaceBlocked} aria-hidden={workspaceBlocked || undefined} className="pointer-events-none fixed inset-0 z-[120]">
       {stack.map((entry, index) => {
         const isTop = entry.id === activeId;
         const scale = 0.9 ** (Math.min(index, 2) + 1);
@@ -724,7 +880,9 @@ export default function GlobalModalHost() {
                 {stack.map(item => <button key={item.id} type="button" aria-pressed={item.id === activeId} onClick={() => setActiveId(item.id)} className={`min-h-10 max-w-44 shrink-0 truncate rounded-md px-3 text-xs ${item.id === activeId ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}>{item.title}</button>)}
               </nav>}
               {isTop && limitMessage && <p role="alert" className="shrink-0 border-b border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{limitMessage}</p>}
-              {entry.kind === "work-order-list" ? <WorkOrderListWindow orders={[]} loading={false} onOpenWorkOrder={order => {
+              {entry.kind === "work-order-list" ? <WorkOrderListWindow
+                preferencesScope={workspacePreferencesScope}
+                orders={[]} loading={false} onOpenWorkOrder={order => {
                 const path = `/work-orders/${encodeURIComponent(order.id)}`;
                 openEntry({ id: crypto.randomUUID(), ...modalHref(path), title: `Work Order ${order.display_id || ""}${order.room ? ` · ${order.room}` : ""}`.trim(), guest: order, returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
               }} /> : <iframe
@@ -751,7 +909,7 @@ export default function GlobalModalHost() {
     </div>
   );
   return <>{nativeShell ? createPortal(host, nativeShell) : host}
-    {shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
-    {dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
+    {!workspaceBlocked && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
+    {!workspaceBlocked && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={openWorkOrderList} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
   </>;
 }

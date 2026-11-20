@@ -22,10 +22,17 @@ export function noteLine(value: string, caret: number) {
   const next = value.indexOf('\n',caret);
   return { start, end: next < 0 ? value.length : next, text: value.slice(start,next < 0 ? value.length : next) };
 }
-export function noteInputEdit(value: string, start: number, end: number, kind: 'return'|'backspace'): TextEdit | null {
+export function noteInputEdit(value: string, start: number, end: number, kind: 'return'|'linebreak'|'backspace'): TextEdit | null {
+  // A soft line break never creates a list item, including keyboard/mobile input.
+  if (kind === 'linebreak') return { start,end,insert:'\n' };
   const line = noteLine(value,start), info = noteListInfo(line.text);
   if (!info) return null;
-  if (kind === 'return') return { start,end,insert:'\n'+info.indent+(info.marker==='•'?'• ':'☐ ') };
+  if (kind === 'return') {
+    // The second Return leaves an empty item on the current blank line instead
+    // of adding another marker indefinitely. Do not erase a selected next item.
+    if (start===end && start>=line.start+info.length && !line.text.slice(info.length).trim()) return { start:line.start,end:line.end,insert:'' };
+    return { start,end,insert:'\n'+info.indent+(info.marker==='•'?'• ':'☐ ') };
+  }
   if (start!==end || start<=line.start || start>line.start+info.length) return null;
   return { start:line.start,end:line.start+info.length,insert:'' };
 }

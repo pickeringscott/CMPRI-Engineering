@@ -43,6 +43,8 @@ import PoolStatus from "@/components/desktop/PoolStatus";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
+import DesktopWorkspaceResume from "@/components/desktop/DesktopWorkspaceResume";
+import type { WorkspaceState } from "@/lib/ui/workspace-resume";
 import WeatherPreviewWindow from "@/components/desktop/WeatherPreviewWindow";
 import { armWeatherWarningSound } from "@/lib/weather-warning-sound";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
@@ -626,6 +628,7 @@ export default function EngineeringDashboardPage() {
           void loadDashboard(true);
           return;
         case "cmpri-modal-sign-out":
+          window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
           window.location.replace("/");
           return;
       }
@@ -663,6 +666,7 @@ export default function EngineeringDashboardPage() {
   const displayRole = accountRoleDisplayName(session.user);
 
   async function signOut() {
+    window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
     await signOutDevice();
     router.replace("/");
   }
@@ -818,6 +822,26 @@ export default function EngineeringDashboardPage() {
   const canReviewTickets = hasCapability(session, "review_tickets");
   const unreadCount = unreadWorkOrderNotificationCount(inbox);
   const notificationCount = unreadCount + (canReviewTickets ? approvalTotal : 0);
+
+  function restoreWorkspaceDesktop(saved: WorkspaceState["desktop"]) {
+    const byKey = new Map(saved.views.map(view => [view.key, view]));
+    for (const key of saved.zOrder) {
+      const view = byKey.get(key);
+      if (!view) continue;
+      if (view.kind === "list") openWorkOrderList();
+      else if (view.kind === "pool-status") openPoolStatus();
+      else if (view.kind === "approvals") openWindow({ key: APPROVALS_KEY, title: canReviewTickets ? "Work Order Approvals" : "Work Order Notifications",
+        kind: "approvals", accent: canReviewTickets ? "bg-purple-400" : "bg-sky-400", preferred: { width: 780, height: 540 } });
+      else if (view.key.startsWith("work-order-draft:") && view.href) {
+        const draftId = new URL(view.href, window.location.origin).searchParams.get("draftId");
+        if (draftId) openDraft(draftId);
+      } else if (view.href) {
+        const path = new URL(view.href, window.location.origin).pathname;
+        const launcher = launcherGroups.flatMap(group => group.items).find(item => item && item.href?.split("?")[0] === path);
+        openRoute(view.href, launcher ? launcher.label : undefined, launcher || undefined);
+      }
+    }
+  }
   const bellLabel = canReviewTickets
     ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${approvalTotal} awaiting approval`
     : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
@@ -827,6 +851,12 @@ export default function EngineeringDashboardPage() {
 
   return (
     <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
+      <DesktopWorkspaceResume session={session}
+        allowedHrefs={launcherGroups.flatMap(group => group.items).flatMap(item => item && item.href ? [item.href] : [])}
+        views={windows.filter(entry => !entry.weatherCached).map(entry => ({ key: entry.key, kind: entry.kind, ...(entry.src ? { href: entry.src } : {}) }))}
+        zOrder={zOrder} onRestore={restoreWorkspaceDesktop} onNavigate={href => router.replace(href)}
+        onSessionChanged={() => window.location.reload()}
+        onStorageError={() => setMessage("This device could not save the open workspace. Keep this window open to preserve the current view.")} />
       <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">
@@ -929,6 +959,7 @@ export default function EngineeringDashboardPage() {
               {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
               {entry.kind === "list" && (
                 <WorkOrderListWindow
+                  preferencesScope={`${session.hotelId}:${session.user.id}`}
                   frontDeskLayout={frontDeskLayout}
                   orders={orders}
                   drafts={drafts.map((draft) => ({

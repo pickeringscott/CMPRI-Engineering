@@ -36,6 +36,7 @@ async def main():
       {'id':'close','kind':'close','recorded_at':'2026-10-12T15:05:00Z','actor_name':'Alex','reason':'Cleaning'},
       {'id':'open','kind':'open','recorded_at':'2026-10-12T15:15:00Z','actor_name':'Jordan'}]
       + [{'id':str(test['id']),'kind':'reading','recorded_at':test['recorded_at'],'actor_name':'Test','snapshot':{'retest_submission':test},'previous_snapshot':{}} for test in retests]}
+    elif u.path=='/api/session':body={'user':{'id':'fixture','role':'chief_engineer'},'hotelId':'00000000-0000-4000-8000-000000000002','landing':'/engineering','capabilities':['view_pool_log','operate_pool_log']}
     elif u.path=='/api/profile':body={'preferences':{'appearance':'dark','language':'en'}}
     await r.fulfill(content_type='application/json',body=json.dumps(body))
    await ctx.route('**/*',route);page=await ctx.new_page();page.on('pageerror',lambda e:errors.append(str(e)))

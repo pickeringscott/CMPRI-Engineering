@@ -37,6 +37,8 @@ __SITE_PALETTE_CSS__
 #cmpriScorebug .sb-ticker-viewport{width:100%;min-width:0;overflow:hidden}#cmpriScorebug #sbTicker{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:none;transform:none;padding:0}
 .sim-tally{position:absolute;z-index:4;left:24px;top:49px;display:flex;align-items:center;gap:10px;padding:5px 8px;border:1px solid color-mix(in srgb,var(--edge) 50.2%,transparent);border-radius:2px;background:color-mix(in srgb,var(--surface) 89.02%,transparent);color:var(--text);font-size:8px;font-weight:700;line-height:12px;letter-spacing:.2px;white-space:nowrap}
 .sim-tally .sb-tally-ill{color:var(--orange-light)}.sim-tally .sb-tally-iowa{color:var(--gold)}.sim-tally b{color:var(--cmpri-palette-white);font-weight:800}.sim-tally .sb-tally-label{color:var(--muted);font-size:7px}
+/* The desktop record follows the dashboard chrome, independently of the field. */
+body.cmpri-embedded.cmpri-tally-header .sim-tally{position:fixed;left:auto;right:var(--cmpri-tally-right,8px);top:var(--cmpri-tally-top);max-width:calc(100vw - 16px)}
 @media(max-width:650px){.stage-wrap{padding-bottom:80px}.stage #cmpriScorebug,body.ambient .stage #cmpriScorebug{bottom:-72px;width:calc(100% - 20px)}#cmpriScorebug .sb-graphic{height:45px}#cmpriScorebug .sb-team-name{font-size:8px;line-height:9px}#cmpriScorebug .sb-rank{font-size:7px}#cmpriScorebug .sb-down{height:19px;line-height:17px;width:110px;font-size:12px}#cmpriScorebug .sb-side{top:12px;bottom:3px}#cmpriScorebug .sb-score{font-size:24px;line-height:28px;min-width:30px;top:0}#cmpriScorebug .sb-team-logo{height:24px;width:36px}#cmpriScorebug .sb-ill .sb-team-logo{height:26px;width:19px;left:10px}#cmpriScorebug .sb-iowa .sb-team-logo{right:7px}#cmpriScorebug .sb-center{top:23px;bottom:3px;left:35%;right:35%}#cmpriScorebug .sb-game-time{gap:3px;font-size:8px}#cmpriScorebug #sbClock{font-size:15px;min-width:40px}#cmpriScorebug #sbPlayClock{font-size:8px;min-width:8px}#cmpriScorebug .sb-ticker{height:11px;font-size:7.5px;line-height:9px}.sim-tally{left:10px;top:28px;gap:7px;padding:3px 5px;font-size:7px;line-height:9px}.sim-tally .sb-tally-label{font-size:6px}}
 
 .field-surface{position:absolute;inset:0;width:100%;height:100%}.game-break{position:absolute;z-index:6;left:50%;top:42%;transform:translate(-50%,-50%);width:min(390px,calc(100% - 32px));padding:18px 22px;text-align:center;border:1px solid var(--gold);border-radius:4px;background:color-mix(in srgb,var(--surface) 93.73%,transparent);color:var(--text);box-shadow:0 4px 16px color-mix(in srgb,var(--ink) 53.33%,transparent)}.game-break[hidden]{display:none}.game-break strong{display:block;font-size:19px;letter-spacing:1.3px}.game-break p{margin:9px 0 0;color:var(--soft);font-size:12px;line-height:1.5}body.cmpri-embedded #exitAmbient{display:none!important}
@@ -98,6 +100,42 @@ const s=still.getContext('2d',{alpha:false}),c=motion.getContext('2d'),ambience=
 const $=id=>document.getElementById(id), photo=new Image();
 const reduced=matchMedia('(prefers-reduced-motion: reduce)');
 let artworkReady=false,gameReady=false,generating=false,sceneInView=true,hostSuspended=false;const breakSeen=new Set();const EMBEDDED_THEME=new URLSearchParams(location.search).get('theme')==='1';if(EMBEDDED_THEME){hostSuspended=true;document.body.classList.add('ambient','cmpri-embedded')}const visibleWaiters=[];let paused=reduced.matches,ready=false,raf=0,last=0,time=0,playNo=0,statusKey='',ambient=false;
+// Keep the existing local record below the complete dashboard title/menu bar.
+// Header reflow must not move it with the stadium's centered/scaled stage.
+if(EMBEDDED_THEME&&parent!==window){
+ const compactTally=matchMedia('(max-width:767px),(max-width:1024px) and (pointer:coarse)');
+ let tallyHeader=null,tallyResize=null,tallyAttributes=null,tallyTree=null,tallyDocument=null,tallyFrame=0;
+ function positionDesktopTally(){
+  tallyFrame=0;
+  const header=tallyHeader?.getBoundingClientRect(),frame=window.frameElement?.getBoundingClientRect();
+  const anchored=!compactTally.matches&&header&&frame&&header.width>0&&header.height>0&&frame.width>0&&frame.height>0;
+  document.body.classList.toggle('cmpri-tally-header',Boolean(anchored));
+  if(!anchored)return;
+  const scaleX=frame.width/innerWidth,scaleY=frame.height/innerHeight;
+  document.body.style.setProperty('--cmpri-tally-top',Math.max(0,(header.bottom-frame.top+4)/scaleY)+'px');
+  document.body.style.setProperty('--cmpri-tally-right',Math.max(8,(frame.right-header.right+8)/scaleX)+'px');
+ }
+ function scheduleTallyPosition(){if(!tallyFrame)tallyFrame=requestAnimationFrame(positionDesktopTally)}
+ function findTallyHeader(){
+  const next=Array.from(tallyDocument.querySelectorAll('.cmpri-desktop-topbar')).find(node=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0})||null;
+  if(next!==tallyHeader){
+   tallyResize?.disconnect();tallyAttributes?.disconnect();tallyHeader=next;
+   if(next){
+    tallyResize=new ResizeObserver(scheduleTallyPosition);tallyResize.observe(next);
+    tallyAttributes=new MutationObserver(scheduleTallyPosition);tallyAttributes.observe(next,{attributes:true,attributeFilter:['style','class','hidden']});
+   }
+  }
+  scheduleTallyPosition();
+ }
+ try{
+  tallyDocument=parent.document;
+  tallyTree=new MutationObserver(findTallyHeader);tallyTree.observe(tallyDocument.body,{childList:true,subtree:true});
+  parent.addEventListener('resize',scheduleTallyPosition);parent.addEventListener('scroll',scheduleTallyPosition,true);
+  addEventListener('resize',scheduleTallyPosition);compactTally.addEventListener('change',scheduleTallyPosition);
+  findTallyHeader();
+  addEventListener('pagehide',()=>{tallyResize?.disconnect();tallyAttributes?.disconnect();tallyTree?.disconnect();cancelAnimationFrame(tallyFrame);parent.removeEventListener('resize',scheduleTallyPosition);parent.removeEventListener('scroll',scheduleTallyPosition,true);removeEventListener('resize',scheduleTallyPosition);compactTally.removeEventListener('change',scheduleTallyPosition)},{once:true});
+ }catch{/* A downloaded or cross-origin preview keeps its standalone placement. */}
+}
 let seed=1923;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
 const lerp=(a,b,t)=>a+(b-a)*t,clamp=(n,a=0,b=1)=>Math.max(a,Math.min(b,n)),smooth=t=>{t=clamp(t);return t*t*(3-2*t)};
 function poly(ctx,points){ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath()}
