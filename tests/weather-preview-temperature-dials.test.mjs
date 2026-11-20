@@ -109,6 +109,7 @@ test('reference-style wheels keep a crisp vertical Current stack, inside extrema
       windSpeed: '12 MPH', windDirection: 'NW', gustText: '20', visibility: '10', feelsLike: 41 });
     f.window.document.getElementById('liveTemperature').replaceChildren(current);
     const center = current.querySelector('.wv-dial-center');
+    assert.equal(current.querySelector('.wv-dial-ring').getAttribute('viewBox'), '6 0 188 190', 'Current enlarges the true vector circle without scaling text or data coordinates');
     assert.deepEqual(Array.from(center.children, (child) => child.id || child.className), [
       'liveConditionIcon', 'wv-dial-current-value', 'liveConditionText', 'liveFeelsLike', 'wv-dial-current-wind', 'liveVisibility', 'wv-dial-extrema',
     ]);
@@ -136,6 +137,7 @@ test('reference-style wheels keep a crisp vertical Current stack, inside extrema
     const daily = f.visuals.temperatureDial(day, { conditionText: 'Sunny', isDaytime: true, windSpeed: '8 MPH', windDirection: 'S' });
     const dailyCard = f.window.document.createElement('article'); dailyCard.className = 'forecast-card daily-forecast-card'; dailyCard.append(daily); f.window.document.body.append(dailyCard);
     const dailyCenter = daily.querySelector('.wv-dial-center');
+    assert.equal(daily.querySelector('.wv-dial-ring').getAttribute('viewBox'), '0 0 200 190', 'Extended retains its own circle geometry');
     assert.deepEqual(Array.from(dailyCenter.children, (child) => child.classList.contains('wv-condition') ? 'icon' : child.className), ['icon', 'wv-dial-wind', 'wv-dial-description', 'wv-dial-extrema']);
     assert.deepEqual(Array.from(daily.querySelectorAll('.wv-dial-marker text'), (label) => label.textContent), ['H', 'L']);
     assert.equal(f.window.getComputedStyle(daily.querySelector('.wv-dial-extrema')).gridTemplateColumns, '1fr', 'daily H/L rows follow the reference vertically');

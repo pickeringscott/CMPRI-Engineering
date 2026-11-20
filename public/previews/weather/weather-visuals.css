@@ -74,6 +74,7 @@
 .daily-forecast-card .wv-dial-description{font-size:clamp(12px,4.5cqw,14px)}
 .daily-forecast-card .wv-dial-extreme-value{font-size:clamp(11px,4.2cqw,14px)}
 .wv-current-dial .wv-dial-center{inset:23% 16% 20%;gap:0}
+.wv-current-dial .wv-dial-face{aspect-ratio:188/190}
 .wv-current-dial .wv-dial-clock{font-size:8px}
 .wv-current-dial .wv-dial-center .wv-temperature-value{font-size:clamp(44px,12cqw,64px)!important}
 .wv-current-dial .wv-dial-condition .wv-condition{display:block;width:clamp(64px,17cqw,92px);height:auto;aspect-ratio:64/48}

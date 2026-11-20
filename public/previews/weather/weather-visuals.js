@@ -221,7 +221,7 @@
     root.dataset.coverageHours = String(day?.coverageHours || 0);
     root.dataset.expectedHours = String(day?.expectedHours || 24);
     const svg = document.createElementNS(SVG, 'svg'), id = ++nextDial;
-    svg.setAttribute('viewBox', '0 0 200 190');
+    svg.setAttribute('viewBox', current ? '6 0 188 190' : '0 0 200 190');
     svg.setAttribute('class', 'wv-dial-ring');
     svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
     const defs = shape(svg, 'defs', {});
