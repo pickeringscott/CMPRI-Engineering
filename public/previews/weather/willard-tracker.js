@@ -42,14 +42,14 @@
     buttons.get('refresh').title = 'Refresh Map Data'; buttons.get('refresh').setAttribute('aria-label', 'Refresh Map Data');
     const layers = element('div', 'wt-layer-buttons'); layers.setAttribute('role', 'group'); layers.setAttribute('aria-label', 'Flight Map Layers');
     const aerialButton = element('button', '', 'Aerial Imagery'); aerialButton.type = 'button'; aerialButton.dataset.layer = 'aerial'; aerialButton.setAttribute('aria-pressed', 'true'); aerialButton.title = 'Show Historical USGS Aerial Imagery';
-    const layoutButton = element('button', '', 'Airport Layout'); layoutButton.type = 'button'; layoutButton.dataset.layer = 'layout'; layoutButton.setAttribute('aria-pressed', 'true'); layoutButton.title = 'Show FAA Airport Layout Reference';
+    const layoutButton = element('button', '', 'Airport Layout'); layoutButton.type = 'button'; layoutButton.dataset.layer = 'layout'; layoutButton.setAttribute('aria-pressed', 'true'); layoutButton.title = 'Show Airport Layout Reference';
     layers.append(aerialButton, layoutButton);
     const banner = element('div', 'wt-source'), provider = element('a', 'wt-provider', 'Aircraft Data: ADSB.lol');
     provider.href = 'https://adsb.lol/?lat=40.0398&lon=-88.2762&zoom=9&hideSideBar='; provider.target = '_blank'; provider.rel = 'noopener noreferrer';
     const license = element('a', 'wt-license', 'ODbL1.0'); license.href = 'https://opendatacommons.org/licenses/odbl/1-0/'; license.target = '_blank'; license.rel = 'noopener noreferrer';
     const ground = element('a', 'wt-usgs', 'USGS · USDA/NAIP'); ground.href = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer'; ground.target = '_blank'; ground.rel = 'noopener noreferrer';
     const imageryYear = element('span', 'wt-imagery-year', 'Historical · Capture Year Unavailable');
-    const faa = element('a', 'wt-faa', 'FAA Airport Layout · Reference'); faa.href = 'https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/'; faa.target = '_blank'; faa.rel = 'noopener noreferrer';
+    const faa = element('a', 'wt-faa wt-layout-source', 'Airport Layout · Reference'); faa.href = 'https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/'; faa.target = '_blank'; faa.rel = 'noopener noreferrer';
     const layoutCopy = element('span', 'wt-layout-status', 'Airport Layout Pending');
     const statusCopy = element('span', 'wt-status', 'Unavailable'), updated = element('time', 'wt-updated', 'Updated Unavailable');
     banner.append(provider, license, ground, imageryYear, faa, layoutCopy, element('span', 'wt-scope', 'CMI · 50 NM'), statusCopy, updated);
@@ -60,7 +60,7 @@
     let center = { ...start }, zoom = 9, width = 640, height = 450, visibleTiles = [], queue = [], markers = [];
     let basemap = 'imagery';
     const LAYOUT_TTL = 6 * 3600000;
-    let layoutEnabled = true, layoutStatus = 'unavailable', layoutFeatures = [], layoutLayers = [], layoutReadAt = null, layoutRetrievedAt = null, layoutSource = null, layoutRecord = null, layoutRequests = 0, layoutRendered = 0, layoutError = '';
+    let layoutEnabled = true, layoutStatus = 'unavailable', layoutFeatures = [], layoutLayers = [], layoutReadAt = null, layoutRetrievedAt = null, layoutSource = null, layoutSourceName = null, layoutRecord = null, layoutRequests = 0, layoutRendered = 0, layoutError = '';
     let requestedActive = false, running = false, destroyed = false, generation = 0, wheelActive = false, expanded = false;
     let sourceStatus = 'unavailable', aircraft = [], trustedCollection = false, observedAt = null, retrievedAt = null, lastReadAt = null, lastAttemptAt = null, error = '';
     let sourceRecord = null, pollTimer = null, sourceRequests = 0, tileRequests = 0, selected = null, pointer = null, moved = false;
@@ -171,9 +171,13 @@
         const body = await response.json(); if (ticket !== generation || !running || !layoutEnabled || layoutRecord !== record || record.controller.signal.aborted) return;
         const features = polygonRows(body?.collection), state = body?.status;
         if (!['available', 'partial', 'stale'].includes(state) || !features.length) throw new Error(body?.error || 'Airport Layout Unavailable');
-        layoutFeatures = features; layoutLayers = Array.isArray(body.layers) ? body.layers : []; layoutStatus = state; layoutReadAt = Date.now(); layoutRetrievedAt = instant(body.retrievedAt); layoutSource = typeof body.sourceUrl === 'string' ? body.sourceUrl : null;
+        layoutFeatures = features; layoutLayers = Array.isArray(body.layers) ? body.layers : []; layoutStatus = state; layoutReadAt = Date.now(); layoutRetrievedAt = instant(body.retrievedAt);
+        layoutSourceName = /^USGS(?: The National Map)?$/i.test(body.sourceName || '') ? 'USGS' : 'FAA AIS';
+        layoutSource = layoutSourceName === 'USGS' ? 'https://www.usgs.gov/programs/national-geospatial-program/national-map' : 'https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/';
+        if (typeof body.sourceUrl === 'string') { try { const url = new URL(body.sourceUrl); if (url.protocol === 'https:' && !url.username && !url.password && (url.hostname === 'faa.gov' || url.hostname.endsWith('.faa.gov') || url.hostname === 'usgs.gov' || url.hostname.endsWith('.usgs.gov') || url.hostname === 'cartowfs.nationalmap.gov')) layoutSource = url.href; } catch { /* Keep the official provider source link. */ } }
+        faa.textContent = 'Airport Layout · Reference · ' + (layoutSourceName === 'USGS' ? 'USGS Layout' : 'FAA AIS'); faa.href = layoutSource;
+        faa.title = typeof body.attribution === 'string' ? body.attribution : layoutSourceName + ' Airport Layout Reference';
         layoutError = typeof body.operationalStatusNote === 'string' ? body.operationalStatusNote : 'Historical Reference Geometry; Not Runway Or Taxiway Operating Status';
-        if (layoutSource) { try { const url = new URL(layoutSource); if (url.protocol === 'https:' && !url.username && !url.password && (url.hostname === 'faa.gov' || url.hostname.endsWith('.faa.gov') || url.hostname === 'services6.arcgis.com' || url.hostname === 'ais-faa.opendata.arcgis.com')) faa.href = url.href; } catch { /* Keep the fixed FAA source link. */ } }
       } catch (failure) { if (ticket === generation && running && layoutEnabled && layoutRecord === record) { layoutStatus = 'unavailable'; layoutError = failure.name === 'AbortError' ? 'Airport Layout Read Timed Out' : String(failure.message || 'Airport Layout Unavailable'); } }
       finally { clearTimeout(record.timeout); if (layoutRecord === record) layoutRecord = null; if (ticket === generation && running) paint(); }
     }
@@ -312,7 +316,7 @@
         snapshotAgeSeconds: observedAt === null ? null : Math.max(0, (Date.now() - observedAt) / 1000), aircraftCount: current === 'live' && trustedCollection ? aircraft.length : null, retainedAircraftCount: aircraft.length,
         aircraftCoverageVerified: current === 'live' && trustedCollection && aircraft.length > 0 && aircraft.some((row) => positionAge(row) !== null && positionAge(row) <= 180),
         aircraft: aircraft.map((row) => ({ ...row, positionAgeSeconds: positionAge(row) })), markers: markers.map((row) => ({ ...row })), airport: { ...AIRPORT, ...airport }, center: location, zoom, wheelActive,
-        width, height, basemap, aerialImagery: basemap === 'imagery', imageryCaptureYear: null, airportLayout: { enabled: layoutEnabled, status: effectiveLayoutStatus(), features: layoutFeatures.length, rendered: layoutRendered, requests: layoutRequests, pending: Boolean(layoutRecord), retrievedAt: layoutRetrievedAt === null ? null : new Date(layoutRetrievedAt).toISOString(), layers: layoutLayers.map((row) => ({ ...row })), sourceUrl: layoutSource }, requests: sourceRequests, pending: sourceRecord ? 1 : 0, pendingRequests: sourceRecord ? 1 : 0, tileRequests, pendingTiles: Array.from(inflight.values()).filter((record) => !record.controller.signal.aborted).length,
+        width, height, basemap, aerialImagery: basemap === 'imagery', imageryCaptureYear: null, airportLayout: { enabled: layoutEnabled, status: effectiveLayoutStatus(), features: layoutFeatures.length, rendered: layoutRendered, requests: layoutRequests, pending: Boolean(layoutRecord), retrievedAt: layoutRetrievedAt === null ? null : new Date(layoutRetrievedAt).toISOString(), layers: layoutLayers.map((row) => ({ ...row })), sourceName: layoutSourceName, sourceUrl: layoutSource }, requests: sourceRequests, pending: sourceRecord ? 1 : 0, pendingRequests: sourceRecord ? 1 : 0, tileRequests, pendingTiles: Array.from(inflight.values()).filter((record) => !record.controller.signal.aborted).length,
         queuedTiles: queue.length, tileCacheSize: cache.size, tileCacheLimit: TILE_LIMIT, tileParallelLimit: PARALLEL, refreshTimerActive: pollTimer !== null, clockMode, databaseCalls: 0, backgroundPolling: false };
     }
     function destroy() { if (destroyed) return; requestedActive = false; stop(); destroyed = true; observer?.disconnect(); window.removeEventListener('resize', resize); document.removeEventListener('visibilitychange', reconcile); document.removeEventListener('fullscreenchange', fullscreenChange); document.removeEventListener('keydown', keydown, true); window.removeEventListener('pagehide', pagehide); root.remove(); }

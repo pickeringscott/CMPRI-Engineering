@@ -41,7 +41,7 @@ function fixture({ clockMode = '24' } = {}) {
     [[-88.28, 40.03], [-88.27, 40.03], [-88.27, 40.04], [-88.28, 40.04], [-88.28, 40.03]],
     [[-88.278, 40.032], [-88.276, 40.032], [-88.276, 40.034], [-88.278, 40.034], [-88.278, 40.032]],
   ] } };
-  let layoutPayload = { airport: 'KCMI', status: 'available', collection: { type: 'FeatureCollection', features: [layoutFeature] }, retrievedAt: new Date(START).toISOString(),
+  let layoutPayload = { airport: 'KCMI', status: 'available', sourceName: 'FAA AIS', collection: { type: 'FeatureCollection', features: [layoutFeature] }, retrievedAt: new Date(START).toISOString(),
     layers: [{ kind: 'runway', status: 'available', featureCount: 1, sourceUrl: 'https://www.faa.gov/airports' }], sourceUrl: 'https://www.faa.gov/airports', attribution: 'FAA Airport Layout', cacheSeconds: 21600,
     operationalStatusNote: 'Reference Geometry Does Not Establish Operational Status' };
   let layoutHandler = async () => ({ ok: true, json: async () => layoutPayload });
@@ -127,7 +127,7 @@ test('verified FAA reference polygons stay geographically anchored, retain holes
     const state = f.api.getState();
     assert.equal(state.airportLayout.enabled, true); assert.equal(state.airportLayout.status, 'available');
     assert.ok(state.airportLayout.rendered > 0); assert.equal(f.layoutReads().length, 1);
-    assert.match(f.window.document.querySelector('.wt-faa').textContent, /FAA Airport Layout.*Reference/);
+    assert.match(f.window.document.querySelector('.wt-layout-source').textContent, /Airport Layout.*Reference.*FAA AIS/);
     f.operations.length = 0; f.pointer('click', 0, 0);
     const first = f.operations.find((op) => op.type === 'move');
     const origin = f.window.cmpriWillardTracker.project(f.airport.lat, f.airport.lon, state.zoom);
@@ -145,6 +145,45 @@ test('verified FAA reference polygons stay geographically anchored, retain holes
     const reads = f.layoutReads().length; button.click(); await settle();
     assert.equal(f.api.getState().airportLayout.enabled, true); assert.equal(f.layoutReads().length, reads, 'the verified six-hour layout cache survives toggling');
     assert.deepEqual(Array.from(f.api.getState().markers, (row) => [row.lat, row.lon]), positions);
+  } finally { f.close(); }
+});
+
+test('layout credit follows the verified provider and rejects deceptive source hosts without retaining prior credit', async () => {
+  const f = fixture();
+  try {
+    const credit = f.window.document.querySelector('.wt-layout-source');
+    assert.equal(f.api.getState().airportLayout.sourceName, null);
+    assert.equal(credit.textContent, 'Airport Layout · Reference', 'an unread source does not claim FAA or USGS geometry');
+    f.api.setActive(true); await settle();
+    assert.equal(f.api.getState().airportLayout.sourceName, 'FAA AIS');
+    assert.equal(credit.textContent, 'Airport Layout · Reference · FAA AIS');
+    assert.equal(credit.href, f.layoutPayload.sourceUrl);
+
+    const usgsUrl = 'https://cartowfs.nationalmap.gov/arcgis/services/transportation/MapServer/WFSServer';
+    for (const sourceName of ['USGS The National Map', 'USGS']) {
+      f.setLayoutPayload({ ...f.layoutPayload, sourceName, sourceUrl: usgsUrl, attribution: 'USGS Airport Layout Reference' });
+      f.button('refresh').click(); await settle();
+      const state = f.api.getState().airportLayout;
+      assert.equal(state.sourceName, 'USGS'); assert.equal(state.status, 'available'); assert.ok(state.rendered > 0);
+      assert.equal(credit.textContent, 'Airport Layout · Reference · USGS Layout');
+      assert.doesNotMatch(credit.textContent, /FAA/);
+      assert.equal(credit.href, usgsUrl); assert.equal(state.sourceUrl, usgsUrl);
+    }
+
+    f.setLayoutPayload(f.layoutPayload); f.button('refresh').click(); await settle();
+    assert.equal(f.api.getState().airportLayout.sourceName, 'FAA AIS');
+    assert.equal(credit.textContent, 'Airport Layout · Reference · FAA AIS');
+    assert.equal(credit.href, f.layoutPayload.sourceUrl, 'switching back to FAA replaces the prior USGS source link');
+
+    f.setLayoutPayload({ ...f.layoutPayload, sourceName: 'USGS The National Map', sourceUrl: 'https://cartowfs.nationalmap.gov.evil.example/layout' });
+    f.button('refresh').click(); await settle();
+    assert.equal(f.api.getState().airportLayout.sourceName, 'USGS');
+    assert.equal(credit.textContent, 'Airport Layout · Reference · USGS Layout');
+    const safeUrl = new URL(credit.href);
+    assert.equal(safeUrl.protocol, 'https:');
+    assert.ok(safeUrl.hostname === 'usgs.gov' || safeUrl.hostname.endsWith('.usgs.gov') || safeUrl.hostname === 'cartowfs.nationalmap.gov', 'a deceptive hostname falls back to an official USGS link');
+    assert.equal(f.api.getState().airportLayout.sourceUrl, credit.href);
+    assert.notEqual(credit.href, f.layoutPayload.sourceUrl, 'a rejected USGS URL must not leave the prior FAA credit in place');
   } finally { f.close(); }
 });
 
