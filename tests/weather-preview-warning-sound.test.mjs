@@ -4,10 +4,11 @@ import { loadTs } from './helpers/load-ts.mjs';
 
 function fixture(options={}) {
   const calls={created:0,resumed:0,fetched:[],decoded:0,started:0,stopped:[],ramps:[],disconnected:0};
-  let allowResume=options.allowResume!==false,releaseDecode,context;
+  let allowResume=options.allowResume!==false,releaseDecode;
+  const contexts=[];
   const decodeGate=options.pendingDecode?new Promise(resolve=>{releaseDecode=resolve;}):null;
   class Context {
-    constructor(){calls.created++;this.state=options.state||'suspended';this.currentTime=12;this.destination={};context=this;}
+    constructor(){calls.created++;this.state=options.state||'suspended';this.currentTime=12;this.destination={};contexts.push(this);}
     resume(){calls.resumed++;if(!allowResume)return Promise.reject(Error('Browser blocked'));this.state='running';return Promise.resolve();}
     async decodeAudioData(){calls.decoded++;if(decodeGate)await decodeGate;if(options.badDecode)throw Error('Unsupported audio');return {duration:11.72};}
     createBufferSource(){return {buffer:null,onended:null,connect(){},disconnect(){calls.disconnected++;},start(){calls.started++;},stop(at){calls.stopped.push(at);}};}
@@ -17,7 +18,7 @@ function fixture(options={}) {
     window:options.unsupported?{}:{AudioContext:Context},
     fetch:async(url,init)=>{calls.fetched.push({url,init});return new Response(new Uint8Array([1,2,3]),{status:options.httpStatus||200});},
   });
-  return {api,calls,allowResume:()=>{allowResume=true;},releaseDecode:()=>releaseDecode?.(),pause:()=>{context.state='suspended';}};
+  return {api,calls,allowResume:()=>{allowResume=true;},releaseDecode:()=>releaseDecode?.(),pause:()=>{contexts.at(-1).state='suspended';}};
 }
 
 test('launcher arming creates and resumes AudioContext synchronously, caching only the local decoded siren',async()=>{
