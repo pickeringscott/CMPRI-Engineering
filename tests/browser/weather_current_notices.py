@@ -175,9 +175,22 @@ async def dial_reference_layout(frame):
         const lines=Math.min(parseInt(style.webkitLineClamp)||Infinity,range.getClientRects().length),needed=lines*parseFloat(style.lineHeight),height=el.getBoundingClientRect().height;
         return style.overflowY==='hidden'&&Number.isFinite(needed)&&height<needed-.6?[{text:el.textContent,height,needed,lines}]:[];
       });
+      const clippedTicks=Array.from(current.querySelectorAll('.wv-dial-clock')).map(el=>({text:el.textContent,...rect(el)})).filter(el=>el.left<face.left-.5||el.right>face.right+.5||el.top<face.top-.5||el.bottom>face.bottom+.5);
+      const painted=Array.from(current.querySelectorAll('.wv-moon,.wv-star')),paintCollisions=[];
+      for(const track of painted.length?current.querySelectorAll('.wv-dial-track'):[]){
+        const length=track.getTotalLength(),half=parseFloat(getComputedStyle(track).strokeWidth)/2;
+        for(let at=0;at<=length;at+=.75){
+          const p=track.getPointAtLength(at),a=track.getPointAtLength(Math.max(0,at-.1)),b=track.getPointAtLength(Math.min(length,at+.1)),size=Math.hypot(b.x-a.x,b.y-a.y)||1;
+          for(const offset of [-half,-half/2,0,half/2,half]){
+            const screen=new DOMPoint(p.x-(b.y-a.y)/size*offset,p.y+(b.x-a.x)/size*offset).matrixTransform(track.getScreenCTM());
+            for(const shape of painted){const point=screen.matrixTransform(shape.getScreenCTM().inverse());
+              if((shape.isPointInFill(point)||shape.isPointInStroke(point))&&paintCollisions.length<3)paintCollisions.push({shape:shape.getAttribute('class'),x:screen.x,y:screen.y});}
+          }
+        }
+      }
       return {currentItems,iconWidth:iconBox.width,tempFont:parseFloat(getComputedStyle(temp).fontSize),
         centerOffset:Math.abs(iconBox.left+iconBox.width/2-face.left-face.width/2),face:rect(current.querySelector('.wv-dial-face')),
-        currentBadgeColumns:getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,badges,collisions,clippedText,
+        currentBadgeColumns:getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,badges,collisions,clippedText,clippedTicks,paintCollisions,
         days:Array.from(document.querySelectorAll('.daily-forecast-card')).map(card=>{
           const center=card.querySelector('.wv-dial-center'),icon=card.querySelector('.wv-condition'),values=Array.from(card.querySelectorAll('.wv-dial-extreme-value'));
           return {iconWidth:rect(icon).width,columns:getComputedStyle(card.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,
@@ -194,6 +207,8 @@ async def dial_reference_layout(frame):
     require(len(result['badges'])==4 and not result['collisions'],
             'Current inner H/L text or color dots overlap a ring marker or lower clock tick: '+str(result['collisions']))
     require(not result['clippedText'],'Current condition/event text is clipped inside a visible line: '+str(result['clippedText']))
+    require(not result['clippedTicks'],'Current clock labels leave the dial/card viewport: '+str(result['clippedTicks']))
+    require(not result['paintCollisions'],'Painted Current moon/star overlaps a temperature track: '+str(result['paintCollisions']))
     for day in result['days']:
         require(day['iconWidth']>=69.5 and day['columns']==1 and all(font>=10.5 for font in day['fonts'])
                 and all(day['items'][index]['top']>=day['items'][index-1]['bottom']-.5 for index in range(1,len(day['items'])))
