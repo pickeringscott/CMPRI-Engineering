@@ -1,7 +1,7 @@
-/* Shared visual vocabulary for actual NWS values; no requests or inferred values.
- * Every air-temperature display uses this fixed Fahrenheit scale:
- * -15 white, 0 purple, 15 dark blue, 32 light blue, 50 green,
- * 70 yellow, 90 red, 110 brown. Values outside it keep their actual label.
+/* Local weather data visuals; no requests or theme-palette dependency.
+ * Hard-coded Fahrenheit colors approximate the user's reference screenshots.
+ * They are not an authoritative reconstruction of the reference app's formula.
+ * Numeric values always retain their actual value, including outside the ramp.
  */
 (function () {
   'use strict';
@@ -9,14 +9,27 @@
   const SVG = 'http://www.w3.org/2000/svg';
   const MIN = -15, MAX = 110;
   const STOPS = Object.freeze([
-    { fahrenheit: -15, color: '#ffffff', name: 'white' },
-    { fahrenheit: 0, color: '#a35bcb', name: 'purple' },
-    { fahrenheit: 15, color: '#2449a3', name: 'dark blue' },
-    { fahrenheit: 32, color: '#7cccf2', name: 'light blue' },
-    { fahrenheit: 50, color: '#52ad68', name: 'green' },
-    { fahrenheit: 70, color: '#f5d642', name: 'yellow' },
-    { fahrenheit: 90, color: '#e44a3f', name: 'red' },
-    { fahrenheit: 110, color: '#8b4d2a', name: 'brown' }
+    { fahrenheit: -15, color: '#00e7e5', name: 'cyan' },
+    { fahrenheit: 0, color: '#00e7e5', name: 'cyan' },
+    { fahrenheit: 5, color: '#23cef0', name: 'cyan blue' },
+    { fahrenheit: 10, color: '#4baff6', name: 'sky blue' },
+    { fahrenheit: 15, color: '#7784fa', name: 'periwinkle' },
+    { fahrenheit: 20, color: '#a25afa', name: 'violet' },
+    { fahrenheit: 25, color: '#c336ef', name: 'purple' },
+    { fahrenheit: 32, color: '#e000ee', name: 'magenta' },
+    { fahrenheit: 34, color: '#5600ee', name: 'deep violet' },
+    { fahrenheit: 40, color: '#1700f5', name: 'deep blue' },
+    { fahrenheit: 45, color: '#0065fb', name: 'blue' },
+    { fahrenheit: 50, color: '#00b7ed', name: 'cyan blue' },
+    { fahrenheit: 55, color: '#1beac5', name: 'mint' },
+    { fahrenheit: 63, color: '#9bff54', name: 'lime green' },
+    { fahrenheit: 70, color: '#d8ff13', name: 'yellow green' },
+    { fahrenheit: 80, color: '#ffcc00', name: 'yellow' },
+    { fahrenheit: 85, color: '#ff8900', name: 'orange' },
+    { fahrenheit: 88, color: '#ff5b00', name: 'orange red' },
+    { fahrenheit: 95, color: '#f40818', name: 'red' },
+    { fahrenheit: 106, color: '#e92b95', name: 'hot pink' },
+    { fahrenheit: 110, color: '#e92b95', name: 'hot pink' }
   ].map(Object.freeze));
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
   const position = (value) => (Math.max(MIN, Math.min(MAX, value)) - MIN) / (MAX - MIN) * 100;
@@ -73,7 +86,7 @@
       const marker = node('span', 'wv-temperature-marker');
       marker.style.left = position(fahrenheit) + '%';
       track.append(marker);
-      root.title = 'Air temperature ' + formatNumber.format(fahrenheit) + '°F · fixed −15 to 110°F scale';
+      root.title = 'Air temperature ' + formatNumber.format(fahrenheit) + '°F · fixed reference colors, independent of the CMPRI theme';
     } else {
       root.classList.add('wv-unavailable');
       root.title = 'Air temperature unavailable';
@@ -82,6 +95,164 @@
     limits.append(node('span', '', '−15'), node('span', '', '110°F'));
     scale.append(track, limits);
     root.append(scale);
+    return root;
+  }
+
+  const HOUR = 3600000;
+  const centralParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZoneName: 'short'
+  });
+  const dayLabel = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric' });
+  function timeValue(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const result = typeof value === 'number' ? value : Date.parse(value);
+    return finite(result) ? result : null;
+  }
+  function clockParts(time) {
+    return Object.fromEntries(centralParts.formatToParts(new Date(time)).map((part) => [part.type, part.value]));
+  }
+  function dayKey(time) {
+    const value = timeValue(time); if (value === null) return null;
+    const parts = clockParts(value);
+    return parts.year + '-' + parts.month + '-' + parts.day;
+  }
+  function clockLabel(time) {
+    const parts = clockParts(time);
+    return parts.hour + ':' + parts.minute + ' ' + parts.timeZoneName;
+  }
+  function nextDay(key) {
+    const [year, month, day] = key.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+  }
+  function midnight(key) {
+    const target = Date.parse(key + 'T00:00:00Z');
+    let guess = target + 6 * HOUR;
+    // Resolve Central midnight rather than assuming every local day is 24 elapsed hours.
+    for (let i = 0; i < 3; i += 1) {
+      const p = clockParts(guess);
+      const local = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+      guess += target - local;
+    }
+    return guess;
+  }
+  function periodSpan(period) {
+    const start = timeValue(period.startTime), end = timeValue(period.endTime);
+    return start !== null && end !== null && end > start ? { start, end } : null;
+  }
+  function forecastDays(hourlyPeriods = [], extendedPeriods = []) {
+    const days = new Map();
+    function cover(period, hourly) {
+      const span = periodSpan(period); if (!span) return;
+      let key = dayKey(span.start);
+      // Official forecasts cover roughly a week. Bound malformed input without creating an unbounded loop.
+      for (let count = 0; count < 16; count += 1) {
+        const start = midnight(key), end = midnight(nextDay(key));
+        if (start >= span.end) break;
+        if (!days.has(key)) days.set(key, { key, start, end, label: dayLabel.format(new Date(start + 12 * HOUR)), hourly: [], extended: [] });
+        const day = days.get(key);
+        if (hourly) {
+          if (finite(period.fahrenheit)) day.hourly.push({ ...period, start: Math.max(start, span.start), end: Math.min(end, span.end), sampleTime: span.start });
+        } else day.extended.push(period);
+        key = nextDay(key);
+      }
+    }
+    extendedPeriods.forEach((period) => cover(period, false));
+    hourlyPeriods.forEach((period) => cover(period, true));
+    return Array.from(days.values()).sort((a, b) => a.start - b.start).map((day) => {
+      let previousEnd = day.start;
+      const segments = [], occurrences = new Map();
+      const samples = day.hourly.sort((a, b) => a.start - b.start).filter((period) => dayKey(period.sampleTime) === day.key);
+      for (const period of day.hourly) {
+        let start = Math.max(previousEnd, period.start);
+        while (start < period.end) {
+          const end = Math.min(period.end, start + HOUR);
+          const p = clockParts(start), minute = Number(p.hour) * 60 + Number(p.minute);
+          const minuteEnd = Math.min(1440, minute + (end - start) / 60000);
+          const occurrence = occurrences.get(minute) || 0;
+          occurrences.set(minute, occurrence + 1);
+          segments.push({ start, end, minute, minuteEnd, fahrenheit: period.fahrenheit, label: clockLabel(start), repeated: occurrence > 0 });
+          start = end;
+        }
+        previousEnd = Math.max(previousEnd, period.end);
+      }
+      const coverage = segments.reduce((sum, segment) => sum + segment.end - segment.start, 0);
+      const expectedHours = (day.end - day.start) / HOUR;
+      const high = samples.reduce((best, sample) => !best || sample.fahrenheit > best.fahrenheit ? sample : best, null);
+      const low = samples.reduce((best, sample) => !best || sample.fahrenheit < best.fahrenheit ? sample : best, null);
+      return { ...day, segments, high, low, expectedHours, coverageHours: coverage / HOUR,
+        partial: coverage < day.end - day.start - 1000,
+        clockChange: expectedHours === 23 ? '23-hour Central day · 02:00 skipped' : expectedHours === 25 ? '25-hour Central day · 01:00 repeats; inset track shows the second hour' : '' };
+    });
+  }
+  function dialPoint(minute, radius) {
+    const angle = (120 + minute / 1440 * 300) * Math.PI / 180;
+    return { x: 100 + Math.cos(angle) * radius, y: 99 + Math.sin(angle) * radius };
+  }
+  function dialArc(start, end, radius) {
+    const a = dialPoint(start, radius), b = dialPoint(end, radius);
+    return 'M' + a.x.toFixed(3) + ' ' + a.y.toFixed(3) + 'A' + radius + ' ' + radius + ' 0 ' + (end - start > 864 ? '1' : '0') + ' 1 ' + b.x.toFixed(3) + ' ' + b.y.toFixed(3);
+  }
+  function temperatureDial(day, { observedTemperature = null, current = false, pending = false, stale = false } = {}) {
+    const root = node('div', 'wv-temperature-dial');
+    root.dataset.day = day?.key || '';
+    root.dataset.coverage = day?.segments.length ? day.partial ? 'partial' : 'complete' : 'unavailable';
+    root.dataset.coverageHours = String(day?.coverageHours || 0);
+    root.dataset.expectedHours = String(day?.expectedHours || 24);
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 200 190');
+    svg.setAttribute('class', 'wv-dial-ring');
+    svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
+    shape(svg, 'path', { d: dialArc(0, 1440, 73), class: 'wv-dial-track' });
+    for (const segment of day?.segments || []) {
+      const arc = shape(svg, 'path', { d: dialArc(segment.minute, segment.minuteEnd, segment.repeated ? 62 : 73), class: 'wv-dial-segment', stroke: colorAt(segment.fahrenheit) });
+      arc.dataset.startTime = new Date(segment.start).toISOString(); arc.dataset.clockTime = segment.label;
+      arc.dataset.airTemperature = String(segment.fahrenheit); arc.dataset.repeatedHour = String(segment.repeated);
+      const title = shape(arc, 'title', {}); title.textContent = segment.label + ' · ' + formatNumber.format(segment.fahrenheit) + '°F forecast';
+    }
+    [0, 360, 720, 1080, 1440].forEach((minute) => {
+      const point = dialPoint(minute, 91);
+      const label = shape(svg, 'text', { x: point.x, y: point.y + 3, 'text-anchor': 'middle', class: 'wv-dial-clock' });
+      label.textContent = String(minute / 60).padStart(2, '0');
+    });
+    const extrema = node('div', 'wv-dial-extrema');
+    [['H', day?.high], ['L', day?.low]].forEach(([kind, sample]) => {
+      const item = node('span', 'wv-dial-extreme'); item.dataset.extreme = kind;
+      const known = sample && finite(sample.fahrenheit);
+      if (known) {
+        const time = clockParts(sample.sampleTime), minute = Number(time.hour) * 60 + Number(time.minute);
+        const repeated = day.segments.find((segment) => segment.start === sample.sampleTime)?.repeated;
+        const sameTime = kind === 'L' && day.high?.sampleTime === sample.sampleTime;
+        const point = dialPoint(minute, repeated || sameTime ? 60 : 73);
+        const mark = shape(svg, 'g', { class: 'wv-dial-marker' });
+        mark.dataset.extreme = kind; mark.dataset.sampleTime = new Date(sample.sampleTime).toISOString();
+        shape(mark, 'circle', { cx: point.x, cy: point.y, r: 7.5, fill: colorAt(sample.fahrenheit) });
+        const label = shape(mark, 'text', { x: point.x, y: point.y + 2.7, 'text-anchor': 'middle' }); label.textContent = kind;
+        const markerTitle = shape(mark, 'title', {}); markerTitle.textContent = kind + ' ' + formatNumber.format(sample.fahrenheit) + '°F at ' + clockLabel(sample.sampleTime) + ' · provided hourly forecast';
+        const value = node('strong', 'wv-dial-extreme-value', kind + ' ' + formatNumber.format(sample.fahrenheit) + '°F');
+        value.style.setProperty('--wv-temperature-color', colorAt(sample.fahrenheit));
+        item.append(value, node('time', 'wv-dial-extreme-time', clockLabel(sample.sampleTime)));
+        item.querySelector('time').dateTime = new Date(sample.sampleTime).toISOString();
+      } else item.append(node('strong', 'wv-dial-extreme-value', kind + ' —'), node('span', 'wv-dial-extreme-time', 'Time unavailable'));
+      extrema.append(item);
+    });
+    const face = node('div', 'wv-dial-face'); face.append(svg);
+    const center = node('div', 'wv-dial-center');
+    if (current) {
+      const known = finite(observedTemperature);
+      const value = node('strong', 'wv-temperature-value', known ? formatNumber.format(observedTemperature) + '°F' : '—');
+      value.dataset.airTemperature = known ? String(observedTemperature) : 'unknown';
+      if (known) value.style.setProperty('--wv-temperature-color', colorAt(observedTemperature));
+      center.append(value, node('span', 'wv-dial-center-label', 'KCMI observed'));
+    } else center.append(node('span', 'wv-dial-center-label', '24-hour'), node('strong', 'wv-dial-center-title', 'forecast'));
+    face.append(center); root.append(face, extrema);
+    const hasData = Boolean(day?.segments.length);
+    const coverage = pending && !hasData ? 'Hourly forecast loading' : !hasData ? 'Hourly timeline unavailable' : (stale ? 'STALE · ' : '') + (day.partial ? 'Partial · ' : '') + formatNumber.format(day.coverageHours) + '/' + day.expectedHours + ' h supplied';
+    root.append(node('p', 'wv-dial-coverage', coverage));
+    root.append(node('p', 'wv-dial-caption', current ? 'Ring: today’s forecast · Central time' : 'Hourly forecast · Central time'));
+    if (day?.partial && hasData) root.append(node('p', 'wv-dial-limit', 'H/L: supplied hours only · gaps unknown'));
+    if (day?.clockChange) root.append(node('p', 'wv-dial-limit', day.clockChange));
+    root.setAttribute('aria-label', (current ? 'Current observed temperature and today’s' : day?.label || 'Daily') + ' forecast temperature timeline. ' + coverage + '. ' + (day?.clockChange || ''));
     return root;
   }
 
@@ -225,5 +396,5 @@
     return root;
   }
 
-  window.cmpriWeatherVisuals = Object.freeze({ temperature, condition, wind, stops: STOPS, min: MIN, max: MAX, colorAt });
+  window.cmpriWeatherVisuals = Object.freeze({ temperature, condition, wind, forecastDays, temperatureDial, dayKey, stops: STOPS, min: MIN, max: MAX, colorAt });
 })();

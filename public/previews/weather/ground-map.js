@@ -8,9 +8,9 @@
   const PARALLEL_LIMIT = 4;
   const STYLES = Object.freeze({ gray: 'topo', roads: 'topo', aerial: 'imagery', terrain: 'relief' });
   const ATTRIBUTION = Object.freeze({
-    topo: 'USGS The National Map · topographic reference data',
-    imagery: 'USGS The National Map · USDA/NAIP ground imagery · acquisition dates vary; not live satellite',
-    relief: 'USGS The National Map · 3DEP / GMTED2010 shaded relief'
+    topo: 'USGS',
+    imagery: 'USGS · USDA/NAIP',
+    relief: 'USGS · 3DEP/GMTED2010'
   });
   const cache = new Map();
   const inflight = new Map();
@@ -46,7 +46,7 @@
       pending: Array.from(inflight.values()).filter((record) => !record.controller.signal.aborted).length,
       queued: queue.length, loaded: state.loaded, failed: failures.size,
       cacheSize: cache.size, cacheLimit: CACHE_LIMIT, parallelLimit: PARALLEL_LIMIT,
-      attribution: ATTRIBUTION[state.dataset] + (state.style === 'aerial' && state.referenceEnabled ? ' · USGS transportation / GNIS reference' : ''), error: state.error,
+      attribution: ATTRIBUTION[state.dataset] + (state.style === 'aerial' && state.referenceEnabled ? ' · GNIS' : ''), error: state.error,
       visibleLoaded, visibleTotal: state.visible.length, visibleFailed,
       tileZoom: state.tileZoom, requestedZoom: state.requestedZoom,
       imageryAcquisitionYear: null,

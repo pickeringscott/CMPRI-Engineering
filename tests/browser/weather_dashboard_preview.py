@@ -22,6 +22,7 @@ import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
+from zoneinfo import ZoneInfo
 
 sys.dont_write_bytecode = True
 os.environ.setdefault("CMPRI_UI_OUTPUT", "/tmp/cmpri-weather-dashboard-review")
@@ -142,7 +143,7 @@ class OfficialFeedFixtures:
         self.basemap_gate = asyncio.Event()
         self.basemap_pending = asyncio.Event()
         self.wms_requests = []
-        self.wms_modes = {"velocity": "fresh", "precipitation": "fresh"}
+        self.wms_modes = {"reflectivity": "fresh", "velocity": "fresh", "precipitation": "fresh"}
         self.wms_metadata = {}
         self.wms_legend_delay = 0
         self.hold_wms = False
@@ -227,12 +228,14 @@ class OfficialFeedFixtures:
 
     def wms(self, product):
         name, style, path = {
+            "reflectivity": ("conus_bref_qcd", "radar_reflectivity", "conus/conus_bref_qcd/ows"),
             "velocity": ("kilx_sr_bvel", "radar_velocity", "kilx/ows"),
             "precipitation": ("conus_pcpn_typ", "radar_precip_type", "conus/conus_pcpn_typ/ows"),
         }[product]
         source = "https://opengeo.ncep.noaa.gov/geoserver/" + path
         age = 180 if self.wms_modes[product] == "stale" else 4
-        times = [iso(self.now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]]
+        times = ([iso(datetime.fromtimestamp(value / 1000, timezone.utc)) for value in self.scan_times]
+                 if product == "reflectivity" else [iso(self.now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]])
         return {"product": product, "source": source + "?service=WMS&version=1.3.0&request=GetCapabilities",
             "checkedAt": iso(self.now), "version": "1.3.0", "mapFormats": ["image/png"],
             "legendSupported": True, "xml": "<!-- explicit local WMS test fixture -->",
@@ -258,6 +261,8 @@ class OfficialFeedFixtures:
             if operation == "capabilities":
                 metadata = self.wms(product)
                 self.wms_metadata[product] = metadata
+                if product == "reflectivity":
+                    self.map_urls.append(metadata["source"])
                 await route.fulfill(content_type="application/json", body=json.dumps(metadata))
                 return
             metadata = self.wms_metadata.get(product)
@@ -275,14 +280,23 @@ class OfficialFeedFixtures:
                 bbox = list(map(float, params["bbox"][0].split(",")))
                 require(1 <= width <= 1500 and 1 <= height <= 1500 and len(bbox) == 4,
                         "WMS map dimensions or extent exceeded the bounded fixture contract")
-                if self.hold_wms:
+                if product == "reflectivity":
+                    export = {"time": int(provided_time.timestamp() * 1000), "layer": layer["name"], "style": layer["styles"][0]["name"]}
+                    self.exports.append(export)
+                    if self.radar_export_delay:
+                        await asyncio.sleep(self.radar_export_delay)
+                    if self.hold_map:
+                        self.map_pending.set()
+                        await self.map_gate.wait()
+                elif self.hold_wms:
                     self.wms_pending.set()
                     await self.wms_gate.wait()
             else:
-                width, height = 180, 24
+                width, height = (500, 30) if product == "reflectivity" else (180, 24)
                 if self.wms_legend_delay:
                     await asyncio.sleep(self.wms_legend_delay)
-            color = (180, 65, 205, 150) if product == "velocity" else (85, 205, 225, 170)
+            color = {"reflectivity": (30, 170, 75, 180), "velocity": (180, 65, 205, 150),
+                     "precipitation": (85, 205, 225, 170)}[product]
             source_parameters = {
                 "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
                 "LAYERS" if operation == "map" else "LAYER": layer["name"],
@@ -291,6 +305,10 @@ class OfficialFeedFixtures:
                 source_parameters.update({"CRS": "EPSG:3857", "BBOX": params["bbox"][0],
                     "WIDTH": str(width), "HEIGHT": str(height), "TIME": params["time"][0]})
             source = metadata["source"].split("?")[0] + "?" + urlencode(source_parameters)
+            if product == "reflectivity":
+                self.map_urls.append(source)
+                if operation == "map":
+                    self.image_exports.append(export)
             await route.fulfill(content_type="image/png", body=png_fixture(width, height, color), headers={
                 "X-Weather-Source": source, "X-Weather-Layer": layer["name"],
                 "X-Weather-Time": params.get("time", ["source-default"])[0]})
@@ -564,29 +582,47 @@ async def run_viewport(browser, base, output, width, height):
             require(value.startswith(("Unavailable", "Not reported", "—")), "Missing " + element + " became a value")
         require("10 mph" in await frame.locator("#liveWind").inner_text(), "Observation wind conversion failed")
         require(await frame.locator("#hourlyForecast .forecast-card").count() == 12, "Hourly response periods missing")
-        require(await frame.locator("#extendedForecast .forecast-card").count() == 7, "Extended response periods missing")
+        days = set()
+        for resource_name in ["hourly", "forecast"]:
+            for period in feed.nws()["resources"][resource_name]["data"]["properties"]["periods"]:
+                day = datetime.fromisoformat(period["startTime"].replace("Z", "+00:00")).astimezone(ZoneInfo("America/Chicago")).date()
+                end_day = (datetime.fromisoformat(period["endTime"].replace("Z", "+00:00")) - timedelta(microseconds=1)).astimezone(ZoneInfo("America/Chicago")).date()
+                while day <= end_day:
+                    days.add(day.isoformat())
+                    day += timedelta(days=1)
+        daily_cards = await frame.locator("#extendedForecast .daily-forecast-card").evaluate_all("els=>els.map(el=>el.dataset.day)")
+        require(daily_cards == sorted(days), "Daily forecast cards do not cover the actual supplied Central calendar days")
+        require(await frame.locator("#extendedForecast .wv-temperature-dial").count() == len(days),
+                "A daily forecast is missing its 24-hour dial")
         require("73%" in await frame.locator("#hourlyForecast .forecast-chance").first.inner_text(),
                 "Hourly precipitation chance missing")
         require("TEST FIXTURE extended forecast" in await frame.locator("#extendedForecast").inner_text(), "Extended response not rendered")
-        issued = await frame.locator("#nwsHourlySource").inner_text()
-        require("Issued/updated:" in issued and re.search(r"\b(?:CST|CDT)\b", issued), "Forecast issue time not rendered in Central")
-        require(await frame.locator('#nwsHourlySource a').get_attribute("href") == API + "/gridpoints/ILX/95,74/forecast/hourly", "Forecast source does not match the response")
+        for removed in ["refreshNws", "liveFeedStatus", "nwsHourlySource", "nwsExtendedSource", "nwsAccumulationSource"]:
+            require(await frame.locator("#" + removed).count() == 0,
+                    "Removed footer refresh/provenance control remains: " + removed)
+        require("Official NWS resources" not in await frame.locator("#panel-weather").inner_text(),
+                "Removed Official NWS resources footer remains")
         alerts = frame.locator("#liveAlertsHost")
         require("no polygon supplied" in await alerts.inner_text(), "Applicable polygonless alert was dropped")
         require("TEST FIXTURE applicable polygonless county advisory" in await alerts.inner_text(), "Official alert response missing")
         require(await alerts.get_by_role("link", name="Read official bulletin").count() == 1, "Official bulletin link missing")
         require(await page.locator("[data-weather-guest-safety-dialog][data-fullscreen='true']").count() == 0,
                 "A regular advisory unexpectedly opened a fullscreen warning")
-        evidence["nwsResponseRendering"] = {"temperature": "64°F", "hourly": 12, "extended": 7,
-            "missingRemainsUnavailable": True, "polygonlessAlertRetained": True, "issuedCentral": issued}
+        evidence["nwsResponseRendering"] = {"temperature": "64°F", "hourly": 12, "daily": len(days),
+            "missingRemainsUnavailable": True, "polygonlessAlertRetained": True, "removedFooterAndManualRefresh": True}
         await wait_for(frame, "window.cmpriWeatherMap.getState().status.radar === 'Observed image loaded'")
         state = await frame.evaluate("window.cmpriWeatherMap.getState()")
         require(state["mode"] == "live" and state["frameCount"] == 2, "Map used fabricated/default frames")
         require(state["scanTimes"] == feed.scan_times, "Observed scan times differ from exact catalog fixtures")
-        require(bool(feed.exports) and feed.exports[0]["lockRasterIds"] == [99002], "Latest radar export did not use its exact catalog raster ID")
-        require(bool(feed.image_exports), "Map did not decode a direct exportImage?f=image response")
-        evidence["mapResponseRendering"] = {"scanTimes": state["scanTimes"], "latestRasterId": 99002,
-            "fixtureBitmapLoaded": True, "directImageExportDecoded": True}
+        require(bool(feed.exports) and feed.exports[0]["time"] == feed.scan_times[-1],
+                "Latest radar PNG did not use an exact advertised scan time")
+        reflectivity = state["reflectivity"]
+        require(reflectivity["layer"] == "conus_bref_qcd" and reflectivity["style"] == "radar_reflectivity",
+                "Reflectivity raster and legend do not use the verified NOAA layer/style")
+        require(bool(feed.image_exports), "Map did not decode the advertised NOAA WMS PNG")
+        evidence["mapResponseRendering"] = {"scanTimes": state["scanTimes"], "latestAdvertisedTime": feed.scan_times[-1],
+            "layer": reflectivity["layer"], "style": reflectivity["style"],
+            "fixtureBitmapLoaded": True, "officialShapedWmsPngDecoded": True}
         await page.screenshot(path=str(output / f"weather-dashboard-{width}.png"), full_page=True)
         sizes = await frame.evaluate("({width:innerWidth,document:document.documentElement.scrollWidth,body:document.getElementById('windowBody').clientWidth,content:document.getElementById('windowBody').scrollWidth})")
         require(sizes["document"] <= sizes["width"] + 1 and sizes["content"] <= sizes["body"] + 1, "Embedded Weather horizontal overflow: " + str(sizes))
@@ -616,7 +652,7 @@ async def run_viewport(browser, base, output, width, height):
         feed.hold_map = True
         feed.map_gate.clear()
         feed.map_pending.clear()
-        await frame.locator("#refreshNws").click()
+        await frame.evaluate("() => { nwsLiveView.close(); void nwsLiveView.open(); }")
         await asyncio.wait_for(feed.forecast_pending.wait(), timeout=5)
         await frame.locator("#zoomIn").click()
         await asyncio.wait_for(feed.map_pending.wait(), timeout=5)

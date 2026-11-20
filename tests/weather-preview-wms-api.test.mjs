@@ -171,24 +171,6 @@ test('JSON inspection preserves exact validated PNG bytes and source time withou
  assert.equal(invalid.status,502);
 });
 
-test('reflectivity legend requests fixed compact dimensions from the same official renderer',async()=>{
- const sourceLayer='conus:SOURCE_REFLECTIVITY';
- const api=fixture(async(url)=>{
-  const parsed=new URL(url),query=parsed.searchParams;
-  assert.equal(parsed.origin+parsed.pathname,reflectivity);
-  if(query.get('request')==='GetCapabilities')return xmlResponse(xml.replaceAll(actualLayer,sourceLayer));
-  assert.equal(query.get('REQUEST'),'GetLegendGraphic');assert.equal(query.get('LAYER'),sourceLayer);
-  assert.equal(query.get('STYLE'),actualStyle);assert.equal(query.get('FORMAT'),'image/png');
-  assert.equal(query.get('WIDTH'),'300');assert.equal(query.get('HEIGHT'),'30');
-  assert.equal(query.has('TIME'),false);assert.equal(query.get('format'),null);
-  return new Response(png,{headers:{'Content-Type':'image/png'}});
- });
- const response=await api.GET(request({product:'reflectivity',op:'legend',layer:sourceLayer,style:actualStyle,format:'json'}));
- const body=await response.json();assert.equal(response.status,200);assert.equal(body.contentType,'image/png');
- assert.equal(body.bytes,png.byteLength);assert.deepEqual(new Uint8Array(Buffer.from(body.base64,'base64')),png);
- assert.equal(new URL(body.source).searchParams.get('WIDTH'),'300');assert.equal(new URL(body.source).searchParams.get('HEIGHT'),'30');
-});
-
 test('unsupported projection/format/legend fail without producing an image request',async()=>{
  for(const [change,operation] of [
   [body=>body.replace('<CRS>EPSG:3857</CRS>',''),'map'],

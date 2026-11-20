@@ -20,7 +20,8 @@
 
   function lifecycle() {
     const state = map.getState();
-    byId('lifecycleStatus').textContent = !opened
+    const lifecycleHost = byId('lifecycleStatus');
+    if (lifecycleHost) lifecycleHost.textContent = !opened
       ? 'Weather closed · playback and pending map requests stopped'
       : state.playing ? 'Map playback running · no background scheduler'
       : 'Official NOAA / NWS feeds · foreground requests only · no scheduler';

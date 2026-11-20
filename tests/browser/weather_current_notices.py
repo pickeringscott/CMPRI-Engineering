@@ -11,7 +11,7 @@ import json
 import os
 import re
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -106,7 +106,7 @@ async def context_for(browser, width, height, feed):
 
 async def refresh(frame):
     await wait_for(frame, "!window.nwsLiveView.getState().loading")
-    await frame.locator("#refreshNws").click()
+    await frame.evaluate("() => { nwsLiveView.close(); void nwsLiveView.open(); }")
     await wait_for(frame, "!window.nwsLiveView.getState().loading")
 
 
@@ -144,20 +144,26 @@ async def observation_and_visuals(browser, base, output, width, height):
                 "As of is not immediately below the Current conditions heading")
         require(await frame.locator(".conditions-priority svg.wv-condition[role='img']").count() == 1,
                 "Current condition has no accessible local weather symbol")
+        require(await frame.locator("#liveTemperature .wv-temperature-dial").count() == 1,
+                "Current observed temperature has no 24-hour dial while the forecast loads")
+        require(await frame.locator("#liveTemperature .wv-dial-segment").count() == 0,
+                "Current dial invented hourly colors before the held forecast arrived")
+        require("forecast loading" in (await frame.locator("#liveTemperature .wv-dial-coverage").inner_text()).lower(),
+                "The pending Current Conditions dial does not explain missing forecast hours")
         require(await frame.locator("#officialAlertsSection").is_hidden(), "Empty official-alert response left an empty alert section")
         await page.screenshot(path=str(output / f"current-before-forecasts-{width}.png"), full_page=True)
         evidence["observationBeforeHeldForecastAndRadar"] = {"station": "KCMI", "temperature": "10°F", "windChill": "-5°F", "gust": "28 mph", "asOf": as_of}
         feed.release()
         await wait_for(frame, "document.querySelectorAll('#hourlyForecast .forecast-card').length === 12")
         await wait_for(frame, "!nwsLiveView.getState().loading")
-        records = await frame.evaluate("""() => Array.from(document.querySelectorAll('.wv-temperature')).map(el => ({
+        records = await frame.evaluate("""() => Array.from(document.querySelectorAll('#hourlyForecast .wv-temperature')).map(el => ({
           value:el.dataset.airTemperature,min:el.dataset.scaleMin,max:el.dataset.scaleMax,color:el.dataset.temperatureColor,
           label:el.querySelector('.wv-temperature-value')?.textContent,
           gradient:getComputedStyle(el.querySelector('.wv-temperature-track')).backgroundImage,
           font:parseFloat(getComputedStyle(el.querySelector('.wv-temperature-value')).fontSize),
           markers:el.querySelectorAll('.wv-temperature-marker').length
         }))""")
-        require(len(records) >= 20, "Shared temperature visuals were not used across current/hourly/extended views")
+        require(len(records) == 12, "Hourly forecast lost its existing temperature-card layout")
         require(all(row["min"] == "-15" and row["max"] == "110" for row in records), "Temperature scale changes between surfaces")
         known = [row for row in records if row["value"] != "unknown"]
         require(all("°F" in row["label"] and row["markers"] == 1 and row["font"] >= 16 for row in known),
@@ -166,13 +172,84 @@ async def observation_and_visuals(browser, base, output, width, height):
         matching = [row for row in known if row["value"] == "10"]
         require(len(matching) >= 2 and len({row["color"] for row in matching}) == 1,
                 "The same Fahrenheit temperature has different colors")
-        stops = await frame.evaluate("cmpriWeatherVisuals.stops.map(stop => [stop.fahrenheit,stop.name])")
-        require(stops == [[-15, "white"], [0, "purple"], [15, "dark blue"], [32, "light blue"],
-                [50, "green"], [70, "yellow"], [90, "red"], [110, "brown"]], "Shared temperature stops changed")
+        stops = await frame.evaluate("cmpriWeatherVisuals.stops.map(stop => [stop.fahrenheit,stop.color])")
+        expected_reference = {0: "#00e7e5", 15: "#7784fa", 25: "#c336ef", 32: "#e000ee",
+            40: "#1700f5", 45: "#0065fb", 63: "#9bff54", 80: "#ffcc00", 85: "#ff8900", 106: "#e92b95"}
+        require(all(dict(stops).get(value) == color for value, color in expected_reference.items()),
+                "Temperature colors do not follow the fixed screenshot-reference palette")
         icons = await frame.locator("#hourlyForecast svg.wv-condition").evaluate_all("els=>els.map(el=>el.dataset.condition)")
         require(set(["sun", "cloud", "rain", "snow", "thunder", "fog", "wind"]).issubset(icons),
                 "Actual forecast descriptions did not produce varied condition symbols")
-        evidence["sharedTemperatureVisuals"] = {"count": len(records), "stops": stops, "numericValuesPreserved": True, "symbols": sorted(set(icons))}
+        daily = frame.locator("#extendedForecast .daily-forecast-card")
+        daily_count = await daily.count()
+        require(daily_count >= 1 and await daily.locator(".wv-temperature-dial").count() == daily_count,
+                "Every daily forecast must have its own 24-hour temperature dial")
+        hourly_periods = feed.nws()["resources"]["hourly"]["data"]["properties"]["periods"]
+        samples = {iso_value["startTime"]: iso_value for iso_value in hourly_periods}
+        dials = await frame.locator(".wv-temperature-dial").evaluate_all("""elements => elements.map(element=>({
+          day:element.dataset.day,coverage:element.dataset.coverage,hours:Number(element.dataset.coverageHours),
+          expectedHours:Number(element.dataset.expectedHours),text:element.textContent,
+          clockLabels:Array.from(element.querySelectorAll('.wv-dial-clock')).map(item=>item.textContent),
+          segments:Array.from(element.querySelectorAll('.wv-dial-segment')).map(item=>({
+            start:item.dataset.startTime,time:item.dataset.clockTime,value:Number(item.dataset.airTemperature),
+            color:item.getAttribute('stroke'),actualColor:getComputedStyle(item).stroke})),
+          extrema:Array.from(element.querySelectorAll('.wv-dial-extreme time')).map(item=>({
+            kind:item.closest('.wv-dial-extreme').dataset.extreme,start:item.dateTime,label:item.textContent})),
+          markers:element.querySelectorAll('.wv-dial-marker').length
+        }))""")
+        require(all(row["clockLabels"] == ["00", "06", "12", "18", "24"] for row in dials),
+                "A dial does not retain its 24-hour chronological clock positions")
+        require(any(row["coverage"] == "partial" for row in dials)
+                and any(row["coverage"] == "unavailable" for row in dials),
+                "Limited hourly guidance was stretched into complete daily timelines")
+        for dial in dials:
+            if dial["coverage"] == "unavailable":
+                require(not dial["segments"] and not dial["markers"] and not dial["extrema"],
+                        "An unavailable day invented temperature colors or high/low times")
+                continue
+            require(dial["hours"] < dial["expectedHours"] and "Partial" in dial["text"],
+                    "A partly supplied day is missing its partial-coverage label")
+            day_samples = [period for period in hourly_periods
+                if datetime.fromisoformat(period["startTime"].replace("Z", "+00:00"))
+                    .astimezone(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d") == dial["day"]]
+            for extreme in dial["extrema"]:
+                stamp = datetime.fromisoformat(extreme["start"].replace("Z", "+00:00"))
+                normalized = stamp.isoformat(timespec="seconds").replace("+00:00", "Z")
+                require(normalized in samples, "A dial high/low marker uses an invented forecast time")
+                expected = max(day_samples, key=lambda period: period["temperature"]) if extreme["kind"] == "H" else min(day_samples, key=lambda period: period["temperature"])
+                require(normalized == expected["startTime"], "A dial high/low marker does not match actual supplied hourly extrema")
+                expected_clock = stamp.astimezone(ZoneInfo("America/Chicago")).strftime("%H:%M")
+                require(expected_clock in extreme["label"] and not re.search(r"\b(?:AM|PM)\b", extreme["label"]),
+                        "Dial high/low time is not actual 24-hour Central time")
+            for segment in dial["segments"]:
+                segment_time = datetime.fromisoformat(segment["start"].replace("Z", "+00:00"))
+                supplied = [period for period in hourly_periods
+                    if datetime.fromisoformat(period["startTime"].replace("Z", "+00:00")) <= segment_time
+                    < datetime.fromisoformat(period["endTime"].replace("Z", "+00:00"))]
+                require(supplied and segment["value"] == supplied[0]["temperature"],
+                        "A dial segment invented temperatures in an unsupported forecast hour")
+                require(re.match(r"^\d{2}:\d{2} (?:CST|CDT)$", segment["time"]), "Dial segment lacks a 24-hour Central time")
+                color = await frame.evaluate("value=>cmpriWeatherVisuals.colorAt(value)", segment["value"])
+                require(segment["color"] == color, "Dial and hourly temperature colors disagree")
+                rgb = "rgb(" + ", ".join(str(int(color[offset:offset + 2], 16)) for offset in [1, 3, 5]) + ")"
+                require(segment["actualColor"] == rgb, "The CMPRI theme overrode a hard-coded weather temperature color")
+        theme_independent = await frame.evaluate("""() => {
+          const signature=()=>Array.from(document.querySelectorAll('.wv-dial-segment')).map(el=>getComputedStyle(el).stroke).join('|');
+          const before=signature(),root=document.documentElement;
+          root.style.setProperty('--gold','#f0f'); root.style.setProperty('--brand','#fff'); root.style.setProperty('--muted','#000');
+          const same=signature()===before;
+          ['--gold','--brand','--muted'].forEach(name=>root.style.removeProperty(name)); return same;
+        }""")
+        require(theme_independent, "Theme palette variables change fixed weather temperatures")
+        evidence["sharedTemperatureVisuals"] = {"hourlyCards": len(records), "dailyDials": daily_count,
+            "referenceStops": stops, "numericValuesPreserved": True, "symbols": sorted(set(icons)),
+            "hardCodedColorsIndependentOfTheme": theme_independent,
+            "actualHourlyExtremaAndCentralTimes": True, "coverage": [{key: row[key] for key in ["day", "coverage", "hours", "expectedHours"]} for row in dials]}
+        await frame.locator("#extendedForecast").scroll_into_view_if_needed()
+        await page.screenshot(path=str(output / f"daily-temperature-dials-{width}.png"), full_page=True)
+        await frame.locator("#hourlyForecast").scroll_into_view_if_needed()
+        await page.screenshot(path=str(output / f"hourly-reference-palette-{width}.png"), full_page=True)
+        await frame.evaluate("document.getElementById('windowBody').scrollTo(0,0)")
         feed.wind_chill = 0
         feed.gust = None
         await refresh(frame)
@@ -181,8 +258,8 @@ async def observation_and_visuals(browser, base, output, width, height):
         evidence["nullableObservationFields"] = {"zeroWindChillPreserved": True, "missingGustNotZero": True}
         feed.observation_failure = True
         await refresh(frame)
-        require(await frame.locator("#liveTemperature .wv-temperature-marker").count() == 0,
-                "An unavailable station report retained an observed-temperature marker")
+        require(await frame.locator("#liveTemperature .wv-temperature-value").get_attribute("data-air-temperature") == "unknown",
+                "An unavailable station report retained an observed temperature")
         require(await frame.locator(".conditions-priority svg.wv-condition:not([data-condition='unknown'])").count() == 0,
                 "An unavailable station report retained an observed weather-condition picture")
         require(not re.search(r"\b0\s*mph\b", await frame.locator("#liveWind").inner_text()),

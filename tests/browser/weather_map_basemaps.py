@@ -64,6 +64,50 @@ async def pixel(frame):
     }""")
 
 
+async def set_range(frame, identity, value):
+    """Exercise the input event used by pointer, keyboard and touch sliders."""
+    control = frame.locator("#" + identity)
+    require(await control.get_attribute("type") == "range", identity + " is not a slider")
+    await control.evaluate("""(element, value) => {
+      element.value=String(value); element.dispatchEvent(new Event('input',{bubbles:true}));
+      element.dispatchEvent(new Event('change',{bubbles:true}));
+    }""", value)
+
+
+async def wheel_activation(page, frame):
+    canvas = frame.locator("#radarCanvas")
+    await canvas.scroll_into_view_if_needed()
+    box = await canvas.bounding_box()
+    x, y = box["x"] + box["width"] * .55, box["y"] + box["height"] * .45
+    await page.mouse.move(2, 2)
+    await page.mouse.move(x, y)
+    before = await frame.evaluate("({map:cmpriWeatherMap.getState(),scroll:document.getElementById('windowBody').scrollTop})")
+    require(not before["map"]["wheelZoomActive"], "Map wheel zoom starts active before a map click")
+    await page.mouse.wheel(0, 150)
+    await asyncio.sleep(.2)
+    unclicked = await frame.evaluate("({map:cmpriWeatherMap.getState(),scroll:document.getElementById('windowBody').scrollTop})")
+    require(unclicked["map"]["zoom"] == before["map"]["zoom"], "Wheel zoomed the map before a click")
+    require(unclicked["scroll"] > before["scroll"], "Wheel over an inactive map did not scroll the modal")
+    await canvas.scroll_into_view_if_needed()
+    box = await canvas.bounding_box()
+    x, y = box["x"] + box["width"] * .55, box["y"] + box["height"] * .45
+    await page.mouse.click(x, y)
+    require(await frame.evaluate("cmpriWeatherMap.getState().wheelZoomActive"), "Click inside the map did not enable wheel zoom")
+    await page.mouse.wheel(0, -180)
+    await wait_for(frame, "before => cmpriWeatherMap.getState().zoom > before", before["map"]["zoom"])
+    clicked = await frame.evaluate("cmpriWeatherMap.getState().zoom")
+    await page.mouse.move(2, 2)
+    await wait_for(frame, "!cmpriWeatherMap.getState().wheelZoomActive")
+    await page.mouse.move(x, y)
+    await page.mouse.wheel(0, 100)
+    await asyncio.sleep(.15)
+    require(await frame.evaluate("cmpriWeatherMap.getState().zoom") == clicked,
+            "Pointer leave did not reset wheel zoom activation")
+    return {"unclickedWheelScrollsModal": True, "clickActivatesZoom": True,
+            "pointerLeaveResetsActivation": True, "scrollBefore": before["scroll"],
+            "scrollAfterInactiveWheel": unclicked["scroll"]}
+
+
 def world_at(state, width, height, anchor):
     radius = 6378137
     center = state["center"]
@@ -82,7 +126,7 @@ async def anchored_zoom(page, frame, gesture, mobile=False):
     x, y = box["x"] + anchor[0], box["y"] + anchor[1]
     before = await frame.evaluate("window.cmpriWeatherMap.getState()")
     if gesture == "wheel":
-        await page.mouse.move(x, y)
+        await page.mouse.click(x, y)
         await page.mouse.wheel(0, -240)
     elif gesture == "double-click":
         await page.mouse.dblclick(x, y, delay=70)
@@ -135,6 +179,7 @@ async def run_viewport(browser, base, output, width, height):
     await context.route("**/*", protect)
     await context.add_init_script(PROBE)
     page = await context.new_page()
+    await page.clock.install()
     page.on("pageerror", lambda error: errors.append(str(error)))
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
@@ -190,6 +235,71 @@ async def run_viewport(browser, base, output, width, height):
                                                  "captureYearNotInvented": True}
         require(await frame.locator("#mapBackgroundMenu").count() == 1 and await frame.locator("#mapLayersMenu").count() == 1,
                 "Separate Map and Layers controls are missing")
+        for removed in ["tryLiveFeeds", "mapLayerTimes", "mapGrid", "mapStatus", "observedRadarNote", "mapHelp"]:
+            require(await frame.locator("#" + removed).count() == 0,
+                    "Removed map control or descriptive copy remains: " + removed)
+        require(await frame.locator('#mapAttribution a[href*="nationalmap.gov"]').count() == 0,
+                "The generic USGS National Map link remains")
+        await wait_for(frame, "() => {const image=document.getElementById('mapReflectivityLegend'); return image?.complete && image.naturalWidth===500 && image.naturalHeight===30;}")
+        legend = await frame.evaluate("""() => {
+          const host=document.getElementById('mapLegend'),shell=document.getElementById('mapShell');
+          const a=host.getBoundingClientRect(),b=shell.getBoundingClientRect();
+          return {inside:host.parentElement===shell,left:a.left-b.left,bottom:b.bottom-a.bottom,
+            width:a.width,mapWidth:b.width,height:a.height,mapHeight:b.height,text:host.textContent,links:host.querySelectorAll('a').length};
+        }""")
+        require(legend["inside"] and 0 <= legend["left"] <= 16 and 0 <= legend["bottom"] <= 45
+                and legend["width"] < legend["mapWidth"] and legend["height"] <= legend["mapHeight"] * .42 + 1,
+                "Official radar legend is not compact in the map's lower-left corner: " + str(legend))
+        require(not re.search(r"legend unavailable", legend["text"], re.I) and legend["links"] == 0,
+                "Removed unavailable message or standalone legend link remains")
+        ticks = await frame.locator(".cmpri-reflectivity-ticks > span").evaluate_all("""elements=>elements.map(element=>({
+          text:element.textContent.replaceAll('−','-'),font:parseFloat(getComputedStyle(element).fontSize)
+        }))""")
+        require([tick["text"] for tick in ticks] == ["-20", "-10", "0", "10", "20", "30", "40", "50", "60", "70"]
+                and all(tick["font"] >= 9 for tick in ticks),
+                "Source-verified radar legend ticks are missing or too small to read: " + str(ticks))
+        legend["readableVerifiedTicks"] = ticks
+        evidence["officialRadarLegendInMap"] = legend
+        sliders = await frame.evaluate("""() => ['mapOpacity','playbackSpeed','loopLength'].map(id => {
+          const element=document.getElementById(id),row=element.closest('.cmpri-map-playback-options');
+          return {id,type:element.type,row:row?.className,output:element.closest('label')?.querySelector('output')?.textContent};
+        })""")
+        require(all(row["type"] == "range" and row["row"] and row["output"] for row in sliders),
+                "Opacity, speed and observed-loop sliders are not together with readable outputs: " + str(sliders))
+        evidence["compactControls"] = sliders
+        await wait_for(frame, "cmpriWeatherMap.getState().refresh.scheduled")
+        cadence = await frame.evaluate("cmpriWeatherMap.getState().refresh")
+        require(cadence["intervalMs"] == 300000 and cadence["nextAt"],
+                "Visible Weather has no automatic five-minute map refresh")
+        def catalog_reads():
+            return len([call for call in fixture.wms_requests if call["product"] == "reflectivity" and call["op"] == "capabilities"])
+        catalogs_before = catalog_reads()
+        nws_before = fixture.observation_calls + fixture.forecast_calls + fixture.alert_calls
+        await page.clock.fast_forward(cadence["intervalMs"] + 10)
+        deadline = asyncio.get_running_loop().time() + 10
+        while catalog_reads() <= catalogs_before:
+            require(asyncio.get_running_loop().time() < deadline, "Visible automatic map refresh did not read the actual scan catalog")
+            await asyncio.sleep(.05)
+        await wait_for(frame, "cmpriWeatherMap.getState().refresh.scheduled && cmpriWeatherMap.getState().pendingRequests === 0")
+        require(fixture.observation_calls + fixture.forecast_calls + fixture.alert_calls == nws_before,
+                "Map refresh unexpectedly polled Current Conditions, forecasts or alerts")
+        await frame.locator("#tab-notifications").click()
+        require(not await frame.evaluate("cmpriWeatherMap.getState().refresh.scheduled"),
+                "Map refresh stayed scheduled after its view was hidden")
+        hidden_count = len(fixture.map_urls)
+        await page.clock.fast_forward(cadence["intervalMs"] + 10)
+        await asyncio.sleep(.1)
+        require(len(fixture.map_urls) == hidden_count, "A hidden Weather view continued map refresh")
+        await frame.locator("#tab-weather").click()
+        await wait_for(frame, "cmpriWeatherMap.getState().refresh.scheduled && cmpriWeatherMap.getState().pendingRequests === 0")
+        evidence["foregroundAutomaticRefresh"] = {"intervalMs": cadence["intervalMs"],
+            "visibleRefreshReadsScanCatalog": True, "hiddenViewStopsRequests": True,
+            "resumesAfterReturning": True, "noExtraNwsForecastOrAlertPolling": True}
+        evidence["wheelActivation"] = await wheel_activation(page, frame)
+        await frame.locator("#recenter").click()
+        await settled(frame)
+        await frame.locator(".map-panel").scroll_into_view_if_needed()
+        await page.screenshot(path=str(output / f"weather-compact-regional-{width}.png"), full_page=True)
         await radar(frame, False)
         before_styles = await frame.evaluate("window.cmpriWeatherMap.getState()")
         weather_requests_before_styles = len(fixture.map_urls)
@@ -210,8 +320,10 @@ async def run_viewport(browser, base, output, width, height):
             require("USGS" in await frame.locator("#mapAttribution").inner_text(), "Ground attribution is missing")
             if value == "aerial":
                 source_text = (await frame.locator("#mapGroundStatus").inner_text()) + " " + (await frame.locator("#mapAttribution").inner_text())
-                require(any(word in source_text.lower() for word in ["historical", "not live", "not current", "acquisition"]),
-                        "Aerial photography lacks a historical / not-live-weather label")
+                imagery_option = await frame.locator('#mapBackgroundStyle').evaluate("el=>el.selectedOptions[0].textContent")
+                require("capture year unavailable" in source_text.lower()
+                        and "historical" in imagery_option.lower(),
+                        "Aerial capture year is invented or its historical imagery option is mislabeled: " + repr({"status": source_text, "option": imagery_option, "background": current["backgroundStyle"], "ground": current["ground"]["style"]}))
             colors[value] = color
         evidence["groundPixelsByStyle"] = colors
         require(len(fixture.map_urls) == weather_requests_before_styles,
@@ -233,7 +345,7 @@ async def run_viewport(browser, base, output, width, height):
         # windows must not fabricate missing scans to fill a requested duration.
         loop_counts = {}
         for minutes in ["120", "60", "90"]:
-            await frame.locator("#loopLength").select_option(minutes)
+            await set_range(frame, "loopLength", minutes)
             state = await frame.evaluate("window.cmpriWeatherMap.getState()")
             require(state["loopMinutes"] == int(minutes), "Loop-window selection did not update")
             require(state["scanTimes"] and set(state["scanTimes"]).issubset(fixture.scan_times), "Loop invented scan times")
@@ -241,9 +353,10 @@ async def run_viewport(browser, base, output, width, height):
             require(state["scanTimes"][-1] - state["scanTimes"][0] <= int(minutes) * 60000, "Loop exceeds selected history")
             loop_counts[minutes] = state["frameCount"]
         require(loop_counts["120"] > loop_counts["60"], "Loop-window control did not filter actual history")
-        for value in ["slow", "normal", "fast"]:
-            await frame.locator("#playbackSpeed").select_option(value)
+        for slider_value, value in enumerate(["slow", "normal", "fast"]):
+            await set_range(frame, "playbackSpeed", slider_value)
             require((await frame.evaluate("window.cmpriWeatherMap.getState()"))["playbackSpeed"] == value, "Playback speed selection did not update")
+            require(value in (await frame.locator("#playbackSpeedValue").inner_text()).lower(), "Playback speed output is unreadable")
         displayed = await frame.evaluate("window.cmpriWeatherMap.getState().displayedScanTime")
         await frame.locator("#playLoop").click()
         await wait_for(frame, "before => { const s=window.cmpriWeatherMap.getState(); return s.playing && s.displayedScanTime !== before; }", displayed, timeout=7000)
@@ -349,6 +462,8 @@ async def run_viewport(browser, base, output, width, height):
                 "Ground tile requests survived native close")
         require(closed["rasterLoads"] == 0 and closed["rasterQueue"] == 0 and closed["pendingRequests"] == 0,
                 "NOAA raster requests or queued scans survived native close")
+        require(not closed["refresh"]["scheduled"] and not closed["wheelZoomActive"],
+                "Automatic map refresh or wheel activation survived native close")
         fixture.release()
         count_closed = len(fixture.basemap_requests)
         await asyncio.sleep(.25)

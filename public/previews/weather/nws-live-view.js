@@ -1,5 +1,5 @@
 /* Branch review: display the fixed property's actual NWS responses.
- * Independent foreground observation, alert and forecast reads on open/manual refresh. No database, geolocation,
+ * Independent foreground observation, alert and forecast reads when opened. No database, geolocation,
  * notification permission, push delivery, or background scheduler is used.
  */
 (function () {
@@ -65,22 +65,6 @@
       data: null, pending: pendingResources.has(name), error: value?.error || (pendingResources.has(name) ? 'Awaiting official NWS data' : 'No usable NWS data') };
     return { ...value, pending: pendingResources.has(name), status: ['live', 'stale'].includes(value.status) ? value.status : 'unavailable' };
   }
-  function statusLabel(value) { return value.status === 'live' ? 'LIVE NWS RESPONSE' : value.status === 'stale' ? 'STALE NWS DATA' : value.pending ? 'LOADING' : 'UNAVAILABLE'; }
-  function paragraphAfter(anchorId, id) {
-    if (byId(id)) return byId(id);
-    const anchor = byId(anchorId); if (!anchor) return null;
-    const p = node('p', '', 'small muted'); p.id = id;
-    anchor.insertAdjacentElement('afterend', p); return p;
-  }
-  function addProvenance(host, envelope, data, extra) {
-    if (!host) return;
-    host.replaceChildren(node('strong', statusLabel(envelope) + ' · '));
-    host.append(sourceLink(envelope.source));
-    const issue = data?.updated || data?.updateTime || envelope.sourceTimestamp;
-    host.append(document.createTextNode(' · Issued/updated: ' + stamp(issue) +
-      (extra ? ' · ' + extra : '')));
-    if (envelope.error) host.append(document.createTextNode(' · ' + envelope.error));
-  }
   function quantity(input, kind) {
     if (!input || !finite(input.value)) return null;
     const value = input.value, unit = String(input.unitCode || input.unit || '').split(':').pop();
@@ -115,7 +99,6 @@
   function renderObservation() {
     const envelope = resource('observation'), p = envelope.data?.properties;
     const available = envelope.status !== 'unavailable' && p;
-    const temperature = available ? quantity(p.temperature, 'temperature') : null;
     const windChill = available ? quantity(p.windChill, 'temperature') : null;
     const heatIndex = available ? quantity(p.heatIndex, 'temperature') : null;
     const feelsLike = windChill ?? heatIndex;
@@ -123,8 +106,7 @@
     const gust = available ? quantity(p.windGust, 'wind') : null;
     const visibility = available ? quantity(p.visibility, 'visibility') : null;
     const visuals = window.cmpriWeatherVisuals;
-    const temperatureHost = byId('liveTemperature');
-    if (temperatureHost) temperatureHost.replaceChildren(visuals ? visuals.temperature(temperature) : node('strong', temperature === null ? '—' : round(temperature) + '°F'));
+    renderCurrentDial();
     const condition = available ? (p.textDescription || 'Condition not reported') : envelope.pending ? 'Waiting for Willard observation' : 'Current conditions unavailable';
     byId('liveConditionIcon')?.replaceChildren(...(visuals ? [visuals.condition(condition, { icon: available ? p.icon : null })] : []));
     text('liveFeelsLike', feelsLike === null ? 'Not reported' : round(feelsLike) + '°F');
@@ -182,7 +164,27 @@
     const speed = quantity(period.windSpeed, 'wind');
     return speed === null ? null : round(speed) + ' mph';
   }
-  function renderForecast(name, hostId, provenanceId, hourly) {
+  function forecastDayModels() {
+    const hourly = resource('hourly'), extended = resource('forecast');
+    const hours = hourly.status === 'unavailable' ? [] : hourly.data?.properties?.periods;
+    const days = extended.status === 'unavailable' ? [] : extended.data?.properties?.periods;
+    return window.cmpriWeatherVisuals?.forecastDays(
+      (Array.isArray(hours) ? hours : []).map((period) => ({ ...period, fahrenheit: periodTemperatureValue(period) })),
+      Array.isArray(days) ? days : []
+    ) || [];
+  }
+  function renderCurrentDial() {
+    const host = byId('liveTemperature'); if (!host) return;
+    const observation = resource('observation'), hourly = resource('hourly');
+    const observed = observation.status === 'unavailable' ? null : quantity(observation.data?.properties?.temperature, 'temperature');
+    const visuals = window.cmpriWeatherVisuals;
+    if (!visuals) { host.replaceChildren(node('strong', observed === null ? '—' : round(observed) + '°F')); return; }
+    host.classList.add('current-temperature-dial');
+    const today = visuals.dayKey(Date.now());
+    const day = forecastDayModels().find((item) => item.key === today);
+    host.replaceChildren(visuals.temperatureDial(day, { current: true, observedTemperature: observed, pending: hourly.pending, stale: hourly.status === 'stale' }));
+  }
+  function renderForecast(name, hostId, hourly) {
     const host = byId(hostId); if (!host) return;
     const envelope = resource(name), properties = envelope.data?.properties;
     const periods = Array.isArray(properties?.periods) ? properties.periods : [];
@@ -223,10 +225,9 @@
         host.append(card);
       });
     }
-    const valid = periods.length ? 'Period coverage: ' + stamp(periods[0].startTime) + ' → ' + stamp(periods[periods.length - 1].endTime) : 'No forecast periods available';
-    addProvenance(paragraphAfter(hostId, provenanceId), envelope, properties, valid);
     if (hourly) {
-      const timing = paragraphAfter(hostId, 'nwsPrecipTiming');
+      let timing = byId('nwsPrecipTiming');
+      if (!timing) { timing = node('p', '', 'timing small muted'); timing.id = 'nwsPrecipTiming'; host.insertAdjacentElement('afterend', timing); }
       if (timing) {
         const future = periods.filter((p) => date(p.endTime) !== null && date(p.endTime) > Date.now());
         const next = future.find((p) => finite(p.probabilityOfPrecipitation?.value) && p.probabilityOfPrecipitation.value > 0);
@@ -235,6 +236,49 @@
           : future.every((p) => finite(p.probabilityOfPrecipitation?.value)) ? 'Forecast · available hourly periods report 0% precipitation chance; this is not an official alert status or a guarantee of dry conditions.'
             : 'Precipitation timing unavailable for periods with missing precipitation chance.';
       }
+    }
+  }
+  function renderDailyForecast() {
+    const host = byId('extendedForecast'); if (!host) return;
+    const envelope = resource('forecast'), hourly = resource('hourly'), visuals = window.cmpriWeatherVisuals;
+    const days = forecastDayModels();
+    host.classList.add('daily-forecast-strip');
+    host.replaceChildren();
+    if (!days.length || !visuals) {
+      host.append(node('p', envelope.pending || hourly.pending ? 'Loading official NWS daily forecast…' : 'Daily forecast unavailable. No sample values are substituted.', 'small muted'));
+      return;
+    }
+    for (const day of days) {
+      const card = node('article', undefined, 'forecast-card daily-forecast-card'); card.dataset.day = day.key;
+      const daytime = day.extended.find((period) => period.isDaytime === true && visuals.dayKey(period.startTime) === day.key);
+      const night = day.extended.find((period) => period.isDaytime === false && visuals.dayKey(period.startTime) === day.key);
+      const representative = daytime || day.hourly.find((period) => period.isDaytime === true) || night || day.hourly[0] || day.extended[0];
+      const heading = node('div', undefined, 'forecast-card-heading');
+      heading.append(node('h3', day.label), visuals.condition(representative?.shortForecast || 'Conditions unavailable', { icon: representative?.icon, isDaytime: representative?.isDaytime }));
+      card.append(heading, visuals.temperatureDial(day, { stale: hourly.status === 'stale', pending: hourly.pending }));
+      if (envelope.status === 'stale') card.prepend(node('span', 'STALE DAILY FORECAST', 'badge warning'));
+      if (representative) card.append(node('p', representative.shortForecast || 'Forecast description unavailable', 'forecast-detail'));
+      // Only source-provided day/night values are called highs/lows. Timeline extrema come from the supplied hourly values above.
+      if (daytime || night) {
+        const values = node('div', undefined, 'wv-official-day-values');
+        [[daytime, 'NWS day high'], [night, 'NWS night low']].forEach(([period, label]) => {
+          if (!period) return;
+          const row = node('span', undefined, 'wv-official-day-value'); row.append(node('span', label));
+          row.append(visuals.temperature(periodTemperatureValue(period))); values.append(row);
+        });
+        card.append(values);
+      }
+      const detail = node('details'); detail.append(node('summary', 'NWS forecast details'));
+      if (!day.extended.length) detail.append(node('p', 'Extended forecast text unavailable for this date.', 'small muted'));
+      const periods = day.extended.filter((period, index, all) => all.indexOf(period) === index);
+      for (const period of periods) {
+        detail.append(node('strong', period.name || 'NWS forecast period'));
+        detail.append(node('p', period.detailedForecast || period.shortForecast || 'Description unavailable', 'small'));
+        const chance = period.probabilityOfPrecipitation?.value;
+        detail.append(node('p', finite(chance) ? 'Precipitation chance ' + round(chance) + '%' : 'Precipitation chance unavailable', 'forecast-chance'));
+        detail.append(visuals.wind(periodWindSpeed(period), period.windDirection, { forecast: true }));
+      }
+      card.append(detail); host.append(card);
     }
   }
   function accumulation(series, now) {
@@ -258,12 +302,6 @@
     const ice = envelope.status === 'unavailable' ? { text: 'Unavailable' } : accumulation(p?.iceAccumulation, now);
     text('liveSnow', (envelope.status === 'stale' ? 'STALE · ' : '') + snow.text);
     text('liveIce', (envelope.status === 'stale' ? 'STALE · ' : '') + ice.text);
-    const anchor = byId('liveSnow')?.closest('section') || byId('liveSnow')?.parentElement;
-    if (anchor && !byId('nwsAccumulationSource')) { const p = node('p', '', 'small muted'); p.id = 'nwsAccumulationSource'; anchor.append(p); }
-    addProvenance(byId('nwsAccumulationSource'), envelope, p,
-      'Forecast amounts, not observations · next 24h window: ' + stamp(now) + ' → ' + stamp(now + 24 * HOUR) +
-      ' · Whole NWS intervals counted once; partial edge intervals are not prorated. ' +
-      (snow.span ? 'Snow provided intervals: ' + snow.span + '. ' : '') + (ice.span ? 'Ice provided intervals: ' + ice.span + '.' : ''));
   }
   function alertId(value) {
     if (typeof value !== 'string') return '';
@@ -334,30 +372,14 @@
       error: envelope.error, alerts: Array.isArray(envelope.data?.features) ? envelope.data.features : []
     } }));
   }
-  function renderDiagnostics() {
-    const host = byId('liveFeedStatus'); if (!host) return;
-    host.replaceChildren();
-    const list = node('ul', undefined, 'guideline-list');
-    Object.entries(RESOURCE_NAMES).forEach(([key, label]) => {
-      const value = resource(key), item = node('li');
-      item.append(node('strong', label + ' · ' + statusLabel(value) + ' · '), sourceLink(value.source || SOURCES[key]));
-      if (value.sourceTimestamp) item.append(document.createTextNode(' · Source time: ' + stamp(value.sourceTimestamp)));
-      if (value.error && !value.pending) item.append(document.createTextNode(' · ' + value.error));
-      if (key === 'alerts' && value.status !== 'unavailable' && !activeAlertFeatures().length) item.append(document.createTextNode(' · No active property alerts in this NWS result.'));
-      list.append(item);
-    });
-    host.append(list);
-  }
   function render(part) {
     if (!part || part === 'observation') renderObservation();
     if (!part || part === 'forecast') {
-      renderForecast('hourly', 'hourlyForecast', 'nwsHourlySource', true);
-      renderForecast('forecast', 'extendedForecast', 'nwsExtendedSource', false);
+      renderForecast('hourly', 'hourlyForecast', true);
+      renderDailyForecast(); renderCurrentDial();
       renderAccumulations(); renderCurrentForecastGust();
     }
     if (!part || part === 'alerts') renderAlerts();
-    renderDiagnostics();
-    const button = byId('refreshNws'); if (button) button.disabled = loading || !opened;
   }
   function getState() {
     return { initialized, opened, loading, pendingRequests: activeRequests.size, requests, checkedAt, error: lastError,
@@ -383,7 +405,7 @@
       checkedAt = result.checkedAt || checkedAt;
     } catch (error) {
       if (ticket !== generation || !opened) return;
-      const message = error.name === 'AbortError' ? 'NWS read timed out; retry manually.' : error.message;
+      const message = error.name === 'AbortError' ? 'NWS read timed out; reopen Weather to retry.' : error.message;
       lastError = message;
       for (const name of names) resources[name] = { status: 'unavailable', source: SOURCES[name] || null, data: null, error: message };
     } finally {
@@ -407,7 +429,6 @@
   function init() {
     if (initialized) return getState();
     initialized = true;
-    byId('refreshNws')?.addEventListener('click', () => { void refresh(); });
     render(); return getState();
   }
   function open() {
@@ -418,7 +439,6 @@
     opened = false; generation += 1; abortReads(); loading = false;
     if (alertExpiryTimer !== null) clearTimeout(alertExpiryTimer);
     alertExpiryTimer = null;
-    const button = byId('refreshNws'); if (button) button.disabled = true;
     return getState();
   }
   window.addEventListener('pagehide', close);
