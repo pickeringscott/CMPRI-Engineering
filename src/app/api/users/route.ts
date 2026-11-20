@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
+import { requireChiefModuleRead } from "@/lib/server/chief-module-read";
 import { ASSIGNABLE_ROLE_LABELS, canManageTargetProfile, membershipRole, profileRoleForStorage } from "@/lib/server/roles";
 
 function callerCanChangeAccount(
@@ -87,14 +88,14 @@ async function setupFailureResponse(
 }
 
 export async function GET(request: NextRequest) {
-  const access = await requireCapability(request, "manage_users");
+  const access = await requireChiefModuleRead(request, "manage_users");
   if (!access) return NextResponse.json({ error: "User management access is required." }, { status: 403 });
   const { principal, admin } = access;
 
   const { data: propertyMemberships, error: membershipError } = await admin
     .from("hotel_members")
     .select("user_id, hotel_id, active")
-    .eq("hotel_id", HOTEL_ID);
+    .eq("hotel_id", principal.hotelId);
   if (membershipError) return NextResponse.json({ error: "Unable to read property memberships." }, { status: 503 });
 
   const memberIds = Array.from(new Set((propertyMemberships || []).map((membership) => String(membership.user_id || "")).filter(Boolean)));
@@ -133,18 +134,18 @@ export async function GET(request: NextRequest) {
   const callerId = principal.identity?.id ?? principal.profile.id;
   const membershipsByUserId = new Map((propertyMemberships || []).map((membership) => [String(membership.user_id), membership]));
   const userIdsWithOtherPropertyMemberships = new Set((allMemberships || [])
-    .filter((membership) => membership.hotel_id !== HOTEL_ID)
+    .filter((membership) => membership.hotel_id !== principal.hotelId)
     .map((membership) => String(membership.user_id)));
   const users = (profiles || []).map((user: { id: string; role: unknown; active: boolean | null }) => ({
     ...user,
     ...(authActivity.get(user.id) || { last_sign_in_at: null, waiting_for_verification: null }),
     active: user.active === true && membershipsByUserId.get(user.id)?.active === true,
-    can_manage: !userIdsWithOtherPropertyMemberships.has(user.id)
+    can_manage: access.canManage && !userIdsWithOtherPropertyMemberships.has(user.id)
       && callerCanChangeAccount(callerProfile, callerId, { id: user.id, role: user.role }),
   }));
 
   const managedRoles = new Set<string>();
-  for (const label of ASSIGNABLE_ROLE_LABELS) {
+  if (access.canManage) for (const label of ASSIGNABLE_ROLE_LABELS) {
     if (callerCanAssignRole(callerProfile, label)) managedRoles.add(label);
   }
   return NextResponse.json({ users, assignable_roles: Array.from(managedRoles) });

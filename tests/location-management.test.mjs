@@ -11,6 +11,44 @@ test('location types group case-insensitively and locations sort naturally withi
  assert.deepEqual(input.map(x=>x.id),['10','lobby','2','unknown']);
 });
 
+test('the location API exposes linked tickets to read-only roles without granting PM reads or edits', async () => {
+ const roles=loadTs('src/lib/server/roles.ts');
+ const access=loadTs('src/lib/server/access.ts');
+ const hotel='test-hotel';
+ const user='test-user';
+ const principal={identity:{id:user},profile:{id:user,role:'Front Desk Manager',active:true},hotelId:hotel,
+  membership:{user_id:user,hotel_id:hotel,role:'technician',active:true},permissions:[]};
+ const reads=[];
+ const rows={locations:[{id:'lobby',room_number:null},{id:'room',room_number:'201'}],work_orders:[
+  {id:'linked',location_id:'lobby'}, {id:'legacy',location_id:null,room:'Room 201'},
+  {id:'unrelated',location_id:'inactive',room:'Room 201'}, {id:'unlinked',location_id:null,room:'Unknown'},
+ ]};
+ const admin={from(table){
+  reads.push(table);
+  const query={select:()=>query,eq:()=>query,order:()=>query,limit:()=>query,
+   then(resolve,reject){return Promise.resolve({data:rows[table]||[],error:null}).then(resolve,reject);}};
+  return query;
+ }};
+ const route=loadTs('src/app/api/rooms/route.ts',{
+  'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},'@/lib/constants':{HOTEL_ID:hotel},
+  '@/lib/server/access':access,'@/lib/server/roles':roles,'@/lib/server/room-availability':{},
+  '@/lib/server/auth':{requireUser:async()=>({admin,principal}),requireCapability:async(_request,cap)=>access.allows(principal,cap)?{admin,principal}:null},
+ });
+ const request={nextUrl:new URL('http://local/api/rooms')};
+ const response=await route.GET(request);
+ assert.equal(response.status,200);
+ const result=await response.json();
+ assert.deepEqual(result.work_orders.map(order=>order.id),['linked','legacy']);
+ assert.equal(result.can_edit,false);
+ assert.equal(result.can_view_pm,false);
+ assert.deepEqual(reads,['work_orders','locations']);
+ assert.equal((await route.PATCH(request)).status,403);
+ assert.equal((await route.POST(request)).status,403);
+ principal.profile.role='Front Desk';
+ assert.equal((await route.GET(request)).status,403);
+ assert.deepEqual(reads,['work_orders','locations']);
+});
+
 test('Add Location enforces permission, property scope and validation, and persists a unique normalized record', async () => {
  const db=new PGlite();
  const hotel='00000000-0000-4000-8000-000000000001';
@@ -29,7 +67,7 @@ test('Add Location enforces permission, property scope and validation, and persi
    },
   };return query;
  }};
- const route=loadTs('src/app/api/rooms/route.ts',{'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/server/access':{allows:()=>allowed},'@/lib/server/auth':{requireCapability:async(_request,cap)=>{assert.equal(cap,'manage_rooms');return allowed?{admin}:null;},requireUser:async()=>null},'@/lib/server/roles':{roleKey:x=>x},'@/lib/server/room-availability':{loadCurrentRoomStatuses:()=>{},currentRoomStatus:()=>{}}});
+ const route=loadTs('src/app/api/rooms/route.ts',{'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},'@/lib/constants':{HOTEL_ID:hotel},'@/lib/server/access':{allows:()=>allowed},'@/lib/server/auth':{requireCapability:async(_request,cap)=>{assert.equal(cap,'edit_locations');return allowed?{admin}:null;},requireUser:async()=>null},'@/lib/server/roles':{roleKey:x=>x},'@/lib/server/room-availability':{loadCurrentRoomStatuses:()=>{},currentRoomStatus:()=>{}}});
  const post=body=>route.POST(new Request('http://local/api/rooms',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}}));
  try {
   allowed=false;assert.equal((await post({name:'Lobby',area:'Public'})).status,403);assert.equal(writes,0);allowed=true;

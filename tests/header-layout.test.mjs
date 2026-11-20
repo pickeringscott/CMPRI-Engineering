@@ -3,13 +3,44 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync,readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { normalizeHeaderLayout,headerLayoutForGroups } from '../src/lib/header-layout.ts';
+import { anchoredHeaderLayoutForGroups,normalizeHeaderLayout,headerLayoutForGroups } from '../src/lib/header-layout.ts';
 import { loadTs } from './helpers/load-ts.mjs';
 
 test('layouts are bounded, deduplicated and never interpret control keys as authorization',()=>{
  const value=normalizeHeaderLayout({groups:['Operations','Operations'],buttons:{Operations:['/profile','/profile',42]},widths:{Operations:99999,Account:-20,Admin:NaN},collapsed:['Operations']});
  assert.deepEqual(value,{groups:['Operations'],buttons:{Operations:['/profile']},widths:{Operations:4000,Account:40},collapsed:['Operations']});
  assert.deepEqual(normalizeHeaderLayout(null).groups,[]);
+});
+test('anchored layouts restore geometry and only authorized, role-compatible placements',()=>{
+ const daily='Daily Work',safety='Safety & Logs',account='Account';
+ const note={key:'/notes',label:'Notes'};
+ const work={key:'work-order-list',label:'Work Order List'};
+ const weather={key:'/previews/cmpri-weather-preview.html',label:'Weather'};
+ const signOut={key:'sign-out',label:'Sign Out'};
+ const actions=[
+  {label:daily,items:[work,note]},
+  {label:safety,items:[weather]},
+  {label:account,items:[signOut],centered:true},
+ ];
+ const legacy=anchoredHeaderLayoutForGroups({
+  groups:['Operations'],buttons:{Operations:['/notes','work-order-list']},collapsed:[],
+ },actions,true);
+ assert.deepEqual(legacy.groups[0].items,[note,work]);
+ assert.deepEqual(legacy.layout.collapsed,[daily,safety,account]);
+
+ const restored=anchoredHeaderLayoutForGroups({
+  groups:[daily,safety,account],collapsed:[account],active:safety,
+  positions:{[safety]:99999,[account]:-50,Admin:15},
+  buttons:{
+   [daily]:['/previews/cmpri-weather-preview.html::Weather','sign-out::Sign Out'],
+   [safety]:['/notes::Notes','/notes::Notes','/management/users::Manage Users'],
+   [account]:['/notes::Notes','/previews/cmpri-weather-preview.html::Weather'],
+  },
+ },actions,true);
+ assert.deepEqual(restored.groups.map(group=>group.items),[[work],[note,weather],[signOut]]);
+ assert.equal(restored.groups[2].centered,true);
+ assert.deepEqual(restored.layout.positions,{[safety]:4000,[account]:0});
+ assert.equal(restored.layout.active,safety);
 });
 test('Front Desk layouts save only to the authenticated user and property; spoofed identity is rejected',async()=>{
  let current={principal:{identity:{id:'front-desk'},hotelId:'property',profile:{role:'front_desk'}}};const calls=[];

@@ -756,12 +756,16 @@ async def run_viewport(browser, base, output, width, height):
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        launcher = page.get_by_role("button", name="Weather", exact=True)
+        safety = page.locator("fieldset").filter(has=page.get_by_role("button", name="Safety & Logs", exact=True))
+        title = safety.get_by_role("button", name="Safety & Logs", exact=True)
+        await title.wait_for(state="visible", timeout=60000)
+        if await title.get_attribute("aria-expanded") != "true":
+            await title.click()
+        launcher = safety.get_by_role("button", name="Weather", exact=True)
         await launcher.wait_for(state="visible", timeout=60000)
         require(feed.forecast_calls == 0 and feed.astronomy_calls == 0 and not feed.map_urls and not feed.basemap_requests,
                 "Weather or ground-map feeds requested before opening Weather")
-        operations = page.locator("fieldset").filter(has=page.locator("legend", has_text="Operations"))
-        require(await operations.get_by_role("button", name="Weather", exact=True).count() == 1, "Weather launcher is outside existing Operations")
+        require(await launcher.count() == 1, "Weather launcher is outside Safety & Logs")
         before_mutations = len(mutations)
         await launcher.click()
         frame = await weather_frame(page)

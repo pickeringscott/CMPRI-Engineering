@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Principal } from './access';
-import { canUseWinterPreparedness } from '../winter-preparedness-access';
+import { canEditWinterPreparedness, canUseWinterPreparedness } from '../winter-preparedness-access';
 import { WINTER_TASK_IDS, WINTER_YEAR, type WinterItem } from '../winter-preparedness';
 
 export class WinterStoreError extends Error {
@@ -25,6 +25,9 @@ export async function readWinter(client: SupabaseClient, principal: Principal, m
 }
 export async function saveWinter(client: SupabaseClient, principal: Principal, input: unknown, mcp = false): Promise<WinterItem> {
   const hotel = winterHotel(principal, mcp);
+  if (!canEditWinterPreparedness(principal.profile)) {
+    throw new WinterStoreError('This role has view-only access to Winter Preparedness.', 403);
+  }
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new WinterStoreError('Invalid checklist change.', 400);
   const body = input as Record<string, unknown>;
   if (Object.keys(body).some(key => !['item_id', 'checked', 'revision'].includes(key))

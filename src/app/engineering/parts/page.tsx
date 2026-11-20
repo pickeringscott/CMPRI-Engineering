@@ -11,6 +11,7 @@ import InventoryItemDialog from "@/components/InventoryItemDialog";
 import useInventoryCommands from "@/components/useInventoryCommands";
 import {subscribeResources} from "@/lib/events/browser";
 import {mergeInventorySnapshot} from "@/lib/inventory";
+import {canReadChiefModules} from "@/lib/dashboard/chief-module-access";
 import type {InventoryItem, InventoryIdea as Idea, InventoryResult, PoOption} from "@/lib/inventory";
 
 type Vendor = { id: string; company_name: string; services?: string[]; main_phone?: string; email?: string; website?: string; emergency_phone?: string; preferred?: boolean; approved?: boolean; notes?: string; active?: boolean };
@@ -35,6 +36,7 @@ export default function PartsVendorsPage() {
   const [data, setData] = useState<Payload>(emptyPayload);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [canManage, setCanManage] = useState(false);
   const [message, setMessage] = useState("");
   const [activeForm, setActiveForm] = useState<AddPanel>("");
   const [vendorName, setVendorName] = useState("");
@@ -83,8 +85,13 @@ export default function PartsVendorsPage() {
       try{
         sessionRead.current??=loadCmpriSession();
         const session=await sessionRead.current;
-        if(!hasCapability(session,"manage_assets")){router.replace(session.landing||"/engineering");return;}
-        setScope(`${session.hotelId}:${session.user.id}`);
+        const authorizedToEdit = hasCapability(session, "manage_assets");
+        if (!authorizedToEdit && !canReadChiefModules(session.user)) {
+          router.replace(session.landing || "/engineering");
+          return;
+        }
+        setCanManage(authorizedToEdit);
+        setScope(authorizedToEdit ? `${session.hotelId}:${session.user.id}` : "");
         const headers=await authorizationHeaders();
         let response=await fetch("/api/engineering/catalog?v=2",{headers,cache:force?"reload":"no-store"});
         let payload=await response.json() as Payload;
@@ -106,6 +113,7 @@ export default function PartsVendorsPage() {
   useEffect(()=>subscribeResources(["reference","rooms"],()=>load(false)),[load]);
 
   async function post(body: Record<string, unknown>, success: string) {
+    if (!canManage) return false;
     if(body.kind==="idea"){
       const result=await inventoryCommands.command("POST",body);
       if(result)setMessage(success);return Boolean(result);
@@ -124,6 +132,7 @@ export default function PartsVendorsPage() {
   }
 
   async function patch(body: Record<string, unknown>, success: string) {
+    if (!canManage) return false;
     if(body.kind==="idea"){
       const result=await inventoryCommands.command("PATCH",body);
       if(result)setMessage(success);return Boolean(result);
@@ -168,9 +177,9 @@ export default function PartsVendorsPage() {
     </header>}
     {embedded && <div className="mb-4"><ModalDashboardLink className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold">← Dashboard</ModalDashboardLink></div>}
 
-    <div className="mt-4 flex flex-wrap gap-2">
+    {canManage && <div className="mt-4 flex flex-wrap gap-2">
       {(["vendor","contact","inventory","idea","proposal"] as const).map((key) => <button key={key} type="button" disabled={inventoryCommands.busy||inventoryCommands.uncertain} onClick={() => {inventoryCommands.clearError();setMessage("");setActiveForm(key);}} className="rounded-full border border-amber-500/35 bg-amber-950/20 px-3 py-1.5 text-xs font-bold text-amber-100 hover:bg-amber-950/40">{actionTitle[key]}</button>)}
-    </div>
+    </div>}
 
     {message && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">{message}</div>}
 
@@ -178,16 +187,16 @@ export default function PartsVendorsPage() {
     <section className="mt-5 grid gap-3 sm:grid-cols-4"><div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-sm text-slate-400">Inventory Items</p><p className="cmpri-modal-kpi-value mt-1 text-3xl font-bold">{data.inventory.length}</p></div><div className="rounded-xl border border-amber-500/30 bg-slate-900 p-4"><p className="text-sm text-slate-400">Reorder Suggestions</p><p className="cmpri-modal-kpi-value mt-1 text-3xl font-bold">{reorder.length}</p></div><div className="rounded-xl border border-sky-500/30 bg-slate-900 p-4"><p className="text-sm text-slate-400">Open Order Ideas</p><p className="cmpri-modal-kpi-value mt-1 text-3xl font-bold">{data.ideas.filter((idea) => !["Received", "Dismissed"].includes(idea.status)).length}</p></div><div className="rounded-xl border border-purple-500/30 bg-slate-900 p-4"><p className="text-sm text-slate-400">Pending Proposals</p><p className="cmpri-modal-kpi-value mt-1 text-3xl font-bold">{data.proposals.filter((proposal) => proposal.status === "Pending").length}</p></div></section>
 
     <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_.8fr]">
-      <InventoryCatalog data={data} commands={inventoryCommands} ready={ready} refreshing={refreshing} updatedAt={data.as_of} onRefresh={()=>void load(true)} selectedId={selectedId} onSelect={setSelectedId} onResult={applyInventoryResult}/>
-      <InventoryIdeas ideas={data.ideas} poOptions={data.po_options||[]} commands={inventoryCommands} ready={ready}/>
+      <InventoryCatalog data={data} commands={inventoryCommands} canManage={canManage} ready={ready} refreshing={refreshing} updatedAt={data.as_of} onRefresh={()=>void load(true)} selectedId={selectedId} onSelect={setSelectedId} onResult={applyInventoryResult}/>
+      <InventoryIdeas ideas={data.ideas} poOptions={data.po_options||[]} commands={inventoryCommands} ready={ready} canManage={canManage}/>
 
     </div>
 
     <div className="mt-5 grid gap-5 lg:grid-cols-2">    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><h2 className="text-xl font-bold">Vendors & Contacts</h2><div className="mt-3 space-y-2">{data.vendors.map((vendor) => <div key={vendor.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex justify-between gap-3"><b>{vendor.company_name}</b><div className="flex gap-1">{vendor.preferred && <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-200">Preferred</span>}{vendor.approved && <span className="rounded-full border border-green-500/40 px-2 py-0.5 text-[10px] text-green-200">Approved</span>}</div></div><p className="mt-1 text-xs text-slate-400">{vendor.main_phone || "No phone"}{vendor.email ? ` · ${vendor.email}` : ""}</p>{vendor.website && <p className="mt-1 break-all text-xs text-slate-500">{vendor.website}</p>}{data.contacts.filter((c) => c.vendor_id === vendor.id && c.active !== false).map((contact) => <p key={contact.id} className="mt-1 text-xs text-slate-500">{contact.name}{contact.role_title ? ` · ${contact.role_title}` : ""}{contact.mobile_phone || contact.phone ? ` · ${contact.mobile_phone || contact.phone}` : ""}</p>)}</div>)}{!data.vendors.length && <p className="text-sm text-slate-500">No vendors recorded yet.</p>}</div></section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><h2 className="text-xl font-bold">Vendor Proposals</h2><div className="mt-3 space-y-2">{data.proposals.map((proposal) => <div key={proposal.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex justify-between gap-3"><div><b>{proposal.vendor_company_snapshot}</b><p className="text-xs text-slate-500">{proposal.proposal_number ? `Proposal ${proposal.proposal_number} · ` : ""}{proposal.proposal_date}{proposal.asset_id ? ` · ${assetById.get(proposal.asset_id)?.name || "Equipment"}` : ""}</p></div><div className="text-right"><span className="text-xs font-semibold text-purple-200">{proposal.status}</span><p className="text-sm font-bold">{money(proposal.quoted_cost)}</p></div></div>{proposal.scope_summary && <p className="mt-2 text-sm text-slate-300">{proposal.scope_summary}</p>}{proposal.recommendation && <p className="mt-1 text-xs text-amber-200">Recommendation: {proposal.recommendation}</p>}{proposal.status === "Pending" && <div className="mt-2 flex gap-2"><button onClick={() => void patch({ kind: "proposal", id: proposal.id, status: "Approved" }, "Proposal approved.")} className="rounded border border-green-500/40 px-2 py-1 text-[11px]">Approve</button><button onClick={() => void patch({ kind: "proposal", id: proposal.id, status: "Declined" }, "Proposal declined.")} className="rounded border border-red-500/40 px-2 py-1 text-[11px]">Decline</button></div>}</div>)}{!data.proposals.length && <p className="text-sm text-slate-500">No vendor proposals recorded yet.</p>}</div></section></div>
+      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><h2 className="text-xl font-bold">Vendor Proposals</h2><div className="mt-3 space-y-2">{data.proposals.map((proposal) => <div key={proposal.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex justify-between gap-3"><div><b>{proposal.vendor_company_snapshot}</b><p className="text-xs text-slate-500">{proposal.proposal_number ? `Proposal ${proposal.proposal_number} · ` : ""}{proposal.proposal_date}{proposal.asset_id ? ` · ${assetById.get(proposal.asset_id)?.name || "Equipment"}` : ""}</p></div><div className="text-right"><span className="text-xs font-semibold text-purple-200">{proposal.status}</span><p className="text-sm font-bold">{money(proposal.quoted_cost)}</p></div></div>{proposal.scope_summary && <p className="mt-2 text-sm text-slate-300">{proposal.scope_summary}</p>}{proposal.recommendation && <p className="mt-1 text-xs text-amber-200">Recommendation: {proposal.recommendation}</p>}{canManage && proposal.status === "Pending" && <div className="mt-2 flex gap-2"><button onClick={() => void patch({ kind: "proposal", id: proposal.id, status: "Approved" }, "Proposal approved.")} className="rounded border border-green-500/40 px-2 py-1 text-[11px]">Approve</button><button onClick={() => void patch({ kind: "proposal", id: proposal.id, status: "Declined" }, "Proposal declined.")} className="rounded border border-red-500/40 px-2 py-1 text-[11px]">Decline</button></div>}</div>)}{!data.proposals.length && <p className="text-sm text-slate-500">No vendor proposals recorded yet.</p>}</div></section></div>
   </div>
 
-  {activeForm && activeForm!=="inventory" && <div className="cmpri-modal-backdrop fixed inset-0 z-[130] flex items-center justify-center bg-black/75">
+  {canManage && activeForm && activeForm!=="inventory" && <div className="cmpri-modal-backdrop fixed inset-0 z-[130] flex items-center justify-center bg-black/75">
     <div role="dialog" aria-modal="true" aria-label={actionTitle[activeForm]} className="cmpri-modal-shell overflow-y-auto border border-slate-700 bg-slate-900 shadow-2xl">
       <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-400">Quick Add</p><h2 className="mt-1 text-xl font-bold">{actionTitle[activeForm]}</h2></div><button type="button" disabled={inventoryCommands.busy||inventoryCommands.uncertain||saving} onClick={() => setActiveForm("")} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button></div>
 
@@ -204,6 +213,6 @@ export default function PartsVendorsPage() {
       {activeForm === "proposal" && <div className="mt-4 grid gap-2"><SearchableSelect value={proposalVendor} options={vendorOptions} onChange={(value) => { setProposalVendor(value); setProposalContact(""); }} placeholder="Vendor" required /><SearchableSelect value={proposalContact} options={contactOptions} onChange={setProposalContact} placeholder="Vendor contact (optional)" /><SearchableSelect value={proposalAsset} options={assetOptions} onChange={setProposalAsset} placeholder="Equipment (optional)" /><SearchableSelect value={proposalLocation} options={locationOptions} onChange={setProposalLocation} placeholder="Location (optional)" /><input className={inputClass()} value={proposalNo} onChange={(e) => setProposalNo(e.target.value)} placeholder="Proposal number" /><SearchableSelect value={proposalRecommendation} options={recommendationOptions} onChange={setProposalRecommendation} placeholder="Repair / Replace recommendation" /><input className={inputClass()} type="number" min="0" step="0.01" value={proposalCost} onChange={(e) => setProposalCost(e.target.value)} placeholder="Quoted cost" /><textarea className="min-h-20 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm" value={proposalScope} onChange={(e) => setProposalScope(e.target.value)} placeholder="Scope summary" /><button disabled={saving || !proposalVendor} onClick={() => void post({ kind: "proposal", vendor_id: proposalVendor, vendor_contact_id: proposalContact || null, asset_id: proposalAsset || null, location_id: proposalLocation || null, proposal_number: proposalNo, recommendation: proposalRecommendation, quoted_cost: num(proposalCost) ?? 0, scope_summary: proposalScope }, "Vendor proposal recorded.").then((ok) => { if (ok) { setProposalContact(""); setProposalAsset(""); setProposalLocation(""); setProposalNo(""); setProposalCost(""); setProposalScope(""); setProposalRecommendation(""); setActiveForm(""); } })} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">Record Proposal</button></div>}
     </div>
   </div>}
-  {activeForm==="inventory"&&<InventoryItemDialog mode="create" items={data.inventory} locations={data.locations} vendors={data.vendors} assets={data.assets} commands={inventoryCommands} ready={ready} onClose={()=>setActiveForm("")} onExisting={setSelectedId} onRefresh={()=>void load(true)}/>}
+  {canManage&&activeForm==="inventory"&&<InventoryItemDialog mode="create" items={data.inventory} locations={data.locations} vendors={data.vendors} assets={data.assets} commands={inventoryCommands} ready={ready} onClose={()=>setActiveForm("")} onExisting={setSelectedId} onRefresh={()=>void load(true)}/>}
 </main>;
 }

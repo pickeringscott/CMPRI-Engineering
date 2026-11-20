@@ -10,6 +10,7 @@ import PoolReport from "./PoolReport";
 import PoolDailyHistory, { type PoolDailyEntry } from "./PoolDailyHistory";
 import "./pool-log.css";
 import { getValidSession } from "@/lib/supabase/client";
+import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
 import {
   bromineBands,
   CMPRI_POOL,
@@ -189,6 +190,7 @@ export default function PoolLogPage() {
   const [form, setForm] = useState<Record<string, unknown>>(emptyForm);
   const [baseline, setBaseline] = useState("");
   const [canEdit, setCanEdit] = useState(false);
+  const [pageAllowed, setPageAllowed] = useState(false);
   const [canEditSavedLog, setCanEditSavedLog] = useState(false);
   const [editingSavedLog, setEditingSavedLog] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -212,6 +214,17 @@ export default function PoolLogPage() {
   const dirty = chemicalUses.length > 0 || baseline !== "" && JSON.stringify(form) !== baseline;
 
   useEffect(() => {
+    let active = true;
+    void loadCmpriSession().then(session => {
+      if (!active) return;
+      if (!hasCapability(session, "view_pool_log")) { window.location.replace(session.landing); return; }
+      setPageAllowed(true);
+    }).catch(() => { if (active) window.location.replace("/"); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!pageAllowed) return;
     const controller = new AbortController();
     void (async () => {
       setLoading(true);
@@ -247,7 +260,7 @@ export default function PoolLogPage() {
       }
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [date, facilityChoice, reload]);
+  }, [date, facilityChoice, pageAllowed, reload]);
 
   useEffect(() => {
     if (!facility?.id) return;
@@ -415,6 +428,7 @@ export default function PoolLogPage() {
   const flagClass = "mt-1 text-xs font-bold text-red-300";
   const warnClass = "mt-1 text-xs font-bold text-amber-300";
 
+  if (!pageAllowed) return null;
   return (
     <main data-pool-log data-cmpri-action-surface className="min-h-screen bg-slate-950 p-4 text-white print:bg-white print:p-0 print:text-black">
       <div className="mx-auto w-full space-y-2">

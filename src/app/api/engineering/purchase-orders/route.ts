@@ -1,15 +1,16 @@
 import {wholePoCount,poHotelDate,receivedPoSpending} from '@/lib/po-workflow';
 import {NextRequest,NextResponse} from 'next/server';
 import {requireCapability} from '@/lib/server/auth';
+import {requireChiefModuleRead} from '@/lib/server/chief-module-read';
 import {HOTEL_ID,HOTEL_TIME_ZONE} from '@/lib/constants';
 import {fetchAllPages} from '@/lib/server/paginated-query';
 const enabled=()=>process.env.CMPRI_PO_ENABLED==='true';
 const tables=['cmpri_po_orders','cmpri_po_lines','cmpri_po_receipts','cmpri_po_shipments','cmpri_po_sources','cmpri_inventory_items'] as const;
 export async function GET(request:NextRequest){
- const auth=await requireCapability(request,'manage_assets');
- if(!auth)return NextResponse.json({error:'Parts-management permission required.'},{status:403});
+ const auth=await requireChiefModuleRead(request,'manage_assets');
+ if(!auth)return NextResponse.json({error:'Purchase order access is required.'},{status:403});
  if(!enabled())return NextResponse.json({error:'PO receiving is not enabled for release.'},{status:409});
- const results=await Promise.all(tables.map(table=>fetchAllPages((from,to)=>auth.admin.from(table).select('*').eq('hotel_id',HOTEL_ID).order('id').range(from,to))));
+ const results=await Promise.all(tables.map(table=>fetchAllPages((from,to)=>auth.admin.from(table).select('*').eq('hotel_id',auth.principal.hotelId).order('id').range(from,to))));
  if(results.some(r=>r.error))return NextResponse.json({error:'PO data is unavailable. Confirm the receiving migration is installed.'},{status:503});
  const data=Object.fromEntries(tables.map((name,i)=>[name,results[i].data||[]]));
  return NextResponse.json({...data,spending:receivedPoSpending(data.cmpri_po_lines,data.cmpri_po_receipts,new Date(),HOTEL_TIME_ZONE)},{headers:{'Cache-Control':'no-store'}});

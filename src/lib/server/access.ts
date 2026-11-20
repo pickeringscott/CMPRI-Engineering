@@ -1,4 +1,4 @@
-import { membershipAllows, profileAllows, profileHasRole, profileIsChiefEngineer, roleKey, type Capability } from "./roles";
+import { isSubmitOnlyRole, membershipAllows, profileAllows, profileHasRole, profileIsChiefEngineer, roleKey, type Capability } from "./roles";
 export type { Capability } from "./roles";
 
 export type AccessIdentity = { id: string; email: string | null };
@@ -84,20 +84,31 @@ const CHIEF_ENGINEER_WORK_ORDER_CAPABILITIES: readonly Capability[] = [
   "reopen",
 ];
 
+function matchesPropertyMembership(principal: Principal): boolean {
+  const { identity, profile, hotelId, membership } = principal;
+  return Boolean(identity.id && hotelId && profile.id === identity.id
+    && membership.user_id === identity.id && membership.hotel_id === hotelId);
+}
+
 /**
  * Submit and read-dashboard access are hard application policy for active property members.
- * Other mutations require both the named-role policy and a database grant; Chief Engineer
- * work-order controls are granted directly by role.
+ * Location management and Chief Engineer work-order controls are granted by role.
+ * Capabilities with database grants still require them.
  */
 export function allows(principal: Principal, capability: Capability): boolean {
   if (principal.profile.active !== true || principal.membership.active !== true) return false;
   if (capability === "receive_pool_closed_notifications") return roleKey(principal.profile.role) !== "unknown";
   if (capability === "add_work_order_notes" && roleKey(principal.profile.role) === "unknown") return false;
   if (capability === "view_work_orders" || capability === "add_work_order_notes") {
-    return Boolean(principal.identity.id && principal.hotelId
-      && principal.profile.id === principal.identity.id
-      && principal.membership.user_id === principal.identity.id
-      && principal.membership.hotel_id === principal.hotelId);
+    return matchesPropertyMembership(principal);
+  }
+  if (capability === "view_locations" || capability === "edit_locations") {
+    return matchesPropertyMembership(principal) && profileAllows(principal.profile, capability);
+  }
+  if (capability === "view_pool_log" || capability === "operate_pool_log") {
+    if (!matchesPropertyMembership(principal) || isSubmitOnlyRole(principal.profile.role)) return false;
+    if (principal.membership.role?.trim().toLowerCase() === "viewer"
+      && profileHasRole(principal.profile, "senior_management")) return true;
   }
   if (profileIsChiefEngineer(principal.profile) && CHIEF_ENGINEER_WORK_ORDER_CAPABILITIES.includes(capability)) return true;
   if (!membershipAllows(principal.membership.role, capability)) return false;

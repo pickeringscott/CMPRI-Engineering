@@ -7,7 +7,7 @@ import { signOutDevice } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { isSubmitOnlyRole } from "@/lib/server/roles";
+import { isSubmitOnlyRole, landingPath } from "@/lib/server/roles";
 import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile } from "@/lib/notifications/schedule";
 import PhoneNotificationRow from "@/components/PhoneNotificationRow";
 
@@ -96,9 +96,7 @@ export default function ProfilePage() {
   const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
   const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
   const canManageChatgptConnection = !isSubmitOnlyRole(data?.profile.role);
-  const profileDashboardHref = isSubmitOnlyProfile
-    ? "/work-orders"
-    : "/engineering";
+  const profileDashboardHref = landingPath(data?.profile.role) || "/engineering";
   const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
 
   function closeProfileModal() {

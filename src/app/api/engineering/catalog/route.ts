@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
+import { requireChiefModuleRead } from "@/lib/server/chief-module-read";
 import { inventoryRequest } from "@/lib/inventory";
 
 function text(value: unknown, label: string, max = 500, required = false): string {
@@ -72,9 +73,9 @@ async function scopedInventory(admin: SupabaseClient, id: string | null) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireCapability(request, "manage_assets");
-  if (!auth) return NextResponse.json({ error: "Parts and vendor access requires equipment-management permission." }, { status: 403 });
-  const {data,error} = await auth.admin.rpc("cmpri_inventory_snapshot",{p_hotel:HOTEL_ID,p_stock_only:request.nextUrl.searchParams.get("stock")==="1"});
+  const auth = await requireChiefModuleRead(request, "manage_assets");
+  if (!auth) return NextResponse.json({ error: "Inventory access is required." }, { status: 403 });
+  const {data,error} = await auth.admin.rpc("cmpri_inventory_snapshot",{p_hotel:auth.principal.hotelId,p_stock_only:request.nextUrl.searchParams.get("stock")==="1"});
   if(error || !data)return NextResponse.json({error:"Inventory could not be loaded completely."},{status:503});
   return NextResponse.json(data,{headers:{"Cache-Control":"private, no-store"}});
 }

@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { authorizationHeaders, hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
+import { authorizationHeaders, loadCmpriSession } from "@/lib/auth/client-session";
+import { canOpenEnseo } from "@/lib/dashboard/menu-access";
 import { enseoSaveSuccessMessage, resolveEnseoPageResponse } from "@/lib/enseo-page-state";
 
 type Asset = { id: string; name: string; asset_type?: string | null; asset_tag?: string | null; location_id?: string | null; manufacturer?: string | null; model_number?: string | null; serial_number?: string | null };
@@ -34,7 +35,7 @@ export default function EnseoAssignmentsPage() {
     setLoading(true);
     try {
       const session = await loadCmpriSession();
-      if (!hasCapability(session, "view_engineering_operations")) {
+      if (!canOpenEnseo(session.user)) {
         router.replace(session.landing);
         return false;
       }

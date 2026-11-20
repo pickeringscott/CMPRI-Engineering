@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
 import { authenticatedUser } from "@/lib/server/request-auth";
-import { roleCanEditSavedPoolLog, receivesPoolClosedNotifications, roleAllows } from "@/lib/server/roles";
+import { allows } from "@/lib/server/access";
+import { roleCanEditSavedPoolLog, receivesPoolClosedNotifications } from "@/lib/server/roles";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 import { jsonObject } from "@/lib/integrations/spreadsheet-input";
 import { mergePoolLogBody, PoolLogConflictError, poolLogChanged, poolLogInput, poolLogStatus, poolReadingWarnings, poolCurrentClosureReasons, validLogDate } from "@/lib/pool-log";
@@ -34,7 +35,7 @@ function saveFailure(error: DatabaseError) {
 export async function GET(request: NextRequest) {
   const auth = await authenticatedUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!roleAllows(auth.profile.role, "view_dashboard") && !roleAllows(auth.profile.role, "view_pool_log")) {
+  if (!allows(auth.principal, "view_pool_log")) {
     return NextResponse.json({ error: "Pool-log access is required." }, { status: 403 });
   }
   const admin = auth.admin ?? createSupabaseAdmin();
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
     ...(activityError ? { daily_entries_error: activityError } : {}),
     date,
     status: poolLogStatus(log),
-    can_edit: roleAllows(auth.profile.role, "operate_pool_log"),
+    can_edit: allows(auth.principal, "operate_pool_log"),
     can_edit_saved: roleCanEditSavedPoolLog(auth.profile.role),
     operator: auth.profile.full_name || "",
   }, { headers: { "Cache-Control": "private, no-store" } });
@@ -116,7 +117,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authenticatedUser(request);
   if (!auth) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (!roleAllows(auth.profile.role, "operate_pool_log")) return NextResponse.json({ error: "Pool-log operating permission is required to save readings." }, { status: 403 });
+  if (!allows(auth.principal, "operate_pool_log")) return NextResponse.json({ error: "Pool-log operating permission is required to save readings." }, { status: 403 });
   const body = await jsonObject(request);
   if (!body) return NextResponse.json({ error: "A JSON object is required." }, { status: 400 });
 

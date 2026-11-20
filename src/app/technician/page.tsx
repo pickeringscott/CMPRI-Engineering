@@ -9,7 +9,11 @@ import { profileCanUseHoursTracker } from "@/lib/server/roles";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { signOutDevice } from "@/lib/supabase/client";
-import type { CmpriClientSession } from "@/lib/auth/client-session";
+import { hasCapability, type CmpriClientSession } from "@/lib/auth/client-session";
+import { canOpenEnseo, canOpenGss, canOpenRoomOperations, canOpenWeather } from "@/lib/dashboard/menu-access";
+import { dashboardMenuGroups, WEATHER_MENU_PATH } from "@/lib/dashboard/menu-groups";
+import { canUseWinterPreparedness } from "@/lib/winter-preparedness-access";
+import { armWeatherWarningSound } from "@/lib/weather-warning-sound";
 import { newlyAvailableTechnicianWork } from "@/lib/dashboard/technician-work-notifications";
 import {
   fetchDashboardInbox,
@@ -48,7 +52,8 @@ export default function TechnicianDashboard() {
   const router = useRouter();
   const [orders, setOrders] = useState<AssignedWorkOrder[]>([]);
   const [newWorkQueue, setNewWorkQueue] = useState<AssignedWorkOrder[]>([]);
-  const [account, setAccount] = useState<CmpriClientSession["user"] | null>(null);
+  const [menuSession, setMenuSession] = useState<CmpriClientSession | null>(null);
+  const account = menuSession?.user;
   const [notificationError, setNotificationError] = useState("");
   const [notifications, setNotifications] = useState<WorkOrderNotification[]>([]);
   const [dashboardInbox, setDashboardInbox] = useState<WorkOrderNotification[]>([]);
@@ -57,7 +62,7 @@ export default function TechnicianDashboard() {
   const [message, setMessage] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const loadingRef = useRef(false);
-  const accountRef = useRef<CmpriClientSession["user"] | null>(null);
+  const accountRef = useRef<CmpriClientSession | null>(null);
   const hasLoadedWorkRef = useRef(false);
   const knownOrdersRef = useRef<Map<string, string> | null>(null);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
@@ -112,18 +117,16 @@ export default function TechnicianDashboard() {
     loadingRef.current = true;
     try {
       const session = await getValidSession();
-      if (!session) { accountRef.current = null; setAccount(null); setOrders([]); setDashboardInbox([]); setNotifications([]); throw new Error("Sign in again to load your technician dashboard."); }
-      let currentAccount = accountRef.current?.id === session.user.id ? accountRef.current : null;
-      if (!currentAccount) {
-      const accountResponse = await fetch("/api/session", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
-      });
-      const accountPayload = await accountResponse.json().catch(() => ({}));
-      if (!accountResponse.ok || !accountPayload.user) throw new Error(accountPayload.error || "Your account could not be loaded.");
-      currentAccount = accountPayload.user as CmpriClientSession["user"];
-      accountRef.current = currentAccount;
-      setAccount(currentAccount);
+      if (!session) { accountRef.current = null; setMenuSession(null); setOrders([]); setDashboardInbox([]); setNotifications([]); throw new Error("Sign in again to load your technician dashboard."); }
+      if (accountRef.current?.user.id !== session.user.id) {
+        const accountResponse = await fetch("/api/session", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: "no-store",
+        });
+        const accountPayload = await accountResponse.json().catch(() => ({}));
+        if (!accountResponse.ok || !accountPayload.user) throw new Error(accountPayload.error || "Your account could not be loaded.");
+        accountRef.current = accountPayload as CmpriClientSession;
+        setMenuSession(accountRef.current);
       }
       const response = await fetch("/api/work-orders?mode=technician", {
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -233,23 +236,46 @@ export default function TechnicianDashboard() {
     );
   }
 
+  const menuActions = account ? [
+    {key:"/engineering", label:"All Work Orders"},
+    {key:"/staff-notes", label:"Staff Notes"},
+    {key:"/notes", label:"Notes"},
+    {key:"/engineering/room-ranking", label:"Room Ranker"},
+    ...(hasCapability(menuSession, "view_pool_log") ? [{key:"/engineering/pool-log", label:"Pool Log"}] : []),
+    ...(hasCapability(menuSession, "view_pm") ? [{key:"/engineering/preventive-maintenance", label:"Preventive Maintenance"}] : []),
+    ...(canOpenRoomOperations(account) ? [{key:"/engineering/room-operations", label:"Daily Room Ops"}] : []),
+    ...(canOpenGss(account) ? [{key:"/engineering/gss", label:"GSS Reports"}] : []),
+    ...(hasCapability(menuSession, "view_locations") ? [{key:"/management/rooms", label:"Manage Locations"}] : []),
+    ...(canOpenEnseo(account) ? [{key:"/engineering/enseo-assignments", label:"Enseo Assignments"}] : []),
+    ...(canUseWinterPreparedness(account) ? [{key:"/engineering/winter-preparedness", label:"Winter Preparedness 2026"}] : []),
+    ...(process.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW === "1" && canOpenWeather(account) ? [{key:WEATHER_MENU_PATH, label:"Weather"}] : []),
+    ...(profileCanUseHoursTracker(account) ? [{key:"/engineering/hours-tracker", label:"Hours Tracker"}] : []),
+    {key:"sign-out", label:"Sign Out"},
+  ] : [];
+
   return (
     <main className="min-h-[100svh] bg-slate-950 text-white">
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
         <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-slate-800 bg-slate-950/95 py-2">
+          <div className="cmpri-anchored-title-bar w-full min-w-0">
+            <h1 data-cmpri-menu-title="" className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">CMPRI Engineering <DashboardNotificationBell count={unreadCount} label={`${unreadCount} unread notifications`} title="Open notifications" onClick={()=>void toggleInbox()}/></h1>
+            <nav aria-label="Open dashboard windows" className="w-full min-w-0">
+              <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={action=>{
+                if(action.key==="sign-out"){void signOut();return;}
+                if(action.key==="/engineering"){router.push(action.key);return;}
+                if(action.key===WEATHER_MENU_PATH)void armWeatherWarningSound();
+                const href=action.key===WEATHER_MENU_PATH?`${WEATHER_MENU_PATH}?weather=open`:action.key;
+                window.dispatchEvent(new CustomEvent("cmpri-open-modal",{detail:{href,title:action.label}}));
+              }}/>
+            </nav>
+          </div>
           <div className="cmpri-header-shelf">
             <div className="cmpri-header-identity">
-              <h1 className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">CMPRI Engineering <DashboardNotificationBell count={unreadCount} label={`${unreadCount} unread notifications`} title="Open notifications" onClick={()=>void toggleInbox()}/></h1>
               <p className="mt-1 text-sm font-semibold">{account?.name?.trim() || "Maintenance Technician"}</p>
               <p className="text-xs text-sky-200/90">Maintenance Technician</p>
             </div>
             <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool'}}))}/><button type="button" className="cmpri-header-create" onClick={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order'}}))}>+ Work Order</button></div>
           </div>
-          <ApprovedDashboardMenus userId={account?.id || ""} hotelId={HOTEL_ID} groups={[
-            {label:"Work Orders",items:[{key:"/engineering",label:"All Work Orders"}]},
-            {label:"Operations",items:[{key:"/engineering/pool-log",label:"Pool Log"},{key:"/staff-notes",label:"Staff Notes"},{key:"/engineering/preventive-maintenance",label:"Preventive Maintenance"},{key:"/engineering/room-ranking",label:"Room Ranker"}]},
-            {label:"Account",items:[...(account&&profileCanUseHoursTracker(account)?[{key:"/engineering/hours-tracker",label:"Hours Tracker"}]:[]),{key:"sign-out",label:"Sign Out"}]}
-          ]} onLaunch={action=>{if(action.key==="sign-out")void signOut();else if(action.key==="/engineering")router.push(action.key);else window.dispatchEvent(new CustomEvent("cmpri-open-modal",{detail:{href:action.key,title:action.label}}))}}/>
         </header>
 
 

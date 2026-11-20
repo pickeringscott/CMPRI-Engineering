@@ -1,0 +1,646 @@
+/**
+ * The approved launcher DOM and gestures, anchored to the title line.
+ * @template {{key:string, label:string, style?:Record<string,string>}} Action
+ * @param {HTMLElement} root
+ * @param {{label:string, items:Action[], centered?:boolean}[]} groups
+ * @param {(action:Action, clickedAt:number, button:HTMLButtonElement)=>void} onLaunch
+ * @param {import('../header-layout').HeaderLayout} layout
+ * @param {(layout:import('../header-layout').HeaderLayout)=>void} onSave
+ * @param {{getStartOffset?:()=>number, canDrop?:(key:string, label:string)=>boolean}} [options]
+ */
+export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { getStartOffset = () => 0, canDrop = () => true, } = {}) {
+  const PRESS_MS = 320, SLIDE_MS = 240, MOUSE_DRAG_PX = 12, TOUCH_DRAG_PX = 8;
+  const TAB_INSET = 15, TAB_GAP = 5, TAB_HEIGHT = 14;
+  let observer, suppressedClick, cancelGesture, active = null, zIndex = 1;
+  const ghosts = new Set(), cleanups = [], itemWidths = new WeakMap();
+  root.replaceChildren();
+  const preview = document.createElement('div');
+  preview.className = 'preview layout-b';
+  const header = document.createElement('div');
+  header.className = 'header chief-mobile';
+  const bar = document.createElement('div');
+  bar.className = 'groups anchored-groups';
+  header.append(bar);
+  preview.append(header);
+  root.append(preview);
+  const label = group => group.querySelector('legend').textContent;
+  const fields = () => Array.from(bar.children);
+  const isOpen = field => !field.classList.contains('collapsed');
+  const emit = () => onSave({
+    groups: fields().map(label),
+    buttons: Object.fromEntries(fields().map(g => [label(g), [...g.querySelectorAll('.buttons>.action')].map(b => b.dataset.layoutKey)])),
+    widths: Object.fromEntries(fields().filter(g => Number.isFinite(g.requestedWidth)).map(g => [label(g), g.requestedWidth])),
+    collapsed: fields().filter(g => !isOpen(g)).map(label),
+    positions: Object.fromEntries(fields().filter(g => Number.isFinite(g.requestedX)).map(g => [label(g), g.requestedX])),
+    active: active ? label(active) : null,
+  });
+  const setActive = field => {
+    if (active === field)
+      return;
+    active?.removeAttribute('data-active');
+    active = field;
+    if (active) {
+      active.dataset.active = 'true';
+      active.style.zIndex = String(++zIndex);
+    }
+  };
+  const stageHeight = () => {
+    const open = fields().filter(isOpen);
+    const height = open.length ? Math.max(...open.map(field => TAB_HEIGHT + field.offsetHeight + (field.querySelector('.group-scroll').hidden ? 1 : 12))) : TAB_HEIGHT;
+    bar.style.height = height + 'px';
+  };
+  const listen = (name, fn, options) => { document.addEventListener(name, fn, options); return () => document.removeEventListener(name, fn, options); };
+  const suppressFor = target => { suppressedClick = { target, until: performance.now() + 400 }; };
+  const shouldSuppress = (target, event) => {
+    if (!suppressedClick)
+      return false;
+    if (performance.now() > suppressedClick.until) {
+      suppressedClick = undefined;
+      return false;
+    }
+    if (event && event.detail !== 0 && suppressedClick.target === target) {
+      suppressedClick = undefined;
+      return true;
+    }
+    return false;
+  };
+  const clearMotion = nodes => nodes.forEach(n => n.getAnimations().forEach(a => a.cancel()));
+  function slide(peers, change) {
+    const before = new Map(peers.map(n => [n, n.getBoundingClientRect()]));
+    change();
+    clearMotion(peers);
+    for (const n of peers) {
+      const a = before.get(n), b = n.getBoundingClientRect();
+      if (a.x !== b.x || a.y !== b.y)
+        n.animate([{ transform: `translate(${a.x - b.x}px,${a.y - b.y}px)` }, { transform: 'none' }], { duration: SLIDE_MS, easing: 'cubic-bezier(.2,.7,.3,1)' });
+    }
+  }
+  function copy(item, x, y) {
+    const ghost = item.cloneNode(true);
+    ghost.removeAttribute('id');
+    ghost.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+    const originals = [item, ...item.querySelectorAll('*')], copies = [ghost, ...ghost.querySelectorAll('*')];
+    originals.forEach((n, i) => { const style = getComputedStyle(n); for (const property of style)
+      copies[i].style.setProperty(property, style.getPropertyValue(property), 'important'); copies[i].style.outline = 'none'; copies[i].style.animation = 'none'; copies[i].style.transition = 'none'; });
+    // Root logical offsets and group margins must not shift the pointer-following copy.
+    for (const property of ['inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end'])
+      ghost.style.removeProperty(property);
+    const r = item.getBoundingClientRect();
+    ghost.classList.add('moving-copy');
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.setAttribute('inert', '');
+    Object.assign(ghost.style, { position: 'fixed', left: x + 'px', top: y + 'px', width: r.width + 'px', height: r.height + 'px', minWidth: r.width + 'px', maxWidth: r.width + 'px', minHeight: r.height + 'px', maxHeight: r.height + 'px', margin: 0, transform: 'none', pointerEvents: 'none' });
+    for (const [key, value] of Object.entries({ position: 'fixed', left: x + 'px', top: y + 'px', right: 'auto', bottom: 'auto', margin: '0px', width: r.width + 'px', height: r.height + 'px', 'min-width': r.width + 'px', 'max-width': r.width + 'px', 'min-height': r.height + 'px', 'max-height': r.height + 'px', opacity: '.55', 'z-index': '10003', 'pointer-events': 'none' }))
+      ghost.style.setProperty(key, value, 'important');
+    document.body.append(ghost);
+    originals.forEach((n, i) => { copies[i].scrollLeft = n.scrollLeft; copies[i].scrollTop = n.scrollTop; });
+    ghosts.add(ghost);
+    return ghost;
+  }
+  function startButtonDrag(event, item, container) {
+    if (event.button !== 0 || event.isPrimary === false || cancelGesture)
+      return;
+    const captureTarget = event.currentTarget;
+    // A new press is a new gesture, including when the browser emitted no click
+    // after the previous drag. Keyboard activation must never be suppressed.
+    suppressedClick = undefined;
+    const initial = [...container.children], origin = container.closest('fieldset'), host = root;
+    const start = { x: event.clientX, y: event.clientY, scroll: container.scrollLeft, hostLeft: host.scrollLeft, hostTop: host.scrollTop };
+    const rect = item.getBoundingClientRect(), grab = { x: start.x - rect.left, y: start.y - rect.top };
+    const position = e => event.pointerType === 'mouse' ? { x: e.clientX - grab.x, y: e.clientY - grab.y } : { x: e.clientX + 8, y: e.clientY + 8 };
+    let last = event, active = false, moved = false, swipe = false, ghost, frame, slideUntil = 0, highlight = null;
+    const destination = () => {
+      const hit = document.elementFromPoint(last.clientX, last.clientY);
+      const field = hit?.closest('fieldset.group');
+      if (!field || field.parentElement !== bar || !canDrop(item.dataset.key, label(field)))
+        return null;
+      const tab = hit.closest('legend') === field.querySelector('legend');
+      if (!tab && !isOpen(field))
+        return null;
+      return { field, row: field.querySelector('.buttons'), tab };
+    };
+    const insertion = (row) => [...row.children].find(b => {
+      if (b === item || !b.matches('.action'))
+        return false;
+      const r = b.getBoundingClientRect();
+      return last.clientX < r.left + r.width / 2;
+    });
+    const markDrop = (next) => {
+      const field = next && next.field !== origin ? next.field : null;
+      if (highlight !== field)
+        highlight?.removeAttribute('data-button-drop');
+      highlight = field;
+      if (highlight)
+        highlight.dataset.buttonDrop = next.tab ? 'tab' : 'row';
+    };
+    const arrange = (next = destination()) => {
+      const valid = Boolean(next);
+      document.body.classList.toggle('drag-invalid', !valid);
+      ghost.style.setProperty('visibility', valid ? 'visible' : 'hidden', 'important');
+      item.style.visibility = valid ? 'visible' : 'hidden';
+      markDrop(next);
+      if (!moved || !valid || next.field !== origin || next.tab || performance.now() < slideUntil)
+        return;
+      const peers = [...container.children].filter(n => n !== item);
+      const target = insertion(container);
+      if (target ? item.nextElementSibling === target : container.lastElementChild === item)
+        return;
+      slide(peers, () => target ? target.before(item) : container.append(item));
+      captureTarget.setPointerCapture(event.pointerId);
+      slideUntil = performance.now() + SLIDE_MS;
+    };
+    const edgeScroll = () => {
+      if (!active)
+        return;
+      if (moved) {
+        const bounds = host.getBoundingClientRect();
+        if (last.clientY >= bounds.top && last.clientY <= bounds.top + TAB_HEIGHT + 2) {
+          if (last.clientX >= bounds.right - 18 && last.clientX <= bounds.right)
+            host.scrollLeft += 8;
+          else if (last.clientX <= bounds.left + 18 && last.clientX >= bounds.left)
+            host.scrollLeft -= 8;
+        }
+        else {
+          const next = destination();
+          if (next && !next.tab) {
+            const r = next.row.getBoundingClientRect();
+            if (last.clientX > r.right - 18)
+              next.row.scrollLeft += 8;
+            else if (last.clientX < r.left + 18)
+              next.row.scrollLeft -= 8;
+          }
+        }
+        arrange();
+      }
+      frame = requestAnimationFrame(edgeScroll);
+    };
+    const startedAt = performance.now();
+    const activate = () => {
+      active = true;
+      root.dataset.buttonDragging = 'true';
+      document.body.classList.add('drag-active', 'menu-reordering');
+      window.getSelection()?.removeAllRanges();
+      captureTarget.setPointerCapture(event.pointerId);
+      const p = position(last);
+      ghost = copy(item, p.x, p.y);
+      item.classList.add('landing-copy');
+      arrange();
+      frame = requestAnimationFrame(edgeScroll);
+    };
+    const timer = event.pointerType === 'mouse' ? undefined : window.setTimeout(activate, PRESS_MS);
+    const move = e => {
+      if (e.pointerId !== event.pointerId)
+        return;
+      last = e;
+      const dx = e.clientX - start.x, dy = e.clientY - start.y;
+      if (Math.hypot(dx, dy) > (event.pointerType === 'mouse' ? MOUSE_DRAG_PX : TOUCH_DRAG_PX))
+        moved = true;
+      if (!active) {
+        if (event.pointerType === 'mouse') {
+          if (!moved)
+            return;
+          activate();
+        }
+        else {
+          if (moved) {
+            window.clearTimeout(timer);
+            swipe = true;
+          }
+          if (swipe && Math.abs(dx) > Math.abs(dy)) {
+            e.preventDefault();
+            container.scrollLeft = start.scroll - dx;
+          }
+          return;
+        }
+      }
+      e.preventDefault();
+      const p = position(e);
+      ghost.style.setProperty('left', p.x + 'px', 'important');
+      ghost.style.setProperty('top', p.y + 'px', 'important');
+      arrange();
+    };
+    const stopTouchScroll = e => { if (active && e.cancelable)
+      e.preventDefault(); };
+    captureTarget.addEventListener('touchmove', stopTouchScroll, { passive: false });
+    const finish = (e, cancel = false) => {
+      if (e.pointerId !== event.pointerId)
+        return;
+      last = e;
+      window.clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      let changed = false, movedTo = null;
+      if (active) {
+        suppressFor(captureTarget);
+        const next = cancel ? null : destination();
+        if (!next) {
+          clearMotion(initial);
+          initial.forEach(n => container.append(n));
+          container.scrollLeft = start.scroll;
+          host.scrollLeft = start.hostLeft;
+          host.scrollTop = start.hostTop;
+        }
+        else if (moved) {
+          if (next.field !== origin) {
+            const target = next.tab ? null : insertion(next.row);
+            if (target)
+              target.before(item);
+            else
+              next.row.append(item);
+            movedTo = next.field;
+          }
+          else if (next.tab) {
+            container.append(item);
+          }
+          changed = Boolean(movedTo) || initial.some((n, i) => container.children[i] !== n);
+        }
+        ghost.remove();
+        ghosts.delete(ghost);
+        item.style.visibility = '';
+        item.classList.remove('landing-copy');
+      }
+      else if (event.pointerType !== 'mouse' && (moved || performance.now() - startedAt >= PRESS_MS))
+        suppressFor(captureTarget);
+      captureTarget.removeEventListener('touchmove', stopTouchScroll);
+      if (captureTarget.hasPointerCapture(event.pointerId))
+        captureTarget.releasePointerCapture(event.pointerId);
+      markDrop(null);
+      delete root.dataset.buttonDragging;
+      document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering');
+      off.forEach(fn => fn());
+      cancelGesture = undefined;
+      if (movedTo) {
+        refitButtonRow(origin);
+        refitButtonRow(movedTo);
+        place();
+      }
+      if (changed)
+        emit();
+    };
+    const off = [listen('pointermove', move, { passive: false }), listen('pointerup', e => finish(e)), listen('pointercancel', e => finish(e, true)), listen('keydown', e => { if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(last, true);
+      } })];
+    cancelGesture = () => finish(last, true);
+  }
+  function refitButtonRow(field) {
+    const buttons = field.querySelector('.buttons');
+    const empty = buttons.querySelector('.menu-empty');
+    if (buttons.querySelector('.action'))
+      empty?.remove();
+    else if (!empty) {
+      const notice = document.createElement('span');
+      notice.className = 'menu-empty';
+      notice.textContent = 'No buttons for this role';
+      buttons.append(notice);
+    }
+    const widths = Array.from(buttons.children, button => {
+      const width = button.getBoundingClientRect().width || itemWidths.get(button) || 0;
+      if (width)
+        itemWidths.set(button, width);
+      return width;
+    });
+    field.minimumWidth = Math.max(field.tabWidth + 26, Math.ceil(Math.max(0, ...widths)) + 6);
+    field.fittedWidth = Math.max(field.minimumWidth, Math.ceil(widths.reduce((sum, w) => sum + w, 0) + Math.max(0, widths.length - 1) * (parseFloat(getComputedStyle(buttons).columnGap) || 0) + 14));
+  }
+  const widthLimit = field => {
+    const available = root.scrollLeft + root.clientWidth - field.positionX - 3;
+    return Math.max(1, Math.min(field.fittedWidth, root.clientWidth - 3, bar.clientWidth - field.positionX, Math.max(field.minimumWidth, available)));
+  };
+  const fitWidth = field => {
+    const max = widthLimit(field);
+    const min = Math.min(field.minimumWidth, max);
+    const width = Math.min(max, Math.max(min, field.requestedWidth || field.fittedWidth));
+    field.style.minWidth = min + 'px';
+    field.style.width = width + 'px';
+    field.drawOutline();
+  };
+  const setPosition = (field, x) => {
+    field.positionX = Math.round(Math.max(0, Math.min(x, bar.clientWidth - field.minimumWidth)));
+    field.style.left = field.positionX + 'px';
+    fitWidth(field);
+  };
+  const place = () => {
+    if (cancelGesture)
+      return;
+    const start = Math.max(0, Math.ceil(getStartOffset()) - TAB_INSET);
+    const items = fields();
+    const fittedTabs = items.reduce((size, field) => size + field.tabWidth + TAB_GAP, start);
+    bar.style.minWidth = Math.max(root.clientWidth, fittedTabs + TAB_INSET + 9) + 'px';
+    let x = start;
+    for (const field of items) {
+      setPosition(field, field.requestedX ?? x);
+      x += field.tabWidth + TAB_GAP;
+    }
+    stageHeight();
+  };
+  function activate(field) {
+    if (isOpen(field) && active === field) {
+      field.classList.add('collapsed');
+      field.querySelector('legend').setAttribute('aria-expanded', 'false');
+      const remaining = fields().filter(isOpen).sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
+      setActive(remaining[0] || null);
+    }
+    else {
+      field.classList.remove('collapsed');
+      field.querySelector('legend').setAttribute('aria-expanded', 'true');
+      setActive(field);
+      if (field.positionX < root.scrollLeft)
+        root.scrollLeft = field.positionX;
+      else if (field.positionX + field.minimumWidth > root.scrollLeft + root.clientWidth - 3) {
+        root.scrollLeft = field.positionX + field.minimumWidth - root.clientWidth + 3;
+      }
+      fitWidth(field);
+    }
+    stageHeight();
+    emit();
+  }
+  function startTabDrag(event, field, title) {
+    if (event.button !== 0 || event.isPrimary === false || cancelGesture)
+      return;
+    suppressedClick = undefined;
+    const touch = event.pointerType !== 'mouse';
+    const initialX = field.positionX, initialScroll = root.scrollLeft, initialZ = field.style.zIndex;
+    let last = event, dragging = false, moved = false, swiping = false, frame;
+    const within = () => { const { left, right, top } = root.getBoundingClientRect(); return last.clientX >= left && last.clientX <= right && last.clientY >= top - 1 && last.clientY <= top + TAB_HEIGHT + 1; };
+    const displace = () => { if (within())
+      setPosition(field, initialX + last.clientX - event.clientX + root.scrollLeft - initialScroll); };
+    const edgeScroll = () => {
+      if (!dragging)
+        return;
+      if (moved && within()) {
+        const { left, right } = root.getBoundingClientRect();
+        if (last.clientX > right - 18)
+          root.scrollLeft += 8;
+        else if (last.clientX < left + 18)
+          root.scrollLeft -= 8;
+        displace();
+      }
+      frame = requestAnimationFrame(edgeScroll);
+    };
+    const start = () => {
+      dragging = true;
+      title.setPointerCapture(event.pointerId);
+      field.style.zIndex = '10000';
+      field.classList.add('dragging');
+      document.body.classList.add('drag-active', 'menu-reordering');
+      window.getSelection()?.removeAllRanges();
+      frame = requestAnimationFrame(edgeScroll);
+    };
+    const timer = touch ? window.setTimeout(start, PRESS_MS) : undefined;
+    const move = e => {
+      if (e.pointerId !== event.pointerId)
+        return;
+      last = e;
+      const dx = e.clientX - event.clientX, dy = e.clientY - event.clientY;
+      moved ||= Math.hypot(dx, dy) > (touch ? TOUCH_DRAG_PX : MOUSE_DRAG_PX);
+      if (!dragging) {
+        if (!moved)
+          return;
+        if (touch) {
+          window.clearTimeout(timer);
+          if (!swiping && Math.abs(dx) > Math.abs(dy))
+            swiping = true;
+          if (swiping) {
+            e.preventDefault();
+            root.scrollLeft = initialScroll - dx;
+          }
+          return;
+        }
+        start();
+      }
+      e.preventDefault();
+      document.body.classList.toggle('drag-invalid', !within());
+      displace();
+    };
+    const finish = (e, cancel = false) => {
+      if (e.pointerId !== event.pointerId)
+        return;
+      last = e;
+      window.clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      if (dragging) {
+        suppressFor(title);
+        if (cancel || !within()) {
+          root.scrollLeft = initialScroll;
+          setPosition(field, initialX);
+        }
+        else {
+          displace();
+          if (field.positionX !== initialX) {
+            field.requestedX = field.positionX;
+            emit();
+          }
+        }
+        field.classList.remove('dragging');
+        field.style.zIndex = initialZ;
+      }
+      else if (touch) {
+        suppressFor(title);
+        if (!cancel && !moved && within())
+          activate(field);
+      }
+      if (title.hasPointerCapture(event.pointerId))
+        title.releasePointerCapture(event.pointerId);
+      document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering');
+      off.forEach(fn => fn());
+      cancelGesture = undefined;
+      place();
+    };
+    const off = [listen('pointermove', move, { passive: false }), listen('pointerup', e => finish(e)), listen('pointercancel', e => finish(e, true)), listen('keydown', e => { if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(last, true);
+      } })];
+    cancelGesture = () => finish(last, true);
+  }
+  for (const group of groups) {
+    const field = document.createElement('fieldset');
+    field.className = 'group';
+    if (group.centered)
+      field.dataset.centered = 'true';
+    const title = document.createElement('legend');
+    title.className = 'group-title';
+    title.textContent = group.label;
+    title.tabIndex = 0;
+    title.setAttribute('role', 'button');
+    title.setAttribute('aria-expanded', 'true');
+    title.title = 'Open or close ' + group.label + '; drag to move (touch: long press)';
+    title.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+    const buttons = document.createElement('div');
+    buttons.className = 'buttons';
+    for (const action of group.items) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'action';
+      b.dataset.key = action.key;
+      b.dataset.layoutKey = action.key + '::' + action.label.replace(/ \(\d+\)$/, '');
+      b.dataset.control = action.label;
+      b.textContent = action.label;
+      for (const [key, value] of Object.entries(action.style || {}))
+        b.style.setProperty(key, value);
+      b.title = 'Drag to reorder or move to another tab (touch: long press)';
+      b.oncontextmenu = e => e.preventDefault();
+      b.onpointerdown = e => startButtonDrag(e, b, b.parentElement);
+      b.onclick = e => { if (!shouldSuppress(b, e))
+        onLaunch(action, Date.now(), b); };
+      b.onkeydown = e => { if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const other = e.key === 'ArrowLeft' ? b.previousElementSibling : b.nextElementSibling;
+        if (other) {
+          if (e.key === 'ArrowLeft')
+            other.before(b);
+          else
+            other.after(b);
+          emit();
+          b.focus();
+        }
+      } };
+      buttons.append(b);
+    }
+    const saved = layout.buttons[group.label] || [], rank = b => { const specific = saved.indexOf(b.dataset.layoutKey), n = specific < 0 ? saved.indexOf(b.dataset.key) : specific; return n < 0 ? 999 : n; };
+    [...buttons.children].sort((a, b) => rank(a) - rank(b)).forEach(n => buttons.append(n));
+    field.append(title, buttons);
+    bar.append(field);
+    title.style.maxWidth = 'none';
+    title.style.width = 'max-content';
+    field.tabWidth = title.offsetWidth;
+    refitButtonRow(field);
+    field.requestedWidth = layout.widths[group.label];
+    field.requestedX = layout.positions?.[group.label];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('group-outline');
+    svg.setAttribute('aria-hidden', 'true');
+    field.append(svg);
+    const scroll = document.createElement('input');
+    scroll.type = 'range';
+    scroll.min = 0;
+    scroll.step = 1;
+    scroll.value = 0;
+    scroll.className = 'group-scroll';
+    scroll.setAttribute('aria-label', 'Scroll ' + group.label + ' buttons');
+    field.append(scroll);
+    field.drawOutline = () => {
+      if (!isOpen(field)) {
+        scroll.hidden = true;
+        return;
+      }
+      const w = field.clientWidth + 2, h = field.clientHeight + 16, l = 11, r = l + title.offsetWidth + 6;
+      svg.innerHTML = `<path d="M 6 15 H ${l - 3} Q ${l} 15 ${l} 12 V 6 Q ${l} 1 ${l + 5} 1 H ${r - 5} Q ${r} 1 ${r} 6 V 12 Q ${r} 15 ${r + 3} 15 H ${w - 6} Q ${w - 1} 15 ${w - 1} 20 V ${h - 6} Q ${w - 1} ${h - 1} ${w - 6} ${h - 1} H 6 Q 1 ${h - 1} 1 ${h - 6} V 20 Q 1 15 6 15 Z" fill="none" stroke="#334155aa"/>`;
+      scroll.max = Math.max(0, buttons.scrollWidth - buttons.clientWidth);
+      scroll.hidden = Number(scroll.max) < 1;
+      scroll.value = buttons.scrollLeft;
+    };
+    scroll.oninput = () => buttons.scrollLeft = Number(scroll.value);
+    buttons.onscroll = () => scroll.value = buttons.scrollLeft;
+    title.onclick = e => { if (!shouldSuppress(title, e))
+      activate(field); };
+    title.onpointerdown = e => startTabDrag(e, field, title);
+    title.oncontextmenu = e => e.preventDefault();
+    title.onkeydown = e => {
+      if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        setPosition(field, field.positionX + (e.key === 'ArrowLeft' ? -10 : 10));
+        field.requestedX = field.positionX;
+        stageHeight();
+        emit();
+      }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        activate(field);
+      }
+    };
+    const needsWake = e => !title.contains(e.target) && active !== field && isOpen(field);
+    field.addEventListener('pointerdown', e => {
+      if (needsWake(e)) {
+        suppressedClick = undefined;
+        e.stopPropagation();
+      }
+    }, true);
+    field.addEventListener('click', e => {
+      if (!needsWake(e))
+        return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const button = e.target.closest('.action');
+      if (button && shouldSuppress(button, e))
+        return;
+      setActive(field);
+      emit();
+    }, true);
+    const edge = document.createElement('span');
+    edge.className = 'resize-edge';
+    edge.tabIndex = 0;
+    edge.setAttribute('role', 'separator');
+    edge.setAttribute('aria-orientation', 'vertical');
+    edge.setAttribute('aria-label', 'Resize ' + group.label);
+    edge.title = 'Drag horizontally to resize';
+    field.append(edge);
+    const resize = w => { field.requestedWidth = Math.max(field.minimumWidth, Math.min(w, widthLimit(field))); fitWidth(field); stageHeight(); };
+    edge.onkeydown = e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      resize(field.offsetWidth + (e.key === 'ArrowRight' ? 10 : -10));
+      emit();
+    } };
+    edge.oncontextmenu = e => e.preventDefault();
+    edge.onpointerdown = e => {
+      if (e.button !== 0 || e.isPrimary === false || cancelGesture)
+        return;
+      e.preventDefault();
+      const width = field.requestedWidth, x = e.clientX, w = field.offsetWidth;
+      document.body.classList.add('drag-active');
+      window.getSelection()?.removeAllRanges();
+      edge.setPointerCapture(e.pointerId);
+      const move = m => { if (m.pointerId === e.pointerId) {
+        m.preventDefault();
+        resize(w + m.clientX - x);
+      } };
+      const finish = (m, cancel = false) => { if (m.pointerId !== e.pointerId)
+        return; if (cancel) {
+        field.requestedWidth = width;
+        fitWidth(field);
+        stageHeight();
+      }
+      else
+        emit(); if (edge.hasPointerCapture(e.pointerId))
+        edge.releasePointerCapture(e.pointerId); off.forEach(fn => fn()); document.body.classList.remove('drag-active'); cancelGesture = undefined; };
+      const off = [listen('pointermove', move, { passive: false }), listen('pointerup', m => finish(m)), listen('pointercancel', m => finish(m, true)), listen('keydown', m => { if (m.key === 'Escape') {
+          m.preventDefault();
+          finish(e, true);
+        } })];
+      cancelGesture = () => finish(e, true);
+    };
+    if (layout.collapsed.includes(group.label)) {
+      field.classList.add('collapsed');
+      title.setAttribute('aria-expanded', 'false');
+    }
+    else
+      setActive(field);
+  }
+  const preferred = fields().find(field => isOpen(field) && label(field) === layout.active);
+  if (preferred || layout.active === null)
+    setActive(preferred || null);
+  observer = new ResizeObserver(place);
+  observer.observe(root);
+  const titleLine = root.closest('.cmpri-anchored-title-bar')?.querySelector('[data-cmpri-menu-title]');
+  if (titleLine)
+    observer.observe(titleLine);
+  place();
+  const adjustToScroll = () => { if (!cancelGesture) {
+    fields().forEach(fitWidth);
+    stageHeight();
+  } };
+  root.addEventListener('scroll', adjustToScroll, { passive: true });
+  cleanups.push(() => root.removeEventListener('scroll', adjustToScroll));
+  const blur = () => cancelGesture?.();
+  window.addEventListener('blur', blur);
+  cleanups.push(() => window.removeEventListener('blur', blur));
+  const leave = e => {
+    if (!active || cancelGesture || root.contains(e.target))
+      return;
+    setActive(null);
+    emit();
+  };
+  cleanups.push(listen('pointerdown', leave, true), listen('focusin', leave));
+  const unmount = () => { cancelGesture?.(); observer.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
+    ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); };
+  return unmount;
+}

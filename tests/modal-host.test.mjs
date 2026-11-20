@@ -265,7 +265,7 @@ test('temporary user passwords are masked and excluded from normal autocomplete'
 
 test('Engineering Dashboard screen-launch controls are real buttons that open desktop windows', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  const launchers = dashboard.slice(dashboard.indexOf('const launcherGroups'), dashboard.indexOf('function launch('));
+  const launchers = dashboard.slice(dashboard.indexOf('const launchers'), dashboard.indexOf('function launch('));
   const navigation = dashboard.slice(dashboard.indexOf('<nav aria-label="Open dashboard windows"'), dashboard.indexOf('</nav>'));
   const routes = [
     '/engineering/preventive-maintenance',
@@ -284,8 +284,8 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
     assert.match(launchers, new RegExp(`href: "${route.replaceAll('/', '\\/')}"`));
   }
   assert.match(dashboard, /function DashboardLauncherButton[\s\S]*?<button[\s\S]*?data-cmpri-desktop-launch=\{launcher\.key\}/);
-  assert.match(dashboard, /group\.items\.filter/);
-  assert.match(navigation, /<ApprovedDashboardMenus groups=\{visibleLauncherGroups\} onLaunch=\{launch\}/);
+  assert.match(dashboard, /availableLaunchers = launchers\.filter/);
+  assert.match(navigation, /<ApprovedDashboardMenus anchored[^>]*groups=\{visibleLauncherGroups\} onLaunch=\{launch\}/);
   assert.match(launchers, /hasCapability\(session, "(?:view_dashboard|submit|edit_tickets|manage_assets|manage_rooms|manage_users|review_feedback|view_profiles)"\)/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
   assert.match(dashboard, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);

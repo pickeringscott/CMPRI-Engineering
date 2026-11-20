@@ -1,7 +1,7 @@
 "use client";
-import {profileHasRole} from "@/lib/server/roles";
 import LoyaltyBadge from "@/components/LoyaltyBadge";
 
+import { canOpenRoomOperations } from "@/lib/dashboard/menu-access";
 import { resourceViewVisible } from "@/lib/events/visibility";
 import { subscribeResources } from "@/lib/events/browser";
 import { nextGuestDisplayChange } from "@/lib/room-guest-reports";
@@ -271,7 +271,7 @@ export default function RoomOperationsPage() {
     let active = true;
     void loadCmpriSession().then((current) => {
       if (!active) return;
-      if (!hasCapability(current, "view_engineering_operations") && !profileHasRole(current.user, "manager")) {
+      if (!canOpenRoomOperations(current.user)) {
         router.replace(current.landing);
         return;
       }

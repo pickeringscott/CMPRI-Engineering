@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { HOTEL_ID } from "@/lib/constants";
-import { requireCapability, requireUser } from "@/lib/server/auth";
+import { requireCapability, requireUser, requireUserAttempt } from "@/lib/server/auth";
+import { canReadChiefModuleData } from "@/lib/dashboard/chief-module-access";
 import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
 import { isUuid } from "@/lib/uuid";
 
@@ -14,8 +15,10 @@ async function assetExists(auth: NonNullable<Awaited<ReturnType<typeof requireUs
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireUser(request);
-  if (!auth || !canReadEquipment(auth.principal.profile.role)) return NextResponse.json({ error: "Equipment access is required." }, { status: 403 });
+  const auth = await requireUserAttempt(request);
+  if (!auth.ok || (!canReadEquipment(auth.principal.profile.role) && (auth.mcp || auth.principal.hotelId !== HOTEL_ID || !canReadChiefModuleData(auth.principal)))) {
+    return NextResponse.json({ error: "Equipment access is required." }, { status: 403 });
+  }
   const id = request.nextUrl.searchParams.get("asset_id") || "";
   if (!isUuid(id)) return NextResponse.json({ error: "A valid asset is required." }, { status: 400 });
   const asset = await assetExists(auth, id);

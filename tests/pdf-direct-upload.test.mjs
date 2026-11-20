@@ -27,6 +27,7 @@ function fixture(options={}) {
  })}};
  const inspect=load('../src/lib/server/stored-pdf-import.ts',{'./stored-pdf-status':{withStoredPdfStatus:async(_admin,files)=>files},'@/lib/stored-pdf-link':validation,'@/lib/manual-pdf-knowledge':{manualPdfSha256:hash,extractManualPdfText:async()=> 'Manufacturer: Lennox Model: KGC240S4M'}});
  const route=load('../src/app/api/assets/documentation/route.ts',{
+ '@/lib/dashboard/chief-module-access':{},
  '@/lib/manual-applicability':load('../src/lib/manual-applicability.ts'),'@/lib/server/stored-pdf-status':{withStoredPdfStatus:async(_admin,files)=>files},'@/lib/server/pre-consolidation/documentation-route':{},'@/lib/server/consolidation-stage':{dispatchConsolidation:async()=>null},
  '@/lib/server/asset-file-register':{},'@/lib/equipment-pdf-suggestions':load('../src/lib/equipment-pdf-suggestions.ts'),'@/lib/server/pdf-direct-upload':server,'@/lib/server/stored-pdf-import':inspect,'@/lib/stored-pdf-link':validation,
  'next/server':{NextResponse:Response},'@/lib/constants':{HOTEL_ID:'hotel'},

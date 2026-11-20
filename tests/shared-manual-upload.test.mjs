@@ -35,6 +35,7 @@ function uploadFixture({model='UW65', failTable=null, readable=true}={}) {
  const asset={id:'asset',manufacturer:'Alliance',model_family:null,model_number:model};
  const admin={from(table){const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:asset,error:null}),upsert:async(row,options)=>{writes.push({table,row,options});return {error:table===failTable?{message:'test write failed'}:null};}};return q;},storage:{getBucket:async()=>({data:{id:'asset-documentation'},error:null}),from:()=>({upload:async(path,data)=>{saved={path,bytes:Array.from(data)};return {error:null};},createSignedUrl:async()=>({data:{signedUrl:'https://example.invalid/manual.pdf'}})})}};
  const route=compile('src/lib/server/pre-consolidation/documentation-route.ts',{
+ '@/lib/dashboard/chief-module-access':{},
  'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200})}},'@/lib/constants':{HOTEL_ID:'hotel'},
  '@/lib/server/auth':{requireCapability:async()=>({admin,principal:{profile:{role:'engineer',full_name:'Test'},identity:{id:'test'}}})},
  '@/lib/server/roles':{canEditEquipment:()=>true},'@/lib/manual-source':source,

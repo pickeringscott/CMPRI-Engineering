@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { requireUserAttempt } from '@/lib/server/auth';
 import { readWinter, saveWinter, WinterStoreError } from '@/lib/server/winter-preparedness-store';
 import { manualPreviewReadOnly } from '@/lib/server/manual-preview';
+import { canEditWinterPreparedness } from '@/lib/winter-preparedness-access';
 
 function response(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'private, no-store', Vary: 'Authorization' } });
@@ -11,7 +12,11 @@ async function handle(request: NextRequest, save: boolean) {
   try {
     const auth = await requireUserAttempt(request);
     if (!auth.ok) return response({ error: 'Unauthorized' }, 401);
-    if (!save) return response({ items: await readWinter(auth.admin, auth.principal, auth.mcp), preview_read_only: manualPreviewReadOnly() });
+    if (!save) return response({
+      items: await readWinter(auth.admin, auth.principal, auth.mcp),
+      preview_read_only: manualPreviewReadOnly(),
+      can_edit: canEditWinterPreparedness(auth.principal.profile),
+    });
     const text = await request.text();
     if (text.length > 2048) return response({ error: 'Checklist request is too large.' }, 413);
     let body: unknown;

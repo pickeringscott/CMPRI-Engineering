@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { dispatchWebPushNotifications } from "@/lib/notifications/web-push";
 import { createHash } from "node:crypto";
 import { HOTEL_ID, HOTEL_TIME_ZONE } from "@/lib/constants";
-import { requireCapability } from "@/lib/server/auth";
+import { canOpenRoomOperations } from "@/lib/dashboard/menu-access";
+import { requireCapability, requireUser } from "@/lib/server/auth";
 import { detectRoomMoves } from "@/lib/room-operations";
 import { roomOperationsNotification } from "@/lib/dashboard/room-operations-notifications";
 import { profileHasRole } from "@/lib/server/roles";
@@ -250,9 +251,8 @@ function parseCsvToRows(rawCsv: string): Record<string, unknown>[] {
 }
 
 export async function GET(request: NextRequest) {
-  let auth = await requireCapability(request, "view_engineering_operations");
-  if (!auth) { const manager = await requireCapability(request, "view_dashboard"); if (manager && profileHasRole(manager.principal.profile, "manager")) auth = manager; }
-  if (!auth) return NextResponse.json({ error: "Engineering operations access is required." }, { status: 403 });
+  const auth = await requireUser(request);
+  if (!auth || !canOpenRoomOperations(auth.principal.profile)) return NextResponse.json({ error: "Engineering operations access is required." }, { status: 403 });
   const date = request.nextUrl.searchParams.get("date") || hotelDate();
   if (!validDate(date)) return NextResponse.json({ error: "Room-operations date is invalid." }, { status: 400 });
   const today = hotelDate();

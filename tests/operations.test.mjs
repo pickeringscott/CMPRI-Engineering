@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import { loadTs } from "./helpers/load-ts.mjs";
 import { mergedPurchaseStatus, parentStatusFromShipments, matchEnseoWorkOrder } from "../src/lib/integrations/operations.ts";
 import { parseOperationalEmail } from "../src/lib/integrations/email-parser.ts";
 
@@ -32,38 +33,66 @@ test("wrong STB suffix remains unlinked", () => assert.equal(matchEnseoWorkOrder
 test("matching suffixed room preserved", () => assert.equal(matchEnseoWorkOrder([{...tv, room: "103A"}], "103", "103A"), "tv"));
 test("unrelated room remains unlinked", () => assert.equal(matchEnseoWorkOrder([tv], "104"), null));
 // Execute the actual PO entry component with explicit capability-derived state.
-function purchasingTree(allowed, canImport) {
- const source=readFileSync(new URL("../src/app/engineering/purchasing/page.tsx",import.meta.url),"utf8"),states=[allowed,canImport];let i=0;
- const exports={};const deps={react:{useState:()=>[states[i++],()=>{}],useEffect:()=>{}},"react/jsx-runtime":{jsx:(type,props)=>({type,props})},"@/lib/auth/client-session":{},"@/lib/auth/session-preference":{},"./PurchaseOrders":{default:"purchase-orders"}};
+function purchasingTree(access) {
+ const source=readFileSync(new URL("../src/app/engineering/purchasing/page.tsx",import.meta.url),"utf8");
+ const exports={};const deps={react:{useState:()=>[access,()=>{}],useEffect:()=>{}},"react/jsx-runtime":{jsx:(type,props)=>({type,props})},"@/lib/auth/client-session":{},"@/lib/auth/session-preference":{},"@/lib/dashboard/chief-module-access":{},"./PurchaseOrders":{default:"purchase-orders"}};
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require:n=>{assert.ok(Object.hasOwn(deps,n));return deps[n];}});
  return exports.default();
 }
-test("PO page requires parts management and separately gates source imports",()=>{
- assert.equal(purchasingTree(false,false),null);
- for(const permission of [false,undefined,null,"true"])assert.equal(purchasingTree(true,permission).props.canImport,false);
- assert.equal(purchasingTree(true,true).props.canImport,true);
+test("PO page supports view-only access and separately gates source imports",()=>{
+ assert.equal(purchasingTree(null),null);
+ const viewer = purchasingTree({ canManage: false, canImport: false }).props;
+ assert.equal(viewer.canManage,false);
+ assert.equal(viewer.canImport,false);
+ assert.equal(purchasingTree({ canManage: true, canImport: true }).props.canImport,true);
  const page=readFileSync(new URL("../src/app/engineering/purchasing/page.tsx",import.meta.url),"utf8");
- assert.match(page,/hasCapability\(session,'manage_assets'\)/);assert.match(page,/hasCapability\(session,"operate_integrations"\)/);
+ assert.match(page,/hasCapability\(session, "manage_assets"\)/);
+ assert.match(page,/canReadChiefModules\(session\.user\)/);
+ assert.match(page,/canImport: canManage && hasCapability\(session, "operate_integrations"\)/);
 });
-test("restricted engineering pages and data APIs require explicit engineering-operations capability", () => {
-  const pagePaths = [
-    "../src/app/engineering/gss/page.tsx",
-    "../src/app/engineering/enseo-assignments/page.tsx",
-    "../src/app/engineering/room-operations/page.tsx",
-    "../src/app/management/rooms/page.tsx",
+test("engineering modules share their role checks between pages and authenticated read endpoints", () => {
+  const menuPolicies = [
+    ["gss", "engineering/gss/source", "canOpenGss", "session"],
+    ["enseo-assignments", "enseo/assignments", "canOpenEnseo", "session"],
+    ["room-operations", "room-operations", "canOpenRoomOperations", "current"],
   ];
-  for (const path of pagePaths) {
-    const source = readFileSync(new URL(path, import.meta.url), "utf8");
-    assert.match(source, /view_engineering_operations/, `${path} must gate its UI`);
+  for (const [page, api, policy, session] of menuPolicies) {
+    const pageSource = readFileSync(new URL(`../src/app/engineering/${page}/page.tsx`, import.meta.url), "utf8");
+    const apiSource = readFileSync(new URL(`../src/app/api/${api}/route.ts`, import.meta.url), "utf8");
+    assert.ok(pageSource.includes(`${policy}(${session}.user)`), `${page} must gate its UI`);
+    assert.match(apiSource, /await requireUser\(request\)/, `${api} must authenticate reads`);
+    assert.ok(apiSource.includes(`${policy}(auth.principal.profile)`), `${api} must enforce the same policy`);
   }
   const apiPolicies = [
     ["../src/app/api/engineering/operations/route.ts", /allows\(auth\.principal, "view_engineering_operations"\)/],
-    ["../src/app/api/enseo/assignments/route.ts", /allows\(auth\.principal, "view_engineering_operations"\)/],
-    ["../src/app/api/rooms/route.ts", /allows\(principal, "view_engineering_operations"\)/],
-    ["../src/app/api/room-operations/route.ts", /requireCapability\(request, "view_engineering_operations"\)/],
+    ["../src/app/api/enseo/assignments/route.ts", /requireCapability\(request, "manage_assets"\)/],
+    ["../src/app/api/room-operations/route.ts", /requireCapability\(request, "edit_tickets"\)/],
   ];
   for (const [path, policy] of apiPolicies) {
     assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), policy, `${path} must enforce the policy server-side`);
+  }
+});
+test("menu module access matches the approved role matrix", () => {
+  const { isChiefMenuRole, canOpenEnseo, canOpenGss, canOpenRoomOperations, canOpenWeather } =
+    loadTs("src/lib/dashboard/menu-access.ts");
+  for (const [role, chief, gss, roomOps, enseo, weather] of [
+    ["chief_engineer", true, true, true, true, true],
+    ["engineer", true, true, true, true, true],
+    ["senior_management", true, true, true, true, true],
+    ["system_admin", true, true, true, true, true],
+    ["manager", false, true, true, false, true],
+    ["assistant_manager", false, true, false, false, true],
+    ["front_desk_manager", false, true, false, false, true],
+    ["technician", false, true, true, true, true],
+    ["front_desk", false, false, false, false, true],
+    ["housekeeping", false, false, false, false, true],
+    ["unknown", false, false, false, false, false],
+  ]) {
+    const profile = { role };
+    assert.deepEqual([
+      isChiefMenuRole(profile), canOpenGss(profile), canOpenRoomOperations(profile),
+      canOpenEnseo(profile), canOpenWeather(profile),
+    ], [chief, gss, roomOps, enseo, weather], role);
   }
 });
 test("Monday GSS included", () => assert.equal(parseOperationalEmail({subject: "GSS report", messageAt:"2026-09-14T12:00:00Z"}).category, "gss"));

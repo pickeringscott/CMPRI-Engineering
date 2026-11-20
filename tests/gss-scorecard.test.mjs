@@ -35,7 +35,7 @@ const read = file => readFileSync(new URL(file, import.meta.url), 'utf8');
 test('GSS replacement retains accessible source tables and its own approved typography', () => {
     const page = read('../src/app/engineering/gss/page.tsx');
     assert.match(page, /<GssScorecard \/>/);
-    assert.match(page, /hasCapability\(session, "view_engineering_operations"\)/);
+    assert.match(page, /canOpenGss\(session\.user\)/);
     const html = renderModule('../src/app/engineering/gss/GssScorecard.tsx');
     assert.equal((html.match(/<table/g) || []).length, 6);
     assert.equal((html.match(/data-property=/g) || []).length, 30);

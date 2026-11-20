@@ -6,7 +6,8 @@ import GssSourceReport from "./GssSourceReport";
 import { verifiedGssReports } from "./gss-reports";
 import styles from "./GssScorecard.module.css";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
-import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
+import { loadCmpriSession } from "@/lib/auth/client-session";
+import { canOpenGss } from "@/lib/dashboard/menu-access";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 
 
@@ -18,7 +19,7 @@ export default function GssPage() {
     try {
       if (!await enforceSessionPreference()) return;
       const session = await loadCmpriSession();
-      if (!hasCapability(session, "view_engineering_operations")) {
+      if (!canOpenGss(session.user)) {
         window.location.replace(session.landing);
         return;
       }

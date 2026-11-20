@@ -107,6 +107,17 @@ function fixture(config={}) {
     };return q;
   }};
 
+  async function mockCapability() {
+    const u = await client.auth.getUser();
+    if (u.error || !u.data?.user) return null;
+    const p = await client.from('profiles').select().eq('id', u.data.user.id).maybeSingle();
+    if (p.error || !p.data || p.data.active !== true) return null;
+    const perm = await client.from('role_permissions').select().eq('role', p.data.role).maybeSingle();
+    if (perm.error || !perm.data) return null;
+    const hotelId = 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6';
+    return { principal: { identity: u.data.user, profile: p.data, hotelId, membership: { hotel_id: hotelId } }, admin: config.noAdmin ? null : client };
+  }
+
   function compile(path){
     const exports={};
     const env={NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake'};
@@ -131,14 +142,12 @@ function fixture(config={}) {
             if(p.error||!p.data||p.data.active!==true)return null;
             return {principal:{identity:u.data.user,profile:p.data,membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:config.noAdmin?null:client};
           },
-          requireCapability:async()=>{
-            const u=await client.auth.getUser();
-            if(u.error||!u.data?.user)return null;
-            const p=await client.from('profiles').select().eq('id',u.data.user.id).maybeSingle();
-            if(p.error||!p.data||p.data.active!==true)return null;
-            const perm=await client.from('role_permissions').select().eq('role',p.data.role).maybeSingle();
-            if(perm.error||!perm.data)return null;
-            return {principal:{identity:u.data.user,profile:p.data,membership:{hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'}},admin:config.noAdmin?null:client};
+          requireCapability: mockCapability,
+        };
+        if(name==='@/lib/server/chief-module-read')return {
+          requireChiefModuleRead: async () => {
+            const access = await mockCapability();
+            return access && { ...access, canManage: true };
           },
         };
         throw new Error(name);

@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { poolLogInput, poolLogTodayDate, validLogDate, poolLocationValue, prepareMcpPoolLogInput, poolClosureReasons, poolReadings, poolReadingWarnings, mergePoolLogBody, PoolLogConflictError, poolLogStatus, poolCurrentClosureReasons, sampleLocations, sampleLocationLabel } from '../src/lib/pool-log.ts';
 import { fetchAllPages } from '../src/lib/server/paginated-query.ts';
+import { membershipRole } from '../src/lib/server/roles.ts';
 const facilityId='00000000-0000-0000-0000-000000000001';
 const input={pool_facility_id:facilityId,log_date:'2026-09-15',ph_am:7.4,sanitizer_am:4,sample_location_am:'shallow',temperature_f:84,flow_rate_gpm:60,main_drain_visible:true,filter_backwashed:false,requires_attention:false,closure_condition:false,closure_reason:'',remarks:''};
 test('pool input preserves explicit false Booleans, unmeasured fields, and measured zero',()=>{
@@ -163,6 +164,12 @@ test('MCP pool save rejects ambiguous pool names and non-ISO dates before saving
 const root=fileURLToPath(new URL('../src/',import.meta.url));
 function fixture(config={}) {
  const calls=[],writes=[],notifications=[],pushes=[];
+ const user={id:'actor'};
+ const profile={id:user.id,role:config.role||'system_admin',full_name:'Scott Pickering',active:true};
+ const hotelId='c81ad01a-7a9f-4880-ac1c-5e849f30bad6';
+ const principal={identity:user,profile,hotelId,permissions:[],membership:{
+  user_id:user.id,hotel_id:config.membershipHotel||hotelId,active:config.memberActive!==false,role:membershipRole(profile.role),
+ }};
  const db={from(table){const filters=[];let changed;
   const q={like(){return q;},limit(){return q;},select(){return q;},eq(key,value){filters.push([key,value]);return q;},gte(key,value){filters.push([key,value]);return q;},lt(key,value){filters.push([key,value]);return q;},in(key,value){filters.push([key,value]);return q;},order(){return table==='pool_facilities'?Promise.resolve({data:[{id:facilityId,pool_name:'Indoor Pool'}],error:null}):q;},
    range(from,to){q.from=from;q.to=to;return q;},
@@ -191,7 +198,7 @@ function fixture(config={}) {
  function load(file){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'fake',SUPABASE_SERVICE_ROLE_KEY:'fake',CMPRI_PO_ENABLED:config.inventoryDisabled?'false':'true'}},
   require(name){
    if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
-   if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'actor'},profile:{role:config.role||'system_admin',full_name:'Scott Pickering'},admin:db}};
+   if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user,profile,principal,admin:db}};
    if(name==='@/lib/server/paginated-query')return {fetchAllPages};
    if(name==='@/lib/notifications/web-push')return {dispatchWebPushNotifications:async(_admin,id)=>{pushes.push(id);}};
    if(name==='server-only')return {};
@@ -201,8 +208,19 @@ function fixture(config={}) {
  }
  return {handlers:load(path.join(root,'app/api/pool-log/route.ts')),calls,writes,notifications,pushes,request:{nextUrl:new URL('https://test.invalid/api/pool-log?date=2026-09-15'),headers:new Headers({authorization:'Bearer fake'}),json:async()=>({...input,...config.body})}};
 }
-for(const config of [{unauthorized:true},{role:'Front Desk'},{role:'Housekeeping'}])test(`pool writes reject unavailable authority ${JSON.stringify(config)}`,async()=>{
+for(const config of [{unauthorized:true},{role:'Front Desk'},{role:'Housekeeping'},{memberActive:false},{membershipHotel:'another-hotel'}])test(`pool writes reject unavailable authority ${JSON.stringify(config)}`,async()=>{
  const f=fixture(config);assert.equal((await f.handlers.POST(f.request)).status,config.unauthorized?401:403);assert.equal(f.writes.length,0);
+});
+test('Senior Management can submit a pool log, while saved readings remain locked',async()=>{
+ const read=fixture({role:'Senior Management'});
+ const response=await read.handlers.GET(read.request);
+ assert.equal(response.status,200);
+ assert.equal(response.body.can_edit,true);
+ assert.equal(response.body.can_edit_saved,false);
+ assert.equal((await read.handlers.POST(read.request)).status,200);
+ const locked=fixture({role:'Senior Management',existing:{...poolLogInput(input),id:'saved',revision:1},body:{ph_am:7.8,edit_mode:'replace',expected_revision:1}});
+ assert.equal((await locked.handlers.POST(locked.request)).status,403);
+ assert.equal(locked.writes.length,0);
 });
 test('pool save uses authenticated actor and profile initials, never submitted attribution',async()=>{
  const f=fixture({body:{created_by:'spoof',updated_by:'spoof',completed_by_initials:'XX'}});assert.equal((await f.handlers.POST(f.request)).status,200);assert.equal(f.writes[0].created_by,'actor');assert.equal(f.writes[0].updated_by,'actor');assert.equal(f.writes[0].completed_by_initials,'SP');

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
+import { canReadChiefModules } from "@/lib/dashboard/chief-module-access";
 import { getValidSession } from "@/lib/supabase/client";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 
@@ -51,6 +52,7 @@ export default function FeedbackPage() {
 
   const canSubmit = hasCapability(session, "submit_feedback");
   const canReview = hasCapability(session, "review_feedback");
+  const canViewFeedback = canReview || Boolean(session && canReadChiefModules(session.user));
 
   const authHeaders = useCallback(async (json = false) => {
     const auth = await getValidSession();
@@ -75,11 +77,12 @@ export default function FeedbackPage() {
         const loaded = await loadCmpriSession();
         if (!current) return;
         setSession(loaded);
-        if (!hasCapability(loaded, "submit_feedback") && !hasCapability(loaded, "review_feedback")) {
+        const canView = hasCapability(loaded, "review_feedback") || canReadChiefModules(loaded.user);
+        if (!hasCapability(loaded, "submit_feedback") && !canView) {
           setMessage("Your account cannot access feedback.");
           return;
         }
-        if (hasCapability(loaded, "review_feedback")) {
+        if (canView) {
           try { await loadFeedback(); }
           catch (error) { if (current) setMessage(error instanceof Error ? error.message : "Feedback could not be loaded."); }
         }
@@ -108,7 +111,7 @@ export default function FeedbackPage() {
       if (!response.ok) throw new Error(payload.error || "Feedback could not be submitted.");
       setDescription("");
       setMessage("Thank you. Your feedback was submitted.");
-      if (canReview) await loadFeedback();
+      if (canViewFeedback) await loadFeedback();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Feedback could not be submitted.");
     } finally {
@@ -117,7 +120,7 @@ export default function FeedbackPage() {
   }
 
   async function updateStatus(item: FeedbackItem, status: FeedbackStatus) {
-    if (updatingId) return;
+    if (!canReview || updatingId) return;
     setUpdatingId(item.id);
     setMessage("");
     try {
@@ -137,7 +140,7 @@ export default function FeedbackPage() {
   }
 
   async function deleteFeedback(item: FeedbackItem) {
-    if (updatingId) return;
+    if (!canReview || updatingId) return;
     if (!window.confirm("Delete this feedback submission? This cannot be undone.")) return;
     setUpdatingId(item.id);
     setMessage("");
@@ -208,7 +211,7 @@ export default function FeedbackPage() {
           </section>
         )}
 
-        {canReview && (
+        {canViewFeedback && (
           <section aria-labelledby="feedback-review-heading" className="space-y-3 border-t border-slate-800 pt-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 id="feedback-review-heading" className="text-lg font-bold">Submitted feedback</h2>
@@ -233,7 +236,7 @@ export default function FeedbackPage() {
                         {item.resolved_at && <div><dt className="inline font-semibold text-slate-300">Resolved: </dt><dd className="inline">{formattedDate(item.resolved_at)}</dd></div>}
                       </dl>
                     </div>
-                    <div className="grid content-start gap-2">
+                    {canReview ? <div className="grid content-start gap-2">
                       <label className="grid gap-1 text-xs font-semibold text-slate-400">
                         Status
                         <select value={item.status} disabled={updatingId === item.id} onChange={(event) => void updateStatus(item, event.target.value as FeedbackStatus)} className="min-h-10 min-w-36 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-white disabled:opacity-50">
@@ -241,7 +244,7 @@ export default function FeedbackPage() {
                         </select>
                       </label>
                       <button type="button" disabled={updatingId === item.id} onClick={() => void deleteFeedback(item)} className="min-h-8 rounded-lg border border-red-500/50 bg-red-950/20 px-3 text-xs font-bold text-red-200 hover:bg-red-900/30 disabled:opacity-50">Delete</button>
-                    </div>
+                    </div> : <span className="text-xs text-slate-400">{item.status}</span>}
                   </article>
                 ))}
               </div>

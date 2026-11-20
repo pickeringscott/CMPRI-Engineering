@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     );
   }
   const capabilities: Capability[] = [
-    "submit", "view_dashboard", "view_engineering_operations", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm",
+    "submit", "view_dashboard", "view_engineering_operations", "view_locations", "edit_locations", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm",
     "edit_tickets", "review_tickets", "close_tickets",
     "reopen", "manage_assets", "manage_rooms", "manage_users", "submit_feedback", "review_feedback", "view_profiles", "operate_integrations",
   ];

@@ -41,6 +41,7 @@ function harness(latest = { report_date: '2026-10-09', source_type: 'legacy' }, 
     if(name === 'node:crypto') return { createHash };
     if(name === '@/lib/constants') return { HOTEL_ID:'fixture-hotel', HOTEL_TIME_ZONE:'America/Chicago' };
     if(name === '@/lib/server/auth') return { requireCapability: async()=>({ admin, principal:{ profile:{full_name:'Fixture'}, identity:{id:'fixture-actor'} } }) };
+    if(name === '@/lib/dashboard/menu-access') return {};
     if(name === '@/lib/room-operations-reports') return reports;
     if(name === '@/lib/room-operations') return { detectRoomMoves:(_, rows)=>rows };
     if(name === '@/lib/dashboard/room-operations-notifications') return { roomOperationsNotification:()=>notify ? {id:'room-operations:fixture-import',message:'Fixture room move',target_path:'/engineering/room-operations',recorded_at:'2026-10-11T19:27:00Z'} : null };

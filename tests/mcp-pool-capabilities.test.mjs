@@ -20,7 +20,7 @@ function fixture({role='Maintenance Technician',secondary=[],write=true,active=t
  const incoming=new NextRequest('https://local.invalid/api/mcp',{headers:{Authorization:'Bearer synthetic-mcp-token'}});
  return {identity,calls,filters,views:()=>reads.availableMcpReadViews(identity),actions:()=>writes.availableMcpWriteActions(identity).map(a=>a.action),read:()=>reads.callMcpReadView(incoming,identity,'pool_log',{date:'2026-10-15'}),save:()=>writes.callMcpWriteAction(incoming,identity,'pool_log.save',{date:'2026-10-15',pool:'Indoor Pool'})};
 }
-for(const config of [{role:'Maintenance Technician'},{role:'Front Desk Manager'},{role:'Assistant General Manager'},{role:'General Manager',membership:'manager'},{role:'Chief Engineer',membership:'admin'},{role:'system_admin',secondary:['Engineer'],membership:'admin'},{role:'Maintenance Technician',secondary:['Chief Engineer']}]){
+for(const config of [{role:'Maintenance Technician'},{role:'Front Desk Manager'},{role:'Assistant General Manager'},{role:'General Manager',membership:'manager'},{role:'Chief Engineer',membership:'admin'},{role:'system_admin',secondary:['Engineer'],membership:'admin'},{role:'Maintenance Technician',secondary:['Chief Engineer']},{role:'Senior Management',membership:'viewer'}]){
  test(`${config.role} ${config.secondary||''}: pool discovery and execution use existing pool capabilities`,async()=>{
   const f=fixture(config);assert.equal(access.allows(f.identity.principal,'operate_pool_log'),true);assert.equal(f.identity.readAllWorkOrders,false);
   assert.equal(f.views().filter(v=>v==='pool_log').length,1);assert.ok(f.actions().includes('pool_log.save'));
@@ -35,9 +35,6 @@ for(const config of [{role:'Maintenance Technician'},{role:'Front Desk Manager'}
 }
 for(const config of [{role:'Front Desk'},{role:'Lead Housekeeper'},{role:'unknown'},{active:false},{memberActive:false},{role:'Front Desk Manager',membership:'viewer'}])test(`unauthorized pool identity fails closed ${JSON.stringify(config)}`,async()=>{
  const f=fixture({...config,readAll:true});assert.ok(!f.views().includes('pool_log'));assert.ok(!f.actions().includes('pool_log.save'));await assert.rejects(f.read,/not permitted/);await assert.rejects(f.save,/not permitted/);assert.equal(f.calls.length,0);assert.equal(f.filters.length,0);
-});
-test('dashboard oversight may read pool but does not acquire pool write permission',async()=>{
- const f=fixture({role:'Senior Management',membership:'viewer'});assert.ok(f.views().includes('pool_log'));assert.ok(!f.actions().includes('pool_log.save'));await f.read();await assert.rejects(f.save,/not permitted/);
 });
 test('permissions are evaluated again at execution; downstream API revocation stays authoritative',async()=>{
  const f=fixture();assert.ok(f.actions().includes('pool_log.save'));f.identity.principal.profile.active=false;await assert.rejects(f.save,/not permitted/);assert.equal(f.filters.length,0);

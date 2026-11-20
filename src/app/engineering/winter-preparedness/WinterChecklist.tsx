@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import { WINTER_TASKS, WINTER_TASK_IDS, WINTER_YEAR, type WinterItem, type WinterTask } from '@/lib/winter-preparedness';
 import styles from './winter.module.css';
 
-export default function WinterChecklist({ initial, persist, reload, onClose, readOnly = false }: {
+export default function WinterChecklist({ initial, persist, reload, onClose, readOnlyMessage = '' }: {
   initial: WinterItem[];
   persist: (change: { item_id: string; checked: boolean; revision: number }) => Promise<WinterItem>;
   reload: () => Promise<WinterItem[]>;
   onClose: () => void;
-  readOnly?: boolean;
+  readOnlyMessage?: string;
 }) {
+  const readOnly = Boolean(readOnlyMessage);
   const [items, setItems] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -57,7 +58,7 @@ export default function WinterChecklist({ initial, persist, reload, onClose, rea
       <div><button disabled={busy} onClick={() => void refresh()}>Reload</button><button disabled={busy || !!error} onClick={() => window.print()}>Print</button><button disabled={busy} onClick={onClose}>Close</button></div>
     </div>
     <div className={styles.feedback}>
-      {readOnly && <p>Preview: saved progress is shown. Checklist changes are blocked in this preview.</p>}
+      {readOnly && <p>{readOnlyMessage}</p>}
       {error ? <p role="alert">{error}</p> : <p role="status" aria-live="polite">{status}</p>}
     </div>
     <article className={styles.sheet}>

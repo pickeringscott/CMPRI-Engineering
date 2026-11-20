@@ -43,10 +43,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ locations }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const isTechnician = roleKey(principal.profile.role) === "technician";
-  if (!allows(principal, "view_engineering_operations") && !(isTechnician && allows(principal, "view_pm"))) {
-    return NextResponse.json({ error: "Engineering dashboard access is required." }, { status: 403 });
+  if (!allows(principal, "view_locations")) {
+    return NextResponse.json({ error: "Manage Locations access is required." }, { status: 403 });
   }
+  const isTechnician = roleKey(principal.profile.role) === "technician";
+  const canViewPm = allows(principal, "view_pm");
 
   const orderResult = isTechnician
     ? await (async () => {
@@ -84,34 +85,41 @@ export async function GET(request: NextRequest) {
       .order("area", { ascending: true })
       .order("room_number", { ascending: true }),
     orderResult,
-    admin.from("pm_plans")
+    canViewPm ? admin.from("pm_plans")
       .select("id, location_id, asset_id, title, description, checklist, frequency_value, frequency_unit, last_completed_on, next_due_on, active")
       .eq("hotel_id", HOTEL_ID)
       .eq("active", true)
-      .order("next_due_on", { ascending: true, nullsFirst: false }),
-    admin.from("pm_completions")
+      .order("next_due_on", { ascending: true, nullsFirst: false }) : { data: [], error: null },
+    canViewPm ? admin.from("pm_completions")
       .select("id, pm_plan_id, completed_on, completed_by_name, notes, created_at")
       .eq("hotel_id", HOTEL_ID)
       .order("completed_on", { ascending: false })
-      .limit(2000),
+      .limit(2000) : { data: [], error: null },
   ]);
 
   if (locationResult.error || loadedOrders.error || pmPlanResult.error || pmCompletionResult.error) {
     return NextResponse.json({ error: "Rooms, work orders, or PM records could not be loaded." }, { status: 503 });
   }
 
+  const locations = locationResult.data || [];
+  const locationIds = new Set(locations.map(location => location.id));
+  const roomNumbers = new Set(locations.map(location => location.room_number).filter(Boolean));
+  const workOrders = (loadedOrders.data || []).filter(order => order.location_id
+    ? locationIds.has(order.location_id)
+    : roomNumbers.has(order.room?.match(/\b\d{2,4}\b/)?.[0]));
   return NextResponse.json({
-    locations: locationResult.data || [],
-    work_orders: loadedOrders.data || [],
+    locations,
+    work_orders: workOrders,
     pm_plans: pmPlanResult.data || [],
     pm_completions: pmCompletionResult.data || [],
-    can_edit: allows(principal, "manage_rooms"),
+    can_edit: allows(principal, "edit_locations"),
+    can_view_pm: canViewPm,
     can_manage_corporate_pm: roleKey(principal.profile.role) === "system_admin",
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: NextRequest) {
-  const auth = await requireCapability(request, "manage_rooms");
+  const auth = await requireCapability(request, "edit_locations");
   if (!auth) return NextResponse.json({ error: "Room/location editing permission is required." }, { status: 403 });
   const body = await bodyObject(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
@@ -147,7 +155,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireCapability(request, "manage_rooms");
+  const auth = await requireCapability(request, "edit_locations");
   if (!auth) return NextResponse.json({ error: "Location creation permission is required." }, { status: 403 });
   const body = await bodyObject(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });

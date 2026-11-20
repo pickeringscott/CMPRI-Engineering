@@ -3,10 +3,10 @@ import {inventoryRequest,matchingInventory,validStockCount,inventoryUnitOptions,
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const request={kind:'inventory',request_id:id(1),item_name:'Chemical',item_type:'Chemical',unit_of_measure:'LB',quantity_on_hand:25,storage_location_id:id(3),reason:'Physical count'};
 function fixture({authorized=true,error=null,data={inventory:[],assets:[]}}={}){
- const calls=[],principal={identity:{id:id(2)},profile:{full_name:'Scott'}};
+ const calls=[],principal={identity:{id:id(2)},profile:{full_name:'Scott'},hotelId:id(9)};
  const admin={rpc:async(name,args)=>{calls.push({name,args});return {data,error}},from:()=>{throw Error('Unexpected extra database query');}};
  const route=loadTs('src/app/api/engineering/catalog/route.ts',{
-  'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200})}},'@/lib/constants':{HOTEL_ID:id(9)},'@/lib/server/auth':{requireCapability:async()=>authorized?{admin,principal}:null},'@/lib/inventory':{inventoryRequest},
+  'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200})}},'@/lib/constants':{HOTEL_ID:id(9)},'@/lib/server/auth':{requireCapability:async()=>authorized?{admin,principal}:null},'@/lib/server/chief-module-read':{requireChiefModuleRead:async()=>authorized?{admin,principal}:null},'@/lib/inventory':{inventoryRequest},
  });
  return {calls,get:()=>route.GET({nextUrl:new URL('https://local/api/engineering/catalog?stock=1')}),post:body=>route.POST({json:async()=>body}),patch:body=>route.PATCH({json:async()=>body})};
 }

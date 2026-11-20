@@ -77,6 +77,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
       '@/lib/pm/linked-form-review':'src/lib/pm/linked-form-review.ts','@/lib/pm/work-order-form-target':'src/lib/pm/work-order-form-target.ts',
       '@/lib/server/paginated-query':'src/lib/server/paginated-query.ts',
       '@/lib/winter-preparedness':'src/lib/winter-preparedness.ts',
+      '@/lib/winter-preparedness-access':'src/lib/winter-preparedness-access.ts',
     }))deps[alias]=load(path);
     deps['@/lib/server/room-availability']={}; // POST never reads occupancy or calls another service.
     deps['@/lib/server/pm-work-order']=load('src/lib/server/pm-work-order.ts');

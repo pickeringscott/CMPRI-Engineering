@@ -22,6 +22,9 @@ function loadRoute(path, admin = { from() { throw new Error("Invalid input must 
       if (name === "@/lib/server/auth") return {
         requireCapability: async () => ({ principal: { identity: { id: "audit-user" }, profile: { role: "Engineer", full_name: "Audit User" } }, admin }),
       };
+      if (name === "@/lib/server/chief-module-read") return {
+        requireChiefModuleRead: async () => { throw new Error("Mutation must use its existing capability gate."); },
+      };
       if (name === "@/lib/server/paginated-query") return { fetchAllPages: async () => [] };
       if (name === "@/lib/work-order-categories") return { normalizeWorkOrderCategory: () => "General" };
       if (name === "@/lib/work-order-duplicates") return { likelyDuplicate: () => false };

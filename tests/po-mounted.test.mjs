@@ -57,10 +57,10 @@ const admin={
   },
   async rpc(name,p){try{const args={cmpri_receive_po_total:['p_hotel','p_actor','p_id','p_line','p_total','p_expected','p_date'],cmpri_create_manual_po:['p_hotel','p_actor','p_id','p_supplier','p_reference','p_description','p_quantity','p_uom'],cmpri_link_po_line:['p_hotel','p_line','p_item','p_factor'],cmpri_receive_po:['p_hotel','p_actor','p_id','p_line','p_quantity','p_date','p_note']}[name];assert.ok(args);const r=await db.query(`select ${name}(${args.map((_,i)=>`$${i+1}`).join(',')}) result`,args.map(k=>p[k]));if(loseRpcResponse){loseRpcResponse=false;return {data:null,error:{message:"Simulated database response loss"}};}return {data:r.rows[0].result,error:null};}catch(e){return {error:{message:e.message,code:e.code}};}}
 };
-globalThis.__poWorkflowAuth={admin,principal:{identity:{id:actor}}};
+globalThis.__poWorkflowAuth={admin,principal:{identity:{id:actor},hotelId:hotel}};
 const data=s=>'data:text/javascript;base64,'+Buffer.from(s).toString('base64');
 let source=fs.readFileSync('src/app/api/engineering/purchase-orders/route.ts','utf8');
-const mappings={'@/lib/server/auth':data('export const requireCapability=async()=>globalThis.__poWorkflowAuth;'),'@/lib/constants':data(`export const HOTEL_ID=${JSON.stringify(hotel)};export const HOTEL_TIME_ZONE="America/Chicago";`),'@/lib/server/paginated-query':pathToFileURL(path.resolve('src/lib/server/paginated-query.ts')).href,'@/lib/po-workflow':pathToFileURL(path.resolve('src/lib/po-workflow.ts')).href,'next/server':pathToFileURL(path.resolve('node_modules/next/server.js')).href};
+const mappings={'@/lib/server/chief-module-read':data('export const requireChiefModuleRead=async()=>globalThis.__poWorkflowAuth;'),'@/lib/server/auth':data('export const requireCapability=async()=>globalThis.__poWorkflowAuth;'),'@/lib/constants':data(`export const HOTEL_ID=${JSON.stringify(hotel)};export const HOTEL_TIME_ZONE="America/Chicago";`),'@/lib/server/paginated-query':pathToFileURL(path.resolve('src/lib/server/paginated-query.ts')).href,'@/lib/po-workflow':pathToFileURL(path.resolve('src/lib/po-workflow.ts')).href,'next/server':pathToFileURL(path.resolve('node_modules/next/server.js')).href};
 for(const [key,url]of Object.entries(mappings))source=source.replaceAll(`'${key}'`,JSON.stringify(url));
 const route=await import(data(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText));
 process.env.CMPRI_PO_ENABLED='true';

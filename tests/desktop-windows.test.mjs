@@ -165,7 +165,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(windowFrame, /data-cmpri-window-close="true"/);
   assert.equal((windowFrame.match(/<button\b/g) || []).length, 1, 'close is the only window control');
   assert.match(dashboard, /cmpri-desktop-topbar relative z-\[200\]/);
-  assert.match(dashboard, /<ApprovedDashboardMenus groups=\{visibleLauncherGroups\}/);
+  assert.match(dashboard, /<ApprovedDashboardMenus anchored[^>]*groups=\{visibleLauncherGroups\}/);
   assert.match(dashboard, /title=\{launcher\.label\}/);
   assert.match(dashboard, /shrink-0 whitespace-nowrap rounded border px-[12] py-0\.5/);
   assert.match(dashboard, /const zIndex = 10 \+ Math\.max\(0, zOrder\.indexOf\(entry\.key\)\)/);

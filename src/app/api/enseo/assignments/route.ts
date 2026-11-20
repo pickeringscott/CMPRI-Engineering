@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
+import { canOpenEnseo } from "@/lib/dashboard/menu-access";
 import { allows } from "@/lib/server/access";
 import { requireCapability, requireUser } from "@/lib/server/auth";
 import { fetchAllPages } from "@/lib/server/paginated-query";
@@ -46,7 +47,7 @@ function normalizeMove(value: unknown) {
 async function getData(request: NextRequest) {
   const auth = await requireUser(request);
   if (!auth) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) } as const;
-  if (!allows(auth.principal, "view_engineering_operations")) {
+  if (!canOpenEnseo(auth.principal.profile)) {
     return { response: NextResponse.json({ error: "Engineering access is required." }, { status: 403 }) } as const;
   }
 

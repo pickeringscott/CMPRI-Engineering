@@ -106,6 +106,7 @@ export default function RoomsPage() {
   const [selectedId, setSelectedId] = useState("");
   const [editor, setEditor] = useState<{ location: Location | null } | null>(null);
   const [canEdit, setCanEdit] = useState(false);
+  const [canViewPm, setCanViewPm] = useState(false);
   const [canManageCorporatePm, setCanManageCorporatePm] = useState(false);
   const [pageAllowed, setPageAllowed] = useState(false);
   const [message, setMessage] = useState("");
@@ -122,14 +123,14 @@ export default function RoomsPage() {
     if (!response.ok) { setMessage(result.error || "Locations could not be loaded."); return; }
     setLocations(result.locations || []); setOrders(result.work_orders || []);
     setPmPlans(result.pm_plans || []); setPmCompletions(result.pm_completions || []);
-    setCanEdit(result.can_edit === true); setCanManageCorporatePm(result.can_manage_corporate_pm === true);
+    setCanEdit(result.can_edit === true); setCanViewPm(result.can_view_pm !== false); setCanManageCorporatePm(result.can_manage_corporate_pm === true);
   }, []);
   useEffect(() => {
     let active = true;
     const generationRef = loadGeneration;
     void loadCmpriSession().then(session => {
       if (!active) return;
-      if (!hasCapability(session, "view_engineering_operations")) { window.location.replace(session.landing); return; }
+      if (!hasCapability(session, "view_locations")) { window.location.replace(session.landing); return; }
       setPageAllowed(true); void load();
     }).catch(() => { if (active) window.location.replace("/"); });
     return () => { active = false; generationRef.current++; };
@@ -197,19 +198,19 @@ export default function RoomsPage() {
                 <span><span aria-hidden="true">{open ? "▾" : "▸"}</span> {location.room_number ? `Room ${location.room_number}` : location.name || "Location"}<small>{location.area}{location.room_number && location.name && location.name !== `Room ${location.room_number}` ? ` · ${location.name}` : ""}</small></span>
                 <span className="location-indicators">
                   <span className="location-work-order-count">{ticketCount} Work Order{ticketCount === 1 ? "" : "s"}</span>
-                  <span className="location-pm-status" style={modalTitleStyle("Preventive Maintenance")} title={nextDue ? `Next due ${localDate(nextDue)}` : pmLabel}>{pmLabel}</span>
+                  {canViewPm && <span className="location-pm-status" style={modalTitleStyle("Preventive Maintenance")} title={nextDue ? `Next due ${localDate(nextDue)}` : pmLabel}>{pmLabel}</span>}
                 </span>
               </button>
               {open && draft && <div id={`location-details-${location.id}`} className="location-details" role="region" aria-label={`${location.room_number ? `Room ${location.room_number}` : location.name} details`}>
-              <div>
+              {(canViewPm || canEdit) && <div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-bold">Preventive maintenance</h3>
+                  {canViewPm && <h3 className="font-bold">Preventive maintenance</h3>}
                   <div className="location-actions">
                     {canEdit && <button type="button" onClick={() => openEditor(location)} className="location-action">Edit Location</button>}
                     {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="location-action">Open PM Tracker →</ModalNavigationButton>}
                   </div>
                 </div>
-                <div className="mt-3 space-y-3">
+                {canViewPm && <div className="mt-3 space-y-3">
                   {locationPmPlans.length ? locationPmPlans.map((plan) => {
                     const due = dueState(plan.next_due_on);
                     const history = locationPmCompletions.filter((completion) => completion.pm_plan_id === plan.id).slice(0, 4);
@@ -230,8 +231,8 @@ export default function RoomsPage() {
                       </div> : <p className="mt-3 text-xs text-slate-500">No completion history recorded yet.</p>}
                     </div>;
                   }) : <p className="location-panel rounded-xl border p-3 text-sm text-slate-500">No PM plan is linked to this location yet.</p>}
-                </div>
-              </div>
+                </div>}
+              </div>}
 
               <div className="mt-5 border-t border-slate-800 pt-4">
                 <h3 className="font-bold">Tickets for this room/location</h3>

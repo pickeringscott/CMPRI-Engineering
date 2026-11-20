@@ -5,6 +5,7 @@ import { gssSourceDate, marriottImageParts, safeGssPng } from '../src/lib/integr
 import { fetchLatestGssSource } from '../src/lib/integrations/email-provider.ts';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { loadTs } from './helpers/load-ts.mjs';
 
 const section = '<div><span style="font-size:37px">Marriott</span><br></div><div><img src="cid:first" width="1518"><br></div><div><img src="cid:second"><br></div><div><span style="font-size:37px">Hilton</span><br></div><img src="cid:secret">';
 const part = id => ({ mimeType:'image/png', headers:[{name:'Content-ID',value:`<${id}>`}],body:{attachmentId:id} });
@@ -54,18 +55,22 @@ test('provider fetches only the selected images and fails closed on a changed la
 
 test('source endpoint enforces authorization and hides upstream errors', async () => {
   const route=readFileSync(new URL('../src/app/api/engineering/gss/source/route.ts',import.meta.url),'utf8');
-  let user=null, permitted=false, sourceCalls=0;
+  let user=null, sourceCalls=0;
   const deps={
     'next/server':{NextResponse:{json:(body,opts)=>({body,...opts})}},
-    '@/lib/server/access':{allows:(_principal,cap)=>cap==='view_engineering_operations' && permitted},
+    '@/lib/dashboard/menu-access':loadTs('src/lib/dashboard/menu-access.ts'),
     '@/lib/server/auth':{requireUser:async()=>user},
     '@/lib/integrations/email-provider':{fetchLatestGssSource:async()=>{sourceCalls++;throw new Error('private mailbox data');}},
   };
   const exports={};
   vm.runInNewContext(ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports,require:name=>deps[name]});
   const unauthorized=await exports.GET({}); assert.equal(unauthorized.status,401); assert.equal(sourceCalls,0);
-  user={principal:{}}; const forbidden=await exports.GET({}); assert.equal(forbidden.status,403); assert.equal(sourceCalls,0);
-  permitted=true; const unavailable=await exports.GET({}); assert.equal(unavailable.status,503); assert.equal(sourceCalls,1);
+  for (const role of ['front_desk', 'housekeeping', 'unknown']) {
+    user={principal:{profile:{role}}};
+    const forbidden=await exports.GET({}); assert.equal(forbidden.status,403); assert.equal(sourceCalls,0);
+  }
+  user={principal:{profile:{role:'front_desk_manager'}}};
+  const unavailable=await exports.GET({}); assert.equal(unavailable.status,503); assert.equal(sourceCalls,1);
   assert.equal(unavailable.body.error,'The latest GSS source report is unavailable.');
   assert.equal(unavailable.headers['Cache-Control'],'private, no-store');
 });

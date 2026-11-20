@@ -42,7 +42,7 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(canEditEquipment('Chief Engineer'), true);
   assert.equal(landingPath('Front Desk'), '/front-desk');
   assert.equal(landingPath('Front Desk Manager'), '/engineering');
-  assert.equal(landingPath('Lead Housekeeper'), '/work-orders');
+  assert.equal(landingPath('Lead Housekeeper'), '/engineering');
   assert.equal(landingPath('system_admin'), '/engineering');
   assert.equal(roleAllows('Front Desk Manager', 'submit'), true);
   assert.equal(roleAllows('Front Desk Manager', 'view_dashboard'), false);
@@ -76,11 +76,11 @@ test('equipment role visibility keeps technicians read-only', () => {
   assert.equal(roleAllows('Front Desk Manager', 'view_pool_log'), true);
   const engineering = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   assert.match(engineering, /if \(!cmpriSession\) return;/);
-  assert.match(engineering, /\(hasCapability\(session, "view_dashboard"\) \|\| hasCapability\(session, "view_pool_log"\)\) && \{ key: "\/engineering\/pool-log"/);
-  assert.match(engineering, /canUseEngineeringAdminTools \|\| roleKey\(session.user.role\) === "manager"/);
-  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/gss", label: "GSS Reports"/);
-  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/enseo-assignments"/);
-  assert.match(engineering, /canUseEngineeringAdminTools && \{ key: "\/engineering\/purchasing", label: "POs"/);
+  assert.match(engineering, /hasCapability\(session, "view_pool_log"\) && \{ key: "\/engineering\/pool-log"/);
+  assert.match(engineering, /canOpenRoomOperations\(session.user\) && \{ key: "\/engineering\/room-operations"/);
+  assert.match(engineering, /canOpenGss\(session.user\) && \{ key: "\/engineering\/gss", label: "GSS Reports"/);
+  assert.match(engineering, /canOpenEnseo\(session.user\) && \{ key: "\/engineering\/enseo-assignments"/);
+  assert.match(engineering, /chiefHeaderPresentation && \(hasCapability\(session, "manage_assets"\) \|\| canReadChiefOnlyModules\) && \{ key: "\/engineering\/purchasing", label: "PO"/);
   assert.doesNotMatch(engineering, /key: "\/engineering\/import-work-orders"/);
   assert.match(engineering, /hasCapability\(session, "view_work_orders"\) && \{ key: WORK_ORDER_LIST_KEY/);
   assert.match(engineering, /hasCapability\(session, "manage_rooms"\) && \{ key: "\/management\/rooms"/);
@@ -147,8 +147,9 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.match(notificationBell, /registerApprovedNotificationBell/);
   assert.match(engineeringHeader, /<ApprovedDashboardMenus/);
   assert.doesNotMatch(engineeringHeader, /bg-purple-400|absolute -bottom-1 -right-1/);
-  const accountGroup = engineering.slice(engineering.indexOf('label: "Account"'), engineering.indexOf('],', engineering.indexOf('label: "Account"')));
-  assert.ok(accountGroup.indexOf('label: "Manage Profile"') < accountGroup.indexOf('label: "Connect ChatGPT"'));
+  const launchers = engineering.slice(engineering.indexOf('const launchers'), engineering.indexOf('const availableLaunchers'));
+  assert.ok(launchers.indexOf('label: "Manage Profile"') >= 0);
+  assert.ok(launchers.indexOf('label: "Manage Profile"') < launchers.indexOf('label: "Connect ChatGPT"'));
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
   assert.match(engineering, /onLaunch\(launcher, Date\.now\(\)\)/);
@@ -243,10 +244,10 @@ test('submit-only users get a modal close control and a full-size profile sign-o
   assert.match(profileApi, /preferencesForRole\(auth\.principal\.profile\.role/);
 });
 
-test('submit-only profile dashboard link returns Front Desk and Housekeeping directly to work orders', () => {
+test('profile dashboard link returns each role to its dashboard landing', () => {
   const source = readFileSync(new URL('../src/app/profile/page.tsx', import.meta.url), 'utf8');
   const modalLink = readFileSync(new URL('../src/components/ModalDashboardLink.tsx', import.meta.url), 'utf8');
-  assert.match(source, /\["Front Desk", "Front Desk Manager", "Lead Housekeeper"\]\.includes\(roleDisplayName\(data\?\.profile\.role \|\| ""\)\)/);
+  assert.match(source, /const profileDashboardHref = landingPath\(data\?\.profile\.role\) \|\| "\/engineering"/);
   assert.match(source, /<ModalDashboardLink href=\{profileDashboardHref\}/);
   assert.match(modalLink, /<button type="button" data-cmpri-modal-dashboard="true"/);
   assert.doesNotMatch(modalLink, /<a\b/);
