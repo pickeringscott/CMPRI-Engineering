@@ -81,14 +81,23 @@ function parseXml(xml: string) {
   return document.children[0];
 }
 function parseCapabilities(product: Product, source: string, xml: string): Capabilities {
-  const root = parseXml(xml);
-  if (root.name !== "WMS_Capabilities" || root.attributes.version !== "1.3.0") throw new Error("Official source did not return WMS 1.3.0 capabilities");
+  let documentXml = xml;
+  if (product === "cloudCover") {
+    if (/<!ENTITY/i.test(xml)) throw new Error("WMS capabilities contain unsupported XML declarations");
+    // The verified NDFD 1.1.1 service uses this standard external declaration
+    // plus one harmless EMPTY element. Strip that exact declaration as text;
+    // no DTD is loaded and no declaration/entity is evaluated by our tree reader.
+    documentXml = xml.replace(/<!DOCTYPE\s+WMT_MS_Capabilities\s+SYSTEM\s+"http:\/\/schemas\.opengis\.net\/wms\/1\.1\.0\/capabilities_1_1_0\.dtd"\s*(?:\[\s*<!ELEMENT\s+VendorSpecificCapabilities\s+EMPTY\s*>\s*\])?\s*>/, "");
+  }
+  const root = parseXml(documentXml);
+  const cloud111 = product === "cloudCover" && root.name === "WMT_MS_Capabilities" && root.attributes.version === "1.1.1";
+  if (!cloud111 && (root.name !== "WMS_Capabilities" || root.attributes.version !== "1.3.0")) throw new Error("Official source did not return supported WMS capabilities");
   const capability = child(root, "Capability");
   const request = capability && child(capability, "Request");
   const map = request && child(request, "GetMap");
   const layers: Layer[] = [];
   function walk(layer: XmlNode, parent: { crs: string[]; time: Dimension | null; dimensions: Record<string, Dimension>; styles: Style[] }) {
-    const crs = Array.from(new Set(parent.crs.concat(children(layer, "CRS").map(content)))).filter(Boolean);
+    const crs = Array.from(new Set(parent.crs.concat(children(layer, cloud111 ? "SRS" : "CRS").flatMap((value) => content(value).split(/\s+/))))).filter(Boolean);
     const dimensions = { ...parent.dimensions };
     children(layer, "Dimension").forEach((dimension) => {
       const name = dimension.attributes.name; if (!name) return;
@@ -121,7 +130,7 @@ function parseCapabilities(product: Product, source: string, xml: string): Capab
   }
   if (capability) children(capability, "Layer").forEach((layer) => walk(layer, { crs: [], time: null, dimensions: {}, styles: [] }));
   if (!layers.length || !map) throw new Error("No named WMS map layers were advertised");
-  return { product, source, checkedAt: new Date().toISOString(), version: "1.3.0", layers,
+  return { product, source, checkedAt: new Date().toISOString(), version: root.attributes.version, layers,
     mapFormats: children(map, "Format").map(content),
     legendSupported: Boolean(request && child(request, "GetLegendGraphic")) || layers.some((layer) => layer.styles.some((style) => style.legendUrl)), xml };
 }
@@ -159,7 +168,7 @@ async function fetchSource(url: string, image: boolean, signal: AbortSignal) {
 async function capabilities(product: Product, signal: AbortSignal) {
   const cached = metadataCache.get(product);
   if (cached && Date.now() - cached.at < METADATA_TTL_MS) return cached.value;
-  const source = sourceUrl(product, { service: "WMS", version: "1.3.0", request: "GetCapabilities" });
+  const source = sourceUrl(product, { service: "WMS", version: product === "cloudCover" ? "1.1.1" : "1.3.0", request: "GetCapabilities" });
   const xml = new TextDecoder().decode(await fetchSource(source, false, signal));
   let value: Capabilities;
   try { value = parseCapabilities(product, source, xml); }
@@ -206,8 +215,8 @@ export async function GET(request: Request) {
   const format = query.get("format");
   if (format !== null && format !== "json" && format !== "image") return unavailable(400, "Choose image or JSON inspection format");
   const product = productValue as Product;
-  if (product === "cloudCover" && op !== "capabilities") return unavailable(502,
-    "Cloud-cover imagery unavailable until the official forecast layer, style, valid time and key are verified");
+  if (product === "cloudCover" && op === "legend") return unavailable(502,
+    "The official NDFD cloud-cover service does not advertise a PNG legend");
   const bboxParts = (query.get("bbox") || "").split(",");
   const bbox = bboxParts.map(Number);
   const width = Number(query.get("width")), height = Number(query.get("height"));
@@ -229,9 +238,15 @@ export async function GET(request: Request) {
     const layer = metadata.layers.find((candidate) => candidate.name === query.get("layer"));
     if (!layer) return unavailable(400, "Layer was not advertised by this official WMS service");
     const style = query.get("style") || "";
+    if (product === "cloudCover" && (layer.name !== "ndfd.conus.sky" || style !== "")) return unavailable(400,
+      "Cloud-cover maps require the verified NDFD sky-cover raster and its empty default style");
     if (style && !layer.styles.some((candidate) => candidate.name === style)) return unavailable(400, "Style was not advertised for this WMS layer");
     const time = query.get("time");
-    if (time && !validTime(time, layer.time)) return unavailable(400, "Time was not advertised by the official WMS layer");
+    if (product === "cloudCover") {
+      const vtit = Object.entries(layer.dimensions).find(([name]) => name.toLowerCase() === "vtit")?.[1];
+      if (!time || !/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(time) || !vtit?.values.split(",").map((value) => value.trim()).includes(time))
+        return unavailable(400, "An exact advertised NDFD forecast valid time is required; source defaults are not accepted");
+    } else if (time && !validTime(time, layer.time)) return unavailable(400, "Time was not advertised by the official WMS layer");
     if (!metadata.mapFormats.some((format) => format.toLowerCase() === "image/png")) return unavailable(502, "Official WMS does not advertise PNG maps");
     if (op === "map" && !layer.crs.some((crs) => crs.toUpperCase() === "EPSG:3857")) return unavailable(502, "Official WMS layer does not advertise EPSG:3857");
     if (op === "legend" && !metadata.legendSupported) return unavailable(502, "Official WMS does not advertise a legend");
@@ -239,7 +254,10 @@ export async function GET(request: Request) {
       SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetMap", LAYERS: layer.name, STYLES: style,
       CRS: "EPSG:3857", BBOX: bbox.join(","), WIDTH: String(width), HEIGHT: String(height), FORMAT: "image/png", TRANSPARENT: "TRUE",
     } : { SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetLegendGraphic", LAYER: layer.name, STYLE: style, FORMAT: "image/png" };
-    if (time) parameters.TIME = time;
+    if (product === "cloudCover") {
+      parameters.VERSION = "1.1.1"; delete parameters.CRS; parameters.SRS = "EPSG:3857";
+      parameters.VTIT = time!;
+    } else if (time) parameters.TIME = time;
     const source = sourceUrl(product, parameters);
     const image = await fetchSource(source, true, controller.signal);
     // Inspection changes only the response envelope, never the fixed upstream
